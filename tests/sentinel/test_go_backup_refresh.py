@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+from uuid import uuid4
 
 import pytest
 
@@ -428,3 +430,160 @@ def test_overlay_requires_exact_capability_and_machine_status_contract():
     assert "BACKUP_REFRESH_CALL_CONTRACT_INVALID" in source
     assert "scripts/sentinel-backup-status.sh" in source
     assert "scripts/sentinel-base-backup.sh" in source
+
+
+def horizon_failure(job=None, **changes):
+    from sentinel_go_backup_retry import FAILURE
+    value = dict(phase="DAILY_CATCHUP", error_type="BackupHorizonExceeded",
+                 reason_code="BACKUP_RUNTIME_HORIZON_EXCEEDED",
+                 schema_migration_attempted=True, bounded_sharadar_daily_attempted=True,
+                 resume_job_id=job or str(uuid4()))
+    value.update(changes)
+    return _cp(1, err=FAILURE + json.dumps(value) + "\n")
+
+
+class GrowingWalRunner(FakeRunner):
+    def __init__(self, children, *, refresh=None, verified=None):
+        super().__init__(_status("BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED", "horizon"),
+                         refresh=refresh or _cp(0, out=REFRESH_OUT),
+                         verified=verified or _cp(0, out="backup_ready:true\n"))
+        self.children = list(children)
+        self.preparations = []
+        self.last_preparation_output = ""
+
+    def run(self, argv, *, env=None, cwd=None):
+        if list(argv)[:2] == ["docker", "compose"]:
+            self.preparations.append((list(argv), dict(env)))
+            return self.children.pop(0)
+        if tuple(argv) == ("bash", "scripts/sentinel-backup-status.sh") and not self.preparations:
+            return _cp(0, out="backup_ready:true\n")
+        return super().run(argv, env=env, cwd=cwd)
+
+
+def run_overlay(monkeypatch, runner):
+    import sentinel_go_24x7_entry as entry
+    monkeypatch.setattr(backup.go, "_PREPARATION_CODE", entry._PREPARATION_CODE)
+    def compose_args(proxy, env):
+        # Resolution commands omit cwd; the proxy must preserve the real
+        # command runner's repository default for these as well as compose run.
+        original = runner.run
+        def check_cwd(argv, *, cwd=None, **kw):
+            assert cwd == backup.go.ROOT
+            return original(argv, cwd=cwd, **kw)
+        runner.run = check_cwd
+        try:
+            assert proxy.run(["git", "rev-parse", "HEAD"], env=env).returncode == 0
+        finally:
+            runner.run = original
+        return []
+    monkeypatch.setattr(backup.go, "_resolve_compose_args", compose_args)
+    monkeypatch.setattr(backup, "_ORIGINAL_PREPARATION", entry._deployment_preparation_probe)
+    return backup._preparation_with_backup_refresh(
+        runner, env={**_env(), "SHARADAR_API_KEY": "source-key"},
+        commit=COMMIT, runtime_ref=RUNTIME_REF)
+
+
+def successful_child():
+    return _cp(0, out="SENTINEL_GO_PREPARATION=" + json.dumps(dict(
+        schema_migrated=True, source_not_before_satisfied=True, following_open_future=True,
+        bounded_sharadar_daily=True, publication_current=True)))
+
+
+def test_healthy_start_then_growth_renews_exact_backup_and_resumes(monkeypatch):
+    from sentinel_go_backup_retry import RESUME_ENV
+    job = str(uuid4())
+    failed = horizon_failure(job)
+    failed.stderr += 'SENTINEL_FEED_PROGRESS={"reason":"PART_COMMITTED"}\n'
+    runner = GrowingWalRunner([failed, successful_child()])
+    result = run_overlay(monkeypatch, runner)
+    assert result.complete and backup.phase._PHASE["prepared"]
+    assert len(runner.preparations) == 2
+    assert RESUME_ENV not in runner.preparations[0][1]
+    assert runner.preparations[1][1][RESUME_ENV] == job
+    assert ["--env", RESUME_ENV] == runner.preparations[1][0][
+        runner.preparations[1][0].index("--env"):][:2]
+    assert "PART_COMMITTED" in runner.last_preparation_output
+    assert "SENTINEL_GO_PREPARATION_FAILURE=" not in runner.last_preparation_output
+    audit = json.loads(backup._AUDIT_PATH.read_text())
+    assert audit["refreshed"] and audit["post_refresh_exact_path_verified"]
+    assert len(audit["renewal_history"]) == 2
+    assert audit["renewal_history"][0]["reason_code"] == "BACKUP_HEALTHY"
+    for _cmd, env in runner.calls + runner.preparations:
+        assert "ALPACA_API_KEY" not in env
+
+
+@pytest.mark.parametrize("changes", [
+    {"error_type": "BackupRuntimeRefused"}, {"phase": "PUBLICATION_CHECK"},
+    {"reason_code": "PREPARATION_DAILY_CATCHUP_FAILED"}, {"resume_job_id": None},
+    {"resume_job_id": "not-a-job"}, {"bounded_sharadar_daily_attempted": "true"},
+])
+def test_horizon_text_without_exact_resumable_signal_never_renews(monkeypatch, changes):
+    runner = GrowingWalRunner([horizon_failure(**changes), successful_child()])
+    result = run_overlay(monkeypatch, runner)
+    assert not result.complete and len(runner.preparations) == 1
+    assert not any("scripts/sentinel-base-backup.sh" in cmd for cmd, env in runner.calls)
+
+
+@pytest.mark.parametrize("failure", ["copy", "verify", "limit", "ambiguous", "timeout"])
+def test_renewal_failure_never_reaches_next_preparation(monkeypatch, failure):
+    child = horizon_failure()
+    if failure == "ambiguous":
+        child.stderr *= 2
+    if failure == "timeout":
+        child.returncode = 124
+    runner = GrowingWalRunner([child] * 3,
+        refresh=_cp(4) if failure == "copy" else None,
+        verified=_cp(4) if failure == "verify" else None)
+    result = run_overlay(monkeypatch, runner)
+    assert not result.complete and not backup.phase._PHASE["prepared"]
+    assert len(runner.preparations) == (3 if failure == "limit" else 1)
+    if failure in {"copy", "verify", "limit"}:
+        assert result.schema_migration_attempted and result.bounded_sharadar_daily_attempted
+        assert json.loads(backup._AUDIT_PATH.read_text())["status"] == "REFUSED"
+
+
+def test_one_deadline_includes_renewal_and_prevents_restart(monkeypatch):
+    import sentinel_go_deadline as deadline
+    clock = [100.0]
+    monkeypatch.setattr(deadline.time, "monotonic", lambda: clock[0])
+    monkeypatch.setenv("SENTINEL_GO_PREPARATION_TIMEOUT_SECONDS", "10")
+    runner = GrowingWalRunner([horizon_failure(), successful_child()])
+    original = runner.run
+    def timed(argv, **kwargs):
+        if "scripts/sentinel-base-backup.sh" in argv:
+            clock[0] += 11
+        return original(argv, **kwargs)
+    runner.run = timed
+    result = run_overlay(monkeypatch, runner)
+    assert not result.complete and len(runner.preparations) == 1
+    assert "BACKUP_RENEWAL_DEADLINE_EXHAUSTED" in runner.last_preparation_output
+    assert result.elapsed_milliseconds == 11000
+    assert deadline.command_timeout(30) == 30  # No deadline leaks to later phases.
+
+
+def test_expired_shared_deadline_starts_no_subprocess(monkeypatch):
+    import sentinel_go_deadline as deadline
+    import sentinel_go_observability as observation
+    def forbidden(*a, **kw):
+        pytest.fail("expired preparation launched a subprocess")
+    monkeypatch.setattr(subprocess, "run", forbidden)
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
+    with deadline.preparation_budget(-1):
+        assert backup.controller._run_with_deadline(["bash", "backup"]).returncode == 124
+        result = observation._streaming_run_owned(backup.controller, backup.go,
+            ["bash", "backup"], env={}, cwd=ROOT, raw_stream=False, owner={})
+        assert result.returncode == 124
+
+
+def test_renewal_proxy_preserves_pre_child_authority_diagnostics(monkeypatch):
+    import sentinel_go_validate_entry as entry
+    def refused(runner, **kwargs):
+        return entry._diagnostic_lifecycle_refusal(runner, RUNTIME_REF,
+            phase="FEED_BINDING", reason="FEED_BINDING_UNAVAILABLE",
+            error_type="FeedBindingUnavailable")
+    monkeypatch.setattr(backup, "_ORIGINAL_PREPARATION", refused)
+    runner = GrowingWalRunner([])
+    result = backup._preparation_with_backup_refresh(
+        runner, env=_env(), commit=COMMIT, runtime_ref=RUNTIME_REF)
+    assert not result.complete and not runner.preparations
+    assert "FEED_BINDING_UNAVAILABLE" in runner.last_preparation_output

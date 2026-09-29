@@ -58,6 +58,12 @@ class BackupRuntimeRefused(backup_guard.BackupConfigurationRefused):
     """The retained backup evidence is contradictory or malformed."""
 
 
+class BackupHorizonExceeded(BackupRuntimeRefused):
+    """Mutation needs a newly verified base; never permission to skip a proof."""
+
+    resume_job_id: str | None = None
+
+
 def _is_media_error(exc: Exception) -> bool:
     return (isinstance(exc, OSError)
             or getattr(exc, "sqlstate", None) in {"58P01", "42501", "58030"})
@@ -270,9 +276,9 @@ def _expected_wals(start: str, end: str, *, segment_size: int) -> tuple[str, ...
             "archived WAL frontier precedes the base recovery horizon")
     count = last - first + 1
     if count + (1 if et > 1 else 0) > RUNTIME_MAX_ARCHIVE_OBJECTS:
-        raise BackupRuntimeRefused("backup WAL chain exceeds reviewed bound for archive objects")
+        raise BackupHorizonExceeded("backup WAL chain exceeds reviewed bound for archive objects")
     if count * segment_size > RUNTIME_MAX_VERIFIED_BYTES:
-        raise BackupRuntimeRefused("backup WAL chain exceeds reviewed bound for integrity bytes")
+        raise BackupHorizonExceeded("backup WAL chain exceeds reviewed bound for integrity bytes")
     out = []
     for index in range(first, last + 1):
         log, segment = divmod(index, segments_per_log)
@@ -391,7 +397,7 @@ def _validate_archive_objects(
         require_current_selection: bool = False) -> tuple[dict[str, tuple], int, bool]:
     objects = wal_objects + ((history_object,) if history_object else ())
     if len(objects) > RUNTIME_MAX_ARCHIVE_OBJECTS:
-        raise BackupRuntimeRefused(
+        raise BackupHorizonExceeded(
             f"{operation}: restore horizon contains {len(objects)} archive objects; "
             f"reviewed runtime bound is {RUNTIME_MAX_ARCHIVE_OBJECTS}. Create a fresh base backup.")
 
@@ -430,7 +436,7 @@ def _validate_archive_objects(
 
     total_bytes = sum(int(actual[name][0] or 0) for name in objects)
     if total_bytes > RUNTIME_MAX_VERIFIED_BYTES:
-        raise BackupRuntimeRefused(
+        raise BackupHorizonExceeded(
             f"{operation}: restore horizon requires {total_bytes} bytes of runtime "
             f"integrity proof; reviewed bound is {RUNTIME_MAX_VERIFIED_BYTES}. "
             "Create a fresh base backup before further mutation.")
@@ -568,7 +574,7 @@ def require(conn, *, operation: str,
 
 
 __all__ = [
-    "AUTHORITY_ENV", "AUTHORITY_VALUE", "BackupRuntimeRefused",
+    "AUTHORITY_ENV", "AUTHORITY_VALUE", "BackupRuntimeRefused", "BackupHorizonExceeded",
     "BackupRuntimeUnavailable",
     "RUNTIME_MAX_ARCHIVE_OBJECTS", "RUNTIME_MAX_VERIFIED_BYTES",
     "current_system_id", "enabled", "require",

@@ -9,12 +9,14 @@ failures remain operator refusals.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import hmac
+import math
 from pathlib import Path
 import re
 import sys
+import time
 from typing import Mapping, Optional, Sequence
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -228,7 +230,7 @@ def ensure_recent_verified_base_backup(
 
 def _write_refresh_audit(
         *, commit: str, result: Optional[BackupRefreshResult] = None,
-        refusal_reason: Optional[str] = None) -> str:
+        refusal_reason: Optional[str] = None, history=None) -> str:
     """Persist exact local audit facts; only its digest enters public GO evidence."""
     if result is None and refusal_reason is None:
         raise ValueError("backup refresh audit requires a result or refusal")
@@ -253,6 +255,8 @@ def _write_refresh_audit(
         "checkout_identity_verified": bool(
             result and result.checkout_identity_verified),
     }
+    if history is not None:
+        evidence["renewal_history"] = list(history)
     digest = go._evidence_digest(evidence)
     phase._atomic_write(
         _AUDIT_PATH, {**evidence, "evidence_sha256": digest})
@@ -365,21 +369,66 @@ def _preparation_with_backup_refresh(*args, **kwargs):
             env=env, commit=commit, runtime_ref=runtime_ref,
             reason_code="BACKUP_REFRESH_CALL_CONTRACT_INVALID")
 
-    try:
-        result = ensure_recent_verified_base_backup(
-            runner, env=env, commit=str(commit))
-        audit_sha = _write_refresh_audit(commit=str(commit), result=result)
-    except BackupRefreshRefused as exc:
-        return _refused_preparation(
-            env=env, commit=str(commit), runtime_ref=runtime_ref,
-            reason_code=exc.reason_code)
-    except OSError:
-        return _refused_preparation(
-            env=env, commit=str(commit), runtime_ref=runtime_ref,
-            reason_code="BACKUP_REFRESH_AUDIT_WRITE_FAILED")
+    from sentinel_go_backup_retry import RenewalRunner
+    from sentinel_go_deadline import preparation_budget
+    history = []
+    audit_sha = None
 
-    base = _ORIGINAL_PREPARATION(*args, **kwargs)
-    return _bind_backup_audit(base, audit_sha256=audit_sha)
+    def refuse(reason):
+        nonlocal audit_sha
+        history.append({"refusal_reason": reason})
+        try:
+            audit_sha = _write_refresh_audit(
+                commit=str(commit), refusal_reason=reason, history=history)
+        except OSError:
+            # No PASS can escape even if the local filesystem also failed.
+            audit_sha = go._evidence_digest({"audit_write_failed": True, "history": history})
+
+    def renew():
+        nonlocal audit_sha
+        try:
+            result = ensure_recent_verified_base_backup(runner, env=env, commit=str(commit))
+            if history and not result.refreshed:
+                return "BACKUP_RENEWAL_HORIZON_NOT_CONFIRMED"
+            history.append(asdict(result))
+            audit_sha = _write_refresh_audit(commit=str(commit), result=result, history=history)
+        except BackupRefreshRefused as exc:
+            return exc.reason_code
+        except OSError:
+            return "BACKUP_REFRESH_AUDIT_WRITE_FAILED"
+        except (KeyboardInterrupt, SystemExit):
+            refuse("BACKUP_RENEWAL_INTERRUPTED")
+            raise
+        return None
+
+    budget = controller._safe_int_env("SENTINEL_GO_PREPARATION_TIMEOUT_SECONDS",
+                                      max(1, go.MAX_BOUNDED_INGEST_MS // 1000))
+    started = time.monotonic()
+    with preparation_budget(budget):
+        reason = renew()
+        if reason:
+            return _refused_preparation(env=env, commit=str(commit), runtime_ref=runtime_ref,
+                                       reason_code=reason)
+        wrapped = RenewalRunner(runner, preparation_code=go._PREPARATION_CODE,
+                                renew=renew, refuse=refuse, cwd=go.ROOT)
+        call_kwargs = dict(kwargs)
+        if args:
+            call_args = (wrapped, *args[1:])
+        else:
+            call_args = args
+            call_kwargs["runner"] = wrapped
+        base = _ORIGINAL_PREPARATION(*call_args, **call_kwargs)
+    base = replace(base,
+        evidence_sha256=go._evidence_digest({
+            "final_preparation_evidence_sha256": base.evidence_sha256,
+            "prior_schema_attempted": wrapped.attempts[0],
+            "prior_daily_attempted": wrapped.attempts[1]}),
+        schema_migration_attempted=base.schema_migration_attempted or wrapped.attempts[0],
+        bounded_sharadar_daily_attempted=base.bounded_sharadar_daily_attempted or wrapped.attempts[1],
+        elapsed_milliseconds=max(0, math.ceil((time.monotonic() - started) * 1000)))
+    bound = _bind_backup_audit(base, audit_sha256=audit_sha)
+    phase._PHASE["prepared"] = bool(bound.status == go.PASS and bound.complete)
+    return bound
 
 
 def install() -> None:

@@ -34,6 +34,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import sentinel_go_validate as go  # noqa: E402
 import sentinel_go_validate_entry as entry  # noqa: E402
+from sentinel_go_deadline import command_timeout
 
 CACHE_SCHEMA = "sentinel.nas-go-stable-certification/1"
 CACHE_PATH = go.ROOT / "artifacts" / "sentinel" / "go-validation" / "stable-certification.json"
@@ -82,6 +83,9 @@ def _run_with_deadline(argv, **kwargs):
         max(1, go.MAX_BOUNDED_INGEST_MS // 1000),
     )
     timeout = preparation if any("SENTINEL_GO_PREPARATION=" in item for item in command) else default
+    timeout = command_timeout(timeout)
+    if timeout <= 0:
+        return subprocess.CompletedProcess(command, 124, stdout="", stderr="")
     try:
         return subprocess.run(command, timeout=timeout, **kwargs)
     except subprocess.TimeoutExpired as exc:
@@ -113,7 +117,7 @@ def _install_single_preparation_contract() -> None:
     entry.install()
     code = go._PREPARATION_CODE
     if "rolling_go_inputs.prepare" in code:
-        if (code.count("rolling_go_inputs.prepare(c, target_session=target)") != 1
+        if (code.count("rolling_go_inputs.prepare(c, target_session=target,") != 1
                 or "outage_recovery" in code or "ingest.daily" in code):
             raise PhaseRefused("GO rolling preparation has more than one data path")
         return

@@ -14,7 +14,7 @@ REAL_DOWNLOAD = snapshot_export.download_snapshot
 __all__ = ["conn", "pg", "source"]
 
 
-def formation_job(conn, source, *, absolute_deadline=None):
+def formation_job(conn, source, *, absolute_deadline=None, operational=False):
     window = FormationWindow.through("2026-09-14")
     source["SEP"] = [dict(ticker=symbol, date=str(day), open="49", close="50",
                           closeunadj="100", volume="10000", lastupdated="2026-09-15")
@@ -25,9 +25,15 @@ def formation_job(conn, source, *, absolute_deadline=None):
                      for day in window.sessions for symbol in ("SPY", "BIL")]
     for row in source["TICKERS"]:
         row["firstpricedate"] = str(window.start)
-    job = jobs.enqueue(conn, jobs.PreparationRequest(window=window,
-        strategy_sha256=digest(uuid4().hex), dependencies_sha256=digest({})),
-        budget_seconds=3600, absolute_deadline=absolute_deadline)
+    strategy = digest(uuid4().hex)
+    if operational:
+        from sentinel.feed import operational_snapshot as op
+        job = op.enqueue(conn, strategy_sha256=strategy,
+                         dependencies_sha256=digest({}), budget_seconds=3600)
+    else:
+        job = jobs.enqueue(conn, jobs.PreparationRequest(window=window,
+            strategy_sha256=strategy, dependencies_sha256=digest({})),
+            budget_seconds=3600, absolute_deadline=absolute_deadline)
     conn.commit()
     return job
 
@@ -502,3 +508,128 @@ def test_go_reports_specific_acquisition_failures(script, monkeypatch):
     assert classify("DAILY_CATCHUP", PartCorrupt("bad checksum")) == "ACQUISITION_PART_CORRUPT"
     assert classify("DAILY_CATCHUP", SourceRevision("TICKERS", "a" * 64, "b" * 64)) == "SOURCE_PUBLICATION_UNSTABLE"
     assert classify("DAILY_CATCHUP", SourceRecoveryExhausted("limit")) == "SOURCE_RECOVERY_EXHAUSTED"
+
+
+@pytest.mark.parametrize("boundaries,renewal_failure", [
+    pytest.param(("ACQUIRING",), None, id="acquiring"),
+    pytest.param(("READY",), None, id="ready"),
+    pytest.param(("ACQUIRING", "READY"), None, id="both"),
+    pytest.param(("ACQUIRING",), "copy", id="copy-failed"),
+    pytest.param(("ACQUIRING",), "interrupt", id="interrupted"),
+])
+def test_go_renews_after_real_retained_acquisition_without_redownload(
+        conn, source, monkeypatch, tmp_path, boundaries, renewal_failure):
+    """Compose the host overlay, real child failure codec and SQL worker resume.
+
+    External provider/backup subprocesses are replaced; persistence, decoding,
+    runtime ceiling arithmetic, candidate building and publication are real.
+    """
+    import io
+    import json
+    import psycopg
+    from contextlib import redirect_stdout, redirect_stderr
+    from sentinel import backup_runtime_authority as authority
+    from sentinel.feed import operational_snapshot as op, retention
+    from tests.sentinel.test_go_backup_refresh import (
+        backup, GrowingWalRunner, _cp, TOKEN, run_overlay, successful_child)
+    import sentinel_go_24x7_entry as entry
+    from sentinel_go_backup_retry import RESUME_ENV
+
+    window = FormationWindow.through("2026-09-14")
+    monkeypatch.setattr(op, "source_final_session", lambda: str(window.end))
+    monkeypatch.setattr(op, "acquisition_window", lambda *a: window)
+    job = formation_job(conn, source, operational=True)
+    state = jobs.status(conn, job)
+    strategy = state["request"]["strategy_sha256"]
+    deadline = state["deadline"]
+    downloads, _ = real_exports(source, monkeypatch, tmp_path)
+    monkeypatch.setitem(backup.phase._PHASE, "certified", True)
+    monkeypatch.setattr(backup.go_lock, "lifecycle_lock_is_held", lambda *a: True)
+    monkeypatch.setattr(backup.go_lock, "current_run_token", lambda *a: TOKEN)
+    monkeypatch.setattr(backup, "_AUDIT_PATH", tmp_path / "audit.json")
+    original_require = authority.require
+    renewed = []
+    paused = []
+    in_failure = [False]
+
+    def horizon(c, *, operation, **kwargs):
+        current = jobs.status(c, job)
+        # 19 monthly SEP parts plus ACTIONS, TICKERS, SFP, all committed.
+        completed = len(jobs.components(c, job)) == 22
+        due = len(renewed) < len(boundaries) and current["state"] == boundaries[len(renewed)]
+        if completed and due and not in_failure[0]:
+            authority._expected_wals("000000010000000000000000", "000000010000000000000040",
+                                     segment_size=16 * 1024 * 1024)
+        return original_require(c, operation=operation, **kwargs)
+    monkeypatch.setattr(authority, "require", horizon)
+
+    class Runner(GrowingWalRunner):
+        def run(self, argv, *, env=None, cwd=None):
+            if list(argv)[:2] != ["docker", "compose"]:
+                if "scripts/sentinel-base-backup.sh" in argv:
+                    if renewal_failure == "copy":
+                        return _cp(4)
+                    if renewal_failure == "interrupt":
+                        raise KeyboardInterrupt
+                result = super().run(argv, env=env, cwd=cwd)
+                if "--backup" in argv and result.returncode == 0:
+                    renewed.append(True)
+                return result
+            self.preparations.append((list(argv), dict(env)))
+            out, err = io.StringIO(), io.StringIO()
+            with psycopg.connect(conn.info.dsn) as worker, redirect_stdout(out), redirect_stderr(err):
+                if RESUME_ENV in env:
+                    selected = op.enqueue(worker, strategy_sha256=strategy,
+                        dependencies_sha256=digest({}), resume_job_id=env[RESUME_ENV])
+                    assert selected == job
+                    worker.commit()
+                    retry_now(worker, job)
+                try:
+                    result = op.prepare(worker, job)
+                except authority.BackupHorizonExceeded as exc:
+                    held = jobs.status(worker, job)
+                    assert held["state"] == "RETRY_WAIT"
+                    assert held["resume_state"] == boundaries[len(renewed)]
+                    assert held["owner"] is None and held["deadline"] == deadline
+                    assert exc.resume_job_id == job
+                    paused.append(held["resume_state"])
+                    worker.rollback()
+                    # Successful maintenance while waiting must not retire parts.
+                    in_failure[0] = True
+                    assert retention.maintain(worker)["deleted_acquisition_parts"] == 0
+                    in_failure[0] = False
+                    namespace = {}
+                    exec(entry._PREPARATION_CODE.split("\nc = None", 1)[0], namespace)
+                    namespace.update(schema_attempted=True, daily_attempted=True)
+                    namespace["emit_failure"]("DAILY_CATCHUP", exc)
+                    return _cp(1, out=out.getvalue(), err=err.getvalue())
+                assert result["scope"] == "DATA_ONLY"
+                success = successful_child()
+                success.stderr = err.getvalue()
+                return success
+
+    runner = Runner([])
+    if renewal_failure is not None:
+        if renewal_failure == "interrupt":
+            with pytest.raises(KeyboardInterrupt):
+                run_overlay(monkeypatch, runner)
+        else:
+            assert not run_overlay(monkeypatch, runner).complete
+        held = jobs.status(conn, job)
+        assert held["state"] == "RETRY_WAIT" and held["deadline"] == deadline
+        assert held["owner"] is None and len(runner.preparations) == 1
+        assert len(jobs.components(conn, job)) == 22
+        assert conn.execute("SELECT COUNT(*) FROM sentinel_acquisition_prices").fetchone()[0] == 758
+        # A later host invocation can still use the exact durable work.
+        renewal_failure = None
+        retry_now(conn, job)
+    summary = run_overlay(monkeypatch, runner)
+    assert summary.complete
+    assert paused[-len(boundaries):] == list(boundaries) and len(renewed) == len(boundaries)
+    assert jobs.status(conn, job)["state"] == "PUBLISHED"
+    assert jobs.status(conn, job)["deadline"] == deadline
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_jobs").fetchone()[0] == 1
+    assert len(downloads) == 21 and set(downloads.values()) == {1}, downloads
+    assert "RETAINED_PART_REUSED" in runner.last_preparation_output
+    audit = json.loads((tmp_path / "audit.json").read_text())
+    assert audit["status"] == "PASS"

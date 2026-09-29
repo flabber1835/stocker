@@ -87,7 +87,7 @@ def test_kill_after_backup_refresh_before_audit_cannot_enter_schema_or_ingest(mo
     (entry._RECOVERY_PREPARATION_CODE,
      "outage_recovery.catch_up_waiting(", "publication.current(c)"),
     (install_entry._PREPARATION_CODE,
-     "rolling_go_inputs.prepare(c, target_session=target)", "rolling_go_inputs.current(c)"),
+     "rolling_go_inputs.prepare(c, target_session=target,", "rolling_go_inputs.current(c)"),
 ], ids=["validation", "installation"])
 def test_schema_migration_precedes_ingest_and_publication_observation_in_production_code(
         code, prepare_call, publication_call):
@@ -97,6 +97,20 @@ def test_schema_migration_precedes_ingest_and_publication_observation_in_product
     ingest_at = code.index(prepare_call)
     publication_at = code.index(publication_call, ingest_at)
     assert schema_at < migration_at < ingest_at < publication_at
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_installed_phase_guard_accepts_one_resumable_preparation(monkeypatch, duplicate):
+    code = install_entry._PREPARATION_CODE
+    if duplicate:
+        code += "\n" + code
+    monkeypatch.setattr(phase.controller.entry, "install", lambda: None)
+    monkeypatch.setattr(phase.controller.go, "_PREPARATION_CODE", code)
+    if duplicate:
+        with pytest.raises(phase.controller.PhaseRefused, match="more than one data path"):
+            phase._install_reviewed_preparation_contract()
+    else:
+        phase._install_reviewed_preparation_contract()
 
 
 @pytest.mark.parametrize("signal_rc", [137, 143])

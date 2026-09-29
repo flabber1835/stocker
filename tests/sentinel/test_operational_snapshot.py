@@ -263,3 +263,40 @@ def test_expired_first_attempt_gets_one_fresh_successor(conn, operational_source
     assert jobs.status(conn, old)['state'] == 'REFUSED'
     assert op.prepare(conn, fresh)['data_version'] == 1
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_jobs').fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("change", ["none", "expired", "terminal", "different-request",
+                                     "comparison", "wrong-reason", "leased"])
+def test_backup_resume_pins_job_and_deadline_without_new_enqueue(conn, operational_source, change):
+    args = dict(strategy_sha256=digest("strategy"), dependencies_sha256=digest("fixture"))
+    if change == "comparison":
+        request = jobs.PreparationRequest(window=op.acquisition_window(conn, args["strategy_sha256"]),
+            strategy_sha256=args["strategy_sha256"],
+            dependencies_sha256=digest({"schema": op.SCHEMA, "dependencies": args["dependencies_sha256"]}))
+        job = jobs.enqueue(conn, request, budget_seconds=120)
+    else:
+        job = op.enqueue(conn, **args, budget_seconds=2 if change == "expired" else 120)
+    lease = jobs.claim(conn, job)
+    jobs.wait(conn, lease, state="RETRY_WAIT", reason="BACKUP_HORIZON_EXCEEDED", retry_seconds=1)
+    conn.commit()
+    deadline = jobs.status(conn, job)["deadline"]
+    if change == "expired":
+        import time
+        conn.rollback()
+        time.sleep(2.1)  # Exercise the immutable server deadline without weakening its trigger.
+    elif change == "terminal":
+        conn.execute("UPDATE sentinel_snapshot_jobs SET state='REFUSED' WHERE job_id=%s", (job,))
+    elif change == "different-request":
+        args["strategy_sha256"] = digest("other strategy")
+    elif change == "wrong-reason":
+        conn.execute("UPDATE sentinel_snapshot_jobs SET reason='SOURCE_RETRY' WHERE job_id=%s", (job,))
+    elif change == "leased":
+        conn.execute("UPDATE sentinel_snapshot_jobs SET owner=%s,lease_until=deadline WHERE job_id=%s", (lease.owner, job))
+    conn.commit()
+    if change == "none":
+        assert op.enqueue(conn, **args, resume_job_id=job) == job
+        assert jobs.status(conn, job)["deadline"] == deadline
+    else:
+        with pytest.raises(op.OperationalSnapshotRefused, match="BACKUP_RESUME_JOB_NOT_CURRENT"):
+            op.enqueue(conn, **args, resume_job_id=job)
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_jobs").fetchone()[0] == 1

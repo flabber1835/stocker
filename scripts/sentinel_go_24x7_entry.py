@@ -68,6 +68,8 @@ def failure_detail(exc):
 
 def reason_code(phase, exc):
     name = type(exc).__name__
+    if name == 'BackupHorizonExceeded':
+        return 'BACKUP_RUNTIME_HORIZON_EXCEEDED'
     if name == 'AcquisitionResourceExceeded':
         return 'SOURCE_RESOURCE_LIMIT'
     lowered = str(exc).lower()
@@ -130,6 +132,8 @@ def emit_failure(phase, exc):
         if identity_reason:
             value['identity_reason'] = identity_reason
     value.update(failure_detail(exc))
+    if type(exc).__name__ == 'BackupHorizonExceeded' and exc.resume_job_id:
+        value['resume_job_id'] = exc.resume_job_id
     print(FAILURE_MARKER + json.dumps(value, sort_keys=True), flush=True)
 
 
@@ -178,7 +182,8 @@ try:
     phase = 'DAILY_CATCHUP'
     progress.emit('daily_catchup', 'started', date_to=target)
     daily_attempted = True
-    recovered = rolling_go_inputs.prepare(c, target_session=target)
+    recovered = rolling_go_inputs.prepare(c, target_session=target,
+        resume_job_id=os.environ.get('SENTINEL_GO_RESUME_JOB_ID'))
     print(RECOVERY_MARKER + json.dumps({
         'mode': recovered['status'],
         'input_contract': recovered['schema'],

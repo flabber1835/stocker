@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 from pathlib import Path
 import ast
+import os
 
 import pytest
 
@@ -70,14 +71,17 @@ def test_rolling_fault_reaches_the_production_call_site(monkeypatch, capsys, fau
     marker = "SENTINEL_GO_PREPARATION=" if fault == "feed-catchup" else "SENTINEL_GO_READINESS="
     witness = f"marker = {marker!r}\n" + ast.unparse(calls[0])
     reached = []
-    monkeypatch.setattr(rolling_go_inputs, attribute, lambda *_a, **_k: reached.append("healthy"))
-    namespace = dict(rolling_go_inputs=rolling_go_inputs, c=None, target="2026-09-22")
+    resume_job = "b7de9b0c-4ec0-4d72-824c-9b7b8e92aaff"
+    monkeypatch.setenv("SENTINEL_GO_RESUME_JOB_ID", resume_job)
+    monkeypatch.setattr(rolling_go_inputs, attribute, lambda *_a, **kw: reached.append(kw))
+    namespace = dict(rolling_go_inputs=rolling_go_inputs, c=None, target="2026-09-22", os=os)
     exec(witness, namespace)
-    assert reached == ["healthy"]
+    expected = [{"target_session": "2026-09-22", "resume_job_id": resume_job}] if attribute == "prepare" else [{}]
+    assert reached == expected
     changed = faults.docker_arguments(["compose", "run", "-c", witness], fault)
     with pytest.raises(RuntimeError, match="E2E_STAGE_FAULT:" + fault):
         exec(changed[-1], namespace)
-    assert reached == ["healthy"]
+    assert reached == expected
     assert "E2E_STAGE_FAULT:" + fault in capsys.readouterr().out
 
 

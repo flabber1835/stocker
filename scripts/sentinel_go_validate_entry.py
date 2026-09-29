@@ -62,6 +62,8 @@ def failure_detail(exc):
 
 def reason_code(phase, exc):
     name = type(exc).__name__
+    if name == 'BackupHorizonExceeded':
+        return 'BACKUP_RUNTIME_HORIZON_EXCEEDED'
     if name == 'AcquisitionResourceExceeded':
         return 'SOURCE_RESOURCE_LIMIT'
     lowered = str(exc).lower()
