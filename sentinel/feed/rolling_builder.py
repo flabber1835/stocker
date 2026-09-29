@@ -7,7 +7,7 @@ from itertools import islice
 
 from sentinel.feed import (
     actions_map, calendar, coherence, domains, progress, rolling_jobs as jobs, rolling_store,
-    source_aliases, staging, symbol_identity,
+    source_aliases, symbol_identity,
 )
 from sentinel.feed.rolling_contract import CanonicalBar, CanonicalBenchmark, RestartRequirement, digest
 from sentinel.feed.source_authority import SeedCoverageAccumulator, SeedListingProjection
@@ -20,7 +20,8 @@ _SFP_TOTAL_RETURN_COLUMN = domains.SEP_FORBIDDEN_COLUMNS[0]
 
 
 def _rows(conn, lease):
-    return staging.staged(conn, run_id=lease.owner, chunk=CHUNK)
+    from sentinel.feed.acquisition_parts import price_rows
+    return price_rows(conn, lease.job_id)
 
 
 def _coverage(identity, source_digest):

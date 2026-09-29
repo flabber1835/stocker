@@ -23,13 +23,13 @@ MUTANTS = {
         "jobs._owned(conn, lease)  # Recheck time after proof loading, before visibility.",
         "pass  # mutated", "test_post_validation_lease_is_rechecked"),
     "reference_null_semantics": (
-        "sentinel.feed.rolling_source", "if self._tickers_json(self._ticker_keys) != self.tickers:",
+        "sentinel.feed.rolling_source", "if tickers != self.tickers:",
         "if False:", "test_corroboration_refuses_changed_ticker_fields"),
     "source_refresh": (
         "sentinel.feed.rolling_source", "if checked.refreshed != captured.refreshed:",
         "if False:", "test_corroboration_refuses_changed_refresh"),
     "benchmark_reobservation": (
-        "sentinel.feed.rolling_source", "if self._sfp() != self.sfp:",
+        "sentinel.feed.rolling_source", "if sfp != self.sfp:",
         "if False:", "test_corroboration_refuses_changed_benchmark"),
     "partition_refresh": (
         "sentinel.feed.rolling_source",

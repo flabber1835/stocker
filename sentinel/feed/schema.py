@@ -1053,6 +1053,9 @@ DDL.extend(_ACTION_HISTORY_DDL)
 from sentinel.feed.retention_schema import DDL as _RETENTION_DDL
 DDL.extend(_RETENTION_DDL)
 
+from sentinel.feed.acquisition_part_schema import DDL as _ACQUISITION_PART_DDL
+DDL.extend(_ACQUISITION_PART_DDL)
+
 RESTART_ABORT_MARKER = "RESTART_ABORTED"
 
 RECLAIM_ORPHANS = """

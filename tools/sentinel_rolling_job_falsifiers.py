@@ -21,7 +21,7 @@ MUTANTS = {
         "meaningful = True", "test_heartbeat_is_not_meaningful_progress",
     ),
     "source_generation": (
-        "sentinel.feed.rolling_jobs", "if cur.fetchone() != values:", "if False:",
+        "sentinel.feed.rolling_jobs", "if previous != values:", "if False:",
         "test_component_is_idempotent_but_changed_generation_refuses",
     ),
     "sealed_ready": (

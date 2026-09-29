@@ -1,5 +1,10 @@
 # Sentinel — operational deployment ground truth
 
+[Acquisition resumption](acquisition-resumption.md) defines retained validated
+partitions and bounded recovery across provider revisions. Its additive feed
+tables require the ordinary GO schema migration with old acquisition workers
+stopped; existing failed-attempt history and backups are preserved.
+
 [Acquisition reliability](acquisition-certification.md) defines the code scrub,
 isolated tests and foreground recovery of pending provider exports. It uses the
 existing durable preparation jobs and does not add economic or broker authority.

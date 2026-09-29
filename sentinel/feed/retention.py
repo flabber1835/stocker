@@ -73,11 +73,27 @@ def _pass(conn, *, batch_rows):
         "(SELECT s.ctid FROM sentinel_sep_staging s JOIN sentinel_snapshot_workers w ON w.owner=s.run_id "
         "JOIN sentinel_snapshot_jobs j USING(job_id) WHERE j.owner IS DISTINCT FROM w.owner "
         "AND j.state IN ('REFUSED','ABORTED','PUBLISHED') LIMIT %s)", (batch_rows,)).rowcount
+    # Successors pin their ancestors' reusable parts, even before rebinding.
+    disposable = conn.execute("SELECT a.part_id FROM sentinel_acquisition_parts a WHERE NOT "
+        "sentinel_acquisition_part_pinned(a.part_id) AND EXISTS "
+        "(SELECT 1 FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id) "
+        "ORDER BY a.created_at LIMIT 1").fetchone()
+    acquisition = 0
+    if disposable:
+        acquisition = conn.execute("DELETE FROM sentinel_acquisition_prices WHERE ctid IN "
+            "(SELECT ctid FROM sentinel_acquisition_prices WHERE part_id=%s LIMIT %s)",
+            (disposable[0], batch_rows)).rowcount
+    acquisition_parts = conn.execute("DELETE FROM sentinel_acquisition_parts WHERE part_id IN "
+        "(SELECT a.part_id FROM sentinel_acquisition_parts a WHERE NOT "
+        "sentinel_acquisition_part_pinned(a.part_id) AND NOT EXISTS "
+        "(SELECT 1 FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id) LIMIT 32)").rowcount
     return dict(status="COMPLETE", candidate_id=candidate, deleted_rows=deleted,
                 released_evidence=len(evidence), deleted_scratch_rows=scratch,
                 retired_candidate_id=retired_candidate, retired_count=int(retired_candidate is not None),
                 retained=retained, retained_count=len(retained), scan_cursor=scanned,
-                more_work=bool(deleted or retired_candidate or len(rows) == 32 or evidence or scratch))
+                deleted_acquisition_rows=acquisition, deleted_acquisition_parts=acquisition_parts,
+                more_work=bool(deleted or retired_candidate or len(rows) == 32 or evidence or scratch
+                               or acquisition or acquisition_parts))
 
 
 def maintain(conn, *, batch_rows=BATCH_ROWS):
