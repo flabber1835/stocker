@@ -38,6 +38,13 @@ DOCKERFILE = ROOT / "Dockerfile.sentinel"
 COMPOSE = ROOT / "docker-compose.sentinel.yml"
 
 
+def test_host_python_compatibility_collects_inside_the_test_image():
+    """Fail the image build if the host test imports cannot resolve there."""
+    from tests.host_python38.test_host_compat import HostPythonCompatibilityTests
+
+    assert HostPythonCompatibilityTests is not None
+
+
 #: Modules that satisfy each other, so installing ONE is enough.
 #: `store.connect` prefers psycopg3 and accepts psycopg2 — pinning both would
 #: put a driver in the image that is never imported.
