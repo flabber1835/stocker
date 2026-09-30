@@ -9,6 +9,7 @@ from sentinel.feed.publication import CorpusBusy
 
 def run(conn, job_id, *, prepare, check_target, sleep=None):
     from sentinel.feed.acquisition_parts import SourceRevision, successor
+    from sentinel.feed.source_wait import SourceCoveragePending
     sleep = sleep or time.sleep
     while True:
         check_target()
@@ -20,7 +21,7 @@ def run(conn, job_id, *, prepare, check_target, sleep=None):
             job_id = successor(conn, job_id, exc.component)
             continue
         except (sharadar.SharadarRetryDeferred, ConnectionError, CorpusBusy,
-                jobs.JobWaiting):
+                jobs.JobWaiting, SourceCoveragePending):
             conn.rollback()
             state = jobs.status(conn, job_id)
             conn.rollback()
@@ -50,3 +51,17 @@ def run(conn, job_id, *, prepare, check_target, sleep=None):
                           retry_seconds=int(state["retry_seconds"] + .999),
                           remaining_seconds=int(state["remaining_seconds"]))
             sleep(delay)
+
+
+def once(conn, job_id, *, prepare, check_target):
+    """One scheduler slice, preserving revision recovery across worker processes."""
+    from sentinel.feed.acquisition_parts import SourceRevision, successor
+    check_target()
+    try:
+        return prepare(conn, job_id)
+    except SourceRevision as exc:
+        conn.rollback()
+        check_target()
+        successor(conn, job_id, exc.component)
+        # enqueue() reclaims the live child on the next scheduled invocation.
+        raise jobs.JobWaiting("source revision successor queued") from exc

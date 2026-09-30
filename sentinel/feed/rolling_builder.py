@@ -67,6 +67,12 @@ def benchmarks(window, rows):
 
 
 def build(conn, lease, request, source):
+    from sentinel.feed import source_corrections
+    with source_corrections.using(source.corrections):
+        return _build(conn, lease, request, source)
+
+
+def _build(conn, lease, request, source):
     """Caller holds common writer/backup authority and owns one transaction."""
     pulse = lambda: jobs.heartbeat(conn, lease, lease_seconds=600)
     native = digest(source.tickers)

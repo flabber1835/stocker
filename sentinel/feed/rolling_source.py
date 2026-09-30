@@ -42,11 +42,13 @@ def component(snapshot):
 class SharadarSource:
     """One attempt; transports remain patchable at their existing module seams."""
 
-    def __init__(self, window):
+    def __init__(self, window, *, corrections=None):
         self.window = window
         self.snapshots = []
         self.evidence = []
         self.tickers = self.actions = self.sfp = None
+        from sentinel.feed import source_corrections
+        self.corrections = source_corrections.current() if corrections is None else source_corrections.validate(corrections)
 
     def preflight(self):
         if str(self.window.end) > calendar.latest_closed_session():
@@ -148,6 +150,10 @@ class SharadarSource:
                 "tickers": self.tickers, "actions": self.actions}
 
     def source_payload(self):
-        return {"schema": "sentinel.rolling-sharadar-source/1",
+        value = {"schema": "sentinel.rolling-sharadar-source/1",
                 "consistency": "EXPORT_REFRESH_BRACKET_AND_REFERENCE_REOBSERVATION",
-                "components": self.evidence, "sfp_sha256": digest(self.sfp)}
+                "components": self.evidence, "sfp_sha256": digest(self.sfp),
+                "source_corrections": self.corrections}
+        if getattr(self, "legacy_source_evidence", False):
+            value.pop("source_corrections")
+        return value

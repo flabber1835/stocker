@@ -2,14 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Iterable, Mapping, Optional
 
 from stock_strategy_shared.wealth_core.eligibility import is_common_equity
-from .exception_data import (
-    _SEED_COVERAGE_EXCEPTION_ROWS,
-    _SEED_TERMINAL_COVERAGE_EXCEPTION_ROWS,
-)
 from .dates import SourceAuthorityRefused
 
 
@@ -75,15 +70,22 @@ def _terminal_exception(session, permaticker, ticker, category, last_session):
         reason=_TERMINAL_EXCEPTION_REASON)
 
 
-_SEED_COVERAGE_EXCEPTIONS = (
-    tuple(_exception(*row) for row in _SEED_COVERAGE_EXCEPTION_ROWS)
-    + tuple(_terminal_exception(*row)
-            for row in _SEED_TERMINAL_COVERAGE_EXCEPTION_ROWS)
-)
-SEED_COVERAGE_EXCEPTIONS = MappingProxyType({
-    (item.session, item.permaticker): item
-    for item in _SEED_COVERAGE_EXCEPTIONS
-})
+class _CoverageDefaults(Mapping):
+    """Compatibility view; each acquisition captures one validated dataset."""
+    def __getitem__(self, key):
+        from sentinel.feed.source_corrections import coverage_exceptions
+        return coverage_exceptions()[key]
+
+    def __iter__(self):
+        from sentinel.feed.source_corrections import coverage_exceptions
+        return iter(coverage_exceptions())
+
+    def __len__(self):
+        from sentinel.feed.source_corrections import coverage_exceptions
+        return len(coverage_exceptions())
+
+
+SEED_COVERAGE_EXCEPTIONS = _CoverageDefaults()
 
 
 class SeedListingProjection:

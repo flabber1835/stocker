@@ -115,3 +115,24 @@ CONSTRAINTS = {
         ("f", ("foreign key (child_job_id)", "sentinel_snapshot_jobs")),
         ("u", ("unique (child_job_id)",))),
 }
+
+
+# A wait hint can only cause a re-probe/full revalidation, never waive coverage.
+DDL.extend([
+    """CREATE TABLE IF NOT EXISTS sentinel_acquisition_source_wait (
+        job_id UUID PRIMARY KEY REFERENCES sentinel_snapshot_jobs,
+        evidence_sha256 TEXT NOT NULL CHECK(evidence_sha256 ~ '^[0-9a-f]{64}$'),
+        payload JSONB NOT NULL CHECK(jsonb_typeof(payload)='object'))""",
+    "DROP TRIGGER IF EXISTS snapshot_no_truncate ON sentinel_acquisition_source_wait",
+    "CREATE TRIGGER snapshot_no_truncate BEFORE TRUNCATE ON sentinel_acquisition_source_wait "
+    "FOR EACH STATEMENT EXECUTE FUNCTION sentinel_snapshot_immutable()",
+])
+COLUMNS['sentinel_acquisition_source_wait'] = {
+    'job_id': ('uuid', True), 'evidence_sha256': ('text', True), 'payload': ('jsonb', True)}
+PRIMARY_KEYS['sentinel_acquisition_source_wait'] = 'primary key (job_id)'
+TRIGGERS['sentinel_acquisition_source_wait'] = {'snapshot_no_truncate': (
+    'before truncate', 'for each statement', 'execute function sentinel_snapshot_immutable()')}
+CONSTRAINTS['sentinel_acquisition_source_wait'] = (
+    ('f', ('foreign key (job_id)', 'sentinel_snapshot_jobs')),
+    ('c', ('evidence_sha256', '[0-9a-f]{64}')),
+    ('c', ('jsonb_typeof(payload)', 'object')))

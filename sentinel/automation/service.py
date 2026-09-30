@@ -366,7 +366,7 @@ class AutomationService:
     def _retry_at(self, now: datetime, attempts: int) -> datetime:
         delay = min(
             self.config.retry_max_seconds,
-            self.config.retry_base_seconds * (2 ** max(0, attempts - 1)))
+            self.config.retry_base_seconds * (2 ** min(max(0, attempts - 1), int(self.config.retry_max_seconds).bit_length())))
         return now + timedelta(seconds=delay)
 
     def _latest_new_execution_at(self, cycle: CycleRecord) -> datetime:
@@ -430,7 +430,10 @@ class AutomationService:
         explicitly_transient = isinstance(
             exc, TransientInfrastructureFailure)
         max_attempts = int(getattr(self.config, policy.max_attempts_field))
-        exhausted = explicitly_transient and phase_attempt >= max_attempts
+        # Source waiting has a market-time boundary, not a retry-count latch.
+        # No intent exists in REFRESH; existing transport recovery precedes it.
+        source_wait = isinstance(exc, SourceDataPending) and phase == "REFRESH"
+        exhausted = explicitly_transient and phase_attempt >= max_attempts and not source_wait
         terminal = not explicitly_transient or exhausted
         if isinstance(exc, (ValidationError, DataIntegrityFailure)):
             category = "DATA_INTEGRITY"
@@ -442,6 +445,8 @@ class AutomationService:
             category = "PERMANENT_OPERATIONAL_REFUSAL"
         elif isinstance(exc, PermanentOperationalRefusal):
             category = "PERMANENT_OPERATIONAL_REFUSAL"
+        elif source_wait:
+            category = "SOURCE_DATA_PENDING"
         elif explicitly_transient:
             category = (
                 "TRANSIENT_RETRY_EXHAUSTED" if exhausted

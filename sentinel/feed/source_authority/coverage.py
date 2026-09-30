@@ -11,7 +11,7 @@ from sentinel.feed import calendar, sharadar
 from .dates import SourceAuthorityRefused, _canonical_key
 from .collisions import bar_witness, require_no_collisions
 from .seed_model import (
-    SEED_COVERAGE_EXCEPTIONS, SeedListing, SeedListingProjection,
+    SeedListing, SeedListingProjection,
     _exception_matches,
 )
 
@@ -20,13 +20,14 @@ class SeedCoverageAccumulator:
     """Bounded exact observed-vs-expected canonical seed membership proof."""
 
     def __init__(self, projection: SeedListingProjection, resolver,
-                 *, exceptions: Mapping = SEED_COVERAGE_EXCEPTIONS):
+                 *, exceptions: Mapping | None = None):
         self.projection = projection
         self.resolve = resolver
         identity = getattr(getattr(resolver, "__self__", None), "projection", None)
         self.required_native = ({item["permaticker"] for item in identity.applied_alias_rejections}
                                 if identity is not None else set())
-        self.exceptions = dict(exceptions)
+        from sentinel.feed.source_corrections import coverage_exceptions
+        self.exceptions = coverage_exceptions() if exceptions is None else dict(exceptions)
         self._dir = tempfile.TemporaryDirectory(prefix="sentinel-seed-coverage-")
         self._db = sqlite3.connect(Path(self._dir.name) / "coverage.sqlite3")
         self._db.execute("PRAGMA journal_mode=OFF")
@@ -155,6 +156,9 @@ class SeedCoverageAccumulator:
                 if identity is not None:
                     evidence["identity_diagnostics"] = identity.explain(
                         symbols=evidence["unresolved_source_tickers"], identities=missing)
+                if missing and not extra and not unresolved:
+                    from sentinel.feed.source_wait import SourceCoveragePending
+                    raise SourceCoveragePending(evidence)
                 raise SourceAuthorityRefused(
                     "Sharadar SEP seed eligible-set coverage refused: "
                     # Stable insertion order puts the failed session and keys
