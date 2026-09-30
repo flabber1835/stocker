@@ -24,6 +24,7 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
 WORKDIR /work
 COPY pytest.ini /work/pytest.ini
 COPY tests/ /work/tests/
+COPY data/sharadar/ /work/data/sharadar/
 COPY tools/ /work/tools/
 # Audit-only reporters used by economic falsifiers; never runtime code.
 COPY audit/economic_399/postgres_pressure/report.py /work/audit/economic_399/postgres_pressure/report.py
@@ -52,6 +53,7 @@ COPY docs/sentinel-reference-implementation/ /work/docs/sentinel-reference-imple
 # Runtime reconstruction reads COPY sources from the inspection-only repo root.
 COPY docs/sentinel-reference-implementation/ /work/repo/docs/sentinel-reference-implementation/
 COPY sentinel/ /work/repo/sentinel/
+COPY data/sharadar/ /work/repo/data/sharadar/
 COPY shared/ /work/repo/shared/
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
 COPY Dockerfile.sentinel-authorized /work/repo/Dockerfile.sentinel-authorized

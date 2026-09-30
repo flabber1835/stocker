@@ -18,6 +18,12 @@ partitions and bounded recovery across provider revisions. Its additive feed
 tables require the ordinary GO schema migration with old acquisition workers
 stopped; existing failed-attempt history and backups are preserved.
 
+[Acquisition data recovery](acquisition-data-recovery.md) moves reviewed source
+facts into versioned data, retains missing-source attempts for bounded probes and
+prevents data waits alone from permanently blocking paper activation. Its small
+additive wait table requires the ordinary explicit feed migration, with old
+acquisition workers stopped. It grants no new broker or economic authority.
+
 [Acquisition reliability](acquisition-certification.md) defines the code scrub,
 isolated tests and foreground recovery of pending provider exports. It uses the
 existing durable preparation jobs and does not add economic or broker authority.

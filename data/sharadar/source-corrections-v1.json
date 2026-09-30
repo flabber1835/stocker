@@ -1,0 +1,643 @@
+{
+  "schema": "sentinel.source-corrections/1",
+  "provider": "SHARADAR",
+  "coverage": [
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2021-10-04",
+      "permaticker": "636352",
+      "ticker": "WINVU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2021-10-04",
+      "first_observed": "2021-10-05",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2021-10-12",
+      "permaticker": "636414",
+      "ticker": "WAVC.U",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2021-10-12",
+      "first_observed": "2021-10-13",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2021-11-04",
+      "permaticker": "636597",
+      "ticker": "BMAQU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2021-11-04",
+      "first_observed": "2021-11-05",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-01-03",
+      "permaticker": "637133",
+      "ticker": "GVCIU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2022-01-03",
+      "first_observed": "2022-01-04",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-01-03",
+      "permaticker": "637137",
+      "ticker": "LGVCU",
+      "category": "ADR Common Stock Secondary Class",
+      "first_session": "2022-01-03",
+      "first_observed": "2022-01-04",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-01-03",
+      "permaticker": "637139",
+      "ticker": "RNERU",
+      "category": "ADR Common Stock Secondary Class",
+      "first_session": "2022-01-03",
+      "first_observed": "2022-01-04",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-01-03",
+      "permaticker": "637141",
+      "ticker": "VMGAU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2022-01-03",
+      "first_observed": "2022-01-04",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-01-04",
+      "permaticker": "637148",
+      "ticker": "TOACU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2022-01-04",
+      "first_observed": "2022-01-05",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-02-01",
+      "permaticker": "637449",
+      "ticker": "XPDBU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2022-02-01",
+      "first_observed": "2022-02-02",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-02-03",
+      "permaticker": "637489",
+      "ticker": "GGAAU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2022-02-03",
+      "first_observed": "2022-02-04",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-02-10",
+      "permaticker": "637651",
+      "ticker": "LSPRU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2022-02-10",
+      "first_observed": "2022-02-11",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-02-10",
+      "permaticker": "637653",
+      "ticker": "SAGAU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2022-02-10",
+      "first_observed": "2022-02-11",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-03-15",
+      "permaticker": "638312",
+      "ticker": "LIVBU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2022-03-15",
+      "first_observed": "2022-03-16",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-04-07",
+      "permaticker": "638427",
+      "ticker": "GENQU",
+      "category": "ADR Common Stock Secondary Class",
+      "first_session": "2022-04-07",
+      "first_observed": "2022-04-08",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2022-10-28",
+      "permaticker": "639150",
+      "ticker": "SVIIU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2022-10-28",
+      "first_observed": "2022-10-31",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2023-09-05",
+      "permaticker": "640414",
+      "ticker": "NETDU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2023-09-05",
+      "first_observed": "2023-09-06",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2023-11-27",
+      "permaticker": "640774",
+      "ticker": "SPKLU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2023-11-27",
+      "first_observed": "2023-11-28",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2024-07-31",
+      "permaticker": "642120",
+      "ticker": "CHEB.U",
+      "category": "ADR Common Stock Secondary Class",
+      "first_session": "2024-07-31",
+      "first_observed": "2024-08-01",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2024-10-10",
+      "permaticker": "642543",
+      "ticker": "HONDU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2024-10-10",
+      "first_observed": "2024-10-11",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2024-12-23",
+      "permaticker": "642947",
+      "ticker": "FACTU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2024-12-23",
+      "first_observed": "2024-12-27",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2024-12-24",
+      "permaticker": "642947",
+      "ticker": "FACTU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2024-12-23",
+      "first_observed": "2024-12-27",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2024-12-26",
+      "permaticker": "642947",
+      "ticker": "FACTU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2024-12-23",
+      "first_observed": "2024-12-27",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2024-12-30",
+      "permaticker": "642947",
+      "ticker": "FACTU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2024-12-23",
+      "first_observed": "2024-12-27",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2025-02-06",
+      "permaticker": "643402",
+      "ticker": "HVIIU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2025-02-06",
+      "first_observed": "2025-02-10",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2025-02-07",
+      "permaticker": "643402",
+      "ticker": "HVIIU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2025-02-06",
+      "first_observed": "2025-02-10",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2025-06-23",
+      "permaticker": "644639",
+      "ticker": "CRAQU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2025-06-23",
+      "first_observed": "2025-06-24",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2025-06-23",
+      "permaticker": "644643",
+      "ticker": "GTENU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2025-06-23",
+      "first_observed": "2025-06-24",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2025-06-23",
+      "permaticker": "644645",
+      "ticker": "LCCCU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2025-06-23",
+      "first_observed": "2025-06-24",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2025-06-23",
+      "permaticker": "644641",
+      "ticker": "RDAGU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2025-06-23",
+      "first_observed": "2025-06-24",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2025-09-05",
+      "permaticker": "645169",
+      "ticker": "SOCAU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2025-09-05",
+      "first_observed": "2025-09-08",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2026-03-30",
+      "permaticker": "6398750",
+      "ticker": "HCICU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2026-03-30",
+      "first_observed": "2026-04-07",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2026-03-31",
+      "permaticker": "6398750",
+      "ticker": "HCICU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2026-03-30",
+      "first_observed": "2026-04-07",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2026-04-01",
+      "permaticker": "6398750",
+      "ticker": "HCICU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2026-03-30",
+      "first_observed": "2026-04-07",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2026-04-02",
+      "permaticker": "6398750",
+      "ticker": "HCICU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2026-03-30",
+      "first_observed": "2026-04-07",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2026-04-06",
+      "permaticker": "6398750",
+      "ticker": "HCICU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2026-03-30",
+      "first_observed": "2026-04-07",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2026-04-06",
+      "permaticker": "6398748",
+      "ticker": "PAACU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2026-04-06",
+      "first_observed": "2026-04-07",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2026-04-06",
+      "permaticker": "6398749",
+      "ticker": "WLIIU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2026-04-06",
+      "first_observed": "2026-04-07",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2026-09-24",
+      "permaticker": "6401378",
+      "ticker": "FJDIU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2026-09-24",
+      "first_observed": "2026-09-28",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "SESSION_ABSENCE",
+      "session": "2026-09-25",
+      "permaticker": "6401378",
+      "ticker": "FJDIU",
+      "category": "Domestic Common Stock Secondary Class",
+      "first_session": "2026-09-24",
+      "first_observed": "2026-09-28",
+      "last_session": null,
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    },
+    {
+      "kind": "TERMINAL_ABSENCE",
+      "session": "2026-09-03",
+      "permaticker": "640227",
+      "ticker": "APGE",
+      "category": "Domestic Common Stock",
+      "first_session": null,
+      "first_observed": null,
+      "last_session": "2026-09-03",
+      "evidence": {
+        "reference": "docs/sharadar-source-authority-envelopes.md at b812db40",
+        "sha256": "6ef5fc787d5b2ea51e7a2540a0a5aeb7bf1f3646438bce22d6289584e5e8f008",
+        "reviewer": "retained repository source review"
+      }
+    }
+  ],
+  "disputed_cash_events": [
+    {
+      "event_id": "TRI:2026-05-04:dividend",
+      "ticker": "TRI",
+      "source_action_date": "2026-05-04",
+      "effective_session": "2026-05-04",
+      "source_action": "dividend"
+    }
+  ],
+  "cash_authorities": [
+    {
+      "schema": "sentinel.corporate-action-adjudication/2",
+      "authority_id": "tri-2026-05-04-return-of-capital-v2",
+      "event_id": "TRI:2026-05-04:dividend",
+      "ticker": "TRI",
+      "source_action_date": "2026-05-04",
+      "effective_session": "2026-05-04",
+      "source_action": "dividend",
+      "security_mapping": "sharadar-ticker-at-effective-session",
+      "stale_source_amount": "1.36",
+      "final_cash_amount": "1.435518",
+      "cash_entitlement_basis": "RAW_PRE_CONSOLIDATION_SHARE",
+      "new_shares_per_old_share": "0.984560",
+      "currency": "USD",
+      "primary_source_kind": "issuer-final-terms",
+      "source_url": "https://ir.thomsonreuters.com/news-releases/news-release-details/thomson-reuters-announces-cash-distribution-share-and-share",
+      "source_published_at": "2026-05-01T16:30:00-04:00",
+      "source_evidence_text": "Participating shareholders to receive cash distribution of US$1.435518 per common share; 1 pre-consolidated share for 0.984560 post-consolidated shares",
+      "source_content_sha256": "c46672f72bed7fb703d633bb900ec7f960e633bc48e41db5fb6c4805c0741794",
+      "corroborating_sources": [
+        "https://www.sec.gov/Archives/edgar/data/1075124/000119312526201824/d139216dex991.htm",
+        "https://m.nasdaqtrader.com/TraderNews.aspx?id=ECA2026-296"
+      ],
+      "source_priority": "issuer-final-terms>sec-filing>exchange-final-notice>sharadar",
+      "record_sha256": "7e8db148df1a136973871e800131aea7a6c127f1cb6afbd323109ea39b6e3df0"
+    }
+  ]
+}

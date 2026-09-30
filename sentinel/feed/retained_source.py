@@ -9,8 +9,8 @@ from sentinel.feed.source_authority.dates import SepUpdateEnvelope, _canonical_k
 
 
 class RetainedSource(SharadarSource):
-    def __init__(self, window, conn, lease):
-        super().__init__(window)
+    def __init__(self, window, conn, lease, *, corrections=None):
+        super().__init__(window, corrections=corrections)
         self.parts = Parts(conn, lease)
 
     def _part(self, name, gen, acquire, checkpoint, *, part=None, parts=None):
