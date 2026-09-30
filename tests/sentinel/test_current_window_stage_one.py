@@ -151,7 +151,9 @@ def test_funded_cash_oracle_and_physical_restore_continue_same_book(conn, ready,
             restored.rollback()
             resumed = rolling_runtime.status(restored, observation_id=OBS, starting_cash=50000)
             assert resumed.state.state_hash == second.state.state_hash
-            restored.rollback()
+        # Restore inspection deliberately makes its connection read-only.
+        # Runtime continuation owns a separate writable connection.
+        with store.connect(dsn) as restored:
             refresh(restored, operational_source, monkeypatch)
             third = rolling_runtime.advance(restored, through='2026-09-16', observation_id=OBS, starting_cash=50000)
             assert {k: (e['security_id'], e['current_shares'])
@@ -169,6 +171,9 @@ def test_funded_cash_oracle_and_physical_restore_continue_same_book(conn, ready,
             with pytest.raises(RuntimeError, match='DAILY_INPUT_ARCHIVE_CHANGED'):
                 restore_validation.validate_restored_database(restored)
             restored.rollback()
-        assert rolling_runtime.status(conn, observation_id=OBS, starting_cash=50000).state.state_hash == second.state.state_hash
+        from sentinel import rolling_daily
+        # The source cluster now trails the simulated clock by one session;
+        # check its retained state without claiming fresh execution authority.
+        assert rolling_daily.resume(conn, observation_id=OBS, starting_cash=50000).state.state_hash == second.state.state_hash
     finally:
         restored_pg.stop()

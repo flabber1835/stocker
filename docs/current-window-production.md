@@ -73,6 +73,9 @@ its history. Missed-session recovery retains its separate dated-source contract.
 
 ## Acceptance
 
+The affected Stage 1 requirements and subsequent independent economic/recovery
+acceptance are recorded in [current-window-stage-one.md](current-window-stage-one.md).
+
 Run the observed FJDI/FJDIU condition through actual source capture, publication,
 first decision, daily continuation and restart using real PostgreSQL and local
 provider fixtures. Include unrelated corrected history, disappearing/reappearing
