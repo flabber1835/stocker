@@ -41,7 +41,7 @@ def test_modeled_fill_capability_does_not_enable_production_authority():
 
 
 @pytest.mark.parametrize("profile", ["paper", "live_cash"])
-def test_selected_strategy_plan_broker_fills_and_cash_keep_shadow_history(profile):
+def test_historical_strategy_plan_broker_fills_and_cash_keep_shadow_history(profile):
     _, state = formed_state(7)
     before = deepcopy(state.to_dict())
     service = broker.BrokerService(profile)
