@@ -127,6 +127,30 @@ across arms. Actual Alpaca asset availability is not substituted for the
 historical eligible universe. Production promotion requires a separately
 reviewed decision; this branch only answers research questions.
 
+## Observed GO anomaly replay (2026-09-30)
+
+Test the unchanged stateful snapshot prototype against the FJDI/FJDIU missing
+row condition recorded by GO at deployed commit `90a068a90961`. Retain the
+sanitized coverage evidence and the owner's later source diagnostic as a small
+research fixture. The diagnostic was collected at 14:50 UTC, after the 14:29
+failure; it is not the complete failed export or an account-position snapshot.
+
+First reproduce the deployed coverage refusal using its original code, the
+observed listings/actions/prices and explicitly synthetic unaffected listings.
+Then replace that global coverage boundary with the existing prototype's
+300-session interface. Compare unrelated candidates, actual queued orders and
+next-open fills against an unaffected control. Keep both native identities
+separate, leave absent prices absent, and test the same pattern after renaming
+the affected instruments. A hypothetical held affected instrument must remain
+owned and block new admissions when its valuation is unavailable. This is a
+counterfactual safety test, not evidence about the NAS's actual holdings.
+
+Do not modify production acquisition or strategy behavior for this experiment.
+A successful replay establishes isolation of this anomaly at the prototype
+boundary; it does not establish complete NAS GO success, provider availability,
+or broker reconciliation. Both observed names were too young for the existing
+127-session entry requirement, even if every session since listing had a row.
+
 ## Broker-hosted reference account alternative
 
 The owner also proposed a separate Alpaca paper account running full-exposure

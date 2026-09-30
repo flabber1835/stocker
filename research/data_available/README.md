@@ -6,6 +6,9 @@ selected by the production runtime. No account, API key or network access is use
 Completed [crisis/recovery findings](results/crisis-2007-2010/findings.md),
 [metrics](results/crisis-2007-2010/summary.md) and
 [chart](results/crisis-2007-2010/comparison.png) cover 959 sessions.
+The [observed GO anomaly replay](results/go-20260930/findings.md) reproduces
+the September 30 coverage refusal and tests its isolation in the unchanged
+stateful snapshot prototype, including a hypothetical held-position gap.
 
 Four arms share canonical accounting and the same observations:
 

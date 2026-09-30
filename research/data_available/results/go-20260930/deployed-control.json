@@ -1,0 +1,65 @@
+{
+  "bundle_sha256": "e308ed05c5da66ba08846b28fd268b9c67a5549e1511cdcc254491c33e29a6fa",
+  "coverage_source_sha256": "cb3e2690634ac44d71e96f1d3021709b8d05c5caa3f2dfd8b27fd0e04144c8e4",
+  "error_type": "SourceAuthorityRefused",
+  "evidence": {
+    "expected_eligible": 5875,
+    "expected_ineligible_by_category": {},
+    "identity_diagnostics": {
+      "rejections": [
+        {
+          "anchors": [
+            {
+              "category": "Domestic Common Stock Primary Class",
+              "firstpricedate": "2026-08-04",
+              "lastpricedate": "2026-09-29",
+              "permaticker": "6400999",
+              "ticker": "FJDI"
+            },
+            {
+              "category": "Domestic Common Stock Secondary Class",
+              "firstpricedate": "2026-09-24",
+              "lastpricedate": "2026-09-29",
+              "permaticker": "6401378",
+              "ticker": "FJDIU"
+            }
+          ],
+          "reason_code": "RENAME_ANCHOR_IDENTITY_OR_CATEGORY_AMBIGUOUS",
+          "source_ids": [
+            "4687b37e5c108e5157243cf4570deb6fe058f2c0d6882a5df4c3f9f97ba143aa",
+            "eb1c691d6cac73ae7f3ae52b25284b952866b6520119c6c5189cf62061d74529"
+          ],
+          "symbols": [
+            "FJDI",
+            "FJDIU"
+          ]
+        }
+      ],
+      "rejections_total": 1,
+      "schema": "sentinel.symbol-identity/2",
+      "sha256": "b04429dc1f57782a0076b8c813e8a36120e315aea858ec6f657b991a8bbcfeb9"
+    },
+    "missing_eligible": [
+      {
+        "permaticker": "6401378",
+        "ticker": "FJDIU"
+      }
+    ],
+    "missing_eligible_total": 1,
+    "missing_ineligible_by_category": {},
+    "received_eligible": 5874,
+    "received_ineligible_by_category": {},
+    "reviewed_exceptions_applied": [],
+    "session": "2026-09-24",
+    "source_projection_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "unexpected_eligible": [],
+    "unexpected_eligible_total": 0,
+    "unresolved_eligible_risk": [],
+    "unresolved_eligible_risk_total": 0,
+    "unresolved_source_tickers": []
+  },
+  "fixture_sha256": "c1c8afe78a5ff3ef346a34d7e86569dd96e6d0c7d4267a43fa57b40c1f1644f3",
+  "observed_listings": 2,
+  "status": "REFUSAL_REPRODUCED",
+  "synthetic_unaffected_listings": 5873
+}

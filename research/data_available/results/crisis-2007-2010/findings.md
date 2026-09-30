@@ -46,12 +46,14 @@ The offline account adapter uses canonical book equity; it has no independent
 broker valuation with which to resolve the 113 gaps. It does not simulate the
 exact proposed prospective Alpaca account behavior.
 
-An unheld FJDI/FJDIU-like anomaly could become an isolated eligibility exclusion
-instead of a whole-universe refusal under this design. Today's exact GO bundle
-has not been replayed through this prototype. Backup budgets, worker deadlines
-and CI failures are independent issues. Before production adoption, replay those
-actual acquisition failures against the new boundary and test forward account
-reconciliation. No production behavior is changed by this branch.
+The subsequent [observed GO anomaly replay](../go-20260930/findings.md) reproduced
+the September 30 FJDI/FJDIU coverage refusal with the deployed code. The unchanged
+prototype isolated the unheld anomaly without changing unrelated trading; a
+hypothetical held gap still blocked admissions. That replay uses actual anomaly
+evidence and synthetic unaffected controls, not the complete NAS price history
+or actual holdings. Backup budgets, worker deadlines and CI failures remain
+independent issues. Production adoption still requires acquisition integration
+and forward account reconciliation. No production behavior is changed here.
 
 Alpaca's paper simulator also cannot be assumed to replace economic accounting:
 its documented dividend exclusion and dated staff statement about unsupported
