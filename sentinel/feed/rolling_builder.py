@@ -19,9 +19,9 @@ CHUNK = "rolling-window"
 _SFP_TOTAL_RETURN_COLUMN = domains.SEP_FORBIDDEN_COLUMNS[0]
 
 
-def _rows(conn, lease):
+def _rows(conn, lease, *, tickers=None):
     from sentinel.feed.acquisition_parts import price_rows
-    return price_rows(conn, lease.job_id)
+    return price_rows(conn, lease.job_id, tickers=tickers)
 
 
 def _coverage(identity, source_digest):
@@ -30,10 +30,10 @@ def _coverage(identity, source_digest):
     return SeedCoverageAccumulator(projection, identity.resolver().resolve)
 
 
-def _populate(conn, lease, coverage, *, pulse, subphase):
+def _populate(conn, lease, coverage, *, pulse, subphase, tickers=None):
     counts = {}
     with progress.phase("rolling_identity", subphase=subphase, job_id=lease.job_id) as counter, \
-            closing(_rows(conn, lease)) as rows:
+            closing(_rows(conn, lease, tickers=tickers)) as rows:
         for index, row in enumerate(rows, 1):
             counter[0] = index
             resolved = coverage.add(row)
@@ -78,12 +78,17 @@ def _build(conn, lease, request, source):
     native = digest(source.tickers)
     identity = symbol_identity.SymbolProjection(source.tickers, source.actions,
                                                  through=str(request.window.end))
-    with closing(_coverage(identity, native)) as discovery:
-        _populate(conn, lease, discovery, pulse=pulse, subphase="alias_discovery")
-        aliases = source_aliases.discover(discovery, identity)
-    identity = symbol_identity.SymbolProjection(source.tickers, source.actions,
-                                                 through=str(request.window.end),
-                                                 alias_rejections=aliases)
+    symbols = source_aliases.discovery_symbols(identity)
+    if symbols:
+        with closing(_coverage(identity, native)) as discovery:
+            _populate(conn, lease, discovery, pulse=pulse, subphase="alias_discovery",
+                      tickers=symbols)
+            aliases = source_aliases.discover(discovery, identity)
+    else:
+        aliases = source_aliases.evidence()
+        progress.emit("rolling_identity", "completed", subphase="alias_discovery",
+                      reason="NO_INFERRED_ALIASES", rows=0, job_id=lease.job_id)
+    source_aliases.apply(identity, aliases)
     source_aliases.require_current(identity, aliases)
     bounds = {"date_from": str(request.window.start), "date_to": str(request.window.end)}
     with closing(_coverage(identity, native)) as coverage:

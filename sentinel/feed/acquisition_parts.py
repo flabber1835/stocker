@@ -48,7 +48,7 @@ class Parts:
         with acquisition_work.budget(seconds=min(500, remaining)):
             yield
 
-    def _manifest(self, part_id):
+    def _manifest(self, part_id, *, expected_generation=None):
         row = self.conn.execute("SELECT manifest,reference_payload FROM sentinel_acquisition_parts "
                                 "WHERE part_id=%s", (part_id,)).fetchone()
         if row is None:
@@ -56,6 +56,10 @@ class Parts:
         manifest, payload = row
         if digest(manifest) != part_id or manifest.get("schema") != SCHEMA:
             raise PartCorrupt("retained acquisition manifest checksum mismatch: " + part_id)
+        # A mismatched generation cannot be selected. Do not replay obsolete
+        # payload merely to discover that its manifest already rules out reuse.
+        if expected_generation is not None and manifest["generation"] != expected_generation:
+            return manifest, payload
         if manifest["component"].startswith("SEP."):
             observed = _Fingerprint()
             with store.streaming_cursor(self.conn,
@@ -83,7 +87,7 @@ class Parts:
             binding = self.conn.execute("SELECT part_id FROM sentinel_acquisition_bindings "
                 "WHERE job_id=%s AND component=%s", (job, component)).fetchone()
             if binding:
-                value = self._manifest(binding[0])
+                value = self._manifest(binding[0], expected_generation=generation)
                 if value:
                     manifest, payload = value
                     if manifest["component"] != component:
@@ -135,13 +139,19 @@ class Parts:
         return manifest, payload
 
 
-def price_rows(conn, job_id):
+def price_rows(conn, job_id, *, tickers=None):
     """Project only SEP equity domains in canonical global session order."""
     from sentinel.feed.staging_impl import _source_or_compat
     query = ("SELECT p.payload FROM sentinel_acquisition_prices p JOIN sentinel_acquisition_bindings b "
-             "USING(part_id) WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' "
-             "ORDER BY p.session,p.ticker")
-    with store.streaming_cursor(conn, query, (job_id,), batch=5000, withhold=True) as cur:
+             "USING(part_id) WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' ")
+    params = (job_id,)
+    if tickers is not None:
+        if not tickers:
+            return
+        query += "AND p.ticker = ANY(%s) "
+        params += (list(tickers),)
+    query += "ORDER BY p.session,p.ticker"
+    with store.streaming_cursor(conn, query, params, batch=5000, withhold=True) as cur:
         previous = None
         for (encoded,) in cur:
             row = json.loads(encoded)
