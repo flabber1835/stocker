@@ -11,7 +11,7 @@ from sentinel.core.loader import CorpusWindow
 from sentinel.core.production import warm_session_state
 from sentinel.core.session import DefensiveBar, PublishedSession, SessionState
 from sentinel.feed import calendar
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
 from stock_strategy_shared.wealth_core.state import PortfolioState
 

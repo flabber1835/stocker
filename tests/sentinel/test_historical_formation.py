@@ -13,7 +13,7 @@ from sentinel.core.kernel import advance_session
 from sentinel.core.session import DefensiveBar, PublishedSession, SessionState
 from sentinel.execution.projection import project
 from sentinel.feed.rolling_contract import digest
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from stock_strategy_shared.wealth_core.feed import (
     DecisionMetadataTimelineBuilder, SecurityMeta, VendorBar)
 

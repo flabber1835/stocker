@@ -1208,7 +1208,13 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
                        and all(isinstance(snapshot.get(key), str) and re.fullmatch(
                            r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", snapshot[key])
                            for key in ("candidate_id", "job_id")))
-    if strategy.get('strategy') == 'sentinel-compact-champion-owned55-v1':
+    current_window = strategy.get('market_input_policy') == 'CURRENT_WINDOW_V1'
+    if current_window:
+        scope_valid = (scope_valid and proof.get('scope') == 'ROLLING_STARTUP_AND_RESTART'
+            and proof.get('runtime_contract') == 'sentinel.rolling-shadow-runtime/1'
+            and warmup.get('schema') == 'sentinel.shadow-window-warmup-input/1'
+            and not proof.get('formation'))
+    elif strategy.get('strategy') == 'sentinel-compact-champion-owned55-v1':
         formed = proof.get('formation')
         scope_valid = (scope_valid and proof.get('scope') == 'ROLLING_FORMED_STARTUP_AND_RESTART'
             and isinstance(formed, dict) and formed.get('schema') == 'sentinel.formation-parity/1'
@@ -1241,7 +1247,7 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
         and type(proof.get("data_version")) is int
         and proof["data_version"] > 0
         and type(warmup.get("session_count")) is int
-        and warmup["session_count"] == 252
+        and warmup["session_count"] == (299 if current_window else 252)
         and _HEX64.fullmatch(str(warmup.get("warmup_input_sha256") or "")) is not None
         and isinstance(checks, dict) and set(checks) == required_checks
         and all(value is True for value in checks.values())

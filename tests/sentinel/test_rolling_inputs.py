@@ -72,7 +72,7 @@ def test_empty_legacy_corpus_forms_canonical_initial_pending_book(conn):
     from sentinel.core.kernel import advance_session
     from sentinel.core.production import warm_session_state
     from sentinel.core.session import DefensiveBar, PublishedSession, SessionState
-    from sentinel.strategy import production_strategy
+    from sentinel.strategy import owned_impairment_strategy as production_strategy
 
     key = candidate(conn, actions=[action()])
     conn.commit()

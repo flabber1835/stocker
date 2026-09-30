@@ -101,6 +101,8 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
             raise OperationalParityRefused("image computational environment uncertified")
         cash = _starting_cash(starting_cash)
         controller, strategy = production_strategy()
+        from sentinel.core import window_policy
+        current_window = window_policy.enabled(strategy)
         rolling_go_inputs.require_schemas(conn)
         transaction = _begin_snapshot(conn)
         with rolling_go_inputs.pinned(conn) as held:
@@ -113,11 +115,11 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
                 from sentinel.rolling_runtime import SCHEMA as runtime_contract
                 from sentinel.controller.machine import Controller
                 from sentinel.core.production import warm_session_state
-                from sentinel.rolling_initialization import _published
+                from sentinel.rolling_initialization import _published, current_window_inputs
                 from sentinel.shadow_runtime import _warmup_input_identity
                 rolling_go_inputs.require_first_deployment(conn)
                 from sentinel.controller.owned_impairment import enabled as owned
-                if owned(strategy):
+                if owned(strategy) and not current_window:
                     # Readiness uses counts; formation owns its one feature
                     # window. Do not retain a second, unused warmup corpus.
                     binding, _ = rolling_go_inputs.validate_status(conn, held)
@@ -133,11 +135,14 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
                                            strategy_identity=strategy), material.warmup,
                         publication_version=held.version, prospective_concordance_witness=True)
                     warmup = _warmup_input_identity(material.warmup, material.warmup.sessions,
-                                                   prospective_witness=True)
-                    published = _published(material, held)
+                        prospective_witness=True, expected_sessions=299 if current_window else 252)
+                    published = current_window_inputs(conn, _published(material, held),
+                        prior=prior, binding=binding, pub=held)
                 coherence = {"coherent": True, "scope": rolling_go_inputs.SCOPE,
                              "version": held.version, "blocking_runs": [], "snapshot": binding}
             else:
+                if current_window:
+                    raise OperationalParityRefused('current-window policy requires a rolling publication')
                 coherence = publication.assert_operationally_coherent(
                     conn, frontier=frontier).to_dict()
                 prior, warmup = _fresh_seed(
@@ -146,7 +151,7 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
                     publication_version=held.version)
                 published = load_published_session(
                     conn, frontier, spy_sessions=REQUIRED_SPY_SESSIONS)
-            if warmup.get("session_count") != WARMUP_SESSIONS:
+            if warmup.get("session_count") != (299 if current_window else WARMUP_SESSIONS):
                 raise OperationalParityRefused("incomplete production feature warm-up")
             transition = prove_transition(
                 prior, published, held=held, controller=controller, strategy=strategy)

@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives import serialization
 from sentinel import authority, binding, observation_authority as observation
 from sentinel.core.decision import publication_fingerprint
 from sentinel.feed import readers, readiness, publication, rolling_go_inputs
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from tests.sentinel.test_rolling_go_inputs import issuer_source  # noqa: F401
 from tests.sentinel.test_rolling_initialization import ready, start  # noqa: F401
 from tests.sentinel.test_operational_snapshot import operational_source  # noqa: F401

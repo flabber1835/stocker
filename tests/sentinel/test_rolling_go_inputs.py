@@ -21,7 +21,12 @@ ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().par
 
 
 @pytest.fixture
-def issuer_source(operational_source):
+def issuer_source(operational_source, monkeypatch):
+    from sentinel.strategy import owned_impairment_strategy
+    from sentinel import strategy
+    monkeypatch.setattr(strategy, 'production_strategy', owned_impairment_strategy)
+    monkeypatch.setattr(inputs, 'production_strategy', owned_impairment_strategy)
+    monkeypatch.setattr(parity, 'production_strategy', owned_impairment_strategy)
     from sentinel.feed.rolling_contract import FormationWindow
     axis = [str(day) for day in FormationWindow.through(TARGET).sessions]
     for table in ('SEP', 'SFP'):

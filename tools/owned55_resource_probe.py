@@ -10,7 +10,7 @@ from audit.economic_399.full_status.probe import emit, fixture_context, memory, 
 from sentinel import rolling_runtime, schema, shadow_runtime
 from sentinel.feed import operational_snapshot as op, runtime_schema, store
 from sentinel.feed.rolling_contract import FormationWindow, digest
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from tests.support.postgres import _EphemeralPostgres
 
 
@@ -18,6 +18,10 @@ def build(conn, mp, universe):
     from tests.sentinel.test_rolling_snapshot_publisher import source
     data = source.__wrapped__(mp)
     fixture_context(mp)
+    from sentinel import strategy
+    from sentinel.feed import rolling_go_inputs
+    mp.setattr(strategy, 'production_strategy', production_strategy)
+    mp.setattr(rolling_go_inputs, 'production_strategy', production_strategy)
     axis = [str(d) for d in FormationWindow.through('2026-09-14').sessions]
     template = dict(data['TICKERS'][0], relatedtickers='AAA BBB', firstpricedate=axis[0])
     symbols = ['AAA', 'BBB', *[f'S{i:05}' for i in range(3, universe + 1)]]
@@ -77,6 +81,10 @@ if __name__ == '__main__':
         try:
             with pytest.MonkeyPatch.context() as mp, store.connect(pg.sync_dsn) as conn:
                 fixture_context(mp)
+    from sentinel import strategy
+    from sentinel.feed import rolling_go_inputs
+    mp.setattr(strategy, 'production_strategy', production_strategy)
+    mp.setattr(rolling_go_inputs, 'production_strategy', production_strategy)
                 runtime_schema.migrate_feed_schema(conn)
                 schema.ensure_schema(conn)
                 subject, expected = build(conn, mp, universe)

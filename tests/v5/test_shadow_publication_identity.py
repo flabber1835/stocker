@@ -10,7 +10,7 @@ from sentinel import dual_reconciliation
 from sentinel.core.production import SessionState, warm_session_state
 from sentinel.controller.machine import Controller
 from sentinel.feed import calendar
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from tests.sentinel.test_shadow_observation import (
     FIRST, FakePostgres, TEST_RUNTIME_IDENTITY, _activation, _fully_published,
     _install_runtime_gates, _preopen_clock, _warmup_window,

@@ -15,7 +15,7 @@ from sentinel.core.kernel import advance_session
 from sentinel.core.session import PublishedSession, SessionState
 from sentinel.execution import opening_sizing
 from sentinel.feed import calendar
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from stock_strategy_shared.wealth_core import v5
 from stock_strategy_shared.wealth_core.feed import VendorBar
 from tests.v5.test_v5 import book, advance, SecurityBar

@@ -106,7 +106,8 @@ class SeedCoverageAccumulator:
         require_no_collisions(self._db, projection=self.projection, resolve=self.resolve,
                               date_from=date_from, date_to=date_to)
 
-    def require_complete(self, *, date_from: str, date_to: str) -> dict:
+    def require_complete(self, *, date_from: str, date_to: str,
+                         current_window: bool = False) -> dict:
         self.require_no_collisions(date_from=date_from, date_to=date_to)
         sessions = list(calendar.sessions_in_range(date_from, date_to))
         if not sessions:
@@ -119,6 +120,7 @@ class SeedCoverageAccumulator:
         aggregate_expected_eligible = 0
         aggregate_received_eligible = 0
         aggregate_reviewed_exceptions = 0
+        missing_total, missing_sessions = 0, []
 
         for session in sessions:
             active = self.projection.active(session)
@@ -130,7 +132,7 @@ class SeedCoverageAccumulator:
                 (session,)).fetchall()}
             missing = sorted(set(expected).difference(observed))
             accepted = []
-            for identity in list(missing):
+            for identity in ([] if current_window else list(missing)):
                 exception = self.exceptions.get((session, identity))
                 if exception is None:
                     continue
@@ -151,7 +153,8 @@ class SeedCoverageAccumulator:
                 session=session, active=active, expected=expected,
                 missing=missing, extra=extra, unresolved=unresolved,
                 accepted=accepted)
-            if missing or extra or unresolved:
+            material_loss = current_window and len(observed) * 100 < len(expected) * 99
+            if (missing and not current_window) or material_loss or extra or unresolved:
                 identity = getattr(getattr(self.resolve, "__self__", None), "projection", None)
                 if identity is not None:
                     evidence["identity_diagnostics"] = identity.explain(
@@ -168,6 +171,10 @@ class SeedCoverageAccumulator:
             aggregate_expected_eligible += int(evidence["expected_eligible"])
             aggregate_received_eligible += int(evidence["received_eligible"])
             aggregate_reviewed_exceptions += len(accepted)
+            missing_total += len(missing)
+            if missing:
+                missing_sessions.append({"session": session, "count": len(missing),
+                                         "sample": evidence["missing_eligible"]})
             for category, count in evidence[
                     "expected_ineligible_by_category"].items():
                 aggregate_expected_ineligible[category] = (
@@ -182,13 +189,16 @@ class SeedCoverageAccumulator:
                     aggregate_missing_ineligible.get(category, 0) + int(count))
 
         return {
-            "schema": "sentinel.seed-source-coverage/1",
+            "schema": ("sentinel.current-window-coverage/1" if current_window
+                       else "sentinel.seed-source-coverage/1"),
             "interval": [str(date_from), str(date_to)],
             "source_projection_digest": self.projection.source_digest,
             "sessions_checked": len(sessions),
             "expected_eligible_total": aggregate_expected_eligible,
             "received_eligible_total": aggregate_received_eligible,
-            "missing_eligible_total": 0,
+            "missing_eligible_total": missing_total,
+            **({"missing_sessions": missing_sessions, "minimum_listing_coverage": 0.99}
+               if current_window else {}),
             "unexpected_eligible_total": 0,
             "unresolved_eligible_risk_total": 0,
             "reviewed_exceptions_applied_total": aggregate_reviewed_exceptions,

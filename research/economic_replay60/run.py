@@ -32,7 +32,7 @@ from sentinel.core.spinoffs import (
     LIQUIDATE_CHILD_AT_OPEN, SpinoffDistribution)
 from sentinel.core.session import FeedAnchor, PublishedSession, SessionState
 from sentinel.feed.calendar import previous_sessions
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from research.bounded_20y.inputs import BASE_ARCHIVE_SHA256, BASE_DATASET_SHA256, SFP_SOURCE, sha256, validate_manifest
 from research.bounded_20y.run import (START, END, PRODUCTION_REVISION, EconomicPath, distributions,
                   dump, metadata, number, terminals, vendor, verify_production)

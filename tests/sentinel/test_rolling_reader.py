@@ -403,7 +403,7 @@ def test_selected_champion_resumes_pending_book_through_same_kernel(conn, window
     from sentinel.core.loader import CorpusWindow
     from sentinel.core.production import warm_session_state
     from sentinel.core.session import DefensiveBar, PublishedSession, SessionState
-    from sentinel.strategy import production_strategy
+    from sentinel.strategy import owned_impairment_strategy as production_strategy
     sessions = [str(day) for day in window.sessions]
     meta = {str(i): SecurityMeta(str(i), f"T{i}", "Common Stock", str(i),
                                 first_session=sessions[0]) for i in range(30)}

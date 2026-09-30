@@ -71,7 +71,8 @@ class RollingPriceReader:
         self.manifest = rolling_store.manifest(conn, candidate_id)
         if self.manifest.snapshot_id != snapshot_id:
             raise RollingReaderRefused("SNAPSHOT_ID_MISMATCH")
-        if (self.manifest.normalization_version != NORMALIZATION_VERSION
+        from sentinel.core import window_policy
+        if (self.manifest.normalization_version not in (NORMALIZATION_VERSION, window_policy.NORMALIZATION)
                 or self.manifest.calendar_version != calendar.calendar_version()):
             raise RollingReaderRefused("UNSUPPORTED_SNAPSHOT_SEMANTICS")
 

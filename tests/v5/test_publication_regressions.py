@@ -17,7 +17,7 @@ from sentinel.execution import opening_sizing
 from sentinel.execution.opening_prices import ENDPOINT, OpeningPrices, OpeningPriceUnavailable
 from sentinel.feed import calendar, universe
 from sentinel.paper.inspection import build_security_resolver
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from stock_strategy_shared.wealth_core import median5
 from stock_strategy_shared.wealth_core.feed import Feed, FeedError, SecurityMeta, VendorBar
 from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState

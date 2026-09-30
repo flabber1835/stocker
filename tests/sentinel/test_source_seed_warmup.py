@@ -26,7 +26,7 @@ from sentinel.feed import (
     calendar, ingest, maintenance, operational_source, outage_recovery, progress,
     publication, snapshot_source, source_aliases, store,
 )
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from test_concurrent_source_symbols import DAY, source
 from tests.support.postgres import _EphemeralPostgres
 from tools.sentinel_operational_parity import prove_transition

@@ -9,7 +9,7 @@ from sentinel import rolling_initialization as init, rolling_checkpoint as cp, s
 from sentinel import shadow_observation as shadow, shadow_runtime
 from sentinel.feed import operational_snapshot as op, publication, store
 from sentinel.feed.rolling_contract import FormationWindow, digest, canonical_json
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from tests.sentinel.test_operational_snapshot import operational_source  # noqa: F401
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: F401
 
@@ -79,6 +79,12 @@ def test_composed_input_keeps_spy_equity_and_bil_domains_separate(transport):
 
 @pytest.fixture
 def ready(conn, operational_source, monkeypatch):
+    # This suite retains the explicit historical-formation contract. The
+    # selected fresh-window production route has its own integration suite.
+    from sentinel import strategy as selected
+    monkeypatch.setattr(selected, 'production_strategy', production_strategy)
+    from sentinel.feed import rolling_go_inputs
+    monkeypatch.setattr(rolling_go_inputs, 'production_strategy', production_strategy)
     schema.ensure_schema(conn)
     data = operational_source
     template = deepcopy(data["TICKERS"][0])

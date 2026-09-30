@@ -132,12 +132,16 @@ def advance_session(
         raise ValueError("corpus publication version moved backwards")
 
     from sentinel.core.history import require_history_compatible
+    from sentinel.core import window_policy
+    if ((published.history_proof or {}).get('schema') == 'sentinel.current-window-continuity/1'
+            and not window_policy.enabled(running_identity)):
+        raise ValueError('CURRENT_WINDOW_POLICY_REQUIRED')
     require_history_compatible(
         prior_version=env.data_version,
         last_processed_session=env.last_processed_session,
         version=published.data_version, proof=published.history_proof,
         prior_state_sha256=(env.state_hash if (published.history_proof or {}).get("schema")
-                            == "sentinel.rolling-continuity/1" else None),
+                            in ("sentinel.rolling-continuity/1", "sentinel.current-window-continuity/1") else None),
         session=published.session)
     state = PortfolioState.from_dict(env.wealth_core)
     pending = [PendingOrder.from_dict(item) for item in env.pending]
@@ -148,7 +152,14 @@ def advance_session(
         ledger=ledger, config=wealth)
     last_known = dict(env.last_known)
     feed = _feed_from_dict(env.feed, published.meta, elig)
-    if median5 and env.data_version is not None and published.data_version != env.data_version:
+    if window_policy.enabled(running_identity):
+        from sentinel.core.window_features import install
+        if published.window_features is None:
+            raise ValueError('CURRENT_WINDOW_FEATURES_REQUIRED')
+        feed = install(feed, prior=env, published=published)
+    elif published.window_features is not None:
+        raise ValueError('CURRENT_WINDOW_POLICY_REQUIRED')
+    elif median5 and env.data_version is not None and published.data_version != env.data_version:
         for sid, series in feed.series.items():
             series.reconcile_signal_basis(published.signal_basis_anchors.get(sid))
     _restore_missing_feed_anchors(feed, published)
@@ -188,8 +199,15 @@ def advance_session(
         previous = (float(published.spy_closeadj[-2])
                     if len(published.spy_closeadj) >= 2 else None)
         mv = close/previous-1 if previous is not None and previous > 0 else None
-        median5_state["spy_history"] = (median5_state["spy_history"] + [
-            [feed._session_index, close, mv]])[-254:]
+        if window_policy.enabled(running_identity):
+            values = list(published.spy_closeadj)
+            median5_state['spy_history'] = [
+                [feed._session_index-len(values)+1+i, float(value),
+                 float(value)/float(values[i-1])-1 if i else None]
+                for i, value in enumerate(values)][-254:]
+        else:
+            median5_state["spy_history"] = (median5_state["spy_history"] + [
+                [feed._session_index, close, mv]])[-254:]
         median5_controller.remember_peer_keys(median5_state, published.meta)
         breadth, held = peer_breadth(state, feed, median5_state["spy_history"], median5_state["peer_keys"])
     navs = list(env.shadow_nav_history)

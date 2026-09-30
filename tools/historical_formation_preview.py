@@ -25,7 +25,7 @@ from sentinel.core.session import FeedAnchor
 from sentinel.core.session import PublishedSession
 from sentinel.core.spinoffs import SpinoffDistribution, LIQUIDATE_CHILD_AT_OPEN
 from sentinel.feed.rolling_contract import digest
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from stock_strategy_shared.wealth_core.feed import DecisionMetadataTimelineBuilder
 
 
