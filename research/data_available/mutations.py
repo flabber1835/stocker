@@ -11,6 +11,9 @@ import tempfile
 
 
 CASES = (
+    ('hide_ineligible_held_exit','account.py',
+     "or b.eligibility_reason=='SNAPSHOT_INELIGIBLE'",'or False',
+     'test_account.py::test_failed_entry_filter_does_not_hide_valid_held_exit[volume-1.0]'),
     ('duplicate_correction','policy.py','if key in seen:','if False:',
      'test_policy.py::test_corrections_are_atomic_and_window_bounded[duplicate]'),
     ('correction_horizon','policy.py','if not lower <= series.session_indices[pos] <= feed._session_index:',

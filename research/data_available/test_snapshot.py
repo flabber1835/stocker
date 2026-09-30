@@ -32,6 +32,24 @@ def test_streamed_window_has_same_features_as_fresh_snapshot():
     assert streamed==rebuilt
 
 
+@pytest.mark.parametrize('split_at',[50,350])
+def test_fresh_window_matches_stream_after_old_or_recent_split(split_at):
+    from stock_strategy_shared.wealth_core.feed import Feed
+    from stock_strategy_shared.wealth_core.median5 import fresh
+    feed=Feed(meta()); feed.median5_state=fresh()
+    source=[]
+    for i in range(400):
+        row=bars(i)[0]
+        if i>=split_at:
+            row=replace(row,raw_close=row.raw_close/2,raw_open=row.raw_open/2,
+                        volume=row.volume*2,split_ratio=2. if i==split_at else 1.)
+        source.append(row)
+        norm=feed.advance(day(i),[row])
+    streamed=snapshot_bars(feed,norm.security_bars)
+    rebuilt,_=from_window([day(i) for i in range(100,400)],source[100:],meta())
+    assert rebuilt==streamed
+
+
 @pytest.mark.parametrize('fault',['future','duplicate','short','unordered'])
 def test_rejects_invalid_snapshot_before_calculation(fault):
     axis=[day(i) for i in range(300)]

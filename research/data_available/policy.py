@@ -81,8 +81,11 @@ def snapshot_bars(feed, bars):
                         and len(dollar) == 20 and all(d is not None for d in dollar)
                         and sum(dollar)/20 >= 20_000_000 and dollar[-1] >= 5_000_000
                         and score is not None and recent is not None)
+        facts_available = (valid and positive(bar.raw_close) and meta is not None
+                           and len(dollar)==20 and all(d is not None for d in dollar))
         result.append(replace(bar, closes=closes, eligible=eligible,
-                              eligibility_reason='' if eligible else 'SNAPSHOT_INPUT_UNAVAILABLE',
+                              eligibility_reason=('' if eligible else 'SNAPSHOT_INELIGIBLE'
+                                                  if facts_available else 'SNAPSHOT_INPUT_UNAVAILABLE'),
                               certified_signals=(mom, recent, vol, score) if eligible else None))
     return result
 

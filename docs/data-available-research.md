@@ -7,9 +7,9 @@ requested both simpler data handling and simpler rules bounded by 300 sessions.
 ## Question and variants
 
 Owner clarification: simplicity is the primary objective: one daily 300-session
-snapshot plus the current account. Add `account300` as the main candidate. Its
+snapshot plus the current account. Include `account300` as a comparator. Its
 decision function consumes only that snapshot and a normalized account view.
-The other three arms remain attribution controls. Freeze these simple rules
+The other three arms preserve progressively more existing behavior. Freeze these simple rules
 before measuring results (no parameter search): rank positive-momentum, nonnegative
 recent-return eligible stocks by the existing durable score; buy from the top 20;
 keep existing positions while they remain in the top 40 and above 70% of the
@@ -25,6 +25,10 @@ buy commitments; keep existing position sizes. Orders outstanding for an
 instrument prevent another command. Missing held inputs defer that instrument;
 unknown account equity prevents new purchases. Cash expected from an unfilled
 sale is never available to fund a purchase. Same-session terminal veto applies.
+Complete price/volume facts that fail admission filters are distinguishable from
+missing facts. A held stock that becomes illiquid or falls below the entry price
+floor leaves the eligible ranks and can exit; its failed entry filter must not
+be interpreted as an unavailable observation.
 This is research authorization to explore account-driven strategy rules, not a
 change to the production broker/shadow boundary.
 
@@ -43,7 +47,7 @@ and forward execution remain untested by this offline experiment.
 
 Can current-window features and automatic instrument eligibility replace the
 requirement that every old source observation remain unchanged, without losing
-useful economics? Compare three independently evolving canonical Wealth Core
+useful economics? Compare four independently evolving canonical Wealth Core
 books with identical cash, dates, source observations, fees and event terms:
 
 * `baseline`: current V5/Median-5 features, lifetime owned-episode stop, review,
@@ -60,6 +64,7 @@ books with identical cash, dates, source observations, fees and event terms:
   Canonical corporate-action reference transformations rescale retained owned
   observations before adding the current close. These bounded observations are
   carried strategy state, not reconstructed historical ownership.
+* `account300`: the simpler account-based rule set specified above.
 
 All variants call the canonical feed, stepper, book, action handling and fills.
 No parallel economic book or broker adapter is implemented. This first comparison
@@ -120,3 +125,13 @@ persistent ages, review flags and cooldowns. The offline experiment below does
 not qualify that broker behavior. Evaluate it in a forward paper trial with an
 explicit policy for reference-account outages and cross-account divergence;
 do not claim a second paper account provides deterministic historical outcomes.
+
+Provider check, 2026-09-30: Alpaca's [paper trading documentation](https://docs.alpaca.markets/us/docs/paper-trading)
+explicitly excludes dividends. A [2026-03-14 Alpaca staff response](https://forum.alpaca.markets/t/ped-reverse-split-not-handled-in-paper-accounts/18569)
+also says paper accounts do not support stock splits. The latter is a dated
+support statement, not fresh account-level verification. Consequently a paper
+reference account cannot currently be assumed to represent total-return economics.
+The live-account [mandatory corporate action documentation](https://docs.alpaca.markets/us/docs/mandatory-corporate-actions)
+must not be used as proof of paper simulation support. Retaining internal
+economic state remains useful even with a simple market-data interface. This
+experiment does not implement account adjustments or change any paper account.

@@ -26,7 +26,8 @@ def propose(bars, windows, account, veto=frozenset()):
     by_id = {b.security_id:b for b in bars}
     def usable(sid):
         b=by_id.get(sid)
-        return (b is not None and b.certified_signals is not None and positive(b.raw_close)
+        return (b is not None and (b.certified_signals is not None
+                                  or b.eligibility_reason=='SNAPSHOT_INELIGIBLE') and positive(b.raw_close)
                 and 127<=len(windows.get(sid,()))<=300
                 and positive(windows[sid][-1]))
     def above_stop(sid):

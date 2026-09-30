@@ -63,3 +63,8 @@ the simulator, not a proposed manual dependency of the prospective trader.
 The `stops` counter means trailing-stop signals in the first three arms and
 combined rank/window exits in account300. Neither final market value nor return
 assumes forced end-of-run liquidation.
+
+The second-paper-account idea has a provider limitation: Alpaca documents that
+paper trading excludes dividends; its staff has also reported unsupported paper
+splits. Sources and dates are in the design document. The simulated canonical
+account here therefore must not be mistaken for Alpaca's paper simulator.

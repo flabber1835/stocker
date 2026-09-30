@@ -44,6 +44,23 @@ def test_gap_defers_affected_holding_and_unknown_equity_blocks_buys():
     assert propose(bs,windows,account)==([],[])
 
 
+@pytest.mark.parametrize('field,value',[('raw_close',.5),('volume',1.)])
+def test_failed_entry_filter_does_not_hide_valid_held_exit(field,value):
+    from research.data_available.test_policy import filled_feed
+    feed,norm=filled_feed(300)
+    series=feed.series['0']
+    current=norm.security_bars[0]
+    if field=='raw_close':
+        current=replace(current,raw_close=value)
+        series.raw_closes[-1]=value
+    else:
+        series.volumes[-1]=value
+    signals=snapshot_bars(feed,[current])
+    assert not signals[0].eligible
+    account=Account(cash=D(0),equity=D(5000),positions={'0':D(10)})
+    assert propose(signals,{'0':series.signal_closes},account)==(['0'],[])
+
+
 def test_no_spending_pending_sale_or_reserved_buy_cash():
     bs,windows=snapshot()
     account=Account(cash=D(1000),equity=D(50_000),positions={'45':D(10)},pending={'0'},reserved_cash=D(900))
