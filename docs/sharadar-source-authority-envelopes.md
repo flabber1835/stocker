@@ -138,10 +138,25 @@ independent defenses.
 ### Reviewed source-onset exceptions
 
 The retained 1997–2026 corpus was scanned against the stable TICKERS intervals.
-No common-equity-class gaps were found before 2021. The only measured gaps are
-37 exact opening-session absences across 29 unit-style listings categorized by
+No common-equity-class gaps were found before 2021. The reviewed gaps are
+39 exact opening-session absences across 30 unit-style listings categorized by
 Sharadar as common-equity secondary class. In each case TICKERS begins the
 listing interval before SEP's first observed price row.
+
+FJDIU (permaticker 6401378) is absent on 2026-09-24 and 2026-09-25 although
+Sharadar TICKERS starts it on 2026-09-24; SEP first observes it on 2026-09-28.
+The 2026-09-30 NAS GO source-coverage refusal identified the first missing
+session; a separate bounded Sharadar GET observed both missing sessions. The
+GET returned TICKERS, SEP, and ACTIONS
+page SHA-256 values `eac1a90f4014a2b387da75d0fbfbad9316e67131b60f881cbb3f5dbe4e852cb8`,
+`f10f986926f2b719b7b38907ada23db840d4d59d569460b6de3989cec2a82b6e`,
+and `5524bbe95f21f09fcb6902fa091da8ca66556b3e15a0dbad877596ea1c33c588`.
+The [issuer's SEC filing](https://www.sec.gov/Archives/edgar/data/2094712/000149315226044084/form8-k.htm)
+confirms that FJDIU units continued trading when separate FJDI shares began
+trading around September 24. This exception permits only the two missing unit
+opening bars; it does not synthesize prices, merge the distinct permanent IDs,
+or establish that FJDI's pre-separation price history is economically equivalent
+to the later standalone share. That economic-history question remains separate.
 
 These are not reclassified as ineligible: the production predicate includes
 secondary-class common stock. Instead, each accepted gap is encoded as immutable

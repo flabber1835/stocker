@@ -38,6 +38,8 @@ _SEED_COVERAGE_EXCEPTION_ROWS = (
     ('2026-04-06', '6398750', 'HCICU', 'Domestic Common Stock Secondary Class', '2026-03-30', '2026-04-07'),
     ('2026-04-06', '6398748', 'PAACU', 'Domestic Common Stock Secondary Class', '2026-04-06', '2026-04-07'),
     ('2026-04-06', '6398749', 'WLIIU', 'Domestic Common Stock Secondary Class', '2026-04-06', '2026-04-07'),
+    ('2026-09-24', '6401378', 'FJDIU', 'Domestic Common Stock Secondary Class', '2026-09-24', '2026-09-28'),
+    ('2026-09-25', '6401378', 'FJDIU', 'Domestic Common Stock Secondary Class', '2026-09-24', '2026-09-28'),
 )
 
 # Nasdaq Equity Corporate Actions Alert #2026-607 records APGE's last trading
