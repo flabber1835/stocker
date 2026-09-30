@@ -1,0 +1,110 @@
+[
+  {
+    "ticker": "DRS1",
+    "security_id": "416483318413645411",
+    "original_event_session": "2008-10-21",
+    "completion_session": "2008-10-22",
+    "cash_per_share": "81",
+    "source_supplement_id": "DRS1-2008-10-21-cash-timing-assumption",
+    "source": "https://www.sec.gov/Archives/edgar/data/28630/000104746908011836/a2188747z10-q.htm"
+  },
+  {
+    "ticker": "IKN",
+    "security_id": "1112473731749479571",
+    "original_event_session": "2008-10-30",
+    "completion_session": "2008-10-31",
+    "cash_per_share": "17.25",
+    "source_supplement_id": "IKN-2008-10-30-cash-timing-assumption",
+    "source": "https://www.sec.gov/Archives/edgar/data/3370/000129993308005163/exhibit1.htm"
+  },
+  {
+    "ticker": "BUD1",
+    "security_id": "816819956840135126",
+    "original_event_session": "2008-11-17",
+    "completion_session": "2008-11-18",
+    "cash_per_share": "70",
+    "source_supplement_id": "BUD1-2008-11-17-cash-timing-assumption",
+    "source": "https://www.sec.gov/Archives/edgar/data/310569/000095013708013967/c47821exv99w1.htm"
+  },
+  {
+    "ticker": "CEPH",
+    "security_id": "1014372983295537240",
+    "original_event_session": "2011-10-13",
+    "completion_session": "2011-10-14",
+    "cash_per_share": "81.50",
+    "source_supplement_id": "CEPH-2011-10-13-cash-timing-assumption",
+    "source": "https://www.sec.gov/Archives/edgar/data/873364/000110465911056145/a11-28026_18k.htm"
+  },
+  {
+    "ticker": "GR",
+    "security_id": "1002501600623515483",
+    "original_event_session": "2012-07-25",
+    "completion_session": "2012-07-26",
+    "cash_per_share": "127.50",
+    "source_supplement_id": "GR-2012-07-25-cash-timing-assumption",
+    "source": "https://www.sec.gov/Archives/edgar/data/101829/000119312512317134/d385777d8k.htm"
+  },
+  {
+    "ticker": "SWI1",
+    "security_id": "175647085019960977",
+    "original_event_session": "2016-02-04",
+    "completion_session": "2016-02-05",
+    "cash_per_share": "60.10",
+    "source_supplement_id": "SWI1-2016-02-04-exact-cash-held-terminal",
+    "source": "https://www.sec.gov/Archives/edgar/data/1428669/000110465916094143/a16-3570_18k.htm"
+  },
+  {
+    "ticker": "SAIL1",
+    "security_id": "912220778513772854",
+    "original_event_session": "2022-08-15",
+    "completion_session": "2022-08-16",
+    "cash_per_share": "65.25",
+    "source_supplement_id": "SAIL1-2022-08-15-exact-cash-held",
+    "source": "https://www.sec.gov/Archives/edgar/data/1627857/000119312522222355/d477742dex991.htm"
+  },
+  {
+    "ticker": "SWCH",
+    "security_id": "903870393381176216",
+    "original_event_session": "2022-12-05",
+    "completion_session": "2022-12-06",
+    "cash_per_share": "34.25",
+    "source_supplement_id": "SWCH-2022-12-05-exact-cash-held",
+    "source": "https://www.sec.gov/Archives/edgar/data/1710583/000119312522298966/d356989d8k.htm"
+  },
+  {
+    "ticker": "FOCS",
+    "security_id": "339911307317319613",
+    "original_event_session": "2023-08-30",
+    "completion_session": "2023-08-31",
+    "cash_per_share": "53.00",
+    "source_supplement_id": "FOCS-2023-08-30-exact-cash-held",
+    "source": "https://www.sec.gov/Archives/edgar/data/1651052/000110465923097110/tm2325227d1_8k.htm"
+  },
+  {
+    "ticker": "ATSG",
+    "security_id": "969833351952001123",
+    "original_event_session": "2025-04-10",
+    "completion_session": "2025-04-11",
+    "cash_per_share": "22.50",
+    "source_supplement_id": "ATSG-2025-04-10-exact-held-cash-merger",
+    "source": "https://www.sec.gov/Archives/edgar/data/894081/000095010325004720/dp227549_8k.htm"
+  },
+  {
+    "ticker": "PYCR",
+    "security_id": "530096994681580629",
+    "original_event_session": "2025-04-11",
+    "completion_session": "2025-04-14",
+    "cash_per_share": "22.50",
+    "source_supplement_id": "PYCR-2025-04-11-exact-held-cash-merger",
+    "source": "https://www.sec.gov/Archives/edgar/data/723531/000095010325004790/dp227639_ex9901.htm"
+  },
+  {
+    "ticker": "SWI",
+    "security_id": "650665391089899748",
+    "original_event_session": "2025-04-15",
+    "completion_session": "2025-04-16",
+    "cash_per_share": "18.50",
+    "source_supplement_id": "SWI-2025-04-15-exact-held-cash-merger",
+    "source": "https://www.sec.gov/Archives/edgar/data/1739942/000119312525082231/d938698dex991.htm"
+  }
+]
