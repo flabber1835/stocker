@@ -105,6 +105,35 @@ def test_pinned_attempt_ignores_later_install(installed_state):
     assert data.current() != old
 
 
+def test_cash_data_changes_input_evidence_without_changing_strategy_code_identity(installed_state):
+    from types import SimpleNamespace
+    from sentinel.core.decision import runtime_strategy_identity
+    from sentinel.feed.corporate_action_authority import authority_record_sha256
+    from sentinel.feed.rolling_contract import PriceWindow
+    from sentinel.feed.rolling_source import SharadarSource
+
+    config = SimpleNamespace(strategy_id="sentinel-test", digest="controller-rule")
+    code = runtime_strategy_identity(config)
+    original = data.bootstrap()
+    revised = copy.deepcopy(original)
+    record = revised['cash_authorities'][0]
+    record['final_cash_amount'] = '1.50'
+    record['record_sha256'] = authority_record_sha256(record)
+    revised = validate(revised)
+    window = PriceWindow.through('2026-09-14')
+    before = SharadarSource(window, corrections=original).source_payload()
+    after = SharadarSource(window, corrections=revised).source_payload()
+
+    assert digest(before) != digest(after)
+    assert before['source_corrections'] == original
+    assert after['source_corrections'] == revised
+    with data.using(revised):
+        assert runtime_strategy_identity(config) == code
+    # Existing reviewed economics still cannot be replaced by an attended update.
+    with pytest.raises(CorrectionRefused, match="remove or replace"):
+        install(revised)
+
+
 @pytest.mark.parametrize("field,value", [("session", "2025-7-7"), ("ticker", "*"),
                                          ("permaticker", "1 OR TRUE"), ("extra", "ignored?")])
 def test_closed_schema_and_exact_keys(installed_state, field, value):

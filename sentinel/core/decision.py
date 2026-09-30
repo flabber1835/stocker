@@ -89,6 +89,8 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.feed.anomalies",
     "sentinel.feed.calendar",
     "sentinel.feed.corporate_action_authority",
+    "sentinel.feed.correction_model",
+    "sentinel.feed.source_corrections",
     "sentinel.feed.domains",
     "sentinel.feed.ingest",
     "sentinel.feed.ingest_impl",

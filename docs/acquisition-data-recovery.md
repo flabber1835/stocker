@@ -37,6 +37,12 @@ Retained raw source parts remain reusable because they have no correction policy
 Legacy operations use the same validated dataset loader; existing historical
 readers continue consuming already-normalized published rows.
 
+The strategy's existing data-semantics source fingerprint covers the generic
+correction loader and schema/validation code as transitive economic dependencies.
+Correction records themselves remain input data, bound by the snapshot's source
+evidence digest. An attended data addition does not change strategy code identity;
+changing the code that validates or selects it must change that identity.
+
 This is an operator data action, not a source-code release or a certificate that
 authorizes trading. No automatic URL retrieval, arbitrary Python, inferred price,
 identity merger, skipped eligible instrument, or weakened coverage is introduced.
