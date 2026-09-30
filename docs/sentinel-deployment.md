@@ -7,6 +7,11 @@ requirements below for the explicitly named current-window production policy.
 Historical/research identities retain their own contracts. Activation still
 requires the normal certified image and GO gates.
 
+[Daily acquisition work](daily-acquisition-work.md) scopes alias discovery to its
+actual identity dependencies and avoids scanning retained payloads already known
+to be obsolete. It preserves full source-window acquisition and publication
+checks; delta-only provider downloads remain a separate, unqualified capability.
+
 [CI sharding](sentinel-ci-sharding.md) defines the exact-head test partition
 and evidence-union contract for parallel Sentinel safety jobs. It changes CI
 latency, not production authority or the deployable image.

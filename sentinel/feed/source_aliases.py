@@ -82,6 +82,22 @@ def matches(identity, record):
             and all(symbol not in anchors for symbol in observed - {label}))
 
 
+def discovery_symbols(identity):
+    """All labels that can contribute a collision for an inferred identity.
+
+    Include other native labels of these identities, not just the rename edge
+    endpoints: excluding a competing native listing could invent a witness.
+    This scope is for discovery only, never the independent coverage proof.
+    """
+    identities = set(identity.chains)
+    symbols = {symbol for chain in identity.chains.values()
+               for edge in chain for symbol in (edge.old, edge.new)}
+    symbols.update(str(row["ticker"]).strip().upper()
+                   for row in (*identity.rows, *identity.alias_rows)
+                   if str(row.get("permaticker")).strip() in identities and row.get("ticker"))
+    return tuple(sorted(symbols))
+
+
 def discover(coverage, identity):
     """Read every privately observed collision, never a truncated diagnostic."""
     records = []
