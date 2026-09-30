@@ -56,6 +56,10 @@ def build(conn, mp, universe):
 def read(dsn, subject, expected):
     with pytest.MonkeyPatch.context() as mp, store.connect(dsn) as conn:
         fixture_context(mp, subject)
+        from sentinel import strategy
+        from sentinel.feed import rolling_go_inputs
+        mp.setattr(strategy, 'production_strategy', production_strategy)
+        mp.setattr(rolling_go_inputs, 'production_strategy', production_strategy)
         before = conn.execute('SELECT COUNT(*) FROM sentinel_processed_sessions').fetchone()[0]
         conn.rollback()
         started = time.monotonic()
@@ -81,10 +85,6 @@ if __name__ == '__main__':
         try:
             with pytest.MonkeyPatch.context() as mp, store.connect(pg.sync_dsn) as conn:
                 fixture_context(mp)
-    from sentinel import strategy
-    from sentinel.feed import rolling_go_inputs
-    mp.setattr(strategy, 'production_strategy', production_strategy)
-    mp.setattr(rolling_go_inputs, 'production_strategy', production_strategy)
                 runtime_schema.migrate_feed_schema(conn)
                 schema.ensure_schema(conn)
                 subject, expected = build(conn, mp, universe)

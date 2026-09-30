@@ -1,5 +1,12 @@
 # Sentinel — architecture and build plan
 
+[Current-window production](current-window-production.md) selects fresh cash
+startup with 300-session inputs and retained canonical ownership. Its explicit
+input-policy identity supersedes historical formation for new production books.
+Existing economic fixtures retain their named historical profiles; earlier
+certificates do not automatically certify this new source identity. Execution
+remains the only broker-facing layer.
+
 [Owned55 and $50k historical startup](owned55-historical-startup.md) records the
 owner-selected profile and new formation acceptance gates. The production
 selector changes identity; prior certification and checkpoints do not silently

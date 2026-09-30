@@ -61,6 +61,15 @@ def ready(conn, operational_source, monkeypatch, request):
     from datetime import timedelta
     now += timedelta(days=1, hours=4)
     monkeypatch.setattr(op, '_now', lambda: now)
+    from sentinel.feed import snapshot_export
+    probe_snapshot, download_snapshot = snapshot_export.probe_snapshot, snapshot_export.download_snapshot
+    def probe(*args, **kwargs):
+        return replace(probe_snapshot(*args, **kwargs), snapshot=now, refreshed=now)
+    def download(*args, **kwargs):
+        rows, evidence = download_snapshot(*args, **kwargs)
+        return rows, dict(evidence, last_refreshed_time=now.isoformat())
+    monkeypatch.setattr(snapshot_export, 'probe_snapshot', probe)
+    monkeypatch.setattr(snapshot_export, 'download_snapshot', download)
     _, strategy = production_strategy()
     job = op.enqueue(conn, strategy_sha256=digest(strategy), dependencies_sha256=digest('window fixture'))
     conn.commit()
@@ -82,12 +91,31 @@ def advance(conn):
 
 
 def test_fresh_start_matches_go_then_daily_and_restart(conn, ready, operational_source, monkeypatch):
+    from tools import sentinel_operational_parity as parity
+    from sentinel.feed import rolling_go_health
+    from sentinel import rolling_runtime
+    commit = 'a'*40
+    monkeypatch.setenv('SENTINEL_IMAGE_SOURCE_REVISION', commit)
+    monkeypatch.setattr(parity.identity, 'rehearsal_identity', lambda: {
+        'identity_hash': 'b'*64, 'environment': {'compatible': True, 'pins_match': True,
+        'sources_known': True, 'pin_drift': {}, 'lock_present': True,
+        'sentinel_source': {'hash': 'c'*64}, 'wealth_core_source': {'hash': 'd'*64}}})
+    report = parity.run_proof(conn, starting_cash='50000', expected_commit=commit)
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]/'scripts'))
+    import sentinel_go_validate as host
+    assert host._operational_parity_report_valid(report, commit=commit, starting_cash='50000')
+    conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    health = rolling_go_health.inspect(conn, database_url=conn.info.dsn)
+    assert all(health['checks'].values()), health
+    conn.rollback()
     evidence = observation_authority.current_warmup_evidence(conn, starting_cash=50_000)
     conn.commit()
-    first = start(conn)
+    first = rolling_runtime.advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=50_000)
     assert window_policy.enabled(first.state.strategy_identity)
     assert evidence['measured_sessions'] == 300
     assert evidence['result_state_sha256'] == first.state.state_hash
+    assert report['proof']['result_state_sha256'] == first.state.state_hash
+    assert first.verification == 'VERIFIED'
     assert first.state.wealth_core['cash'] == 50_000
     assert not first.state.wealth_core['episodes'] and first.state.pending
     assert first.state.ledger['events'] == []
@@ -95,7 +123,7 @@ def test_fresh_start_matches_go_then_daily_and_restart(conn, ready, operational_
     conn.commit()
     assert init.resume(conn, observation_id=OBS, starting_cash=50_000).state.state_hash == first.state.state_hash
     refresh(conn, operational_source, monkeypatch)
-    second = advance(conn)
+    second = rolling_runtime.advance(conn, through='2026-09-15', observation_id=OBS, starting_cash=50_000)
     assert second.state.wealth_core['episodes'] and second.state.wealth_core['cash'] < 50_000
     assert checkpoint.read(conn).input_value['current_window_continuity']['prior_state_sha256'] == first.state.state_hash
     conn.commit()
@@ -152,7 +180,7 @@ def test_observed_onset_gap_and_renamed_equivalent_publish_and_trade(conn, ready
 
 
 @pytest.mark.parametrize('ready', [{'names': 101}], indirect=True)
-def test_missing_held_mark_preserves_book_and_blocks_admissions(conn, ready, operational_source, monkeypatch):
+def test_missing_held_witness_mark_refuses_and_preserves_book(conn, ready, operational_source, monkeypatch):
     first = start(conn)
     refresh(conn, operational_source, monkeypatch)
     held = advance(conn)
@@ -168,9 +196,12 @@ def test_missing_held_mark_preserves_book_and_blocks_admissions(conn, ready, ope
         return original(*args, **kwargs)
     monkeypatch.setattr(op, 'prepare', missing)
     refresh(conn, operational_source, monkeypatch)
-    result = advance(conn)
-    assert any(e['security_id'] == sid for e in result.state.wealth_core['episodes'].values())
-    assert not any(p['kind'] == 'BUY' for p in result.state.pending)
+    from sentinel.shadow_observation import ShadowObservationRefused
+    with pytest.raises(ShadowObservationRefused, match='unresolved recent-leadership return'):
+        advance(conn)
+    restored = daily.resume(conn, observation_id=OBS, starting_cash=50_000)
+    assert restored.state.state_hash == held.state.state_hash
+    assert any(e['security_id'] == sid for e in restored.state.wealth_core['episodes'].values())
 
 
 def test_lost_commit_reply_resumes_without_duplicate_fills(conn, ready, operational_source, monkeypatch):
@@ -188,3 +219,92 @@ def test_lost_commit_reply_resumes_without_duplicate_fills(conn, ready, operatio
     conn.commit()
     recovered = advance(conn)
     assert recovered.state.state_hash == expected and not recovered.appended
+
+
+def test_applied_cash_event_change_refuses_before_daily_commit(conn, ready, operational_source, monkeypatch):
+    first = start(conn)
+    refresh(conn, operational_source, monkeypatch)
+    held = advance(conn)
+    episode = next(iter(held.state.wealth_core['episodes'].values()))
+    operational_source['ACTIONS'].append(dict(ticker=episode['ticker'], date=held.session,
+        action='dividend', value='1', name='late correction', contraticker=None, contraname=None))
+    refresh(conn, operational_source, monkeypatch)
+    with pytest.raises(rolling_continuity.RollingContinuityRefused, match='RETAINED_ECONOMIC_EVENT_CHANGED'):
+        advance(conn)
+    assert daily.resume(conn, observation_id=OBS, starting_cash=50_000).state.state_hash == held.state.state_hash
+
+
+def test_uniform_source_rebase_preserves_owned_quantities_and_peaks(conn, ready, operational_source, monkeypatch):
+    start(conn)
+    refresh(conn, operational_source, monkeypatch)
+    held = advance(conn)
+    refresh(conn, operational_source, monkeypatch, rebase=True)
+    result = advance(conn)
+    for key, episode in held.state.wealth_core['episodes'].items():
+        current = result.state.wealth_core['episodes'][key]
+        assert current['current_shares'] == episode['current_shares']
+        assert current['episode_peak_split_adjusted_close'] == pytest.approx(episode['episode_peak_split_adjusted_close'])
+
+
+def test_split_changes_shares_once_without_creating_a_stop(conn, ready, operational_source, monkeypatch):
+    from decimal import Decimal
+    start(conn)
+    refresh(conn, operational_source, monkeypatch)
+    held = advance(conn)
+    key, episode = next((k, e) for k, e in held.state.wealth_core['episodes'].items() if e['ticker'] != 'AAA')
+    original = op.prepare
+    def split(*args, **kwargs):
+        data = operational_source
+        day = max(r['date'] for r in data['SEP'])
+        for row in data['SEP']:
+            if row['ticker'] == episode['ticker']:
+                for field in ('open', 'close'):
+                    row[field] = str(Decimal(row[field])/2)
+                row['volume'] = str(Decimal(row['volume'])*2)
+                if row['date'] == day:
+                    row['closeunadj'] = str(Decimal(row['closeunadj'])/2)
+        data['ACTIONS'].append(dict(ticker=episode['ticker'], date=day, action='split', value='2',
+            name='fixture', contraticker=None, contraname=None))
+        return original(*args, **kwargs)
+    monkeypatch.setattr(op, 'prepare', split)
+    refresh(conn, operational_source, monkeypatch)
+    result = advance(conn)
+    current = result.state.wealth_core['episodes'][key]
+    assert current['current_shares'] == episode['current_shares']*2
+    assert current['episode_peak_split_adjusted_close'] == pytest.approx(episode['episode_peak_split_adjusted_close'])
+    assert not any(p['security_id'] == episode['security_id'] for p in result.state.pending)
+    assert not advance(conn).appended
+
+
+def test_go_replaces_unadmitted_old_policy_snapshot_on_same_frontier(conn, ready):
+    from sentinel.feed import rolling_go_inputs
+    job = op.enqueue(conn, strategy_sha256=digest('previous policy'), dependencies_sha256=digest('fixture'))
+    conn.commit()
+    previous = op.prepare(conn, job)
+    current = rolling_go_inputs.prepare(conn, target_session='2026-09-14')
+    assert current['status'] == 'PUBLISHED'
+    assert current['data_version'] == previous['data_version'] + 1
+    assert current['snapshot_id'] != previous['snapshot_id']
+    again = rolling_go_inputs.prepare(conn, target_session='2026-09-14')
+    assert again['status'] == 'ALREADY_CURRENT' and again['snapshot_id'] == current['snapshot_id']
+
+
+def test_fresh_window_book_reaches_paper_plan_without_historical_formation(conn, ready, monkeypatch):
+    from types import SimpleNamespace
+    from sentinel import dual_plan_authority, rolling_runtime
+    from sentinel.authority import load_rollout_state
+    from tests.sentinel import test_rolling_paper_inputs as paper_checks
+    monkeypatch.setattr(paper_checks, 'approve', lambda conn: rolling_runtime.advance(
+        conn, through='2026-09-14', observation_id=OBS, starting_cash=50_000))
+    shadow, bound, broker = paper_checks.gateway.__wrapped__(conn, ready, monkeypatch, SimpleNamespace())
+    prepared = paper_checks.prepare(conn, broker, dual_shadow_starting_cash=50_000)
+    assert prepared.state_fingerprint == shadow.state.state_hash
+    assert shadow.state.wealth_core['cash'] == 50_000 and not shadow.state.wealth_core['episodes']
+    assert prepared.plan.opening_intents
+    proof = dual_plan_authority.rederive_plan(conn, plan=prepared.plan, binding=bound,
+        rollout_state=load_rollout_state(conn), expected_shadow_result=shadow)
+    assert proof['verdict'] == 'MATCH'
+    conn.rollback()
+    repeated = paper_checks.prepare(conn, broker, dual_shadow_starting_cash=50_000)
+    assert repeated.plan.to_dict() == prepared.plan.to_dict()
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0

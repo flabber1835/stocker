@@ -60,6 +60,10 @@ unheld prices, volumes, reference-only actions and metadata need not equal the
 previous snapshot. Uniform source rebases must preserve owned drawdown and shares.
 Missing current held marks remain missing: canonical valuation blocks admissions,
 never fabricates cash, transfers identity or writes off the position.
+If a missing price also belongs to the controller's retained leadership basket,
+the existing unresolved-return guard refuses the entire transition, leaving the
+last committed state intact. This change does not relax that controller contract
+or guarantee uninterrupted trading through missing ownership/sensor evidence.
 
 Every current-window input is bound to the selected policy, source snapshot,
 decision session and prior state. Existing writer locks, publication pins,
@@ -78,3 +82,12 @@ Compare canonical state and orders with a controlled clean input, and deliberate
 break the new isolation and binding checks to verify their falsifiers. Production
 code must not import research code. No NAS, account or deployment approval is
 implied by these local tests.
+
+Local acceptance on 2026-09-30 passed all 12 new PostgreSQL integration cases,
+including the observed anomaly and a renamed equivalent, source-policy replacement
+before GO, split/rebase continuity, lost commit acknowledgement, and fresh-book
+paper-plan preparation with a simulated broker. The policy/economic/GO test group
+passed 230 cases; automation/authority compatibility passed 196; publication and
+paper-input regressions passed 64. Eight deliberate guard mutations were detected.
+These are functional results from local fixtures, not a full NAS replay or a claim
+that the new source identity has already completed GitHub certification.

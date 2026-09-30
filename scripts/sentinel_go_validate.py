@@ -383,10 +383,10 @@ class DatabaseHealthSummary:
             and self.counts["publication_chain_gaps"] == 0
             and self.counts["duplicate_publication_run_ids"] == 0
             and self.counts["publication_versions"] > 0
-            and self.counts["recent_xnys_sessions"] == 252
+            and self.counts["recent_xnys_sessions"] in (252, 299)
             and self.counts["frontier_security_rows"] > 0
             and self.counts["frontier_duplicate_security_keys"] == 0
-            and self.counts["warmup_revision_sessions"] == 252
+            and self.counts["warmup_revision_sessions"] == self.counts["recent_xnys_sessions"]
             and thresholds == {
                 "bounded_sharadar_ingest": MAX_BOUNDED_INGEST_MS,
                 "full_forward_decision_replay": (
@@ -1776,10 +1776,10 @@ def probe_database_financial_health(
         and counts["publication_versions"] > 0
         and counts["publication_chain_gaps"] == 0
         and counts["duplicate_publication_run_ids"] == 0
-        and counts["recent_xnys_sessions"] == 252
+        and counts["recent_xnys_sessions"] in ((252, 299) if rolling_contract else (252,))
         and counts["frontier_security_rows"] > 0
         and counts["frontier_duplicate_security_keys"] == 0
-        and counts["warmup_revision_sessions"] == 252
+        and counts["warmup_revision_sessions"] == counts["recent_xnys_sessions"]
         and all(measured[name] <= thresholds[name] for name in thresholds)
         and deadline["observed_source_final_to_following_open"]
             >= MIN_SOURCE_FINAL_TO_OPEN_MS

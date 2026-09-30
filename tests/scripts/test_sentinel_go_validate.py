@@ -583,6 +583,19 @@ def test_database_health_probe_is_read_only_pinned_and_reports_exact_margin():
     assert "warmup.get('session_count') == 252" in code
 
 
+@pytest.mark.parametrize('sessions,revision,expected', [(299, 299, True), (299, 252, False),
+    (300, 300, False), (298, 298, False)])
+def test_current_window_database_health_requires_exact_feature_axis(sessions, revision, expected):
+    payload = dict(_database_health_payload(), input_contract='sentinel.rolling-go-inputs/1',
+        recent_xnys_sessions=sessions, warmup_revision_sessions=revision)
+    summary, gate = go.probe_database_financial_health(_DatabaseHealthRunner(payload),
+        env={'SENTINEL_POSTGRES_PASSWORD': 'fixture'},
+        runtime_ref=DIGEST_B, now_text=NOW_TEXT, bounded_ingest_milliseconds=1000,
+        full_forward_decision_replay_milliseconds=2000)
+    assert summary.complete is expected
+    assert (gate.status == go.PASS) is expected
+
+
 def test_database_health_probe_fails_closed_on_timing_or_plan_margin():
     slow = go.MAX_COMBINED_PRETRADE_WORK_MS
     summary, gate = go.probe_database_financial_health(

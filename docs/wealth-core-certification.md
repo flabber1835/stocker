@@ -1,5 +1,12 @@
 # Wealth Core v1 — certification manifest
 
+[Current-window production](current-window-production.md) selects fresh cash
+startup with 300-session inputs and retained canonical ownership. Its explicit
+input-policy identity supersedes historical formation for new production books.
+Existing economic fixtures retain their named historical profiles; earlier
+certificates do not automatically certify this new source identity. Execution
+remains the only broker-facing layer.
+
 **Multi-child spin-offs, 2026-09-26:** the bounded
 [ownership certificate](../audit/multi_child_spinoffs/README.md) verifies atomic
 receipt/liquidation of multiple reviewed children, aggregate parent reference
