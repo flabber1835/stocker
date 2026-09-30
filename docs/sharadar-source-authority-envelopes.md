@@ -2,6 +2,11 @@
 
 **Status: NORMATIVE — issues #254, #255, and #256.**
 
+Reviewed instrument/session facts now live in
+`data/sharadar/source-corrections-v1.json`, with attended additive updates described
+in [acquisition data recovery](acquisition-data-recovery.md). The exact matching
+rules below remain binding; a provider gap alone never creates an allowance.
+
 This document closes three source-authority gaps without changing Wealth Core's
 strategy rules:
 

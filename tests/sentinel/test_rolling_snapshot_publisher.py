@@ -185,7 +185,7 @@ def test_bad_source_never_publishes(conn, source, defect):
         publisher.prepare(conn, job)
     assert count(conn, "sentinel_snapshot_comparisons") == 0
     assert count(conn, "sentinel_price_candidates") == 0
-    assert jobs.status(conn, job)["state"] == "REFUSED"
+    assert jobs.status(conn, job)["state"] == ("WAIT_SOURCE" if defect == "missing_equity" else "REFUSED")
 
 
 def test_pending_export_is_durable_wait_without_new_deadline(conn, source, monkeypatch):

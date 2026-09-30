@@ -194,7 +194,8 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
 
         binding = (preparation_wait.run(conn, job, prepare=snapshots.prepare,
                                         check_target=check_target)
-                   if wait else snapshots.prepare(conn, job))
+                   if wait else preparation_wait.once(conn, job, prepare=snapshots.prepare,
+                                                      check_target=check_target))
         with snapshots.pinned(conn, commit=False) as (held, _):
             checked, _ = validate_status(conn, held)
             if checked != binding or held.window_end != target_session:

@@ -316,6 +316,9 @@ def advance_once(config: ShadowServiceConfig, *,
         except Exception as exc:
             from sentinel.rolling_reconstruction_evidence import InputsUnavailable
             from sentinel.feed.rolling_jobs import JobDeadlineExceeded
+            from sentinel.feed.source_wait import SourceCoveragePending
+            if isinstance(exc, SourceCoveragePending):
+                raise ShadowServiceWaiting(str(exc)) from exc
             if isinstance(exc, InputsUnavailable):
                 raise ShadowServiceWaiting(str(exc)) from exc
             if isinstance(exc, JobDeadlineExceeded):

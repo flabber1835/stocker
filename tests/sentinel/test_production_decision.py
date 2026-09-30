@@ -443,7 +443,11 @@ def test_data_semantics_identity_moves_when_only_a_decoder_source_moves(
     ("sentinel.feed.actions_reconcile_v7",
      "if prior is None:", "if False:"),
     ("sentinel.feed.source_authority.corporate_action_data",
-     '"final_cash_amount": "1.435518"', '"final_cash_amount": "1.50"'),
+     'return current()[self.field][index]', 'return current()[self.field][0]'),
+    ("sentinel.feed.source_corrections",
+     'if retained != envelope:', 'if False:'),
+    ("sentinel.feed.correction_model",
+     'if not old.issubset(new):', 'if False:'),
 ])
 def test_cash_adjudication_changes_invalidate_persisted_strategy_identity(
         monkeypatch, tmp_path, module_name, old, new):
@@ -473,6 +477,8 @@ def test_data_semantics_bundle_names_transitive_book_dependencies():
         "sentinel.core.session",
         "sentinel.execution.target_reprojection",
         "sentinel.feed.actions_map",
+        "sentinel.feed.source_corrections",
+        "sentinel.feed.correction_model",
         "sentinel.feed.domains",
         "sentinel.feed.operational_coherence",
         "sentinel.feed.staging",

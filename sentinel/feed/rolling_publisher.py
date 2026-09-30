@@ -126,6 +126,7 @@ def _checkpoint(conn, lease, *, ready, component, generation, artifact, rows, by
 
 def _record_failure(conn, lease, exc, *, operational=False):
     from sentinel.feed.acquisition_limits import AcquisitionResourceExceeded
+    from sentinel.feed.source_wait import SourceCoveragePending, record as record_source_wait
     conn.rollback()
     if jobs.expire(conn, lease.job_id):
         conn.commit()
@@ -134,7 +135,11 @@ def _record_failure(conn, lease, exc, *, operational=False):
         remaining = jobs.status(conn, lease.job_id)["remaining_seconds"]
         delay = max(1, math.ceil(exc.delay)) if isinstance(exc, sharadar.SharadarRetryDeferred) else 10
         horizon = isinstance(exc, backup_runtime_authority.BackupHorizonExceeded)
-        if horizon and remaining > 2:
+        if isinstance(exc, SourceCoveragePending) and remaining > 1:
+            record_source_wait(conn, lease, exc)
+            jobs.wait(conn, lease, state="WAIT_SOURCE",
+                      reason="SOURCE_COVERAGE_PENDING", retry_seconds=60)
+        elif horizon and remaining > 2:
             jobs.wait(conn, lease, state="RETRY_WAIT",
                       reason="BACKUP_HORIZON_EXCEEDED", retry_seconds=1)
         elif isinstance(exc, snapshot_export.ExportPending) and remaining > delay:
@@ -197,7 +202,14 @@ def _prepare(conn, job_id, *, operational):
         with store.corpus_write_lock(conn):
             boundary.freeze(conn, lease, request)
             conn.commit()
-        source = RetainedSource(request.window, conn, lease)
+        corrections = None
+        if ready:
+            manifest = rolling_store.manifest(conn, str(current["candidate_id"]))
+            pinned = rolling_store.load_evidence(conn, manifest.source_evidence_sha256)
+            from sentinel.feed import source_corrections
+            corrections = pinned.get("source_corrections", source_corrections.bootstrap())
+        source = RetainedSource(request.window, conn, lease, corrections=corrections)
+        source.legacy_source_evidence = ready and "source_corrections" not in pinned
 
         def pulse():
             jobs.heartbeat(conn, lease, lease_seconds=600)
@@ -212,6 +224,9 @@ def _prepare(conn, job_id, *, operational):
         with source.parts.unit():
             source.preflight()
             pulse()
+        if not ready:
+            from sentinel.feed import source_wait
+            source_wait.check(conn, lease, request, source)
         source.references(checkpoint)
         source.acquire_prices(checkpoint, pulse)
         with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):
