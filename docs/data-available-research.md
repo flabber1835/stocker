@@ -44,6 +44,11 @@ events for backtesting. Its ages, peaks and cooldowns are ignored by account300.
 Historical event terms still matter to simulated P&L even though the prospective
 strategy would read broker-adjusted account balances. Broker feed reliability
 and forward execution remain untested by this offline experiment.
+The pure account rule can continue selecting unaffected names when account
+equity is known despite a held-stock market-data gap. The offline adapter has
+no independent broker valuation: unresolved canonical equity still blocks
+purchases in that replay. This distinction is covered by a direct account-rule
+test and must remain explicit in interpreting blocked-session counts.
 
 Can current-window features and automatic instrument eligibility replace the
 requirement that every old source observation remain unchanged, without losing
@@ -114,6 +119,14 @@ split value conservation, rolling peak expiry, no pre-ownership peak, corporate
 reference rebasing, next-open execution and restart equivalence. Remove selected
 guards deliberately and require the corresponding falsifiers to fail.
 
+The first substantial interval is 2007-03-15 through 2010-12-31, including the
+financial crisis and recovery, following 300 feature-only sessions beginning in
+2006. It is not a twenty-year result. The retained classification reconstruction
+and existing canonical terminal-settlement conventions are common assumptions
+across arms. Actual Alpaca asset availability is not substituted for the
+historical eligible universe. Production promotion requires a separately
+reviewed decision; this branch only answers research questions.
+
 ## Broker-hosted reference account alternative
 
 The owner also proposed a separate Alpaca paper account running full-exposure
@@ -135,3 +148,14 @@ The live-account [mandatory corporate action documentation](https://docs.alpaca.
 must not be used as proof of paper simulation support. Retaining internal
 economic state remains useful even with a simple market-data interface. This
 experiment does not implement account adjustments or change any paper account.
+
+Alpaca's [historical bars API](https://docs.alpaca.markets/us/reference/stockbars)
+exposes explicit raw, split, dividend and spin-off adjustments, symbol mapping
+and separate SIP/IEX feeds. A future snapshot adapter must request the intended
+price domains and feed explicitly; `all` is not a substitute for the current
+split-adjusted, dividend-unadjusted signal domain. Single-exchange volume cannot
+silently replace consolidated volume under the same dollar-liquidity thresholds.
+The documented [historical coverage begins in 2016](https://docs.alpaca.markets/us/docs/about-market-data-api),
+so this 2007–2010 retained-data experiment cannot qualify Alpaca historical
+acquisition. Delayed end-of-day access and real-time account access are different
+requirements; no paid market-data subscription is assumed by this experiment.

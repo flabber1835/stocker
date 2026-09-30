@@ -3,6 +3,10 @@
 The decision is documented in `docs/data-available-research.md`. Nothing here is
 selected by the production runtime. No account, API key or network access is used.
 
+Completed [crisis/recovery findings](results/crisis-2007-2010/findings.md),
+[metrics](results/crisis-2007-2010/summary.md) and
+[chart](results/crisis-2007-2010/comparison.png) cover 959 sessions.
+
 Four arms share canonical accounting and the same observations:
 
 | Arm | Signals | Ownership rules |

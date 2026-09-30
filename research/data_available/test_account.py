@@ -44,6 +44,13 @@ def test_gap_defers_affected_holding_and_unknown_equity_blocks_buys():
     assert propose(bs,windows,account)==([],[])
 
 
+def test_known_account_equity_allows_other_names_despite_held_snapshot_gap():
+    bs,windows=snapshot()
+    bs[45]=replace(bs[45],eligible=False,certified_signals=None)
+    account=Account(cash=D(1000),equity=D(50_000),positions={'45':D(10)})
+    assert propose(bs,windows,account)==([],[('0',D(1000))])
+
+
 @pytest.mark.parametrize('field,value',[('raw_close',.5),('volume',1.)])
 def test_failed_entry_filter_does_not_hide_valid_held_exit(field,value):
     from research.data_available.test_policy import filled_feed

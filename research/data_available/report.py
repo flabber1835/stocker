@@ -44,6 +44,12 @@ def summarize(root):
         money=f"${a['final_equity']:,.2f}" if a['final_equity'] is not None else 'unresolved'
         pct=lambda v:'unavailable' if v is None else f'{v:.2%}'
         lines.append(f"| {name} | {money} | {pct(a['multiple']-1 if a['multiple'] is not None else None)} | {pct(a['cagr'])} | {pct(a['maximum_drawdown'])} | ${a['fees']:,.2f} | {a['blocked_sessions']} |")
+    lines+=['','| Variant | Fills | Turnover dollars | Mean holdings | Holdings differ from baseline (sessions) |',
+            '| --- | ---: | ---: | ---: | ---: |']
+    for name,a in result['arms'].items():
+        fills=sum(r['arms'][name]['fills'] for r in rows)
+        different=result['differences'].get(name,0)
+        lines.append(f"| {name} | {fills} | ${a['turnover_dollars']:,.0f} | {a['average_holdings']:.1f} | {different} |")
     lines+=['',f"SPY total-return comparison: {result['spy']['multiple']-1:.2%}; max drawdown {result['spy']['maximum_drawdown']:.2%}.",
         '', 'Unscaled Wealth Core research. No Sentinel overlay or live broker behaviour is measured.',
         'Retrospective source data and reviewed corporate-action terms are used in every arm.',
@@ -70,13 +76,20 @@ def plot(root,result,rows):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
     fig,ax=plt.subplots(figsize=(11,6))
     days=[date.fromisoformat(r['session']) for r in rows]
     for name in result['arms']:
-        if result['arms'][name]['performance_available']:
-            ax.plot(days,[r['arms'][name]['equity'] for r in rows],label=name,lw=1.5)
+        values=[r['arms'][name]['equity'] for r in rows]
+        missing=sum(v is None for v in values)
+        label=name+(f' ({missing} unvalued sessions)' if missing else '')
+        ax.plot(days,[float('nan') if v is None else v for v in values],
+                label=label,lw=1.5)
     ax.plot(days,[50_000*r['spy']/rows[0]['spy'] for r in rows],label='SPY total return',color='#555555',ls='--')
     ax.set(title='Data-available strategy research — no Sentinel overlay',ylabel='Portfolio value ($)',xlabel='Session')
+    locator=mdates.AutoDateLocator(minticks=4,maxticks=8)
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     ax.grid(alpha=.2); ax.legend(); fig.tight_layout()
     fig.savefig(root/'comparison.png',dpi=160)
     plt.close(fig)

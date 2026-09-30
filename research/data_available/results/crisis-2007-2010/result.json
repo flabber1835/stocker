@@ -1,0 +1,144 @@
+{
+  "arms": {
+    "account300": {
+      "average_holdings": 16.773722627737225,
+      "blocked_sessions": 113,
+      "cagr": null,
+      "end": "2010-12-31",
+      "events": {
+        "BUY": 1912,
+        "CASH_MERGER": 27,
+        "CONVERSION": 2,
+        "DIVIDEND_ACCRUED": 72,
+        "DIVIDEND_PAID": 72,
+        "SELL": 1866,
+        "SPLIT": 11
+      },
+      "fees": 7578.0718274145,
+      "final_equity": 38184.37426245386,
+      "maximum_drawdown": null,
+      "multiple": null,
+      "performance_available": false,
+      "sessions": 959,
+      "settlement": {
+        "derived_last_mark_settlements": 14,
+        "derived_last_mark_settlements_notional": 29357.93,
+        "exact_terminal_settlements": 15,
+        "exact_terminal_settlements_notional": 30206.7,
+        "pending_terms_carried": 23,
+        "pending_terms_carried_notional": 47753.02
+      },
+      "start": "2007-03-15",
+      "stop_signals": 1871,
+      "turnover_dollars": 7578071.8274145,
+      "variant": "account300"
+    },
+    "baseline": {
+      "average_holdings": 17.34932221063608,
+      "blocked_sessions": 0,
+      "cagr": 0.11109725103612167,
+      "end": "2010-12-31",
+      "events": {
+        "BUY": 128,
+        "CASH_MERGER": 16,
+        "CONVERSION": 1,
+        "DIVIDEND_ACCRUED": 104,
+        "DIVIDEND_PAID": 104,
+        "SELL": 94,
+        "SPLIT": 8
+      },
+      "fees": 509.038417575,
+      "final_equity": 74594.85651542502,
+      "maximum_drawdown": -0.46551979217864203,
+      "multiple": 1.4918971303085005,
+      "performance_available": true,
+      "sessions": 959,
+      "settlement": {
+        "exact_terminal_settlements": 17,
+        "exact_terminal_settlements_notional": 42018.0,
+        "pending_terms_carried": 12,
+        "pending_terms_carried_notional": 29225.1
+      },
+      "start": "2007-03-15",
+      "stop_signals": 78,
+      "turnover_dollars": 509038.417575,
+      "variant": "baseline"
+    },
+    "rolling300": {
+      "average_holdings": 17.34932221063608,
+      "blocked_sessions": 0,
+      "cagr": 0.11109725103612167,
+      "end": "2010-12-31",
+      "events": {
+        "BUY": 128,
+        "CASH_MERGER": 16,
+        "CONVERSION": 1,
+        "DIVIDEND_ACCRUED": 104,
+        "DIVIDEND_PAID": 104,
+        "SELL": 94,
+        "SPLIT": 8
+      },
+      "fees": 509.038417575,
+      "final_equity": 74594.85651542502,
+      "maximum_drawdown": -0.46551979217864203,
+      "multiple": 1.4918971303085005,
+      "performance_available": true,
+      "sessions": 959,
+      "settlement": {
+        "exact_terminal_settlements": 17,
+        "exact_terminal_settlements_notional": 42018.0,
+        "pending_terms_carried": 12,
+        "pending_terms_carried_notional": 29225.1
+      },
+      "start": "2007-03-15",
+      "stop_signals": 78,
+      "turnover_dollars": 509038.417575,
+      "variant": "rolling300"
+    },
+    "snapshot": {
+      "average_holdings": 17.34932221063608,
+      "blocked_sessions": 0,
+      "cagr": 0.11109725103612167,
+      "end": "2010-12-31",
+      "events": {
+        "BUY": 128,
+        "CASH_MERGER": 16,
+        "CONVERSION": 1,
+        "DIVIDEND_ACCRUED": 104,
+        "DIVIDEND_PAID": 104,
+        "SELL": 94,
+        "SPLIT": 8
+      },
+      "fees": 509.038417575,
+      "final_equity": 74594.85651542502,
+      "maximum_drawdown": -0.46551979217864203,
+      "multiple": 1.4918971303085005,
+      "performance_available": true,
+      "sessions": 959,
+      "settlement": {
+        "exact_terminal_settlements": 17,
+        "exact_terminal_settlements_notional": 42018.0,
+        "pending_terms_carried": 12,
+        "pending_terms_carried_notional": 29225.1
+      },
+      "start": "2007-03-15",
+      "stop_signals": 78,
+      "turnover_dollars": 509038.417575,
+      "variant": "snapshot"
+    }
+  },
+  "daily_sha256": "3dbc35cbbd814e2a6b12e669d20092dea9569cb668e811b6d291757dfe53044a",
+  "differences": {
+    "account300": 958,
+    "rolling300": 0,
+    "snapshot": 0
+  },
+  "elapsed_seconds": 2571.1909338762052,
+  "spy": {
+    "end": "2010-12-31",
+    "maximum_drawdown": -0.5520185564591154,
+    "multiple": 0.980837291369576,
+    "start": "2007-03-15"
+  },
+  "status": "COMPLETE"
+}
