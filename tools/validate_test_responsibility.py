@@ -681,7 +681,8 @@ def _require_parallel_certification(sentinel: str) -> dict:
 
     suites = _job_body(sentinel, "parallel-certification")
     suite_commands = {
-        "sentinel-main": [("sentinel-test:ci tests/sentinel", "docker")],
+        "sentinel-contention": [("sentinel-test:ci tests/sentinel/test_runtime_contention.py", "docker")],
+        "sentinel-status": [("sentinel-test:ci tests/sentinel/test_status_memory.py", "docker")],
         "sentinel-warmup": [("sentinel-test:ci tests/sentinel/test_source_seed_warmup.py", "docker")],
         "sentinel-automation": [("-m coverage run --branch", "docker"),
                                 ("--fail-under=80.00", "docker")],
@@ -699,6 +700,20 @@ def _require_parallel_certification(sentinel: str) -> dict:
                 suites, marker, command_start=start,
                 required_if="${{ matrix.lane == '" + lane + "' }}", allow_tee=True),
                 f"parallel certification: {lane} lacks executable suite/probe: {marker}")
+    for family in ("general", "rolling"):
+        condition = "${{ startsWith(matrix.lane, 'sentinel-" + family + "-') }}"
+        shard_steps = [step for step in _step_slices(suites)
+                       if _field_from_step(step, "if") == condition]
+        require(len(shard_steps) == 1
+                and _step_scalar(shard_steps[0], ("env", "CI_LANE")) == "${{ matrix.lane }}"
+                and 'python tools/sentinel_ci_shards.py --lane "$CI_LANE"' in
+                (_step_run(shard_steps[0]) or ""),
+                f"parallel certification: sentinel-{family} planner is not bound to matrix lane")
+        for marker, start in (("python tools/sentinel_ci_shards.py --lane", "python"),
+                              ('sentinel-test:ci "${modules[@]}"', "docker")):
+            require(_safe_command_present(suites, marker, command_start=start,
+                                          required_if=condition, allow_tee=True),
+                    f"parallel certification: sentinel-{family} lacks shard selection/run: {marker}")
 
     replay = _job_body(sentinel, "sharadar-replay")
     for marker in ("-m pytest research/sharadar_replay/tests -q -ra -s",

@@ -182,12 +182,11 @@ jobs:
     name: sentinel-suite-${{ matrix.lane }}
     needs: [runtime-build]
     runs-on: ubuntu-latest
-    # Main runs four complete partitions serially; other lanes retain 45 minutes.
-    timeout-minutes: ${{ matrix.lane == 'sentinel-main' && 150 || 45 }}
+    timeout-minutes: ${{ startsWith(matrix.lane, 'sentinel-rolling-') && 60 || 45 }}
     strategy:
       fail-fast: false
       matrix:
-        lane: [sentinel-main, sentinel-warmup, sentinel-automation, champion, operator, wealth-core, mutations]
+        lane: [sentinel-general-0, sentinel-general-1, sentinel-general-2, sentinel-general-3, sentinel-rolling-0, sentinel-rolling-1, sentinel-rolling-2, sentinel-rolling-3, sentinel-contention, sentinel-status, sentinel-warmup, sentinel-automation, champion, operator, wealth-core, mutations]
     env:
       TESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
@@ -210,51 +209,55 @@ jobs:
       - name: Initialize lane evidence
         run: mkdir -p /tmp/sentinel-lane-evidence
 
-      - name: Run Sentinel main without duplicating warmup or automation fixtures
-        if: ${{ matrix.lane == 'sentinel-main' }}
+      - name: Run one complete ordinary Sentinel module shard
+        if: ${{ startsWith(matrix.lane, 'sentinel-general-') }}
+        env:
+          CI_LANE: ${{ matrix.lane }}
         run: |
           set -euo pipefail
-          automation_files=(
-            tests/sentinel/test_automation_composition.py
-            tests/sentinel/test_automation_worker_source_recovery.py
-            tests/sentinel/test_automation_service.py
-            tests/sentinel/test_issue_201_automation_financial_grade.py
-            tests/sentinel/test_automation_p1_continuity.py
-            tests/sentinel/test_automation_safety_seams.py
-            tests/sentinel/test_automation_process_contracts.py
-          )
-          ignore_args=(--ignore=tests/sentinel/test_source_seed_warmup.py)
-          for path in "${automation_files[@]}"; do
-            ignore_args+=("--ignore=${path}")
-          done
-          rolling_files=(tests/sentinel/test_rolling_*.py)
-          {
-            docker run --rm --network none \
-              -v /tmp/sentinel-lane-evidence:/evidence \
-              sentinel-test:ci tests/sentinel "${ignore_args[@]}" \
-              '--ignore-glob=tests/sentinel/test_rolling_*.py' -vv -ra \
-              --ignore=tests/sentinel/test_status_memory.py \
-              --ignore=tests/sentinel/test_runtime_contention.py \
-              --junitxml=/evidence/sentinel-main-general.xml
-            docker run --rm --network none \
-              -v /tmp/sentinel-lane-evidence:/evidence \
-              sentinel-test:ci tests/sentinel/test_runtime_contention.py -vv -ra \
-              --junitxml=/evidence/sentinel-main-contention.xml
-            docker run --rm --network none \
-              -v /tmp/sentinel-lane-evidence:/evidence \
-              sentinel-test:ci tests/sentinel/test_status_memory.py -vv -ra \
-              --junitxml=/evidence/sentinel-main-status.xml
-            docker run --rm --network none \
-              -v /tmp/sentinel-lane-evidence:/evidence \
-              sentinel-test:ci "${rolling_files[@]}" -vv -ra \
-              --junitxml=/evidence/sentinel-main-rolling.xml
-            python tools/merge_junit.py \
-              --output /tmp/sentinel-lane-evidence/sentinel-main.xml \
-              /tmp/sentinel-lane-evidence/sentinel-main-general.xml \
-              /tmp/sentinel-lane-evidence/sentinel-main-contention.xml \
-              /tmp/sentinel-lane-evidence/sentinel-main-status.xml \
-              /tmp/sentinel-lane-evidence/sentinel-main-rolling.xml
-          } 2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
+          python tools/sentinel_ci_shards.py --lane "$CI_LANE" > /tmp/sentinel-ci-modules
+          mapfile -t modules < /tmp/sentinel-ci-modules
+          test "${#modules[@]}" -gt 0
+          docker run --rm --network none \
+            -v /tmp/sentinel-lane-evidence:/evidence \
+            sentinel-test:ci "${modules[@]}" -vv -ra \
+            --junitxml="/evidence/${CI_LANE}.xml" \
+            2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
+
+      - name: Run one complete rolling Sentinel module shard
+        if: ${{ startsWith(matrix.lane, 'sentinel-rolling-') }}
+        env:
+          CI_LANE: ${{ matrix.lane }}
+        run: |
+          set -euo pipefail
+          python tools/sentinel_ci_shards.py --lane "$CI_LANE" > /tmp/sentinel-ci-modules
+          mapfile -t modules < /tmp/sentinel-ci-modules
+          test "${#modules[@]}" -gt 0
+          docker run --rm --network none \
+            -v /tmp/sentinel-lane-evidence:/evidence \
+            sentinel-test:ci "${modules[@]}" -vv -ra \
+            --junitxml="/evidence/${CI_LANE}.xml" \
+            2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
+
+      - name: Run independent Sentinel contention tests
+        if: ${{ matrix.lane == 'sentinel-contention' }}
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            -v /tmp/sentinel-lane-evidence:/evidence \
+            sentinel-test:ci tests/sentinel/test_runtime_contention.py -vv -ra \
+            --junitxml=/evidence/sentinel-contention.xml \
+            2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
+
+      - name: Run independent Sentinel status and memory tests
+        if: ${{ matrix.lane == 'sentinel-status' }}
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            -v /tmp/sentinel-lane-evidence:/evidence \
+            sentinel-test:ci tests/sentinel/test_status_memory.py -vv -ra \
+            --junitxml=/evidence/sentinel-status.xml \
+            2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
 
       - name: Run the complete million-row warmup module with one shared fixture
         if: ${{ matrix.lane == 'sentinel-warmup' }}

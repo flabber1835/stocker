@@ -1,5 +1,9 @@
 # Sentinel — operational deployment ground truth
 
+[CI sharding](sentinel-ci-sharding.md) defines the exact-head test partition
+and evidence-union contract for parallel Sentinel safety jobs. It changes CI
+latency, not production authority or the deployable image.
+
 [GO WAL renewal](go-wal-renewal.md) defines bounded host backup renewal when
 acquisition exceeds the runtime restore-horizon budget. GO resumes the same
 fenced job and revalidates retained parts without resetting its deadline.
