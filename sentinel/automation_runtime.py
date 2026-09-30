@@ -65,6 +65,7 @@ from sentinel.feed import (
     calendar, coherence, identity_refresh, ingest, publication, readiness, sharadar)
 from sentinel.feed import store as feed_store
 from sentinel.feed.source_authority import SeedIdentityCollision
+from sentinel.feed.source_wait import SourceCoveragePending
 
 
 PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
@@ -72,6 +73,7 @@ PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
 TARGET_PROJECTION_REFUSED = "TARGET_PROJECTION_REFUSED"
 REFRESH_TRANSIENT_FAILURES = (
     SeedIdentityCollision,
+    SourceCoveragePending,
     coherence.TickerMetadataIncomplete,
     coherence.SepListingPopulationIncomplete,
     identity_refresh.SepMutationIdentityRefused,
@@ -744,7 +746,7 @@ class ProductionAutomation:
                         observation_id=self._shadow_observation_id,
                         starting_cash=self._shadow_starting_cash)
                 except dual_reconciliation.DualReconciliationPending as exc:
-                    raise TransientInfrastructureFailure(str(exc)) from exc
+                    raise SourceDataPending(str(exc)) from exc
                 except dual_reconciliation.DualReconciliationRefused as exc:
                     raise NonRetryableCallbackRefused(str(exc)) from exc
                 return RefreshResult(already_published=True, data_version=str(current.version),
@@ -771,7 +773,7 @@ class ProductionAutomation:
                 # session twice, invalidating the shadow record's exact
                 # publication version before PAPER sizing. Wait for that one
                 # authority; never race it from the broker-capable service.
-                raise TransientInfrastructureFailure(
+                raise SourceDataPending(
                     "dual refresh is waiting for the dedicated shadow data "
                     "publisher to publish the exact decision close")
             context.require_active()

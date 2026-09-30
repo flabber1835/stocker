@@ -279,8 +279,8 @@ def resolve_dividends(
         rows: Iterable[Mapping],
         sessions_sorted: Sequence[str],
         *,
-        disputed_events: Sequence[Mapping] = DISPUTED_CASH_EVENTS,
-        authorities: Sequence[Mapping] = CASH_ADJUDICATION_AUTHORITIES,
+        disputed_events: Sequence[Mapping] | None = None,
+        authorities: Sequence[Mapping] | None = None,
         ) -> CashResolution:
     """Resolve ordinary Sharadar dividends plus reviewed exceptional overrides."""
     materialized = list(rows)
@@ -298,6 +298,11 @@ def resolve_dividends(
         key = (str(row["ticker"]), session)
         out[key] = out.get(key, Decimal(0)) + amount
 
+    if disputed_events is None or authorities is None:
+        from sentinel.feed.source_corrections import current
+        selected = current()
+        disputed_events = selected["disputed_cash_events"] if disputed_events is None else disputed_events
+        authorities = selected["cash_authorities"] if authorities is None else authorities
     registry = _validated_registry(disputed_events, authorities)
     audits: list[CashAdjudication] = []
     for event_id, record in sorted(registry.items()):
@@ -368,10 +373,15 @@ def resolve_dividends(
 
 def semantic_replay_dates(
         *, market_start: str, market_end: str,
-        disputed_events: Sequence[Mapping] = DISPUTED_CASH_EVENTS,
-        authorities: Sequence[Mapping] = CASH_ADJUDICATION_AUTHORITIES,
+        disputed_events: Sequence[Mapping] | None = None,
+        authorities: Sequence[Mapping] | None = None,
         ) -> list[str]:
     """Raw ACTIONS dates that must be replayed when this authority epoch lands."""
+    if disputed_events is None or authorities is None:
+        from sentinel.feed.source_corrections import current
+        selected = current()
+        disputed_events = selected["disputed_cash_events"] if disputed_events is None else disputed_events
+        authorities = selected["cash_authorities"] if authorities is None else authorities
     registry = _validated_registry(disputed_events, authorities)
     dates = []
     for record in registry.values():
@@ -382,9 +392,12 @@ def semantic_replay_dates(
 
 
 def authority_manifest(
-        authorities: Sequence[Mapping] = CASH_ADJUDICATION_AUTHORITIES,
+        authorities: Sequence[Mapping] | None = None,
         ) -> list[dict]:
     """Bounded publication evidence for the reviewed authority set."""
+    if authorities is None:
+        from sentinel.feed.source_corrections import current
+        authorities = current()["cash_authorities"]
     for record in authorities:
         validate_authority(record)
     return [{

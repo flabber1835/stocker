@@ -1201,3 +1201,31 @@ async def test_missed_window_supersession_is_notifier_eligible(conn, pg) -> None
             "SELECT state FROM sentinel_automation_service_instances"
             " WHERE instance_id='worker-a'")
         assert cur.fetchone()[0] == "SUPERSEDED"
+
+
+@pytest.mark.asyncio
+async def test_data_wait_survives_retry_count_and_restart_then_executes_once(conn):
+    from datetime import timedelta
+    from sentinel.automation.model import SourceDataPending
+    cfg = config().model_copy(update={"refresh_max_attempts": 2})
+    enable(conn, cfg)
+    calls = []
+    def pending(context):
+        raise SourceDataPending("source not finalized")
+    worker = service_for(cfg, refresh=pending)
+    now = AFTER_WEDNESDAY_CLOSE
+    assert (await worker.tick(conn, now=now)).action is TickAction.RECOVERED
+    for attempt in range(5):
+        worker = service_for(cfg, refresh=pending)  # Process restarts cannot reset attempts.
+        result = await worker.tick(conn, now=now)
+        assert result.action is TickAction.RETRY_SCHEDULED
+        assert result.cycle.diagnostic["phase_attempt_count"] == attempt + 1
+        assert result.cycle.diagnostic["callback_failure"] == "SOURCE_DATA_PENDING"
+        now += timedelta(seconds=31)
+    worker = service_for(cfg, execute=lambda context: calls.append(context.cycle.plan_id) or execution_success(context))
+    assert (await worker.tick(conn, now=now)).action is TickAction.REFRESHED
+    assert (await worker.tick(conn, now=now)).action is TickAction.PREPARED
+    assert (await worker.tick(conn, now=THURSDAY_AFTER_OPEN)).action is TickAction.EXECUTED
+    await worker.tick(conn, now=THURSDAY_AFTER_OPEN)
+    assert len(calls) == 1
+    assert worker._retry_at(now, 10**9) == now + timedelta(seconds=cfg.retry_max_seconds)
