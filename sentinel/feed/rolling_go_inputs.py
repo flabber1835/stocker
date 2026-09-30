@@ -133,19 +133,33 @@ def readiness(conn, *, now=None):
         return report
 
 
-def prepare(conn, *, target_session, budget_seconds=3600, resume_job_id=None):
+def deadline_from_host(value):
+    """Require an explicit UTC cutoff on the host-managed GO path."""
+    from datetime import datetime, timedelta
+    try:
+        result = datetime.fromisoformat(value)
+        if result.utcoffset() != timedelta(0):
+            raise ValueError
+    except (TypeError, ValueError):
+        raise RollingGoRefused("GO_PREPARATION_DEADLINE_INVALID") from None
+    return result
+
+
+def prepare(conn, *, target_session, budget_seconds=3600, resume_job_id=None,
+            absolute_deadline=None):
     """First-deployment coordinator; retry reuses the durable exact request."""
     try:
         require_schemas(conn)
         require_first_deployment(conn)
         return _prepare(conn, target_session=target_session, budget_seconds=budget_seconds,
-                        wait=True, resume_job_id=resume_job_id)
+                        wait=True, resume_job_id=resume_job_id, absolute_deadline=absolute_deadline)
     except BaseException:
         conn.rollback()
         raise
 
 
-def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_job_id=None):
+def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_job_id=None,
+             absolute_deadline=None):
     """Shared acquisition; callers first prove fresh or attested runtime state."""
     try:
         if target_session != snapshots.source_final_session():
@@ -171,7 +185,8 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
         _, strategy = production_strategy()
         job = snapshots.enqueue(conn, strategy_sha256=digest(strategy),
                                 dependencies_sha256=digest({"scope": SCHEMA}),
-                                budget_seconds=budget_seconds, resume_job_id=resume_job_id)
+                                budget_seconds=budget_seconds, resume_job_id=resume_job_id,
+                                absolute_deadline=absolute_deadline)
         conn.commit()
         def check_target():
             if target_session != snapshots.source_final_session():

@@ -6,7 +6,7 @@ from datetime import date
 
 from sentinel.feed import (
     action_source, authority, calendar, coherence, export_readiness, session_envelope, sharadar,
-    snapshot_export, tickers_authority,
+    snapshot_export, tickers_authority, rolling_work,
 )
 from sentinel.feed.operational_source import _months
 from sentinel.feed.rolling_contract import canonical_json, digest
@@ -129,13 +129,17 @@ class SharadarSource:
     def corroborate(self):
         from sentinel.feed.acquisition_parts import SourceRevision
         for captured in self.snapshots:
+            rolling_work.checkpoint()
             checked = snapshot_export.probe_snapshot(captured.table, params=captured.params)
+            rolling_work.checkpoint()
             if checked.refreshed != captured.refreshed:
                 raise SourceRevision(component(captured), digest(generation(captured)), digest(generation(checked)))
         tickers = self._tickers_json(self._ticker_keys)
+        rolling_work.checkpoint()
         if tickers != self.tickers:
             raise SourceRevision("TICKERS", digest(self.tickers), digest(tickers))
         sfp = self._sfp()
+        rolling_work.checkpoint()
         if sfp != self.sfp:
             raise SourceRevision("SFP", digest(self.sfp), digest(sfp))
 

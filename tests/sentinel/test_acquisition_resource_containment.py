@@ -103,6 +103,8 @@ def test_go_refusal_reason_is_resource_not_provider_pending(monkeypatch, capsys,
     conn = SimpleNamespace(rollback=lambda: calls.append("rollback"), close=lambda: calls.append("close"))
     noop = lambda *a, **k: None
     monkeypatch.setenv("SENTINEL_DATABASE_URL", "fixture")
+    # Direct payload execution must supply the deadline normally injected by GO.
+    monkeypatch.setenv("SENTINEL_GO_PREPARATION_DEADLINE", "2026-08-12T05:46:00+00:00")
     monkeypatch.setattr(store, "connect", lambda *a: conn)
     monkeypatch.setattr(backup_guard, "require_writes_permitted", noop)
     monkeypatch.setattr(schema, "ensure_schema", noop)

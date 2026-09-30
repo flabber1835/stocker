@@ -1,10 +1,12 @@
 """Public supervisor startup must enforce finite recovery timing contracts."""
 from types import SimpleNamespace
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from sentinel import automation_supervisor as automation
 from sentinel import shadow_supervisor as shadow
+from sentinel import shadow_budget, shadow_worker
 
 
 class StartupReached(Exception):
@@ -64,3 +66,41 @@ def test_automation_accepts_positive_poll_and_zero_or_positive_grace(startup, mo
 def test_zero_poll_cannot_start_a_busy_worker_loop(startup, monkeypatch):
     monkeypatch.setenv('SENTINEL_AUTOMATION_SUPERVISOR_POLL_SECONDS', '0')
     assert automation.main() == 2
+
+
+def test_shadow_spawn_carries_exact_cutoff_and_overwrites_stale_parent(startup, monkeypatch):
+    instant = datetime(2026, 9, 29, tzinfo=timezone.utc)
+    monkeypatch.setattr(shadow_budget, 'now', lambda: instant)
+    monkeypatch.setenv('SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS', '120.5')
+    monkeypatch.setenv(shadow_budget.DEADLINE_ENV, 'stale inherited value')
+    def spawn(*args, **kwargs):
+        assert kwargs['env'][shadow_budget.DEADLINE_ENV] == (instant + timedelta(seconds=120.5)).isoformat()
+        raise StartupReached
+    monkeypatch.setattr(shadow.subprocess, 'Popen', spawn)
+    with pytest.raises(StartupReached):
+        shadow.run()
+
+
+@pytest.mark.parametrize('raw', ['not-a-date', '2026-09-29T00:00:00', '2026-09-29T01:00:00+01:00'])
+def test_shadow_rejects_malformed_or_non_utc_cutoff(monkeypatch, raw):
+    monkeypatch.setenv(shadow_budget.DEADLINE_ENV, raw)
+    with pytest.raises(ValueError):
+        shadow_budget.cutoff()
+
+
+def test_shadow_cutoff_cannot_extend_supervised_budget(monkeypatch):
+    instant = datetime(2026, 9, 29, tzinfo=timezone.utc)
+    monkeypatch.setattr(shadow_budget, 'now', lambda: instant)
+    monkeypatch.setenv('SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS', '7200')
+    for seconds, expected in ((500, 500), (9000, 7200)):
+        monkeypatch.setenv(shadow_budget.DEADLINE_ENV, (instant + timedelta(seconds=seconds)).isoformat())
+        assert shadow_budget.cutoff() == instant + timedelta(seconds=expected)
+
+
+def test_expired_shadow_worker_exits_availability_without_work(monkeypatch):
+    instant = datetime(2026, 9, 29, tzinfo=timezone.utc)
+    monkeypatch.setattr(shadow_budget, 'now', lambda: instant)
+    monkeypatch.setenv(shadow_budget.DEADLINE_ENV, instant.isoformat())
+    monkeypatch.setattr(shadow_worker.ShadowServiceConfig, 'from_env', lambda: object())
+    monkeypatch.setattr(shadow_worker, 'advance_once', lambda _: shadow_budget.cutoff())
+    assert shadow_worker.main() == shadow_worker.EXIT_AVAILABILITY

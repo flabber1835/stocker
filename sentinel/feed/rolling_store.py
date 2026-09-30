@@ -10,7 +10,7 @@ import uuid
 from itertools import islice, zip_longest
 from typing import Iterable, Mapping
 
-from sentinel.feed import calendar
+from sentinel.feed import calendar, rolling_work
 from sentinel.feed.rolling_contract import (
     CanonicalBar, CanonicalBenchmark, FormationWindow, PriceWindow, RestartRequirement, snapshot_window,
     SnapshotManifest, canonical_json, digest,
@@ -139,6 +139,7 @@ def write_benchmarks(conn, candidate_id: str,
 
 def _rows(conn, candidate_id, *, table, columns, order, start=None, end=None):
     # Server-side cursor bounds memory independently of the universe size.
+    rolling_work.checkpoint()
     with conn.cursor(name="snapshot_" + uuid.uuid4().hex) as cur:
         cur.itersize = BATCH_SIZE
         bounds, params = '', [candidate_id]
@@ -150,8 +151,11 @@ def _rows(conn, candidate_id, *, table, columns, order, start=None, end=None):
             params.append(end)
         cur.execute(f"SELECT {','.join(columns)} FROM {table} "
                     f"WHERE candidate_id=%s{bounds} ORDER BY {order}", params)
-        for row in cur:
+        for index, row in enumerate(cur, 1):
+            if index % BATCH_SIZE == 0:
+                rolling_work.checkpoint()
             yield dict(zip(columns, row))
+    rolling_work.checkpoint()
 
 
 def _fold(hasher, value):

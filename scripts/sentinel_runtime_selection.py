@@ -18,6 +18,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 import sentinel_env
+from sentinel_host_command import run as run_host_command
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -33,10 +34,7 @@ class RuntimeSelectionRefused(RuntimeError):
 
 
 def _run(argv: Sequence[str], *, env: Mapping[str, str] = None) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [str(item) for item in argv], cwd=str(ROOT),
-        env=dict(env) if env is not None else None,
-        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    return run_host_command(argv, cwd=ROOT, env=env)
 
 
 def _git(*args: str) -> str:

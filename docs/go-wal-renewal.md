@@ -27,6 +27,24 @@ are permitted (after acquisition and after candidate construction). All attempts
 and backup commands share one monotonic preparation deadline; neither renewal
 nor subprocess restart resets the durable acquisition deadline.
 
+GO supplies the durable job's absolute UTC deadline from the host preparation
+budget, captured before the initial backup check. Initial backup, container
+startup, schema preparation, acquisition, renewal and validation all consume
+that same budget. The host also enforces its monotonic deadline independently.
+The GO path must not fall back to the standalone preparation API's one-hour
+default. A supplied deadline is validated against the database clock and the
+existing maximum job horizon of 24 hours. Resuming or coalescing an existing job
+never extends its original deadline; expired jobs remain refused.
+
+The runtime reports job deadline exhaustion distinctly from a lost worker lease
+or fence. The ten-minute worker lease and its ownership checks are unchanged.
+The host accepts the builder's bounded rolling identity, normalization, sealing,
+validation and publication progress, including only validated job UUIDs and
+enumerated subphases. It must not keep showing a completed source partition
+while discarding those later progress events. Qualification uses a controlled
+clock to compose work beyond one hour with backup renewal, unchanged deadline
+on resume, retained-part reuse, and refusal at the actual deadline.
+
 The next preparation explicitly resumes the named operational job. Its request
 must still equal the current strategy, dependencies, publication CAS and source
 window. Expired, terminal, comparison, leased or unrelated jobs cannot be silently
@@ -48,3 +66,67 @@ boundary: healthy start, completed downloads, a runtime horizon refusal, verifie
 renewal and successful reuse. Exercise the READY boundary as well as ACQUIRING,
 failed renewal, interruption, deadline exhaustion, malformed signals and a
 non-horizon integrity refusal. Falsify the resumable-state and retry guards.
+
+## Progress across the remaining worker stages
+
+The overall preparation deadline does not replace the ten-minute worker lease.
+Sealing, source corroboration and operational validation must renew at stage
+boundaries and during bounded units of actual work. Snapshot storage scans pulse
+after each 5,000 rows, and corroboration pulses between bounded provider checks.
+A scoped callback on the worker's existing connection supplies the heartbeat;
+outside that scope (including read-only GO, panel and strategy readers) the
+storage hook does nothing. The scope is always reset on success or failure.
+Callbacks never commit candidate construction or create a second writer. Every
+renewal checks the original owner, fence, current lease and absolute job deadline.
+An uninterrupted blocking unit that exceeds its lease still refuses.
+The publication transaction applies the same scoped renewal while retaining
+sparse action history, with checkpoints between action dates. That scope ends
+before the job becomes terminal; no heartbeat may resurrect a published job.
+
+Both foreground GO and scheduled rolling publication use this same publisher.
+Automation leadership remains a separate supervised lease; renewing acquisition
+never renews broker authority. Alpaca transport ambiguity retains UNKNOWN and
+the existing deterministic command identity. Qualification must slow the actual
+storage/source work between callbacks, rather than manufacture heartbeats in a
+test wrapper, and cover deadline expiry, stolen fences and scope cleanup.
+
+Host diagnostics also accept the existing historical-formation progress events.
+Display completed sessions out of the fixed 126-session formation, plus a
+validated session date when present. These bounded counters describe canonical
+startup work after acquisition; they are not another source download or a GO
+verdict. Reject malformed counters, dates and unreviewed fields as before.
+
+## Scheduled shadow acquisition budget
+
+The rolling shadow service owns daily acquisition; paper automation waits for
+its verified result. Each supervised shadow attempt supplies its absolute UTC
+cutoff to the rolling acquisition job, captured before spawning the worker.
+The existing configurable 30–7200 second supervisor limit remains unchanged.
+Direct service calls capture the same configured budget before preflight.
+Preflight and acquisition consume one allowance; neither nested calls nor
+coalescing an existing durable job may extend its original deadline.
+
+An exhausted durable acquisition deadline is a retryable availability outcome,
+like the supervisor's process timeout, not evidence of integrity failure. The
+expired job remains terminal; a later attempt may enqueue a new job and reuse
+independently validated retained source parts. Uncommitted candidate work may
+need rebuilding. Stolen fences, invalid identities and other integrity refusals
+still latch. Publication and following-open timing checks remain mandatory and
+no stale shadow result becomes broker authority. A local controlled-clock test
+must traverse the actual shadow service, exceed one hour with legitimate work
+renewals, and separately exhaust the configured cutoff without publication.
+
+## Bounded final handoff
+
+Promotion-time Git and final Docker/Compose subprocesses must also honor the
+host command timeout. Run each in an owned process group and terminate/reap that
+group on timeout or interruption. Do not remove persistent service containers
+when terminating their Compose client; an interrupted handoff is refused and
+ordinary retry inspects/recreates the named panel. This command helper grants no
+broker authority and is independent of the acquisition budget.
+
+Panel finalization waits for the existing health check with a 180-second startup
+bound, then verifies both healthy/running state and exact image identity before
+writing handoff evidence. Wrong image, unhealthy/exited/restarting state, timeout
+or unobservable health cannot produce a successful handoff. The selected runtime
+and completed data publication remain available for retry.

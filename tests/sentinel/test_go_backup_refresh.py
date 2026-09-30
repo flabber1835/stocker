@@ -500,8 +500,8 @@ def test_healthy_start_then_growth_renews_exact_backup_and_resumes(monkeypatch):
     assert len(runner.preparations) == 2
     assert RESUME_ENV not in runner.preparations[0][1]
     assert runner.preparations[1][1][RESUME_ENV] == job
-    assert ["--env", RESUME_ENV] == runner.preparations[1][0][
-        runner.preparations[1][0].index("--env"):][:2]
+    args = runner.preparations[1][0]
+    assert args[args.index(RESUME_ENV) - 1] == "--env"
     assert "PART_COMMITTED" in runner.last_preparation_output
     assert "SENTINEL_GO_PREPARATION_FAILURE=" not in runner.last_preparation_output
     audit = json.loads(backup._AUDIT_PATH.read_text())

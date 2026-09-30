@@ -57,11 +57,12 @@ class Httpx:
         self.post_result = post
         self.routes = routes or {}
         self.calls = []
+        self.client_options = []
         outer = self
 
         class Client:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                outer.client_options.append(kwargs)
 
             async def __aenter__(self):
                 return self
@@ -240,10 +241,12 @@ def test_incomplete_2xx_is_unknown_not_acknowledged():
     assert outcome.broker_order_id == "order-1"
 
 
-def test_429_that_actually_landed_is_adopted_without_second_post():
+@pytest.mark.parametrize("post", [Response(status_code=429, text="rate limited"),
+                                  TimeoutError("response lost after acceptance")])
+def test_uncertain_submit_that_actually_landed_is_adopted_without_second_post(post):
     exact = full_order(status="filled", filled="2")
     broker, http = adapter(
-        post=Response(status_code=429, text="rate limited"),
+        post=post,
         routes={"/v2/account": {"account_number": "PA-1"},
                 "/v2/orders:by_client_order_id": exact})
     identity = CommandIdentity(
@@ -254,10 +257,28 @@ def test_429_that_actually_landed_is_adopted_without_second_post():
     exact["client_order_id"] = command.client_key
 
     result = run(recovery.dispatch(broker, command))
-
-    assert result.state is S.ACKNOWLEDGED
+    if isinstance(post, TimeoutError):
+        assert result.state is S.UNKNOWN
+        observation = BrokerObservation(
+            observed_at=datetime.now(UTC), orders=(), positions=(),
+            completeness=Completeness.COMPLETE,
+            account_identity=BrokerAccountIdentity("alpaca", "PA-1"))
+        result = run(recovery.resolve_unknown(broker, result, observation))
+        assert result.state is S.FILLED
+    else:
+        assert result.state is S.ACKNOWLEDGED
     assert result.broker_order_id == "order-1"
     assert len([call for call in http.calls if call[0] == "POST"]) == 1
+    assert http.client_options and all(0 < option["timeout"] <= 20 for option in http.client_options)
+
+
+def test_timed_out_submit_without_exact_observation_stays_unknown():
+    broker, http = adapter(post=TimeoutError("response lost"))
+    result = run(broker.submit(client_key="key-1", instrument=INSTRUMENT,
+                               side=Side.BUY, quantity=Decimal(2)))
+    assert result.state is S.UNKNOWN
+    assert len(http.calls) == 1 and http.calls[0][2]["client_order_id"] == "key-1"
+    assert http.client_options[0]["timeout"] == 20
 
 
 def test_exact_key_recovery_refuses_changed_economics():

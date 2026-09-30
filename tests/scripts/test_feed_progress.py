@@ -1,11 +1,60 @@
 import json
 import os
 import sys
+import pytest
 from pathlib import Path
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 sys.path.insert(0, str(ROOT / "scripts"))
 import sentinel_go_feed_progress as progress
+
+
+def test_real_formation_protocol_reaches_host(capsys):
+    from sentinel.feed import progress as producer
+    producer.emit('historical_formation', 'started', sessions=0, required_sessions=126)
+    producer.emit('historical_formation', 'working', sessions=40, required_sessions=126, session='2026-05-08')
+    producer.emit('historical_formation', 'completed', sessions=126, required_sessions=126, session='2026-09-11')
+    events = progress.collect(capsys.readouterr().err)
+    assert [e['sessions'] for e in events] == [0, 40, 126]
+    assert '40/126 sessions' in progress.describe(events[1])
+    assert '2026-05-08' in progress.describe(events[1])
+    assert 'rows' not in progress.describe(events[1])
+
+
+@pytest.mark.parametrize('changes', [dict(sessions=True), dict(sessions=-1), dict(sessions=127),
+    dict(required_sessions=125), dict(required_sessions='126'), dict(session='secret'),
+    dict(session='2026-02-30'), dict(session=[]), dict(session=''), dict(stage='source_download')])
+def test_formation_progress_rejects_unreviewed_details(changes):
+    event = dict(stage='historical_formation', status='working', rows=0, elapsed_ms=0,
+                 sessions=40, required_sessions=126, session='2026-05-08')
+    event.update(changes)
+    assert progress.parse(progress.PREFIX + json.dumps(event)) is None
+
+
+@pytest.mark.parametrize("stage", ["rolling_identity", "rolling_normalization", "rolling_seal",
+    "rolling_operational_validation", "rolling_operational_publication", "rolling_comparison_publication"])
+def test_real_builder_protocol_reaches_host(stage, capsys):
+    from sentinel.feed import progress as producer
+    details = {"job_id": "12f7a9c2-7bf5-41a9-9ad9-eead86e0d3d4"}
+    if stage == "rolling_identity":
+        details["subphase"] = "alias_discovery"
+    with producer.phase(stage, **details) as rows:
+        rows[0] = 120190
+    events = progress.collect(capsys.readouterr().err)
+    assert [e["status"] for e in events] == ["started", "completed"]
+    assert events[-1]["rows"] == 120190
+    assert stage.replace("_", " ") in progress.describe(events[-1])
+    if stage == "rolling_identity":
+        assert "alias discovery" in progress.describe(events[-1])
+
+
+@pytest.mark.parametrize("field,value", [("job_id", "password=secret"), ("job_id", []),
+    ("job_id", "not-a-uuid"), ("subphase", "https://secret"), ("subphase", []),
+    ("subphase", "new-unreviewed-phase")])
+def test_rolling_details_cannot_emit_arbitrary_diagnostics(field, value):
+    event = dict(stage="rolling_identity", status="working", rows=0, elapsed_ms=0)
+    event[field] = value
+    assert progress.parse(progress.PREFIX + json.dumps(event)) is None
 
 
 def test_valid_events_are_bounded_and_preserve_final_failure():

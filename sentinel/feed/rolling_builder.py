@@ -128,9 +128,10 @@ def build(conn, lease, request, source):
             raise ValueError("normalization has missing raw prices or unresolved split evidence")
         rolling_store.write_benchmarks(conn, candidate, benchmarks(request.window, source.sfp))
         jobs.advance(conn, lease, "VALIDATING")
-        with progress.phase("rolling_seal", job_id=lease.job_id) as counter:
+        with progress.phase("rolling_seal", job_id=lease.job_id) as counter, \
+                closing(coverage.observed_keys()) as expected_keys:
             manifest = rolling_store.seal(
-                conn, candidate, expected_keys=coverage.observed_keys(),
+                conn, candidate, expected_keys=expected_keys,
                 normalization_version=NORMALIZATION_VERSION, requirements=RestartRequirement())
             counter[0] = manifest.bar_count
         validation = rolling_store.put_evidence(conn, {

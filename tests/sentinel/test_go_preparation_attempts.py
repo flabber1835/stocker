@@ -32,6 +32,8 @@ def test_partial_preparation_attempts_survive_failure(monkeypatch, code, failure
     noop = lambda *a, **k: None
     conn = SimpleNamespace(rollback=noop, close=noop)
     monkeypatch.setenv("SENTINEL_DATABASE_URL", "fixture")
+    # Direct payload execution must supply the deadline normally injected by GO.
+    monkeypatch.setenv("SENTINEL_GO_PREPARATION_DEADLINE", "2026-08-12T05:46:00+00:00")
     monkeypatch.setattr(store, "connect", fail if failure == "connect" else lambda *a: conn)
     monkeypatch.setattr(backup_guard, "require_writes_permitted", fail if failure == "backup" else noop)
     monkeypatch.setattr(schema, "ensure_schema", fail if failure == "schema" else noop)

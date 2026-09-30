@@ -89,7 +89,7 @@ def test_shadow_service_requires_reviewed_shadow_capable_mode(mode):
             _env(SENTINEL_REVIEWED_DEPLOYMENT_MODE=mode))
 
 
-@pytest.mark.parametrize("transient", [True, False])
+@pytest.mark.parametrize("transient", [True, False, "deadline"])
 def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monkeypatch, transient):
     from sentinel import rolling_runtime
     from sentinel.feed import sharadar
@@ -104,13 +104,44 @@ def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monk
             pass
     monkeypatch.setattr(shadow_service.feed_store, "connect", lambda _: Connection())
     def unavailable(*_a, **_k):
+        if transient == "deadline":
+            from sentinel.feed.rolling_jobs import JobDeadlineExceeded
+            raise JobDeadlineExceeded("elapsed")
         if transient:
             raise sharadar.SharadarRetryDeferred(120, 429)
         raise rolling_runtime.Refused("CHECKPOINT_CHANGED")
     monkeypatch.setattr(rolling_runtime, "service_advance", unavailable)
     expected = shadow_service.ShadowServiceRetry if transient else shadow_service.ShadowServiceRefused
-    with pytest.raises(expected):
+    with pytest.raises(expected) as caught:
         shadow_service.advance_once(cfg)
+    if transient == "deadline":
+        from sentinel import shadow_worker
+        assert "acquisition deadline exhausted" in str(caught.value)
+        assert shadow_worker._availability_failure(caught.value)
+
+
+def test_rolling_preflight_consumes_original_attempt_budget(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from sentinel import rolling_runtime, shadow_budget
+    initial = datetime(2026, 9, 29, tzinfo=timezone.utc)
+    clock = [initial]
+    monkeypatch.setattr(shadow_budget, 'now', lambda: clock[0])
+    monkeypatch.delenv(shadow_budget.DEADLINE_ENV, raising=False)
+    monkeypatch.setenv('SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS', '7200')
+    def preflight(*args, **kwargs):
+        clock[0] += timedelta(seconds=1000)
+        return {'input_contract': rolling_runtime.SCHEMA, 'status': 'ATTESTED_STRUCTURAL'}
+    monkeypatch.setattr(shadow_service, 'preflight', preflight)
+    monkeypatch.setattr(shadow_service, '_causal_target', lambda **kw: '2026-09-28')
+    monkeypatch.setattr(shadow_service.feed_store, 'connect', lambda _: SimpleNamespace(
+        rollback=lambda: None, close=lambda: None))
+    def advance(conn, **kwargs):
+        assert kwargs['acquisition_deadline'] == initial + timedelta(seconds=7200)
+        assert (kwargs['acquisition_deadline'] - clock[0]).total_seconds() == 6200
+        return SimpleNamespace(to_dict=lambda: {'checked': True})
+    monkeypatch.setattr(rolling_runtime, 'service_advance', advance)
+    assert shadow_service.advance_once(shadow_service.ShadowServiceConfig.from_env(_env())) == {'checked': True}
 
 
 class _Cursor:

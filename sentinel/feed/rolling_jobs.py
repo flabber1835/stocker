@@ -27,6 +27,10 @@ class JobRefused(RuntimeError):
     pass
 
 
+class JobDeadlineExceeded(JobRefused):
+    """The original durable deadline expired, regardless of the outer process."""
+
+
 class JobWaiting(JobRefused):
     """A valid active request is temporarily owned or not yet due for retry."""
 
@@ -74,10 +78,13 @@ def enqueue(conn, request: PreparationRequest, *, budget_seconds: int, absolute_
     key = int(identity[:15], 16)
     with conn.cursor() as cur:
         if absolute_deadline is not None:
-            cur.execute("SELECT %s::timestamptz>clock_timestamp() AND "
+            cur.execute("SELECT %s::timestamptz>clock_timestamp(), "
                         "%s::timestamptz<=clock_timestamp()+interval '86400 seconds'",
                         (absolute_deadline, absolute_deadline))
-            if not cur.fetchone()[0]:
+            future, bounded = cur.fetchone()
+            if not future:
+                raise JobDeadlineExceeded("preparation job deadline exhausted before enqueue")
+            if not bounded:
                 raise JobRefused("successor deadline must remain within the maximum job budget")
         cur.execute("SELECT pg_advisory_xact_lock(%s)", (key,))
         cur.execute("SELECT job_id FROM sentinel_snapshot_jobs WHERE request_sha256=%s "
@@ -148,6 +155,8 @@ def claim(conn, job_id: str, *, lease_seconds: int = 60) -> Lease:
             "FROM sentinel_snapshot_jobs j WHERE job_id=%s", (job_id,)).fetchone()
         if state and state[0] not in TERMINAL and state[1] and state[2]:
             raise JobWaiting("job is owned or waiting for its next permitted attempt")
+        if state and state[0] not in TERMINAL and not state[1]:
+            raise JobDeadlineExceeded("preparation job deadline expired before claim")
         raise JobRefused("job is owned, waiting, expired or terminal")
     conn.execute("INSERT INTO sentinel_snapshot_workers(owner,job_id) VALUES(%s,%s)", (owner, job_id))
     return Lease(job_id, owner, int(row[0]))
@@ -163,6 +172,9 @@ def _owned(conn, lease: Lease):
         now = cur.fetchone()[0]
         if row is not None:
             row = (*row, now)
+    if (row is not None and str(row[4]) == lease.owner and row[5] == lease.fence
+            and row[2] <= row[10]):
+        raise JobDeadlineExceeded("preparation job deadline exhausted")
     if (row is None or str(row[4]) != lease.owner or row[5] != lease.fence
             or row[0] not in ACTIVE or row[3] is None or row[3] <= row[10]
             or row[2] <= row[10]):

@@ -4,6 +4,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 
@@ -47,6 +48,17 @@ def request_value():
 def claimed(conn, request):
     job = jobs.enqueue(conn, request, budget_seconds=120)
     return job, jobs.claim(conn, job)
+
+
+@pytest.mark.parametrize('seconds,kind', [(-1, jobs.JobDeadlineExceeded), (86410, jobs.JobRefused)])
+def test_enqueue_distinguishes_elapsed_cutoff_from_invalid_horizon(conn, request_value, seconds, kind):
+    now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+    with pytest.raises(kind) as caught:
+        jobs.enqueue(conn, request_value, budget_seconds=7200,
+                     absolute_deadline=now + timedelta(seconds=seconds))
+    assert type(caught.value) is kind
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_snapshot_jobs WHERE request_sha256=%s',
+                        (request_value.request_sha256,)).fetchone()[0] == 0
 
 
 def test_duplicate_wakes_keep_one_job_and_original_deadline(conn, request_value):
@@ -139,7 +151,7 @@ def test_expired_deadline_cannot_be_extended_or_reclaimed(conn, request_value):
     time.sleep(1.05)
     with pytest.raises(jobs.JobRefused, match="deadline"):
         jobs.heartbeat(conn, lease)
-    with pytest.raises(jobs.JobRefused, match="expired"):
+    with pytest.raises(jobs.JobDeadlineExceeded, match="expired"):
         jobs.claim(conn, job)
     assert jobs.expire(conn, job)
     assert not jobs.expire(conn, job)

@@ -13,17 +13,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import os
 import signal
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sentinel.feed import calendar
-from sentinel import supervisor_io
+from sentinel import supervisor_io, shadow_budget
 from sentinel.shadow_recovery import ShadowServiceConfig, service_health
 from sentinel.shadow_worker import (
     EXIT_AVAILABILITY, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
@@ -281,11 +280,10 @@ def _health_snapshot(max_age_seconds, config):
 
 def run() -> int:
     config = ShadowServiceConfig.from_env()
-    deadline_seconds = float(os.environ.get(
-        "SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS", "7200"))
-    if not math.isfinite(deadline_seconds) or deadline_seconds < 30 or deadline_seconds > 7200:
-        supervisor_io.report("REFUSED: SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS must be in [30,7200]",
-              file=sys.stderr)
+    try:
+        deadline_seconds = shadow_budget.seconds()
+    except ValueError as exc:
+        supervisor_io.report("REFUSED: " + str(exc), file=sys.stderr)
         return EXIT_REFUSED
     failure_threshold = int(os.environ.get(
         "SENTINEL_SHADOW_FAILURE_THRESHOLD", "3"))
@@ -324,12 +322,15 @@ def run() -> int:
                 supervisor_io.report('REFUSED: shadow worker could not be durably armed: '
                                      + type(exc).__name__)
                 return EXIT_REFUSED
+            started = time.monotonic()
+            worker_env = dict(os.environ)
+            worker_env[shadow_budget.DEADLINE_ENV] = (
+                shadow_budget.now() + timedelta(seconds=deadline_seconds)).isoformat()
             active = subprocess.Popen(
                 [sys.executable, "-m", "sentinel.shadow_worker"],
-                stdin=subprocess.DEVNULL)
+                stdin=subprocess.DEVNULL, env=worker_env)
             if stopping:
                 stop()  # A signal during arming/spawn must also terminate this child.
-            started = time.monotonic()
             timed_out = False
             while not stopping and active.poll() is None:
                 _touch()

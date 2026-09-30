@@ -225,6 +225,7 @@ def test_supported_go_preparation_and_readiness_payloads_use_rolling(conn, publi
             pass
     monkeypatch.setattr(store, "connect", lambda dsn: Borrowed())
     monkeypatch.setenv("SENTINEL_DATABASE_URL", "test-connection")
+    monkeypatch.setenv("SENTINEL_GO_PREPARATION_DEADLINE", "2026-09-29T20:00:00+00:00")
     exec(entry._PREPARATION_CODE, {})
     output = capsys.readouterr().out
     prepared = json.loads(next(line.split("=", 1)[1] for line in output.splitlines()

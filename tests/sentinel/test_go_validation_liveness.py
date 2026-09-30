@@ -281,7 +281,8 @@ def test_post_validation_recreates_panel_then_publishes_single_runtime_handoff()
         encoding="utf-8")
     assert 'env = runtime._merged_environment()' in text
     assert '"scripts/sentinel-compose.sh", "--run"' in text
-    assert '"--force-recreate", "sentinel-panel"' in text
+    assert '"--force-recreate", "--wait"' in text
+    assert '"--wait-timeout", "180", "sentinel-panel"' in text
     assert '"ps", "-q", "sentinel-panel"' in text
     assert '"docker", "container", "inspect", "--format", "{{.Image}}"' in text
     assert "observed != expected_image_id" in text
