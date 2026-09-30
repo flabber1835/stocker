@@ -13,16 +13,15 @@ import pytest
 import yaml
 
 from tools import sentinel_ci_parallel_evidence as evidence
+from tools import sentinel_ci_shards as shards
 
 
-@pytest.mark.parametrize("failed_group", [0, 1, 2, 3, 4])
-def test_main_container_partition_preserves_modules_and_propagates_failure(tmp_path, failed_group):
+@pytest.mark.parametrize("failed_lane", [None, "sentinel-general-0", "sentinel-rolling-2",
+                                          "sentinel-contention", "sentinel-status"])
+def test_main_workers_cover_each_module_once_and_propagate_failure(tmp_path, failed_lane):
     root = Path(__file__).resolve().parents[2]
     workflow = yaml.safe_load((root / ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
-    step = next(s for s in workflow["jobs"]["parallel-certification"]["steps"]
-                if s.get("if") == "${{ matrix.lane == 'sentinel-main' }}")
-    # Execute the actual workflow shell with a Docker stand-in. Each module has
-    # one independent testcase so lost, duplicated or unselected modules surface.
+    steps = workflow["jobs"]["parallel-certification"]["steps"]
     modules = {p.name for p in (root / "tests/sentinel").glob("test_*.py")}
     modules |= {"test_future_ordinary.py", "test_rolling_future.py"}
     tests = tmp_path / "tests/sentinel"
@@ -31,24 +30,21 @@ def test_main_container_partition_preserves_modules_and_propagates_failure(tmp_p
         (tests / name).touch()
     tools = tmp_path / "tools"
     tools.mkdir()
-    shutil.copyfile(root / "tools/merge_junit.py", tools / "merge_junit.py")
+    shutil.copyfile(root / "tools/sentinel_ci_shards.py", tools / "sentinel_ci_shards.py")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "tests/sentinel"], cwd=tmp_path, check=True)
     output = tmp_path / "evidence"
     output.mkdir()
     binaries = tmp_path / "bin"
     binaries.mkdir()
     docker = binaries / "docker"
-    docker.write_text(f"#!{sys.executable}\n" + '''import fnmatch, os, sys
+    docker.write_text(f"#!{sys.executable}\n" + '''import os, sys
 from pathlib import Path
 import xml.etree.ElementTree as ET
 args = sys.argv[1:]
-counter = Path('calls')
-group = int(counter.read_text()) + 1 if counter.exists() else 1
-counter.write_text(str(group))
-if group == int(os.environ['FAILED_GROUP']):
+if os.environ.get('FAILED_LANE') == os.environ['CI_LANE']:
     raise SystemExit(7)
-selected = sorted(Path('tests/sentinel').glob('test_*.py')) if 'tests/sentinel' in args else [Path(a) for a in args if a.startswith('tests/sentinel/')]
-ignores = [a.split('=', 1)[1] for a in args if a.startswith(('--ignore=', '--ignore-glob='))]
-selected = [p for p in selected if not any(fnmatch.fnmatch(p.as_posix(), pattern) for pattern in ignores)]
+selected = [Path(a) for a in args if a.startswith('tests/sentinel/test_')]
 suite = ET.Element('testsuite')
 for p in selected:
     ET.SubElement(suite, 'testcase', classname=p.stem, name='owned_case')
@@ -56,53 +52,40 @@ target = next(a.split('=', 1)[1] for a in args if a.startswith('--junitxml='))
 ET.ElementTree(suite).write(target)
 ''', encoding="utf-8")
     docker.chmod(0o755)
-    command = step["run"].replace("/evidence/", str(output) + "/").replace("/tmp/sentinel-lane-evidence", str(output))
-    result = subprocess.run(["bash", "-c", command], cwd=tmp_path, capture_output=True, text=True,
-        env={**os.environ, "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
-             "FAILED_GROUP": str(failed_group)})
-    if failed_group:
-        assert result.returncode == 7, result.stdout + result.stderr
-        assert int((tmp_path / "calls").read_text()) == failed_group
-        assert not (output / "sentinel-main.xml").exists()
-    else:
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert int((tmp_path / "calls").read_text()) == 4
-        excluded = {"test_source_seed_warmup.py", "test_automation_composition.py",
-            "test_automation_worker_source_recovery.py", "test_automation_service.py",
-            "test_issue_201_automation_financial_grade.py", "test_automation_p1_continuity.py",
-            "test_automation_safety_seams.py", "test_automation_process_contracts.py"}
-        cases = list(ET.parse(output / "sentinel-main.xml").iter("testcase"))
-        assert {c.get("classname") + ".py" for c in cases} == modules - excluded
-        assert len(cases) == len(modules - excluded)
-
-
-@pytest.mark.parametrize('fault', ['duplicate_status', 'missing_status_report'])
-@pytest.mark.parametrize('partition,module', [('status', 'test_status_memory.py'),
-                                            ('contention', 'test_runtime_contention.py')])
-def test_main_partition_coverage_rejects_status_omission_or_duplication(tmp_path, monkeypatch, fault, partition, module):
-    original = yaml.safe_load
-
-    def broken_workflow(text):
-        workflow = original(text)
-        step = next(s for s in workflow['jobs']['parallel-certification']['steps']
-                    if s.get('if') == "${{ matrix.lane == 'sentinel-main' }}")
-        removed = (f'--ignore=tests/sentinel/{module}'
-                   if fault == 'duplicate_status'
-                   else f'/tmp/sentinel-lane-evidence/sentinel-main-{partition}.xml')
-        assert removed in step['run']
-        step['run'] = step['run'].replace(removed, '')
-        return workflow
-
-    monkeypatch.setattr(yaml, 'safe_load', broken_workflow)
-    with pytest.raises(AssertionError):
-        test_main_container_partition_preserves_modules_and_propagates_failure(tmp_path, 0)
+    lanes = (*evidence.MAIN_LANES,)
+    for lane in lanes:
+        condition = ("${{ startsWith(matrix.lane, 'sentinel-general-') }}"
+                     if lane.startswith("sentinel-general-") else
+                     "${{ startsWith(matrix.lane, 'sentinel-rolling-') }}"
+                     if lane.startswith("sentinel-rolling-") else
+                     "${{ matrix.lane == '" + lane + "' }}")
+        step = next(s for s in steps if s.get("if") == condition)
+        command = step["run"].replace("/evidence/", str(output) + "/")
+        command = command.replace("/tmp/sentinel-lane-evidence", str(output))
+        result = subprocess.run(["bash", "-c", command], cwd=tmp_path,
+            capture_output=True, text=True, env={**os.environ,
+                "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+                "CI_LANE": lane, "FAILED_LANE": failed_lane or ""})
+        assert result.returncode == (7 if lane == failed_lane else 0), result.stdout + result.stderr
+    cases = [case for lane in lanes if lane != failed_lane
+             for case in ET.parse(output / f"{lane}.xml").iter("testcase")]
+    expected = modules - shards.AUTOMATION - {"test_source_seed_warmup.py"}
+    if failed_lane:
+        expected -= set(Path(path).name for path in
+                        shards.plan([f"tests/sentinel/{name}" for name in modules]).get(failed_lane, ()))
+        if failed_lane == "sentinel-contention":
+            expected.remove("test_runtime_contention.py")
+        if failed_lane == "sentinel-status":
+            expected.remove("test_status_memory.py")
+    assert {case.get("classname") + ".py" for case in cases} == expected
+    assert len(cases) == len(expected)
 
 
 def test_warmup_lane_streams_progress_without_raising_its_deadline():
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
                               ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
     job = workflow["jobs"]["parallel-certification"]
-    assert job["timeout-minutes"] == "${{ matrix.lane == 'sentinel-main' && 150 || 45 }}"
+    assert job["timeout-minutes"] == "${{ startsWith(matrix.lane, 'sentinel-rolling-') && 60 || 45 }}"
     step = next(step for step in job["steps"]
                 if step.get("if") == "${{ matrix.lane == 'sentinel-warmup' }}")
     command = step["run"]
@@ -234,7 +217,7 @@ def test_receipts_refuse_mixed_or_incomplete_evidence(campaign, fault):
     directory = workers / "sentinel-warmup"
     receipt = json.loads((directory / "receipt.json").read_text())
     if fault == "duplicate":
-        receipt["lane"] = "sentinel-main"
+        receipt["lane"] = "sentinel-general-0"
     elif fault == "undeclared":
         receipt["lane"] = "some-other-suite"
     elif fault == "stale-attempt":
@@ -260,9 +243,9 @@ def test_assembly_merges_all_sentinel_partitions_and_preserves_replay_and_mutant
     root, bundle, workers, needs, _, _, _ = campaign
     output = root / "output"
     result = evidence.assemble(root, bundle, workers, needs, output)
-    assert result["sentinel_tests"] == 3
+    assert result["sentinel_tests"] == len(evidence.MAIN_LANES) + 2
     assert result["lanes"] == list(evidence.LANES)
-    assert "3 passed (complete disjoint Sentinel JUnit union)" in (
+    assert f"{len(evidence.MAIN_LANES) + 2} passed (complete disjoint Sentinel JUnit union)" in (
         output / "sentinel-complete.txt").read_text()
     assert sorted(path.name for path in (output / "sharadar-required-evidence").iterdir()) == [
         "0", "1", "2", "3"]
@@ -275,7 +258,7 @@ def test_valid_receipt_cannot_hide_duplicate_or_nonpassing_sentinel_junit(campai
     root, bundle, workers, needs, _, _, _ = campaign
     directory = workers / "sentinel-warmup"
     if fault == "duplicate":
-        body = (workers / "sentinel-main/sentinel-main.xml").read_text()
+        body = (workers / "sentinel-general-0/sentinel-general-0.xml").read_text()
     else:
         body = ('<testsuite><testcase classname="sentinel-warmup" name="test_pass">'
                 f'<{fault}/></testcase></testsuite>')

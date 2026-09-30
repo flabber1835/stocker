@@ -91,23 +91,13 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "SENTINEL_IMAGE=sentinel:ci" in workflow
     assert workflow.count('--build-arg SOURCE_GIT_SHA="${TESTED_SHA}"') == 2
     assert 'TESTED_SHA="$(git rev-parse HEAD)"' in workflow
-    assert 'tests/sentinel "${ignore_args[@]}"' in workflow
-    assert "'--ignore-glob=tests/sentinel/test_rolling_*.py' -vv -ra" in workflow
-    assert 'sentinel-test:ci "${rolling_files[@]}" -vv -ra' in workflow
-    automation_files = (
-        "tests/sentinel/test_automation_service.py",
-        "tests/sentinel/test_issue_201_automation_financial_grade.py",
-        "tests/sentinel/test_automation_p1_continuity.py",
-        "tests/sentinel/test_automation_safety_seams.py",
-        "tests/sentinel/test_automation_process_contracts.py",
-    )
-    assert 'ignore_args+=("--ignore=${path}")' in workflow
-    for path in automation_files:
-        assert workflow.count(path) >= 2
+    assert workflow.count('sentinel-test:ci "${modules[@]}" -vv -ra') == 2
+    assert workflow.count('python tools/sentinel_ci_shards.py --lane "$CI_LANE"') == 2
+    assert '--junitxml="/evidence/${CI_LANE}.xml"' in workflow
     assert "python tools/sentinel_ci_parallel_evidence.py assemble" in workflow
     parallel = _read("tools/sentinel_ci_parallel_evidence.py")
     assert "from tools.merge_junit import merge" in parallel
-    assert "sentinel-main.xml" in workflow
+    assert 'system / "sentinel-main.xml"' in parallel
     assert "sentinel-automation.xml" in workflow
     assert 'system / "sentinel.xml"' in parallel
     assert "tee /tmp/sentinel-lane-evidence/summary.txt" in workflow
@@ -352,17 +342,10 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
         run = _step_run(step)
         if run and "| tee" in run:
             assert run.splitlines()[0] == "set -euo pipefail"
-        if run and "sentinel-main-general.xml" in run:
-            # All fresh containers write into one pipefail-protected log group.
-            assert "{\n" in run
-            assert "} 2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt" in run
-            for part in ("general", "contention", "status", "rolling"):
-                invocation = re.search(
-                    rf"docker run\b[^\n]+--junitxml=/evidence/sentinel-main-{part}.xml",
-                    run.replace("\\\n", ""))
-                assert invocation, part
-                arguments = shlex.split(invocation.group())
-                assert "-vv" in arguments and "-ra" in arguments
+        if run and ("sentinel_ci_shards.py" in run or
+                    "sentinel-contention.xml" in run or "sentinel-status.xml" in run):
+            assert "-vv -ra" in run
+            assert "2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt" in run
             assert "set +e" not in run
     assert "--owner wealth-core.prospective" in workflow
 

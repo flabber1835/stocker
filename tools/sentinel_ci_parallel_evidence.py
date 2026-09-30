@@ -19,15 +19,16 @@ from tools.sentinel_ci_certification_manifest import (
     _docker_image_identity, _read_json, _run, canonical_bytes, sha256_file,
 )
 
-SUITE_LANES = (
-    "sentinel-main", "sentinel-warmup", "sentinel-automation", "champion",
-    "operator", "wealth-core", "mutations",
-)
+GENERAL_LANES = tuple(f"sentinel-general-{index}" for index in range(4))
+ROLLING_LANES = tuple(f"sentinel-rolling-{index}" for index in range(4))
+MAIN_LANES = (*GENERAL_LANES, *ROLLING_LANES, "sentinel-contention", "sentinel-status")
+SENTINEL_LANES = (*MAIN_LANES, "sentinel-warmup", "sentinel-automation")
+SUITE_LANES = (*SENTINEL_LANES, "champion", "operator", "wealth-core", "mutations")
 REPLAY_SHARDS = 4
 LANES = (*SUITE_LANES, *(f"replay-{index}" for index in range(REPLAY_SHARDS)))
 DEPENDENCIES = {"runtime-build", "parallel-certification", "sharadar-replay"}
 REQUIRED_FILES = {
-    "sentinel-main": {"sentinel-main.xml", "summary.txt"},
+    **{lane: {f"{lane}.xml", "summary.txt"} for lane in MAIN_LANES},
     "sentinel-warmup": {"sentinel-warmup.xml", "summary.txt"},
     "sentinel-automation": {"sentinel-automation.xml", "summary.txt"},
     "champion": {"champion.xml", "summary.txt"},
@@ -171,7 +172,7 @@ def assemble(root: Path, bundle: Path, workers: Path, needs: dict, output: Path)
                            ("wealth-core", "wealth-core.xml"),
                            ("sentinel-automation", "sentinel-automation.xml")):
         shutil.copyfile(lanes[lane] / filename, system / filename)
-    merge([lanes["sentinel-main"] / "sentinel-main.xml",
+    merge([*(lanes[lane] / f"{lane}.xml" for lane in MAIN_LANES),
            lanes["sentinel-warmup"] / "sentinel-warmup.xml"], system / "sentinel-main.xml")
     total = merge([system / "sentinel-main.xml", system / "sentinel-automation.xml"],
                   system / "sentinel.xml")
@@ -179,7 +180,7 @@ def assemble(root: Path, bundle: Path, workers: Path, needs: dict, output: Path)
     require(all(not any(case.find(tag) is not None for tag in ("failure", "error", "skipped"))
                 for case in cases), "Sentinel partition contains non-passing tests")
     logs = "\n".join((lanes[lane] / "summary.txt").read_text(encoding="utf-8")
-                     for lane in SUITE_LANES[:3])
+                     for lane in SENTINEL_LANES)
     (output / "sentinel-complete.txt").write_text(
         logs + f"\n{total} passed (complete disjoint Sentinel JUnit union)\n", encoding="utf-8")
     for lane, filename in (("operator", "sentinel-scripts.txt"),
