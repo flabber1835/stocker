@@ -1,5 +1,12 @@
 # Sentinel — operational deployment ground truth
 
+[Current-window production](current-window-production.md) defines the selected
+300-session signal boundary with retained ownership state and fresh $50,000
+startup. It supersedes the historical-formation and whole-overlap-equality
+requirements below for the explicitly named current-window production policy.
+Historical/research identities retain their own contracts. Activation still
+requires the normal certified image and GO gates.
+
 [Daily acquisition work](daily-acquisition-work.md) scopes alias discovery to its
 actual identity dependencies and avoids scanning retained payloads already known
 to be obsolete. It preserves full source-window acquisition and publication

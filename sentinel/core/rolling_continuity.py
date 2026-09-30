@@ -130,10 +130,15 @@ class DailyInputs:
     terminal_events: tuple
     spinoff_distributions: tuple
     feed_anchors: dict = dataclass_field(default_factory=dict)
+    window_features: dict | None = None
 
 
 def prepare(conn, *, prior, previous_binding, publication, binding):
     """Return exact next-session inputs and a state-bound continuity proof."""
+    from sentinel.core import window_policy, window_continuity
+    if window_policy.enabled(prior.strategy_identity):
+        return window_continuity.prepare(conn, prior=prior, previous_binding=previous_binding,
+                                         publication=publication, binding=binding)
     cursor = prior.last_processed_session
     session = publication.window_end
     if not cursor or session != calendar.next_session(cursor):

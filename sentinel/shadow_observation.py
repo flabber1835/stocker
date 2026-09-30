@@ -350,6 +350,9 @@ def _published_input_value(
         "bars": bars,
         **({"rolling_continuity": dict(published.history_proof)}
            if (published.history_proof or {}).get("schema") == "sentinel.rolling-continuity/1" else {}),
+        **({'current_window_continuity': dict(published.history_proof)}
+           if (published.history_proof or {}).get('schema') == 'sentinel.current-window-continuity/1' else {}),
+        **({'window_features': dict(published.window_features)} if published.window_features is not None else {}),
         "meta": {
             str(key): row(value)
             for key, value in sorted(published.meta.items())
@@ -637,6 +640,8 @@ def _validate_warmup_input_identity(
         except (ValueError, TypeError, KeyError) as exc:
             raise ShadowObservationRefused('invalid authenticated formed origin') from exc
     identity = _as_mapping(value, where="shadow warm-up economic input")
+    current_window = identity.get('schema') == 'sentinel.shadow-window-warmup-input/1'
+    expected_count = 299 if current_window else SHADOW_WARMUP_SESSIONS
     fields = {
         "schema", "first_warmup_session", "last_warmup_session",
         "session_count", "sessions_sha256", "bars_sha256",
@@ -661,13 +666,13 @@ def _validate_warmup_input_identity(
         raise ShadowObservationRefused(
             "shadow warm-up session axis is unavailable") from exc
     if (set(identity) != fields
-            or identity.get("schema") != WARMUP_INPUT_SCHEMA
-            or identity.get("session_count") != SHADOW_WARMUP_SESSIONS
+            or identity.get("schema") != ('sentinel.shadow-window-warmup-input/1' if current_window else WARMUP_INPUT_SCHEMA)
+            or identity.get("session_count") != expected_count
             or identity.get("metadata_mode") not in {
                 "CAUSAL_METADATA_TIMELINE",
                 "PROSPECTIVE_STATIC_FEATURE_METADATA",
             }
-            or len(axis) != SHADOW_WARMUP_SESSIONS
+            or len(axis) != expected_count
             or not axis
             or axis[0] != first_warmup
             or axis[-1] != last_warmup
@@ -1241,6 +1246,10 @@ class ShadowObserver:
             committed=False, where="shadow activation timing")
         self.warmup_input_identity = _validate_warmup_input_identity(
             warmup_input_identity, first_session=self.first_session)
+        from sentinel.core import window_policy
+        if window_policy.enabled(self.strategy_identity) != (
+                self.warmup_input_identity.get('schema') == 'sentinel.shadow-window-warmup-input/1'):
+            raise ShadowObservationRefused('warm-up window policy differs from strategy identity')
         from sentinel.controller.median5 import enabled as median5_enabled
         if median5_enabled(self.strategy_identity) != (
                 self.warmup_input_identity.get("median5_profile") == "wealth-core-median5-v1"):

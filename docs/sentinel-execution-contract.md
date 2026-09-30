@@ -1,5 +1,12 @@
 # Sentinel — the execution and recovery contract
 
+[Current-window production](current-window-production.md) selects fresh cash
+startup with 300-session inputs and retained canonical ownership. Its explicit
+input-policy identity supersedes historical formation for new production books.
+Existing economic fixtures retain their named historical profiles; earlier
+certificates do not automatically certify this new source identity. Execution
+remains the only broker-facing layer.
+
 [Owned55 historical startup](owned55-historical-startup.md) forms only canonical
 strategy state. Its 126 historical transitions cannot create an execution plan
 or broker command. The current decision reaches this membrane through the

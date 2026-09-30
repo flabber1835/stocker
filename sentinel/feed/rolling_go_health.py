@@ -31,8 +31,10 @@ def inspect(conn, *, database_url: str):
     with inputs.pinned(conn) as held:
         started = time.monotonic()
         binding, material, _ = inputs.validate(conn, held)
+        from sentinel.core import window_policy
+        count = 299 if window_policy.enabled(inputs.production_strategy()[1]) else 252
         warmup = _warmup_input_identity(material.warmup, material.warmup.sessions,
-                                        prospective_witness=True)
+                                        prospective_witness=True, expected_sessions=count)
         elapsed = max(0, math.ceil((time.monotonic() - started) * 1000))
         candidate, frontier = binding["candidate_id"], material.session
         gaps = publication.chain_gaps(conn)
@@ -67,7 +69,7 @@ def inspect(conn, *, database_url: str):
             "behavioral_schema_exact": True, "feed_schema_exact": True,
             "publication_complete": True,
             "publication_chain_unique_and_gap_free": not gaps and duplicates == 0,
-            "recent_xnys_axis_exact": material.warmup.sessions == calendar.previous_sessions(frontier, 253)[:-1],
+            "recent_xnys_axis_exact": material.warmup.sessions == calendar.previous_sessions(frontier, count+1)[:-1],
             "frontier_security_keys_unique": len(material.bars) == len({bar.security_id for bar in material.bars}),
             "repeatable_read_only": isolation == "repeatable read" and read_only == "on",
             "publication_pin_excludes_writers": shared and not acquired,
@@ -75,7 +77,7 @@ def inspect(conn, *, database_url: str):
             "required_indexes_exact": True,
             "predecessor_query_plan_indexed": anchor_indexed,
             "frontier_query_plan_indexed": frontier_indexed,
-            "warmup_revision_input_complete": warmup["session_count"] == 252,
+            "warmup_revision_input_complete": warmup["session_count"] == count,
             "prospective_trading_window": source_final <= now < execution_open,
         }
         return {

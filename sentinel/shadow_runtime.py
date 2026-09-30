@@ -191,14 +191,15 @@ def _stream_sha256(values) -> str:
 
 
 def _warmup_input_identity(
-        window, sessions: list[str], *, prospective_witness: bool) -> dict:
+        window, sessions: list[str], *, prospective_witness: bool,
+        expected_sessions: int = WARMUP_SESSIONS) -> dict:
     """Compact exact economic identity of every input that creates the seed."""
     ordered = [str(session) for session in sessions]
-    if (len(ordered) != WARMUP_SESSIONS
+    if (expected_sessions not in (252, 299) or len(ordered) != expected_sessions
             or window.sessions != ordered
             or any(left >= right for left, right in zip(ordered, ordered[1:]))):
         raise ShadowRuntimeRefused(
-            "shadow warm-up identity requires the exact 252-session axis")
+            "shadow warm-up identity requires the selected feature-session axis")
 
     signal_anchors = {}
     if hasattr(window, "median5_spy_closes"):
@@ -293,7 +294,7 @@ def _warmup_input_identity(
             "median5_terminal_sha256": _stream_sha256(
                 (s, sorted(ids)) for s, ids in sorted(window.median5_terminals.items()))}
            if hasattr(window, "median5_spy_closes") else {}),
-        "schema": WARMUP_INPUT_SCHEMA,
+        "schema": ('sentinel.shadow-window-warmup-input/1' if expected_sessions == 299 else WARMUP_INPUT_SCHEMA),
         "first_warmup_session": ordered[0],
         "last_warmup_session": ordered[-1],
         "session_count": len(ordered),

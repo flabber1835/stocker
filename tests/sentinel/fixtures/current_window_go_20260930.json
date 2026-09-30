@@ -1,0 +1,230 @@
+{
+  "bundle": {
+    "created_at": "2026-09-30T14:29:17Z",
+    "deployed_commit": "90a068a90961c8b8e984ae2e2ae8a9ea0fa75445",
+    "failure_reason_code": "SOURCE_AUTHORITY_REFUSED",
+    "filename": "stocker-nas-go-validation-90a068a90961-20260930T142917Z.zip",
+    "sha256": "e308ed05c5da66ba08846b28fd268b9c67a5549e1511cdcc254491c33e29a6fa",
+    "source_coverage": {
+      "expected_eligible": 5875,
+      "identity_diagnostics": {
+        "rejections": [
+          {
+            "anchors": [
+              {
+                "category": "Domestic Common Stock Primary Class",
+                "firstpricedate": "2026-08-04",
+                "lastpricedate": "2026-09-29",
+                "permaticker": "6400999",
+                "ticker": "FJDI"
+              },
+              {
+                "category": "Domestic Common Stock Secondary Class",
+                "firstpricedate": "2026-09-24",
+                "lastpricedate": "2026-09-29",
+                "permaticker": "6401378",
+                "ticker": "FJDIU"
+              }
+            ],
+            "reason_code": "RENAME_ANCHOR_IDENTITY_OR_CATEGORY_AMBIGUOUS",
+            "source_ids": [
+              "4687b37e5c108e5157243cf4570deb6fe058f2c0d6882a5df4c3f9f97ba143aa",
+              "eb1c691d6cac73ae7f3ae52b25284b952866b6520119c6c5189cf62061d74529"
+            ],
+            "symbols": [
+              "FJDI",
+              "FJDIU"
+            ]
+          }
+        ],
+        "rejections_total": 1,
+        "schema": "sentinel.symbol-identity/2",
+        "sha256": "b04429dc1f57782a0076b8c813e8a36120e315aea858ec6f657b991a8bbcfeb9"
+      },
+      "missing_eligible": [
+        {
+          "permaticker": "6401378",
+          "ticker": "FJDIU"
+        }
+      ],
+      "missing_eligible_total": 1,
+      "received_eligible": 5874,
+      "session": "2026-09-24",
+      "unexpected_eligible": [],
+      "unexpected_eligible_total": 0,
+      "unresolved_eligible_risk_total": 0,
+      "unresolved_source_tickers": []
+    }
+  },
+  "probe": {
+    "actions": {
+      "page_sha256": [
+        "5524bbe95f21f09fcb6902fa091da8ca66556b3e15a0dbad877596ea1c33c588"
+      ],
+      "rows": [
+        {
+          "action": "relation",
+          "contraname": "ARC GROUP SECURITIES ACQUISITION I",
+          "contraticker": "FJDI",
+          "date": "2026-09-29",
+          "name": "ARC GROUP SECURITIES ACQUISITION I",
+          "ticker": "FJDIU",
+          "value": null
+        },
+        {
+          "action": "relation",
+          "contraname": "ARC GROUP SECURITIES ACQUISITION I",
+          "contraticker": "FJDIU",
+          "date": "2026-09-29",
+          "name": "ARC GROUP SECURITIES ACQUISITION I",
+          "ticker": "FJDI",
+          "value": null
+        },
+        {
+          "action": "listed",
+          "contraname": "N/A",
+          "contraticker": "FJDIU",
+          "date": "2026-09-24",
+          "name": "ARC GROUP SECURITIES ACQUISITION I",
+          "ticker": "FJDIU",
+          "value": null
+        },
+        {
+          "action": "tickerchangeto",
+          "contraname": "N/A",
+          "contraticker": "FJDI",
+          "date": "2026-09-24",
+          "name": "ARC GROUP SECURITIES ACQUISITION I",
+          "ticker": "FJDI",
+          "value": null
+        },
+        {
+          "action": "tickerchangefrom",
+          "contraname": "N/A",
+          "contraticker": "FJDIU",
+          "date": "2026-09-24",
+          "name": "ARC GROUP SECURITIES ACQUISITION I",
+          "ticker": "FJDI",
+          "value": null
+        },
+        {
+          "action": "spacunitseparation",
+          "contraname": "N/A",
+          "contraticker": "FJDIU",
+          "date": "2026-09-24",
+          "name": "ARC GROUP SECURITIES ACQUISITION I",
+          "ticker": "FJDI",
+          "value": null
+        }
+      ]
+    },
+    "attachment_sha256": "d11d6a2e43189b285a242940df53206945dd08370b8aaefc05564925ef893cc2",
+    "authority": "DIAGNOSTIC_ONLY_NOT_A_STABLE_PUBLICATION",
+    "observed_at": "2026-09-30T14:50:04.510515+00:00",
+    "requested_interval": [
+      "2026-09-23",
+      "2026-09-29"
+    ],
+    "sep": {
+      "page_sha256": [
+        "f10f986926f2b719b7b38907ada23db840d4d59d569460b6de3989cec2a82b6e"
+      ],
+      "rows": [
+        {
+          "close": 10.05,
+          "closeunadj": 10.05,
+          "date": "2026-09-29",
+          "lastupdated": "2026-09-29",
+          "open": 10.105,
+          "ticker": "FJDIU",
+          "volume": 186000.0
+        },
+        {
+          "close": 10.02,
+          "closeunadj": 10.02,
+          "date": "2026-09-28",
+          "lastupdated": "2026-09-29",
+          "open": 10.02,
+          "ticker": "FJDIU",
+          "volume": 15800.0
+        },
+        {
+          "close": 9.86,
+          "closeunadj": 9.86,
+          "date": "2026-09-29",
+          "lastupdated": "2026-09-29",
+          "open": 9.86,
+          "ticker": "FJDI",
+          "volume": 312000.0
+        },
+        {
+          "close": 9.85,
+          "closeunadj": 9.85,
+          "date": "2026-09-28",
+          "lastupdated": "2026-09-29",
+          "open": 9.85,
+          "ticker": "FJDI",
+          "volume": 24200.0
+        },
+        {
+          "close": 9.85,
+          "closeunadj": 9.85,
+          "date": "2026-09-25",
+          "lastupdated": "2026-09-27",
+          "open": 9.86,
+          "ticker": "FJDI",
+          "volume": 409000.0
+        },
+        {
+          "close": 9.85,
+          "closeunadj": 9.85,
+          "date": "2026-09-24",
+          "lastupdated": "2026-09-27",
+          "open": 9.88,
+          "ticker": "FJDI",
+          "volume": 665000.0
+        },
+        {
+          "close": 10.02,
+          "closeunadj": 10.02,
+          "date": "2026-09-23",
+          "lastupdated": "2026-09-27",
+          "open": 10.01,
+          "ticker": "FJDI",
+          "volume": 68000.0
+        }
+      ]
+    },
+    "tickers": {
+      "page_sha256": [
+        "eac1a90f4014a2b387da75d0fbfbad9316e67131b60f881cbb3f5dbe4e852cb8"
+      ],
+      "rows": [
+        {
+          "category": "Domestic Common Stock Secondary Class",
+          "firstpricedate": "2026-09-24",
+          "isdelisted": "N",
+          "lastpricedate": "2026-09-29",
+          "lastupdated": "2026-09-29",
+          "permaticker": 6401378,
+          "relatedtickers": "FJDI",
+          "table": "SEP",
+          "ticker": "FJDIU"
+        },
+        {
+          "category": "Domestic Common Stock Primary Class",
+          "firstpricedate": "2026-08-04",
+          "isdelisted": "N",
+          "lastpricedate": "2026-09-29",
+          "lastupdated": "2026-09-29",
+          "permaticker": 6400999,
+          "relatedtickers": "FJDIU",
+          "table": "SEP",
+          "ticker": "FJDI"
+        }
+      ]
+    }
+  },
+  "schema": "research.observed-go-anomaly/1",
+  "scope": "Observed anomaly; later diagnostic rows; no full NAS histories or holdings. Unaffected test controls are synthetic."
+}

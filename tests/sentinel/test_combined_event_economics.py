@@ -12,7 +12,7 @@ from sentinel.core.kernel import advance_session
 from sentinel.core.production import PublishedSession, SessionState
 from sentinel.feed import actions_map, calendar, corporate_action_authority as CAA, sharadar
 from sentinel.feed.domains import RawPriceDomainUnavailable, normalise_sep_rows
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.engine import Operation
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar

@@ -17,16 +17,18 @@ from sentinel.execution import opening_sizing
 from sentinel.execution.opening_prices import ENDPOINT, OpeningPrices, OpeningPriceUnavailable
 from sentinel.feed import calendar, universe
 from sentinel.paper.inspection import build_security_resolver
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from stock_strategy_shared.wealth_core import median5
 from stock_strategy_shared.wealth_core.feed import Feed, FeedError, SecurityMeta, VendorBar
 from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
 from tests.v5.test_opening import case, base
-from tests.v5.test_v5 import canonical
 
 
 def prior_book():
-    env = canonical()
+    from sentinel.controller.machine import Controller
+    config, identity = production_strategy()
+    env = SessionState.fresh(starting_cash=100000., controller=Controller(config),
+                             strategy_identity=identity)
     axis = calendar.previous_sessions('2026-08-12', 142)
     meta = {'A': SecurityMeta('A', 'A', 'Domestic Common Stock', 'A', first_session=axis[0])}
     feed = Feed(meta)

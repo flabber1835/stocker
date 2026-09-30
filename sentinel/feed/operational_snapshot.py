@@ -72,6 +72,9 @@ def acquisition_window(conn, strategy_sha256):
     from sentinel.strategy import production_strategy
     _, strategy = production_strategy()
     if strategy_sha256 == digest(strategy):
+        from sentinel.core.window_policy import enabled
+        if enabled(strategy):
+            return PriceWindow.through(source_final_session())
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('sentinel_processed_sessions')")
             installed = cur.fetchone()[0]

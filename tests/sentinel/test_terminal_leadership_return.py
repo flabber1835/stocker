@@ -4,7 +4,7 @@ import pytest
 from tests.support.canonical_economic_book import canonical_two_days
 from sentinel.core.session import PublishedSession, SessionState, _feed_from_dict
 from sentinel.core.kernel import advance_session
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from sentinel.feed import calendar
 from stock_strategy_shared.wealth_core.feed import VendorBar
 from stock_strategy_shared.wealth_core.state import PortfolioState

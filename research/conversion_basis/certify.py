@@ -33,7 +33,7 @@ def main():
     # Bind regular production packages before external input-reader imports.
     from sentinel.core.kernel import advance_session
     from sentinel.core.session import SessionState
-    from sentinel.strategy import production_strategy
+    from sentinel.strategy import owned_impairment_strategy as production_strategy
     from stock_strategy_shared.wealth_core.feed import Feed
     from stock_strategy_shared.wealth_core.state import PortfolioState
     from stock_strategy_shared.wealth_core.ledger import Ledger

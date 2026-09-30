@@ -100,7 +100,7 @@ def _candidate(path: Path) -> tuple[Mapping, Mapping]:
             or not warmup["decision"]
             or warmup.get("decision_sha256") != canonical_sha256(warmup["decision"])
             or not isinstance(inputs, Mapping)
-            or inputs.get("session_count") != 252
+            or inputs.get("session_count") != (299 if warmup.get('schema') == observation_startup.WINDOW_SCHEMA else 252)
             or inputs.get("warmup_input_sha256") != canonical_sha256({
                 k: v for k, v in inputs.items() if k != "warmup_input_sha256"})):
         raise IssuanceRefused("warmup selected-strategy, publication or computed evidence differs")

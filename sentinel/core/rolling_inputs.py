@@ -58,7 +58,9 @@ class SnapshotReferences:
         self.manifest = rolling_store.manifest(conn, candidate_id)
         if self.manifest.snapshot_id != snapshot_id:
             raise RollingInputsRefused("SNAPSHOT_ID_MISMATCH")
-        if (self.manifest.normalization_version != NORMALIZATION_VERSION
+        from sentinel.core import window_policy
+        self.current_window = self.manifest.normalization_version == window_policy.NORMALIZATION
+        if (self.manifest.normalization_version not in (NORMALIZATION_VERSION, window_policy.NORMALIZATION)
                 or self.manifest.calendar_version != calendar.calendar_version()):
             raise RollingInputsRefused("UNSUPPORTED_SNAPSHOT_SEMANTICS")
         reference = rolling_store.load_evidence(conn, self.manifest.reference_sha256)
@@ -158,9 +160,10 @@ def _snapshot_context(conn, candidate_id, snapshot_id):
     refs = SnapshotReferences(conn, candidate_id=candidate_id, snapshot_id=snapshot_id)
     rolling_store.verify_content(conn, candidate_id)
     session = str(refs.manifest.window.end)
-    axis = calendar.previous_sessions(session, PREFERRED_SESSIONS + 1)
+    count = 299 if refs.current_window else PREFERRED_SESSIONS
+    axis = calendar.previous_sessions(session, count + 1)
     warm = axis[:-1]
-    if len(warm) != PREFERRED_SESSIONS or not set(axis).issubset(map(str, refs.manifest.window.sessions)):
+    if len(warm) != count or not set(axis).issubset(map(str, refs.manifest.window.sessions)):
         raise RollingInputsRefused("COLD_START_WINDOW_UNAVAILABLE")
     meta, sectors = refs.current_metadata()
     return refs, session, axis, warm, meta, sectors
@@ -182,8 +185,8 @@ def _mapped_bars(conn, candidate_id, refs, meta, first, last=None):
             tradeable=bool(row.close_unadjusted and row.volume), signal_close=row.close_signal)
 
 
-def _benchmarks(conn, candidate_id, session):
-    benchmark_axis = calendar.previous_sessions(session, 254)
+def _benchmarks(conn, candidate_id, session, *, count=254):
+    benchmark_axis = calendar.previous_sessions(session, count)
     benchmarks = tuple(row for row in rolling_store.read_benchmarks(conn, candidate_id)
                        if str(row.session) >= benchmark_axis[0])
     if [str(row.session) for row in benchmarks] != benchmark_axis:
@@ -200,7 +203,7 @@ def cold_start_inputs(conn, *, candidate_id: str, snapshot_id: str) -> ColdStart
     if sorted(by_session) != axis:
         raise RollingInputsRefused("COLD_START_PRICE_GAP")
     known = {bar.security_id for day in warm for bar in by_session[day]}
-    benchmarks = _benchmarks(conn, candidate_id, session)
+    benchmarks = _benchmarks(conn, candidate_id, session, count=300 if refs.current_window else 254)
     window = CorpusWindow(warm, {day: by_session[day] for day in warm}, meta)
     window.median5_spy_closes = {str(row.session): row.spy_total_return for row in benchmarks
                                 if str(row.session) in warm}

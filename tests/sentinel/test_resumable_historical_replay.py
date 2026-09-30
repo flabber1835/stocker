@@ -8,7 +8,7 @@ from research.bounded_20y.january import (
     START, load_supplements, progress, read_checkpoint, write_checkpoint)
 from sentinel.controller.machine import Controller
 from sentinel.core.session import SessionState
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 
 
 def test_january_formation_does_not_reset_book_or_enter_july_return():

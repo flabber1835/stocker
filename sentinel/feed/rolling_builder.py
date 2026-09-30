@@ -75,6 +75,10 @@ def build(conn, lease, request, source):
 def _build(conn, lease, request, source):
     """Caller holds common writer/backup authority and owns one transaction."""
     pulse = lambda: jobs.heartbeat(conn, lease, lease_seconds=600)
+    from sentinel.strategy import production_strategy
+    from sentinel.core import window_policy
+    _, strategy = production_strategy()
+    current_window = window_policy.enabled(strategy) and request.strategy_sha256 == digest(strategy)
     native = digest(source.tickers)
     identity = symbol_identity.SymbolProjection(source.tickers, source.actions,
                                                  through=str(request.window.end))
@@ -93,7 +97,7 @@ def _build(conn, lease, request, source):
     bounds = {"date_from": str(request.window.start), "date_to": str(request.window.end)}
     with closing(_coverage(identity, native)) as coverage:
         counts = _populate(conn, lease, coverage, pulse=pulse, subphase="independent_coverage")
-        coverage_proof = coverage.require_complete(**bounds)
+        coverage_proof = coverage.require_complete(**bounds, current_window=current_window)
         coherence.assert_seed_history(counts, **bounds)
         reference = rolling_store.put_evidence(conn, source.reference_payload())
         source_sha = rolling_store.put_evidence(conn, source.source_payload())
@@ -143,7 +147,8 @@ def _build(conn, lease, request, source):
                 closing(coverage.observed_keys()) as expected_keys:
             manifest = rolling_store.seal(
                 conn, candidate, expected_keys=expected_keys,
-                normalization_version=NORMALIZATION_VERSION, requirements=RestartRequirement())
+                normalization_version=window_policy.NORMALIZATION if current_window else NORMALIZATION_VERSION,
+                requirements=RestartRequirement())
             counter[0] = manifest.bar_count
         validation = rolling_store.put_evidence(conn, {
             "schema": "sentinel.rolling-comparison-validation/1", "scope": "COMPARISON_ONLY",

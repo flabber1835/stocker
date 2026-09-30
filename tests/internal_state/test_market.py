@@ -1,4 +1,4 @@
-"""Exercise the actual selected kernel on the lab's economic facts before SQL."""
+"""Exercise the historical Owned55 kernel on the lab's full-corpus facts."""
 from copy import deepcopy
 from types import SimpleNamespace
 import pytest
@@ -8,7 +8,7 @@ from sentinel.core.kernel import advance_session
 from sentinel.core.production import warm_session_state
 from sentinel.core.session import Controller, DefensiveBar, PublishedSession, SessionState
 from sentinel.feed import calendar
-from sentinel.paper.preparation import _default_paper_strategy
+from sentinel.strategy import owned_impairment_strategy as _default_paper_strategy
 from sentinel.shadow_observation import SHADOW_WARMUP_SESSIONS
 
 from tests.internal_state import market, oracles

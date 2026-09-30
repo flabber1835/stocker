@@ -209,7 +209,8 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
     from sentinel.feed.readiness import REQUIRED_SPY_SESSIONS
     from sentinel.core.session import SessionState
     from sentinel.feed import rolling_go_inputs
-    from sentinel.rolling_initialization import _published
+    from sentinel.rolling_initialization import _published, current_window_inputs
+    from sentinel.core import window_policy
     from sentinel.strategy import production_strategy
     from sentinel.controller.owned_impairment import enabled as owned
     from sentinel import observation_startup
@@ -219,7 +220,7 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
     formation = None
     with readers.pinned(conn, commit=False) as pub:
         frontier = readers.frontier(conn, pub)
-        if owned(strategy):
+        if owned(strategy) and not window_policy.enabled(strategy):
             if not readers.is_rolling(pub):
                 raise AuthorityRefused('Owned55 observation requires a formation publication')
             from sentinel.core.formation_inputs import FormationInputs
@@ -229,16 +230,19 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
             prior, warmup, published, formation = formation_preview.run(
                 source, capital=cash, strategy=strategy, data_version=pub.version)
         elif readers.is_rolling(pub):
-            _, material, _ = rolling_go_inputs.validate(conn, pub)
+            binding, material, _ = rolling_go_inputs.validate(conn, pub)
             prior = warm_session_state(
                 SessionState.fresh(starting_cash=float(cash),
                     controller=Controller(controller), strategy_identity=strategy),
                 material.warmup, publication_version=pub.version,
                 prospective_concordance_witness=True)
             warmup = shadow_runtime._warmup_input_identity(
-                material.warmup, material.warmup.sessions, prospective_witness=True)
-            published = _published(material, pub)
+                material.warmup, material.warmup.sessions, prospective_witness=True,
+                expected_sessions=299 if window_policy.enabled(strategy) else 252)
+            published = current_window_inputs(conn, _published(material, pub), prior=prior, binding=binding, pub=pub)
         else:
+            if window_policy.enabled(strategy):
+                raise AuthorityRefused('current-window observation requires a rolling publication')
             prior, warmup = shadow_runtime._fresh_seed(
                 conn, first_session=frontier, starting_cash=cash,
                 controller_config=controller, strategy_identity=strategy,
@@ -249,10 +253,11 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
         fingerprint = publication_fingerprint(pub)
         corpus = _corpus_root_identity(conn, pub)
     record = {
-        "schema": observation_startup.FORMED_SCHEMA if formation else observation_startup.COLD_SCHEMA,
+        "schema": (observation_startup.WINDOW_SCHEMA if window_policy.enabled(strategy) else
+                   observation_startup.FORMED_SCHEMA if formation else observation_startup.COLD_SCHEMA),
         "historical_causality": HISTORICAL_CAUSALITY_UNVERIFIED,
         "historical_certification": "NOT_GRANTED",
-        "measured_sessions": 379 if formation else 253,
+        "measured_sessions": 300 if window_policy.enabled(strategy) else 379 if formation else 253,
         **({"formation": formation} if formation else {}),
         "warmup_sessions": warmup["session_count"],
         "first_session": warmup["first_warmup_session"],
@@ -266,7 +271,7 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
         "decision": _evidence_value(result.last_decision),
         "decision_sha256": canonical_sha256(_evidence_value(result.last_decision)),
     }
-    if warmup["session_count"] != 252 or result.last_processed_session != frontier:
+    if warmup["session_count"] != (299 if window_policy.enabled(strategy) else 252) or result.last_processed_session != frontier:
         raise AuthorityRefused(
             "paper-observation warmup did not produce the current startup decision")
     observation_startup.require(record, strategy_sha256=canonical_sha256(strategy),

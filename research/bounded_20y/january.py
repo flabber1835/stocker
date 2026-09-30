@@ -23,7 +23,7 @@ from sentinel.controller.machine import Controller
 from sentinel.core.kernel import advance_session
 from sentinel.core.session import FeedAnchor, PublishedSession, SessionState
 from sentinel.feed.calendar import previous_sessions
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from .inputs import BASE_ARCHIVE_SHA256, BASE_DATASET_SHA256, SFP_SOURCE, sha256, validate_manifest
 from .run import (START, END, PRODUCTION_REVISION, EconomicPath, distributions,
                   dump, metadata, number, terminals, vendor, verify_production)

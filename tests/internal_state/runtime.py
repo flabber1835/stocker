@@ -33,7 +33,8 @@ from sentinel.core.kernel import advance_session
 from sentinel.core.session import SessionState
 from sentinel.execution import alpaca, broker_cash, executor, journal, reconcile
 from sentinel.feed import calendar, ingest, publication, readiness, sharadar, store
-from sentinel.paper.preparation import _default_paper_strategy, _fresh_warmed_state, _load_marks_and_tickers
+from sentinel.paper.preparation import _fresh_warmed_state, _load_marks_and_tickers
+from sentinel.strategy import owned_impairment_strategy as _default_paper_strategy
 from sentinel.shadow_observation import SHADOW_WARMUP_SESSIONS
 
 from . import broker, market, oracles

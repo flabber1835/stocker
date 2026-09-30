@@ -413,6 +413,9 @@ jobs:
           docker run --rm --network none \
             --entrypoint python sentinel-test:ci \
             -m tools.sentinel_acquisition_falsifiers
+          docker run --rm --network none \
+            --entrypoint python sentinel-test:ci \
+            -m tools.current_window_falsifiers
 
       - name: Seal the successful lane evidence against the exact loaded images
         run: |

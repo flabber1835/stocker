@@ -1,5 +1,9 @@
 # Stage 1 finite local closeout checklist
 
+For PR #461's changed 300-session input/startup policy, see the bounded
+[Stage 1 revalidation](current-window-stage-one.md). Its local pass updates the
+affected source-path evidence; it does not close the external gates below.
+
 This is the current remaining-work index, requested by the owner after the
 chronological audit ledger could no longer support a reliable completion estimate.
 It supersedes that ledger's vague references to "remaining local review", not

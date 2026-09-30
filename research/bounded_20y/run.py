@@ -24,7 +24,7 @@ from sentinel.core.session import FeedAnchor, PublishedSession, SessionState
 from sentinel.core.spinoffs import SpinoffDistribution
 from sentinel.feed.calendar import previous_sessions
 from sentinel.shadow_observation import ShadowObserver
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 
 from .inputs import Inputs
 from .supplement import RSAS, supplemented_terminals

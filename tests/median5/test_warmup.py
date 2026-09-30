@@ -8,7 +8,7 @@ from sentinel.core.loader import CorpusWindow
 from sentinel.core.production import warm_session_state
 from sentinel.core.session import SessionState
 from sentinel.feed import calendar
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from sentinel.shadow_runtime import _warmup_input_identity
 from sentinel.shadow_observation import ShadowObserver, ShadowObservationRefused, _validate_warmup_input_identity
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar

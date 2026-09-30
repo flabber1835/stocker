@@ -625,6 +625,8 @@ class PublishedSession:
     # covering history proof is refused by the canonical kernel.
     history_proof: Mapping | None = None
     spinoff_distributions: Sequence = ()
+    # Compact, versioned current-window facts; no provider or broker handle.
+    window_features: Mapping | None = None
 
 
 def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:

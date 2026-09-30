@@ -175,7 +175,11 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
             # Owned55 formation. Once an origin exists its original larger
             # generation remains usable until the next daily publication.
             from sentinel.feed.rolling_contract import FormationWindow
-            if isinstance(expected, FormationWindow) and actual != expected:
+            from sentinel.core import window_policy
+            request = rolling_jobs.status(conn, binding['job_id'])['request']
+            if (request['strategy_sha256'] != digest(strategy)
+                    or (actual != expected and (window_policy.enabled(strategy)
+                                                or isinstance(expected, FormationWindow)))):
                 pub = None
         if is_rolling(pub) and pub.window_end == target_session:
             with snapshots.pinned(conn, commit=False) as (held, _):

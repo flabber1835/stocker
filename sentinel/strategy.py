@@ -5,8 +5,9 @@ from sentinel.core.decision import runtime_strategy_identity
 
 def production_strategy():
     from sentinel.controller.owned_impairment import load as owned
+    from sentinel.core.window_policy import POLICY
     controller = owned()
-    return controller, runtime_strategy_identity(controller)
+    return controller, {**runtime_strategy_identity(controller), 'market_input_policy': POLICY}
 
 
 def owned_impairment_strategy():

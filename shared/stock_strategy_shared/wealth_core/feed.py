@@ -649,7 +649,18 @@ class Feed:
         if self.median5_state is not None:
             from .median5 import advance_signals
             from .eligibility import EligibilityReason
-            security_bars = advance_signals(self, ordered, effective, self.median5_state)
+            snapshot = getattr(self, 'snapshot_security_bars', None)
+            if snapshot is None:
+                security_bars = advance_signals(self, ordered, effective, self.median5_state)
+            else:
+                if self.median5_state['last_index'] != idx - 1:
+                    raise FeedError('current-window features require the adjacent strategy index')
+                if set(snapshot) != {b.security_id for b in ordered}:
+                    raise FeedError('current-window feature keys differ from session bars')
+                security_bars = [snapshot[b.security_id] for b in ordered]
+                self.median5_state['sums'] = {}
+                self.median5_state['last_index'] = idx
+                self.snapshot_security_bars = None
             for bar in security_bars:
                 self.series[bar.security_id].issuer_id = bar.issuer_id
             visible = [b for b in ordered if b.security_id in effective]

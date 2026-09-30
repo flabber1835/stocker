@@ -45,6 +45,10 @@ class Connection:
 
 @pytest.fixture
 def operational_inputs(monkeypatch):
+    # Explicit legacy-corpus coverage; current-window GO is exercised against
+    # the real rolling publisher in test_current_window_production.
+    from sentinel.strategy import owned_impairment_strategy
+    monkeypatch.setattr(parity, 'production_strategy', owned_impairment_strategy)
     monkeypatch.setattr(parity.rolling_go_inputs, "require_schemas", lambda conn: None)
     sessions = calendar.previous_sessions(FRONTIER, 253)[:-1]
     meta = {str(i): SecurityMeta(str(i), f"T{i}", "Common Stock", str(i),
@@ -142,7 +146,7 @@ def test_owned_observation_refuses_legacy_publication_before_loading_formation(
     from sentinel.feed import readers
 
     monkeypatch.setattr(readers, 'pinned', lambda c, **kw: parity.rolling_go_inputs.pinned(c))
-    with pytest.raises(AuthorityRefused, match='requires a formation publication'):
+    with pytest.raises(AuthorityRefused, match='requires a rolling publication'):
         observation_authority.current_warmup_evidence(Connection(), starting_cash=50000)
 
 

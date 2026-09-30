@@ -8,10 +8,15 @@ Implementation base: `86580bdd19232b443ba80f3aefb2ea53dbc61318`.
 The first acceptance milestone composes real Sharadar ingestion/publication,
 canonical Wealth Core and Sentinel state, production plan construction, Alpaca
 wire execution/reconciliation, environment preflight and physical PostgreSQL
-backup/restore in one disposable lifecycle. The current production paper
-strategy selector supplies the configuration and source identity, including
+backup/restore in one disposable lifecycle. The explicit historical Owned55
+strategy supplies the configuration and source identity, including
 the compact champion's Median-5 witness and REC8 recovery state. Existing economics, configuration,
 golden fixtures, account capabilities and production authority remain authoritative.
+
+After PR #461 this full-corpus campaign does not claim acceptance of the selected
+300-session input policy. That policy requires an authenticated feature payload
+which this legacy reader does not supply. Its acceptance through the real rolling
+runtime is in [current-window-stage-one.md](current-window-stage-one.md).
 
 The implementation lives in `tests/internal_state/` with a CLI under `tools/`.
 Production never imports the harness. The existing Sharadar provider/oracle,

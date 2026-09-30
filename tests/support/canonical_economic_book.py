@@ -1,6 +1,6 @@
 """A warmed canonical book with admissions, fills and JSON restart boundaries."""
 from decimal import Decimal
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from sentinel.controller.machine import Controller
 from sentinel.core.session import SessionState, PublishedSession
 from sentinel.core.production import warm_session_state

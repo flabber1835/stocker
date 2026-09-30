@@ -49,15 +49,30 @@ def _published(material, pub):
     def defensive(row):
         return DefensiveBar(str(row.session), "SENTINEL:BIL", "BIL", row.bil_open_signal,
                             row.bil_close_signal, row.bil_close_adjusted, row.bil_close_unadjusted)
-    axis = tuple(str(row.session) for row in material.benchmarks)
+    benchmarks = material.benchmarks[-254:]
+    axis = tuple(str(row.session) for row in benchmarks)
     return PublishedSession(
         session=material.session, data_version=pub.version, bars=material.bars,
         meta=material.meta, sectors=material.sectors, feed_anchors=material.feed_anchors,
-        spy_closeadj=tuple(row.spy_total_return for row in material.benchmarks),
+        spy_closeadj=tuple(row.spy_total_return for row in benchmarks),
         spy_sessions=axis, spy_expected_sessions=axis, terminal_events=material.terminal_events,
         defensive_bar=defensive(material.benchmarks[-1]),
         defensive_previous_bar=defensive(material.benchmarks[-2]),
-        spinoff_distributions=material.spinoff_distributions, history_proof=pub.evidence["strategy_history"])
+        spinoff_distributions=material.spinoff_distributions, history_proof=pub.evidence["strategy_history"],
+        window_features=getattr(material, 'window_features', None))
+
+
+def current_window_inputs(conn, published, *, prior, binding, pub):
+    from dataclasses import replace
+    from sentinel.core import window_policy, window_features
+    from sentinel.core.rolling_inputs import SnapshotReferences
+    if not window_policy.enabled(prior.strategy_identity):
+        return published
+    refs = SnapshotReferences(conn, candidate_id=binding['candidate_id'], snapshot_id=binding['snapshot_id'])
+    if not refs.current_window:
+        raise RollingColdStartRefused('CURRENT_WINDOW_PUBLICATION_REQUIRED')
+    inputs = window_features.load(conn, prior=prior, refs=refs, publication=pub)
+    return replace(published, window_features=inputs.model_dump(mode='json', by_alias=True))
 
 
 def _initialize(conn, pub, binding, context):
@@ -70,7 +85,9 @@ def _initialize(conn, pub, binding, context):
         raise RollingColdStartRefused("ACQUISITION_STRATEGY_CHANGED")
     timing = _timing(conn, pub.window_end)
     from sentinel.controller.owned_impairment import enabled as owned
-    if owned(context['strategy']):
+    from sentinel.core import window_policy
+    formed = owned(context['strategy']) and not window_policy.enabled(context['strategy'])
+    if formed:
         from sentinel import formation_bootstrap
         def current():
             checkpoints.require_fresh(conn)
@@ -86,8 +103,9 @@ def _initialize(conn, pub, binding, context):
         seed = warm_session_state(initial, material.warmup, publication_version=pub.version,
                                   prospective_concordance_witness=True)
         warmup = shadow_runtime._warmup_input_identity(
-            material.warmup, material.warmup.sessions, prospective_witness=True)
-        published = _published(material, pub)
+            material.warmup, material.warmup.sessions, prospective_witness=True,
+            expected_sessions=299 if window_policy.enabled(context['strategy']) else 252)
+        published = current_window_inputs(conn, _published(material, pub), prior=seed, binding=binding, pub=pub)
     store = shadow.PostgresShadowObservationStore(
         conn, observation_id=context["observation_id"], commit_genesis=False)
     observer = shadow.ShadowObserver(
@@ -99,7 +117,7 @@ def _initialize(conn, pub, binding, context):
     completed = _timing(conn, published.session)
     backup_runtime_authority.require(conn, operation="rolling cold-start checkpoint")
     checkpoint = checkpoints.Checkpoint(
-        status='FORMED_START_COMMITTED' if owned(context['strategy']) else 'COLD_START_COMMITTED',
+        status='FORMED_START_COMMITTED' if formed else 'COLD_START_COMMITTED',
         observation_id=context["observation_id"], session=published.session,
         starting_cash=context["starting_cash"], strategy_identity=context["strategy"],
         runtime_identity=context["runtime"], snapshot=binding, publication=pub.to_dict(),

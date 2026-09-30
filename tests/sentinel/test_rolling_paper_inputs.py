@@ -19,7 +19,7 @@ from sentinel.feed import calendar, publication, operational_snapshot as snapsho
 from sentinel.feed.rolling_contract import digest
 from sentinel.paper import preparation, inspection, execution, recovery, validation
 from sentinel.authority import load_rollout_state
-from sentinel.strategy import production_strategy
+from sentinel.strategy import owned_impairment_strategy as production_strategy
 from tests.sentinel.test_rolling_go_inputs import issuer_source, published, ready  # noqa: F401
 from tests.sentinel.test_operational_snapshot import operational_source  # noqa: F401
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: F401
