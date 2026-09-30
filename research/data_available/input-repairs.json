@@ -1,0 +1,26 @@
+[
+  {
+    "session": "2014-08-28",
+    "security_id": "177752727931112051",
+    "source_sha256": "00fcea928d21d7d95076cd9dca7df901290e8f30cf3988362f3ae76877e12a52",
+    "reason": "retained source encodes in-kind distribution as additional cash"
+  },
+  {
+    "session": "2015-07-01",
+    "security_id": "842836433184266027",
+    "source_sha256": "78d097ea759bdc06cf0d4a6f3dd09e63518a5de4cf3d3a1f29723c4dce19592b",
+    "reason": "retained source encodes in-kind distribution as additional cash"
+  },
+  {
+    "session": "2021-06-03",
+    "security_id": "899932545079148879",
+    "source_sha256": "dd7a4f47253270395c9cf98f826f8b9defd191fbcfbe59498198f1f6dce55b7a",
+    "reason": "retained source encodes in-kind distribution as additional cash"
+  },
+  {
+    "session": "2016-07-25",
+    "security_id": "177752727931112051",
+    "source_sha256": "e07d5d2d14342f9b1e0b64ce09842d58957e68a0bdfd3f653c261dfb4c0bb09e",
+    "reason": "retained source encodes in-kind distribution as additional cash"
+  }
+]
