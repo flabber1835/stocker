@@ -208,6 +208,19 @@ def test_decision_refuses_a_noncanonical_controller_snapshot():
         shadow_target(state)
 
 
+def test_read_only_canonical_sizing_does_not_alias_the_shadow_book():
+    state = _state(episodes=[_episode(0, "sec-a", "AAA", 10)])
+    original = deepcopy(state)
+    target = shadow_target(state)
+    plan = _build(state)
+    assert state == original
+    target.shares['sec-a'] = Decimal(999)
+    target.tickers['sec-a'] = 'OTHER'
+    plan.target_tickers['sec-a'] = 'DIFFERENT'
+    assert state == original
+    assert _build(state).plan == plan.plan
+
+
 def test_default_rollout_pins_exposure_to_one_and_keeps_wealth_core_cash():
     state = _state(episodes=[_episode(0, "sec-a", "AAA", 10)])
 

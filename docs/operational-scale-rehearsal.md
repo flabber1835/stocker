@@ -205,6 +205,19 @@ maxima and a count. It must not retain every 100-ms sample during hours of idle
 startup: that instrumentation itself otherwise consumes the automation budget.
 Keep cgroup lifetime peaks/OOM counters and process RSS peaks in the final report.
 
+The corrected small campaign at `d5ee3d30` passed in 393.33 seconds: two daily
+top-ups, three paper cycles, 60 filled commands and 594 fresh broker guards.
+Guard time totaled 192.967 seconds; the longest callback, including resolver
+construction, took 58.098 seconds. Automation working memory peaked at
+133,582,848 bytes and PostgreSQL at 111,452,160 bytes, with no OOM events.
+The six structural-reuse mutants and two canonical-encoding guard mutants were
+killed. Targeted checks passed: 56 paper/authority tests, 142 state/storage/plan
+tests, 20 real structural-reuse/resource-measurement tests and the read-only
+sizing ownership regression. These small results do not establish the full-size
+callback budget. The prior full-size run passed acquisition, financial formation
+and durable restart but was deliberately stopped after its execution callback
+had exceeded 900 seconds; that run remains failed/incomplete for automation.
+
 Build from this checkout with the existing dependency test image available:
 
 ```sh
