@@ -351,22 +351,34 @@ def prepare(conn, broker, **overrides):
     return asyncio.run(paper.prepare_paper_plan(**values))
 
 
-def test_structural_reuse_preserves_real_shadow_and_sizing_refusals(conn, gateway, monkeypatch):
+@pytest.mark.parametrize('changed', ['sizing', 'origin'])
+def test_structural_reuse_preserves_real_shadow_and_sizing_refusals(conn, gateway, monkeypatch, changed):
     import psycopg
     from sentinel import structural_verification as verified
     _, bound, broker = gateway
     plan = prepare(conn, broker).plan
     rollout = load_rollout_state(conn)
-    calls = dict(checkpoint=0, sizing=0)
+    calls = dict(checkpoint=0, sizing=0, origin=0)
     closure = rolling_runtime._load_closure
+    origin = rolling_runtime.origin.read
     sizing = dual_plan_authority._rederive_plan
+    class HistoricalInput(dict):
+        def __deepcopy__(self, memo):
+            pytest.fail('read-only status copied unused historical input after verification')
     def load_closure(*a, **k):
         calls['checkpoint'] += 1
-        return closure(*a, **k)
+        values = closure(*a, **k)
+        checkpoint = values[0].model_copy(update={
+            'input_value': HistoricalInput(values[0].input_value)})
+        return checkpoint, *values[1:]
     def rederive(*a, **k):
         calls['sizing'] += 1
         return sizing(*a, **k)
+    def read_origin(*a, **k):
+        calls['origin'] += 1
+        return origin(*a, **k)
     monkeypatch.setattr(rolling_runtime, '_load_closure', load_closure)
+    monkeypatch.setattr(rolling_runtime.origin, 'read', read_origin)
     monkeypatch.setattr(dual_plan_authority, '_rederive_plan', rederive)
     conn.execute('SELECT pg_advisory_lock(%s)', (journal.WRITER_LOCK_KEY,))
     try:
@@ -378,19 +390,28 @@ def test_structural_reuse_preserves_real_shadow_and_sizing_refusals(conn, gatewa
                     return dual_plan_authority.rederive_plan(fresh, plan=plan,
                         binding=bound, rollout_state=rollout, expected_shadow_result=shadow)
             assert proof() == proof()
-            assert calls == dict(checkpoint=1, sizing=1)
+            assert calls == dict(checkpoint=1, sizing=1, origin=1)
             with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
                 with pytest.raises(dual_plan_authority.DualPlanAuthorityRefused,
                                    match='current verified shadow'):
                     dual_plan_authority.rederive_plan(fresh, plan=plan, binding=bound,
                         rollout_state=rollout, expected_shadow_result=SimpleNamespace())
-            assert calls == dict(checkpoint=1, sizing=2)
+            assert calls == dict(checkpoint=1, sizing=2, origin=1)
+            if changed == 'origin':
+                conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{hmac_sha256}','\"tampered\"') WHERE cursor_name=%s",
+                             (rolling_runtime.origin.CURSOR,))
+                conn.commit()
+                with pytest.raises(rolling_runtime.origin.RollingColdStartRefused,
+                                   match='CHECKPOINT_AUTHENTICATION_FAILED'):
+                    proof()
+                assert calls == dict(checkpoint=2, sizing=2, origin=2)
+                return
             conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{account_snapshot,cash}','\"0\"') WHERE cursor_name=%s",
                          (dual_plan_authority._cursor(plan.plan_id),))
             conn.commit()
             with pytest.raises(dual_plan_authority.DualPlanAuthorityRefused):
                 proof()
-            assert calls == dict(checkpoint=2, sizing=3)
+            assert calls == dict(checkpoint=2, sizing=3, origin=2)
     finally:
         conn.execute('SELECT pg_advisory_unlock(%s)', (journal.WRITER_LOCK_KEY,))
         conn.commit()

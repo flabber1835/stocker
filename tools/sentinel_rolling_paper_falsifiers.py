@@ -2,6 +2,15 @@
 from tools.sentinel_rolling_storage_falsifiers import main
 
 MUTANTS = {
+    "status_historical_input_copy": ("sentinel.rolling_runtime",
+        'bound = _StatusBinding(checkpoint.session, checkpoint.publication, checkpoint.snapshot)',
+        'bound = checkpoint',
+        "test_structural_reuse_preserves_real_shadow_and_sizing_refusals[sizing]"),
+    "status_origin_dispatch_read": ("sentinel.rolling_runtime",
+        'if not conn.execute("SELECT EXISTS (SELECT 1 FROM sentinel_processed_sessions "\n'
+        '                                "WHERE cursor_name=%s)", (origin.CURSOR,)).fetchone()[0]:',
+        'if origin.read(conn) is None:',
+        "test_structural_reuse_preserves_real_shadow_and_sizing_refusals[sizing]"),
     "structural_row_versions": ("sentinel.structural_verification",
         'retained[:2] != (key, before)', 'retained[0] != key',
         "test_structural_reuse_rechecks_row_versions_and_inputs[update]"),

@@ -200,6 +200,21 @@ Falsify changed rows, added/deleted lineage, table rewrites, changed sizing inpu
 copy isolation, expired pin and lost writer ownership. Then rerun the complete
 guarded callback, including actual daily continuation, under the same limits.
 
+The next full-size pass exposed a remaining eager origin read in `classify`,
+before entering the reusable structural closure. It deserialized and authenticated
+the large origin input on every guard just to decide whether startup existed.
+Use a row-existence query for that dispatch only. The closure loader still reads
+and authenticates the complete origin before granting structural status, and its
+row-version inventory invalidates reuse after any change. Outside a guarded scope
+the complete loader continues to run every time. Verify one origin authentication
+across repeated unchanged guarded checks and refusal after origin tampering.
+The authenticated checkpoint also contains historical input used only while
+verifying its origin. Do not copy that input on every status return. After the
+full closure has verified it, retain only the session/publication/snapshot fields
+needed by the fresh status checks, the restored result and authority records.
+Runtime writes/recovery continue to receive complete checkpoints. Falsify any
+attempt to copy historical input through the read-only status material.
+
 The long-lived measurement process aggregates each sample immediately into phase
 maxima and a count. It must not retain every 100-ms sample during hours of idle
 startup: that instrumentation itself otherwise consumes the automation budget.
