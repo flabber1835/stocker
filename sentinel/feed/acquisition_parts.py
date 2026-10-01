@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from itertools import islice
 from contextlib import contextmanager
 
@@ -11,6 +12,8 @@ from sentinel.feed.tickers_authority import _Fingerprint
 
 SCHEMA = "sentinel.acquisition-part/1"
 MAX_SUCCESSORS = 3
+JSONB_REFERENCE_BYTES = 1024 * 1024
+MAX_REFERENCE_BYTES = 256 * 1024 * 1024
 
 
 class SourceRevision(jobs.JobRefused, authority.VendorPublicationUnstable):
@@ -49,17 +52,26 @@ class Parts:
             yield
 
     def _manifest(self, part_id, *, expected_generation=None):
-        row = self.conn.execute("SELECT manifest,reference_payload FROM sentinel_acquisition_parts "
+        row = self.conn.execute("SELECT manifest,reference_payload,canonical_reference FROM sentinel_acquisition_parts "
                                 "WHERE part_id=%s", (part_id,)).fetchone()
         if row is None:
             return None
-        manifest, payload = row
+        manifest, payload, encoded = row
         if digest(manifest) != part_id or manifest.get("schema") != SCHEMA:
             raise PartCorrupt("retained acquisition manifest checksum mismatch: " + part_id)
         # A mismatched generation cannot be selected. Do not replay obsolete
         # payload merely to discover that its manifest already rules out reuse.
         if expected_generation is not None and manifest["generation"] != expected_generation:
-            return manifest, payload
+            return manifest, None
+        if encoded is not None:
+            from sentinel.feed.acquisition_limits import check
+            check('ACQUISITION_REFERENCE_BYTES', len(encoded), MAX_REFERENCE_BYTES)
+            if payload is not None or hashlib.sha256(encoded.encode('utf-8')).hexdigest() != manifest['content_sha256']:
+                raise PartCorrupt('retained acquisition reference bytes changed: ' + part_id)
+            try:
+                payload = json.loads(encoded)
+            except (ValueError, TypeError) as exc:
+                raise PartCorrupt('retained acquisition reference JSON invalid: ' + part_id) from exc
         if manifest["component"].startswith("SEP."):
             observed = _Fingerprint()
             with store.streaming_cursor(self.conn,
@@ -117,13 +129,19 @@ class Parts:
 
     def put(self, component, generation, *, payload=None, prices=None, evidence=None, rows=0):
         jobs._owned(self.conn, self.lease)
-        content = fingerprint(prices) if prices is not None else digest(payload)
+        encoded = canonical_json(payload) if payload is not None else None
+        if encoded is not None:
+            from sentinel.feed.acquisition_limits import check
+            check('ACQUISITION_REFERENCE_BYTES', len(encoded), MAX_REFERENCE_BYTES)
+        content = (fingerprint(prices) if prices is not None else
+                   hashlib.sha256(encoded.encode('ascii')).hexdigest() if encoded is not None else digest(None))
         manifest = dict(schema=SCHEMA, job_id=self.lease.job_id, component=component, generation=generation,
                         content_sha256=content, rows=rows, evidence=evidence)
         part_id = digest(manifest)
-        inserted = self.conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest,reference_payload) "
-            "VALUES(%s,%s::jsonb,%s::jsonb) ON CONFLICT DO NOTHING RETURNING part_id",
-            (part_id, canonical_json(manifest), canonical_json(payload) if payload is not None else None)).fetchone()
+        large = encoded is not None and len(encoded) > JSONB_REFERENCE_BYTES
+        inserted = self.conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest,reference_payload,canonical_reference) "
+            "VALUES(%s,%s::jsonb,%s::jsonb,%s) ON CONFLICT DO NOTHING RETURNING part_id",
+            (part_id, canonical_json(manifest), None if large else encoded, encoded if large else None)).fetchone()
         if inserted and prices is not None:
             iterator = iter(prices)
             with self.conn.cursor() as cur:

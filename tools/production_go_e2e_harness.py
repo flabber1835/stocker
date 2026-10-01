@@ -109,9 +109,10 @@ def _latest_closed_session() -> dt.date:
 
 def _session_days() -> tuple[dt.date, ...]:
     from sentinel.feed import calendar
+    from sentinel.feed.rolling_contract import CurrentFormationWindow
     end = _latest_closed_session()
-    start = end - dt.timedelta(days=560)
-    return tuple(dt.date.fromisoformat(day) for day in calendar.sessions_in_range(start, end))
+    required = len(CurrentFormationWindow.through(end.isoformat()).sessions) + 1
+    return tuple(dt.date.fromisoformat(day) for day in calendar.previous_sessions(end, required))
 
 
 def _in_range(day: dt.date, query: dict[str, list[str]], key: str = "date") -> bool:
@@ -493,10 +494,10 @@ def _bootstrap_financial_fixture() -> None:
     ], env=env, timeout=300)
 
     days = _session_days()
-    if len(days) < 254:
+    if len(days) < 427:
         raise HarnessFailure("deterministic Sharadar fixture has no seed sessions")
     # GO must publish the final available session through its actual Phase C.
-    # Keep the supported 252-session startup history before that transition.
+    # Keep the selected 426-session formation history before that transition.
     print("E2E fixture: seed through " + days[-2].isoformat(), flush=True)
     _run_host([
         "bash", "scripts/sentinel-compose.sh", "--run",

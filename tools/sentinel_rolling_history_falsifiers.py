@@ -7,6 +7,15 @@ from tools.sentinel_rolling_storage_falsifiers import main
 
 TEST = 'tests/sentinel/test_rolling_history_retention.py'
 MUTANTS = {
+    'source_calendar_lower_bound': (
+        'sentinel.feed.action_history', 'not lo < raw <= hi', 'not raw <= hi',
+        'test_full_reference_dates_are_bounded_before_calendar_conversion'),
+    'source_calendar_upper_bound': (
+        'sentinel.feed.action_history', 'not lo < raw <= hi', 'not lo < raw',
+        'test_full_reference_dates_are_bounded_before_calendar_conversion'),
+    'old_source_scan_heartbeat': (
+        'sentinel.feed.action_history', 'if index % 1024 == 0:', 'if False:',
+        'test_retained_action_scan_yields_while_skipping_old_reference_rows'),
     'idle_drain_integration': (
         'sentinel.shadow_service', 'maintenance_pending = retention.idle_pass(config.database_url)',
         'maintenance_pending = False', 'test_shadow_idle_loop_drains_then_yields_without_reacquisition'),

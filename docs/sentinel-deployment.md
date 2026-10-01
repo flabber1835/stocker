@@ -6,6 +6,12 @@ the matching image and checkout; GO's ordinary feed migration installs the
 additive column before preparation. Existing evidence is preserved, and the
 PostgreSQL memory limit is unchanged.
 
+[Joint operational rehearsal](operational-scale-rehearsal.md) extends the same
+bounded representation to reusable acquisition references and exercises daily
+refresh after startup. GO installs both additive columns. Full source references
+outside retained action coverage are filtered before calendar conversion;
+correction detection within the retained coverage is preserved.
+
 
 [Current-window book formation](current-window-formation.md) restores 126
 broker-free ownership/controller transitions after 299 feature sessions. The

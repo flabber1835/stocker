@@ -18,8 +18,47 @@ __all__ = ['conn', 'pg', 'source', 'operational_source']
 MAINTAIN = retention.maintain
 
 
+def test_full_reference_dates_are_bounded_before_calendar_conversion(monkeypatch):
+    from types import SimpleNamespace
+    rows = [('old', {'date':'1960-01-01', 'action':'dividend', 'ticker':'OLD'}, None),
+            ('basis', {'date':'2026-09-04', 'action':'dividend', 'ticker':'BASIS'}, None),
+            ('weekend', {'date':'2026-09-05', 'action':'dividend', 'ticker':'AAA'}, None),
+            ('holiday', {'date':'2026-09-07', 'action':'dividend', 'ticker':'BBB'}, None),
+            ('last', {'date':'2026-09-08', 'action':'dividend', 'ticker':'CCC'}, None),
+            ('future', {'date':'2101-01-01', 'action':'dividend', 'ticker':'FUTURE'}, None)]
+    refs = SimpleNamespace(actions=rows)
+    calls = []
+    original = calendar.session_on_or_after
+    def observe(day):
+        calls.append(day)
+        return original(day)
+    monkeypatch.setattr(calendar, 'session_on_or_after', observe)
+    result = list(action_history._dated_sources(refs, start='2026-09-04', end='2026-09-08'))
+    assert [r[1]['source_row_id'] for r in result] == ['weekend', 'holiday', 'last']
+    assert {r[0] for r in result} == {'2026-09-08'}
+    assert calls == ['2026-09-05', '2026-09-07', '2026-09-08']
+
+
+def test_retained_action_scan_yields_while_skipping_old_reference_rows(monkeypatch):
+    from types import SimpleNamespace
+    checkpoints = []
+    monkeypatch.setattr(action_history.rolling_work, 'checkpoint', lambda: checkpoints.append(True))
+    refs = SimpleNamespace(actions=[('old', {'date':'1960-01-01', 'action':'dividend'}, None)]*2049)
+    assert list(action_history._dated_sources(refs, start='2026-09-04', end='2026-09-08')) == []
+    assert len(checkpoints) == 3
+
+
 def publish(conn):
     return op.prepare(conn, enqueue(conn))
+
+
+def test_old_reference_does_not_block_initial_or_repeated_publication(conn, operational_source):
+    operational_source['ACTIONS'].append(dict(ticker='AAA', date='1960-01-01',
+        action='dividend', name='old reference', value='0.125', contraticker=None, contraname=None))
+    first = publish(conn)
+    second = publish(conn)
+    assert second['data_version'] == first['data_version'] + 1
+    assert conn.execute("SELECT count(*) FROM sentinel_action_history WHERE session<'1997-01-01'").fetchone()[0] == 0
 
 
 def aged_source(data, monkeypatch, end, *, actions=True):
