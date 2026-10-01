@@ -23,6 +23,15 @@ def selected(conn):
 
 
 def _closure(conn, context, *, status_only=False):
+    if status_only:
+        from sentinel import structural_verification
+        return structural_verification.material(conn, slot='rolling-checkpoint',
+            key={**context, 'controller': context['controller'].to_dict()},
+            load=lambda: _load_closure(conn, context, status_only=True))
+    return _load_closure(conn, context, status_only=False)
+
+
+def _load_closure(conn, context, *, status_only):
     checkpoint, observer, result = checkpoints.load(conn, context, status_only=status_only)
     values = authority.latest(conn, context["observation_id"])
     latest = values[0] if values else None

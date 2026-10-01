@@ -493,6 +493,18 @@ def rederive_plan(
         conn, *, plan, binding, rollout_state,
         expected_shadow_result=None) -> dict[str, str]:
     """Re-run canonical account sizing from the exact retained inputs."""
+    from sentinel import structural_verification
+    expected = expected_shadow_result
+    key = (plan.to_dict(), repr(binding), repr(rollout_state),
+           None if expected is None else (
+               expected.state.state_hash, expected.record_sha256,
+               expected.runtime_authority_sha256))
+    return structural_verification.material(conn, slot='dual-sizing', key=key,
+        load=lambda: _rederive_plan(conn, plan=plan, binding=binding,
+            rollout_state=rollout_state, expected_shadow_result=expected))
+
+
+def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result):
     authority = load_authority(conn, plan_id=plan.plan_id)
     if authority is None:
         raise DualPlanAuthorityRefused(
@@ -505,13 +517,14 @@ def rederive_plan(
     except Exception as exc:  # noqa: BLE001 - convert canonical state refusal
         raise DualPlanAuthorityRefused(
             "retained shadow state is not canonical") from exc
-    if state.state_hash != plan.shadow_snapshot_hash:
+    state_sha256 = state.state_hash
+    if state_sha256 != plan.shadow_snapshot_hash:
         raise DualPlanAuthorityRefused(
             "retained shadow state differs from the plan commitment")
     if expected_shadow_result is not None:
         expected_state = getattr(expected_shadow_result, "state", None)
         if (expected_state is None
-                or expected_state.state_hash != state.state_hash
+                or expected_state.state_hash != state_sha256
                 or str(getattr(expected_shadow_result, "record_sha256", ""))
                 != authority["shadow_record_sha256"]
                 or str(getattr(
@@ -551,7 +564,7 @@ def rederive_plan(
         "schema": SCHEMA,
         "authority_sha256": authority["authority_sha256"],
         "shadow_record_sha256": authority["shadow_record_sha256"],
-        "state_sha256": state.state_hash,
+        "state_sha256": state_sha256,
         "plan_fingerprint": plan.fingerprint(),
         "canonical_symbols": dict(sorted(tickers.items())),
         "verdict": "MATCH",

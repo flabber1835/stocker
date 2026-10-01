@@ -47,7 +47,9 @@ class Measurement:
     def __init__(self, cache):
         self.cache = cache
         self.stop = threading.Event()
-        self.samples = []
+        self.samples = 0
+        self.phases = {}
+        self.disk_peaks = dict(cache_bytes=0, partial_bytes=0, other_bytes=0)
         self.phase_name = "startup"
         self.error = None
         self.thread = threading.Thread(target=self._sample, daemon=True)
@@ -55,11 +57,19 @@ class Measurement:
     def _sample(self):
         try:
             while not self.stop.is_set():
-                self.samples.append(dict(phase=self.phase_name, seconds=time.monotonic(),
-                                         storage=disk(self.cache), **cgroup()))
+                self._record(dict(phase=self.phase_name,
+                                  storage=disk(self.cache), **cgroup()))
                 self.stop.wait(0.1)
         except Exception as exc:
             self.error = type(exc).__name__
+
+    def _record(self, sample):
+        self.samples += 1
+        phase = self.phases.setdefault(sample['phase'], dict(working_peak_bytes=0, anon_peak_bytes=0))
+        phase['working_peak_bytes'] = max(phase['working_peak_bytes'], sample['working'])
+        phase['anon_peak_bytes'] = max(phase['anon_peak_bytes'], sample['anon'])
+        for key in self.disk_peaks:
+            self.disk_peaks[key] = max(self.disk_peaks[key], sample['storage'][key])
 
     def __enter__(self):
         self.thread.start()
@@ -85,15 +95,9 @@ class Measurement:
     def result(self):
         if self.error or self.thread.is_alive() or not self.samples:
             raise RuntimeError("resource sampler incomplete: " + str(self.error))
-        phases = {}
-        for sample in self.samples:
-            phase = phases.setdefault(sample["phase"], dict(working_peak_bytes=0, anon_peak_bytes=0))
-            phase["working_peak_bytes"] = max(phase["working_peak_bytes"], sample["working"])
-            phase["anon_peak_bytes"] = max(phase["anon_peak_bytes"], sample["anon"])
-        return dict(phases=phases, cgroup=cgroup(), samples=len(self.samples),
-                    working_peak_bytes=max(s["working"] for s in self.samples),
-                    sampled_disk_peaks={key: max(s["storage"][key] for s in self.samples)
-                                        for key in ("cache_bytes", "partial_bytes", "other_bytes")},
+        return dict(phases=self.phases, cgroup=cgroup(), samples=self.samples,
+                    working_peak_bytes=max(s["working_peak_bytes"] for s in self.phases.values()),
+                    sampled_disk_peaks=self.disk_peaks,
                     process_peak_bytes=process_peak())
 
 

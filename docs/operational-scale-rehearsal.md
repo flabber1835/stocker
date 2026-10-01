@@ -135,7 +135,75 @@ callback (including broker-resolver construction) against the ordinary
 900-second callback budget. A cycle contains multiple callbacks, so its local
 HTTP orchestration timeout is separate from that acceptance bound.
 
+The corrected guarded small profile completed both daily top-ups and all three
+paper cycles in 976 seconds. It retained 594 fresh guard checks and 60 filled
+commands; cumulative guard validation fell from 1,071 to 692 seconds. Duplicate
+wakes added no publications or orders. This establishes guarded composition on
+the small fixture, not full-size callback timing or memory safety. The final
+large profile additionally times broker-resolver construction within each
+callback. Its outcome must be recorded separately.
+
 ## Running locally
+
+### Bounded canonical encoding during fresh execution checks
+
+The full-size guarded run passed acquisition, GO formation and durable startup
+restart, but its first execution callback exceeded 900 seconds. Profiling the
+retained 6,000-security book showed repeated canonical JSON traversal dominating
+fresh plan re-derivation. Optimize encoding without retaining a validation or
+authorization result: delegate small, bounded dictionaries and their scalar
+arrays to the same standard-library C encoder. Bound aggregate elements, keys
+and strings before encoding; larger or unusual structures retain the streaming
+path. Canonical bytes, hashes, invalid-value refusal and detached state ownership
+must remain unchanged. No strategy rule, broker guard, deadline or source identity
+check is removed. Compare against independent standard JSON bytes, include late
+corruption and circular-reference cases, and measure scratch allocation as well
+as the full retained plan. A faster microbenchmark alone does not qualify the
+automation callback; rerun the composed guarded path under its resource limits.
+
+Within one synchronous pure operation, validate JSON once: hashing itself runs
+the strict encoder, and canonical restoration runs it after normalization.
+The private decision view may borrow feed arrays while it performs read-only
+sizing; public serialization remains detached. Build a shadow target directly
+from the state already canonicalized by plan construction, rather than restoring
+that same state twice. Reuse a computed state digest only as a local variable
+within one re-derivation. None of these values survives a broker call or bypasses
+the next fresh database verification.
+
+### Structural verification within a guarded callback
+
+Pure encoding improvements reduced the retained plan microbenchmark from about
+9 seconds to 3.8 seconds, but cannot alone accommodate hundreds of fresh guards.
+Reuse structural checkpoint restoration and deterministic sizing within the
+guarded callback only. Bind that reuse to the original live publication-pin
+scope and execution writer-lock owner, database endpoint and backend PID. Every
+guard reads the current processed-session row inventory and PostgreSQL row
+versions (`tableoid`, `xmin`, `ctid`, session and cursor), relation file identity,
+and transaction-ID epoch. Updates, inserts, deletes, rewrites, changed context,
+or lost ownership force fresh verification or refusal. Inventory the whole
+processed-session table to include genesis, checkpoints, lineage, authority and
+sizing inputs without maintaining a second list of logical dependencies.
+
+The checkpoint loader runs in its existing repeatable-read, read-only snapshot.
+Revalidate the version inventory after loading; refuse change across snapshots.
+Store a private detached copy and return detached copies so callers cannot alter
+future checks. Cache only the structural closure and pure sizing proof: binding,
+rollout, current plan, source/runtime identity, current readiness, clock, exchange
+window, certificate, lease/control, segment approval and broker-result identity
+remain fresh. New callbacks and restarts begin empty. Direct callers outside a
+guard still perform full verification. This is not a durable authorization cache.
+
+PostgreSQL identifies row versions with `xmin` and changes `ctid` on updates or
+table moves; relation identity and the transaction epoch bound their use to this
+short-lived scope ([system columns](https://www.postgresql.org/docs/16/ddl-system-columns.html)).
+Falsify changed rows, added/deleted lineage, table rewrites, changed sizing inputs,
+copy isolation, expired pin and lost writer ownership. Then rerun the complete
+guarded callback, including actual daily continuation, under the same limits.
+
+The long-lived measurement process aggregates each sample immediately into phase
+maxima and a count. It must not retain every 100-ms sample during hours of idle
+startup: that instrumentation itself otherwise consumes the automation budget.
+Keep cgroup lifetime peaks/OOM counters and process RSS peaks in the final report.
 
 Build from this checkout with the existing dependency test image available:
 

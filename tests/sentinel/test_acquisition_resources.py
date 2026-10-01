@@ -12,6 +12,23 @@ import pytest
 from tools.acquisition_resources import cache_probe, fixtures, measurement, runner
 
 
+def test_sampler_retains_phase_peaks_without_retaining_samples(tmp_path, monkeypatch):
+    monitor = measurement.Measurement(tmp_path)
+    monkeypatch.setattr(measurement, 'cgroup', lambda: {'final': True})
+    monkeypatch.setattr(measurement, 'process_peak', lambda: 123)
+    for index in range(10000):
+        monitor._record(dict(phase='first' if index < 5000 else 'second',
+            working=10000-index, anon=index, storage=dict(
+                cache_bytes=index, partial_bytes=10000-index, other_bytes=1)))
+    result = monitor.result()
+    assert monitor.samples == result['samples'] == 10000
+    assert len(monitor.phases) == 2
+    assert result['phases']['first'] == dict(working_peak_bytes=10000, anon_peak_bytes=4999)
+    assert result['phases']['second'] == dict(working_peak_bytes=5000, anon_peak_bytes=9999)
+    assert result['working_peak_bytes'] == 10000
+    assert result['sampled_disk_peaks'] == dict(cache_bytes=9999, partial_bytes=10000, other_bytes=1)
+
+
 def healthy():
     return dict(cgroup=dict(limit=1000, events=dict(oom=0, oom_kill=0)),
                 samples=10, working_peak_bytes=799)

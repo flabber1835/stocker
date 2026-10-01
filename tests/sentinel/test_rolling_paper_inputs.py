@@ -231,6 +231,87 @@ def test_readiness_scope_requires_real_pin_and_isolates_material(conn, published
         assert len(calls) == 2
 
 
+@pytest.mark.parametrize('change', ['update', 'insert', 'delete', 'rewrite', 'key'])
+def test_structural_reuse_rechecks_row_versions_and_inputs(conn, published, change):
+    import psycopg
+    from sentinel import schema, structural_verification as verified
+    schema.ensure_schema(conn)
+    conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES ('probe','2026-09-14','{}')")
+    conn.commit()
+    calls = []
+    def load():
+        calls.append(1)
+        return {'validated': [len(calls)]}
+    conn.execute('SELECT pg_advisory_lock(%s)', (journal.WRITER_LOCK_KEY,))
+    try:
+        with feed_inputs.pinned(conn, commit=False) as pub:
+            scope = verified.Scope(conn)
+            def read(key='a'):
+                with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+                    return verified.material(fresh, slot='probe', key=key, load=load)
+            read()['validated'].clear()
+            assert read() == {'validated': [1]}
+            assert len(calls) == 1
+            if change == 'update':
+                conn.execute("UPDATE sentinel_processed_sessions SET state='{}' WHERE cursor_name='probe'")
+            elif change == 'insert':
+                conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES ('new-lineage','2026-09-14','{}')")
+            elif change == 'delete':
+                conn.execute("DELETE FROM sentinel_processed_sessions WHERE cursor_name='probe'")
+            elif change == 'rewrite':
+                conn.commit()
+                with psycopg.connect(conn.info.dsn, autocommit=True) as maintenance:
+                    maintenance.execute('VACUUM FULL sentinel_processed_sessions')
+            conn.commit()
+            assert read('b' if change == 'key' else 'a') == {'validated': [2]}
+            assert len(calls) == 2
+            from sentinel.feed import readiness_scope
+            with readiness_scope.pinned(conn, replace(pub, version=pub.version + 1)):
+                with pytest.raises(publication.CorpusIncoherent, match='SCOPE_CHANGED'):
+                    read()
+        with feed_inputs.pinned(conn, commit=False):
+            with pytest.raises(publication.CorpusIncoherent, match='SCOPE_CHANGED|SCOPE_EXPIRED'):
+                read()
+    finally:
+        conn.execute('SELECT pg_advisory_unlock(%s)', (journal.WRITER_LOCK_KEY,))
+        conn.commit()
+
+
+def test_structural_reuse_requires_live_writer_and_unchanged_verification(conn, published):
+    import psycopg
+    from sentinel import schema, structural_verification as verified
+    schema.ensure_schema(conn)
+    conn.commit()
+    with feed_inputs.pinned(conn, commit=False):
+        scope = verified.Scope(conn)
+        with psycopg.connect(conn.info.dsn) as fresh:
+            with pytest.raises(verified.VerificationScopeRefused, match='WRITER_LOCK_LOST'):
+                with scope.guard(fresh):
+                    pytest.fail('writer-free structural reuse')
+        conn.execute('SELECT pg_advisory_lock(%s)', (journal.WRITER_LOCK_KEY,))
+        try:
+            with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+                def changed():
+                    fresh.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES ('raced','2026-09-14','{}')")
+                    return {'unchecked': True}
+                with pytest.raises(verified.VerificationScopeRefused, match='INPUTS_CHANGED'):
+                    verified.material(fresh, slot='probe', key='a', load=changed)
+                fresh.rollback()
+                assert not scope.values
+        finally:
+            conn.execute('SELECT pg_advisory_unlock(%s)', (journal.WRITER_LOCK_KEY,))
+
+
+def test_structural_reuse_is_absent_outside_guard(conn, published):
+    from sentinel import structural_verification as verified
+    calls = []
+    def load():
+        calls.append(1)
+        return len(calls)
+    assert verified.material(conn, slot='probe', key='a', load=load) == 1
+    assert verified.material(conn, slot='probe', key='a', load=load) == 2
+
+
 @pytest.fixture
 def gateway(conn, published, monkeypatch, request):
     result = approve(conn)
@@ -262,6 +343,45 @@ def prepare(conn, broker, **overrides):
         dual_shadow_observation_id=OBS, dual_shadow_starting_cash=100000, now_et=NOW, base_url=DEFAULT_BASE_URL)
     values.update(overrides)
     return asyncio.run(paper.prepare_paper_plan(**values))
+
+
+def test_structural_reuse_preserves_real_shadow_and_sizing_refusals(conn, gateway, monkeypatch):
+    import psycopg
+    from sentinel import structural_verification as verified
+    _, bound, broker = gateway
+    plan = prepare(conn, broker).plan
+    rollout = load_rollout_state(conn)
+    calls = dict(checkpoint=0, sizing=0)
+    closure = rolling_runtime._load_closure
+    sizing = dual_plan_authority._rederive_plan
+    def load_closure(*a, **k):
+        calls['checkpoint'] += 1
+        return closure(*a, **k)
+    def rederive(*a, **k):
+        calls['sizing'] += 1
+        return sizing(*a, **k)
+    monkeypatch.setattr(rolling_runtime, '_load_closure', load_closure)
+    monkeypatch.setattr(dual_plan_authority, '_rederive_plan', rederive)
+    conn.execute('SELECT pg_advisory_lock(%s)', (journal.WRITER_LOCK_KEY,))
+    try:
+        with feed_inputs.pinned(conn, commit=False):
+            scope = verified.Scope(conn)
+            def proof():
+                with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+                    shadow = rolling_runtime.status(fresh, observation_id=OBS, starting_cash=100000)
+                    return dual_plan_authority.rederive_plan(fresh, plan=plan,
+                        binding=bound, rollout_state=rollout, expected_shadow_result=shadow)
+            assert proof() == proof()
+            assert calls == dict(checkpoint=1, sizing=1)
+            conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{account_snapshot,cash}','\"0\"') WHERE cursor_name=%s",
+                         (dual_plan_authority._cursor(plan.plan_id),))
+            conn.commit()
+            with pytest.raises(dual_plan_authority.DualPlanAuthorityRefused):
+                proof()
+            assert calls == dict(checkpoint=2, sizing=2)
+    finally:
+        conn.execute('SELECT pg_advisory_unlock(%s)', (journal.WRITER_LOCK_KEY,))
+        conn.commit()
 
 
 @pytest.mark.parametrize("opening_capability", [False, True])

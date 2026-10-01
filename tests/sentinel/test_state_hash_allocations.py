@@ -68,6 +68,35 @@ def independent_hash(value):
                                     allow_nan=False).encode('ascii')).hexdigest()
 
 
+def test_hash_still_rejects_non_json_after_single_pass_validation():
+    _, state = _fresh()
+    state.shadow_nav_history = [float('nan')]
+    with pytest.raises(ValueError):
+        _ = state.state_hash
+
+
+@pytest.mark.parametrize('length', [0, 1, 260, 300, 301])
+def test_bounded_record_native_encoding_preserves_exact_bytes(length):
+    record = {'z': [1.25, -0.0, '\u03bb', None, False] * length,
+              'a': list(range(length)), 'escaped': '\n"\\'}
+    assert session_module._hash(record) == independent_hash(record)
+    if length:
+        record['a'][-1] = float('inf')
+        with pytest.raises(ValueError):
+            session_module._hash(record)
+
+
+def test_bounded_record_encoding_does_not_admit_oversized_strings(monkeypatch):
+    original = json.JSONEncoder.encode
+    record = {'a': ['x' * 1000000]}
+    expected = independent_hash(record)
+    def encode(self, value):
+        assert value is not record, 'unbounded record reached native encoder'
+        return original(self, value)
+    monkeypatch.setattr(json.JSONEncoder, 'encode', encode)
+    assert session_module._hash(record) == expected
+
+
 def _assert_hash_allocation():
     state = wide_state()
     expected = independent_hash(state.to_dict())

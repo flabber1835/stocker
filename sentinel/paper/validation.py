@@ -300,7 +300,9 @@ def _validate_broker_grant(
                         dual_reconciliation.DualReconciliationRefused) as exc:
                     raise PaperActivationRefused(
                         f"dual broker guard shadow authority refused: {exc}") from exc
-                state = SessionState.from_dict(shadow.state.to_dict())
+                # verified_shadow_intent has just restored canonical state;
+                # this synchronous guard only reads it before returning.
+                state = shadow.state
                 try:
                     dual_plan_authority.rederive_plan(
                         conn, plan=plan, binding=binding,
@@ -366,18 +368,24 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
                   dual_shadow_observation_id: str | None = None,
                   dual_shadow_starting_cash: Decimal | str | None = None
                   ) -> GuardedExecutionBroker:
-    guard = build_fresh_execution_guard(
-        connection_factory=_fresh_connection_factory(conn),
-        paper_base_url=base_url,
-        runtime_identity=system_identity.rehearsal_identity,
-        strategy_identity=strategy_provider,
-        validate_grant=lambda fresh, current_grant, operation, result: (
+    from sentinel.structural_verification import Scope
+    structural = Scope(conn)
+
+    def validate(fresh, current_grant, operation, result):
+        with structural.guard(fresh):
             _validate_broker_grant(
                 fresh, current_grant, operation, result,
                 now_provider=now_provider,
                 strategy_provider=strategy_provider,
                 dual_shadow_observation_id=dual_shadow_observation_id,
-                dual_shadow_starting_cash=dual_shadow_starting_cash)),
+                dual_shadow_starting_cash=dual_shadow_starting_cash)
+
+    guard = build_fresh_execution_guard(
+        connection_factory=_fresh_connection_factory(conn),
+        paper_base_url=base_url,
+        runtime_identity=system_identity.rehearsal_identity,
+        strategy_identity=strategy_provider,
+        validate_grant=validate,
         automation_config_sha256=automation_config_sha256,
         authority_check=require_current_authority)
     return GuardedExecutionBroker(inner=broker, grant=grant, guard=guard)

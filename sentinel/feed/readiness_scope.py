@@ -50,6 +50,21 @@ def require(conn):
         _require_pin(conn, scope)
 
 
+def capture(conn):
+    """Opaque lifetime token for other read-only work under this exact pin."""
+    scope = _current.get()
+    if scope is None or scope.database != _database(conn):
+        return None
+    _require_pin(conn, scope)
+    return scope
+
+
+def require_token(conn, token):
+    if token is not _current.get() or token.database != _database(conn):
+        raise publication.CorpusIncoherent('READINESS_SCOPE_CHANGED')
+    _require_pin(conn, token)
+
+
 @contextmanager
 def pinned(conn, pub):
     """Enter after acquiring the real publication lock; release before unlock."""

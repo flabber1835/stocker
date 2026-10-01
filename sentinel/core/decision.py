@@ -101,6 +101,8 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.feed.operational_coherence",
     "sentinel.feed.publication",
     "sentinel.feed.readers",
+    "sentinel.feed.readiness_scope",
+    "sentinel.structural_verification",
     "sentinel.feed.operational_snapshot",
     "sentinel.feed.rolling_builder",
     "sentinel.feed.rolling_contract",
@@ -317,7 +319,11 @@ def runtime_strategy_identity(
 
 def _canonical_state(state: SessionState | Mapping) -> SessionState:
     if isinstance(state, SessionState):
-        return SessionState.from_dict(state.to_dict())
+        # Synchronous read-only sizing needs no second owned copy of feed arrays.
+        # Restoration still validates all normalized JSON and economic state.
+        return SessionState.from_dict(
+            state._canonical_mapping(_copy_feed=False, _validate=False),
+            _copy_feed=False)
     return SessionState.from_dict(state)
 
 
@@ -340,7 +346,11 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
     immutable next-open intention. Broker positions are deliberately absent.
     """
 
-    canonical = _canonical_state(state)
+    return _canonical_shadow_target(_canonical_state(state))
+
+
+def _canonical_shadow_target(canonical: SessionState) -> ShadowTarget:
+    """Read-only target projection of an already canonical local state."""
     portfolio = PortfolioState.from_dict(canonical.wealth_core)
     shares: dict[str, Decimal] = {}
     tickers: dict[str, str] = {}
@@ -643,7 +653,7 @@ def build_execution_plan(
                 else controller_exposure)
     defensive_weight = exact_decimal(Fraction(1) - Fraction(exposure))
     current_marks = _current_marks(marks)
-    target = shadow_target(canonical)
+    target = _canonical_shadow_target(canonical)
     shadow_equity = _shadow_equity(canonical)
     nav, nav_unpriced = _decision_close_nav(
         canonical, account_snapshot, observation, current_marks)
