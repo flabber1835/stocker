@@ -6,6 +6,17 @@ from sentinel.feed import rolling_store
 from sentinel.feed.rolling_contract import FormationWindow, CurrentFormationWindow, digest
 
 
+def _benchmark_fields(benchmarks):
+    """Single SPY/BIL transport shared by both formation input policies."""
+    def defensive(b):
+        return DefensiveBar(str(b.session), 'SENTINEL:BIL', 'BIL', b.bil_open_signal,
+                            b.bil_close_signal, b.bil_close_adjusted, b.bil_close_unadjusted)
+    axis = tuple(str(b.session) for b in benchmarks)
+    return dict(spy_closeadj=tuple(b.spy_total_return for b in benchmarks),
+        spy_sessions=axis, spy_expected_sessions=axis,
+        defensive_bar=defensive(benchmarks[-1]), defensive_previous_bar=defensive(benchmarks[-2]))
+
+
 class FormationInputs:
     def __init__(self, conn, binding, publication):
         self.conn, self.binding, self.publication = conn, binding, publication
@@ -64,14 +75,8 @@ class FormationInputs:
         if not bars:
             raise ValueError('FORMATION_EMPTY_SESSION')
         benchmarks = self.benchmarks[max(0, index - 253):index + 1]
-        def defensive(b):
-            return DefensiveBar(str(b.session), 'SENTINEL:BIL', 'BIL', b.bil_open_signal,
-                                b.bil_close_signal, b.bil_close_adjusted, b.bil_close_unadjusted)
-        spy_axis = tuple(str(b.session) for b in benchmarks)
         return PublishedSession(session=day, data_version=self.publication.version, bars=bars,
-            meta=meta, sectors=sectors, spy_closeadj=tuple(b.spy_total_return for b in benchmarks),
-            spy_sessions=spy_axis, spy_expected_sessions=spy_axis,
-            defensive_bar=defensive(benchmarks[-1]), defensive_previous_bar=defensive(benchmarks[-2]),
+            meta=meta, sectors=sectors, **_benchmark_fields(benchmarks),
             terminal_events=tuple(e for e in self.terminals if e.session == day),
             spinoff_distributions=self.refs.distributions(session=day),
             feed_anchors=fresh_anchors(bars, meta, state.feed['series']),
@@ -103,14 +108,8 @@ class FormationInputs:
                 snapshot_sha256=self.refs.manifest.snapshot_id, features_sha256=features.sha256,
                 protected_economics_sha256=digest({'immutable_snapshot': self.refs.manifest.snapshot_id}))
             proof = proof.model_dump(by_alias=True)
-        def defensive(b):
-            return DefensiveBar(str(b.session), 'SENTINEL:BIL', 'BIL', b.bil_open_signal,
-                                b.bil_close_signal, b.bil_close_adjusted, b.bil_close_unadjusted)
-        axis = tuple(str(b.session) for b in prices.benchmarks)
         return PublishedSession(session=day, data_version=self.publication.version, bars=prices.bars,
-            meta=meta, sectors=sectors, spy_closeadj=tuple(b.spy_total_return for b in prices.benchmarks),
-            spy_sessions=axis, spy_expected_sessions=axis, defensive_bar=defensive(prices.benchmarks[-1]),
-            defensive_previous_bar=defensive(prices.benchmarks[-2]),
+            meta=meta, sectors=sectors, **_benchmark_fields(prices.benchmarks),
             terminal_events=tuple(e for e in self.terminals if e.session == day),
             spinoff_distributions=self.refs.distributions(session=day),
             signal_basis_anchors=prices.signal_basis_anchors,
