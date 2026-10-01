@@ -96,6 +96,10 @@ def run(args):
         report['failure'] = f'{type(exc).__name__}: {exc}'
         report['verdict'] = 'FAIL'
     finally:
+        try:
+            report['database'] = database_memory(db)
+        except Exception as exc:
+            report['database_measurement_failure'] = f'{type(exc).__name__}: {exc}'
         save()
         for role,name in (('worker',worker),('automation',automation),('provider',provider),('database',db)):
             raw = command('docker','inspect',name,check=False)

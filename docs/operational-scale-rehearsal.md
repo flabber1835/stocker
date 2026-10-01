@@ -65,6 +65,31 @@ The canonical shell fixture still supplied roughly 385 sessions for a selected
 426-session startup. Its source axis now derives from the selected formation
 window plus one session for the pre-GO seed, rather than 560 calendar days.
 
+The separate 2 GiB automation reader reproduced another OOM after publication:
+`SnapshotReferences` held about 1.7 GiB, then a nested manifest check decoded the
+same reference again. Separate stored-byte verification from semantic decoding.
+Manifest, sealing and reader integrity checks verify existence, representation,
+size and the exact TEXT checksum in PostgreSQL without returning/expanding the
+whole document. `load_evidence` remains the semantic boundary and still checks
+JSON decoding, object shape and canonical logical identity whenever a consumer
+needs the contents. No verdict cache, cross-transaction trust or optional bypass
+is introduced. Restore/content checks still verify stored bytes and price hashes;
+runtime reference consumers still validate reference schemas and source meaning.
+
+The symbol-identity projection only consumes rename actions. Retain copied rename
+evidence there, rather than copying every dividend and unrelated action into a
+second long-lived collection. The authoritative reference document and the
+economic action reader retain their full contents; rename matching/rejections
+and economic decisions must remain identical.
+
+The same retained 2,556,000-row publication and 185,998,932-byte reference bundle
+killed the original read-only automation readiness reader at its 2 GiB cap
+(`OOMKilled=true`, exit 137). The corrected reader completed in 103 seconds with
+1,538,068,480 bytes sampled working peak and no client/database OOM. This direct
+comparison exercises the data reader only: the changed source identity correctly
+prevents the old publication from satisfying the full new strategy admission.
+A fresh joint campaign must establish that admission and subsequent paper cycles.
+
 ## Running locally
 
 Build from this checkout with the existing dependency test image available:

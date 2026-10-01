@@ -159,6 +159,48 @@ def test_legacy_jsonb_evidence_survives_text_cutover(conn, monkeypatch):
                         'WHERE evidence_sha256=%s', (identity,)).fetchone() == (None,)
 
 
+def test_manifest_and_content_verification_do_not_decode_text_again(conn, window, monkeypatch):
+    monkeypatch.setattr(store, 'JSONB_EVIDENCE_BYTES', 1)
+    candidate = populated(conn, window)
+    def forbidden(*args):
+        raise AssertionError('integrity check expanded the reference document again')
+    monkeypatch.setattr(store, 'load_evidence', forbidden)
+    expected = seal(conn, candidate, window)
+    assert store.manifest(conn, candidate) == expected
+    assert store.verify_content(conn, candidate) == expected
+
+
+@pytest.mark.parametrize('fault', ['checksum', 'both', 'missing', 'retired'])
+def test_stored_byte_verifier_rejects_corrupt_or_unavailable_evidence(conn, fault):
+    # Model restored corrupt storage; normal writer/SQL constraints reject it
+    # earlier. The read-side verifier must independently detect the defect.
+    from psycopg import sql
+    checks = conn.execute("SELECT conname FROM pg_constraint WHERE conrelid="
+        "'sentinel_snapshot_evidence'::regclass AND contype='c' "
+        "AND pg_get_constraintdef(oid) LIKE '%%canonical_payload%%'").fetchall()
+    assert len(checks) == 1
+    conn.execute(sql.SQL('ALTER TABLE sentinel_snapshot_evidence DROP CONSTRAINT {}').format(
+        sql.Identifier(checks[0][0])))
+    identity = digest({}) if fault == 'both' else '0'*64
+    if fault != 'missing':
+        conn.execute('INSERT INTO sentinel_snapshot_evidence '
+            '(evidence_sha256,payload,canonical_payload) VALUES (%s,%s::jsonb,%s)',
+            (identity, '{}' if fault == 'both' else None,
+             None if fault == 'retired' else '{}'))
+    with pytest.raises(store.SnapshotStorageRefused):
+        store.verify_evidence(conn, identity)
+
+
+def test_stored_byte_verifier_checks_text_size(conn, monkeypatch):
+    from sentinel.feed.acquisition_limits import AcquisitionResourceExceeded
+    monkeypatch.setattr(store, 'JSONB_EVIDENCE_BYTES', 1)
+    identity = store.put_evidence(conn, {'reference':'bounded stored bytes'})
+    store.verify_evidence(conn, identity)
+    monkeypatch.setattr(store, 'MAX_EVIDENCE_BYTES', 8)
+    with pytest.raises(AcquisitionResourceExceeded, match='SNAPSHOT_EVIDENCE_BYTES'):
+        store.verify_evidence(conn, identity)
+
+
 def begin(conn, window):
     return store.begin(
         conn, window=window,

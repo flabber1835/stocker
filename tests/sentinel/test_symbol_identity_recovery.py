@@ -19,6 +19,21 @@ RENAMES = [
     for kind, contra in (("tickerchangeto", new), ("tickerchangefrom", old))]
 
 
+def test_projection_retains_only_copied_rename_evidence():
+    events = [dict(date='1960-01-01', action='dividend', ticker='OLD',
+                   value=str(i)) for i in range(10000)]
+    received = copy.deepcopy(RENAMES)
+    baseline = symbol_identity.SymbolProjection(OLD_LISTINGS, received, through=THROUGH)
+    projected = symbol_identity.SymbolProjection(OLD_LISTINGS, iter(events+received), through=THROUGH)
+    assert projected.actions == tuple(RENAMES)
+    assert projected.evidence == baseline.evidence
+    assert projected.digest('a'*64) == baseline.digest('a'*64)
+    received[0]['ticker'] = 'MUTATED_CALLER'
+    assert projected.actions == tuple(RENAMES)
+    repeated = symbol_identity.SymbolProjection(projected.rows, projected.actions, through=THROUGH)
+    assert repeated.evidence == baseline.evidence
+
+
 def test_nas_restated_actions_join_identity_and_keep_transport_labels_dated():
     before = copy.deepcopy((OLD_LISTINGS, RENAMES, RESTATED_BARS))
     projection = symbol_identity.SymbolProjection(OLD_LISTINGS, RENAMES, through=THROUGH)

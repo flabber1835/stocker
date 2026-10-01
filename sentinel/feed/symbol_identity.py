@@ -67,7 +67,10 @@ class SymbolProjection:
     def __init__(self, rows: Iterable[Mapping], actions: Iterable[Mapping], *, through: str,
                  alias_rejections=None):
         self.rows = tuple(dict(row) for row in rows)
-        self.actions = tuple(dict(row) for row in actions)
+        # Projection and every re-projection only consume rename evidence.
+        # Economic callers retain the authoritative full action bundle separately.
+        self.actions = tuple(dict(row) for row in actions
+                             if str(row.get("action") or "").lower() in RENAME_TYPES)
         self.through = dt.date.fromisoformat(str(through)).isoformat()
         changes_from: dict[Claim, set[str]] = {}
         changes_to: dict[Claim, set[str]] = {}

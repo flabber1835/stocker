@@ -85,6 +85,32 @@ def load_evidence(conn, identity: str) -> dict:
     return value
 
 
+def verify_evidence(conn, identity: str) -> None:
+    """Verify stored bytes without decoding another full reference object tree.
+
+    The manifest binds the exact bytes written by put_evidence. Consumers still
+    use load_evidence for canonical JSON/object validation and schema admission.
+    No verification result survives this call or substitutes for a later read.
+    """
+    row = conn.execute(
+        "SELECT payload,octet_length(canonical_payload),"
+        "CASE WHEN octet_length(canonical_payload)<=%s THEN "
+        "encode(sha256(convert_to(canonical_payload,'UTF8')),'hex') END "
+        "FROM sentinel_snapshot_evidence WHERE evidence_sha256=%s",
+        (MAX_EVIDENCE_BYTES, identity)).fetchone()
+    if row is None:
+        raise SnapshotStorageRefused("missing snapshot evidence: " + identity)
+    payload, size, observed = row
+    if size is not None:
+        from sentinel.feed.acquisition_limits import check
+        check("SNAPSHOT_EVIDENCE_BYTES", size, MAX_EVIDENCE_BYTES)
+        valid = payload is None and observed == identity
+    else:
+        valid = isinstance(payload, dict) and digest(payload) == identity
+    if not valid:
+        raise SnapshotStorageRefused("missing or corrupt snapshot evidence: " + identity)
+
+
 def begin(conn, *, window: PriceWindow, reference_sha256: str,
           source_evidence_sha256: str, expected_publication_version: int | None,
           dependencies_sha256: str) -> str:
@@ -211,8 +237,8 @@ def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
         raise SnapshotStorageRefused("snapshot candidate is already sealed")
     from sentinel.feed.rolling_contract import CurrentFormationWindow
     window = ({426: CurrentFormationWindow, 379: FormationWindow}.get(len(axis), PriceWindow))(sessions=axis)
-    load_evidence(conn, reference)
-    load_evidence(conn, source)
+    verify_evidence(conn, reference)
+    verify_evidence(conn, source)
     bars_hash, coverage_hash = hashlib.sha256(), hashlib.sha256()
     count, seen_sessions, previous_key = 0, set(), None
     actual = _rows(conn, candidate_id, table="sentinel_snapshot_bars",
@@ -281,8 +307,8 @@ def manifest(conn, candidate_id: str) -> SnapshotManifest:
             or value.source_evidence_sha256 != source):
         raise SnapshotStorageRefused("snapshot manifest differs from its candidate")
     if not retired(conn, candidate_id):
-        load_evidence(conn, value.reference_sha256)
-        load_evidence(conn, value.source_evidence_sha256)
+        verify_evidence(conn, value.reference_sha256)
+        verify_evidence(conn, value.source_evidence_sha256)
     return value
 
 

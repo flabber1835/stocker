@@ -6,6 +6,9 @@ import sys
 from tools.sentinel_rolling_storage_falsifiers import child
 
 MUTANTS = {
+    "identity_projection_retention": ("sentinel.feed.symbol_identity",
+        'if str(row.get("action") or "").lower() in RENAME_TYPES)', 'if True)',
+        "test_projection_retains_only_copied_rename_evidence"),
     "resume_bounded_reference_storage": ("sentinel.feed.acquisition_parts",
         'large = encoded is not None and len(encoded) > JSONB_REFERENCE_BYTES', 'large = False',
         "test_reference_storage_roundtrip_and_sql_integrity[True]"),
@@ -131,6 +134,8 @@ MUTANTS = {
 
 
 def test_file(name):
+    if name == "identity_projection_retention":
+        return "tests/sentinel/test_symbol_identity_recovery.py"
     if name.startswith("resume_"):
         return "tests/sentinel/test_acquisition_resumption.py"
     if name.startswith("resource_"):
