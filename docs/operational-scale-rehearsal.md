@@ -220,6 +220,14 @@ maxima and a count. It must not retain every 100-ms sample during hours of idle
 startup: that instrumentation itself otherwise consumes the automation budget.
 Keep cgroup lifetime peaks/OOM counters and process RSS peaks in the final report.
 
+Within each fresh broker guard, the dual sizing proof recomputes and binds the
+current detached shadow state's canonical digest before its structural result
+can be reused. Pass that just-verified digest to the remaining plan-authority
+check in the same synchronous guard instead of hashing the full book a second
+time. Direct preparation, execution and manual checks still compute their own
+digest. This is a per-call value, never a retained authorization or a substitute
+for the next guard's state, publication, account or clock checks.
+
 The corrected small campaign at `d5ee3d30` passed in 393.33 seconds: two daily
 top-ups, three paper cycles, 60 filled commands and 594 fresh broker guards.
 Guard time totaled 192.967 seconds; the longest callback, including resolver

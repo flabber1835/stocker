@@ -304,7 +304,7 @@ def _validate_broker_grant(
                 # this synchronous guard only reads it before returning.
                 state = shadow.state
                 try:
-                    dual_plan_authority.rederive_plan(
+                    sizing = dual_plan_authority.rederive_plan(
                         conn, plan=plan, binding=binding,
                         rollout_state=rollout,
                         expected_shadow_result=shadow)
@@ -322,7 +322,8 @@ def _validate_broker_grant(
             _assert_plan_authorities(
                 conn, state=state, plan=plan, binding=binding,
                 pinned=current, frontier=str(frontier), today=now_et.date(),
-                runtime_identity=runtime_strategy, rollout=rollout)
+                runtime_identity=runtime_strategy, rollout=rollout,
+                verified_state_sha256=sizing["state_sha256"] if dual_mode else None)
             return
         if grant.operation_scope == "RECOVER":
             feed_inputs.coherent(conn)
@@ -414,7 +415,8 @@ def _state_and_plan_or_refuse(conn) -> tuple[SessionState, ExecutionPlan, object
 def _assert_plan_authorities(conn, *, state: SessionState, plan: ExecutionPlan,
                              binding, pinned, frontier: str, today: date,
                              runtime_identity: Mapping, rollout,
-                             require_effective_today: bool = True) -> None:
+                             require_effective_today: bool = True,
+                             verified_state_sha256: str | None = None) -> None:
     _assert_deterministic_plan_id(plan)
     if plan.decision_session.isoformat() != frontier:
         raise PaperActivationRefused("plan decision session is not the current frontier")
@@ -426,7 +428,11 @@ def _assert_plan_authorities(conn, *, state: SessionState, plan: ExecutionPlan,
         raise PaperActivationRefused("plan effective session is not next XNYS session")
     if state.last_processed_session != plan.decision_session.isoformat():
         raise PaperActivationRefused("plan session is not the canonical state cursor")
-    if state.state_hash != plan.shadow_snapshot_hash:
+    # The dual sizing proof has already hashed this exact detached state in the
+    # current synchronous guard. All other callers compute it here as before.
+    state_sha256 = (verified_state_sha256 if verified_state_sha256 is not None
+                    else state.state_hash)
+    if state_sha256 != plan.shadow_snapshot_hash:
         raise PaperActivationRefused("plan state fingerprint is stale")
     if _hash(state.last_decision) != plan.sentinel_transition_hash:
         raise PaperActivationRefused("plan controller-transition fingerprint is stale")

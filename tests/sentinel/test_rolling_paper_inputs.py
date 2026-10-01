@@ -351,6 +351,64 @@ def prepare(conn, broker, **overrides):
     return asyncio.run(paper.prepare_paper_plan(**values))
 
 
+def test_fresh_dual_guard_reuses_only_its_verified_state_digest(conn, gateway, monkeypatch):
+    import psycopg
+    from sentinel.core.session import SessionState
+    from sentinel.execution.guarded import AutomationExecutionGrant, BrokerOperation
+    from sentinel.structural_verification import Scope
+
+    _shadow, bound, broker = gateway
+    plan = prepare(conn, broker).plan
+    opened, _ = calendar.session_window(plan.effective_session)
+    grant = AutomationExecutionGrant('EXECUTE', 'digest-fixture', 1, 'test', 1,
+        'paper-fixture', bound.takeover_epoch, 'CONTROLLER', 2, 'a' * 64)
+    monkeypatch.setattr(validation, '_validate_automation_grant', lambda *_: (
+        None, SimpleNamespace(plan_id=plan.plan_id,
+                              plan_fingerprint=plan.fingerprint(),
+                              decision_session=plan.decision_session)))
+    original = validation._assert_plan_authorities
+    checked = []
+
+    def one_digest(*args, **kwargs):
+        assert kwargs['verified_state_sha256'] == plan.shadow_snapshot_hash
+        checked.append(kwargs['verified_state_sha256'])
+        # The sizing proof has already hashed this exact state. The rest of
+        # the same guard must not traverse the large book again.
+        with monkeypatch.context() as patch:
+            patch.setattr(SessionState, 'state_hash', property(
+                lambda self: pytest.fail('duplicate state hash in broker guard')))
+            return original(*args, **kwargs)
+
+    monkeypatch.setattr(validation, '_assert_plan_authorities', one_digest)
+    with journal.writer_lock(conn), feed_inputs.pinned(conn, commit=False):
+        scope = Scope(conn)
+        with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+            validation._validate_broker_grant(
+                fresh, grant, BrokerOperation.OBSERVE, None,
+                now_provider=lambda: opened + timedelta(seconds=60),
+                strategy_provider=lambda: production_strategy()[1],
+                dual_shadow_observation_id=OBS,
+                dual_shadow_starting_cash=100000)
+        # A corrupt sizing digest cannot turn the optimization into an
+        # authorization bypass, even when all other inputs remain unchanged.
+        with monkeypatch.context() as patch:
+            patch.setattr(validation, '_assert_plan_authorities', original)
+            rederive = dual_plan_authority.rederive_plan
+            def corrupt(*args, **kwargs):
+                return {**rederive(*args, **kwargs), 'state_sha256': '0' * 64}
+            patch.setattr(dual_plan_authority, 'rederive_plan', corrupt)
+            with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+                with pytest.raises(validation.PaperActivationRefused,
+                                   match='state fingerprint is stale'):
+                    validation._validate_broker_grant(
+                        fresh, grant, BrokerOperation.OBSERVE, None,
+                        now_provider=lambda: opened + timedelta(seconds=60),
+                        strategy_provider=lambda: production_strategy()[1],
+                        dual_shadow_observation_id=OBS,
+                        dual_shadow_starting_cash=100000)
+    assert checked == [plan.shadow_snapshot_hash]
+
+
 @pytest.mark.parametrize('changed', ['sizing', 'origin'])
 def test_structural_reuse_preserves_real_shadow_and_sizing_refusals(conn, gateway, monkeypatch, changed):
     import psycopg
