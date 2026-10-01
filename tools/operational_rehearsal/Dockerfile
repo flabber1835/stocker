@@ -4,6 +4,7 @@ COPY sentinel /qualification/sentinel
 COPY shared /qualification/shared
 COPY scripts /qualification/scripts
 COPY tools /qualification/tools
+COPY tests /qualification/tests
 COPY docs /qualification/docs
 COPY data/sharadar /qualification/data/sharadar
 COPY config /qualification/config

@@ -1,10 +1,12 @@
 """Manual production-function rehearsal, with explicit external authority fixtures."""
 import argparse
+import faulthandler
 from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
 import time
+import signal
 
 import httpx
 from pytest import MonkeyPatch
@@ -128,7 +130,7 @@ def run(*, small, days):
                     with snapshots.pinned(conn) as (_, bound):
                         assert len(rolling_store.manifest(conn, bound['candidate_id']).window.sessions) == 300
             with measure.phase(f'daily-{index}:paper-execute-reconcile-restart'):
-                response = httpx.post('http://automation:8081/cycle', timeout=1800, json={
+                response = httpx.post('http://automation:8081/cycle', timeout=7200, json={
                     'session': first.session, 'now': clock[0].isoformat(),
                     'state_sha256': first.state.state_hash})
                 response.raise_for_status()
@@ -152,6 +154,7 @@ def run(*, small, days):
 
 
 def main():
+    faulthandler.register(signal.SIGUSR1)
     parser = argparse.ArgumentParser()
     parser.add_argument('--small', action='store_true')
     parser.add_argument('--days', type=int, choices=(1,2,3), default=2)

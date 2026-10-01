@@ -34,7 +34,9 @@ def is_rolling(pub):
 def pinned(conn):
     with publication._core.pinned(conn, commit=False) as pub:
         publication._validate_publication(conn, pub, allow_snapshot=True)
-        yield pub
+        from sentinel.feed import readiness_scope
+        with readiness_scope.pinned(conn, pub):
+            yield pub
 
 
 def require_first_deployment(conn):
@@ -85,6 +87,8 @@ def assessment(conn, pub, *, now=None):
 
 
 def _assess(conn, pub, *, target, summary_only=False):
+    from sentinel.feed import readiness_scope
+    readiness_scope.require(conn)
     binding = snapshots._bound(conn, pub)
     _, strategy = production_strategy()
     request = rolling_jobs.status(conn, binding["job_id"])["request"]
@@ -93,7 +97,11 @@ def _assess(conn, pub, *, target, summary_only=False):
     if publication.chain_gaps(conn):
         raise RollingGoRefused("ROLLING_PUBLICATION_CHAIN_GAP")
     reader = readiness_inputs if summary_only else cold_start_inputs
-    material = reader(conn, candidate_id=binding["candidate_id"], snapshot_id=binding["snapshot_id"])
+    load = lambda: reader(conn, candidate_id=binding["candidate_id"], snapshot_id=binding["snapshot_id"])
+    if summary_only:
+        material = readiness_scope.material(conn, pub, load)
+    else:
+        material = load()
     summary = material if summary_only else summarize_readiness(material)
     report = Readiness()
     report.add("rolling source-final frontier", PASS if material.session == target else FAIL,

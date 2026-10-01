@@ -104,6 +104,133 @@ def test_legacy_opening_identity_uses_the_publication_reader(monkeypatch):
     assert seen == [(conn, "2026-09-15")]
 
 
+def test_broker_resolver_releases_full_reference_bundle(monkeypatch):
+    import gc
+    import weakref
+
+    class Reference:
+        def __init__(self):
+            self.resolver = SimpleNamespace(resolve=lambda symbol, day: ("past", symbol, day))
+            self.actions = [object()]
+
+    references = []
+    future = SimpleNamespace(resolve=lambda symbol, day: ("next", symbol, day))
+    def authorities(*a, **k):
+        refs = Reference()
+        references.append(weakref.ref(refs))
+        return refs, "2026-09-15", DAY, future
+
+    monkeypatch.setattr(feed_inputs, "_snapshot_identity_authorities", authorities)
+    resolve = feed_inputs.resolver(None, None, session="2026-09-15")
+    gc.collect()
+    assert references[0]() is None, "broker retained the entire action bundle"
+    assert resolve("AAA", DAY) == ("past", "AAA", DAY)
+    assert resolve("AAA") == ("next", "AAA", "2026-09-15")
+    assert resolve("AAA", "2026-09-16") is None
+    assert resolve("BIL") == "SENTINEL:BIL"
+
+
+def test_readiness_material_reused_only_during_held_pin(conn, published, monkeypatch):
+    import psycopg
+    from sentinel.feed import rolling_go_inputs as inputs
+    calls = []
+    original = inputs.readiness_inputs
+    def counted(*a, **k):
+        calls.append(1)
+        return original(*a, **k)
+    monkeypatch.setattr(inputs, "readiness_inputs", counted)
+    with feed_inputs.pinned(conn, commit=False) as pub:
+        assert inputs.validate_status(conn, pub, now=NOW)[1].ready
+        with psycopg.connect(conn.info.dsn) as fresh:
+            # The shadow-status reader nests a pin on a fresh guard connection.
+            with inputs.pinned(fresh) as same:
+                assert inputs.validate_status(fresh, same, now=NOW)[1].ready
+        assert inputs.validate_status(conn, pub, now=NOW)[1].ready
+        assert len(calls) == 1
+    with feed_inputs.pinned(conn, commit=False) as pub:
+        assert inputs.validate_status(conn, pub, now=NOW)[1].ready
+    assert len(calls) == 2, "readiness material escaped its publication pin"
+
+
+@pytest.mark.parametrize("defect", ["clock", "strategy", "receipt"])
+def test_reused_material_never_caches_readiness_authority(conn, published, monkeypatch, defect):
+    from sentinel.feed import rolling_go_inputs as inputs
+    with feed_inputs.pinned(conn, commit=False) as pub:
+        assert inputs.validate_status(conn, pub, now=NOW)[1].ready
+        instant = NOW
+        if defect == "clock":
+            instant += timedelta(days=1)
+            monkeypatch.setattr(calendar, "latest_closed_session", lambda now=None: "2026-09-15")
+            error, message = inputs.RollingGoRefused, "source-final frontier"
+        elif defect == "strategy":
+            config, identity = inputs.production_strategy()
+            monkeypatch.setattr(inputs, "production_strategy", lambda: (config, dict(identity, changed=True)))
+            error, message = inputs.RollingGoRefused, "STRATEGY_CHANGED"
+        else:
+            conn.execute("SET LOCAL session_replication_role=replica")
+            conn.execute("UPDATE sentinel_publication_validation_receipts SET receipt_hmac_sha256=%s", ("0"*64,))
+            conn.commit()
+            error, message = publication.CorpusIncoherent, "receipt"
+        with pytest.raises(error, match=message):
+            inputs.validate_status(conn, pub, now=instant)
+
+
+def test_readiness_reuse_refuses_lost_pin(conn, published):
+    import psycopg
+    from sentinel.feed import rolling_go_inputs as inputs, readiness_scope
+    with psycopg.connect(conn.info.dsn) as reader:
+        with feed_inputs.pinned(reader, commit=False) as pub:
+            assert readiness_scope._current.get().owner is reader
+            assert inputs.validate_status(reader, pub, now=NOW)[1].ready
+            reader.execute("SELECT pg_advisory_unlock_all()")
+            # Snapshot readers also own transaction-level pins. End those,
+            # then use a fresh guard connection so it cannot reacquire a pin
+            # on behalf of the original backend.
+            reader.commit()
+            assert not reader.execute("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid())").fetchone()[0]
+            assert readiness_scope._current.get().owner is reader
+            with psycopg.connect(conn.info.dsn) as guard:
+                with pytest.raises(publication.CorpusIncoherent, match="PIN_LOST"):
+                    inputs.validate_status(guard, pub, now=NOW)
+            with pytest.raises(publication.CorpusIncoherent, match="PIN_LOST"):
+                inputs.validate_status(reader, pub, now=NOW)
+            with pytest.raises(publication.CorpusIncoherent, match="PIN_LOST"):
+                feed_inputs.require_current(reader)
+
+
+def test_readiness_reuse_refuses_expired_copied_context(conn, published):
+    from contextvars import copy_context
+    from sentinel.feed import rolling_go_inputs as inputs
+    with feed_inputs.pinned(conn, commit=False) as pub:
+        assert inputs.validate_status(conn, pub, now=NOW)[1].ready
+        inherited = copy_context()
+    # Even reacquiring the same SQL lock cannot revive an ended Python scope.
+    with feed_inputs.pinned(conn, commit=False):
+        with pytest.raises(publication.CorpusIncoherent, match="SCOPE_EXPIRED"):
+            inherited.run(inputs.validate_status, conn, pub, now=NOW)
+
+
+def test_readiness_scope_requires_real_pin_and_isolates_material(conn, published):
+    import psycopg
+    from sentinel.feed import readiness_scope
+    pub = feed_inputs.require_current(conn)
+    with psycopg.connect(conn.info.dsn) as reader:
+        with pytest.raises(publication.CorpusIncoherent, match="PIN_LOST"):
+            with readiness_scope.pinned(reader, pub):
+                pytest.fail("unlocked readiness scope")
+    calls = []
+    def load():
+        calls.append(1)
+        return {"counts": [1, 2]}
+    with feed_inputs.pinned(conn, commit=False) as pub:
+        first = readiness_scope.material(conn, pub, load)
+        first["counts"].clear()
+        assert readiness_scope.material(conn, pub, load) == {"counts": [1, 2]}
+        assert len(calls) == 1
+        readiness_scope.material(conn, replace(pub, version=pub.version+1), load)
+        assert len(calls) == 2
+
+
 @pytest.fixture
 def gateway(conn, published, monkeypatch, request):
     result = approve(conn)

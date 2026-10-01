@@ -114,6 +114,7 @@ def opening_resolver(conn, *, session):
 
 def resolver(conn, pub, *, session):
     refs, requested, end, future = _snapshot_identity_authorities(conn, pub, session=session)
+    historical = refs.resolver
 
     def resolve(symbol, as_of=None):
         effective = str(as_of or requested)
@@ -121,7 +122,7 @@ def resolver(conn, pub, *, session):
             return "SENTINEL:BIL"
         if effective > end and effective != requested:
             return None
-        authority = future if effective == requested else refs.resolver
+        authority = future if effective == requested else historical
         return authority.resolve(str(symbol), effective)
     return resolve
 

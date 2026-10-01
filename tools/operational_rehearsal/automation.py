@@ -1,8 +1,10 @@
 """Internal test-only driver for the separately capped automated paper process."""
 from datetime import datetime
+import faulthandler
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
+import signal
 from pathlib import Path
 
 from pytest import MonkeyPatch
@@ -16,6 +18,7 @@ from tools.operational_rehearsal.worker import OBS
 
 
 def main():
+    faulthandler.register(signal.SIGUSR1)
     root = Path('/var/lib/sentinel')
     root.mkdir(exist_ok=True)
     clock, tape, finished, cycles = [None], [None], [False], []

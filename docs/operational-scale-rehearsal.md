@@ -90,6 +90,51 @@ comparison exercises the data reader only: the changed source identity correctly
 prevents the old publication from satisfying the full new strategy admission.
 A fresh joint campaign must establish that admission and subsequent paper cycles.
 
+The first paper composition bypassed broker guards and therefore did not measure
+their repeated data/plan validation. The guarded profile must retain the real
+fresh-connection guard and instrument its call count and time. Only signed
+certificate issuance and scheduler control/lease authority are fixture boundaries
+in that profile; the scheduler/fence suite tests those separately. A result from
+the original unguarded profile cannot establish the callback's execution budget.
+
+Automation constructs a broker symbol resolver before preparation/execution.
+Its returned closure must retain only the historical and next-session identity
+resolvers, not the whole `SnapshotReferences` object and its million action rows.
+Otherwise that long-lived broker dependency overlaps the next full reference
+read. Preserve all historical/next-session identity boundaries and add a lifetime
+falsifier. The rehearsal must construct and retain this resolver too.
+
+The guarded small profile already spent 57 seconds in its first 40 guard checks;
+each execution check repeats the whole readiness scan twice. The full-size single
+scan measured 103 seconds. Repeating that immutable-data work per broker call
+cannot fit the 15-minute callback budget. Reuse only the compact readiness
+material within one held publication pin, including nested fresh connections
+to the same database. Do not retain the full references or cache an authorization
+verdict. Every check still authenticates the publication/receipt/reference bytes,
+checks the selected strategy, recomputes frontier/time-dependent readiness,
+revalidates shadow/plan authority, and checks current lease/control/certificate.
+
+The reuse scope owns a specific connection, backend PID, database endpoint and
+publication identity. PostgreSQL must confirm that the originating backend still
+holds the session-level shared corpus lock before and after material loading or
+reuse. End the scope before releasing that lock; reject lost/closed pins and
+prevent copied contexts from retaining authority after scope exit. A subsequent
+callback, restart or new publication computes fresh material. Sealed rows remain
+immutable; no cross-publication or global readiness cache is permitted. Test
+fresh-connection reuse, new-scope recomputation, receipt corruption, strategy and
+clock changes, lost pins, and expired copied contexts, with guard-removal mutants.
+Check the originating pin at the operational-reader entry point, before storage
+reads can acquire their own temporary transaction-level pin. Those temporary
+locks must not hide loss of the original pin across transactions.
+
+The guarded baseline completed three cycles with 594 fresh guard checks and
+60 filled commands; guard validation alone took 1,071 seconds on the small
+profile. The affected paper-input module passed 24 tests, and the six new
+resolver/pin-reuse mutants were killed. Measure each preparation/execution
+callback (including broker-resolver construction) against the ordinary
+900-second callback budget. A cycle contains multiple callbacks, so its local
+HTTP orchestration timeout is separate from that acceptance bound.
+
 ## Running locally
 
 Build from this checkout with the existing dependency test image available:
