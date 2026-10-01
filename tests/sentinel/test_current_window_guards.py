@@ -126,13 +126,13 @@ def test_snapshot_feature_override_cannot_skip_an_index():
 
 
 @pytest.mark.parametrize('fault', [None, 'old_schema', 'warmup_count', 'formed', 'first_session', 'controller'])
-def test_observation_authority_requires_selected_fresh_window(fault, monkeypatch):
+def test_observation_authority_requires_selected_fresh_window(fault):
+    from unittest.mock import patch
     from sentinel import observation_startup
     from sentinel.authority import AuthorityRefused, canonical_sha256
     from sentinel.strategy import production_strategy
     config, strategy = production_strategy()
     strategy = {k:v for k,v in strategy.items() if k != 'startup_policy'}
-    monkeypatch.setattr('sentinel.strategy.production_strategy', lambda: (config, strategy))
     proof = dict(schema=observation_startup.WINDOW_SCHEMA, warmup_sessions=299,
         measured_sessions=300, decision_session=DAY,
         first_session=calendar.previous_sessions(DAY, 300)[0])
@@ -148,8 +148,10 @@ def test_observation_authority_requires_selected_fresh_window(fault, monkeypatch
     elif fault == 'controller':
         controller = '0'*64
     args = dict(strategy_sha256=canonical_sha256(strategy), controller_sha256=controller)
-    if fault is None:
-        observation_startup.require(proof, **args)
-    else:
-        with pytest.raises(AuthorityRefused):
+    # The mutation campaign calls this witness directly, outside pytest fixtures.
+    with patch('sentinel.strategy.production_strategy', return_value=(config, strategy)):
+        if fault is None:
             observation_startup.require(proof, **args)
+        else:
+            with pytest.raises(AuthorityRefused):
+                observation_startup.require(proof, **args)

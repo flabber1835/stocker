@@ -4,6 +4,10 @@ This command only reads provider APIs and writes local files. It does not run
 GO, write the production database, backtest, or submit broker orders. Use the
 NAS credentials already in `.env`; never include keys on the command line.
 
+It is optional and separate from GO, deployment and automation. None invokes
+this tool or requires its output. Deploy first; run the comparison manually
+later, once the deployment is stable. Missing comparison files do not affect GO.
+
 The capture covers the trailing 300 XNYS sessions through an explicit completed
 session. Its universe is the union of active Alpaca US-equity assets, current
 Sharadar SEP tickers, and SPY/BIL. Metadata preserves each provider's classification,
@@ -14,7 +18,7 @@ and sessions remain missing and appear in `coverage.csv`, including zero-row nam
 
 Use an existing Sentinel Python 3.12 runtime image on the NAS and the checkout
 containing these tools. Set `IMAGE` to that image's local name or immutable digest.
-This read-only tool may be run before deploying the changed strategy.
+This tool runs independently after deployment, using its own output directory.
 
 ```sh
 cd /volume1/docker/github/stocker
