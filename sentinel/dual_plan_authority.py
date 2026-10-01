@@ -495,13 +495,20 @@ def rederive_plan(
     """Re-run canonical account sizing from the exact retained inputs."""
     from sentinel import structural_verification
     expected = expected_shadow_result
+    def load():
+        return _rederive_plan(conn, plan=plan, binding=binding,
+            rollout_state=rollout_state, expected_shadow_result=expected)
+    if not structural_verification.active():
+        return load()
+    expected_state = getattr(expected, 'state', None)
+    if expected is not None and expected_state is None:
+        return load()  # Preserve the canonical verifier's typed refusal.
     key = (plan.to_dict(), repr(binding), repr(rollout_state),
            None if expected is None else (
-               expected.state.state_hash, expected.record_sha256,
-               expected.runtime_authority_sha256))
+               expected_state.state_hash, getattr(expected, 'record_sha256', None),
+               getattr(expected, 'runtime_authority_sha256', None)))
     return structural_verification.material(conn, slot='dual-sizing', key=key,
-        load=lambda: _rederive_plan(conn, plan=plan, binding=binding,
-            rollout_state=rollout_state, expected_shadow_result=expected))
+        load=load)
 
 
 def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result):

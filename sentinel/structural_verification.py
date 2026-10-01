@@ -18,6 +18,11 @@ class VerificationScopeRefused(ValueError):
 _current = ContextVar('structural_verification_scope', default=None)
 
 
+def active():
+    """Only a performance hint; material() still checks all ownership fences."""
+    return _current.get() is not None
+
+
 def _inventory(conn):
     # Do not detoast multi-megabyte state just to discover whether it changed.
     relation = conn.execute(

@@ -373,12 +373,18 @@ def test_structural_reuse_preserves_real_shadow_and_sizing_refusals(conn, gatewa
                         binding=bound, rollout_state=rollout, expected_shadow_result=shadow)
             assert proof() == proof()
             assert calls == dict(checkpoint=1, sizing=1)
+            with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+                with pytest.raises(dual_plan_authority.DualPlanAuthorityRefused,
+                                   match='current verified shadow'):
+                    dual_plan_authority.rederive_plan(fresh, plan=plan, binding=bound,
+                        rollout_state=rollout, expected_shadow_result=SimpleNamespace())
+            assert calls == dict(checkpoint=1, sizing=2)
             conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{account_snapshot,cash}','\"0\"') WHERE cursor_name=%s",
                          (dual_plan_authority._cursor(plan.plan_id),))
             conn.commit()
             with pytest.raises(dual_plan_authority.DualPlanAuthorityRefused):
                 proof()
-            assert calls == dict(checkpoint=2, sizing=2)
+            assert calls == dict(checkpoint=2, sizing=3)
     finally:
         conn.execute('SELECT pg_advisory_unlock(%s)', (journal.WRITER_LOCK_KEY,))
         conn.commit()
