@@ -9,8 +9,14 @@ this tool or requires its output. Deploy first; run the comparison manually
 later, once the deployment is stable. Missing comparison files do not affect GO.
 
 The capture covers the trailing 300 XNYS sessions through an explicit completed
-session. Its universe is the union of active Alpaca US-equity assets, current
-Sharadar SEP tickers, and SPY/BIL. Metadata preserves each provider's classification,
+session. Its comparison universe is the union of active Alpaca US-equity assets,
+current Sharadar SEP tickers, and SPY/BIL. Alpaca bar requests use only symbols
+returned by Alpaca's active asset list. Sharadar-only names stay in the comparison
+universe, with zero Alpaca coverage; they are not sent to Alpaca as bar symbols.
+This matters for preferred-share names such as `ABR-PD`, which the Alpaca bars
+endpoint rejects with HTTP 400. If Alpaca rejects a symbol from its own asset
+list, stop and report that separately instead of silently dropping it.
+Metadata preserves each provider's classification,
 status and identifiers; membership is not a claim of common-stock eligibility or
 cross-provider identity equivalence. Sharadar SEP rows for other symbols are
 retained raw but excluded from the normalized comparison files. Missing symbols
