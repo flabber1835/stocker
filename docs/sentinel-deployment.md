@@ -1,9 +1,16 @@
 # Sentinel — operational deployment ground truth
 
+
+[Current-window book formation](current-window-formation.md) restores 126
+broker-free ownership/controller transitions after 299 feature sessions. The
+426-session startup generation supplies exactly 300 sessions per decision;
+daily operation retains the simplified current-window policy. This supersedes
+the cash-only startup selection in PR #461. Existing certification results keep
+their original scope; the new startup identity requires its own validation.
 [Current-window production](current-window-production.md) defines the selected
-300-session signal boundary with retained ownership state and fresh $50,000
-startup. It supersedes the historical-formation and whole-overlap-equality
-requirements below for the explicitly named current-window production policy.
+300-session signal boundary with retained ownership state. Bounded book formation
+above supersedes its former cash-only startup. Whole-overlap equality remains
+replaced by checks on protected economic dependencies.
 Historical/research identities retain their own contracts. Activation still
 requires the normal certified image and GO gates.
 

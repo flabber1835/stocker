@@ -86,7 +86,7 @@ def _initialize(conn, pub, binding, context):
     timing = _timing(conn, pub.window_end)
     from sentinel.controller.owned_impairment import enabled as owned
     from sentinel.core import window_policy
-    formed = owned(context['strategy']) and not window_policy.enabled(context['strategy'])
+    formed = owned(context['strategy']) and (not window_policy.enabled(context['strategy']) or window_policy.formed(context['strategy']))
     if formed:
         from sentinel import formation_bootstrap
         def current():

@@ -64,7 +64,7 @@ def validate(value, *, first_session):
             or calendar.next_session(plan.end) != first_session
             or plan.capital != origin.starting_cash or digest(plan.strategy) != origin.strategy_sha256):
         raise ValueError('FORMED_ORIGIN_PLAN_CHANGED')
-    _validate_warmup_input_identity(origin.feature_warmup, first_session=plan.axis[252])
+    _validate_warmup_input_identity(origin.feature_warmup, first_session=plan.axis[plan.warmup_sessions])
     if origin.feature_warmup['metadata_mode'] != 'PROSPECTIVE_STATIC_FEATURE_METADATA':
         raise ValueError('FORMED_ORIGIN_METADATA_POLICY_CHANGED')
     return dict(value)

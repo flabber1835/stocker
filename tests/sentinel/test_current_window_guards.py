@@ -126,11 +126,13 @@ def test_snapshot_feature_override_cannot_skip_an_index():
 
 
 @pytest.mark.parametrize('fault', [None, 'old_schema', 'warmup_count', 'formed', 'first_session', 'controller'])
-def test_observation_authority_requires_selected_fresh_window(fault):
+def test_observation_authority_requires_selected_fresh_window(fault, monkeypatch):
     from sentinel import observation_startup
     from sentinel.authority import AuthorityRefused, canonical_sha256
     from sentinel.strategy import production_strategy
     config, strategy = production_strategy()
+    strategy = {k:v for k,v in strategy.items() if k != 'startup_policy'}
+    monkeypatch.setattr('sentinel.strategy.production_strategy', lambda: (config, strategy))
     proof = dict(schema=observation_startup.WINDOW_SCHEMA, warmup_sessions=299,
         measured_sessions=300, decision_session=DAY,
         first_session=calendar.previous_sessions(DAY, 300)[0])

@@ -72,15 +72,17 @@ def acquisition_window(conn, strategy_sha256):
     from sentinel.strategy import production_strategy
     _, strategy = production_strategy()
     if strategy_sha256 == digest(strategy):
-        from sentinel.core.window_policy import enabled
-        if enabled(strategy):
+        from sentinel.core.window_policy import enabled, formed
+        if enabled(strategy) and not formed(strategy):
             return PriceWindow.through(source_final_session())
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('sentinel_processed_sessions')")
             installed = cur.fetchone()[0]
         if installed and not rolling_checkpoint.lineage_names(conn):
             rolling_checkpoint.require_fresh(conn)
-            return FormationWindow.through(source_final_session())
+            from sentinel.feed.rolling_contract import CurrentFormationWindow
+            cls = CurrentFormationWindow if formed(strategy) else FormationWindow
+            return cls.through(source_final_session())
     return PriceWindow.through(source_final_session())
 
 

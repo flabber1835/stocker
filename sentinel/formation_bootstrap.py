@@ -38,7 +38,7 @@ def read(conn, name, context, plan):
             or not hmac.compare_digest(str(value['hmac_sha256']), _signature(checkpoint, context))):
         raise ValueError('FORMATION_PROGRESS_AUTHENTICATION_OR_CONTEXT_CHANGED')
     formed = Formation.resume(checkpoint, plan=plan)
-    if str(row[0]) != (formed.state.last_processed_session or formed.axis[251]):
+    if str(row[0]) != (formed.state.last_processed_session or formed.axis[formed.plan.warmup_sessions - 1]):
         raise ValueError('FORMATION_PROGRESS_SESSION_CHANGED')
     return formed
 
@@ -74,7 +74,7 @@ def write(conn, name, formed, context):
     backup_runtime_authority.require(conn, operation='historical formation checkpoint')
     conn.execute('INSERT INTO sentinel_processed_sessions (cursor_name,session,state) VALUES (%s,%s,%s::jsonb) '
                  'ON CONFLICT (cursor_name) DO UPDATE SET session=EXCLUDED.session,state=EXCLUDED.state',
-                 (name, formed.state.last_processed_session or formed.axis[251], canonical_json(value)))
+                 (name, formed.state.last_processed_session or formed.axis[formed.plan.warmup_sessions - 1], canonical_json(value)))
     conn.commit()
 
 
@@ -94,7 +94,7 @@ def prepare(conn, *, pub, binding, context, check_current):
         progress.emit('historical_formation', 'started', sessions=0, required_sessions=126)
     while not formed.complete:
         check_current()
-        formed.advance(source.session(formed.axis[252 + formed.count], formed.state))
+        formed.advance(source.session(formed.axis[formed.plan.warmup_sessions + formed.count], formed.state))
         # Persist every transition. Repetition after an uncertain acknowledgement
         # loads the exact committed cursor and cannot apply a session twice.
         check_current()

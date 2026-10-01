@@ -11,6 +11,7 @@ from sentinel.feed.rolling_contract import Contract, Digest
 SCHEMA = "sentinel.strategy-history-mutations/1"
 ROLLING_SCHEMA = "sentinel.rolling-continuity/1"
 WINDOW_SCHEMA = "sentinel.current-window-continuity/1"
+FORMATION_SCHEMA = "sentinel.current-window-formation-continuity/1"
 
 
 class CurrentWindowProof(Contract):
@@ -37,6 +38,11 @@ class RollingContinuityProof(Contract):
     overlap_start: str
     overlap_sha256: Digest
     reference_sha256: Digest
+
+
+class FormationWindowProof(CurrentWindowProof):
+    schema_id: Literal['sentinel.current-window-formation-continuity/1'] = Field(
+        default=FORMATION_SCHEMA, alias='schema')
 
 
 class HistoryReconstructionRequired(ValueError):
@@ -76,13 +82,15 @@ def require_history_compatible(*, prior_version: int | None,
                                version: int, proof: Mapping | None,
                                prior_state_sha256: str | None = None,
                                session: str | None = None) -> None:
-    if isinstance(proof, Mapping) and proof.get('schema') == WINDOW_SCHEMA:
+    if isinstance(proof, Mapping) and proof.get('schema') in (WINDOW_SCHEMA, FORMATION_SCHEMA):
         from sentinel.feed import calendar
-        checked = CurrentWindowProof.model_validate(proof)
+        formation = proof.get('schema') == FORMATION_SCHEMA
+        checked = (FormationWindowProof if formation else CurrentWindowProof).model_validate(proof)
         if (checked.prior_version != prior_version or checked.publication_version != version
                 or checked.prior_session != last_processed_session
                 or checked.prior_state_sha256 != prior_state_sha256
-                or checked.session != session or version <= checked.prior_version
+                or checked.session != session
+                or (version != checked.prior_version if formation else version <= checked.prior_version)
                 or session != calendar.next_session(checked.prior_session)):
             raise HistoryReconstructionRequired('CURRENT_WINDOW_CONTINUITY_BINDING_CHANGED')
         return

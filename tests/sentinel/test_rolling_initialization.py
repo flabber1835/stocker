@@ -45,6 +45,8 @@ def test_composed_input_keeps_spy_equity_and_bil_domains_separate(transport):
         from sentinel.core.formation_inputs import FormationInputs
         from sentinel.feed import calendar
         source = object.__new__(FormationInputs)
+        source.warmup_sessions = 252
+        source.current_window = False
         source.axis = list(calendar.previous_sessions(axis[-1], 253))
         source.benchmarks = tuple(CanonicalBenchmark(
             session=day, spy_total_return=300.+i,

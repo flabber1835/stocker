@@ -131,8 +131,11 @@ def advance_session(
     ):
         raise ValueError("corpus publication version moved backwards")
 
-    from sentinel.core.history import require_history_compatible
+    from sentinel.core.history import require_history_compatible, FORMATION_SCHEMA
     from sentinel.core import window_policy
+    if ((published.history_proof or {}).get('schema') == FORMATION_SCHEMA
+            and not window_policy.formed(running_identity)):
+        raise ValueError('CURRENT_WINDOW_FORMATION_POLICY_REQUIRED')
     if ((published.history_proof or {}).get('schema') == 'sentinel.current-window-continuity/1'
             and not window_policy.enabled(running_identity)):
         raise ValueError('CURRENT_WINDOW_POLICY_REQUIRED')
@@ -141,7 +144,7 @@ def advance_session(
         last_processed_session=env.last_processed_session,
         version=published.data_version, proof=published.history_proof,
         prior_state_sha256=(env.state_hash if (published.history_proof or {}).get("schema")
-                            in ("sentinel.rolling-continuity/1", "sentinel.current-window-continuity/1") else None),
+                            in ("sentinel.rolling-continuity/1", "sentinel.current-window-continuity/1", FORMATION_SCHEMA) else None),
         session=published.session)
     state = PortfolioState.from_dict(env.wealth_core)
     pending = [PendingOrder.from_dict(item) for item in env.pending]

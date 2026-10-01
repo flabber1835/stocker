@@ -220,7 +220,7 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
     formation = None
     with readers.pinned(conn, commit=False) as pub:
         frontier = readers.frontier(conn, pub)
-        if owned(strategy) and not window_policy.enabled(strategy):
+        if owned(strategy) and (not window_policy.enabled(strategy) or window_policy.formed(strategy)):
             if not readers.is_rolling(pub):
                 raise AuthorityRefused('Owned55 observation requires a formation publication')
             from sentinel.core.formation_inputs import FormationInputs
@@ -253,11 +253,12 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
         fingerprint = publication_fingerprint(pub)
         corpus = _corpus_root_identity(conn, pub)
     record = {
-        "schema": (observation_startup.WINDOW_SCHEMA if window_policy.enabled(strategy) else
+        "schema": (observation_startup.WINDOW_FORMED_SCHEMA if window_policy.formed(strategy) else
+                   observation_startup.WINDOW_SCHEMA if window_policy.enabled(strategy) else
                    observation_startup.FORMED_SCHEMA if formation else observation_startup.COLD_SCHEMA),
         "historical_causality": HISTORICAL_CAUSALITY_UNVERIFIED,
         "historical_certification": "NOT_GRANTED",
-        "measured_sessions": 300 if window_policy.enabled(strategy) else 379 if formation else 253,
+        "measured_sessions": 426 if window_policy.formed(strategy) else 300 if window_policy.enabled(strategy) else 379 if formation else 253,
         **({"formation": formation} if formation else {}),
         "warmup_sessions": warmup["session_count"],
         "first_session": warmup["first_warmup_session"],

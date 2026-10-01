@@ -15,10 +15,11 @@ source observation may correct old candidate prices or metadata without requirin
 portfolio reconstruction. Numerical feature accumulators are replaceable input
 state; five-session ranking memory is retained strategy state.
 
-The selected mode starts a fresh $50,000 book after feature warmup, as in the
-tested prototype. It does not create 126 historical ownership transitions or
-claim an already formed historical track record. Existing historical formation
-remains available under its distinct identities for research. An existing
+The selected mode now uses [bounded book formation](current-window-formation.md):
+299 feature-only sessions followed by 126 historical ownership/controller
+transitions, then the current decision. Each decision still sees only its own
+300-session slice. This supersedes PR #461's cash-only startup; capital remains
+$50,000 and there is no capital search. An existing
 operational book with a different strategy/source identity is never silently
 adopted. The NAS has no admitted operational book; failed preparation records
 remain intact.
