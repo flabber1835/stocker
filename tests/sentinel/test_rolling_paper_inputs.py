@@ -69,12 +69,18 @@ def test_next_open_resolver_is_bounded_and_historical_dates_do_not_borrow_extens
 
 
 def test_action_reader_requires_retained_predecessor_and_never_reads_legacy_rows(conn, published):
-    refs = feed_inputs.references(conn, feed_inputs.require_current(conn))
+    pub = feed_inputs.require_current(conn)
+    refs = feed_inputs.references(conn, pub)
     lookup = feed_actions.action_lookup(conn, start=date(2026, 9, 11), end=date(2026, 9, 15))
     assert lookup("1") == Decimal(1) and lookup("SENTINEL:BIL") == Decimal(1)
     assert lookup.material_events_for(security_ids=["1"]) == ()
     with pytest.raises(feed_inputs.ExecutionInputsRefused, match="HISTORY_UNAVAILABLE"):
         feed_actions.action_lookup(conn, start=refs.manifest.window.start - timedelta(days=5), end=date.fromisoformat(DAY))
+    # A no-change interval before the snapshot must still refuse. Otherwise an
+    # empty query could be mistaken for evidence that no corporate action ran.
+    earlier = refs.manifest.window.start - timedelta(days=5)
+    with pytest.raises(feed_inputs.ExecutionInputsRefused, match="HISTORY_UNAVAILABLE"):
+        feed_actions.snapshot_lookup(conn, refs=refs, pub=pub, start=earlier, end=earlier)
 
 
 def test_corrupt_receipt_cannot_trigger_a_permissive_reader_fallback(monkeypatch):
@@ -575,7 +581,7 @@ def test_fresh_broker_guard_rechecks_snapshot_receipt_after_read(conn, gateway):
         asyncio.run(guard.after_read(grant, BrokerOperation.OBSERVE, None))
 
 
-def test_snapshot_dividend_inputs_reuse_entitlement_domains(conn, operational_source):
+def test_snapshot_dividend_inputs_reuse_entitlement_domains(conn, operational_source, monkeypatch):
     from sentinel.trial import _expected_effective_equity_dividends, _expected_defensive_dividends
     data = operational_source
     data["ACTIONS"].extend([dict(ticker=ticker, date=DAY, action="dividend", name="fixture",
@@ -592,6 +598,16 @@ def test_snapshot_dividend_inputs_reuse_entitlement_domains(conn, operational_so
     assert expected[0]["per_share"] == "2.0" and Decimal(expected[0]["amount"]) == Decimal(20)
     bil = _expected_defensive_dividends(conn, date.fromisoformat(DAY), {"SENTINEL:BIL": Decimal(10)}, [], source=source)
     assert Decimal(bil[0]["amount"]) == Decimal(10)
+    # Publications without retained action coverage use the bounded snapshot
+    # fallback. The retained-history refusal above must not mask its own guard.
+    from sentinel.feed import action_history
+    with monkeypatch.context() as patch:
+        patch.setattr(action_history, "coverage", lambda *args, **kwargs: None)
+        assert source.days(date.fromisoformat(DAY), date.fromisoformat(DAY)) == [DAY]
+        with pytest.raises(feed_inputs.ExecutionInputsRefused, match="DIVIDEND_HISTORY_UNAVAILABLE"):
+            source.days(source.refs.manifest.window.start - timedelta(days=1), date.fromisoformat(DAY))
+        with pytest.raises(feed_inputs.ExecutionInputsRefused, match="DIVIDEND_HISTORY_UNAVAILABLE"):
+            source.days(date.fromisoformat(DAY), date.fromisoformat(DAY) + timedelta(days=1))
 
 
 def test_snapshot_actions_preserve_scalar_and_material_reconciliation_policy(conn, operational_source):

@@ -218,6 +218,21 @@ callback budget. The prior full-size run passed acquisition, financial formation
 and durable restart but was deliberately stopped after its execution callback
 had exceeded 900 seconds; that run remains failed/incomplete for automation.
 
+The daily-continuation, runtime recovery, reconciliation and re-genesis scope
+regressions also passed (73 tests, 1,418.06 seconds). The complete paper-input
+mutation sweep exposed two older coverage gaps: retained-history refusal masked
+the snapshot fallback's separate dividend/action bounds. Extend those tests to
+exercise the fallback directly, including an empty interval before available
+history. Both tests pass normally and fail when their own guard is removed;
+production behavior is unchanged by that test correction. Keep the canonical
+encoding mutations reproducible with the repository runner:
+
+```sh
+python -m pytest tests/sentinel/test_rolling_runtime.py tests/sentinel/test_rolling_daily.py tests/sentinel/test_dual_reconciliation.py tests/sentinel/test_dual_regenesis_automation_scope.py -q --tb=short --disable-warnings
+python -m tools.sentinel_rolling_paper_falsifiers
+python -m tools.sentinel_canonical_state_falsifiers
+```
+
 Build from this checkout with the existing dependency test image available:
 
 ```sh
