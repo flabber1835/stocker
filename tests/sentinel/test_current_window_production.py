@@ -24,8 +24,23 @@ def ready(conn, operational_source, monkeypatch, request):
     schema.ensure_schema(conn)
     data = operational_source
     options = getattr(request, 'param', {})
+    if not options.get('formed'):
+        # Preserve the original cash-start acceptance as a named historical
+        # policy; formed production startup has its own integration witnesses.
+        import sys
+        from sentinel import strategy, automation_runtime
+        from sentinel.feed import rolling_go_inputs
+        from tools import sentinel_operational_parity
+        config, identity = strategy.production_strategy()
+        identity = {k:v for k,v in identity.items() if k != 'startup_policy'}
+        cold = lambda: (config, identity)
+        for module in (strategy, automation_runtime, rolling_go_inputs,
+                       sentinel_operational_parity, sys.modules[__name__]):
+            monkeypatch.setattr(module, 'production_strategy', cold)
     end = '2026-09-29' if options.get('observed') else '2026-09-14'
-    axis = list(map(str, PriceWindow.through(end).sessions))
+    from sentinel.feed.rolling_contract import CurrentFormationWindow
+    cls = CurrentFormationWindow if options.get('formed') else PriceWindow
+    axis = list(map(str, cls.through(end).sessions))
     template = deepcopy(data['TICKERS'][0])
     template['relatedtickers'] = 'AAA BBB'
     symbols = ['AAA', 'BBB', *[f'S{i:03}' for i in range(3, options.get('names', 25)+1)]]
@@ -33,7 +48,8 @@ def ready(conn, operational_source, monkeypatch, request):
                        for i, symbol in enumerate(symbols, 1)]
     data['SEP'] = [{'ticker': symbol, 'date': day, 'open': str(50+i*.2+j*.03),
         'close': str(50+i*.2+j*.03), 'closeunadj': str((50+i*.2+j*.03)*2),
-        'volume': '1000000', 'lastupdated': '2026-09-15'}
+        'volume': '1' if options.get('illiquid_last') and symbol == symbols[-1] else '1000000',
+        'lastupdated': '2026-09-15'}
         for i, day in enumerate(axis) for j, symbol in enumerate(symbols)]
     data['SFP'] = [{**data['SFP'][0], 'date': day, 'ticker': ticker, 'closeadj': str(600+i)}
                    for i, day in enumerate(axis) for ticker in ('SPY', 'BIL')]

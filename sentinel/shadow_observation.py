@@ -351,7 +351,8 @@ def _published_input_value(
         **({"rolling_continuity": dict(published.history_proof)}
            if (published.history_proof or {}).get("schema") == "sentinel.rolling-continuity/1" else {}),
         **({'current_window_continuity': dict(published.history_proof)}
-           if (published.history_proof or {}).get('schema') == 'sentinel.current-window-continuity/1' else {}),
+           if (published.history_proof or {}).get('schema') in (
+               'sentinel.current-window-continuity/1', 'sentinel.current-window-formation-continuity/1') else {}),
         **({'window_features': dict(published.window_features)} if published.window_features is not None else {}),
         "meta": {
             str(key): row(value)
@@ -1247,8 +1248,14 @@ class ShadowObserver:
         self.warmup_input_identity = _validate_warmup_input_identity(
             warmup_input_identity, first_session=self.first_session)
         from sentinel.core import window_policy
-        if window_policy.enabled(self.strategy_identity) != (
-                self.warmup_input_identity.get('schema') == 'sentinel.shadow-window-warmup-input/1'):
+        from sentinel import formed_origin
+        warmup_policy = (self.warmup_input_identity.get('feature_warmup', {})
+                         if self.warmup_input_identity.get('schema') == formed_origin.SCHEMA
+                         else self.warmup_input_identity)
+        if (window_policy.enabled(self.strategy_identity) != (
+                warmup_policy.get('schema') == 'sentinel.shadow-window-warmup-input/1')
+                or (window_policy.formed(self.strategy_identity)
+                    and self.warmup_input_identity.get('schema') != formed_origin.SCHEMA)):
             raise ShadowObservationRefused('warm-up window policy differs from strategy identity')
         from sentinel.controller.median5 import enabled as median5_enabled
         if median5_enabled(self.strategy_identity) != (

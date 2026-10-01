@@ -1,8 +1,15 @@
 # Sentinel — the execution and recovery contract
 
-[Current-window production](current-window-production.md) selects fresh cash
-startup with 300-session inputs and retained canonical ownership. Its explicit
-input-policy identity supersedes historical formation for new production books.
+
+[Current-window book formation](current-window-formation.md) restores 126
+broker-free ownership/controller transitions after 299 feature sessions. The
+426-session startup generation supplies exactly 300 sessions per decision;
+daily operation retains the simplified current-window policy. This supersedes
+the cash-only startup selection in PR #461. Existing certification results keep
+their original scope; the new startup identity requires its own validation.
+[Current-window production](current-window-production.md) retains bounded
+candidate inputs and canonical ownership. Startup formation now follows the
+distinct identity documented above.
 Existing economic fixtures retain their named historical profiles; earlier
 certificates do not automatically certify this new source identity. Execution
 remains the only broker-facing layer.

@@ -1209,7 +1209,8 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
                            r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", snapshot[key])
                            for key in ("candidate_id", "job_id")))
     current_window = strategy.get('market_input_policy') == 'CURRENT_WINDOW_V1'
-    if current_window:
+    formed_window = current_window and strategy.get('startup_policy') == 'CURRENT_WINDOW_FORMATION_V1'
+    if current_window and not formed_window:
         scope_valid = (scope_valid and proof.get('scope') == 'ROLLING_STARTUP_AND_RESTART'
             and proof.get('runtime_contract') == 'sentinel.rolling-shadow-runtime/1'
             and warmup.get('schema') == 'sentinel.shadow-window-warmup-input/1'
@@ -1224,6 +1225,8 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
             and formed.get('state_sha256') == proof.get('prior_state_sha256')
             and all(_HEX64.fullmatch(str(formed.get(k) or '')) is not None
                     for k in ('chain_sha256', 'state_sha256', 'source_sha256')))
+        if formed_window:
+            scope_valid = scope_valid and warmup.get('schema') == 'sentinel.shadow-window-warmup-input/1'
     return (
         report.get("schema") == "sentinel.production-operational-parity/1"
         and report.get("verdict") == "PASS"

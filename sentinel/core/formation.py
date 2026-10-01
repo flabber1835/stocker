@@ -27,7 +27,7 @@ class FormationPlan(Contract):
         default='sentinel.historical-formation/1', alias='schema')
     end: str
     capital: str = '50000'
-    warmup_sessions: Literal[252] = 252
+    warmup_sessions: Literal[252, 299] = 252
     formation_sessions: Literal[126] = 126
     strategy: dict
     source_sha256: Digest
@@ -40,6 +40,9 @@ class FormationPlan(Contract):
 
     @model_validator(mode='after')
     def supported(self):
+        from sentinel.core import window_policy
+        if self.warmup_sessions != (299 if window_policy.formed(self.strategy) else 252):
+            raise ValueError('formation warmup differs from strategy policy')
         controller_for_identity(self.strategy)
         if calendar.previous_sessions(self.end, 1) != [self.end]:
             raise ValueError('formation endpoint must be an XNYS session')
@@ -60,7 +63,7 @@ class Formation:
     def __init__(self, plan: FormationPlan, window, *, data_version: int):
         self.plan = FormationPlan.model_validate(plan.model_dump(by_alias=True))
         self.axis = self.plan.axis
-        if list(window.sessions) != self.axis[:252]:
+        if list(window.sessions) != self.axis[:self.plan.warmup_sessions]:
             raise FormationRefused('FORMATION_WARMUP_AXIS_CHANGED')
         if set(window.bars_by_session) != set(window.sessions):
             raise FormationRefused('FORMATION_WARMUP_COVERAGE_CHANGED')
@@ -75,7 +78,8 @@ class Formation:
             controller=Controller(self.controller), strategy_identity=self.plan.strategy)
         self.state = warm_session_state(initial, window, publication_version=data_version,
                                         prospective_concordance_witness=prospective)
-        self.warmup_identity = _warmup_input_identity(window, window.sessions, prospective_witness=prospective)
+        self.warmup_identity = _warmup_input_identity(window, window.sessions, prospective_witness=prospective,
+                                                     expected_sessions=self.plan.warmup_sessions)
         self.count = 0
         self.chain = digest(dict(plan=self.plan.model_dump(by_alias=True),
                                  warmup=self.warmup_identity, state=self.state.state_hash))
@@ -87,7 +91,7 @@ class Formation:
     def advance(self, published):
         if self.complete:
             raise FormationRefused('FORMATION_ALREADY_COMPLETE')
-        if published.session != self.axis[252 + self.count]:
+        if published.session != self.axis[self.plan.warmup_sessions + self.count]:
             raise FormationRefused('FORMATION_SESSION_GAP_OR_DUPLICATE')
         # Commit only after the canonical transition and serialization succeed.
         value = asdict(published)
@@ -118,7 +122,7 @@ class Formation:
         if type(count) is not int or not 0 <= count <= plan.formation_sessions:
             raise FormationRefused('FORMATION_CHECKPOINT_COUNT_CHANGED')
         state = SessionState.from_dict(value['state'])
-        cursor = plan.axis[251 + count] if count else None
+        cursor = plan.axis[plan.warmup_sessions - 1 + count] if count else None
         if (state.state_hash != value['state_sha256'] or state.last_processed_session != cursor
                 or state.strategy_identity != plan.strategy):
             raise FormationRefused('FORMATION_CHECKPOINT_STATE_CHANGED')

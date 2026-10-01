@@ -139,14 +139,30 @@ def test_legacy_observation_warmup_uses_the_same_selected_production_strategy(
     assert evidence["result_state_sha256"] == proof["proof"]["result_state_sha256"]
 
 
+@pytest.mark.parametrize('policy,message', [
+    ('selected', 'requires a formation publication'),
+    ('cash_window', 'requires a rolling publication'),
+    ('historical', 'requires a formation publication'),
+])
 def test_owned_observation_refuses_legacy_publication_before_loading_formation(
-        monkeypatch, operational_inputs):
+        monkeypatch, operational_inputs, policy, message):
     from sentinel import observation_authority
     from sentinel.authority import AuthorityRefused
     from sentinel.feed import readers
+    from sentinel import strategy
+    from sentinel.core import formation_inputs
+
+    controller, identity = strategy.production_strategy()
+    if policy == 'cash_window':
+        identity = {k:v for k,v in identity.items() if k != 'startup_policy'}
+    elif policy == 'historical':
+        controller, identity = strategy.owned_impairment_strategy()
+    monkeypatch.setattr(strategy, 'production_strategy', lambda: (controller, identity))
+    monkeypatch.setattr(formation_inputs, 'FormationInputs',
+                        lambda *a, **k: pytest.fail('legacy publication reached formation loader'))
 
     monkeypatch.setattr(readers, 'pinned', lambda c, **kw: parity.rolling_go_inputs.pinned(c))
-    with pytest.raises(AuthorityRefused, match='requires a rolling publication'):
+    with pytest.raises(AuthorityRefused, match=message):
         observation_authority.current_warmup_evidence(Connection(), starting_cash=50000)
 
 

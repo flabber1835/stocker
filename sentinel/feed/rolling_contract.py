@@ -68,8 +68,14 @@ class FormationWindow(PriceWindow):
     purpose: Literal['OWNED55_FRESH_FORMATION_V1'] = 'OWNED55_FRESH_FORMATION_V1'
 
 
+class CurrentFormationWindow(FormationWindow):
+    count: ClassVar[int] = 426
+    purpose: Literal['CURRENT_WINDOW_FORMATION_V1'] = 'CURRENT_WINDOW_FORMATION_V1'
+
+
 def snapshot_window(value):
-    cls = FormationWindow if value.get('purpose') == 'OWNED55_FRESH_FORMATION_V1' else PriceWindow
+    cls = (CurrentFormationWindow if value.get('purpose') == 'CURRENT_WINDOW_FORMATION_V1'
+           else FormationWindow if value.get('purpose') == 'OWNED55_FRESH_FORMATION_V1' else PriceWindow)
     return cls.model_validate(value)
 
 
@@ -127,7 +133,7 @@ class SnapshotManifest(Contract):
     provider: Literal["SHARADAR"] = "SHARADAR"
     normalization_version: Label
     calendar_version: Label
-    window: FormationWindow | PriceWindow
+    window: CurrentFormationWindow | FormationWindow | PriceWindow
     reference_sha256: Digest
     source_evidence_sha256: Digest
     coverage_sha256: Digest

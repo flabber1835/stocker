@@ -17,7 +17,7 @@ NOW = datetime(2026, 9, 15, 4, tzinfo=timezone.utc)
 OBS = "rolling-first"
 
 
-@pytest.mark.parametrize('transport', ['cold', 'formed'])
+@pytest.mark.parametrize('transport', ['cold', 'formed', 'window_formed'])
 def test_composed_input_keeps_spy_equity_and_bil_domains_separate(transport):
     from stock_strategy_shared.wealth_core.feed import VendorBar
     from sentinel.core.loader import CorpusWindow
@@ -41,10 +41,12 @@ def test_composed_input_keeps_spy_equity_and_bil_domains_separate(transport):
 
     if transport == 'cold':
         published = init._published(material, pub)
-    else:
+    elif transport == 'formed':
         from sentinel.core.formation_inputs import FormationInputs
         from sentinel.feed import calendar
         source = object.__new__(FormationInputs)
+        source.warmup_sessions = 252
+        source.current_window = False
         source.axis = list(calendar.previous_sessions(axis[-1], 253))
         source.benchmarks = tuple(CanonicalBenchmark(
             session=day, spy_total_return=300.+i,
@@ -59,6 +61,27 @@ def test_composed_input_keeps_spy_equity_and_bil_domains_separate(transport):
         published = source.session(axis[-1], SimpleNamespace(feed={'series': {'1': {}}}))
         assert published.spy_closeadj[:-2] == tuple(300.+i for i in range(251))
         assert published.spy_sessions == tuple(source.axis)
+    else:
+        from unittest.mock import patch
+        from sentinel.core.formation_inputs import FormationInputs
+        from sentinel.feed import calendar
+        source = object.__new__(FormationInputs)
+        source.conn = None
+        source.warmup_sessions = 299
+        source.current_window = True
+        source.axis = list(calendar.previous_sessions(axis[-1], 300))
+        source.refs = SimpleNamespace(candidate_id='candidate',
+            manifest=SimpleNamespace(snapshot_id='a'*64),
+            current_metadata=lambda **kw: ({}, {}), distributions=lambda **kw: ())
+        source.terminals = ()
+        source.publication = pub
+        prices = SimpleNamespace(bars=(equity,), benchmarks=benchmarks, signal_basis_anchors={})
+        reader = SimpleNamespace(prices=lambda **kw: prices)
+        features = SimpleNamespace(model_dump=lambda **kw: {})
+        state = SimpleNamespace(wealth_core={}, pending=[], median5={}, last_processed_session=None)
+        with patch('sentinel.core.rolling_reader.RollingPriceReader', return_value=reader), \
+                patch('sentinel.core.window_features.load', return_value=features):
+            published = source.session(axis[-1], state)
     assert published.spy_closeadj[-2:] == (600., 601.)
     assert published.spy_sessions[-2:] == published.spy_expected_sessions[-2:] == axis
     assert published.bars == (equity,)

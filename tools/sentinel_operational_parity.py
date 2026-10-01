@@ -119,7 +119,7 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
                 from sentinel.shadow_runtime import _warmup_input_identity
                 rolling_go_inputs.require_first_deployment(conn)
                 from sentinel.controller.owned_impairment import enabled as owned
-                if owned(strategy) and not current_window:
+                if owned(strategy) and (not current_window or window_policy.formed(strategy)):
                     # Readiness uses counts; formation owns its one feature
                     # window. Do not retain a second, unused warmup corpus.
                     binding, _ = rolling_go_inputs.validate_status(conn, held)

@@ -54,19 +54,24 @@ def protected(prior):
     return ids
 
 
-def load(conn, *, prior, refs, publication):
+def load(conn, *, prior, refs, publication, session=None):
     """One identity-ordered stream; retain 127 features plus live 260-row tails."""
-    axis = calendar.previous_sessions(publication.window_end, 300)
-    if list(map(str, refs.manifest.window.sessions)) != axis:
+    from sentinel.feed.rolling_contract import CurrentFormationWindow
+    session = session or publication.window_end
+    axis = calendar.previous_sessions(session, 300)
+    available = list(map(str, refs.manifest.window.sessions))
+    if (axis != available and not (isinstance(refs.manifest.window, CurrentFormationWindow)
+                                   and set(axis).issubset(available))):
         raise ValueError('CURRENT_WINDOW_AXIS_REQUIRED')
     indices = {day:i for i, day in enumerate(axis)}
     live = protected(prior)
     signals, histories = [], {sid:[] for sid in live}
-    meta, _ = refs.current_metadata()
+    meta, _ = refs.current_metadata(session=session)
     columns = rolling_store.BAR_COLUMNS
     query = (f"SELECT {','.join(columns)} FROM sentinel_snapshot_bars WHERE candidate_id=%s "
+             'AND session BETWEEN %s AND %s '
              'ORDER BY security_id COLLATE "C",session')
-    with store.streaming_cursor(conn, query, (refs.candidate_id,)) as cursor:
+    with store.streaming_cursor(conn, query, (refs.candidate_id, axis[0], axis[-1])) as cursor:
         rows = (CanonicalBar.model_validate(dict(zip(columns, row))) for row in cursor)
         for sid, group in groupby(rows, key=lambda row: row.security_id):
             series = None

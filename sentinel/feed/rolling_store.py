@@ -175,7 +175,8 @@ def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
     axis, reference, source, existing = _parent(conn, candidate_id, lock=True)
     if existing is not None:
         raise SnapshotStorageRefused("snapshot candidate is already sealed")
-    window = (FormationWindow if len(axis) == 379 else PriceWindow)(sessions=axis)
+    from sentinel.feed.rolling_contract import CurrentFormationWindow
+    window = ({426: CurrentFormationWindow, 379: FormationWindow}.get(len(axis), PriceWindow))(sessions=axis)
     load_evidence(conn, reference)
     load_evidence(conn, source)
     bars_hash, coverage_hash = hashlib.sha256(), hashlib.sha256()
