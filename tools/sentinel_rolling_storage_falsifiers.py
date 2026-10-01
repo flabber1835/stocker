@@ -14,6 +14,21 @@ import sys
 
 TEST = "tests/sentinel/test_rolling_snapshot_storage.py"
 MUTANTS = {
+    "evidence_server_expansion": (
+        "sentinel.feed.rolling_store", "JSONB_EVIDENCE_BYTES = 1024 * 1024",
+        "JSONB_EVIDENCE_BYTES = 1024 * 1024 * 1024",
+        "test_large_evidence_never_uses_jsonb_conversion",
+    ),
+    "evidence_size_bound": (
+        "sentinel.feed.rolling_store",
+        'check("SNAPSHOT_EVIDENCE_BYTES", len(encoded), MAX_EVIDENCE_BYTES)', 'pass',
+        "test_evidence_size_limit_refuses_before_database_access",
+    ),
+    "retired_text_reference": (
+        "sentinel.feed.retention_schema",
+        "AND payload IS NULL AND canonical_payload IS NULL) THEN", "AND FALSE) THEN",
+        "test_text_evidence_retirement_restoration_and_live_pin",
+    ),
     "calendar_gap": (
         "sentinel.feed.rolling_contract",
         "if actual != expected:", "if False:",

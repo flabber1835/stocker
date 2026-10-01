@@ -6,6 +6,7 @@ issues verification authority. The caller owns the transaction and rollback.
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from itertools import islice, zip_longest
 from typing import Iterable, Mapping
@@ -17,6 +18,8 @@ from sentinel.feed.rolling_contract import (
 )
 
 BATCH_SIZE = 5000
+JSONB_EVIDENCE_BYTES = 1024 * 1024
+MAX_EVIDENCE_BYTES = 256 * 1024 * 1024
 BAR_COLUMNS = tuple(CanonicalBar.model_fields)
 BENCHMARK_COLUMNS = tuple(CanonicalBenchmark.model_fields)
 
@@ -29,26 +32,57 @@ def put_evidence(conn, payload: Mapping) -> str:
     """Retain exact reference or input bytes; a hash alone is not authority."""
     value = dict(payload)
     encoded = canonical_json(value)
-    identity = digest(value)
+    from sentinel.feed.acquisition_limits import check
+    # Canonical JSON is ASCII, so character and UTF-8 byte lengths agree.
+    check("SNAPSHOT_EVIDENCE_BYTES", len(encoded), MAX_EVIDENCE_BYTES)
+    identity = hashlib.sha256(encoded.encode("ascii")).hexdigest()
     with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO sentinel_snapshot_evidence (evidence_sha256,payload) "
-            "VALUES (%s,%s::jsonb) ON CONFLICT DO NOTHING", (identity, encoded))
-        cur.execute("UPDATE sentinel_snapshot_evidence SET payload=%s::jsonb,restored_bytes=%s "
-                    "WHERE evidence_sha256=%s AND payload IS NULL", (encoded, encoded, identity))
-    if load_evidence(conn, identity) != value:
+        if len(encoded) > JSONB_EVIDENCE_BYTES:
+            cur.execute("INSERT INTO sentinel_snapshot_evidence (evidence_sha256,canonical_payload) "
+                        "VALUES (%s,%s) ON CONFLICT DO NOTHING", (identity, encoded))
+            cur.execute("UPDATE sentinel_snapshot_evidence SET canonical_payload=%s "
+                        "WHERE evidence_sha256=%s AND payload IS NULL AND canonical_payload IS NULL",
+                        (encoded, identity))
+        else:
+            cur.execute(
+                "INSERT INTO sentinel_snapshot_evidence (evidence_sha256,payload) "
+                "VALUES (%s,%s::jsonb) ON CONFLICT DO NOTHING", (identity, encoded))
+            cur.execute("UPDATE sentinel_snapshot_evidence SET payload=%s::jsonb,restored_bytes=%s "
+                        "WHERE evidence_sha256=%s AND payload IS NULL AND canonical_payload IS NULL",
+                        (encoded, encoded, identity))
+    row = _evidence_row(conn, identity)
+    # Compare canonical TEXT directly instead of expanding a second full Python
+    # object while the caller still owns the original provider references.
+    if not (row and ((row[0] is None and row[1] == encoded)
+                     or (row[1] is None and isinstance(row[0], dict) and digest(row[0]) == identity))):
         raise SnapshotStorageRefused("retained evidence differs from its content identity")
     return identity
 
 
-def load_evidence(conn, identity: str) -> dict:
+def _evidence_row(conn, identity):
     with conn.cursor() as cur:
-        cur.execute("SELECT payload FROM sentinel_snapshot_evidence "
+        cur.execute("SELECT payload,canonical_payload FROM sentinel_snapshot_evidence "
                     "WHERE evidence_sha256=%s", (identity,))
-        row = cur.fetchone()
-    if row is None or not isinstance(row[0], dict) or digest(row[0]) != identity:
+        return cur.fetchone()
+
+
+def load_evidence(conn, identity: str) -> dict:
+    row = _evidence_row(conn, identity)
+    if row is None or (row[0] is not None and row[1] is not None):
         raise SnapshotStorageRefused("missing or corrupt snapshot evidence: " + identity)
-    return row[0]
+    value = row[0]
+    if row[1] is not None:
+        from sentinel.feed.acquisition_limits import check
+        check("SNAPSHOT_EVIDENCE_BYTES", len(row[1]), MAX_EVIDENCE_BYTES)
+        if hashlib.sha256(row[1].encode("utf-8")).hexdigest() != identity:
+            raise SnapshotStorageRefused("corrupt snapshot evidence bytes: " + identity)
+        try:
+            value = json.loads(row[1])
+        except (ValueError, TypeError) as exc:
+            raise SnapshotStorageRefused("invalid snapshot evidence JSON: " + identity) from exc
+    if not isinstance(value, dict) or digest(value) != identity:
+        raise SnapshotStorageRefused("missing or corrupt snapshot evidence: " + identity)
+    return value
 
 
 def begin(conn, *, window: PriceWindow, reference_sha256: str,

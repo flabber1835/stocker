@@ -1,5 +1,11 @@
 # Sentinel — operational deployment ground truth
 
+[Large reference storage](rolling-snapshot-storage.md#large-reference-representation)
+avoids expanding full provider reference bundles into PostgreSQL JSONB. Apply
+the matching image and checkout; GO's ordinary feed migration installs the
+additive column before preparation. Existing evidence is preserved, and the
+PostgreSQL memory limit is unchanged.
+
 
 [Current-window book formation](current-window-formation.md) restores 126
 broker-free ownership/controller transitions after 299 feature sessions. The

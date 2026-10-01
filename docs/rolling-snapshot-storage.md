@@ -32,6 +32,49 @@ storage never fetches more history or initializes another book.
 
 ## Transaction and retention rules
 
+### Large reference representation
+
+The NAS exhausted its PostgreSQL container's 1 GiB memory budget while inserting
+the complete reference bundle into JSONB (2026-10-01). Export streaming alone
+does not bound PostgreSQL's expansion of a large nested JSON document.
+
+Evidence larger than 1 MiB of canonical UTF-8 JSON is stored in a nullable TEXT
+column, `canonical_payload`, instead of the JSONB `payload`. Smaller evidence
+keeps its existing representation. The logical SHA-256, exact input contents,
+reader result and publication identities do not change. Legacy JSONB rows remain
+readable; installing the additive column does not rewrite existing evidence.
+At most one representation may be present. Both NULL means retired, as the
+existing NULL payload did. Canonical documents over 256 MiB are refused before
+database insertion with the existing acquisition resource-limit classification;
+this does not authorize truncation, partial publication or a larger memory cap.
+
+Readers decode TEXT in the Python process and verify the canonical content hash.
+The database never casts large TEXT back to JSONB, including restoration.
+Restoration verifies the TEXT bytes against the immutable evidence identity in
+the database. Existing JSONB restoration retains its exact-byte/hash check.
+Ordinary updates and deletion remain prohibited. Retirement clears both payload
+columns only under the existing ownership and dependency guards; candidate
+admission checks both representations. No storage helper commits its caller's
+transaction. This applies to GO and recurring acquisition alike.
+
+Validation must cover legacy and large round trips, duplicate insertion,
+rollback, digest mismatch, direct SQL mutation, retirement/restoration and
+candidate admission. A separate local PostgreSQL container with a 1 GiB memory
+limit must exercise a large nested reference document through this production
+storage path. That witness measures database resource behavior, not NAS latency
+or economic performance. The evidence-size boundary must have a falsifier.
+
+Local witness (PostgreSQL 16.13):
+`python -m tools.acquisition_resources.evidence_probe --database-url
+postgresql://postgres@127.0.0.1/evidence_witness --mebibytes 240` completed storage,
+readback and retirement/restoration of 1,677,721 nested synthetic records
+(251,658,226 canonical bytes) in 37.03 seconds. The server ran separately with
+Docker `--memory 1g --memory-swap 2g`; the Python client had a separate 3 GiB
+limit. The server recorded zero OOM events/kills and no container restart. This
+was not a zero-pressure test: memory reached the 1 GiB cgroup limit and measured
+peak swap across two runs was 27,951,104 bytes. The probe requires an empty
+disposable database and is not part of GO or an automatic CI workload.
+
 Every row belongs to one candidate. Batches can commit while the candidate is
 private. Sealing locks its parent row; every row insert takes the same parent
 lock and refuses a sealed parent. Sealed rows and manifests cannot be updated

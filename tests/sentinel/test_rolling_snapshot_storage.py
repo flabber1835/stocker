@@ -58,6 +58,107 @@ def benchmark(day):
         bil_close_signal=91, bil_close_adjusted=100, bil_close_unadjusted=91)
 
 
+@pytest.mark.parametrize('large', [False, True])
+def test_evidence_representation_preserves_identity_and_transactions(conn, monkeypatch, large):
+    from sentinel.feed.rolling_contract import canonical_json
+    payload = {'actions': [{'ticker': 'EXAMPLE', 'value': 1.25, 'name': 'caf\u00e9'}]}
+    if large:
+        monkeypatch.setattr(store, 'JSONB_EVIDENCE_BYTES', 1)
+    identity = store.put_evidence(conn, payload)
+    assert identity == digest(payload)
+    assert store.put_evidence(conn, payload) == identity
+    assert store.load_evidence(conn, identity) == payload
+    row = conn.execute('SELECT payload,canonical_payload FROM sentinel_snapshot_evidence '
+                       'WHERE evidence_sha256=%s', (identity,)).fetchone()
+    assert row == ((None, canonical_json(payload)) if large else (payload, None))
+    conn.rollback()
+    assert conn.execute('SELECT 1 FROM sentinel_snapshot_evidence WHERE evidence_sha256=%s',
+                        (identity,)).fetchone() is None
+
+
+def test_evidence_size_limit_refuses_before_database_access(monkeypatch):
+    from sentinel.feed.acquisition_limits import AcquisitionResourceExceeded
+    monkeypatch.setattr(store, 'MAX_EVIDENCE_BYTES', 64)
+    with pytest.raises(AcquisitionResourceExceeded, match='SNAPSHOT_EVIDENCE_BYTES'):
+        store.put_evidence(None, {'content': 'x'*65})
+
+
+def test_large_evidence_never_uses_jsonb_conversion(conn):
+    payload = {'actions': [{'ticker': 'EXAMPLE', 'value': '1.00', 'name': 'fixture'}]*20000}
+    identity = store.put_evidence(conn, payload)
+    assert conn.execute('SELECT payload IS NULL,octet_length(canonical_payload) '
+                        'FROM sentinel_snapshot_evidence WHERE evidence_sha256=%s',
+                        (identity,)).fetchone() == (True, len(store.canonical_json(payload)))
+    assert store.load_evidence(conn, identity) == payload
+
+
+def test_text_evidence_retirement_restoration_and_live_pin(conn, window, monkeypatch):
+    from sentinel.feed.publication import CORPUS_LOCK_KEY
+    monkeypatch.setattr(store, 'JSONB_EVIDENCE_BYTES', 1)
+    payload = {'reference': 'text restoration fixture'}
+    identity = store.put_evidence(conn, payload)
+    # These are the same ownership locks required by the retirement trigger.
+    conn.execute('SELECT pg_advisory_xact_lock(%s)', (1579621904,))
+    conn.execute('SELECT pg_advisory_xact_lock(%s)', (CORPUS_LOCK_KEY,))
+    conn.execute('UPDATE sentinel_snapshot_evidence SET canonical_payload=NULL WHERE evidence_sha256=%s',
+                 (identity,))
+    with pytest.raises(store.SnapshotStorageRefused, match='missing or corrupt'):
+        store.load_evidence(conn, identity)
+    with conn.transaction():
+        with pytest.raises(Exception, match='candidate evidence payload is retired'):
+            with conn.transaction():
+                conn.execute('INSERT INTO sentinel_price_candidates(candidate_id,window_start,window_end,'
+                    'session_axis,reference_sha256,source_evidence_sha256,dependencies_sha256) '
+                    'VALUES(gen_random_uuid(),%s,%s,%s::jsonb,%s,%s,%s)',
+                    (window.start, window.end, store.canonical_json(list(map(str,window.sessions))),
+                     identity, identity, digest({})))
+    assert store.put_evidence(conn, payload) == identity
+    assert store.load_evidence(conn, identity) == payload
+    store.begin(conn, window=window, reference_sha256=identity, source_evidence_sha256=identity,
+                expected_publication_version=None, dependencies_sha256=digest({}))
+    with pytest.raises(Exception, match='live dependencies'):
+        with conn.transaction():
+            conn.execute('UPDATE sentinel_snapshot_evidence SET canonical_payload=NULL WHERE evidence_sha256=%s',
+                         (identity,))
+    with pytest.raises(Exception, match='live dependencies'):
+        with conn.transaction():
+            conn.execute('UPDATE sentinel_snapshot_evidence SET canonical_payload=%s WHERE evidence_sha256=%s',
+                         (store.canonical_json(payload), identity))
+
+
+def test_text_evidence_cannot_restore_wrong_bytes(conn, monkeypatch):
+    monkeypatch.setattr(store, 'JSONB_EVIDENCE_BYTES', 1)
+    payload = {'reference': 'wrong restoration fixture'}
+    identity = store.put_evidence(conn, payload)
+    conn.execute('SELECT pg_advisory_xact_lock(1579621904),pg_advisory_xact_lock(1579663541)')
+    conn.execute('UPDATE sentinel_snapshot_evidence SET canonical_payload=NULL WHERE evidence_sha256=%s', (identity,))
+    with pytest.raises(Exception, match='live dependencies|check constraint'):
+        with conn.transaction():
+            conn.execute('UPDATE sentinel_snapshot_evidence SET canonical_payload=%s WHERE evidence_sha256=%s',
+                         ('{}', identity))
+    assert store.put_evidence(conn, payload) == identity
+
+
+@pytest.mark.parametrize('raw', ['{', '[]', '{"a": 1}', '{"a":1}'])
+def test_text_reader_rejects_corrupt_or_noncanonical_bytes(monkeypatch, raw):
+    import hashlib
+    # Last case is valid canonical JSON stored under another content identity.
+    identity = hashlib.sha256(raw.encode()).hexdigest() if raw != '{"a":1}' else '0'*64
+    monkeypatch.setattr(store, '_evidence_row', lambda *_: (None, raw))
+    with pytest.raises(store.SnapshotStorageRefused):
+        store.load_evidence(None, identity)
+
+
+def test_legacy_jsonb_evidence_survives_text_cutover(conn, monkeypatch):
+    payload = {'reference': 'legacy before text cutover'}
+    identity = store.put_evidence(conn, payload)
+    monkeypatch.setattr(store, 'JSONB_EVIDENCE_BYTES', 1)
+    assert store.put_evidence(conn, payload) == identity
+    assert store.load_evidence(conn, identity) == payload
+    assert conn.execute('SELECT canonical_payload FROM sentinel_snapshot_evidence '
+                        'WHERE evidence_sha256=%s', (identity,)).fetchone() == (None,)
+
+
 def begin(conn, window):
     return store.begin(
         conn, window=window,
