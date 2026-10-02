@@ -19,8 +19,8 @@ from tests.sentinel.test_rolling_snapshot_publisher import conn, pg  # noqa: F40
 
 
 class FakeClient:
-    def __init__(self, *, missing=None, action=False):
-        self.window = PriceWindow.through("2026-09-14")
+    def __init__(self, *, window=None, missing=None, action=False):
+        self.window = window or PriceWindow.through("2026-09-14")
         self.missing = missing
         self.action = action
         self.calls = []
