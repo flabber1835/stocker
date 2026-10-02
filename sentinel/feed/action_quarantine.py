@@ -1,7 +1,7 @@
 """Generic, publication-bound quarantine for uncertain source actions."""
 from __future__ import annotations
 
-from sentinel.feed import actions_map, calendar, rolling_store
+from sentinel.feed import actions_map, rolling_store
 
 MAX_QUARANTINED_SECURITIES = 16
 
@@ -32,7 +32,7 @@ def prior_ids(conn, expected_version):
 
 def classify(identity, actions, sessions, *, prior=()):
     """Return affected permanent identities; ambiguous mapping always refuses."""
-    splits, ambiguous = actions_map.split_rows_from_actions(actions, sessions)
+    _, ambiguous = actions_map.split_rows_from_actions(actions, sessions)
     reasons = [{"ticker": item["ticker"], "session": item["session"],
                 "reason": "AMBIGUOUS_SPLIT", "source": item} for item in ambiguous]
     reasons.extend({"ticker": item["ticker"],
