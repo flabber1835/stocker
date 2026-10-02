@@ -189,8 +189,9 @@ def advance_session(
         and event.reason == Reason.EXIT_TRAILING_STOP.value
     ]
 
-    held = holdings_from_shadow(state, feed, published.sectors)
-    breadth = session_breadth(held)
+    if not median5:
+        held = holdings_from_shadow(state, feed, published.sectors)
+        breadth = session_breadth(held)
     median5_state = deepcopy(env.median5)
     if median5:
         from sentinel.controller.median5_breadth import breadth as peer_breadth

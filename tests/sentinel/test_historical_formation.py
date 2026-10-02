@@ -213,8 +213,9 @@ def test_active_owned_cause_reaches_final_kernel_target(material, run):
     assert result.last_decision['target_core_exposure'] == .55
 
 
-def test_current_controller_uses_correlation_peers_not_sector_labels(material, run):
+def test_current_controller_uses_correlation_peers_not_sector_labels(material, run, monkeypatch):
     from sentinel.breadth.classifier import Holding, session_breadth
+    from sentinel.core import kernel
     plan, _, stream = material
     prior = SessionState.from_dict(run[1][4]['state'])
     published = stream[125]
@@ -230,6 +231,9 @@ def test_current_controller_uses_correlation_peers_not_sector_labels(material, r
         bars.append(replace(bar, raw_close=bar.raw_close * factor,
                             signal_close=bar.signal_close * factor))
     published = replace(published, bars=tuple(bars))
+    def legacy_sector_read(*_args, **_kwargs):
+        raise AssertionError("selected controller read legacy sector breadth")
+    monkeypatch.setattr(kernel, "holdings_from_shadow", legacy_sector_read)
     outcomes = []
     for sectors in ({}, {sid: 'ONE_SECTOR' for sid in published.meta},
                     {sid: sid for sid in published.meta}):
