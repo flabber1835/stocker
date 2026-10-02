@@ -192,8 +192,9 @@ def test_default_launcher_uses_ci_and_local_full_is_explicit():
     launcher = (REPO_ROOT / "scripts" / "sentinel-go-validate.sh").read_text()
     entry = (REPO_ROOT / "scripts" / "sentinel_go_verified_entry.py").read_text()
     assert "--local-full-certification" in launcher
-    assert '[ "$LOCAL_FULL" -eq 1 ]' in launcher
-    assert "sentinel_go_readonly_data_preflight.py" in launcher
+    assert '[ "$PRODUCTION_RUN" -eq 1 ] && [ "$LOCAL_FULL" -eq 0 ]' in launcher
+    assert "sentinel_go_readonly_data_preflight.py" not in launcher
+    assert 'scripts/sentinel_go_verified_entry.py "$@"' in launcher
     assert "CI_CERTIFIED_RUNTIME" in entry
     assert "LOCAL_FULL" in entry
     assert "ci_runtime.certify_from_ci" in entry

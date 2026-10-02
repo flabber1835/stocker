@@ -87,16 +87,13 @@ def test_preflight_builds_only_exact_commit_scoped_ordinary_runtime():
     assert "sentinel-go-test:" not in source
 
 
-def test_launcher_runs_readonly_data_preflight_before_verified_certification():
+def test_launcher_uses_verified_alpaca_preparation_without_legacy_preflight():
     launcher = (ROOT / "scripts" / "sentinel-go-validate.sh").read_text(
         encoding="utf-8")
     account = launcher.index("sentinel_go_account_preflight.py")
-    data = launcher.index("sentinel_go_readonly_data_preflight.py")
     certified = launcher.index("sentinel_go_verified_entry.py")
-    assert account < data < certified
-    # Development/test input remains non-mutating and bypasses production probes.
-    data_pos = launcher.index('if [ "$PRODUCTION_RUN" -eq 1 ]', account)
-    assert data_pos < data
+    assert account < certified
+    assert '"$PYTHON" scripts/sentinel_go_readonly_data_preflight.py' not in launcher
 
 
 def test_source_final_deferral_is_non_negative_authority():

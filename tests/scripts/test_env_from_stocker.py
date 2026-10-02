@@ -348,7 +348,9 @@ class TestTheWhitelistIsCOMPLETEAgainstCompose:
     def test_the_scan_finds_the_production_file(self):
         """Guard the guard: a regex matching nothing passes vacuously."""
         got = self.referenced()
-        assert "SHARADAR_API_KEY" in got
+        assert "ALPACA_API_KEY" in got
+        assert "ALPACA_SECRET_KEY" in got
+        assert "SHARADAR_API_KEY" not in got
         # The active Sentinel compose deliberately uses the literal
         # ``sentinel:latest`` convenience alias; image identity is verified by
         # digest instead of a fifteenth interpolated environment variable.

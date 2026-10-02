@@ -479,7 +479,7 @@ def run_overlay(monkeypatch, runner):
     monkeypatch.setattr(backup.go, "_resolve_compose_args", compose_args)
     monkeypatch.setattr(backup, "_ORIGINAL_PREPARATION", entry._deployment_preparation_probe)
     return backup._preparation_with_backup_refresh(
-        runner, env={**_env(), "SHARADAR_API_KEY": "source-key"},
+        runner, env=_env(),
         commit=COMMIT, runtime_ref=RUNTIME_REF)
 
 
@@ -508,8 +508,16 @@ def test_healthy_start_then_growth_renews_exact_backup_and_resumes(monkeypatch):
     assert audit["refreshed"] and audit["post_refresh_exact_path_verified"]
     assert len(audit["renewal_history"]) == 2
     assert audit["renewal_history"][0]["reason_code"] == "BACKUP_HEALTHY"
-    for _cmd, env in runner.calls + runner.preparations:
-        assert "ALPACA_API_KEY" not in env
+    for cmd, env in runner.calls:
+        if cmd[:2] in (["bash", "scripts/sentinel-backup-status.sh"],
+                       ["bash", "scripts/sentinel-base-backup.sh"]):
+            assert "ALPACA_API_KEY" not in env
+            assert "ALPACA_SECRET_KEY" not in env
+    for _cmd, env in runner.preparations:
+        assert env["ALPACA_API_KEY"] == "broker-key"
+        assert env["ALPACA_SECRET_KEY"] == "broker-secret"
+        assert "SENTINEL_PAPER_ACCOUNT_ID" not in env
+        assert "SHARADAR_API_KEY" not in env
 
 
 @pytest.mark.parametrize("changes", [

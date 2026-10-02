@@ -5,12 +5,12 @@ The supported operator entry remains ``scripts/sentinel-go-validate.sh``. This
 module is imported by ``sentinel_go_verified_entry.py`` only after the public
 lifecycle lock and one-run capability have been proven.
 
-Its single responsibility is to choose the newest Sharadar decision session
-whose reviewed source-final not-before has elapsed and run the existing bounded,
-feed-authorized recovery/preparation through that session. A later closed but
-not-yet-final session remains visible as an ordinary readiness/session NO_GO.
+Its single responsibility is to choose the newest market-data decision session
+whose reviewed source-final not-before has elapsed and run the bounded,
+feed-authorized Alpaca/Nasdaq preparation through that session. A later closed
+but not-yet-final session remains visible as an ordinary readiness/session NO_GO.
 
-No public gate is redefined here. Sharadar readiness keeps its original
+No public gate is redefined here. Market-data readiness keeps its original
 latest-closed-session meaning and ``prospective_trading_window`` keeps its
 original following-open meaning. The separate installation overlay decides
 whether those temporal NO_GO facts are safe for fenced software installation.
