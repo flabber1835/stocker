@@ -422,13 +422,16 @@ def test_publication_observer_reads_the_selected_generation(monkeypatch, tmp_pat
     assert events == ["authenticated pin", "rollback", "close"]
 
 
-def test_compose_go_child_has_alpaca_data_credentials_without_sharadar_transport():
+def test_compose_go_child_gets_alpaca_keys_only_for_preparation():
     compose = (ROOT / "docker-compose.sentinel.yml").read_text(encoding="utf-8")
     go_child = compose.split("  sentinel:\n", 1)[1].split("  sentinel-panel:\n", 1)[0]
-    assert "ALPACA_API_KEY: ${ALPACA_API_KEY:-}" in go_child
-    assert "ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}" in go_child
+    assert "ALPACA_API_KEY:" not in go_child
+    assert "ALPACA_SECRET_KEY:" not in go_child
     assert "SHARADAR_API_KEY:" not in go_child
     assert "NDL_BASE_URL:" not in go_child
+    preparation = (ROOT / "scripts/sentinel_go_validate.py").read_text(encoding="utf-8")
+    assert '"--env", "ALPACA_API_KEY"' in preparation
+    assert '"--env", "ALPACA_SECRET_KEY"' in preparation
 
 
 def test_phase_parser_is_stage_sensitive():
