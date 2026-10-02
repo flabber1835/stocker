@@ -67,6 +67,23 @@ def refs(conn, key):
     return inputs.SnapshotReferences(conn, candidate_id=key[0], snapshot_id=key[1])
 
 
+def test_action_quarantine_preserves_raw_snapshot_but_blocks_book_economics(conn):
+    key = candidate(conn, proof_change=lambda proof: proof.update(
+        action_quarantine=[{"security_id": "1", "reason": "UNUSABLE_DIVIDEND",
+                            "session": "2026-09-14", "source": {"value": 0}}]))
+    references = refs(conn, key)
+    meta, _ = references.current_metadata()
+    bars = list(inputs._mapped_bars(conn, key[0], references, meta, "2026-09-14"))
+    affected = next(bar for bar in bars if bar.security_id == "1")
+    ordinary = next(bar for bar in bars if bar.security_id == "2")
+    assert affected.unresolved_corporate_action and not affected.tradeable
+    assert affected.dividend_per_share == 0 and affected.split_ratio == 1
+    assert ordinary.tradeable and not ordinary.unresolved_corporate_action
+    stored = next(row for row in rolling_store.read_bars(conn, key[0], start="2026-09-14")
+                  if row.security_id == "1")
+    assert stored.close_unadjusted == affected.raw_close
+
+
 def test_empty_legacy_corpus_forms_canonical_initial_pending_book(conn):
     from sentinel.controller.machine import Controller
     from sentinel.core.kernel import advance_session

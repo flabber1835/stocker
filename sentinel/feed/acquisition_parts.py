@@ -51,7 +51,7 @@ class Parts:
         with acquisition_work.budget(seconds=min(500, remaining)):
             yield
 
-    def _manifest(self, part_id, *, expected_generation=None):
+    def _manifest(self, part_id, *, expected_generation=None, defer_prices=False):
         row = self.conn.execute("SELECT manifest,reference_payload,canonical_reference FROM sentinel_acquisition_parts "
                                 "WHERE part_id=%s", (part_id,)).fetchone()
         if row is None:
@@ -72,6 +72,8 @@ class Parts:
                 payload = json.loads(encoded)
             except (ValueError, TypeError) as exc:
                 raise PartCorrupt('retained acquisition reference JSON invalid: ' + part_id) from exc
+        if manifest["component"].startswith("SEP.") and defer_prices:
+            return manifest, payload
         if manifest["component"].startswith("SEP."):
             observed = _Fingerprint()
             with store.streaming_cursor(self.conn,
@@ -92,14 +94,15 @@ class Parts:
             raise PartCorrupt("retained acquisition payload checksum mismatch: " + part_id)
         return manifest, payload
 
-    def get(self, component, generation):
+    def get(self, component, generation, *, defer_prices=False):
         jobs._owned(self.conn, self.lease)
         job = self.lease.job_id
         for depth in range(MAX_SUCCESSORS + 1):
             binding = self.conn.execute("SELECT part_id FROM sentinel_acquisition_bindings "
                 "WHERE job_id=%s AND component=%s", (job, component)).fetchone()
             if binding:
-                value = self._manifest(binding[0], expected_generation=generation)
+                value = self._manifest(binding[0], expected_generation=generation,
+                                       defer_prices=defer_prices)
                 if value:
                     manifest, payload = value
                     if manifest["component"] != component:
@@ -157,10 +160,34 @@ class Parts:
         return manifest, payload
 
 
-def price_rows(conn, job_id, *, tickers=None):
+class PricePartVerifier:
+    """Verify complete retained SEP payloads during an otherwise required scan."""
+
+    def __init__(self, manifests):
+        self.expected = dict(manifests)
+        self.observed = {part_id: _Fingerprint() for part_id in self.expected}
+
+    def add(self, part_id, encoded, day, ticker):
+        if part_id not in self.expected:
+            raise PartCorrupt("unbound retained acquisition price part")
+        row = json.loads(encoded)
+        if row["date"] != str(day) or row["ticker"] != ticker:
+            raise PartCorrupt("retained acquisition price key mismatch: " + part_id)
+        self.observed[part_id].add(canonical_json(row).encode("ascii"))
+        return row
+
+    def finish(self):
+        for part_id, manifest in self.expected.items():
+            observed = self.observed[part_id]
+            if (observed.rows != manifest["rows"]
+                    or observed.digest() != manifest["content_sha256"]):
+                raise PartCorrupt("retained acquisition payload checksum mismatch: " + part_id)
+
+
+def price_rows(conn, job_id, *, tickers=None, verifier=None):
     """Project only SEP equity domains in canonical global session order."""
     from sentinel.feed.staging_impl import _source_or_compat
-    query = ("SELECT p.payload FROM sentinel_acquisition_prices p JOIN sentinel_acquisition_bindings b "
+    query = ("SELECT p.part_id,p.session,p.ticker,p.payload FROM sentinel_acquisition_prices p JOIN sentinel_acquisition_bindings b "
              "USING(part_id) WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' ")
     params = (job_id,)
     if tickers is not None:
@@ -171,8 +198,8 @@ def price_rows(conn, job_id, *, tickers=None):
     query += "ORDER BY p.session,p.ticker"
     with store.streaming_cursor(conn, query, params, batch=5000, withhold=True) as cur:
         previous = None
-        for (encoded,) in cur:
-            row = json.loads(encoded)
+        for part_id, day, ticker, encoded in cur:
+            row = verifier.add(part_id, encoded, day, ticker) if verifier else json.loads(encoded)
             key = (row["date"], row["ticker"])
             if key == previous:
                 raise PartCorrupt("duplicate price key across retained acquisition parts")
@@ -180,6 +207,8 @@ def price_rows(conn, job_id, *, tickers=None):
             yield {"date": row["date"], "ticker": row["ticker"], **{
                 field: _source_or_compat(row.get(field), row.get(field))
                 for field in ("open", "close", "closeunadj", "volume")}}
+    if verifier:
+        verifier.finish()
 
 
 def successor(conn, job_id, component):

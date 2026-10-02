@@ -6,7 +6,7 @@ from contextlib import closing
 from itertools import islice
 
 from sentinel.feed import (
-    actions_map, calendar, coherence, domains, progress, rolling_jobs as jobs, rolling_store,
+    action_quarantine, actions_map, calendar, coherence, domains, progress, rolling_jobs as jobs, rolling_store,
     source_aliases, symbol_identity,
 )
 from sentinel.feed.rolling_contract import CanonicalBar, CanonicalBenchmark, RestartRequirement, digest
@@ -19,9 +19,9 @@ CHUNK = "rolling-window"
 _SFP_TOTAL_RETURN_COLUMN = domains.SEP_FORBIDDEN_COLUMNS[0]
 
 
-def _rows(conn, lease, *, tickers=None):
+def _rows(conn, lease, *, tickers=None, verifier=None):
     from sentinel.feed.acquisition_parts import price_rows
-    return price_rows(conn, lease.job_id, tickers=tickers)
+    return price_rows(conn, lease.job_id, tickers=tickers, verifier=verifier)
 
 
 def _coverage(identity, source_digest):
@@ -30,10 +30,10 @@ def _coverage(identity, source_digest):
     return SeedCoverageAccumulator(projection, identity.resolver().resolve)
 
 
-def _populate(conn, lease, coverage, *, pulse, subphase, tickers=None):
+def _populate(conn, lease, coverage, *, pulse, subphase, tickers=None, verifier=None):
     counts = {}
     with progress.phase("rolling_identity", subphase=subphase, job_id=lease.job_id) as counter, \
-            closing(_rows(conn, lease, tickers=tickers)) as rows:
+            closing(_rows(conn, lease, tickers=tickers, verifier=verifier)) as rows:
         for index, row in enumerate(rows, 1):
             counter[0] = index
             resolved = coverage.add(row)
@@ -94,9 +94,28 @@ def _build(conn, lease, request, source):
                       reason="NO_INFERRED_ALIASES", rows=0, job_id=lease.job_id)
     source_aliases.apply(identity, aliases)
     source_aliases.require_current(identity, aliases)
+    lo, hi = calendar.action_date_window(request.window.start, request.window.end)
+    actions = [row for row in source.actions if lo <= row["date"] <= hi]
+    sessions = [str(day) for day in request.window.sessions]
+    if current_window:
+        quarantine = action_quarantine.classify(
+            identity, actions, sessions,
+            prior=action_quarantine.prior_ids(conn, request.expected_publication_version))
+        economic_actions = action_quarantine.safe_actions(actions, identity, quarantine, sessions)
+    else:
+        quarantine = []
+        economic_actions = actions
+    splits, ambiguous = actions_map.split_rows_from_actions(economic_actions, sessions)
+    if ambiguous or actions_map.unusable_dividend_rows(economic_actions):
+        raise ValueError("ambiguous split or unusable dividend source evidence")
+    dividends = actions_map.dividends_from_actions(economic_actions, sessions)
     bounds = {"date_from": str(request.window.start), "date_to": str(request.window.end)}
     with closing(_coverage(identity, native)) as coverage:
-        counts = _populate(conn, lease, coverage, pulse=pulse, subphase="independent_coverage")
+        from sentinel.feed.acquisition_parts import PricePartVerifier
+        manifests = getattr(source, "price_manifests", None)
+        verifier = PricePartVerifier(manifests) if manifests is not None and manifests else None
+        counts = _populate(conn, lease, coverage, pulse=pulse,
+                           subphase="independent_coverage", verifier=verifier)
         coverage_proof = coverage.require_complete(**bounds, current_window=current_window)
         coherence.assert_seed_history(counts, **bounds)
         reference = rolling_store.put_evidence(conn, source.reference_payload())
@@ -107,13 +126,6 @@ def _build(conn, lease, request, source):
             expected_publication_version=request.expected_publication_version,
             dependencies_sha256=request.dependencies_sha256)
         jobs.advance(conn, lease, "STAGING", candidate_id=candidate)
-        lo, hi = calendar.action_date_window(request.window.start, request.window.end)
-        actions = [row for row in source.actions if lo <= row["date"] <= hi]
-        sessions = [str(day) for day in request.window.sessions]
-        splits, ambiguous = actions_map.split_rows_from_actions(actions, sessions)
-        if ambiguous or actions_map.unusable_dividend_rows(actions):
-            raise ValueError("ambiguous split or unusable dividend source evidence")
-        dividends = actions_map.dividends_from_actions(actions, sessions)
         report = domains.NormalisationReport()
         no_events, no_event_hash = 0, hashlib.sha256()
         with progress.phase("rolling_normalization", job_id=lease.job_id) as counter, \
@@ -154,6 +166,7 @@ def _build(conn, lease, request, source):
             "schema": "sentinel.rolling-comparison-validation/1", "scope": "COMPARISON_ONLY",
             "snapshot_id": manifest.snapshot_id, "request_sha256": request.request_sha256,
             "coverage": coverage_proof, "alias_rejections": aliases,
+            "action_quarantine": quarantine,
             "rows": report.rows, "bars": report.bars,
             "dropped_no_identity": report.dropped_no_identity,
             "rejections": report.rejections, "rejections_truncated": report.rejections_truncated,

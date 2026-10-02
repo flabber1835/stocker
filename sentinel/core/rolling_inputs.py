@@ -79,6 +79,12 @@ class SnapshotReferences:
                 or validation.get("snapshot_id") != snapshot_id
                 or not isinstance(validation.get("alias_rejections"), dict)):
             raise RollingInputsRefused("UNBOUND_REFERENCE_VALIDATION")
+        quarantined = validation.get("action_quarantine", [])
+        if (not isinstance(quarantined, list)
+                or any(not isinstance(item, dict)
+                       or not isinstance(item.get("security_id"), str) for item in quarantined)):
+            raise RollingInputsRefused("INVALID_ACTION_QUARANTINE")
+        self.quarantined = frozenset(item["security_id"] for item in quarantined)
         self.tickers = tickers_authority.validate(reference["tickers"])
         self.actions = action_source.distinct_rows(reference["actions"])
         for _, payload, _ in self.actions:
@@ -180,9 +186,12 @@ def _mapped_bars(conn, candidate_id, refs, meta, first, last=None):
         yield VendorBar(
             session=day, security_id=row.security_id, ticker=row.ticker,
             raw_close=row.close_unadjusted, raw_open=row.open_unadjusted,
-            volume=row.volume, split_ratio=row.split_ratio,
-            dividend_per_share=row.dividend_per_share,
-            tradeable=bool(row.close_unadjusted and row.volume), signal_close=row.close_signal)
+            volume=row.volume, split_ratio=1.0 if row.security_id in refs.quarantined else row.split_ratio,
+            dividend_per_share=0 if row.security_id in refs.quarantined else row.dividend_per_share,
+            tradeable=bool(row.close_unadjusted and row.volume)
+                      and row.security_id not in refs.quarantined,
+            unresolved_corporate_action=row.security_id in refs.quarantined,
+            signal_close=row.close_signal)
 
 
 def _benchmarks(conn, candidate_id, session, *, count=254):

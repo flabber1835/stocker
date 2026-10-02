@@ -9,9 +9,11 @@ from sentinel.feed.source_authority.dates import SepUpdateEnvelope, _canonical_k
 
 
 class RetainedSource(SharadarSource):
-    def __init__(self, window, conn, lease, *, corrections=None):
+    def __init__(self, window, conn, lease, *, corrections=None, verify_during_coverage=False):
         super().__init__(window, corrections=corrections)
         self.parts = Parts(conn, lease)
+        self.verify_during_coverage = verify_during_coverage
+        self.price_manifests = {}
 
     def _part(self, name, gen, acquire, checkpoint, *, part=None, parts=None):
         details = {"table": name.split(".")[0]}
@@ -22,7 +24,8 @@ class RetainedSource(SharadarSource):
             details.update(part=part, parts=parts)
         with self.parts.unit():
             progress.emit("source_replay", "started", reason="VERIFY_RETAINED_PART", **details)
-            retained = self.parts.get(name, gen)
+            retained = self.parts.get(
+                name, gen, defer_prices=self.verify_during_coverage and name.startswith("SEP."))
             if retained is None:
                 progress.emit("source_download", "started", reason="ACQUIRE_MISSING_PART", **details)
                 payload, prices, evidence, count = acquire()
@@ -33,6 +36,8 @@ class RetainedSource(SharadarSource):
             else:
                 reason = "RETAINED_PART_REUSED"
             manifest, payload = retained
+            if self.verify_during_coverage and name.startswith("SEP."):
+                self.price_manifests[digest(manifest)] = manifest
             if manifest["evidence"] is not None:
                 self.evidence.append(manifest["evidence"])
             checkpoint(name, gen, manifest["content_sha256"], manifest["rows"], 0)

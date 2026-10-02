@@ -20,9 +20,9 @@ def observe_replay(monkeypatch):
     counts = Counter()
     original = builder._rows
 
-    def read(conn, lease, *, tickers=None):
+    def read(conn, lease, *, tickers=None, verifier=None):
         phase = "all" if tickers is None else "discovery"
-        with closing(original(conn, lease, tickers=tickers)) as rows:
+        with closing(original(conn, lease, tickers=tickers, verifier=verifier)) as rows:
             for row in rows:
                 counts[phase] += 1
                 yield row

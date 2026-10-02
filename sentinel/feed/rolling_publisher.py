@@ -208,7 +208,8 @@ def _prepare(conn, job_id, *, operational):
             pinned = rolling_store.load_evidence(conn, manifest.source_evidence_sha256)
             from sentinel.feed import source_corrections
             corrections = pinned.get("source_corrections", source_corrections.bootstrap())
-        source = RetainedSource(request.window, conn, lease, corrections=corrections)
+        source = RetainedSource(request.window, conn, lease, corrections=corrections,
+                                verify_during_coverage=not ready)
         source.legacy_source_evidence = ready and "source_corrections" not in pinned
 
         def pulse():
