@@ -49,8 +49,11 @@ The next preparation explicitly resumes the named operational job. Its request
 must still equal the current strategy, dependencies, publication CAS and source
 window. Expired, terminal, comparison, leased or unrelated jobs cannot be silently
 replaced by a newly enqueued job. Provider revisions continue to use the existing
-bounded successor mechanism. Retained parts are revalidated by the existing
-source and content checks; unchanged parts are not downloaded again. Uncommitted
+bounded successor mechanism. Retained reference parts are revalidated immediately.
+For an unsealed candidate, retained SEP price payloads are checked against their
+manifests during the mandatory independent coverage scan, before sealing; this
+avoids a separate full price-row pass. READY resumes keep immediate verification.
+Unchanged parts are not downloaded again. Uncommitted
 candidate work may need rebuilding. Previously terminal jobs from older software
 are not resurrected; already retired data cannot be recovered by this fix.
 

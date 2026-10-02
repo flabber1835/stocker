@@ -1397,6 +1397,13 @@ unusable dividend    a distribution the vendor stated no amount for. The corpus
                      record separates them
 ```
 
+The current-window rolling publisher applies the generic, bounded
+permanent-security quarantine described in
+[GO action quarantine and retained-part verification](go-action-quarantine-and-resume.md).
+It preserves the source row and bars, bars new selection of the affected
+security, and makes held exposure fail closed. It does not infer a missing cash
+amount or split ratio. Unknown identity and systemic uncertainty still refuse.
+
 #### Split reconciliation has one implementation and is an operational gate
 
 Production normalisation and the canonical Wealth Core replay call the same

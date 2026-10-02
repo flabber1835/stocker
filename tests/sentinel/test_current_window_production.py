@@ -53,6 +53,11 @@ def ready(conn, operational_source, monkeypatch, request):
         for i, day in enumerate(axis) for j, symbol in enumerate(symbols)]
     data['SFP'] = [{**data['SFP'][0], 'date': day, 'ticker': ticker, 'closeadj': str(600+i)}
                    for i, day in enumerate(axis) for ticker in ('SPY', 'BIL')]
+    if options.get('bad_action'):
+        data['ACTIONS'].append({
+            'ticker': 'AAA', 'date': axis[-2], 'action': 'dividend',
+            'name': 'unusable amount', 'value': '0',
+            'contraticker': None, 'contraname': None})
     if options.get('observed'):
         probe = json.loads((Path(__file__).parent/'fixtures/current_window_go_20260930.json').read_text())['probe']
         rename = options.get('rename', False)
@@ -159,6 +164,25 @@ def test_unheld_history_revision_does_not_replay_ownership(conn, ready, operatio
     assert all(e['session'] == second.session for e in second.state.ledger['events'])
 
 
+@pytest.mark.parametrize('ready', [{'formed': True, 'bad_action': True}], indirect=True)
+def test_unusable_source_action_excludes_one_security_and_survives_daily_refresh(
+        conn, ready, operational_source, monkeypatch):
+    from sentinel.feed import rolling_store
+
+    sha = conn.execute('SELECT validation_sha256 FROM sentinel_snapshot_validations '
+                       'WHERE candidate_id=%s', (ready['candidate_id'],)).fetchone()[0]
+    validation = rolling_store.load_evidence(conn, sha)
+    assert [item['security_id'] for item in validation['action_quarantine']] == ['1']
+    first = start(conn)
+    assert all(order['security_id'] != '1' for order in first.state.pending)
+    refresh(conn, operational_source, monkeypatch)
+    with op.pinned(conn) as (_pub, binding):
+        sha = conn.execute('SELECT validation_sha256 FROM sentinel_snapshot_validations '
+                           'WHERE candidate_id=%s', (binding['candidate_id'],)).fetchone()[0]
+        next_validation = rolling_store.load_evidence(conn, sha)
+    assert [item['security_id'] for item in next_validation['action_quarantine']] == ['1']
+
+
 def test_feature_commitment_cannot_be_rebound(conn, ready, operational_source, monkeypatch):
     first = start(conn)
     previous = origin.read(conn).snapshot
@@ -246,6 +270,20 @@ def test_applied_cash_event_change_refuses_before_daily_commit(conn, ready, oper
         action='dividend', value='1', name='late correction', contraticker=None, contraname=None))
     refresh(conn, operational_source, monkeypatch)
     with pytest.raises(rolling_continuity.RollingContinuityRefused, match='RETAINED_ECONOMIC_EVENT_CHANGED'):
+        advance(conn)
+    assert daily.resume(conn, observation_id=OBS, starting_cash=50_000).state.state_hash == held.state.state_hash
+
+
+def test_unusable_action_on_held_security_preserves_book(conn, ready, operational_source, monkeypatch):
+    start(conn)
+    refresh(conn, operational_source, monkeypatch)
+    held = advance(conn)
+    episode = next(iter(held.state.wealth_core['episodes'].values()))
+    operational_source['ACTIONS'].append(dict(ticker=episode['ticker'], date=held.session,
+        action='dividend', value='0', name='unknown cash',
+        contraticker=None, contraname=None))
+    refresh(conn, operational_source, monkeypatch)
+    with pytest.raises((rolling_continuity.RollingContinuityRefused, ValueError)):
         advance(conn)
     assert daily.resume(conn, observation_id=OBS, starting_cash=50_000).state.state_hash == held.state.state_hash
 

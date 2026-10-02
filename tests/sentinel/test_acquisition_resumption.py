@@ -272,6 +272,26 @@ def test_corrupt_retained_payload_refuses_before_source_io(conn, source, monkeyp
     assert source["calls"] == []
 
 
+def test_deferred_price_verification_refuses_corruption_in_coverage_scan(conn, source):
+    from sentinel.feed.acquisition_parts import Parts, PartCorrupt, PricePartVerifier, price_rows
+
+    job = formation_job(conn, source)
+    lease = jobs.claim(conn, job, lease_seconds=600)
+    conn.commit()
+    parts = Parts(conn, lease)
+    component = "SEP.2025-03-12.2025-03-31"
+    manifest, _ = parts.put(component, {}, prices=source["SEP"][:2], rows=2)
+    part_id = digest(manifest)
+    assert len(list(price_rows(conn, job, verifier=PricePartVerifier({part_id: manifest})))) == 2
+    conn.execute("ALTER TABLE sentinel_acquisition_prices DISABLE TRIGGER acquisition_no_update")
+    conn.execute("UPDATE sentinel_acquisition_prices SET payload=replace(payload,'10000','90000')")
+    conn.execute("ALTER TABLE sentinel_acquisition_prices ENABLE TRIGGER acquisition_no_update")
+    conn.commit()
+    assert parts.get(component, {}, defer_prices=True)[0] == manifest
+    with pytest.raises(PartCorrupt, match="checksum"):
+        list(price_rows(conn, job, verifier=PricePartVerifier({part_id: manifest})))
+
+
 def test_sep_refresh_invalidates_old_prices_but_reuses_references(conn, source, monkeypatch):
     from dataclasses import replace
     from datetime import timedelta
