@@ -9,6 +9,21 @@ import uuid
 from tools.acquisition_resources.runner import command, inspect, ready, database_memory
 
 
+def _unreclaimable(sample):
+    return (sample['anon']+sample['shmem']+sample['slab_unreclaimable']
+            +sample['kernel_stack']+sample['pagetables'])
+
+
+def _database_headroom(samples, limit):
+    return bool(samples) and max(map(_unreclaimable, samples)) <= limit-128*1024**2
+
+
+def _callback_headroom(cycles):
+    callbacks = [callback['seconds'] for cycle in cycles
+                 for callback in cycle['callbacks']]
+    return bool(callbacks) and max(callbacks) <= 720
+
+
 def run(args):
     prefix = 'joint-rehearsal-' + uuid.uuid4().hex[:10]
     db, provider, worker, automation = [prefix+'-'+role for role in ('db','provider','worker','automation')]
@@ -91,6 +106,16 @@ def run(args):
             assert result['measurement']['cgroup']['limit'] == limit*1024**3
         report['database'] = database_memory(db)
         assert report['database']['events'] == dict(oom=0,oom_kill=0)
+        report['database_unreclaimable_peak'] = max(map(_unreclaimable, samples))
+        assert _database_headroom(samples, report['database']['limit']), (
+                    'database lacks 128 MiB unreclaimable-memory headroom')
+        report['callback_peak_seconds'] = max(
+            callback['seconds']
+            for cycle in report['automation_result']['daily_cycles']
+            for callback in cycle['callbacks'])
+        if not args.small:
+            assert _callback_headroom(report['automation_result']['daily_cycles']), (
+                'full-size callback lacks 20% headroom against 900-second deadline')
         report['verdict'] = 'PASS_SYNTHETIC_FUNCTION_COMPOSITION'
     except (Exception, KeyboardInterrupt) as exc:
         report['failure'] = f'{type(exc).__name__}: {exc}'
@@ -112,6 +137,10 @@ def run(args):
             command('docker',kind,'rm',name)
         report['database_samples'] = len(samples)
         report['database_working_peak'] = max((s['working'] for s in samples),default=0)
+        report['database_anon_peak'] = max((s['anon'] for s in samples),default=0)
+        report['database_shmem_peak'] = max((s['shmem'] for s in samples),default=0)
+        report['database_active_file_peak'] = max((s['active_file'] for s in samples),default=0)
+        report['database_unreclaimable_peak'] = max(map(_unreclaimable, samples),default=0)
         save()
     print(json.dumps(dict(verdict=report['verdict'],output=str(args.output))),flush=True)
     return report['verdict'] != 'PASS_SYNTHETIC_FUNCTION_COMPOSITION'

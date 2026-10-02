@@ -6,6 +6,7 @@ Outside the guarded callback all callers execute their complete verifier.
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
+import pickle
 
 from sentinel.execution.journal import WRITER_LOCK_KEY
 from sentinel.feed import readiness_scope
@@ -79,7 +80,11 @@ def material(conn, *, slot, key, load):
         scope.require(conn)
         if _inventory(conn) != before:
             raise VerificationScopeRefused('STRUCTURAL_INPUTS_CHANGED_DURING_VERIFICATION')
-        scope.values[slot] = (deepcopy(key), before, deepcopy(value))
-    result = deepcopy(scope.values[slot][2])
+        # This byte string is produced only from the just-authenticated private
+        # value. It never crosses a process or storage boundary. Restoring it
+        # gives each guard an independent graph without recursively copying the
+        # large retained book in Python on every broker read.
+        scope.values[slot] = (deepcopy(key), before, pickle.dumps(value, protocol=5))
+    result = pickle.loads(scope.values[slot][2])
     scope.require(conn)
     return result

@@ -241,6 +241,33 @@ callback budget. The prior full-size run passed acquisition, financial formation
 and durable restart but was deliberately stopped after its execution callback
 had exceeded 900 seconds; that run remains failed/incomplete for automation.
 
+The later full-size guarded pass completed all three cycles without an OOM, but
+the first execution callback took 829 seconds against the unchanged 900-second
+deadline. This leaves too little margin for the slower NAS. Reduce repeated
+pure verification work inside the held publication/writer scope; do not cache
+live authorization, skip a per-broker-call guard, enlarge the deadline, or
+weaken current account, clock, lease, certificate or publication checks. Require
+a full-size rerun with the same 20-command cycle and at least 20% callback
+headroom before calling the timing issue resolved.
+
+The cached structural value is private and exists only for that callback. Store
+it as process-local serialized bytes and deserialize a new detached value for
+each guard. This replaces repeated Python graph copies, not row-version checks
+or the first authenticated load. Never persist or accept serialized bytes from
+the database, a provider, a broker, a file, or another process. The existing
+copy-isolation and changed-row falsifiers must still pass.
+
+The PostgreSQL cgroup also reached its 1 GiB accounting limit with no OOM event.
+`memory.current - inactive_file` was nearly 1 GiB, but it includes reclaimable
+active file cache and is not a backend private-memory measurement. Do not infer
+an OOM from that number alone or raise the NAS memory limit on this evidence.
+Measure anonymous/shared memory and cache separately alongside
+cgroup OOM counters in the next rehearsal. The 1 GiB database limit and the
+large canonical TEXT reference insert remain part of acceptance; a backend kill
+or missing resource sample fails qualification. Require at least 128 MiB between
+the sampled non-reclaimable cgroup components and the limit, without counting
+active file cache as non-reclaimable.
+
 The daily-continuation, runtime recovery, reconciliation and re-genesis scope
 regressions also passed (73 tests, 1,418.06 seconds). The complete paper-input
 mutation sweep exposed two older coverage gaps: retained-history refusal masked
