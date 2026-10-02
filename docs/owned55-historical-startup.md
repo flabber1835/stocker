@@ -65,7 +65,7 @@ cannot manufacture observations preceding its first collection.
 The selected champion/Owned55 profile uses residual-correlation peers after
 removing SPY's market contribution (`median5_breadth`), not sector membership.
 The generic loader still carries sector labels for legacy profiles, but the
-canonical kernel replaces their breadth calculation for this strategy. Historical
+canonical kernel skips their breadth calculation for this strategy. Historical
 sector classifications are therefore not a startup decision dependency here.
 The selected Median-5 eligibility route also does not use exchange membership
 or `last_session`; its checks include common-equity category, `first_session`,
