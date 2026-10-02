@@ -227,7 +227,8 @@ def _deployment_preparation_probe(
         commit: Optional[str], monotonic=time.monotonic):
     """Prepare through the latest source-final frontier using the feed-bound runner."""
     prerequisites = (
-        bool(str(env.get('SHARADAR_API_KEY') or '').strip())
+        bool(str(env.get('ALPACA_API_KEY') or '').strip())
+        and bool(str(env.get('ALPACA_SECRET_KEY') or '').strip())
         and bool(env.get('SENTINEL_POSTGRES_PASSWORD'))
         and commit is not None and go._HEX40.fullmatch(str(commit)) is not None
         and runtime_ref is not None
@@ -241,7 +242,7 @@ def _deployment_preparation_probe(
             evidence_sha256=go._evidence_digest({
                 'reason': 'PREPARATION_AUTHORITY_UNAVAILABLE'}))
 
-    run_env = go._without_broker_authority(env)
+    run_env = go._with_market_data_authority(env)
     compose_args = go._resolve_compose_args(runner, run_env)
     if compose_args is None:
         return go.PreparationSummary(
@@ -295,8 +296,9 @@ def _deployment_preparation_probe(
             valid_shape and payload.get('publication_current')),
         'following_open_is_session_authority_only': True,
         'feed_authority_delegated_to_verified_runner': True,
-        'broker_authority_removed': not bool(
-            go._BROKER_AUTH_ENV.intersection(run_env)),
+        'paper_account_identity_removed': 'SENTINEL_PAPER_ACCOUNT_ID' not in run_env,
+        'market_data_credentials_present': all(
+            run_env.get(key) for key in ('ALPACA_API_KEY', 'ALPACA_SECRET_KEY')),
     }
     schema_attempted, daily_attempted = go.preparation_attempts(
         completed, schema_migrated=evidence['schema_migrated'],

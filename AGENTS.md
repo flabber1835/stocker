@@ -173,7 +173,7 @@ update the docs or the code — not just a comment.
 ## Most Important Architecture Rule
 
 ```text
-Sharadar        versioned, atomically published input history
+Market data     versioned, atomically published input history
 Wealth Core     WHAT to hold. Immutable shadow. Never reads broker state
 Sentinel        HOW MUCH of it to hold. Never reads realized exposure
 Execution       the only layer that touches a broker
@@ -212,7 +212,9 @@ docs/wealth-core-test-rewrite.md
 - Wealth Core remains independent of broker state.
 - Sentinel controls exposure only; it does not choose Wealth Core holdings.
 - Execution is the only broker-facing layer.
-- Sharadar is the production market-data source.
+- Alpaca SIP bars/actions plus free Nasdaq directories are the production GO
+  market-data inputs; Sharadar is retained for historical backtests. See
+  `docs/alpaca-go-cold-start.md` for this scoped source transition.
 - Preserve the price-domain rules documented in the repository.
 - No live credentials in the repo.
 - Paper trading only unless the repository's explicit safety contract is changed

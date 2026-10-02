@@ -633,16 +633,16 @@ def install(*, go: Any, controller: Any) -> None:
         return result
 
     def probe_readiness(*args, **kwargs):
-        _banner("PHASE D2 - SHARADAR READINESS")
+        _banner("PHASE D2 - MARKET DATA READINESS")
         result = original_readiness(*args, **kwargs)
         (_pass if result.status == go.PASS else _fail)(
-            "Sharadar readiness %s" % result.status)
+            "market-data readiness %s" % result.status)
         failed = safe_failed_checks(getattr(
             args[0], "last_readiness_failed_checks", ())) if args else ()
         reasons = (getattr(
             args[0], "last_readiness_failed_check_reasons", ()) if args else ())
         if result.status != go.PASS and failed:
-            _warn("Sharadar readiness failed checks: " + ", ".join(
+            _warn("market-data readiness failed checks: " + ", ".join(
                 reasons or failed))
         return result
 

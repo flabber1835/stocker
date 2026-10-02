@@ -11,6 +11,11 @@ from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # n
 
 @pytest.fixture
 def operational_source(source, monkeypatch):
+    from sentinel.feed.retained_source import RetainedSource
+    monkeypatch.setattr(rolling_publisher, "_operational_source",
+        lambda window, conn, lease, *, corrections, verify_during_coverage:
+            RetainedSource(window, conn, lease, corrections=corrections,
+                           verify_during_coverage=verify_during_coverage))
     monkeypatch.setattr(op, "_now", lambda: datetime(2026, 9, 15, 4, tzinfo=timezone.utc))
     monkeypatch.setattr(op.calendar, "latest_closed_session", lambda now=None: "2026-09-14")
     return source

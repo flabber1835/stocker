@@ -997,26 +997,39 @@ def _without_broker_authority(env: Mapping[str, str]) -> Dict[str, str]:
             if key not in _BROKER_AUTH_ENV}
 
 
+def _with_market_data_authority(env: Mapping[str, str]) -> Dict[str, str]:
+    """Pass Alpaca data credentials to the reviewed GET-only preparation child.
+
+    The credential itself is not read-only; endpoint/method restriction belongs
+    to the certified child. Account identity remains withheld from preparation.
+    """
+    result = _without_broker_authority(env)
+    for key in ("ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
+        if key in env:
+            result[key] = env[key]
+    return result
+
+
 _PREPARATION_CODE = r'''
 import json, os
 from datetime import datetime, timezone
 from sentinel import schema
-from sentinel.feed import calendar, ingest, publication, store
+from sentinel.feed import calendar, rolling_go_inputs, publication, store
 from sentinel.shadow_runtime import publication_not_before
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
     schema.ensure_schema(c)
     store.migrate_schema(c)
-    target = calendar.latest_closed_session()
     now = datetime.now(timezone.utc)
+    target = rolling_go_inputs.snapshots.source_final_session(now)
     execution_session = calendar.next_session(target)
     execution_open, _execution_close = calendar.session_window(execution_session)
     source_final = now >= publication_not_before(target)
     prospective = now < execution_open.astimezone(timezone.utc)
     eligible = source_final and prospective
-    progress = ingest.daily(c, today=target) if eligible else None
-    after = publication.current(c)
-    visible = store.latest_visible_session(c)
+    prepared = rolling_go_inputs.prepare(c, target_session=target) if eligible else None
+    after = rolling_go_inputs.current(c)
+    visible = after.window_end if after is not None else None
     current = (
         after is not None and after.window_end is not None
         and after.window_end >= target and visible == target
@@ -1026,7 +1039,7 @@ try:
         'source_not_before_satisfied': source_final,
         'following_open_future': prospective,
         'bounded_sharadar_daily': (
-            progress is not None and progress.kind == 'daily'),
+            prepared is not None and prepared['status'] in ('PUBLISHED', 'ALREADY_CURRENT')),
         'publication_current': current,
     }, sort_keys=True))
 finally:
@@ -1062,9 +1075,10 @@ def probe_prevalidation_preparation(
         runner: CommandRunner, *, env: Mapping[str, str],
         runtime_ref: Optional[str], commit: Optional[str],
         monotonic: Callable[[], float] = time.monotonic) -> PreparationSummary:
-    """Prepare only schema + bounded Sharadar tail, before read-only review."""
+    """Prepare schema plus bounded Alpaca/Nasdaq inputs before read-only review."""
     prerequisites = (
-        bool(str(env.get("SHARADAR_API_KEY") or "").strip())
+        bool(str(env.get("ALPACA_API_KEY") or "").strip())
+        and bool(str(env.get("ALPACA_SECRET_KEY") or "").strip())
         and bool(env.get("SENTINEL_POSTGRES_PASSWORD"))
         and commit is not None
         and _HEX40.fullmatch(str(commit)) is not None
@@ -1081,7 +1095,7 @@ def probe_prevalidation_preparation(
             bounded_sharadar_daily_attempted=False,
             broker_mutation_attempts=0,
             evidence_sha256=_evidence_digest(evidence))
-    run_env = _without_broker_authority(env)
+    run_env = _with_market_data_authority(env)
     compose_args = _resolve_compose_args(runner, run_env)
     if compose_args is None:
         return PreparationSummary(
@@ -1140,8 +1154,9 @@ def probe_prevalidation_preparation(
         "publication_current": bool(
             isinstance(payload, dict)
             and payload.get("publication_current") is True),
-        "broker_authority_removed": not bool(
-            _BROKER_AUTH_ENV.intersection(run_env)),
+        "paper_account_identity_removed": "SENTINEL_PAPER_ACCOUNT_ID" not in run_env,
+        "market_data_credentials_present": all(
+            run_env.get(key) for key in ("ALPACA_API_KEY", "ALPACA_SECRET_KEY")),
     }
     schema_attempted, daily_attempted = preparation_attempts(
         completed, schema_migrated=evidence["schema_migrated"],
@@ -1404,10 +1419,11 @@ finally:
 
 def probe_sharadar_readiness(runner: CommandRunner, *, env: Mapping[str, str],
                              runtime_ref: Optional[str], now_text: str) -> Gate:
-    if not str(env.get("SHARADAR_API_KEY") or "").strip():
+    if (not str(env.get("ALPACA_API_KEY") or "").strip()
+            or not str(env.get("ALPACA_SECRET_KEY") or "").strip()):
         return make_gate(
             "sharadar_readiness", NOT_PROVEN, now_text,
-            {"reason": "SHARADAR_AUTHORITY_UNAVAILABLE"})
+            {"reason": "ALPACA_MARKET_DATA_AUTHORITY_UNAVAILABLE"})
     if (not env.get("SENTINEL_POSTGRES_PASSWORD") or not runtime_ref
             or _IMAGE_DIGEST.fullmatch(runtime_ref) is None):
         return make_gate(

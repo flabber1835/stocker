@@ -1,0 +1,208 @@
+"""Pure, conservative projection of Alpaca pages into GO inputs."""
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
+from math import isfinite
+from zoneinfo import ZoneInfo
+
+from sentinel.feed.alpaca_transport import AlpacaTransportRefused
+
+_NEW_YORK = ZoneInfo("America/New_York")
+_SYMBOL_FIELDS = frozenset({
+    "symbol", "old_symbol", "new_symbol", "source_symbol", "alternate_symbol",
+    "acquiree_symbol", "acquirer_symbol", "target_symbol",
+})
+
+
+def action_participants(record: dict) -> frozenset[str]:
+    return frozenset(str(value).strip().upper() for key, value in record.items()
+                     if key in _SYMBOL_FIELDS and isinstance(value, str) and value.strip())
+
+
+def structural_action_date(kind: str, record: dict) -> str | None:
+    """Return a trusted economic date; unknown dates cannot clear an action."""
+    field = "process_date" if kind == "name_changes" else (
+        "ex_date" if record.get("ex_date") is not None else "effective_date")
+    value = record.get(field)
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = date.fromisoformat(value)
+        if parsed.isoformat() != value:
+            return None
+    except ValueError:
+        return None
+    return value
+
+
+def cash_dividend(record: dict, *, axis: set[str]) -> dict | None:
+    """Return one usable USD cash event; malformed selected events are refused."""
+    symbol = str(record.get("symbol") or "").strip().upper()
+    day = record.get("ex_date")
+    if not isinstance(day, str):
+        raise AlpacaTransportRefused("cash dividend lacks ex-date")
+    try:
+        if date.fromisoformat(day).isoformat() != day:
+            raise ValueError
+    except ValueError:
+        raise AlpacaTransportRefused("cash dividend ex-date is invalid") from None
+    if day not in axis:
+        if min(axis) <= day <= max(axis):
+            raise AlpacaTransportRefused("cash dividend ex-date is not an XNYS session")
+        return None
+    if action_participants(record) != {symbol} or type(record.get("foreign")) is not bool:
+        raise AlpacaTransportRefused("cash dividend has ambiguous participant or foreign terms")
+    if record.get("currency") not in (None, "USD"):
+        raise AlpacaTransportRefused("cash dividend is not denominated in USD")
+    try:
+        amount = Decimal(str(record.get("rate")))
+    except (InvalidOperation, ValueError):
+        raise AlpacaTransportRefused("cash dividend rate is invalid") from None
+    if not amount.is_finite() or amount <= 0:
+        raise AlpacaTransportRefused("cash dividend rate is not positive")
+    return {"id": record["id"], "ticker": symbol, "date": day,
+            "rate": format(amount.normalize(), "f")}
+
+
+def action_symbols(pages, *, start: str, end: str) -> tuple[frozenset[str], dict]:
+    """Quarantine every named participant in any observed action.
+
+    ``start``/``end`` bound process_date, the Alpaca API's query dimension.
+    This is deliberately wider than the formation ex-date interval.
+    """
+    by_id = {}
+    counts = defaultdict(int)
+    for page in pages:
+        if not isinstance(page, dict):
+            raise AlpacaTransportRefused("corporate-action page is not an object")
+        for kind, records in page.items():
+            if not isinstance(kind, str) or not isinstance(records, list):
+                raise AlpacaTransportRefused("corporate-action type is malformed")
+            for record in records:
+                if not isinstance(record, dict) or not isinstance(record.get("id"), str):
+                    raise AlpacaTransportRefused("corporate action lacks an identity")
+                date = record.get("process_date")
+                if not isinstance(date, str) or not start <= date <= end:
+                    raise AlpacaTransportRefused("corporate action escaped its process-date query")
+                symbols = action_participants(record)
+                if not symbols:
+                    raise AlpacaTransportRefused("corporate action lacks symbol participants")
+                prior = by_id.get(record["id"])
+                observation = (kind, record)
+                if prior is not None and prior != observation:
+                    raise AlpacaTransportRefused("corporate action identity changed across pages")
+                if prior is None:
+                    by_id[record["id"]] = observation
+                    counts[kind] += 1
+    symbols = frozenset(symbol for _kind, record in by_id.values()
+                        for symbol in action_participants(record))
+    return symbols, {"actions": len(by_id), "by_type": dict(sorted(counts.items())),
+                     "affected_symbols": len(symbols)}
+
+
+def _day(stamp: str) -> str:
+    if not isinstance(stamp, str):
+        raise AlpacaTransportRefused("bar timestamp is absent")
+    try:
+        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError
+        return parsed.astimezone(_NEW_YORK).date().isoformat()
+    except ValueError:
+        raise AlpacaTransportRefused("bar timestamp is not an aware ISO time") from None
+
+
+def bar_page_rows(page, *, symbols: set[str], sessions: set[str]):
+    """Validate one complete price page without assuming symbol order."""
+    if not isinstance(page, dict):
+        raise AlpacaTransportRefused("bar page is not an object")
+    rows = {}
+    for symbol, records in page.items():
+        if symbol not in symbols or not isinstance(records, list):
+            raise AlpacaTransportRefused("bar page contains unexpected security")
+        for record in records:
+            if not isinstance(record, dict):
+                raise AlpacaTransportRefused("bar record is not an object")
+            day = _day(record.get("t"))
+            if day not in sessions or (symbol, day) in rows:
+                raise AlpacaTransportRefused("bar is outside axis or duplicated")
+            for field in ("o", "c", "v"):
+                value = record.get(field)
+                if (not isinstance(value, (int, float)) or isinstance(value, bool)
+                        or not isfinite(value) or (value <= 0 if field != "v" else value < 0)):
+                    raise AlpacaTransportRefused("bar has invalid economic domains")
+            rows[(symbol, day)] = {"open": record["o"], "close": record["c"],
+                                   "volume": record["v"]}
+    return rows
+
+
+def paired_month(raw, adjusted, *, symbols: set[str], sessions: set[str]):
+    """Preserve raw prices plus independent adjustment evidence per key."""
+    left = bar_page_rows(raw, symbols=symbols, sessions=sessions)
+    right = bar_page_rows(adjusted, symbols=symbols, sessions=sessions)
+    absent = set(left) ^ set(right)
+    rows = []
+    for symbol, day in sorted(set(left) & set(right), key=lambda key: (key[1], key[0])):
+        bar = left[(symbol, day)]
+        rows.append({"ticker": symbol, "date": day, "open": bar["open"],
+                     "close": bar["close"], "closeunadj": bar["close"],
+                     "volume": bar["volume"], "adjusted_close": right[(symbol, day)]["close"]})
+    return rows, absent
+
+
+def admissible_history(rows, *, axis: list[str], symbols: set[str],
+                       action_affected: frozenset[str], pair_absent: set[tuple[str, str]],
+                       dividend_dates: dict[str, set[str]] | None = None,
+                       reset_after: dict[str, str] | None = None):
+    """Return only contiguous, structurally action-free histories and first dates."""
+    index = {day: position for position, day in enumerate(axis)}
+    by_symbol = {}
+    previous = None
+    for row in rows:
+        symbol, day = row["ticker"], row["date"]
+        key = (day, symbol)
+        if (symbol not in symbols or day not in index
+                or (previous is not None and key <= previous)):
+            raise AlpacaTransportRefused("retained bar identities are duplicate, unordered or foreign")
+        previous = key
+        if day <= (reset_after or {}).get(symbol, ""):
+            continue
+        position = index[day]
+        ratio = row["adjusted_close"] / row["closeunadj"]
+        if not isfinite(ratio) or ratio <= 0:
+            raise AlpacaTransportRefused("retained bar adjustment is invalid")
+        current = by_symbol.get(symbol)
+        if current is None:
+            by_symbol[symbol] = [position, position, 1, ratio, ratio]
+        else:
+            current[1] = position
+            current[2] += 1
+            current[3] = min(current[3], ratio)
+            current[4] = max(current[4], ratio)
+    admitted, reasons = {}, defaultdict(int)
+    for symbol in sorted(symbols):
+        observed = by_symbol.get(symbol)
+        if symbol in action_affected:
+            reasons["reported_corporate_action"] += 1
+        elif any(pair_symbol == symbol and pair_day > (reset_after or {}).get(symbol, "")
+                 for pair_symbol, pair_day in pair_absent):
+            reasons["raw_adjusted_key_mismatch"] += 1
+        elif observed is None:
+            reasons["no_prices"] += 1
+        else:
+            first, last, count, lo, hi = observed
+            if last != len(axis) - 1 or count != len(axis) - first:
+                reasons["noncontiguous_or_stale_prices"] += 1
+                continue
+            if hi / lo - 1 > 0.0005:
+                reasons["adjustment_discontinuity"] += 1
+                continue
+            if any((reset_after or {}).get(symbol, "") < day < axis[first]
+                   or day > axis[last]
+                   for day in (dividend_dates or {}).get(symbol, ())):
+                reasons["cash_dividend_outside_price_history"] += 1
+                continue
+            admitted[symbol] = axis[first]
+    return admitted, dict(sorted(reasons.items()))

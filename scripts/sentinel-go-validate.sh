@@ -85,15 +85,9 @@ if [ "$PRODUCTION_RUN" -eq 1 ]; then
   "$PYTHON" scripts/sentinel_go_account_preflight.py "${FORWARDED_ARGS[@]}"
 fi
 
-# The legacy read-only data preflight builds a local runtime. Keep it only for
-# the explicit local-full path. Normal GO acquires the exact CI-certified image
-# first and then performs the authoritative preparation/readiness/data checks
-# through that image inside the verified phase controller.
-if [ "$PRODUCTION_RUN" -eq 1 ] && [ "$LOCAL_FULL" -eq 1 ]; then
-  go_phase "READ-ONLY SHARADAR PREFLIGHT"
-  "$PYTHON" scripts/sentinel_go_output_guard.py \
-    "$PYTHON" scripts/sentinel_go_readonly_data_preflight.py
-fi
+# Both normal and local-full GO use the same authoritative Alpaca preparation
+# and readiness checks through the selected runtime image. The historical
+# Sharadar-only local preflight is not an input to this deployment route.
 
 go_phase "CERTIFICATION + FINANCIAL READINESS"
 set +e

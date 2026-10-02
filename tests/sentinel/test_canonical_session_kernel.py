@@ -61,6 +61,25 @@ def test_runtime_source_identity_covers_the_canonical_kernel():
     ).hexdigest()
 
 
+def test_selected_median5_breadth_does_not_read_legacy_sector_inputs():
+    """The selected controller uses residual peers, not sector metadata."""
+    tree = ast.parse(Path(kernel.__file__).read_text(encoding="utf-8"))
+    guarded = [node for node in ast.walk(tree) if isinstance(node, ast.If)
+               and isinstance(node.test, ast.UnaryOp)
+               and isinstance(node.test.op, ast.Not)
+               and isinstance(node.test.operand, ast.Name)
+               and node.test.operand.id == "median5"]
+    def calls(nodes):
+        return {node.func.id for root in nodes for node in ast.walk(root)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+    assert any({"holdings_from_shadow", "session_breadth"}.issubset(calls(node.body))
+               for node in guarded)
+    unguarded = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                 and node.name == "advance_session"]
+    assert unguarded
+    assert calls(unguarded) >= {"holdings_from_shadow", "session_breadth"}
+
+
 def test_separation_decision_pins_preserved_strict_pit_evidence():
     decision = (
         REPO / "docs" / "production-certification-separation.md"
