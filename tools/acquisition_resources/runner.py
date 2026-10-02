@@ -33,6 +33,12 @@ def database_memory(name):
     values = pairs("\n".join(lines[3:]))
     return dict(current=current, peak=peak, limit=limit,
                 working=max(0, current-values["inactive_file"]), anon=values["anon"],
+                shmem=values["shmem"], file=values["file"],
+                active_file=values["active_file"],
+                inactive_file=values["inactive_file"],
+                slab_unreclaimable=values["slab_unreclaimable"],
+                kernel_stack=values["kernel_stack"],
+                pagetables=values["pagetables"],
                 events={k: values[k] for k in ("oom", "oom_kill")})
 
 

@@ -493,6 +493,25 @@ def rederive_plan(
         conn, *, plan, binding, rollout_state,
         expected_shadow_result=None) -> dict[str, str]:
     """Re-run canonical account sizing from the exact retained inputs."""
+    from sentinel import structural_verification
+    expected = expected_shadow_result
+    def load():
+        return _rederive_plan(conn, plan=plan, binding=binding,
+            rollout_state=rollout_state, expected_shadow_result=expected)
+    if not structural_verification.active():
+        return load()
+    expected_state = getattr(expected, 'state', None)
+    if expected is not None and expected_state is None:
+        return load()  # Preserve the canonical verifier's typed refusal.
+    key = (plan.to_dict(), repr(binding), repr(rollout_state),
+           None if expected is None else (
+               expected_state.state_hash, getattr(expected, 'record_sha256', None),
+               getattr(expected, 'runtime_authority_sha256', None)))
+    return structural_verification.material(conn, slot='dual-sizing', key=key,
+        load=load)
+
+
+def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result):
     authority = load_authority(conn, plan_id=plan.plan_id)
     if authority is None:
         raise DualPlanAuthorityRefused(
@@ -505,13 +524,14 @@ def rederive_plan(
     except Exception as exc:  # noqa: BLE001 - convert canonical state refusal
         raise DualPlanAuthorityRefused(
             "retained shadow state is not canonical") from exc
-    if state.state_hash != plan.shadow_snapshot_hash:
+    state_sha256 = state.state_hash
+    if state_sha256 != plan.shadow_snapshot_hash:
         raise DualPlanAuthorityRefused(
             "retained shadow state differs from the plan commitment")
     if expected_shadow_result is not None:
         expected_state = getattr(expected_shadow_result, "state", None)
         if (expected_state is None
-                or expected_state.state_hash != state.state_hash
+                or expected_state.state_hash != state_sha256
                 or str(getattr(expected_shadow_result, "record_sha256", ""))
                 != authority["shadow_record_sha256"]
                 or str(getattr(
@@ -551,7 +571,7 @@ def rederive_plan(
         "schema": SCHEMA,
         "authority_sha256": authority["authority_sha256"],
         "shadow_record_sha256": authority["shadow_record_sha256"],
-        "state_sha256": state.state_hash,
+        "state_sha256": state_sha256,
         "plan_fingerprint": plan.fingerprint(),
         "canonical_symbols": dict(sorted(tickers.items())),
         "verdict": "MATCH",

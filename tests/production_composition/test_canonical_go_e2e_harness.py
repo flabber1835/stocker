@@ -66,7 +66,7 @@ def test_script_process_can_load_production_session_calendar(tmp_path):
     completed = subprocess.run(
         [sys.executable, "-c",
          "import runpy,sys; h=runpy.run_path(sys.argv[1]); "
-         "assert len(h['_session_days']()) >= 379", str(PATH)],
+         "assert len(h['_session_days']()) >= 427", str(PATH)],
         cwd=tmp_path, env=env, text=True, capture_output=True, timeout=30,
         check=False,
     )
@@ -167,8 +167,8 @@ def test_fixture_supplies_seed_reference_tickers():
 def test_fixture_is_large_enough_for_readiness_history():
     page = harness._payload("SEP", {"ticker": ["SPY"]})
     by_spy = [row for row in page["datatable"]["data"] if row[0] == "SPY"]
-    assert len(by_spy) >= 379
-    assert len({row[1] for row in by_spy}) >= 379
+    assert len(by_spy) >= 427
+    assert len({row[1] for row in by_spy}) >= 427
 
 
 def test_fixture_supports_the_current_cash_adjudication_migration(monkeypatch):

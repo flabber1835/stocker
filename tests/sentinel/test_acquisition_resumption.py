@@ -14,6 +14,52 @@ REAL_DOWNLOAD = snapshot_export.download_snapshot
 __all__ = ["conn", "pg", "source"]
 
 
+@pytest.mark.parametrize('large', [False, True])
+def test_reference_storage_roundtrip_and_sql_integrity(conn, source, monkeypatch, large):
+    import psycopg
+    from sentinel.feed import acquisition_parts as parts_module
+    from sentinel.feed.rolling_contract import canonical_json
+    job = formation_job(conn, source)
+    lease = jobs.claim(conn, job, lease_seconds=600)
+    conn.commit()
+    monkeypatch.setattr(parts_module, 'JSONB_REFERENCE_BYTES', 32 if large else 4096)
+    payload = [{'name': 'canonical \u00e9 reference', 'value': str(i)} for i in range(10)]
+    parts = parts_module.Parts(conn, lease)
+    manifest, _ = parts.put('ACTIONS', {}, payload=payload, rows=10)
+    part_id = digest(manifest)
+    row = conn.execute('SELECT reference_payload,canonical_reference FROM sentinel_acquisition_parts '
+                       'WHERE part_id=%s', (part_id,)).fetchone()
+    assert row == ((None, canonical_json(payload)) if large else (payload, None))
+    assert parts.get('ACTIONS', {}) == (manifest, payload)
+    conn.commit()
+    with psycopg.connect(conn.info.dsn) as restarted:
+        assert parts_module.Parts(restarted, lease).get('ACTIONS', {}) == (manifest, payload)
+    if large:
+        # Direct SQL cannot bind different bytes to a valid logical manifest.
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute('INSERT INTO sentinel_acquisition_parts(part_id,manifest,canonical_reference) '
+                'VALUES (%s,%s::jsonb,%s)', ('b'*64, canonical_json(manifest), '[]'))
+        conn.rollback()
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute('INSERT INTO sentinel_acquisition_parts(part_id,manifest,reference_payload,canonical_reference) '
+                'VALUES (%s,%s::jsonb,%s::jsonb,%s)',
+                ('b'*64, canonical_json(manifest), canonical_json(payload), canonical_json(payload)))
+        conn.rollback()
+
+
+def test_oversized_reference_refuses_before_part_insert(conn, source, monkeypatch):
+    from sentinel.feed import acquisition_parts as parts_module
+    from sentinel.feed.acquisition_limits import AcquisitionResourceExceeded
+    job = formation_job(conn, source)
+    lease = jobs.claim(conn, job, lease_seconds=600)
+    conn.commit()
+    monkeypatch.setattr(parts_module, 'MAX_REFERENCE_BYTES', 32)
+    with pytest.raises(AcquisitionResourceExceeded, match='ACQUISITION_REFERENCE_BYTES'):
+        parts_module.Parts(conn, lease).put('ACTIONS', {}, payload=['x'*40], rows=1)
+    conn.rollback()
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_parts').fetchone()[0] == 0
+
+
 def formation_job(conn, source, *, absolute_deadline=None, operational=False):
     window = FormationWindow.through("2026-09-14")
     source["SEP"] = [dict(ticker=symbol, date=str(day), open="49", close="50",

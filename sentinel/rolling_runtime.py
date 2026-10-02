@@ -1,7 +1,7 @@
 """Broker-free rolling runtime: durable candidate first, then timed authority."""
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 
 from sentinel import backup_runtime_authority, rolling_initialization as initial
 from sentinel import rolling_checkpoint as origin, rolling_daily as daily
@@ -15,6 +15,13 @@ SCHEMA = authority.SCHEMA
 Refused = authority.Refused
 
 
+@dataclass(frozen=True)
+class _StatusBinding:
+    session: str
+    publication: dict
+    snapshot: dict
+
+
 def selected(conn):
     rolling = inputs.is_rolling(inputs.current(conn))
     if not rolling and origin.read(conn) is not None:
@@ -23,6 +30,24 @@ def selected(conn):
 
 
 def _closure(conn, context, *, status_only=False):
+    if status_only:
+        from sentinel import structural_verification
+        return structural_verification.material(conn, slot='rolling-checkpoint',
+            key={**context, 'controller': context['controller'].to_dict()},
+            load=lambda: _status_closure(conn, context))
+    return _load_closure(conn, context, status_only=False)
+
+
+def _status_closure(conn, context):
+    checkpoint, _, result, attested, previous = _load_closure(conn, context, status_only=True)
+    # Historical input has already been authenticated. Fresh status checks need
+    # only these bindings; copying its entire origin input per broker guard is
+    # unnecessary. The returned strategy state remains detached by the scope.
+    bound = _StatusBinding(checkpoint.session, checkpoint.publication, checkpoint.snapshot)
+    return bound, None, result, attested, previous
+
+
+def _load_closure(conn, context, *, status_only):
     checkpoint, observer, result = checkpoints.load(conn, context, status_only=status_only)
     values = authority.latest(conn, context["observation_id"])
     latest = values[0] if values else None
@@ -71,7 +96,10 @@ def classify(conn, *, observation_id, starting_cash, structural_only=False, cloc
         with inputs.pinned(conn) as pub:
             if not inputs.is_rolling(pub):
                 raise Refused("ROLLING_PUBLICATION_REQUIRED")
-            if origin.read(conn) is None:
+            # Dispatch without decoding the origin twice. _closure authenticates
+            # it completely, including after a guarded row-version change.
+            if not conn.execute("SELECT EXISTS (SELECT 1 FROM sentinel_processed_sessions "
+                                "WHERE cursor_name=%s)", (origin.CURSOR,)).fetchone()[0]:
                 origin.require_fresh(conn)
                 return {"status": "NOT_STARTED"}
             checkpoint, _, result, attested, _ = _closure(conn, context, status_only=True)

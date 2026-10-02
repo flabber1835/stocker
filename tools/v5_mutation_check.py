@@ -155,7 +155,7 @@ def run():
              "if state.entry_sizing_profile != expected_sizing:", "if False:")),
         ("pending_dollars_silently_erased",
          checks.test_dollar_intent_cannot_silently_disappear_from_executable_target,
-         decision, "shadow_target", rewritten(decision.shadow_target,
+         decision, "_canonical_shadow_target", rewritten(decision._canonical_shadow_target,
              "if pending.intended_dollars is not None:", "if False:")),
         ("controller_overridden_by_pinned_rollout",
          checks.test_v5_controller_cannot_be_silently_pinned_to_full_exposure,

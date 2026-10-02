@@ -69,12 +69,18 @@ def test_next_open_resolver_is_bounded_and_historical_dates_do_not_borrow_extens
 
 
 def test_action_reader_requires_retained_predecessor_and_never_reads_legacy_rows(conn, published):
-    refs = feed_inputs.references(conn, feed_inputs.require_current(conn))
+    pub = feed_inputs.require_current(conn)
+    refs = feed_inputs.references(conn, pub)
     lookup = feed_actions.action_lookup(conn, start=date(2026, 9, 11), end=date(2026, 9, 15))
     assert lookup("1") == Decimal(1) and lookup("SENTINEL:BIL") == Decimal(1)
     assert lookup.material_events_for(security_ids=["1"]) == ()
     with pytest.raises(feed_inputs.ExecutionInputsRefused, match="HISTORY_UNAVAILABLE"):
         feed_actions.action_lookup(conn, start=refs.manifest.window.start - timedelta(days=5), end=date.fromisoformat(DAY))
+    # A no-change interval before the snapshot must still refuse. Otherwise an
+    # empty query could be mistaken for evidence that no corporate action ran.
+    earlier = refs.manifest.window.start - timedelta(days=5)
+    with pytest.raises(feed_inputs.ExecutionInputsRefused, match="HISTORY_UNAVAILABLE"):
+        feed_actions.snapshot_lookup(conn, refs=refs, pub=pub, start=earlier, end=earlier)
 
 
 def test_corrupt_receipt_cannot_trigger_a_permissive_reader_fallback(monkeypatch):
@@ -102,6 +108,214 @@ def test_legacy_opening_identity_uses_the_publication_reader(monkeypatch):
     monkeypatch.setattr(universe, "load_resolver", legacy)
     assert feed_inputs.opening_resolver(conn, session="2026-09-15") is expected
     assert seen == [(conn, "2026-09-15")]
+
+
+def test_broker_resolver_releases_full_reference_bundle(monkeypatch):
+    import gc
+    import weakref
+
+    class Reference:
+        def __init__(self):
+            self.resolver = SimpleNamespace(resolve=lambda symbol, day: ("past", symbol, day))
+            self.actions = [object()]
+
+    references = []
+    future = SimpleNamespace(resolve=lambda symbol, day: ("next", symbol, day))
+    def authorities(*a, **k):
+        refs = Reference()
+        references.append(weakref.ref(refs))
+        return refs, "2026-09-15", DAY, future
+
+    monkeypatch.setattr(feed_inputs, "_snapshot_identity_authorities", authorities)
+    resolve = feed_inputs.resolver(None, None, session="2026-09-15")
+    gc.collect()
+    assert references[0]() is None, "broker retained the entire action bundle"
+    assert resolve("AAA", DAY) == ("past", "AAA", DAY)
+    assert resolve("AAA") == ("next", "AAA", "2026-09-15")
+    assert resolve("AAA", "2026-09-16") is None
+    assert resolve("BIL") == "SENTINEL:BIL"
+
+
+def test_readiness_material_reused_only_during_held_pin(conn, published, monkeypatch):
+    import psycopg
+    from sentinel.feed import rolling_go_inputs as inputs
+    calls = []
+    original = inputs.readiness_inputs
+    def counted(*a, **k):
+        calls.append(1)
+        return original(*a, **k)
+    monkeypatch.setattr(inputs, "readiness_inputs", counted)
+    with feed_inputs.pinned(conn, commit=False) as pub:
+        assert inputs.validate_status(conn, pub, now=NOW)[1].ready
+        with psycopg.connect(conn.info.dsn) as fresh:
+            # The shadow-status reader nests a pin on a fresh guard connection.
+            with inputs.pinned(fresh) as same:
+                assert inputs.validate_status(fresh, same, now=NOW)[1].ready
+        assert inputs.validate_status(conn, pub, now=NOW)[1].ready
+        assert len(calls) == 1
+    with feed_inputs.pinned(conn, commit=False) as pub:
+        assert inputs.validate_status(conn, pub, now=NOW)[1].ready
+    assert len(calls) == 2, "readiness material escaped its publication pin"
+
+
+@pytest.mark.parametrize("defect", ["clock", "strategy", "receipt"])
+def test_reused_material_never_caches_readiness_authority(conn, published, monkeypatch, defect):
+    from sentinel.feed import rolling_go_inputs as inputs
+    with feed_inputs.pinned(conn, commit=False) as pub:
+        assert inputs.validate_status(conn, pub, now=NOW)[1].ready
+        instant = NOW
+        if defect == "clock":
+            instant += timedelta(days=1)
+            monkeypatch.setattr(calendar, "latest_closed_session", lambda now=None: "2026-09-15")
+            error, message = inputs.RollingGoRefused, "source-final frontier"
+        elif defect == "strategy":
+            config, identity = inputs.production_strategy()
+            monkeypatch.setattr(inputs, "production_strategy", lambda: (config, dict(identity, changed=True)))
+            error, message = inputs.RollingGoRefused, "STRATEGY_CHANGED"
+        else:
+            conn.execute("SET LOCAL session_replication_role=replica")
+            conn.execute("UPDATE sentinel_publication_validation_receipts SET receipt_hmac_sha256=%s", ("0"*64,))
+            conn.commit()
+            error, message = publication.CorpusIncoherent, "receipt"
+        with pytest.raises(error, match=message):
+            inputs.validate_status(conn, pub, now=instant)
+
+
+def test_readiness_reuse_refuses_lost_pin(conn, published):
+    import psycopg
+    from sentinel.feed import rolling_go_inputs as inputs, readiness_scope
+    with psycopg.connect(conn.info.dsn) as reader:
+        with feed_inputs.pinned(reader, commit=False) as pub:
+            assert readiness_scope._current.get().owner is reader
+            assert inputs.validate_status(reader, pub, now=NOW)[1].ready
+            reader.execute("SELECT pg_advisory_unlock_all()")
+            # Snapshot readers also own transaction-level pins. End those,
+            # then use a fresh guard connection so it cannot reacquire a pin
+            # on behalf of the original backend.
+            reader.commit()
+            assert not reader.execute("SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid())").fetchone()[0]
+            assert readiness_scope._current.get().owner is reader
+            with psycopg.connect(conn.info.dsn) as guard:
+                with pytest.raises(publication.CorpusIncoherent, match="PIN_LOST"):
+                    inputs.validate_status(guard, pub, now=NOW)
+            with pytest.raises(publication.CorpusIncoherent, match="PIN_LOST"):
+                inputs.validate_status(reader, pub, now=NOW)
+            with pytest.raises(publication.CorpusIncoherent, match="PIN_LOST"):
+                feed_inputs.require_current(reader)
+
+
+def test_readiness_reuse_refuses_expired_copied_context(conn, published):
+    from contextvars import copy_context
+    from sentinel.feed import rolling_go_inputs as inputs
+    with feed_inputs.pinned(conn, commit=False) as pub:
+        assert inputs.validate_status(conn, pub, now=NOW)[1].ready
+        inherited = copy_context()
+    # Even reacquiring the same SQL lock cannot revive an ended Python scope.
+    with feed_inputs.pinned(conn, commit=False):
+        with pytest.raises(publication.CorpusIncoherent, match="SCOPE_EXPIRED"):
+            inherited.run(inputs.validate_status, conn, pub, now=NOW)
+
+
+def test_readiness_scope_requires_real_pin_and_isolates_material(conn, published):
+    import psycopg
+    from sentinel.feed import readiness_scope
+    pub = feed_inputs.require_current(conn)
+    with psycopg.connect(conn.info.dsn) as reader:
+        with pytest.raises(publication.CorpusIncoherent, match="PIN_LOST"):
+            with readiness_scope.pinned(reader, pub):
+                pytest.fail("unlocked readiness scope")
+    calls = []
+    def load():
+        calls.append(1)
+        return {"counts": [1, 2]}
+    with feed_inputs.pinned(conn, commit=False) as pub:
+        first = readiness_scope.material(conn, pub, load)
+        first["counts"].clear()
+        assert readiness_scope.material(conn, pub, load) == {"counts": [1, 2]}
+        assert len(calls) == 1
+        readiness_scope.material(conn, replace(pub, version=pub.version+1), load)
+        assert len(calls) == 2
+
+
+@pytest.mark.parametrize('change', ['update', 'insert', 'delete', 'rewrite', 'key'])
+def test_structural_reuse_rechecks_row_versions_and_inputs(conn, published, change):
+    import psycopg
+    from sentinel import schema, structural_verification as verified
+    schema.ensure_schema(conn)
+    conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES ('probe','2026-09-14','{}')")
+    conn.commit()
+    calls = []
+    def load():
+        calls.append(1)
+        return {'validated': [len(calls)]}
+    conn.execute('SELECT pg_advisory_lock(%s)', (journal.WRITER_LOCK_KEY,))
+    try:
+        with feed_inputs.pinned(conn, commit=False) as pub:
+            scope = verified.Scope(conn)
+            def read(key='a'):
+                with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+                    return verified.material(fresh, slot='probe', key=key, load=load)
+            read()['validated'].clear()
+            assert read() == {'validated': [1]}
+            assert len(calls) == 1
+            if change == 'update':
+                conn.execute("UPDATE sentinel_processed_sessions SET state='{}' WHERE cursor_name='probe'")
+            elif change == 'insert':
+                conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES ('new-lineage','2026-09-14','{}')")
+            elif change == 'delete':
+                conn.execute("DELETE FROM sentinel_processed_sessions WHERE cursor_name='probe'")
+            elif change == 'rewrite':
+                conn.commit()
+                with psycopg.connect(conn.info.dsn, autocommit=True) as maintenance:
+                    maintenance.execute('VACUUM FULL sentinel_processed_sessions')
+            conn.commit()
+            assert read('b' if change == 'key' else 'a') == {'validated': [2]}
+            assert len(calls) == 2
+            from sentinel.feed import readiness_scope
+            with readiness_scope.pinned(conn, replace(pub, version=pub.version + 1)):
+                with pytest.raises(publication.CorpusIncoherent, match='SCOPE_CHANGED'):
+                    read()
+        with feed_inputs.pinned(conn, commit=False):
+            with pytest.raises(publication.CorpusIncoherent, match='SCOPE_CHANGED|SCOPE_EXPIRED'):
+                read()
+    finally:
+        conn.execute('SELECT pg_advisory_unlock(%s)', (journal.WRITER_LOCK_KEY,))
+        conn.commit()
+
+
+def test_structural_reuse_requires_live_writer_and_unchanged_verification(conn, published):
+    import psycopg
+    from sentinel import schema, structural_verification as verified
+    schema.ensure_schema(conn)
+    conn.commit()
+    with feed_inputs.pinned(conn, commit=False):
+        scope = verified.Scope(conn)
+        with psycopg.connect(conn.info.dsn) as fresh:
+            with pytest.raises(verified.VerificationScopeRefused, match='WRITER_LOCK_LOST'):
+                with scope.guard(fresh):
+                    pytest.fail('writer-free structural reuse')
+        conn.execute('SELECT pg_advisory_lock(%s)', (journal.WRITER_LOCK_KEY,))
+        try:
+            with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+                def changed():
+                    fresh.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES ('raced','2026-09-14','{}')")
+                    return {'unchecked': True}
+                with pytest.raises(verified.VerificationScopeRefused, match='INPUTS_CHANGED'):
+                    verified.material(fresh, slot='probe', key='a', load=changed)
+                fresh.rollback()
+                assert not scope.values
+        finally:
+            conn.execute('SELECT pg_advisory_unlock(%s)', (journal.WRITER_LOCK_KEY,))
+
+
+def test_structural_reuse_is_absent_outside_guard(conn, published):
+    from sentinel import structural_verification as verified
+    calls = []
+    def load():
+        calls.append(1)
+        return len(calls)
+    assert verified.material(conn, slot='probe', key='a', load=load) == 1
+    assert verified.material(conn, slot='probe', key='a', load=load) == 2
 
 
 @pytest.fixture
@@ -135,6 +349,130 @@ def prepare(conn, broker, **overrides):
         dual_shadow_observation_id=OBS, dual_shadow_starting_cash=100000, now_et=NOW, base_url=DEFAULT_BASE_URL)
     values.update(overrides)
     return asyncio.run(paper.prepare_paper_plan(**values))
+
+
+def test_fresh_dual_guard_reuses_only_its_verified_state_digest(conn, gateway, monkeypatch):
+    import psycopg
+    from sentinel.core.session import SessionState
+    from sentinel.execution.guarded import AutomationExecutionGrant, BrokerOperation
+    from sentinel.structural_verification import Scope
+
+    _shadow, bound, broker = gateway
+    plan = prepare(conn, broker).plan
+    opened, _ = calendar.session_window(plan.effective_session)
+    grant = AutomationExecutionGrant('EXECUTE', 'digest-fixture', 1, 'test', 1,
+        'paper-fixture', bound.takeover_epoch, 'CONTROLLER', 2, 'a' * 64)
+    monkeypatch.setattr(validation, '_validate_automation_grant', lambda *_: (
+        None, SimpleNamespace(plan_id=plan.plan_id,
+                              plan_fingerprint=plan.fingerprint(),
+                              decision_session=plan.decision_session)))
+    original = validation._assert_plan_authorities
+    checked = []
+
+    def one_digest(*args, **kwargs):
+        assert kwargs['verified_state_sha256'] == plan.shadow_snapshot_hash
+        checked.append(kwargs['verified_state_sha256'])
+        # The sizing proof has already hashed this exact state. The rest of
+        # the same guard must not traverse the large book again.
+        with monkeypatch.context() as patch:
+            patch.setattr(SessionState, 'state_hash', property(
+                lambda self: pytest.fail('duplicate state hash in broker guard')))
+            return original(*args, **kwargs)
+
+    monkeypatch.setattr(validation, '_assert_plan_authorities', one_digest)
+    with journal.writer_lock(conn), feed_inputs.pinned(conn, commit=False):
+        scope = Scope(conn)
+        with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+            validation._validate_broker_grant(
+                fresh, grant, BrokerOperation.OBSERVE, None,
+                now_provider=lambda: opened + timedelta(seconds=60),
+                strategy_provider=lambda: production_strategy()[1],
+                dual_shadow_observation_id=OBS,
+                dual_shadow_starting_cash=100000)
+        # A corrupt sizing digest cannot turn the optimization into an
+        # authorization bypass, even when all other inputs remain unchanged.
+        with monkeypatch.context() as patch:
+            patch.setattr(validation, '_assert_plan_authorities', original)
+            rederive = dual_plan_authority.rederive_plan
+            def corrupt(*args, **kwargs):
+                return {**rederive(*args, **kwargs), 'state_sha256': '0' * 64}
+            patch.setattr(dual_plan_authority, 'rederive_plan', corrupt)
+            with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+                with pytest.raises(validation.PaperActivationRefused,
+                                   match='state fingerprint is stale'):
+                    validation._validate_broker_grant(
+                        fresh, grant, BrokerOperation.OBSERVE, None,
+                        now_provider=lambda: opened + timedelta(seconds=60),
+                        strategy_provider=lambda: production_strategy()[1],
+                        dual_shadow_observation_id=OBS,
+                        dual_shadow_starting_cash=100000)
+    assert checked == [plan.shadow_snapshot_hash]
+
+
+@pytest.mark.parametrize('changed', ['sizing', 'origin'])
+def test_structural_reuse_preserves_real_shadow_and_sizing_refusals(conn, gateway, monkeypatch, changed):
+    import psycopg
+    from sentinel import structural_verification as verified
+    _, bound, broker = gateway
+    plan = prepare(conn, broker).plan
+    rollout = load_rollout_state(conn)
+    calls = dict(checkpoint=0, sizing=0, origin=0)
+    closure = rolling_runtime._load_closure
+    origin = rolling_runtime.origin.read
+    sizing = dual_plan_authority._rederive_plan
+    class HistoricalInput(dict):
+        def __deepcopy__(self, memo):
+            pytest.fail('read-only status copied unused historical input after verification')
+    def load_closure(*a, **k):
+        calls['checkpoint'] += 1
+        values = closure(*a, **k)
+        checkpoint = values[0].model_copy(update={
+            'input_value': HistoricalInput(values[0].input_value)})
+        return checkpoint, *values[1:]
+    def rederive(*a, **k):
+        calls['sizing'] += 1
+        return sizing(*a, **k)
+    def read_origin(*a, **k):
+        calls['origin'] += 1
+        return origin(*a, **k)
+    monkeypatch.setattr(rolling_runtime, '_load_closure', load_closure)
+    monkeypatch.setattr(rolling_runtime.origin, 'read', read_origin)
+    monkeypatch.setattr(dual_plan_authority, '_rederive_plan', rederive)
+    conn.execute('SELECT pg_advisory_lock(%s)', (journal.WRITER_LOCK_KEY,))
+    try:
+        with feed_inputs.pinned(conn, commit=False):
+            scope = verified.Scope(conn)
+            def proof():
+                with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+                    shadow = rolling_runtime.status(fresh, observation_id=OBS, starting_cash=100000)
+                    return dual_plan_authority.rederive_plan(fresh, plan=plan,
+                        binding=bound, rollout_state=rollout, expected_shadow_result=shadow)
+            assert proof() == proof()
+            assert calls == dict(checkpoint=1, sizing=1, origin=1)
+            with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
+                with pytest.raises(dual_plan_authority.DualPlanAuthorityRefused,
+                                   match='current verified shadow'):
+                    dual_plan_authority.rederive_plan(fresh, plan=plan, binding=bound,
+                        rollout_state=rollout, expected_shadow_result=SimpleNamespace())
+            assert calls == dict(checkpoint=1, sizing=2, origin=1)
+            if changed == 'origin':
+                conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{hmac_sha256}','\"tampered\"') WHERE cursor_name=%s",
+                             (rolling_runtime.origin.CURSOR,))
+                conn.commit()
+                with pytest.raises(rolling_runtime.origin.RollingColdStartRefused,
+                                   match='CHECKPOINT_AUTHENTICATION_FAILED'):
+                    proof()
+                assert calls == dict(checkpoint=2, sizing=2, origin=2)
+                return
+            conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{account_snapshot,cash}','\"0\"') WHERE cursor_name=%s",
+                         (dual_plan_authority._cursor(plan.plan_id),))
+            conn.commit()
+            with pytest.raises(dual_plan_authority.DualPlanAuthorityRefused):
+                proof()
+            assert calls == dict(checkpoint=2, sizing=3, origin=2)
+    finally:
+        conn.execute('SELECT pg_advisory_unlock(%s)', (journal.WRITER_LOCK_KEY,))
+        conn.commit()
 
 
 @pytest.mark.parametrize("opening_capability", [False, True])
@@ -322,7 +660,7 @@ def test_fresh_broker_guard_rechecks_snapshot_receipt_after_read(conn, gateway):
         asyncio.run(guard.after_read(grant, BrokerOperation.OBSERVE, None))
 
 
-def test_snapshot_dividend_inputs_reuse_entitlement_domains(conn, operational_source):
+def test_snapshot_dividend_inputs_reuse_entitlement_domains(conn, operational_source, monkeypatch):
     from sentinel.trial import _expected_effective_equity_dividends, _expected_defensive_dividends
     data = operational_source
     data["ACTIONS"].extend([dict(ticker=ticker, date=DAY, action="dividend", name="fixture",
@@ -339,6 +677,16 @@ def test_snapshot_dividend_inputs_reuse_entitlement_domains(conn, operational_so
     assert expected[0]["per_share"] == "2.0" and Decimal(expected[0]["amount"]) == Decimal(20)
     bil = _expected_defensive_dividends(conn, date.fromisoformat(DAY), {"SENTINEL:BIL": Decimal(10)}, [], source=source)
     assert Decimal(bil[0]["amount"]) == Decimal(10)
+    # Publications without retained action coverage use the bounded snapshot
+    # fallback. The retained-history refusal above must not mask its own guard.
+    from sentinel.feed import action_history
+    with monkeypatch.context() as patch:
+        patch.setattr(action_history, "coverage", lambda *args, **kwargs: None)
+        assert source.days(date.fromisoformat(DAY), date.fromisoformat(DAY)) == [DAY]
+        with pytest.raises(feed_inputs.ExecutionInputsRefused, match="DIVIDEND_HISTORY_UNAVAILABLE"):
+            source.days(source.refs.manifest.window.start - timedelta(days=1), date.fromisoformat(DAY))
+        with pytest.raises(feed_inputs.ExecutionInputsRefused, match="DIVIDEND_HISTORY_UNAVAILABLE"):
+            source.days(date.fromisoformat(DAY), date.fromisoformat(DAY) + timedelta(days=1))
 
 
 def test_snapshot_actions_preserve_scalar_and_material_reconciliation_policy(conn, operational_source):

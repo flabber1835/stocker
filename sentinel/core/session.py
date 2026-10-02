@@ -71,6 +71,27 @@ def _canonical_chunks(value):
                 or kind is int and item.bit_length() <= 64
                 or kind is str and len(item) <= 64)
 
+    def small_record(item):
+        # A feed record's short arrays can use the native encoder together.
+        # Bound total content, not just dictionary width: never encode a whole
+        # book or admit an unbounded string through this fast path.
+        if len(item) > 32:
+            return False
+        remaining = 2048
+        for key, value in item.items():
+            if type(key) is not str or len(key) > 64:
+                return False
+            remaining -= 1
+            if small_scalar(value):
+                remaining -= 1
+            elif type(value) in (list, tuple) and len(value) <= 300:
+                remaining -= len(value)
+                if remaining < 0 or not all(small_scalar(v) for v in value):
+                    return False
+            else:
+                return False
+        return remaining >= 0
+
     def walk(item):
         if type(item) not in (dict, list, tuple):
             # iterencode builds recursive Python closures even for one scalar.
@@ -83,6 +104,9 @@ def _canonical_chunks(value):
         active.add(marker)
         try:
             if type(item) is dict:
+                if small_record(item):
+                    yield encoder.encode(item)
+                    return
                 if not all(isinstance(key, str) for key in item):
                     # Preserve the standard encoder's numeric-key and mixed-key
                     # behavior; production state uses string keys throughout.
@@ -391,7 +415,7 @@ class SessionState:
     def to_dict(self) -> dict:
         return self._canonical_mapping(_copy_feed=True)
 
-    def _canonical_mapping(self, *, _copy_feed: bool) -> dict:
+    def _canonical_mapping(self, *, _copy_feed: bool, _validate: bool = True) -> dict:
         """Private synchronous view; borrowed feed arrays must never be mutated."""
         recent_leadership, ldrc = _canonical_concordance_state(
             self.strategy_identity, self.recent_leadership, self.ldrc)
@@ -456,7 +480,8 @@ class SessionState:
         raw["last_evidence"] = _bounded_evidence(raw["last_evidence"])
         raw["controller"] = validate_controller_state(raw["controller"])
         raw["version"] = ENVELOPE_VERSION
-        _validate_json(raw)
+        if _validate:
+            _validate_json(raw)
         return raw
 
     @classmethod
@@ -548,7 +573,8 @@ class SessionState:
 
     @property
     def state_hash(self) -> str:
-        return _hash(self._canonical_mapping(_copy_feed=False))
+        # The strict hash encoder already validates every canonical JSON value.
+        return _hash(self._canonical_mapping(_copy_feed=False, _validate=False))
 
 
 @dataclass(frozen=True)

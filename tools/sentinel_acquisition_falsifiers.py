@@ -6,6 +6,20 @@ import sys
 from tools.sentinel_rolling_storage_falsifiers import child
 
 MUTANTS = {
+    "identity_projection_retention": ("sentinel.feed.symbol_identity",
+        'if str(row.get("action") or "").lower() in RENAME_TYPES)', 'if True)',
+        "test_projection_retains_only_copied_rename_evidence"),
+    "resume_bounded_reference_storage": ("sentinel.feed.acquisition_parts",
+        'large = encoded is not None and len(encoded) > JSONB_REFERENCE_BYTES', 'large = False',
+        "test_reference_storage_roundtrip_and_sql_integrity[True]"),
+    "resume_reference_byte_limit": ("sentinel.feed.acquisition_parts",
+        "check('ACQUISITION_REFERENCE_BYTES', len(encoded), MAX_REFERENCE_BYTES)\n        content =",
+        'pass\n        content =',
+        "test_oversized_reference_refuses_before_part_insert"),
+    "resume_reference_sql_checksum": ("sentinel.feed.acquisition_part_schema",
+        "AND encode(sha256(convert_to(canonical_reference,'UTF8')),'hex')=manifest->>'content_sha256'",
+        "AND (encode(sha256(convert_to(canonical_reference,'UTF8')),'hex')=manifest->>'content_sha256' OR TRUE)",
+        "test_reference_storage_roundtrip_and_sql_integrity[True]"),
     "resume_ticker_packaging": ("sentinel.feed.retained_source",
         'keys = ordered(keys)', 'pass',
         "test_reordered_ticker_export_has_same_content_commitment"),
@@ -120,6 +134,8 @@ MUTANTS = {
 
 
 def test_file(name):
+    if name == "identity_projection_retention":
+        return "tests/sentinel/test_symbol_identity_recovery.py"
     if name.startswith("resume_"):
         return "tests/sentinel/test_acquisition_resumption.py"
     if name.startswith("resource_"):

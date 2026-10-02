@@ -14,6 +14,40 @@ import sys
 
 TEST = "tests/sentinel/test_rolling_snapshot_storage.py"
 MUTANTS = {
+    "manifest_reference_expansion": (
+        "sentinel.feed.rolling_store", 'verify_evidence(conn, value.reference_sha256)',
+        'load_evidence(conn, value.reference_sha256)',
+        "test_manifest_and_content_verification_do_not_decode_text_again",
+    ),
+    "stored_reference_checksum": (
+        "sentinel.feed.rolling_store", 'valid = payload is None and observed == identity',
+        'valid = payload is None',
+        "test_stored_byte_verifier_rejects_corrupt_or_unavailable_evidence[checksum]",
+    ),
+    "stored_reference_exclusive": (
+        "sentinel.feed.rolling_store", 'valid = payload is None and observed == identity',
+        'valid = observed == identity',
+        "test_stored_byte_verifier_rejects_corrupt_or_unavailable_evidence[both]",
+    ),
+    "stored_reference_size": (
+        "sentinel.feed.rolling_store", 'check("SNAPSHOT_EVIDENCE_BYTES", size, MAX_EVIDENCE_BYTES)',
+        'pass', "test_stored_byte_verifier_checks_text_size",
+    ),
+    "evidence_server_expansion": (
+        "sentinel.feed.rolling_store", "JSONB_EVIDENCE_BYTES = 1024 * 1024",
+        "JSONB_EVIDENCE_BYTES = 1024 * 1024 * 1024",
+        "test_large_evidence_never_uses_jsonb_conversion",
+    ),
+    "evidence_size_bound": (
+        "sentinel.feed.rolling_store",
+        'check("SNAPSHOT_EVIDENCE_BYTES", len(encoded), MAX_EVIDENCE_BYTES)', 'pass',
+        "test_evidence_size_limit_refuses_before_database_access",
+    ),
+    "retired_text_reference": (
+        "sentinel.feed.retention_schema",
+        "AND payload IS NULL AND canonical_payload IS NULL) THEN", "AND FALSE) THEN",
+        "test_text_evidence_retirement_restoration_and_live_pin",
+    ),
     "calendar_gap": (
         "sentinel.feed.rolling_contract",
         "if actual != expected:", "if False:",

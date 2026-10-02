@@ -5,6 +5,11 @@ DDL = [
         part_id TEXT PRIMARY KEY CHECK(part_id ~ '^[0-9a-f]{64}$'),
         manifest JSONB NOT NULL, reference_payload JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
+    """ALTER TABLE sentinel_acquisition_parts ADD COLUMN IF NOT EXISTS canonical_reference TEXT
+        CHECK(canonical_reference IS NULL OR (reference_payload IS NULL
+          AND octet_length(canonical_reference)<=268435456
+          AND (manifest->>'content_sha256') IS NOT NULL
+          AND encode(sha256(convert_to(canonical_reference,'UTF8')),'hex')=manifest->>'content_sha256'))""",
     """CREATE TABLE IF NOT EXISTS sentinel_acquisition_prices (
         part_id TEXT NOT NULL REFERENCES sentinel_acquisition_parts,
         session DATE NOT NULL, ticker TEXT NOT NULL, payload TEXT NOT NULL,
@@ -82,7 +87,8 @@ for _table in ("sentinel_acquisition_parts", "sentinel_acquisition_prices",
 COLUMNS = {
     "sentinel_acquisition_parts": {
         "part_id": ("text", True), "manifest": ("jsonb", True),
-        "reference_payload": ("jsonb", False), "created_at": ("timestamp with time zone", True)},
+        "reference_payload": ("jsonb", False), "canonical_reference": ("text", False),
+        "created_at": ("timestamp with time zone", True)},
     "sentinel_acquisition_prices": {
         "part_id": ("text", True), "session": ("date", True),
         "ticker": ("text", True), "payload": ("text", True)},
@@ -108,6 +114,8 @@ for _table in tuple(COLUMNS)[2:]:
 TRIGGERS["sentinel_acquisition_prices"]["acquisition_price_insert_guard"] = (
     "before insert", "for each row", "execute function sentinel_acquisition_price_insert_guard()")
 CONSTRAINTS = {
+    "sentinel_acquisition_parts": (("c", ("canonical_reference", "reference_payload is null",
+        "octet_length(canonical_reference)", "268435456", "sha256", "content_sha256")),),
     "sentinel_acquisition_prices": (("f", ("foreign key (part_id)", "sentinel_acquisition_parts")),),
     "sentinel_acquisition_bindings": (("f", ("foreign key (job_id)", "sentinel_snapshot_jobs")),),
     "sentinel_acquisition_successors": (

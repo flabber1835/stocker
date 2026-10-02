@@ -11,6 +11,8 @@ def is_rolling(pub):
 
 
 def current(conn):
+    from sentinel.feed import readiness_scope
+    readiness_scope.require(conn)
     try:
         return publication.current(conn)
     except publication.CorpusIncoherent as exc:
@@ -22,6 +24,8 @@ def current(conn):
 
 
 def require_current(conn):
+    from sentinel.feed import readiness_scope
+    readiness_scope.require(conn)
     # Dispatch only the authenticated publication's explicit reader-version
     # refusal. Integrity, receipt and all other legacy failures remain failures.
     try:
@@ -46,7 +50,9 @@ def pinned(conn, *, commit=True):
             snapshot_reader = True
         if snapshot_reader:
             pub, _ = stack.enter_context(snapshots.pinned(conn, commit=commit))
-        yield pub
+        from sentinel.feed import readiness_scope
+        with readiness_scope.pinned(conn, pub):
+            yield pub
 
 
 def frontier(conn, pub=None):

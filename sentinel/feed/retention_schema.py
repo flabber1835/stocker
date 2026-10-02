@@ -13,6 +13,10 @@ DDL = [
         diagnostic JSONB NOT NULL)""",
     "ALTER TABLE sentinel_snapshot_evidence ALTER COLUMN payload DROP NOT NULL",
     "ALTER TABLE sentinel_snapshot_evidence ADD COLUMN IF NOT EXISTS restored_bytes TEXT CHECK(restored_bytes IS NULL)",
+    """ALTER TABLE sentinel_snapshot_evidence ADD COLUMN IF NOT EXISTS canonical_payload TEXT
+        CHECK(canonical_payload IS NULL OR (payload IS NULL
+          AND octet_length(canonical_payload)<=268435456
+          AND encode(sha256(convert_to(canonical_payload,'UTF8')),'hex')=evidence_sha256))""",
     """CREATE OR REPLACE FUNCTION sentinel_retention_locks() RETURNS void LANGUAGE plpgsql AS $$
     BEGIN
       IF (SELECT count(DISTINCT objid) FROM pg_locks WHERE locktype='advisory'
@@ -84,14 +88,21 @@ DDL = [
       IF TG_OP<>'UPDATE' OR NEW.evidence_sha256<>OLD.evidence_sha256 THEN
         RAISE EXCEPTION 'snapshot evidence is immutable';
       END IF;
-      IF OLD.payload IS NULL AND NEW.payload IS NOT NULL AND NEW.restored_bytes IS NOT NULL
+      IF OLD.payload IS NULL AND OLD.canonical_payload IS NULL
+          AND NEW.canonical_payload IS NOT NULL AND NEW.payload IS NULL
+          AND NEW.restored_bytes IS NULL
+          AND encode(sha256(convert_to(NEW.canonical_payload,'UTF8')),'hex')=OLD.evidence_sha256 THEN
+        RETURN NEW;
+      END IF;
+      IF OLD.payload IS NULL AND OLD.canonical_payload IS NULL
+          AND NEW.payload IS NOT NULL AND NEW.restored_bytes IS NOT NULL
           AND NEW.restored_bytes::jsonb=NEW.payload
           AND encode(sha256(convert_to(NEW.restored_bytes,'UTF8')),'hex')=OLD.evidence_sha256 THEN
         NEW.restored_bytes:=NULL;
         RETURN NEW;
       END IF;
       PERFORM sentinel_retention_locks();
-      IF NEW.payload IS NOT NULL OR NEW.restored_bytes IS NOT NULL OR EXISTS(
+      IF NEW.payload IS NOT NULL OR NEW.canonical_payload IS NOT NULL OR NEW.restored_bytes IS NOT NULL OR EXISTS(
         SELECT 1 FROM sentinel_price_candidates c WHERE
           (c.reference_sha256=OLD.evidence_sha256 OR c.source_evidence_sha256=OLD.evidence_sha256)
           AND NOT EXISTS(SELECT 1 FROM sentinel_snapshot_retirements r WHERE r.candidate_id=c.candidate_id))
@@ -118,7 +129,8 @@ DDL = [
       PERFORM 1 FROM sentinel_snapshot_evidence WHERE evidence_sha256 IN
         (NEW.reference_sha256,NEW.source_evidence_sha256) FOR SHARE;
       IF EXISTS(SELECT 1 FROM sentinel_snapshot_evidence WHERE evidence_sha256 IN
-        (NEW.reference_sha256,NEW.source_evidence_sha256) AND payload IS NULL) THEN
+        (NEW.reference_sha256,NEW.source_evidence_sha256)
+        AND payload IS NULL AND canonical_payload IS NULL) THEN
         RAISE EXCEPTION 'candidate evidence payload is retired';
       END IF;
       RETURN NEW;

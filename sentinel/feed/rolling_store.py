@@ -6,6 +6,7 @@ issues verification authority. The caller owns the transaction and rollback.
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from itertools import islice, zip_longest
 from typing import Iterable, Mapping
@@ -17,6 +18,8 @@ from sentinel.feed.rolling_contract import (
 )
 
 BATCH_SIZE = 5000
+JSONB_EVIDENCE_BYTES = 1024 * 1024
+MAX_EVIDENCE_BYTES = 256 * 1024 * 1024
 BAR_COLUMNS = tuple(CanonicalBar.model_fields)
 BENCHMARK_COLUMNS = tuple(CanonicalBenchmark.model_fields)
 
@@ -29,26 +32,83 @@ def put_evidence(conn, payload: Mapping) -> str:
     """Retain exact reference or input bytes; a hash alone is not authority."""
     value = dict(payload)
     encoded = canonical_json(value)
-    identity = digest(value)
+    from sentinel.feed.acquisition_limits import check
+    # Canonical JSON is ASCII, so character and UTF-8 byte lengths agree.
+    check("SNAPSHOT_EVIDENCE_BYTES", len(encoded), MAX_EVIDENCE_BYTES)
+    identity = hashlib.sha256(encoded.encode("ascii")).hexdigest()
     with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO sentinel_snapshot_evidence (evidence_sha256,payload) "
-            "VALUES (%s,%s::jsonb) ON CONFLICT DO NOTHING", (identity, encoded))
-        cur.execute("UPDATE sentinel_snapshot_evidence SET payload=%s::jsonb,restored_bytes=%s "
-                    "WHERE evidence_sha256=%s AND payload IS NULL", (encoded, encoded, identity))
-    if load_evidence(conn, identity) != value:
+        if len(encoded) > JSONB_EVIDENCE_BYTES:
+            cur.execute("INSERT INTO sentinel_snapshot_evidence (evidence_sha256,canonical_payload) "
+                        "VALUES (%s,%s) ON CONFLICT DO NOTHING", (identity, encoded))
+            cur.execute("UPDATE sentinel_snapshot_evidence SET canonical_payload=%s "
+                        "WHERE evidence_sha256=%s AND payload IS NULL AND canonical_payload IS NULL",
+                        (encoded, identity))
+        else:
+            cur.execute(
+                "INSERT INTO sentinel_snapshot_evidence (evidence_sha256,payload) "
+                "VALUES (%s,%s::jsonb) ON CONFLICT DO NOTHING", (identity, encoded))
+            cur.execute("UPDATE sentinel_snapshot_evidence SET payload=%s::jsonb,restored_bytes=%s "
+                        "WHERE evidence_sha256=%s AND payload IS NULL AND canonical_payload IS NULL",
+                        (encoded, encoded, identity))
+    row = _evidence_row(conn, identity)
+    # Compare canonical TEXT directly instead of expanding a second full Python
+    # object while the caller still owns the original provider references.
+    if not (row and ((row[0] is None and row[1] == encoded)
+                     or (row[1] is None and isinstance(row[0], dict) and digest(row[0]) == identity))):
         raise SnapshotStorageRefused("retained evidence differs from its content identity")
     return identity
 
 
-def load_evidence(conn, identity: str) -> dict:
+def _evidence_row(conn, identity):
     with conn.cursor() as cur:
-        cur.execute("SELECT payload FROM sentinel_snapshot_evidence "
+        cur.execute("SELECT payload,canonical_payload FROM sentinel_snapshot_evidence "
                     "WHERE evidence_sha256=%s", (identity,))
-        row = cur.fetchone()
-    if row is None or not isinstance(row[0], dict) or digest(row[0]) != identity:
+        return cur.fetchone()
+
+
+def load_evidence(conn, identity: str) -> dict:
+    row = _evidence_row(conn, identity)
+    if row is None or (row[0] is not None and row[1] is not None):
         raise SnapshotStorageRefused("missing or corrupt snapshot evidence: " + identity)
-    return row[0]
+    value = row[0]
+    if row[1] is not None:
+        from sentinel.feed.acquisition_limits import check
+        check("SNAPSHOT_EVIDENCE_BYTES", len(row[1]), MAX_EVIDENCE_BYTES)
+        if hashlib.sha256(row[1].encode("utf-8")).hexdigest() != identity:
+            raise SnapshotStorageRefused("corrupt snapshot evidence bytes: " + identity)
+        try:
+            value = json.loads(row[1])
+        except (ValueError, TypeError) as exc:
+            raise SnapshotStorageRefused("invalid snapshot evidence JSON: " + identity) from exc
+    if not isinstance(value, dict) or digest(value) != identity:
+        raise SnapshotStorageRefused("missing or corrupt snapshot evidence: " + identity)
+    return value
+
+
+def verify_evidence(conn, identity: str) -> None:
+    """Verify stored bytes without decoding another full reference object tree.
+
+    The manifest binds the exact bytes written by put_evidence. Consumers still
+    use load_evidence for canonical JSON/object validation and schema admission.
+    No verification result survives this call or substitutes for a later read.
+    """
+    row = conn.execute(
+        "SELECT payload,octet_length(canonical_payload),"
+        "CASE WHEN octet_length(canonical_payload)<=%s THEN "
+        "encode(sha256(convert_to(canonical_payload,'UTF8')),'hex') END "
+        "FROM sentinel_snapshot_evidence WHERE evidence_sha256=%s",
+        (MAX_EVIDENCE_BYTES, identity)).fetchone()
+    if row is None:
+        raise SnapshotStorageRefused("missing snapshot evidence: " + identity)
+    payload, size, observed = row
+    if size is not None:
+        from sentinel.feed.acquisition_limits import check
+        check("SNAPSHOT_EVIDENCE_BYTES", size, MAX_EVIDENCE_BYTES)
+        valid = payload is None and observed == identity
+    else:
+        valid = isinstance(payload, dict) and digest(payload) == identity
+    if not valid:
+        raise SnapshotStorageRefused("missing or corrupt snapshot evidence: " + identity)
 
 
 def begin(conn, *, window: PriceWindow, reference_sha256: str,
@@ -177,8 +237,8 @@ def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
         raise SnapshotStorageRefused("snapshot candidate is already sealed")
     from sentinel.feed.rolling_contract import CurrentFormationWindow
     window = ({426: CurrentFormationWindow, 379: FormationWindow}.get(len(axis), PriceWindow))(sessions=axis)
-    load_evidence(conn, reference)
-    load_evidence(conn, source)
+    verify_evidence(conn, reference)
+    verify_evidence(conn, source)
     bars_hash, coverage_hash = hashlib.sha256(), hashlib.sha256()
     count, seen_sessions, previous_key = 0, set(), None
     actual = _rows(conn, candidate_id, table="sentinel_snapshot_bars",
@@ -247,8 +307,8 @@ def manifest(conn, candidate_id: str) -> SnapshotManifest:
             or value.source_evidence_sha256 != source):
         raise SnapshotStorageRefused("snapshot manifest differs from its candidate")
     if not retired(conn, candidate_id):
-        load_evidence(conn, value.reference_sha256)
-        load_evidence(conn, value.source_evidence_sha256)
+        verify_evidence(conn, value.reference_sha256)
+        verify_evidence(conn, value.source_evidence_sha256)
     return value
 
 

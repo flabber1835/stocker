@@ -80,6 +80,26 @@ def coverage(conn, pub, *, start, end):
     return row[2]
 
 
+def _dated_sources(refs, *, start, end):
+    """Bound raw dates before calendar conversion; coverage is (start, end].
+
+    Both endpoints are sessions. A date on/before the lower session cannot
+    roll forward past it; weekend/holiday dates after it must still be mapped.
+    Full vendor references may precede the supported calendar by decades.
+    """
+    lo, hi = str(start), str(end)
+    sessions = {}
+    for index, (source, payload, _) in enumerate(refs.actions):
+        if index % 1024 == 0:
+            rolling_work.checkpoint()
+        raw = payload['date']
+        if not lo < raw <= hi or payload['action'].lower() in {'listed', 'relation'}:
+            continue
+        if raw not in sessions:
+            sessions[raw] = calendar.session_on_or_after(raw)
+        yield sessions[raw], dict(payload, source_row_id=source)
+
+
 def _material(conn, refs, pub):
     from sentinel.execution.feed_actions import snapshot_lookup
     lo, hi = refs.manifest.window.start, refs.manifest.window.end
@@ -91,10 +111,8 @@ def _material(conn, refs, pub):
                          ("unresolved", lookup.unresolved_events)):
         for event in events:
             material[str(event.session)][name].append(event.to_dict())
-    for source, payload, _ in refs.actions:
-        day = calendar.session_on_or_after(payload["date"])
-        if str(lo) < day <= str(hi) and payload["action"].lower() not in {"listed", "relation"}:
-            material[day]["sources"].append(dict(payload, source_row_id=source))
+    for day, payload in _dated_sources(refs, start=lo, end=hi):
+        material[day]["sources"].append(payload)
     # Store only action/dividend coordinates and their actual predecessors.
     for day, item in material.items():
         rolling_work.checkpoint()
@@ -149,9 +167,10 @@ def append(conn, *, candidate, version, previous):
     old = records(conn, version=version - 1, start=basis, end=manifest.window.end)
     new = _material(conn, refs, pub)
     current_sources = defaultdict(list)
-    for source, payload, _ in refs.actions:
-        if payload["action"].lower() not in {"listed", "relation"}:
-            current_sources[calendar.session_on_or_after(payload["date"])].append(dict(payload, source_row_id=source))
+    # Daily correction detection must include the whole retained coverage,
+    # which can begin before the current rolling price window.
+    for day, payload in _dated_sources(refs, start=basis, end=manifest.window.end):
+        current_sources[day].append(payload)
     corrections, correction_evidence, added = [], {}, {}
     for day in sorted(set(old) | set(new) | {d for d in current_sources if str(basis) < d <= str(prior[1] if prior else basis)}):
         rolling_work.checkpoint()

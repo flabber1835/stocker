@@ -57,7 +57,8 @@ def _pass(conn, *, batch_rows):
     conn.execute("LOCK TABLE sentinel_price_candidates IN SHARE ROW EXCLUSIVE MODE")
     evidence = conn.execute("SELECT DISTINCT e.evidence_sha256 FROM sentinel_snapshot_evidence e "
         "JOIN sentinel_price_candidates c ON e.evidence_sha256 IN (c.reference_sha256,c.source_evidence_sha256) "
-        "JOIN sentinel_snapshot_retirements r USING(candidate_id) WHERE e.payload IS NOT NULL "
+        "JOIN sentinel_snapshot_retirements r USING(candidate_id) "
+        "WHERE (e.payload IS NOT NULL OR e.canonical_payload IS NOT NULL) "
         "AND NOT EXISTS(SELECT 1 FROM sentinel_price_candidates live WHERE "
         "e.evidence_sha256 IN (live.reference_sha256,live.source_evidence_sha256) AND NOT EXISTS "
         "(SELECT 1 FROM sentinel_snapshot_retirements gone WHERE gone.candidate_id=live.candidate_id)) "
@@ -66,7 +67,8 @@ def _pass(conn, *, batch_rows):
         "AND NOT EXISTS(SELECT 1 FROM sentinel_snapshot_comparisons WHERE producer_sha256=e.evidence_sha256) "
         "LIMIT 32").fetchall()
     for (sha,) in evidence:
-        conn.execute("UPDATE sentinel_snapshot_evidence SET payload=NULL WHERE evidence_sha256=%s", (sha,))
+        conn.execute("UPDATE sentinel_snapshot_evidence SET payload=NULL,canonical_payload=NULL "
+                     "WHERE evidence_sha256=%s", (sha,))
     # Scratch ownership is recorded at claim, so a reclaimed worker's remnants
     # can be retired without guessing which UUID belongs to a live operation.
     scratch = conn.execute("DELETE FROM sentinel_sep_staging WHERE ctid IN "

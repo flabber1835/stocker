@@ -44,7 +44,10 @@ CONSTRAINTS = {
 
 # The later migration intentionally narrows these existing trigger operations.
 rolling_catalog.COLUMNS["sentinel_snapshot_evidence"].update(
-    payload=("jsonb", False), restored_bytes=("text", False))
+    payload=("jsonb", False), restored_bytes=("text", False), canonical_payload=("text", False))
+rolling_catalog.CONSTRAINTS["sentinel_snapshot_evidence"] += (
+    ("c", ("canonical_payload is null", "payload is null", "octet_length(canonical_payload)",
+           "268435456", "sha256", "evidence_sha256")),)
 for table in ("sentinel_snapshot_bars", "sentinel_snapshot_benchmarks"):
     rolling_catalog.TRIGGERS[table]["snapshot_immutable"] = (
         "before delete or update", "for each row", "execute function sentinel_snapshot_payload_guard()")
