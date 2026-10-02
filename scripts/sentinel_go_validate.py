@@ -1117,7 +1117,8 @@ def probe_prevalidation_preparation(
     started = monotonic()
     completed = runner.run([
         "docker", "compose", *compose_args, "--profile", "cli", "run",
-        "--rm", "-T", "--no-deps", "--entrypoint", "python", "sentinel",
+        "--rm", "-T", "--no-deps", "--env", "ALPACA_API_KEY",
+        "--env", "ALPACA_SECRET_KEY", "--entrypoint", "python", "sentinel",
         "-c", _PREPARATION_CODE,
     ], env=run_env)
     elapsed_milliseconds = max(

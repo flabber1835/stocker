@@ -348,15 +348,18 @@ class TestTheWhitelistIsCOMPLETEAgainstCompose:
     def test_the_scan_finds_the_production_file(self):
         """Guard the guard: a regex matching nothing passes vacuously."""
         got = self.referenced()
-        assert "ALPACA_API_KEY" in got
-        assert "ALPACA_SECRET_KEY" in got
+        assert "ALPACA_BASE_URL" in got
+        # The ordinary run-only service has no standing broker-capable keys.
+        # GO supplies them only to its one preparation child via compose run.
+        assert "ALPACA_API_KEY" not in got
+        assert "ALPACA_SECRET_KEY" not in got
         assert "SHARADAR_API_KEY" not in got
         # The active Sentinel compose deliberately uses the literal
         # ``sentinel:latest`` convenience alias; image identity is verified by
         # digest instead of a fifteenth interpolated environment variable.
         # Keep this as a non-vacuity floor while the classification test below
         # remains the authoritative complete-set guard.
-        assert len(got) >= 14, sorted(got)
+        assert len(got) >= 12, sorted(got)
 
     def test_every_composed_variable_is_CLASSIFIED(self):
         mod_ns = {}

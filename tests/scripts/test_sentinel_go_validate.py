@@ -961,6 +961,9 @@ def test_upgrade_preparation_uses_exact_runtime_with_market_data_authority_only(
     assert prepared_env["SENTINEL_FEED_SERVICE_MODE"] == "GO_VALIDATION"
     assert prepared_env["ALPACA_API_KEY"] == "market-data-key"
     assert prepared_env["ALPACA_SECRET_KEY"] == "market-data-secret"
+    assert command.count("--env") == 2
+    assert command[command.index("--env") + 1] == "ALPACA_API_KEY"
+    assert command[command.index("--env", command.index("--env") + 1) + 1] == "ALPACA_SECRET_KEY"
     assert "SENTINEL_PAPER_ACCOUNT_ID" not in prepared_env
     assert "SHARADAR_API_KEY" not in prepared_env
     assert "after.version >" not in go._PREPARATION_CODE

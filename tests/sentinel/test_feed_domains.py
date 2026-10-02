@@ -44,6 +44,9 @@ CLOSEADJ_PERMITTED = (
     # sharadar.py names the field only to validate the SFP wire schema; it never
     # exposes it to the security-bar domain.
     "sentinel/feed/sharadar.py",
+    # Alpaca's GO adapter maps only the adjusted SPY/BIL benchmark close into
+    # the existing SFP wire field. Security bars remain separate raw/split.
+    "sentinel/feed/alpaca_source.py",
     "sentinel/feed/staging_impl.py",
     "sentinel/feed/store.py",
     "sentinel/feed/schema.py",
@@ -152,6 +155,7 @@ class TestTheForbiddenColumn:
             "sentinel/regime/spy.py",
             "sentinel/feed/domains.py",
             "sentinel/feed/sharadar.py",
+            "sentinel/feed/alpaca_source.py",
             "sentinel/feed/staging_impl.py",
             "sentinel/feed/store.py",
             "sentinel/feed/schema.py",
@@ -173,6 +177,12 @@ class TestTheForbiddenColumn:
         from sentinel.regime import spy as spy_mod
 
         assert spy_mod.SPY_PRICE_COLUMN == "closeadj"
+
+    def test_alpaca_source_has_only_the_named_benchmark_wire_occurrence(self):
+        path = "sentinel/feed/alpaca_source.py"
+        occurrences = _closeadj_in_source((REPO / path).read_text(), path)
+        assert len(occurrences) == 1
+        assert occurrences[0].endswith(': "closeadj"')
 
     @pytest.mark.parametrize("path", [
         "sentinel/core/rolling_reader.py",

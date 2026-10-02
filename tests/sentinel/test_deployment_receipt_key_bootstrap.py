@@ -24,7 +24,8 @@ def _write_env(path: Path, receipt_line: str = "") -> None:
     rows = [
         "SENTINEL_POSTGRES_PASSWORD=database-secret",
         "SENTINEL_BACKUP_DIR=/durable/backup",
-        "SHARADAR_API_KEY=sharadar-secret",
+        "ALPACA_API_KEY=paper-key",
+        "ALPACA_SECRET_KEY=paper-secret",
     ]
     if receipt_line:
         rows.append(receipt_line)
@@ -70,7 +71,8 @@ def test_missing_key_is_generated_only_after_no_receipt_ancestry_is_proven(
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     text = path.read_text(encoding="utf-8")
     assert "SENTINEL_POSTGRES_PASSWORD=database-secret" in text
-    assert "SHARADAR_API_KEY=sharadar-secret" in text
+    assert "ALPACA_API_KEY=paper-key" in text
+    assert "ALPACA_SECRET_KEY=paper-secret" in text
 
 
 def test_generation_guard_remains_held_through_durable_key_write(
@@ -339,7 +341,8 @@ def test_supported_launchers_bootstrap_before_compose_dependent_work():
     assert go.index("sentinel_deployment_bootstrap.py") < go.index(
         "sentinel_runtime_selection.py preflight")
     assert go.index("sentinel_deployment_bootstrap.py") < go.index(
-        "sentinel_go_readonly_data_preflight.py")
+        "sentinel_go_account_preflight.py")
+    assert '"$PYTHON" scripts/sentinel_go_readonly_data_preflight.py' not in go
 
     deploy = (ROOT / "scripts" / "sentinel-autonomous-deploy.sh").read_text(
         encoding="utf-8")

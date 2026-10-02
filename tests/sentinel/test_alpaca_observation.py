@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import date
+from types import SimpleNamespace
+
 import pytest
 
 from sentinel.feed.alpaca_observation import (
@@ -7,6 +10,7 @@ from sentinel.feed.alpaca_observation import (
     paired_month, structural_action_date,
 )
 from sentinel.feed.alpaca_transport import AlpacaTransportRefused
+from sentinel.feed.alpaca_source import AlpacaSource
 
 
 AXIS = ["2026-09-28", "2026-09-29", "2026-09-30"]
@@ -76,6 +80,30 @@ def test_pairing_and_no_action_contiguous_history():
                                           action_affected=frozenset(), pair_absent=set())
     assert admitted == {"A": AXIS[0], "B": AXIS[-1]}
     assert reasons == {}
+
+
+def test_benchmark_wire_uses_total_return_only_for_spy_and_bil():
+    source = object.__new__(AlpacaSource)
+    source.window = SimpleNamespace(
+        start=date.fromisoformat(AXIS[0]), end=date.fromisoformat(AXIS[0]),
+        sessions=[date.fromisoformat(AXIS[0])])
+    calls = []
+
+    def bars(symbols, first, last, adjustment):
+        calls.append((symbols, first, last, adjustment))
+        close = 100 if adjustment == "raw" else 105
+        return {symbol: [_bar(AXIS[0], close)] for symbol in symbols}, []
+
+    source._bars = bars
+    rows, _, _, count = source._benchmark_rows()
+    assert count == 2
+    assert {row["ticker"] for row in rows} == {"SPY", "BIL"}
+    assert all(row["close"] == 100 and row["closeunadj"] == 100
+               and row["closeadj"] == 105 for row in rows)
+    assert calls == [
+        ({"SPY", "BIL"}, AXIS[0], AXIS[0], "raw"),
+        ({"SPY", "BIL"}, AXIS[0], AXIS[0], "all"),
+    ]
 
 
 def test_retained_price_rows_are_globally_session_then_symbol_ordered():

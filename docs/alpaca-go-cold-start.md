@@ -22,6 +22,11 @@ order, position or activity endpoints. These credentials can technically grant
 broker authority outside that client, so the reviewed runtime image and
 zero-broker-mutation GO check remain mandatory; do not describe this as a
 credential-level read-only key.
+The ordinary run-only Sentinel compose service has no standing Alpaca keys.
+The GO host passes both keys by name to its single reviewed preparation child;
+other read-only probes and a manually started container inherit no broker
+credentials from that service. This confines the unavoidable credential-bearing
+process to the source acquisition operation.
 
 The older local-full read-only Sharadar preflight is not part of this GO route.
 Both normal and local-full GO use the same bounded Alpaca preparation and
@@ -101,6 +106,11 @@ retained ownership state; it never reconstructs the book from daily prices.
 
 Request every page of Alpaca SIP raw and split-adjusted daily bars over this
 window, with an explicit as-of date and bounded request/retry/rate budget.
+The separate SPY/BIL benchmark acquisition pairs raw with Alpaca `all` adjusted
+bars and transports the adjusted close as the typed benchmark `closeadj` field.
+That name is permitted only at this exact source adapter and the already
+reviewed benchmark transport path; stock signals and marks still use the
+split-adjusted signal close and raw tradable close, never total return.
 Batch up to 400 symbols per monthly daily-bar request. A month has at most 23
 trading sessions, so one full batch has at most 9,200 bars under Alpaca's
 10,000-bar page limit; still follow every returned page token. A live
