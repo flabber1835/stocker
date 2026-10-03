@@ -7,7 +7,7 @@ import pytest
 
 from sentinel.feed.alpaca_observation import (
     action_symbols, admissible_history, bar_page_rows, cash_dividend,
-    paired_month, structural_action_date,
+    paired_month, structural_action_date, stock_split,
 )
 from sentinel.feed.alpaca_transport import AlpacaTransportRefused
 from sentinel.feed.alpaca_source import AlpacaSource
@@ -84,6 +84,7 @@ def test_pairing_and_no_action_contiguous_history():
 
 def test_benchmark_wire_uses_total_return_only_for_spy_and_bil():
     source = object.__new__(AlpacaSource)
+    source.action_affected,source.reset_after,source.splits = frozenset(),{},[]
     source.window = SimpleNamespace(
         start=date.fromisoformat(AXIS[0]), end=date.fromisoformat(AXIS[0]),
         sessions=[date.fromisoformat(AXIS[0])])
@@ -91,7 +92,7 @@ def test_benchmark_wire_uses_total_return_only_for_spy_and_bil():
 
     def bars(symbols, first, last, adjustment):
         calls.append((symbols, first, last, adjustment))
-        close = 100 if adjustment == "raw" else 105
+        close = 105 if adjustment == "all" else 100
         return {symbol: [_bar(AXIS[0], close)] for symbol in symbols}, []
 
     source._bars = bars
@@ -103,6 +104,7 @@ def test_benchmark_wire_uses_total_return_only_for_spy_and_bil():
     assert calls == [
         ({"SPY", "BIL"}, AXIS[0], AXIS[0], "raw"),
         ({"SPY", "BIL"}, AXIS[0], AXIS[0], "all"),
+        ({"BIL"}, AXIS[0], AXIS[0], "split"),
     ]
 
 
@@ -155,3 +157,65 @@ def test_post_event_history_resets_without_crossing_action():
         pair_absent={("A", AXIS[1])}, reset_after={"A": AXIS[0]})
     assert admitted == {}
     assert reasons == {"raw_adjusted_key_mismatch": 1}
+
+
+@pytest.mark.parametrize('kind,old,new,ratio', [
+    ('forward_splits', 1, 2, '2'), ('reverse_splits', 10, 1, '0.1'),
+    ('forward_splits', 2, 3, '1.5')])
+def test_split_terms_and_independent_prices_must_agree(kind, old, new, ratio):
+    event = stock_split(kind, {'id':'split', 'symbol':'A', 'ex_date':AXIS[1],
+        'old_rate':old, 'new_rate':new}, axis=set(AXIS))
+    assert event['ratio'] == ratio
+    multiplier = float(ratio)
+    rows = [_row('A', AXIS[0], close=100, adjusted=100/multiplier),
+            *[_row('A', day, close=100/multiplier, adjusted=100/multiplier)
+              for day in AXIS[1:]]]
+    kwargs = dict(axis=AXIS, symbols={'A'}, action_affected=frozenset(), pair_absent=set())
+    assert admissible_history(rows, split_terms={('A',AXIS[1]):ratio}, **kwargs) == ({'A':AXIS[0]}, {})
+    # Removing the action or corrupting its multiplier must fail corroboration.
+    assert admissible_history(rows, **kwargs)[0] == {}
+    assert admissible_history(rows, split_terms={('A',AXIS[1]):'4'}, **kwargs)[0] == {}
+
+
+@pytest.mark.parametrize('terms', [
+    {'old_rate':0,'new_rate':2}, {'old_rate':1,'new_rate':1},
+    {'old_rate':2,'new_rate':1}, {'old_rate':1,'new_rate':'NaN'},
+    {'old_rate':1}, {'old_rate':1,'new_rate':2,'new_symbol':'B'}])
+def test_invalid_split_terms_are_never_guessed(terms):
+    with pytest.raises(AlpacaTransportRefused):
+        stock_split('forward_splits', {'id':'split','symbol':'A','ex_date':AXIS[1],**terms},
+                    axis=set(AXIS))
+
+
+def test_bil_split_price_domains_and_action_record_reach_execution():
+    source = object.__new__(AlpacaSource)
+    source.window = SimpleNamespace(start=date.fromisoformat(AXIS[0]),end=date.fromisoformat(AXIS[-1]),
+        sessions=list(map(date.fromisoformat,AXIS)))
+    source.action_affected,source.reset_after,source.tickers = frozenset(),{},[]
+    source.splits = [{'id':'split','ticker':'BIL','date':AXIS[1],'ratio':'2'}]
+    source.dividends = [{'id':'cash','ticker':'BIL','date':AXIS[-1],'rate':'0.25'}]
+    def bars(symbols,first,last,adjustment):
+        return {symbol:[_bar(day, 100 if adjustment=='raw' and day==AXIS[0] else
+            52 if adjustment=='all' else 50) for day in AXIS] for symbol in symbols}, []
+    source._bars = bars
+    rows,*_ = source._benchmark_rows()
+    bil = [row for row in rows if row['ticker']=='BIL']
+    assert [row['close'] for row in bil] == [50,50,50]
+    assert [row['closeunadj'] for row in bil] == [100,50,50]
+    assert all(row['closeadj']==52 for row in bil)
+    assert {event['action'] for event in source.reference_payload()['actions']} == {'split','dividend'}
+    from decimal import Decimal
+    from sentinel.execution.reconcile import reconcile_action_material
+    events = reconcile_action_material(start=date.fromisoformat(AXIS[0]),
+        end=date.fromisoformat(AXIS[-1]),
+        action_rows=[(date.fromisoformat(AXIS[1]), '2', 'provider-split', 'split', 'BIL', None)],
+        published_equity_rows=[], dispositions=[], equity_mapping=lambda *_:[],
+        defensive_rows=[('SENTINEL:BIL',date.fromisoformat(row['date']),'BIL',
+            row['close'],row['closeunadj'],date.fromisoformat(prior['date']),
+            prior['close'],prior['closeunadj'],'run',1,'run',1)
+            for prior,row in zip(bil,bil[1:])])
+    assert events.events['SENTINEL:BIL'] == ((date.fromisoformat(AXIS[1]),Decimal('2.0')),)
+    assert not events.unresolved_events
+    source.splits = []
+    with pytest.raises(AlpacaTransportRefused,match='corroborated'):
+        source._benchmark_rows()

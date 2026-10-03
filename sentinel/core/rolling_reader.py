@@ -77,7 +77,7 @@ class RollingPriceReader:
                 NORMALIZATION_VERSION, window_policy.NORMALIZATION, ALPACA_NORMALIZATION)
                 or self.manifest.calendar_version != calendar.calendar_version()):
             raise RollingReaderRefused("UNSUPPORTED_SNAPSHOT_SEMANTICS")
-        if (self.manifest.provider == "ALPACA_NASDAQ") != (
+        if (self.manifest.provider == "ALPACA_OPENFIGI") != (
                 self.manifest.normalization_version == ALPACA_NORMALIZATION):
             raise RollingReaderRefused("SNAPSHOT_PROVIDER_NORMALIZATION_MISMATCH")
 

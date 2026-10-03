@@ -313,12 +313,12 @@ def test_generated_installer_programs_refuse_legacy_provider_then_read_rolling(
     task = object.__new__(install.InstallAnytimeDeploy)
     task.runner, task.base_compose = LocalPython(), []
     with pytest.raises(operational_snapshot.OperationalSnapshotRefused,
-                       match="ALPACA_NASDAQ_SOURCE_REQUIRED"):
+                       match="ALPACA_OPENFIGI_SOURCE_REQUIRED"):
         driver.AutonomousDeploy._readiness_verdict(task)
     # This fixture intentionally publishes a historical Sharadar candidate.
     # The provider refusal above is real; isolate the remaining generated
     # installer-program assertions from that independently tested policy.
-    monkeypatch.setattr(operational_snapshot, "require_alpaca_nasdaq",
+    monkeypatch.setattr(operational_snapshot, "require_alpaca_openfigi",
                         lambda c, pub: operational_snapshot._bound(c, pub))
     report = driver.AutonomousDeploy._readiness_verdict(task)
     assert report["ready"] and report["rolling"] and report["failures"] == []

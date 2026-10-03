@@ -131,9 +131,9 @@ def _assess(conn, pub, *, target, summary_only=False):
                    "positive canonical domain coverage over the complete warmup", share)
     from sentinel.feed import rolling_store
     manifest = rolling_store.manifest(conn, binding["candidate_id"])
-    if manifest.provider == "ALPACA_NASDAQ":
+    if manifest.provider == "ALPACA_OPENFIGI":
         report.add("rolling issuer references", PASS,
-                   "Alpaca asset IDs and Nasdaq common-stock admission; no issuer-family claim")
+                   "Alpaca asset IDs and OpenFIGI ordinary-equity admission; no issuer-family claim")
     else:
         report.add("rolling issuer references", PASS if summary.related_issuers else FAIL,
                    "current reference bundle includes related-ticker issuer evidence")
@@ -183,7 +183,8 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
             from sentinel.feed import rolling_store
             _, strategy = production_strategy()
             binding = snapshots._bound(conn, pub)
-            actual = rolling_store.manifest(conn, binding['candidate_id']).window
+            manifest = rolling_store.manifest(conn, binding['candidate_id'])
+            actual = manifest.window
             expected = snapshots.acquisition_window(conn, digest(strategy))
             # A pre-existing 300-session snapshot cannot silently satisfy fresh
             # Owned55 formation. Once an origin exists its original larger
@@ -191,7 +192,8 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
             from sentinel.feed.rolling_contract import FormationWindow
             from sentinel.core import window_policy
             request = rolling_jobs.status(conn, binding['job_id'])['request']
-            if (request['strategy_sha256'] != digest(strategy)
+            if (manifest.provider == 'ALPACA_NASDAQ'
+                    or request['strategy_sha256'] != digest(strategy)
                     or (actual != expected and (window_policy.enabled(strategy)
                                                 or isinstance(expected, FormationWindow)))):
                 pub = None

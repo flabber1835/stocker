@@ -246,7 +246,7 @@ def _prepare(conn, job_id, *, operational):
             source_wait.check(conn, lease, request, source)
         source.references(checkpoint)
         source.acquire_prices(checkpoint, pulse)
-        if ready and getattr(source, "provider", None) == "ALPACA_NASDAQ":
+        if ready and getattr(source, "provider", None) == "ALPACA_OPENFIGI":
             source.tickers = rolling_store.load_evidence(conn, manifest.reference_sha256)["tickers"]
         with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):
             if not ready:

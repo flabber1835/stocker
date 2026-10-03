@@ -3,9 +3,13 @@ from sentinel.core.formation import Formation
 
 
 def run(source, *, capital, strategy, data_version):
+    import sys
+    import json
     formed = Formation(source.plan(capital=capital, strategy=strategy),
                        source.warmup(), data_version=data_version)
     while not formed.complete:
+        print('[FORMATION] '+json.dumps({'session': formed.axis[formed.plan.warmup_sessions + formed.count],
+              'step': formed.count+1, 'total': formed.plan.formation_sessions}), file=sys.stderr, flush=True)
         formed.advance(source.session(formed.axis[formed.plan.warmup_sessions + formed.count], formed.state))
     proof = dict(schema='sentinel.formation-parity/1', policy=formed.plan.metadata_policy,
                  sessions=formed.count, end=formed.plan.end, chain_sha256=formed.chain,

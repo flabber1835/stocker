@@ -66,6 +66,29 @@ def cash_dividend(record: dict, *, axis: set[str]) -> dict | None:
             "rate": format(amount.normalize(), "f")}
 
 
+def stock_split(kind, record, *, axis):
+    """Exact new/old share multiplier; price evidence corroborates it later."""
+    if kind not in ('forward_splits', 'reverse_splits'):
+        raise AlpacaTransportRefused('unsupported structural action')
+    day = structural_action_date(kind, record)
+    symbol = record.get('symbol')
+    if day not in axis or action_participants(record) != {symbol}:
+        raise AlpacaTransportRefused('split has invalid session or participants')
+    try:
+        old, new = Decimal(str(record['old_rate'])), Decimal(str(record['new_rate']))
+        if not old.is_finite() or not new.is_finite() or min(old, new) <= 0:
+            raise ValueError
+        ratio = new / old
+        if ratio == 1 or (kind == 'forward_splits') != (ratio > 1):
+            raise ValueError
+        if not isfinite(float(ratio)) or float(ratio) <= 0:
+            raise ValueError
+    except (KeyError, InvalidOperation, ValueError, OverflowError):
+        raise AlpacaTransportRefused('split terms are missing or inconsistent') from None
+    return {'id': record['id'], 'ticker':symbol, 'date':day,
+            'ratio':format(ratio.normalize(), 'f')}
+
+
 def action_symbols(pages, *, start: str, end: str) -> tuple[frozenset[str], dict]:
     """Quarantine every named participant in any observed action.
 
@@ -155,7 +178,8 @@ def paired_month(raw, adjusted, *, symbols: set[str], sessions: set[str]):
 def admissible_history(rows, *, axis: list[str], symbols: set[str],
                        action_affected: frozenset[str], pair_absent: set[tuple[str, str]],
                        dividend_dates: dict[str, set[str]] | None = None,
-                       reset_after: dict[str, str] | None = None):
+                       reset_after: dict[str, str] | None = None,
+                       split_terms: dict[tuple[str, str], str] | None = None):
     """Return only contiguous, structurally action-free histories and first dates."""
     index = {day: position for position, day in enumerate(axis)}
     by_symbol = {}
@@ -175,12 +199,14 @@ def admissible_history(rows, *, axis: list[str], symbols: set[str],
             raise AlpacaTransportRefused("retained bar adjustment is invalid")
         current = by_symbol.get(symbol)
         if current is None:
-            by_symbol[symbol] = [position, position, 1, ratio, ratio]
+            by_symbol[symbol] = [position, position, 1, ratio, ratio, Decimal(1)]
         else:
+            current[5] *= Decimal((split_terms or {}).get((symbol, day), '1'))
+            normalized = ratio / float(current[5])
             current[1] = position
             current[2] += 1
-            current[3] = min(current[3], ratio)
-            current[4] = max(current[4], ratio)
+            current[3] = min(current[3], normalized)
+            current[4] = max(current[4], normalized)
     admitted, reasons = {}, defaultdict(int)
     for symbol in sorted(symbols):
         observed = by_symbol.get(symbol)
@@ -192,12 +218,15 @@ def admissible_history(rows, *, axis: list[str], symbols: set[str],
         elif observed is None:
             reasons["no_prices"] += 1
         else:
-            first, last, count, lo, hi = observed
+            first, last, count, lo, hi, _factor = observed
             if last != len(axis) - 1 or count != len(axis) - first:
                 reasons["noncontiguous_or_stale_prices"] += 1
                 continue
             if hi / lo - 1 > 0.0005:
                 reasons["adjustment_discontinuity"] += 1
+                continue
+            if (symbol, axis[first]) in (split_terms or {}):
+                reasons['split_predecessor_missing'] += 1
                 continue
             if any((reset_after or {}).get(symbol, "") < day < axis[first]
                    or day > axis[last]

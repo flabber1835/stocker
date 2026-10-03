@@ -1,6 +1,6 @@
 """Sentinel's market-data feed.
 
-Production uses Alpaca/Nasdaq rolling snapshots. Historical Sharadar readers
+Production uses Alpaca/OpenFIGI rolling snapshots. Historical Sharadar readers
 remain for offline research and old backtest datasets.
 
 The historical ``SENTINEL_FEED_SERVICE_MODE=GO_VALIDATION`` child belonged to

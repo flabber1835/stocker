@@ -130,7 +130,8 @@ class CanonicalBenchmark(Contract):
 class SnapshotManifest(Contract):
     schema_version: Literal["sentinel.rolling-price-snapshot/1"] = (
         "sentinel.rolling-price-snapshot/1")
-    provider: Literal["SHARADAR", "ALPACA_NASDAQ"] = "SHARADAR"
+    # Legacy manifests remain inspectable; deployed admission requires OpenFIGI.
+    provider: Literal["SHARADAR", "ALPACA_NASDAQ", "ALPACA_OPENFIGI"] = "SHARADAR"
     normalization_version: Label
     calendar_version: Label
     window: CurrentFormationWindow | FormationWindow | PriceWindow

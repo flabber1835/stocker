@@ -1,7 +1,7 @@
 """Alpaca/Nasdaq GO source through the real snapshot tables and reader."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 from contextlib import contextmanager
 import json
@@ -13,7 +13,7 @@ from sentinel.feed import rolling_store
 from sentinel.feed import store
 from sentinel.feed.alpaca_source import AlpacaSource
 from sentinel.feed.alpaca_transport import ACTION_URL, ASSETS, BAR_URL
-from sentinel.feed.alpaca_nasdaq import DIRECTORY_URLS
+from sentinel.feed import openfigi
 from sentinel.feed.rolling_contract import PriceWindow, digest
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg  # noqa: F401
 
@@ -33,15 +33,6 @@ class FakeClient:
             return [{"id": "uuid-" + symbol, "symbol": symbol, "class": "us_equity",
                      "status": "active", "tradable": True, "exchange": "NASDAQ"}
                     for symbol in ("AAA", "BBB")], proof
-        if endpoint == DIRECTORY_URLS[0]:
-            return ("Symbol|Security Name|Market Category|Test Issue|ETF\n"
-                    "AAA|Alpha Common Stock|Q|N|N\n"
-                    "BBB|Beta Common Stock|Q|N|N\n"
-                    "File Creation Time: 2026-09-15 00:00:00||||\n"), proof
-        if endpoint == DIRECTORY_URLS[1]:
-            return ("ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol\n"
-                    "ZZZ|Other Common Stock|N|ZZZ|N|100|N|ZZZ\n"
-                    "File Creation Time: 2026-09-15 00:00:00|||||||\n"), proof
         raise AssertionError(endpoint)
 
     def pages(self, endpoint, params, *, key):
@@ -80,6 +71,20 @@ class FakeClient:
         yield rows, proof
 
 
+class FakeClassifier:
+    batch_size = 100
+
+    def __init__(self):
+        self.calls = []
+
+    def mapping(self, assets):
+        self.calls.append(assets)
+        return [{'data':[{'ticker':openfigi.job(asset)['idValue'], 'exchCode':'US',
+            'marketSector':'Equity', 'securityType':'Common Stock', 'securityType2':'Common Stock',
+            'compositeFIGI':'FIGI-'+asset['asset_id'], 'shareClassFIGI':'SHARE-'+asset['asset_id']}]}
+            for asset in assets], {'observed_at':'2026-09-15T00:00:00+00:00'}
+
+
 def test_retained_class_symbols_use_bytewise_order_across_database_locales(monkeypatch):
     """A locale may sort BFAM before BF.B, opposite canonical ticker order."""
     day = "2026-09-14"
@@ -107,9 +112,12 @@ def test_current_universe_collapse_refuses_before_publication():
 @pytest.fixture
 def alpaca_path(monkeypatch):
     fake = FakeClient()
+    fake.classifier = FakeClassifier()
+    from sentinel.feed import alpaca_source
+    monkeypatch.setattr(alpaca_source, '_today', lambda: date(2026,9,15))
     monkeypatch.setattr(rolling_publisher, "_operational_source",
         lambda window, conn, lease, *, corrections, verify_during_coverage:
-            AlpacaSource(window, conn, lease, client=fake,
+            AlpacaSource(window, conn, lease, client=fake, classifier=fake.classifier,
                          verify_during_coverage=verify_during_coverage))
     monkeypatch.setattr(rolling_builder, "MIN_ADMITTED_COMMON_STOCKS", 2)
     monkeypatch.setattr(op, "_now", lambda: datetime(2026, 9, 15, 4, tzinfo=timezone.utc))
@@ -127,7 +135,7 @@ def test_alpaca_snapshot_publishes_and_reads_without_sharadar(conn, alpaca_path,
     conn.commit()
     result = op.prepare(conn, job)
     manifest = rolling_store.manifest(conn, result["candidate_id"])
-    assert manifest.provider == "ALPACA_NASDAQ"
+    assert manifest.provider == "ALPACA_OPENFIGI"
     assert manifest.bar_count == 600
     assert readiness_inputs(conn, candidate_id=result["candidate_id"],
                             snapshot_id=result["snapshot_id"]).counts["2026-09-14"] == 2
@@ -200,3 +208,90 @@ def test_in_window_split_resets_candidate_history(conn, alpaca_path):
             if row.ticker == "BBB"]
     assert bars and all(str(row.session) > "2026-05-01" for row in bars)
     assert len(bars) < 300
+
+
+def _publish(conn):
+    job = op.enqueue(conn, strategy_sha256=digest('test-strategy'),
+                     dependencies_sha256=digest('test-deps'), budget_seconds=240)
+    conn.commit()
+    return op.prepare(conn, job)
+
+
+def _next_day(fake, monkeypatch):
+    fake.window = PriceWindow.through('2026-09-15')
+    monkeypatch.setattr(op, '_now', lambda: datetime(2026,9,16,4,tzinfo=timezone.utc))
+    monkeypatch.setattr(op.calendar, 'latest_closed_session', lambda now=None: '2026-09-15')
+
+
+def test_daily_verified_classification_reuse_never_renews_age(conn, alpaca_path, monkeypatch):
+    _publish(conn)
+    assert len(alpaca_path.classifier.calls) == 1
+    _next_day(alpaca_path, monkeypatch)
+    _publish(conn)
+    assert len(alpaca_path.classifier.calls) == 1
+    from sentinel.feed import alpaca_source
+    # At seven days the original observation expires, even after publication reuse.
+    monkeypatch.setattr(alpaca_source, '_today', lambda: date(2026,9,22))
+    alpaca_path.window = PriceWindow.through('2026-09-16')
+    monkeypatch.setattr(op, '_now', lambda: datetime(2026,9,17,4,tzinfo=timezone.utc))
+    monkeypatch.setattr(op.calendar, 'latest_closed_session', lambda now=None: '2026-09-16')
+    _publish(conn)
+    assert len(alpaca_path.classifier.calls) == 2
+
+
+def test_restart_reuses_finished_figi_batches_without_network(conn, alpaca_path):
+    from sentinel.feed import rolling_jobs as jobs
+    from sentinel.feed.alpaca_transport import AlpacaTransportUnavailable
+    job = op.enqueue(conn, strategy_sha256=digest('test-strategy'),
+                     dependencies_sha256=digest('test-deps'), budget_seconds=240)
+    lease = jobs.claim(conn, job, lease_seconds=60)
+    conn.commit()
+    classifier = alpaca_path.classifier
+    classifier.batch_size = 1
+    original = classifier.mapping
+    attempts = []
+    def interrupted(assets):
+        attempts.append(assets[0]['ticker'])
+        if len(attempts) == 2:
+            raise AlpacaTransportUnavailable('interrupted batch')
+        return original(assets)
+    classifier.mapping = interrupted
+    checkpoint = lambda component,generation,artifact,rows,bytes_: jobs.checkpoint(
+        conn,lease,component=component,generation_sha256=digest(generation),
+        artifact_sha256=artifact,rows=rows,bytes_=bytes_)
+    def source():
+        return AlpacaSource(alpaca_path.window,conn,lease,client=alpaca_path,classifier=classifier)
+    with pytest.raises(AlpacaTransportUnavailable):
+        source().references(checkpoint)
+    source().references(checkpoint)
+    assert attempts == ['AAA','BBB','BBB']
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_job_components "
+                        "WHERE job_id=%s AND component LIKE 'TICKERS.FIGI.%%'", (job,)).fetchone()[0] == 2
+
+
+@pytest.mark.parametrize('name', ['TICKERS.FIGI.0','TICKERS.FIGI.100000',
+    'TICKERS.FIGI.1/../2','TICKERS.ASSETS.injected'])
+def test_checkpoint_name_bounds_are_preserved(name):
+    from sentinel.feed import rolling_jobs
+    assert not rolling_jobs._COMPONENT.fullmatch(name)
+
+
+def test_resumed_job_keeps_initial_cache_plan_across_expiry(conn,alpaca_path,monkeypatch):
+    from sentinel.feed import rolling_jobs as jobs, alpaca_source
+    _publish(conn)
+    _next_day(alpaca_path,monkeypatch)
+    job = op.enqueue(conn,strategy_sha256=digest('test-strategy'),
+                     dependencies_sha256=digest('test-deps'),budget_seconds=240)
+    lease = jobs.claim(conn,job,lease_seconds=60)
+    conn.commit()
+    checkpoint = lambda component,generation,artifact,rows,bytes_: jobs.checkpoint(
+        conn,lease,component=component,generation_sha256=digest(generation),
+        artifact_sha256=artifact,rows=rows,bytes_=bytes_)
+    def source():
+        return AlpacaSource(alpaca_path.window,conn,lease,client=alpaca_path,
+                            classifier=alpaca_path.classifier)
+    source().references(checkpoint)
+    assert len(alpaca_path.classifier.calls) == 1
+    monkeypatch.setattr(alpaca_source,'_today',lambda:date(2026,9,22))
+    source().references(checkpoint)
+    assert len(alpaca_path.classifier.calls) == 1

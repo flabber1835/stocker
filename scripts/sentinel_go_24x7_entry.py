@@ -7,7 +7,7 @@ lifecycle lock and one-run capability have been proven.
 
 Its single responsibility is to choose the newest market-data decision session
 whose reviewed source-final not-before has elapsed and run the bounded,
-feed-authorized Alpaca/Nasdaq preparation through that session. A later closed
+feed-authorized Alpaca/OpenFIGI preparation through that session. A later closed
 but not-yet-final session remains visible as an ordinary readiness/session NO_GO.
 
 No public gate is redefined here. Market-data readiness keeps its original
@@ -259,7 +259,7 @@ def _deployment_preparation_probe(
     completed = runner.run([
         'docker', 'compose', *compose_args, '--profile', 'cli', 'run',
         '--rm', '-T', '--no-deps', '--env', 'ALPACA_API_KEY',
-        '--env', 'ALPACA_SECRET_KEY', '--entrypoint', 'python', 'sentinel',
+        '--env', 'ALPACA_SECRET_KEY', '--env', 'OPENFIGI_API_KEY', '--entrypoint', 'python', 'sentinel',
         '-c', _PREPARATION_CODE,
     ], env=run_env)
     elapsed = max(0, int(math.ceil((monotonic() - started) * 1000.0)))

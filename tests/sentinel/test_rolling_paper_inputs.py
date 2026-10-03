@@ -636,7 +636,7 @@ def test_automation_refresh_consumes_current_shadow_without_acquisition(conn, pu
     # though this historical publication uses the same rolling schema.
     runtime._operational_source_only = True
     with pytest.raises(NonRetryableCallbackRefused,
-                       match="OPERATIONAL_ALPACA_NASDAQ_SOURCE_REQUIRED"):
+                       match="OPERATIONAL_ALPACA_OPENFIGI_SOURCE_REQUIRED"):
         asyncio.run(runtime.refresh(SimpleNamespace()))
     runtime._operational_source_only = False
     runtime._fenced_data_next_wake = None

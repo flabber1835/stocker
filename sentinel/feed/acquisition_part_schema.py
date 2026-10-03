@@ -42,6 +42,12 @@ DDL.append("""CREATE OR REPLACE FUNCTION sentinel_acquisition_part_pinned(target
         SELECT s.parent_job_id FROM sentinel_acquisition_successors s JOIN live l ON s.child_job_id=l.job_id)
       SELECT EXISTS(SELECT 1 FROM sentinel_acquisition_bindings b JOIN live USING(job_id)
                     WHERE b.part_id=target)
+        OR EXISTS(SELECT 1 FROM sentinel_acquisition_bindings b
+          JOIN sentinel_acquisition_parts a USING(part_id)
+          JOIN sentinel_operational_snapshots o USING(job_id)
+          WHERE b.part_id=target AND b.component='TICKERS'
+            AND a.manifest->'generation'->>'provider'='ALPACA_OPENFIGI'
+            AND o.publication_version=(SELECT max(version) FROM sentinel_corpus_publications))
     $$""")
 DDL.append("""CREATE OR REPLACE FUNCTION sentinel_acquisition_delete_guard()
     RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN

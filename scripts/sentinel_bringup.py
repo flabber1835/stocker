@@ -2,7 +2,7 @@
 """Fast non-authoritative Sentinel bootstrap diagnostics.
 
 Bring-up is intentionally cheap and read-only with respect to financial data. It
-checks host/runtime/database/backup prerequisites. Alpaca/Nasdaq source checks
+checks host/runtime/database/backup prerequisites. Alpaca/OpenFIGI source checks
 remain exclusively in certified GO; bring-up performs no provider request.
 It hands full source validation, bounded data preparation, backup refresh, and
 certification to ``scripts/sentinel-go-validate.sh``.
@@ -257,7 +257,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("bring-up gate: exact ordinary runtime", flush=True)
         runtime_ref = _runtime_for_commit(runner, env=env, commit=git.commit)
 
-        # GO owns Alpaca/Nasdaq source observation. Bring-up is a local
+        # GO owns Alpaca/OpenFIGI source observation. Bring-up is a local
         # durability/image diagnostic and must not query the retired provider.
 
         if backup_repair_reason is not None:
@@ -284,7 +284,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(READY, flush=True)
         print(
             "No certification or deployment authority was created. Certified GO "
-            "owns Alpaca/Nasdaq acquisition, rolling publication, post-recovery "
+            "owns Alpaca/OpenFIGI acquisition, rolling publication, post-recovery "
             "validation, and certification. Run: "
             "bash scripts/sentinel-go-validate.sh",
             flush=True,

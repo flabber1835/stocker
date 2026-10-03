@@ -58,7 +58,7 @@ try:
     result = readers.readiness(c)
     current = readers.current(c)
     if readers.is_rolling(current):
-        operational_snapshot.require_alpaca_nasdaq(c, current)
+        operational_snapshot.require_alpaca_openfigi(c, current)
     readiness.save_snapshot(c, result)
     checks = [
         {'name': item.name, 'status': item.status,

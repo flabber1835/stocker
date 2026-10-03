@@ -99,9 +99,9 @@ class AutomationConfig(_FrozenModel):
     schema_version: int = Field(default=1, ge=1)
     publication_timing_policy: str = Field(
         default=(
-            "ALPACA_NASDAQ_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1"),
+            "ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1"),
         pattern=(
-            r"^ALPACA_NASDAQ_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1$"))
+            r"^ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1$"))
     # Retained in the v1 identity for compatibility with already persisted
     # configuration rows. Scheduling no longer derives source finality from a
     # close-relative delay; publication_timing_policy is authoritative.

@@ -1,4 +1,4 @@
-"""Bounded GET-only operational input transport for Alpaca and Nasdaq Trader.
+"""Bounded GET-only operational input transport for Alpaca.
 
 No account or order endpoint is reachable through this client. Returned bytes,
 timestamps and request parameters are evidence, never a vendor-wide snapshot.
@@ -15,13 +15,12 @@ from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from sentinel.feed import rolling_work
-from sentinel.feed.alpaca_nasdaq import DIRECTORY_URLS
 
 DATA = "https://data.alpaca.markets"
 ASSETS = "https://paper-api.alpaca.markets/v2/assets"
 BAR_URL = DATA + "/v2/stocks/bars"
 ACTION_URL = DATA + "/v1/corporate-actions"
-ALLOWED = frozenset((*DIRECTORY_URLS, ASSETS, BAR_URL, ACTION_URL))
+ALLOWED = frozenset((ASSETS, BAR_URL, ACTION_URL))
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 MAX_PAGES = 2000
 MAX_RETRIES = 4
@@ -61,24 +60,21 @@ class Client:
         self._last_request = now
 
     def get(self, endpoint: str, params: dict | None = None, *, text=False):
-        if endpoint not in ALLOWED or (text != (endpoint in DIRECTORY_URLS)):
+        if endpoint not in ALLOWED or text:
             raise AlpacaTransportRefused("unsupported operational input endpoint")
         params = dict(params or {})
         if any(not isinstance(k, str) or not isinstance(v, (str, int))
                for k, v in params.items()):
             raise AlpacaTransportRefused("invalid provider request parameters")
-        headers = {}
-        if endpoint not in DIRECTORY_URLS:
-            key = os.environ.get("ALPACA_API_KEY", "").strip()
-            secret = os.environ.get("ALPACA_SECRET_KEY", "").strip()
-            if not key or not secret:
-                raise AlpacaTransportRefused("Alpaca read-only data credentials are absent")
-            headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
+        key = os.environ.get("ALPACA_API_KEY", "").strip()
+        secret = os.environ.get("ALPACA_SECRET_KEY", "").strip()
+        if not key or not secret:
+            raise AlpacaTransportRefused("Alpaca read-only data credentials are absent")
+        headers = {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
         url = endpoint + ("?" + urlencode(params) if params else "")
         for attempt in range(MAX_RETRIES):
             rolling_work.checkpoint()
-            if endpoint not in DIRECTORY_URLS:
-                self._pace()
+            self._pace()
             request = Request(url, headers=headers, method="GET")
             try:
                 with self._opener.open(request, timeout=45) as response:

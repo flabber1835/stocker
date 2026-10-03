@@ -99,13 +99,13 @@ def _rolling_metadata_snapshot_identity(conn, pub) -> Mapping:
     refs = SnapshotReferences(conn, candidate_id=binding["candidate_id"],
                               snapshot_id=binding["snapshot_id"])
     source = rolling_store.load_evidence(conn, refs.manifest.source_evidence_sha256)
-    if refs.manifest.provider == "ALPACA_NASDAQ":
-        if source.get("schema") != "sentinel.alpaca-nasdaq-operational-source/1":
+    if refs.manifest.provider == "ALPACA_OPENFIGI":
+        if source.get("schema") != "sentinel.alpaca-openfigi-operational-source/1":
             raise AuthorityRefused("Alpaca metadata source identity is missing")
         components = [item for item in source.get("components", [])
                       if item.get("component") == "TICKERS"]
         if len(components) != 1:
-            raise AuthorityRefused("Alpaca/Nasdaq metadata evidence is missing")
+            raise AuthorityRefused("Alpaca/OpenFIGI metadata evidence is missing")
         at = components[0].get("evidence", {}).get("assets", {}).get("observed_at")
         try:
             observed = datetime.fromisoformat(at)

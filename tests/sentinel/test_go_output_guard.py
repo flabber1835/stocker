@@ -27,6 +27,13 @@ def test_redact_removes_bare_and_embedded_actual_secret_values():
     assert safe.count("[REDACTED]") == 2
 
 
+def test_openfigi_key_is_redacted_as_an_actual_secret():
+    key = 'private-mapping-token'
+    values = guard._secret_values({'OPENFIGI_API_KEY':key})
+    assert key in values
+    assert key not in guard.redact('lookup failed: '+key, secrets=values)
+
+
 def test_run_guarded_redacts_actual_secrets_on_stdout_and_stderr(monkeypatch, capsys):
     secret = "actual-runtime-authority-928374"
     monkeypatch.setattr(

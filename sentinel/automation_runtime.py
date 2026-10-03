@@ -668,7 +668,7 @@ class ProductionAutomation:
                 "operational automation requires rolling Alpaca inputs")
         from sentinel.feed import operational_snapshot
         try:
-            operational_snapshot.require_alpaca_nasdaq(conn, current)
+            operational_snapshot.require_alpaca_openfigi(conn, current)
         except operational_snapshot.OperationalSnapshotRefused as exc:
             raise NonRetryableCallbackRefused(str(exc)) from exc
 
@@ -766,7 +766,7 @@ class ProductionAutomation:
             if self._operational_source_only:
                 from sentinel.feed import operational_snapshot
                 try:
-                    operational_snapshot.require_alpaca_nasdaq(conn, current)
+                    operational_snapshot.require_alpaca_openfigi(conn, current)
                 except operational_snapshot.OperationalSnapshotRefused as exc:
                     raise NonRetryableCallbackRefused(str(exc)) from exc
             if feed_inputs.is_rolling(current):
@@ -1455,7 +1455,7 @@ class ProductionAutomation:
                     "fenced automation requires rolling Alpaca inputs")
             if getattr(self, "_operational_source_only", False):
                 from sentinel.feed import operational_snapshot
-                operational_snapshot.require_alpaca_nasdaq(conn, current)
+                operational_snapshot.require_alpaca_openfigi(conn, current)
             if feed_inputs.is_rolling(current):
                 feed_inputs.require_shadow_mode(current, getattr(self, "_dual_run_enabled", False))
                 from sentinel import dual_reconciliation

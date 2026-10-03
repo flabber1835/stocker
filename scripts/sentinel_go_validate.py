@@ -65,7 +65,7 @@ DATA_PUBLICATION_SCHEMA = "sentinel.data-publication-binding/1"
 SHADOW_EXECUTION_MODEL = "PROSPECTIVE_CONCORDANCE_SCALAR_CORE_BIL_V3"
 SHADOW_CUTOFF_POLICY = "STRICT_BEFORE_OFFICIAL_NEXT_XNYS_OPEN_V1"
 SHADOW_PUBLICATION_TIMING_POLICY = (
-    "ALPACA_NASDAQ_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
+    "ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
 
 GATE_IDS = (
     "git_identity",
@@ -150,6 +150,7 @@ _SUMMARY_COUNT = re.compile(
 _SAFE_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,95}$")
 _OBSERVATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$")
 _SECRET_NAMES = frozenset({
+    "OPENFIGI_API_KEY",
     "SHARADAR_API_KEY",
     "ALPACA_API_KEY",
     "ALPACA_SECRET_KEY",
@@ -1076,7 +1077,7 @@ def probe_prevalidation_preparation(
         runner: CommandRunner, *, env: Mapping[str, str],
         runtime_ref: Optional[str], commit: Optional[str],
         monotonic: Callable[[], float] = time.monotonic) -> PreparationSummary:
-    """Prepare schema plus bounded Alpaca/Nasdaq inputs before read-only review."""
+    """Prepare schema plus bounded Alpaca/OpenFIGI inputs before read-only review."""
     prerequisites = (
         bool(str(env.get("ALPACA_API_KEY") or "").strip())
         and bool(str(env.get("ALPACA_SECRET_KEY") or "").strip())
@@ -1119,7 +1120,7 @@ def probe_prevalidation_preparation(
     completed = runner.run([
         "docker", "compose", *compose_args, "--profile", "cli", "run",
         "--rm", "-T", "--no-deps", "--env", "ALPACA_API_KEY",
-        "--env", "ALPACA_SECRET_KEY", "--entrypoint", "python", "sentinel",
+        "--env", "ALPACA_SECRET_KEY", "--env", "OPENFIGI_API_KEY", "--entrypoint", "python", "sentinel",
         "-c", _PREPARATION_CODE,
     ], env=run_env)
     elapsed_milliseconds = max(
