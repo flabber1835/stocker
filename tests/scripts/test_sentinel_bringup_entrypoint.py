@@ -135,8 +135,8 @@ def test_real_shell_entrypoint_is_diagnostic_only_and_hands_recovery_to_go(tmp_p
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "=== BRINGUP: CHEAP HOST AUTHORITY ===" in completed.stdout
     assert "=== BRINGUP: PAPER ACCOUNT - GET ONLY ===" in completed.stdout
-    assert "=== BRINGUP: LOCAL + SOURCE LIVENESS ===" in completed.stdout
-    assert "bring-up liveness: DEFERRED - SHARADAR_SOURCE_NOT_FINAL" in completed.stdout
+    assert "=== BRINGUP: LOCAL DURABILITY + IMAGE ===" in completed.stdout
+    assert "bring-up liveness:" not in completed.stdout
     assert "bring-up --recover: compatibility mode only" in completed.stdout
     assert "BRINGUP_READY_FOR_CERTIFICATION" in completed.stdout
     assert "Certified GO owns bounded recovery" in completed.stdout
@@ -146,7 +146,7 @@ def test_real_shell_entrypoint_is_diagnostic_only_and_hands_recovery_to_go(tmp_p
 def test_real_shell_entrypoint_hands_repairable_backup_to_certified_go(tmp_path):
     completed = _run(tmp_path, "backup_repairable", "--recover")
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "bring-up liveness: DEFERRED - SHARADAR_SOURCE_NOT_FINAL" in completed.stdout
+    assert "bring-up liveness:" not in completed.stdout
     assert (
         "BRINGUP_READY_FOR_CERTIFIED_BACKUP_REFRESH - "
         "WAL_ARCHIVE_UNRESOLVED_FAILURE" in completed.stdout)
@@ -155,12 +155,11 @@ def test_real_shell_entrypoint_hands_repairable_backup_to_certified_go(tmp_path)
     assert "BRINGUP_BLOCKED" not in completed.stdout + completed.stderr
 
 
-def test_real_shell_entrypoint_blocks_true_source_liveness_refusal(tmp_path):
+def test_real_shell_entrypoint_does_not_query_retired_source(tmp_path):
     completed = _run(tmp_path, "source_refused", "--recover")
-    assert completed.returncode == 3
-    assert "bring-up liveness: REFUSED - SHARADAR_LIVENESS_UNAVAILABLE" in completed.stdout
-    assert "BRINGUP_BLOCKED - SHARADAR_LIVENESS_UNAVAILABLE" in completed.stdout
-    assert "BRINGUP_READY_FOR_CERTIFICATION" not in completed.stdout
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "bring-up liveness:" not in completed.stdout
+    assert "BRINGUP_READY_FOR_CERTIFICATION" in completed.stdout
 
 
 def test_real_shell_entrypoint_stops_on_host_preflight_refusal(tmp_path):
@@ -169,7 +168,7 @@ def test_real_shell_entrypoint_stops_on_host_preflight_refusal(tmp_path):
     assert "=== BRINGUP: CHEAP HOST AUTHORITY ===" in completed.stdout
     assert "fixture host preflight: REFUSED" in completed.stderr
     assert "=== BRINGUP: PAPER ACCOUNT - GET ONLY ===" not in completed.stdout
-    assert "=== BRINGUP: LOCAL + SOURCE LIVENESS ===" not in completed.stdout
+    assert "=== BRINGUP: LOCAL DURABILITY + IMAGE ===" not in completed.stdout
 
 
 def test_real_shell_entrypoint_stops_on_paper_account_preflight_refusal(tmp_path):
@@ -177,13 +176,13 @@ def test_real_shell_entrypoint_stops_on_paper_account_preflight_refusal(tmp_path
     assert completed.returncode == 2
     assert "=== BRINGUP: PAPER ACCOUNT - GET ONLY ===" in completed.stdout
     assert "fixture paper account preflight: REFUSED" in completed.stderr
-    assert "=== BRINGUP: LOCAL + SOURCE LIVENESS ===" not in completed.stdout
+    assert "=== BRINGUP: LOCAL DURABILITY + IMAGE ===" not in completed.stdout
 
 
 def test_real_shell_entrypoint_without_recover_is_ready_for_go_without_mutation(tmp_path):
     completed = _run(tmp_path, "source_final")
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "bring-up liveness: PASS - SHARADAR_LIVENESS_OK" in completed.stdout
+    assert "bring-up liveness:" not in completed.stdout
     assert "BRINGUP_READY_FOR_CERTIFICATION" in completed.stdout
     assert "compatibility mode only" not in completed.stdout
     assert "bring-up recovery:" not in completed.stdout
@@ -192,7 +191,6 @@ def test_real_shell_entrypoint_without_recover_is_ready_for_go_without_mutation(
 def test_local_data_lag_is_reported_but_recovery_is_left_to_go(tmp_path):
     completed = _run(tmp_path, "local_recovery", "--recover")
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "bring-up liveness: RECOVERY_REQUIRED - LOCAL_DATA_PREPARATION_REQUIRED" in completed.stdout
-    assert "local_followup=SEP_CURSOR_MISSING" in completed.stdout
+    assert "bring-up liveness:" not in completed.stdout
     assert "BRINGUP_READY_FOR_CERTIFICATION" in completed.stdout
     assert "bring-up recovery:" not in completed.stdout

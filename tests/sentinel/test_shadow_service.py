@@ -59,6 +59,74 @@ def test_shadow_service_config_is_explicit_and_normalized():
             SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY="close-plus-one-second"))
 
 
+def test_deployed_shadow_requires_alpaca_and_refuses_sharadar():
+    env = _env(SENTINEL_FEED_SERVICE_MODE="SHADOW",
+               ALPACA_API_KEY="data-key", ALPACA_SECRET_KEY="data-secret")
+    config = shadow_service.ShadowServiceConfig.from_env(env)
+    assert config.operational_source_only
+    for changed, message in (
+            ({"ALPACA_API_KEY": ""}, "market-data credentials"),
+            ({"ALPACA_SECRET_KEY": ""}, "market-data credentials"),
+            ({"SHARADAR_API_KEY": "retired"}, "Sharadar credentials"),
+            ({"SENTINEL_PAPER_ACCOUNT_ID": "paper"}, "broker authority")):
+        with pytest.raises(shadow_service.ShadowServiceRefused, match=message):
+            shadow_service.ShadowServiceConfig.from_env({**env, **changed})
+
+
+def test_deployed_shadow_refuses_legacy_preflight_before_source_call(monkeypatch):
+    config = shadow_service.ShadowServiceConfig.from_env(_env(
+        SENTINEL_FEED_SERVICE_MODE="SHADOW", ALPACA_API_KEY="data-key",
+        ALPACA_SECRET_KEY="data-secret"))
+    monkeypatch.setattr(shadow_service, "preflight", lambda *_a, **_k: {
+        "status": "ATTESTED_STRUCTURAL", "latest_session": "2026-09-30"})
+    monkeypatch.setattr(shadow_service.feed_store, "connect", lambda *_a: pytest.fail(
+        "legacy source must not be opened"))
+    with pytest.raises(shadow_service.ShadowServiceRefused,
+                       match="rolling Alpaca inputs"):
+        shadow_service.advance_once(config)
+
+
+def test_operational_source_gate_rejects_sharadar_rolling_candidate(monkeypatch):
+    from sentinel.feed import operational_snapshot, rolling_store
+    monkeypatch.setattr(operational_snapshot, "_bound", lambda *_a: {
+        "candidate_id": "candidate"})
+    monkeypatch.setattr(rolling_store, "manifest", lambda *_a: SimpleNamespace(
+        provider="SHARADAR"))
+    with pytest.raises(operational_snapshot.OperationalSnapshotRefused,
+                       match="ALPACA_NASDAQ_SOURCE_REQUIRED"):
+        operational_snapshot.require_alpaca_nasdaq(object(), object())
+    monkeypatch.setattr(rolling_store, "manifest", lambda *_a: SimpleNamespace(
+        provider="ALPACA_NASDAQ"))
+    assert operational_snapshot.require_alpaca_nasdaq(
+        object(), object())["candidate_id"] == "candidate"
+
+
+def test_deployed_shadow_preflight_checks_provider_before_lineage(monkeypatch):
+    from sentinel.feed import operational_snapshot, readers
+    config = shadow_service.ShadowServiceConfig.from_env(_env(
+        SENTINEL_FEED_SERVICE_MODE="SHADOW", ALPACA_API_KEY="data-key",
+        ALPACA_SECRET_KEY="data-secret"))
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *_a): return False
+        def execute(self, *_a): pass
+    class Conn:
+        def cursor(self): return Cursor()
+    monkeypatch.setattr(shadow_service.schema, "require_runtime_schema",
+                        lambda *_a: None)
+    monkeypatch.setattr(readers, "current", lambda *_a: object())
+    monkeypatch.setattr(readers, "is_rolling", lambda *_a: True)
+    monkeypatch.setattr(operational_snapshot, "require_alpaca_nasdaq",
+                        lambda *_a: (_ for _ in ()).throw(
+                            operational_snapshot.OperationalSnapshotRefused(
+                                "OPERATIONAL_ALPACA_NASDAQ_SOURCE_REQUIRED")))
+    monkeypatch.setattr(shadow_service.shadow_runtime, "classify_shadow_lineage",
+                        lambda *_a, **_k: pytest.fail("lineage reached before source gate"))
+    with pytest.raises(shadow_service.ShadowServiceRefused,
+                       match="ALPACA_NASDAQ_SOURCE_REQUIRED"):
+        shadow_service._preflight(Conn(), config)
+
+
 def test_new_installation_defaults_to_fifty_thousand_across_runtime_callers():
     from sentinel.automation_runtime import shadow_config_from_env
     env = _env()
@@ -566,7 +634,7 @@ def test_visible_close_is_never_trusted_before_local_2345(monkeypatch):
             datetime(2026, 11, 30, 21, 0, tzinfo=timezone.utc)))
 
     with pytest.raises(shadow_service.ShadowServiceWaiting,
-                       match="reviewed Sharadar publication"):
+                       match="reviewed daily publication"):
         shadow_service._causal_target(
             preflight_status="NOT_STARTED",
             now=datetime(2026, 11, 27, 23, 44, tzinfo=eastern))
@@ -613,8 +681,10 @@ def test_shadow_module_and_compose_service_have_no_broker_surface():
     block = compose[start:]
     assert 'profiles: ["shadow"]' in block
     assert 'entrypoint: ["python", "-m", "sentinel.shadow_supervisor"]' in block
-    assert "ALPACA_API_KEY" not in block
-    assert "ALPACA_SECRET_KEY" not in block
+    assert "SENTINEL_FEED_SERVICE_MODE: SHADOW" in block
+    assert "ALPACA_API_KEY" in block
+    assert "ALPACA_SECRET_KEY" in block
+    assert "SHARADAR_API_KEY" not in block
     assert "SENTINEL_PAPER_ACCOUNT_ID" not in block
     assert "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256" in block
     assert shadow_service.shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY in block

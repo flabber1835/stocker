@@ -32,6 +32,10 @@ class AlpacaTransportRefused(RuntimeError):
     pass
 
 
+class AlpacaTransportUnavailable(AlpacaTransportRefused):
+    """A bounded retry budget ended on a retryable provider/transport failure."""
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -108,7 +112,7 @@ class Client:
             if attempt + 1 == MAX_RETRIES:
                 break
             self._sleep(max(wait, min(2 ** attempt, 8)))
-        raise AlpacaTransportRefused("provider request exhausted its retry budget")
+        raise AlpacaTransportUnavailable("provider request exhausted its retry budget")
 
     def pages(self, endpoint: str, params: dict, *, key: str):
         """Yield complete pages and byte evidence; repeated tokens refuse."""

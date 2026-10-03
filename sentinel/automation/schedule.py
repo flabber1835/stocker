@@ -36,10 +36,8 @@ def for_decision_session(
         decision_session=decision,
         effective_session=effective,
         decision_close_at=close_utc,
-        # Sharadar SEP/SFP publish again at 23:30 ET. A close-relative delay
-        # (the former default was close+15m) can freeze provisional data and is
-        # especially wrong on half-days. PAPER transport and certified shadow
-        # therefore share the reviewed fixed 23:45 America/New_York boundary.
+        # Paper transport and shadow share the reviewed fixed 23:45
+        # America/New_York source-final boundary, including half-days.
         prepare_at=publication_not_before(decision.isoformat()),
         execution_open_at=open_utc,
         execute_at=(open_utc

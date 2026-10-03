@@ -4,8 +4,11 @@
 Sharadar operational-source choice for first deployment. GO uses Alpaca SIP
 bars/actions and free Nasdaq directories; Sharadar remains historical research
 data. This is a new source and strategy identity requiring its own validation.
-The first change does not authorize paper execution or unattended daily
-automation.
+The subsequent [Alpaca/Nasdaq daily-operation decision](alpaca-daily-operations.md)
+extends that source to the production shadow publisher and automation reader.
+Historical Sharadar storage and research readers remain; operational fallback
+to Sharadar is retired. Neither change authorizes paper execution without the
+existing signed admission and deployed qualification gates.
 
 [Large reference storage](rolling-snapshot-storage.md#large-reference-representation)
 avoids expanding full provider reference bundles into PostgreSQL JSONB. Apply
@@ -1673,7 +1676,9 @@ property is why it is a script: this runs on the NAS over SSH, and a terminal
 that has echoed a Sharadar key has put it in scrollback and in the session
 transcript.
 
-It refuses if `SHARADAR_API_KEY` is absent or still a placeholder, generates
+For the Alpaca-led operational path it refuses if either Alpaca credential is
+absent or a placeholder and drops all Sharadar variables. Keep any historical
+Sharadar credential in a separate offline research environment. It generates
 `SENTINEL_POSTGRES_PASSWORD` and the independent
 `SENTINEL_PUBLICATION_RECEIPT_KEY` (the Stocker file has no equivalent for
 either, and compose declares both `:?` so it will not start without them), and

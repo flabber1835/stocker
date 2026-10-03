@@ -1,9 +1,11 @@
 """Dedicated broker-free unattended shadow observation service.
 
 This module deliberately imports neither ProductionAutomation nor any Sentinel
-execution/broker adapter.  Its environment contract rejects Alpaca authority,
-and its only external mutation is the canonical Sharadar ingest/publication
-path plus the append-only shadow observation tables.
+execution/broker adapter. Deployed shadow mode uses Alpaca credentials only
+through the GET-only market-data client, requires an Alpaca/Nasdaq rolling
+publication, and rejects account identity and Sharadar credentials. The legacy
+path remains for offline historical fixtures and cannot be entered by the
+deployed shadow service.
 """
 from __future__ import annotations
 
@@ -50,16 +52,28 @@ class ShadowServiceConfig:
     starting_cash: Decimal
     publication_timing_policy: str
     poll_seconds: int
+    operational_source_only: bool = False
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None
                  ) -> "ShadowServiceConfig":
         source = os.environ if env is None else env
-        leaked = [name for name in _BROKER_AUTHORITY_ENV
-                  if str(source.get(name) or "").strip()]
+        operational_source_only = (
+            str(source.get("SENTINEL_FEED_SERVICE_MODE") or "").strip()
+            == "SHADOW")
+        forbidden = ("SENTINEL_PAPER_ACCOUNT_ID",) if operational_source_only else _BROKER_AUTHORITY_ENV
+        leaked = [name for name in forbidden if str(source.get(name) or "").strip()]
         if leaked:
             raise ShadowServiceRefused(
                 "broker authority is forbidden in the shadow service environment")
+        if operational_source_only:
+            if not all(str(source.get(name) or "").strip() for name in (
+                    "ALPACA_API_KEY", "ALPACA_SECRET_KEY")):
+                raise ShadowServiceRefused(
+                    "Alpaca market-data credentials are required for operational shadow")
+            if str(source.get("SHARADAR_API_KEY") or "").strip():
+                raise ShadowServiceRefused(
+                    "Sharadar credentials are forbidden in operational shadow")
         enabled = str(source.get(
             "SENTINEL_SHADOW_OBSERVATION_ENABLED", "0")).strip().lower()
         if enabled not in {"1", "true", "yes", "on"}:
@@ -114,7 +128,7 @@ class ShadowServiceConfig:
                 "SENTINEL_SHADOW_POLL_SECONDS must be in [5, 3600]")
         return cls(
             database_url, observation_id, starting_cash,
-            publication_timing_policy, poll_seconds)
+            publication_timing_policy, poll_seconds, operational_source_only)
 
 
 def _preflight(conn, config: ShadowServiceConfig, *,
@@ -124,6 +138,16 @@ def _preflight(conn, config: ShadowServiceConfig, *,
     with conn.cursor() as cur:
         cur.execute("BEGIN TRANSACTION READ ONLY")
     schema.require_runtime_schema(conn)
+    if config.operational_source_only:
+        from sentinel.feed import operational_snapshot, readers
+        current = readers.current(conn)
+        if not readers.is_rolling(current):
+            raise ShadowServiceRefused(
+                "operational shadow requires rolling Alpaca inputs")
+        try:
+            operational_snapshot.require_alpaca_nasdaq(conn, current)
+        except operational_snapshot.OperationalSnapshotRefused as exc:
+            raise ShadowServiceRefused(str(exc)) from exc
     classified = shadow_runtime.classify_shadow_lineage(
         conn, observation_id=config.observation_id,
         starting_cash=config.starting_cash,
@@ -230,6 +254,11 @@ def service_health(config: ShadowServiceConfig, *,
     """Structural liveness without mislabeling an ordinary daily gap red."""
     retained = preflight(
         config, now=now, allow_stale_frontier=True)
+    if config.operational_source_only:
+        from sentinel.rolling_runtime import SCHEMA
+        if retained.get("input_contract") != SCHEMA:
+            raise ShadowServiceRefused(
+                "operational shadow requires rolling Alpaca inputs")
     status = str(retained.get("status") or "")
     if "input_contract" in retained and status in {
             "ATTESTED_STRUCTURAL", "RECONSTRUCTION_REQUIRED", "RECONSTRUCTED_STRUCTURAL"}:
@@ -276,7 +305,7 @@ def _causal_target(*, preflight_status: str,
     eligible = shadow_runtime.publication_not_before(target)
     if instant.astimezone(timezone.utc) < eligible:
         raise ShadowServiceWaiting(
-            "shadow observation is waiting for the reviewed Sharadar "
+            "shadow observation is waiting for the reviewed daily "
             f"publication not-before {eligible.isoformat()}")
     if preflight_status == "NOT_STARTED":
         following = calendar.next_session(target)
@@ -299,6 +328,11 @@ def advance_once(config: ShadowServiceConfig, *,
     # config/source identity drift, or malformed authority still refuses here.
     retained = preflight(
         config, now=now, allow_stale_frontier=True)
+    if config.operational_source_only:
+        from sentinel.rolling_runtime import SCHEMA
+        if retained.get("input_contract") != SCHEMA:
+            raise ShadowServiceRefused(
+                "operational shadow requires rolling Alpaca inputs")
     retained_status = str(retained.get("status") or "")
     target = (str(retained.get("recovery_session"))
               if retained_status == "RECOVERY_REQUIRED"
@@ -372,7 +406,7 @@ def advance_once(config: ShadowServiceConfig, *,
                 except Exception as exc:  # vendor/network failures are retryable
                     conn.rollback()
                     raise ShadowServiceRetry(
-                        "Sharadar publication is not ready (%s)" %
+                        "legacy publication is not ready (%s)" %
                         type(exc).__name__) from exc
                 visible = feed_store.latest_visible_session(conn)
             report = readiness.check_readiness(conn)

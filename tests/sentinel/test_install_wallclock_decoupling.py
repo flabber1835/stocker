@@ -320,6 +320,21 @@ def test_deferred_wait_never_enters_vendor_path_before_target_source_final(
     assert events.index("readiness") > events.index("state")
 
 
+def test_operational_install_refuses_stale_go_frontier_without_waiting():
+    instance = object.__new__(install_deploy.InstallAnytimeDeploy)
+    instance._operational_source_only = True
+    instance.cfg = SimpleNamespace(
+        data_wait_timeout_seconds=60, data_retry_seconds=1)
+    instance._assert_wait_fence = lambda: None
+    instance._causal_timing = lambda: _timing(
+        source_final=True, prospective=True, frontier="2026-08-26")
+    instance._readiness_verdict = lambda: pytest.fail("readiness reached")
+    instance._wait_for_data = lambda **_k: pytest.fail("stopped publisher waited on")
+    with pytest.raises(install_deploy.core.DeployRefused,
+                       match="run GO again"):
+        instance._wait_until_causal_ready()
+
+
 def test_vendor_catchup_is_allowed_only_after_target_source_final(monkeypatch):
     instance = object.__new__(install_deploy.InstallAnytimeDeploy)
     instance.cfg = SimpleNamespace(

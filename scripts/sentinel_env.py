@@ -48,10 +48,18 @@ FILE_PREFIXES = ("SENTINEL_", "SHARADAR_", "ALPACA_", "NDL_")
 FILE_EXTRA_KEYS = frozenset({
     "GITHUB_TOKEN", "GH_TOKEN", "COMPOSE_DISABLE_ENV_FILE", "COMPOSE_ENV_FILES",
 })
+
+
+def operational_values(values: Mapping[str, str]) -> Dict[str, str]:
+    """Keep historical vendor variables out of operational child processes."""
+    return {key: value for key, value in values.items()
+            if not key.startswith(("SHARADAR_", "NDL_"))}
+
+
 HEX64_OR_EMPTY = re.compile(r"(?:|[0-9a-f]{64})\Z")
 OBSERVATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,63}\Z")
 PUBLICATION_POLICY = (
-    "SHARADAR_SEP_SFP_SECOND_UPDATE_PLUS_15M_2345_AMERICA_NEW_YORK_V1")
+    "ALPACA_NASDAQ_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
 FLEX_BOOLEAN = frozenset({
     "", "0", "1", "false", "true", "no", "yes", "off", "on",
 })
@@ -559,12 +567,10 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
         "SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD"]
     if profile in {"go", "install", "bootstrap"}:
         required += ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"]
-    elif profile not in {"compose", "maintenance"}:
-        required += ["SHARADAR_API_KEY"]
     if profile == "maintenance":
         required = ["SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", RECEIPT_KEY]
-    broker_credentials = (profile == "bringup" or (
-        profile in {"install", "go"} and target != "SHADOW"))
+    broker_credentials = (
+        profile in {"install", "go"} and target != "SHADOW")
     alert_dispatcher = broker_credentials or require_alert_dispatcher
     if broker_credentials:
         required += ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"]
@@ -645,7 +651,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             require_alert_dispatcher=(automation_args is not None
                                       and automation_requires_alerts(automation_args)))
         if args.records:
-            names = set(values) | {"COMPOSE_DISABLE_ENV_FILE", "COMPOSE_ENV_FILES"}
+            # The operational bridge must never export retired historical
+            # source credentials into GO, install, or service launchers.
+            names = set(operational_values(values))
+            names |= {"COMPOSE_DISABLE_ENV_FILE", "COMPOSE_ENV_FILES"}
             if not values.get(RECEIPT_KEY) and RECEIPT_KEY not in os.environ:
                 names.discard(RECEIPT_KEY)
             for key in names:

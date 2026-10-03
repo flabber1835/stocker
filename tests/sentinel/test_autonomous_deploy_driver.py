@@ -182,6 +182,42 @@ def _probe(ready, count=0, sessions=None, ticker_rows=6000):
     }
 
 
+def test_deployed_installer_refuses_legacy_before_vendor_probe(tmp_path):
+    obj = _deploy_for_wait(tmp_path)
+    obj._operational_source_only = True
+    obj._assert_wait_fence = lambda: None
+    obj._readiness_verdict = lambda: _freshness_failure()
+    obj._vendor_publication_probe = lambda *_a: pytest.fail(
+        "Sharadar probe must not run")
+    with pytest.raises(core.DeployRefused, match="quiesced shadow publisher"):
+        obj._wait_for_data(deadline=300.0)
+
+
+def test_deployed_installer_requires_ready_rolling_go_without_ingest(tmp_path):
+    obj = _deploy_for_wait(tmp_path)
+    obj._operational_source_only = True
+    obj._assert_wait_fence = lambda: None
+    stale = {"rolling": True, "ready": False, "failures": [
+        {"name": "rolling source-final frontier", "status": "FAIL"}]}
+    obj._readiness_verdict = lambda: stale
+    obj._refuse_data_readiness = lambda *_a, **_k: (_ for _ in ()).throw(
+        core.DeployRefused("run GO again"))
+    commands = []
+    obj._base_cli = lambda args, **_k: commands.append(args)
+    obj.runner.run = lambda args: commands.append(args)
+    obj._write_deployment_state = lambda *args, **kwargs: commands.append(
+        ["state", args[0]])
+    with pytest.raises(core.DeployRefused, match="run GO again"):
+        obj.refresh_data()
+    assert commands == []
+    obj._readiness_verdict = lambda: {"rolling": True, "ready": True,
+                                      "failures": []}
+    obj.refresh_data()
+    assert commands == [["check-data"],
+                        obj.base_compose + ["up", "-d", "sentinel-panel"],
+                        ["state", "DATA_READY"]]
+
+
 def test_vendor_probe_reuses_canonical_readiness_floor(tmp_path):
     obj = _deploy_for_wait(tmp_path)
     sessions, floor = obj._freshness_wait_requirements(_freshness_failure())

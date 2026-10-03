@@ -36,5 +36,5 @@ phase "PAPER ACCOUNT - GET ONLY"
 "$PYTHON" scripts/sentinel_go_account_preflight.py \
   --target DUAL_RUN_OBSERVATION
 
-phase "LOCAL + SOURCE LIVENESS"
+phase "LOCAL DURABILITY + IMAGE"
 exec "$PYTHON" scripts/sentinel_bringup_install_anytime.py "$@"

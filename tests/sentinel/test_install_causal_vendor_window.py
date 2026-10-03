@@ -103,6 +103,23 @@ def test_deferred_vendor_probe_and_feed_recheck_causal_window(monkeypatch):
     assert calls == []
 
 
+@pytest.mark.parametrize("command", [
+    ["feed-daily"], ["feed-daily", "--through", "2026-08-27"],
+    ["feed-seed"],
+])
+def test_operational_install_refuses_legacy_source_command(monkeypatch, command):
+    instance = object.__new__(install_deploy.InstallAnytimeDeploy)
+    instance._operational_source_only = True
+    calls = []
+    monkeypatch.setattr(
+        install_deploy.bootstrap.BootstrapDeploy, "_base_cli",
+        lambda self, args, *, capture=False, check=True: calls.append(args))
+    with pytest.raises(install_deploy.core.DeployRefused,
+                       match="legacy Sharadar ingestion"):
+        instance._base_cli(command)
+    assert calls == []
+
+
 def test_deferred_vendor_probe_rejects_session_newer_than_causal_target(monkeypatch):
     instance = object.__new__(install_deploy.InstallAnytimeDeploy)
     instance._causal_wait_target = "2026-08-27"

@@ -194,6 +194,15 @@ class EnvHarness(unittest.TestCase):
             with self.assertRaises(GO.ValidationRefused):
                 GO.merged_environment(self.path)
 
+    def test_operational_launchers_filter_retired_source_credentials(self):
+        self.write(dict(BASE, NDL_BASE_URL="https://historical.example.invalid"))
+        with mock.patch.dict(os.environ, BASE, clear=True):
+            for loader in (GO.merged_environment, DEPLOY.merged_environment):
+                resolved = loader(self.path)
+                self.assertIn("ALPACA_API_KEY", resolved)
+                self.assertNotIn("SHARADAR_API_KEY", resolved)
+                self.assertNotIn("NDL_BASE_URL", resolved)
+
     def test_file_size_and_line_size_bounds(self):
         with self.assertRaisesRegex(env.EnvRefused, "FILE_TOO_LARGE"):
             env.parse_bytes(b"#" * (env.MAX_BYTES + 1))
@@ -410,7 +419,6 @@ class EnvHarness(unittest.TestCase):
             ("sentinel-autonomous-deploy.sh", ("--mode=paper",)),
             ("sentinel-go-validate.sh", ("--target", "DUAL_RUN_OBSERVATION")),
             ("sentinel-go-validate.sh", ("--target=HISTORICAL_PAPER_EXECUTION",)),
-            ("sentinel-bringup.sh", ()),
         )
         with tempfile.TemporaryFile() as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
@@ -488,7 +496,7 @@ class EnvHarness(unittest.TestCase):
         result = self.run_shell("sentinel-compose.sh", process, "--run", "up", "-d")
         self.assertEqual(result.returncode, 0, result.stderr)
         selected = json.loads((self.root / "selected.json").read_text())
-        self.assertEqual(selected["SHARADAR_API_KEY"], values["SHARADAR_API_KEY"])
+        self.assertNotIn("SHARADAR_API_KEY", selected)
         self.assertEqual(selected["ALPACA_API_KEY"], "process-wins")
         self.assertEqual(selected["SENTINEL_BACKUP_DIR"], BASE["SENTINEL_BACKUP_DIR"])
         self.assertEqual(selected["COMPOSE_DISABLE_ENV_FILE"], "1")

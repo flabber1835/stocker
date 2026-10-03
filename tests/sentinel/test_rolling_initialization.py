@@ -108,6 +108,11 @@ def ready(conn, operational_source, monkeypatch):
     monkeypatch.setattr(selected, 'production_strategy', production_strategy)
     from sentinel.feed import rolling_go_inputs
     monkeypatch.setattr(rolling_go_inputs, 'production_strategy', production_strategy)
+    # This fixture exercises retained historical formation semantics. The
+    # selected production startup now uses CurrentFormationWindow and has its
+    # own Alpaca integration tests; keep the old fixture explicitly isolated.
+    monkeypatch.setattr(op, 'acquisition_window',
+                        lambda *_a: FormationWindow.through('2026-09-14'))
     schema.ensure_schema(conn)
     data = operational_source
     template = deepcopy(data["TICKERS"][0])

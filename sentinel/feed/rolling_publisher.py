@@ -1,4 +1,4 @@
-"""Opt-in direct Sharadar comparison publisher. Never grants corpus/GO authority."""
+"""Rolling comparison and operational publisher with separate source authority."""
 from __future__ import annotations
 
 import math
@@ -133,6 +133,7 @@ def _checkpoint(conn, lease, *, ready, component, generation, artifact, rows, by
 
 def _record_failure(conn, lease, exc, *, operational=False):
     from sentinel.feed.acquisition_limits import AcquisitionResourceExceeded
+    from sentinel.feed.alpaca_transport import AlpacaTransportUnavailable
     from sentinel.feed.source_wait import SourceCoveragePending, record as record_source_wait
     conn.rollback()
     if jobs.expire(conn, lease.job_id):
@@ -153,7 +154,9 @@ def _record_failure(conn, lease, exc, *, operational=False):
             state = jobs.status(conn, lease.job_id)["state"]
             jobs.wait(conn, lease, state="WAIT_SOURCE" if state == "ACQUIRING" else "RETRY_WAIT",
                       reason="EXPORT_GENERATION_PENDING", retry_seconds=delay)
-        elif (isinstance(exc, (sharadar.SharadarRetryDeferred, ConnectionError, CorpusLockUnavailable))
+        elif (isinstance(exc, (sharadar.SharadarRetryDeferred,
+                               AlpacaTransportUnavailable, ConnectionError,
+                               CorpusLockUnavailable))
               or database_unavailable(exc)) and remaining > delay:
             reason = ("BACKUP_AUTHORITY_WAIT" if isinstance(exc, backup_runtime_authority.BackupRuntimeUnavailable)
                       else "DATABASE_UNAVAILABLE" if database_unavailable(exc)
