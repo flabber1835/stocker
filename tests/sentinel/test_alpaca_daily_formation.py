@@ -90,7 +90,7 @@ def provider(conn,monkeypatch):
     return prices,publish
 
 
-def test_full_formation_chain_and_frontier_match_unchanged_loader(conn,provider,monkeypatch):
+def test_full_formation_chain_and_frontier_match_unchanged_loader(conn,provider,monkeypatch, capfd):
     from sentinel.core.formation_inputs import FormationInputs
     prices,publish = provider
     binding = publish()
@@ -104,6 +104,34 @@ def test_full_formation_chain_and_frontier_match_unchanged_loader(conn,provider,
     assert actual[0].to_dict() == expected[0].to_dict()
     assert actual[1:] == expected[1:]
     assert cached.features.rows_read == 426*25
+    from scripts import sentinel_go_feed_progress
+    events = sentinel_go_feed_progress.collect(capfd.readouterr().err)
+    formation = [event for event in events if event['stage'] == 'historical_formation']
+    assert [event['sessions'] for event in formation] == list(range(127)) * 2
+    assert formation[126]['status'] == formation[-1]['status'] == 'completed'
+
+
+def test_old_alpaca_normalization_requires_fresh_acquisition(conn, provider, monkeypatch):
+    from sentinel.feed import rolling_go_inputs
+    from sentinel.core import rolling_inputs
+
+    prices, publish = provider
+    current = rolling_builder.ALPACA_NORMALIZATION
+    old = 'sentinel.alpaca-openfigi-dividend-current-window/1'
+    assert current != old
+    monkeypatch.setattr(rolling_builder, 'ALPACA_NORMALIZATION', old)
+    monkeypatch.setattr(rolling_inputs, 'ALPACA_NORMALIZATION', old)
+    publish()
+    monkeypatch.setattr(rolling_builder, 'ALPACA_NORMALIZATION', current)
+    monkeypatch.setattr(rolling_inputs, 'ALPACA_NORMALIZATION', current)
+
+    def acquire_again(*_a, **_k):
+        raise ConnectionError('fresh acquisition required')
+
+    monkeypatch.setattr(op, 'enqueue', acquire_again)
+    with pytest.raises(ConnectionError, match='fresh acquisition required'):
+        rolling_go_inputs.prepare(conn, target_session=str(prices.window.end))
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_corpus_publications").fetchone()[0] == 1
 
 
 def test_held_split_daily_restart_and_repeat_change_shares_once(conn,provider):

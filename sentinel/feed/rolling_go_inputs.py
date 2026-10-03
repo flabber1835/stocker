@@ -191,8 +191,11 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
             # generation remains usable until the next daily publication.
             from sentinel.feed.rolling_contract import FormationWindow
             from sentinel.core import window_policy
+            from sentinel.feed.rolling_builder import ALPACA_NORMALIZATION
             request = rolling_jobs.status(conn, binding['job_id'])['request']
             if (manifest.provider == 'ALPACA_NASDAQ'
+                    or (manifest.provider == 'ALPACA_OPENFIGI'
+                        and manifest.normalization_version != ALPACA_NORMALIZATION)
                     or request['strategy_sha256'] != digest(strategy)
                     or (actual != expected and (window_policy.enabled(strategy)
                                                 or isinstance(expected, FormationWindow)))):

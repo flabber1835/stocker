@@ -187,6 +187,27 @@ def test_invalid_split_terms_are_never_guessed(terms):
                     axis=set(AXIS))
 
 
+def test_cent_rounded_reverse_split_prices_keep_exact_terms_without_false_exclusion():
+    rows = [_row('A',AXIS[0],close=.8665,adjusted=13.86),
+            _row('A',AXIS[1],close=.6285,adjusted=10.06),
+            _row('A',AXIS[2],close=10,adjusted=10)]
+    kwargs = dict(axis=AXIS,symbols={'A'},action_affected=frozenset(),pair_absent=set())
+    terms = {('A',AXIS[2]):'0.0625'}
+    assert admissible_history(rows,split_terms=terms,**kwargs)[0] == {'A':AXIS[0]}
+    assert admissible_history(rows,**kwargs)[0] == {}
+    assert admissible_history(rows,split_terms={('A',AXIS[2]):'0.1'},**kwargs)[0] == {}
+    rows[1]['adjusted_close'] += .02
+    assert admissible_history(rows,split_terms=terms,**kwargs)[0] == {}
+
+
+def test_rounding_cannot_hide_material_unknown_split_in_low_price_history():
+    rows = [_row('A',AXIS[0],close=.001,adjusted=.01),
+            _row('A',AXIS[1],close=.0005,adjusted=.01),
+            _row('A',AXIS[2],close=.01,adjusted=.01)]
+    assert admissible_history(rows,axis=AXIS,symbols={'A'},action_affected=frozenset(),
+        pair_absent=set(),split_terms={('A',AXIS[2]):'0.1'})[0] == {}
+
+
 def test_bil_split_price_domains_and_action_record_reach_execution():
     source = object.__new__(AlpacaSource)
     source.window = SimpleNamespace(start=date.fromisoformat(AXIS[0]),end=date.fromisoformat(AXIS[-1]),

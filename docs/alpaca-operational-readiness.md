@@ -89,6 +89,20 @@ These restrictions are generic and automatically reconsidered on new source
 observations. Broker account corrections are execution inputs, not authority to
 rewrite the shadow book.
 
+Actual provider qualification found cent-rounded split-adjusted closes paired
+with sub-cent raw closes. A fixed five-basis-point ratio-range test wrongly
+excludes otherwise consistent split histories. Keep that original test as the
+first check. For a security with explicit usable split terms, additionally allow
+one common adjustment factor whose interval agrees with every observation after
+applying those exact cumulative multipliers. Cent-aligned adjusted prices have
+at most half a cent of rounding displacement, capped by the existing shared
+one-percent split-agreement tolerance; other prices retain the original narrow
+relative interval. An empty intersection, unknown split, wrong multiplier or
+missing predecessor still excludes the security. This does not reconstruct or
+rewrite prices, infer share terms, or relax the population floor. Version this
+normalization separately and replace an older unadmitted snapshot through ordinary
+acquisition before GO can use the new semantics.
+
 The fixed BIL sleeve is an execution-held instrument too. Retain its usable cash
 dividend and split records even though the stock-candidate policy excludes ETFs.
 Its signal open/close come from independent split-only bars, its total-return
