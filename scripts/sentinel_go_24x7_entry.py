@@ -258,7 +258,8 @@ def _deployment_preparation_probe(
     started = monotonic()
     completed = runner.run([
         'docker', 'compose', *compose_args, '--profile', 'cli', 'run',
-        '--rm', '-T', '--no-deps', '--entrypoint', 'python', 'sentinel',
+        '--rm', '-T', '--no-deps', '--env', 'ALPACA_API_KEY',
+        '--env', 'ALPACA_SECRET_KEY', '--entrypoint', 'python', 'sentinel',
         '-c', _PREPARATION_CODE,
     ], env=run_env)
     elapsed = max(0, int(math.ceil((monotonic() - started) * 1000.0)))

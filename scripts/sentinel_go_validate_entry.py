@@ -346,7 +346,9 @@ class FeedBoundPreparationRunner:
         if not _is_preparation_command(command):
             return self._runner.run(command, env=env, cwd=cwd)
 
-        run_env = go._without_broker_authority(dict(env or {}))
+        # This child acquires market data through the reviewed GET-only client.
+        # The separate host binding probe below still receives no Alpaca keys.
+        run_env = go._with_market_data_authority(dict(env or {}))
         binding = _binding_or_none(
             self._runner, env=run_env, cwd=cwd,
             runtime_ref=self._runtime_ref, commit=self._commit)

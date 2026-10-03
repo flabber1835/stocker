@@ -62,10 +62,9 @@ class Runner:
 
 def _env():
     return {
-        "SHARADAR_API_KEY": "sharadar-private",
         "SENTINEL_POSTGRES_PASSWORD": "db-private",
-        "ALPACA_API_KEY": "broker-key-must-not-cross",
-        "ALPACA_SECRET_KEY": "broker-secret-must-not-cross",
+        "ALPACA_API_KEY": "market-data-key",
+        "ALPACA_SECRET_KEY": "market-data-secret",
         "SENTINEL_PAPER_ACCOUNT_ID": "broker-account-must-not-cross",
     }
 
@@ -141,8 +140,75 @@ def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding(
     assert compose_env["SENTINEL_FEED_GIT_COMMIT"] == COMMIT
     assert compose_env["SENTINEL_FEED_RUNTIME_IMAGE_DIGEST"] == DIGEST
     assert "SENTINEL_FEED_SERVICE_MODE" not in compose_env
-    assert not entry.go._BROKER_AUTH_ENV.intersection(compose_env)
+    assert entry.go._BROKER_AUTH_ENV.intersection(compose_env) == {
+        "ALPACA_API_KEY", "ALPACA_SECRET_KEY"}
+    assert compose_env["ALPACA_API_KEY"] == "market-data-key"
+    assert compose_env["ALPACA_SECRET_KEY"] == "market-data-secret"
+    assert "SENTINEL_PAPER_ACCOUNT_ID" not in compose_env
+    assert "SHARADAR_API_KEY" not in compose_env
     assert not entry.go._BROKER_AUTH_ENV.intersection(bind_env)
+
+
+def test_source_final_and_feed_binding_chain_authenticates_get_only_client(
+        monkeypatch):
+    import sentinel_go_24x7_entry as source_final
+    from sentinel.feed import alpaca_transport
+
+    monkeypatch.setattr(entry.go, "_PREPARATION_CODE", source_final._PREPARATION_CODE)
+    requests = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self, limit):
+            return b"[]"
+
+    class Opener:
+        def open(self, request, *, timeout):
+            assert request.get_method() == "GET"
+            assert request.full_url == alpaca_transport.ASSETS
+            assert request.get_header("Apca-api-key-id") == "market-data-key"
+            assert request.get_header("Apca-api-secret-key") == "market-data-secret"
+            requests.append(request.full_url)
+            return Response()
+
+    class AcquisitionRunner(Runner):
+        def run(self, argv, *, env=None, cwd=ROOT):
+            command = list(argv)
+            if command[:2] == ["docker", "compose"]:
+                # Reconstruct Docker's by-name environment boundary, then call
+                # the actual transport. An unconditional success marker would
+                # hide the credential loss that occurred in the real GO run.
+                names = [command[i + 1] for i, item in enumerate(command)
+                         if item == "--env"]
+                with monkeypatch.context() as child:
+                    for key in entry.go._BROKER_AUTH_ENV:
+                        child.delenv(key, raising=False)
+                    for key in names:
+                        if key in (env or {}):
+                            child.setenv(key, env[key])
+                    assert "SENTINEL_PAPER_ACCOUNT_ID" not in os.environ
+                    client = alpaca_transport.Client(opener=Opener(), interval=0)
+                    value, _ = client.get(alpaca_transport.ASSETS)
+                    assert value == []
+                    with pytest.raises(alpaca_transport.AlpacaTransportRefused):
+                        client.get("https://paper-api.alpaca.markets/v2/orders")
+            return super().run(argv, env=env, cwd=cwd)
+
+    underlying = AcquisitionRunner()
+    runner = entry.FeedBoundPreparationRunner(
+        underlying, runtime_ref=DIGEST, commit=COMMIT)
+    summary = source_final._deployment_preparation_probe(
+        runner, env=_env(), runtime_ref=DIGEST, commit=COMMIT)
+    assert summary.complete is True
+    assert summary.broker_mutation_attempts == 0
+    assert requests == [alpaca_transport.ASSETS]
 
 
 def test_go_preparation_fails_closed_before_mutation_when_binding_unavailable(
