@@ -72,6 +72,25 @@ non-horizon integrity refusal. Falsify the resumable-state and retry guards.
 
 ## Progress across the remaining worker stages
 
+### Check restore capacity before repeated work
+
+Decision: 2026-10-03. Operational preparation checks the restore horizon at
+the start of READY-candidate validation, before reading the whole candidate.
+Run that validation before the final provider corroboration. A WAL horizon
+failure therefore reaches the existing host renewal path before another assets
+and actions download. After renewal, verify retained source parts and the sealed
+candidate, then corroborate the provider once before publication. The final
+publication backup check remains mandatory. The comparison-only path retains
+its existing ordering. No proof is cached, no integrity ceiling is increased,
+and no deadline, fence or source-consistency requirement is removed.
+
+Local daily diagnostics must preserve the previous input fixture separately
+when they do not install an authenticated operational checkpoint. Production
+retention already pins an admitted restart checkpoint; an unadmitted in-memory
+or on-disk diagnostic book does not create that database dependency. Fixture
+preservation grants no admission, checkpoint or broker authority. Report the
+diagnostic scope separately from durable automation qualification.
+
 The overall preparation deadline does not replace the ten-minute worker lease.
 Sealing, source corroboration and operational validation must renew at stage
 boundaries and during bounded units of actual work. Snapshot storage scans pulse
