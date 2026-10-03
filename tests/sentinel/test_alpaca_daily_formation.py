@@ -1,5 +1,7 @@
 """Typed provider inputs through canonical formation and durable continuation."""
 from datetime import datetime, timedelta, timezone
+import os
+from pathlib import Path
 
 import pytest
 
@@ -104,7 +106,9 @@ def test_full_formation_chain_and_frontier_match_unchanged_loader(conn,provider,
     assert actual[0].to_dict() == expected[0].to_dict()
     assert actual[1:] == expected[1:]
     assert cached.features.rows_read == 426*25
-    from scripts import sentinel_go_feed_progress
+    root = Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[2])
+    monkeypatch.syspath_prepend(str(root/'scripts'))
+    import sentinel_go_feed_progress
     events = sentinel_go_feed_progress.collect(capfd.readouterr().err)
     formation = [event for event in events if event['stage'] == 'historical_formation']
     assert [event['sessions'] for event in formation] == list(range(127)) * 2
