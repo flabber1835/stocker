@@ -17,10 +17,13 @@ DIRECTORY_URLS = (
 )
 CATEGORY = "Nasdaq Non-ETF Common Stock Candidate"
 EXCLUDED_CATEGORY = "Alpaca Action Unresolved"
-POLICY = "sentinel.alpaca-nasdaq-common-stock/3"
+POLICY = "sentinel.alpaca-nasdaq-common-stock/4"
 _NONCOMMON = re.compile(
     r"\b(?:warrants?|preferred|preference|rights?|notes?|debentures?|ETNs?|"
     r"(?:corporate|equity) units?)\b", re.IGNORECASE)
+_BUNDLED_UNITS = re.compile(
+    r"(?:\s+-\s+units?\b|\bunits?\s*,?\s*(?:each\s+)?"
+    r"(?:consisting|comprised|composed)\b)", re.IGNORECASE)
 _DEPOSITARY_SHARES = re.compile(r"\bdepositary shares\b", re.IGNORECASE)
 _EQUITY_ADS = re.compile(r"\b(?:american|global) depositary shares\b", re.IGNORECASE)
 # The public other-listed directory uses '$' for preferred-series symbols.
@@ -92,7 +95,7 @@ def select_assets(assets: Iterable[Mapping], listed: Mapping[str, Mapping],
             reasons["test_or_etf"] += 1
             continue
         name = row["Security Name"]
-        if (_NONCOMMON.search(name)
+        if (_NONCOMMON.search(name) or _BUNDLED_UNITS.search(name)
                 or (_DEPOSITARY_SHARES.search(name) and not _EQUITY_ADS.search(name))):
             reasons["explicit_non_stock_instrument"] += 1
             continue
