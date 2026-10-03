@@ -129,8 +129,14 @@ def _assess(conn, pub, *, target, summary_only=False):
         share = summary.warmup_positive[name] / total if total else 0
         report.add("rolling warmup " + name, PASS if share >= .9 else FAIL,
                    "positive canonical domain coverage over the complete warmup", share)
-    report.add("rolling issuer references", PASS if summary.related_issuers else FAIL,
-               "current reference bundle includes related-ticker issuer evidence")
+    from sentinel.feed import rolling_store
+    manifest = rolling_store.manifest(conn, binding["candidate_id"])
+    if manifest.provider == "ALPACA_NASDAQ":
+        report.add("rolling issuer references", PASS,
+                   "Alpaca asset IDs and Nasdaq common-stock admission; no issuer-family claim")
+    else:
+        report.add("rolling issuer references", PASS if summary.related_issuers else FAIL,
+                   "current reference bundle includes related-ticker issuer evidence")
     return binding, material, report
 
 

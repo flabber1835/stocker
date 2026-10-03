@@ -5,12 +5,12 @@ The supported operator entry remains ``scripts/sentinel-go-validate.sh``. This
 module is imported by ``sentinel_go_verified_entry.py`` only after the public
 lifecycle lock and one-run capability have been proven.
 
-Its single responsibility is to choose the newest Sharadar decision session
-whose reviewed source-final not-before has elapsed and run the existing bounded,
-feed-authorized recovery/preparation through that session. A later closed but
-not-yet-final session remains visible as an ordinary readiness/session NO_GO.
+Its single responsibility is to choose the newest market-data decision session
+whose reviewed source-final not-before has elapsed and run the bounded,
+feed-authorized Alpaca/Nasdaq preparation through that session. A later closed
+but not-yet-final session remains visible as an ordinary readiness/session NO_GO.
 
-No public gate is redefined here. Sharadar readiness keeps its original
+No public gate is redefined here. Market-data readiness keeps its original
 latest-closed-session meaning and ``prospective_trading_window`` keeps its
 original following-open meaning. The separate installation overlay decides
 whether those temporal NO_GO facts are safe for fenced software installation.
@@ -227,7 +227,8 @@ def _deployment_preparation_probe(
         commit: Optional[str], monotonic=time.monotonic):
     """Prepare through the latest source-final frontier using the feed-bound runner."""
     prerequisites = (
-        bool(str(env.get('SHARADAR_API_KEY') or '').strip())
+        bool(str(env.get('ALPACA_API_KEY') or '').strip())
+        and bool(str(env.get('ALPACA_SECRET_KEY') or '').strip())
         and bool(env.get('SENTINEL_POSTGRES_PASSWORD'))
         and commit is not None and go._HEX40.fullmatch(str(commit)) is not None
         and runtime_ref is not None
@@ -241,7 +242,7 @@ def _deployment_preparation_probe(
             evidence_sha256=go._evidence_digest({
                 'reason': 'PREPARATION_AUTHORITY_UNAVAILABLE'}))
 
-    run_env = go._without_broker_authority(env)
+    run_env = go._with_market_data_authority(env)
     compose_args = go._resolve_compose_args(runner, run_env)
     if compose_args is None:
         return go.PreparationSummary(
@@ -295,8 +296,9 @@ def _deployment_preparation_probe(
             valid_shape and payload.get('publication_current')),
         'following_open_is_session_authority_only': True,
         'feed_authority_delegated_to_verified_runner': True,
-        'broker_authority_removed': not bool(
-            go._BROKER_AUTH_ENV.intersection(run_env)),
+        'paper_account_identity_removed': 'SENTINEL_PAPER_ACCOUNT_ID' not in run_env,
+        'market_data_credentials_present': all(
+            run_env.get(key) for key in ('ALPACA_API_KEY', 'ALPACA_SECRET_KEY')),
     }
     schema_attempted, daily_attempted = go.preparation_attempts(
         completed, schema_migrated=evidence['schema_migrated'],

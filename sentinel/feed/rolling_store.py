@@ -225,7 +225,7 @@ def _fold(hasher, value):
 
 def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
          normalization_version: str,
-         requirements: RestartRequirement) -> SnapshotManifest:
+         requirements: RestartRequirement, provider: str = "SHARADAR") -> SnapshotManifest:
     """Seal storage after comparing independent (ISO session, security) keys.
 
     Expected keys must be unique and sorted. They are supplied by the source
@@ -275,6 +275,7 @@ def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
     finally:
         benchmarks.close()
     manifest = SnapshotManifest(
+        provider=provider,
         normalization_version=normalization_version,
         calendar_version=calendar.calendar_version(), window=window,
         reference_sha256=reference, source_evidence_sha256=source,

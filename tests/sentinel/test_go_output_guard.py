@@ -272,12 +272,9 @@ def test_cancellation_is_not_success_when_child_exits_zero(tmp_path, signum):
             proc.wait(timeout=5)
 
 
-def test_supported_launcher_guards_both_sensitive_diagnostic_surfaces():
+def test_supported_launcher_guards_verified_go_diagnostics():
     source = (SCRIPT_DIR / "sentinel-go-validate.sh").read_text(encoding="utf-8")
-    assert (
-        '"$PYTHON" scripts/sentinel_go_output_guard.py \\\n'
-        '    "$PYTHON" scripts/sentinel_go_readonly_data_preflight.py'
-    ) in source
+    assert '"$PYTHON" scripts/sentinel_go_readonly_data_preflight.py' not in source
     assert (
         '"$PYTHON" scripts/sentinel_go_output_guard.py \\\n'
         '  "$PYTHON" scripts/sentinel_go_verified_entry.py "$@"'

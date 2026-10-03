@@ -17,7 +17,7 @@ STAGES = (
     ("feed-catchup", PREPARATION_PHASE),
     ("publication-check", PREPARATION_PHASE),
     ("operational-parity", "PHASE D1 - WEALTH CORE PARITY"),
-    ("sharadar-readiness", "PHASE D2 - SHARADAR READINESS"),
+    ("sharadar-readiness", "PHASE D2 - MARKET DATA READINESS"),
     ("database-health", "PHASE D3 - DATABASE FINANCIAL HEALTH"),
     ("validation-evidence", FINANCIAL_PHASE),
     ("requested-target-proof", FINANCIAL_PHASE),

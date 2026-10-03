@@ -556,7 +556,11 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
     if profile != "maintenance" and target not in TARGETS:
         _fail("INVALID_TARGET", key="SENTINEL_GO_TARGET")
     required = ["SENTINEL_BACKUP_DIR"] if profile == "compose" else [
-        "SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", "SHARADAR_API_KEY"]
+        "SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD"]
+    if profile in {"go", "install", "bootstrap"}:
+        required += ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"]
+    elif profile not in {"compose", "maintenance"}:
+        required += ["SHARADAR_API_KEY"]
     if profile == "maintenance":
         required = ["SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", RECEIPT_KEY]
     broker_credentials = (profile == "bringup" or (

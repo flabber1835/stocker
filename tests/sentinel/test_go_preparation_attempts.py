@@ -58,7 +58,9 @@ def test_partial_preparation_attempts_survive_failure(monkeypatch, code, failure
 
     monkeypatch.setattr(source_final.go, "_resolve_compose_args", lambda *a: [])
     summary = source_final._deployment_preparation_probe(
-        Runner(), env={"SHARADAR_API_KEY": "fixture", "SENTINEL_POSTGRES_PASSWORD": "fixture"},
+        Runner(), env={"ALPACA_API_KEY": "market-data-key",
+                       "ALPACA_SECRET_KEY": "market-data-secret",
+                       "SENTINEL_POSTGRES_PASSWORD": "fixture"},
         runtime_ref="sha256:" + "a" * 64, commit="b" * 40)
     assert summary.status == source_final.go.FAIL
     assert not summary.complete

@@ -466,7 +466,7 @@ def test_readiness_probe_code_enforces_read_only_and_never_saves_snapshot():
     assert "ensure_schema" not in go._READINESS_CODE
 
 
-def test_readiness_runs_exact_runtime_digest_and_requires_sharadar_authority():
+def test_readiness_runs_exact_runtime_digest_and_requires_alpaca_authority():
     class ReadinessRunner:
         def __init__(self):
             self.calls = []
@@ -492,7 +492,8 @@ def test_readiness_runs_exact_runtime_digest_and_requires_sharadar_authority():
     runner = ReadinessRunner()
     gate = go.probe_sharadar_readiness(
         runner, env={
-            "SHARADAR_API_KEY": "private-key",
+            "ALPACA_API_KEY": "private-key",
+            "ALPACA_SECRET_KEY": "private-secret",
             "SENTINEL_POSTGRES_PASSWORD": "private-password",
             "SENTINEL_BACKUP_DIR": "/private-backup",
         }, runtime_ref=DIGEST_B, now_text=NOW_TEXT)
@@ -501,6 +502,7 @@ def test_readiness_runs_exact_runtime_digest_and_requires_sharadar_authority():
     probe_argv, probe_env = runner.calls[-1]
     assert "BEGIN TRANSACTION READ ONLY" in probe_argv[-1]
     assert probe_env["SENTINEL_RUNTIME_IMAGE_REF"] == DIGEST_B
+    assert not go._BROKER_AUTH_ENV.intersection(probe_env)
 
     missing = go.probe_sharadar_readiness(
         ReadinessRunner(), env={
@@ -898,7 +900,7 @@ def test_operational_parity_reuses_identical_certified_image_and_binds_cash():
     assert calls[0][calls[0].index("--starting-cash") + 1] == "250000"
 
 
-def test_upgrade_preparation_uses_exact_runtime_without_broker_authority():
+def test_upgrade_preparation_uses_exact_runtime_with_market_data_authority_only():
     class PreparationRunner:
         def __init__(self):
             self.calls = []
@@ -925,10 +927,9 @@ def test_upgrade_preparation_uses_exact_runtime_without_broker_authority():
     ticks = iter((10.0, 11.5))
     summary = go.probe_prevalidation_preparation(
         runner, env={
-            "SHARADAR_API_KEY": "private",
             "SENTINEL_POSTGRES_PASSWORD": "private",
-            "ALPACA_API_KEY": "must-not-enter-preparation",
-            "ALPACA_SECRET_KEY": "must-not-enter-preparation",
+            "ALPACA_API_KEY": "market-data-key",
+            "ALPACA_SECRET_KEY": "market-data-secret",
             "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-preparation",
         }, runtime_ref=DIGEST_B, commit=COMMIT,
         monotonic=lambda: next(ticks))
@@ -958,14 +959,21 @@ def test_upgrade_preparation_uses_exact_runtime_without_broker_authority():
     assert prepared_env["SENTINEL_FEED_GIT_COMMIT"] == COMMIT
     assert prepared_env["SENTINEL_FEED_RUNTIME_IMAGE_DIGEST"] == DIGEST_B
     assert prepared_env["SENTINEL_FEED_SERVICE_MODE"] == "GO_VALIDATION"
-    assert not go._BROKER_AUTH_ENV.intersection(prepared_env)
+    assert prepared_env["ALPACA_API_KEY"] == "market-data-key"
+    assert prepared_env["ALPACA_SECRET_KEY"] == "market-data-secret"
+    assert command.count("--env") == 2
+    assert command[command.index("--env") + 1] == "ALPACA_API_KEY"
+    assert command[command.index("--env", command.index("--env") + 1) + 1] == "ALPACA_SECRET_KEY"
+    assert "SENTINEL_PAPER_ACCOUNT_ID" not in prepared_env
+    assert "SHARADAR_API_KEY" not in prepared_env
     assert "after.version >" not in go._PREPARATION_CODE
 
 
-def test_upgrade_preparation_without_sharadar_is_not_proven():
+def test_upgrade_preparation_without_alpaca_is_not_proven():
     summary = go.probe_prevalidation_preparation(
         go.CommandRunner(), env={
             "SENTINEL_POSTGRES_PASSWORD": "private",
+            "SHARADAR_API_KEY": "retired-source-key",
         }, runtime_ref=DIGEST_B, commit=COMMIT)
     assert summary.status == go.NOT_PROVEN
     assert summary.complete is False

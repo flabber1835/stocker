@@ -24,6 +24,8 @@ import sentinel_env_writer as writer
 BASE_SHADOW = {
     "SENTINEL_POSTGRES_PASSWORD": "synthetic-database-password",
     "SHARADAR_API_KEY": "synthetic-sharadar-key",
+    "ALPACA_API_KEY": "synthetic-market-data-key",
+    "ALPACA_SECRET_KEY": "synthetic-market-data-secret",
     "SENTINEL_BACKUP_DIR": "/synthetic/external/backup",
     "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL":
         "https://alerts.example.test/sentinel",
@@ -31,14 +33,19 @@ BASE_SHADOW = {
 
 
 class EnvReviewFixes(unittest.TestCase):
-    def test_install_shadow_is_broker_free_but_dual_is_not(self):
-        env.validate(BASE_SHADOW, profile="install", target="SHADOW")
+    def test_install_shadow_needs_market_data_but_dual_also_needs_alerts(self):
+        market_data_only = {k: v for k, v in BASE_SHADOW.items()
+                            if k not in {"SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL",
+                                         "SHARADAR_API_KEY"}}
+        env.validate(market_data_only, profile="install", target="SHADOW")
+        without_data_key = dict(market_data_only)
+        del without_data_key["ALPACA_API_KEY"]
         with self.assertRaisesRegex(env.EnvRefused, "ALPACA_API_KEY"):
-            env.validate(
-                BASE_SHADOW, profile="install",
-                target="DUAL_RUN_OBSERVATION")
+            env.validate(without_data_key, profile="install", target="SHADOW")
+        with self.assertRaisesRegex(env.EnvRefused, "REQUIRED_ALERT_TRANSPORT_MISSING"):
+            env.validate(market_data_only, profile="install", target="DUAL_RUN_OBSERVATION")
 
-    def test_launcher_shadow_reaches_bootstrap_with_no_alpaca_variables(self):
+    def test_launcher_shadow_reaches_bootstrap_with_market_data_credentials(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             scripts = root / "scripts"
@@ -72,10 +79,9 @@ class EnvReviewFixes(unittest.TestCase):
 
             (root / ".env").write_text(
                 "SENTINEL_POSTGRES_PASSWORD=synthetic-database-password\n"
-                "SHARADAR_API_KEY=synthetic-sharadar-key\n"
-                "SENTINEL_BACKUP_DIR=/synthetic/external/backup\n"
-                "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL="
-                "https://alerts.example.test/sentinel\n",
+                "ALPACA_API_KEY=synthetic-market-data-key\n"
+                "ALPACA_SECRET_KEY=synthetic-market-data-secret\n"
+                "SENTINEL_BACKUP_DIR=/synthetic/external/backup\n",
                 encoding="utf-8")
             fake_bin = root / "bin"
             fake_bin.mkdir()
@@ -120,7 +126,7 @@ class EnvReviewFixes(unittest.TestCase):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                 timeout=10)
             self.assertEqual(dual.returncode, 2)
-            self.assertIn("ALPACA_API_KEY", dual.stderr)
+            self.assertIn("REQUIRED_ALERT_TRANSPORT_MISSING", dual.stderr)
             self.assertFalse(marker.exists())
 
             for suffix, value in (

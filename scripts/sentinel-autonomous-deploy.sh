@@ -16,8 +16,9 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   exit 1
 }
 
-# Resolve the deployment mode before the first installation preflight. SHADOW is
-# intentionally broker-free; dual/paper installation requires paper credentials.
+# Resolve the deployment mode before the first installation preflight. SHADOW
+# still needs Alpaca market-data credentials, but no broker alert transport;
+# dual/paper installation requires the paper-account safety envelope as well.
 INSTALL_TARGET="DUAL_RUN_OBSERVATION"
 EXPECT_MODE=0
 for ARG in "$@"; do

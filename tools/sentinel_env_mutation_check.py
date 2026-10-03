@@ -27,7 +27,7 @@ MUTANTS = (
      "test_refuse_canonical_nul"),
     ("missing-required-accepted", "scripts/sentinel_env.py",
      "if invalid:", "if False and invalid:",
-     "test_required_SHARADAR_API_KEY_0"),
+     "test_required_ALPACA_API_KEY_0"),
     ("missing-alert-transport-accepted", "scripts/sentinel_env.py",
      "if not has_webhook and not has_web_push:",
      "if False and not has_webhook and not has_web_push:",

@@ -18,6 +18,13 @@ class ComparisonRefused(RuntimeError):
     pass
 
 
+def _operational_source(window, conn, lease, *, corrections,
+                        verify_during_coverage):
+    from sentinel.feed.alpaca_source import AlpacaSource
+    return AlpacaSource(window, conn, lease,
+                        verify_during_coverage=verify_during_coverage)
+
+
 def _latest(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT p.version,c.window_end FROM sentinel_snapshot_comparisons p "
@@ -208,9 +215,15 @@ def _prepare(conn, job_id, *, operational):
             pinned = rolling_store.load_evidence(conn, manifest.source_evidence_sha256)
             from sentinel.feed import source_corrections
             corrections = pinned.get("source_corrections", source_corrections.bootstrap())
-        source = RetainedSource(request.window, conn, lease, corrections=corrections,
-                                verify_during_coverage=not ready)
-        source.legacy_source_evidence = ready and "source_corrections" not in pinned
+        if operational:
+            source = _operational_source(request.window, conn, lease,
+                                         corrections=corrections,
+                                         verify_during_coverage=not ready)
+        else:
+            source = RetainedSource(request.window, conn, lease, corrections=corrections,
+                                    verify_during_coverage=not ready)
+        if isinstance(source, RetainedSource):
+            source.legacy_source_evidence = ready and "source_corrections" not in pinned
 
         def pulse():
             jobs.heartbeat(conn, lease, lease_seconds=600)
@@ -225,11 +238,13 @@ def _prepare(conn, job_id, *, operational):
         with source.parts.unit():
             source.preflight()
             pulse()
-        if not ready:
+        if not ready and isinstance(source, RetainedSource):
             from sentinel.feed import source_wait
             source_wait.check(conn, lease, request, source)
         source.references(checkpoint)
         source.acquire_prices(checkpoint, pulse)
+        if ready and getattr(source, "provider", None) == "ALPACA_NASDAQ":
+            source.tickers = rolling_store.load_evidence(conn, manifest.reference_sha256)["tickers"]
         with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):
             if not ready:
                 with store.corpus_write_lock(conn):

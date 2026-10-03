@@ -295,6 +295,15 @@ occurrence and exercise the actual formation input composer with distinct SPY,
 equity and BIL values. Deliberately substituting BIL for SPY or swapping BIL
 domains must fail. This exception grants no raw-column reads or second sensor.
 
+**Alpaca GO benchmark source (2026-10-02, PR #467).** Add exactly
+`sentinel/feed/alpaca_source.py` to the transport allowlist. Its sole
+`closeadj` occurrence copies Alpaca's `all` adjusted SPY/BIL benchmark close
+into the existing SFP wire row, paired with the raw benchmark bar. Security
+bars travel separately as raw and split-adjusted prices; this exception must
+not allow an `all` adjusted security close into Wealth Core signals or marks.
+Pin this exact file and single wire-field occurrence rather than widening the
+feed package or weakening the tokenizer.
+
 **2. Why total return is CORRECT here.** SPY in this rule is not a holding. It
 is a market-regime sensor, and the frozen specification defines both of its
 predicates on a total-return series (`standalone:176-178`). A dividend paid by

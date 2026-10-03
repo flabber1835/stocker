@@ -608,7 +608,17 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
     state = jobs.status(conn, job)
     strategy = state["request"]["strategy_sha256"]
     deadline = state["deadline"]
-    downloads, _ = real_exports(source, monkeypatch, tmp_path)
+    from sentinel.feed import rolling_builder
+    from sentinel.feed.alpaca_source import AlpacaSource
+    from sentinel.feed.alpaca_transport import BAR_URL
+    from tests.sentinel.test_alpaca_operational_snapshot import FakeClient
+
+    provider = FakeClient(window=window)
+    monkeypatch.setattr(publisher, "_operational_source",
+        lambda observed_window, worker, lease, *, corrections, verify_during_coverage:
+            AlpacaSource(observed_window, worker, lease, client=provider,
+                         verify_during_coverage=verify_during_coverage))
+    monkeypatch.setattr(rolling_builder, "MIN_ADMITTED_COMMON_STOCKS", 2)
     monkeypatch.setitem(backup.phase._PHASE, "certified", True)
     monkeypatch.setattr(backup.go_lock, "lifecycle_lock_is_held", lambda *a: True)
     monkeypatch.setattr(backup.go_lock, "current_run_token", lambda *a: TOKEN)
@@ -695,7 +705,10 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
     assert jobs.status(conn, job)["state"] == "PUBLISHED"
     assert jobs.status(conn, job)["deadline"] == deadline
     assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_jobs").fetchone()[0] == 1
-    assert len(downloads) == 21 and set(downloads.values()) == {1}, downloads
+    bar_requests = [params for endpoint, params in provider.calls if endpoint == BAR_URL]
+    assert len(bar_requests) == 40  # 19 months x raw/split plus SPY/BIL raw/all.
+    assert len({(params["start"], params["end"], params["adjustment"])
+                for params in bar_requests}) == 40
     assert "RETAINED_PART_REUSED" in runner.last_preparation_output
     audit = json.loads((tmp_path / "audit.json").read_text())
     assert audit["status"] == "PASS"

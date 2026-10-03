@@ -181,11 +181,11 @@ class EnvHarness(unittest.TestCase):
 
     def test_explicit_empty_process_value_is_authoritative_and_refused(self):
         self.write()
-        with mock.patch.dict(os.environ, {"SHARADAR_API_KEY": ""}, clear=True):
+        with mock.patch.dict(os.environ, {"ALPACA_API_KEY": ""}, clear=True):
             for loader in (GO.merged_environment, DEPLOY.merged_environment):
                 resolved = loader(self.path)
-                self.assertEqual(resolved["SHARADAR_API_KEY"], "")
-                with self.assertRaisesRegex(env.EnvRefused, "SHARADAR_API_KEY"):
+                self.assertEqual(resolved["ALPACA_API_KEY"], "")
+                with self.assertRaisesRegex(env.EnvRefused, "ALPACA_API_KEY"):
                     env.validate(resolved, profile="install")
 
     def test_process_override_cannot_hide_malformed_file(self):
@@ -297,7 +297,8 @@ class EnvHarness(unittest.TestCase):
                 env.load(self.path)
 
     def test_bootstrap_missing_inputs_block_even_with_existing_key(self):
-        for key in ("SHARADAR_API_KEY", "SENTINEL_POSTGRES_PASSWORD", "SENTINEL_BACKUP_DIR"):
+        for key in ("ALPACA_API_KEY", "ALPACA_SECRET_KEY",
+                    "SENTINEL_POSTGRES_PASSWORD", "SENTINEL_BACKUP_DIR"):
             values = dict(BASE, **{env.RECEIPT_KEY: "a" * 64})
             del values[key]
             before = self.write(values)
@@ -335,11 +336,15 @@ class EnvHarness(unittest.TestCase):
                     writer(self.path, {"SENTINEL_GIT_COMMIT": "a" * 40})
                     self.assertEqual(env.load(self.path), {"SENTINEL_GIT_COMMIT": "a" * 40})
 
-    def test_shadow_target_has_no_broker_prerequisite(self):
-        values = {k: v for k, v in BASE.items() if not k.startswith("ALPACA_")}
+    def test_shadow_target_requires_market_data_but_not_alert_transport(self):
+        values = {k: v for k, v in BASE.items()
+                  if k != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}
         env.validate(values, profile="go", target="SHADOW")
-        with self.assertRaisesRegex(env.EnvRefused, "ALPACA_API_KEY"):
+        with self.assertRaisesRegex(env.EnvRefused, "REQUIRED_ALERT_TRANSPORT_MISSING"):
             env.validate(values, profile="go", target="DUAL_RUN_OBSERVATION")
+        values.pop("ALPACA_API_KEY")
+        with self.assertRaisesRegex(env.EnvRefused, "ALPACA_API_KEY"):
+            env.validate(values, profile="go", target="SHADOW")
 
     def test_private_record_protocol_failure_emits_no_partial_values(self):
         self.write(raw=("A=%s\nBAD\n" % CANARY).encode())
@@ -465,8 +470,7 @@ class EnvHarness(unittest.TestCase):
 
     def test_webhook_remains_optional_for_shadow_and_maintenance(self):
         candidate = {k: v for k, v in BASE.items()
-                     if not k.startswith("ALPACA_")
-                     and k != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}
+                     if k != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}
         for profile in ("install", "go", "bootstrap", "compose"):
             env.validate(candidate, profile=profile, target="SHADOW")
         env.validate(dict(candidate, **{env.RECEIPT_KEY: "r" * 32}),
@@ -564,7 +568,8 @@ class EnvHarness(unittest.TestCase):
 
     def test_go_cli_shadow_target_overrides_file_target(self):
         process = self.shell_repo()
-        values = {k: v for k, v in BASE.items() if not k.startswith("ALPACA_")}
+        values = {k: v for k, v in BASE.items()
+                  if k != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}
         values["SENTINEL_GO_TARGET"] = "DUAL_RUN_OBSERVATION"
         self.write(values)
         result = self.run_shell("sentinel-go-validate.sh", process, "--target=SHADOW")
@@ -613,7 +618,7 @@ class EnvHarness(unittest.TestCase):
 
     def test_empty_commented_credentials_block_install_before_git(self):
         process = self.shell_repo()
-        for key in ("SHARADAR_API_KEY", "ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
+        for key in ("ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
             for suffix in (" # enter value\n", "\t# enter value\r\n", "  # enter value"):
                 with self.subTest(key=key, ending=repr(suffix[-2:])):
                     raw = self.write({k: v for k, v in BASE.items() if k != key})
@@ -956,7 +961,8 @@ for loader_name, loader in LOADERS.items():
         setattr(EnvHarness, "test_refuse_%s_%s" % (loader_name, case), _invalid_case(loader, raw))
 for kind in ("directory", "fifo", "mode000", "symlink", "dangling_symlink"):
     setattr(EnvHarness, "test_file_type_" + kind, _file_type_case(kind))
-for key in ("SENTINEL_POSTGRES_PASSWORD", "SHARADAR_API_KEY", "SENTINEL_BACKUP_DIR", "ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
+for key in ("SENTINEL_POSTGRES_PASSWORD", "SENTINEL_BACKUP_DIR",
+            "ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
     for index, value in enumerate((None, "", " ", "\t", "changeme", "replace-with-secret", "your_key_here", "<secret>", "...")):
         setattr(EnvHarness, "test_required_%s_%d" % (key, index), _missing_case(key, value))
 for launcher in ("sentinel-compose.sh", "sentinel-autonomous-deploy.sh", "sentinel-go-validate.sh", "sentinel-bringup.sh"):

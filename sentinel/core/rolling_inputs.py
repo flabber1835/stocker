@@ -13,7 +13,7 @@ from sentinel.core.terminal import SPINOFF_ACTIONS, map_terminal_rows
 from sentinel.feed import (
     action_source, calendar, rolling_store, source_aliases, symbol_identity, tickers_authority,
 )
-from sentinel.feed.rolling_builder import NORMALIZATION_VERSION
+from sentinel.feed.rolling_builder import ALPACA_NORMALIZATION, NORMALIZATION_VERSION
 from sentinel.feed.rolling_contract import CanonicalBenchmark
 from sentinel.feed.requirements import PREFERRED_SESSIONS
 from sentinel.feed.universe import listings_from_rows, parse_related_tickers
@@ -59,13 +59,21 @@ class SnapshotReferences:
         if self.manifest.snapshot_id != snapshot_id:
             raise RollingInputsRefused("SNAPSHOT_ID_MISMATCH")
         from sentinel.core import window_policy
-        self.current_window = self.manifest.normalization_version == window_policy.NORMALIZATION
-        if (self.manifest.normalization_version not in (NORMALIZATION_VERSION, window_policy.NORMALIZATION)
+        self.current_window = self.manifest.normalization_version in (
+            window_policy.NORMALIZATION, ALPACA_NORMALIZATION)
+        if (self.manifest.normalization_version not in (
+                NORMALIZATION_VERSION, window_policy.NORMALIZATION, ALPACA_NORMALIZATION)
                 or self.manifest.calendar_version != calendar.calendar_version()):
             raise RollingInputsRefused("UNSUPPORTED_SNAPSHOT_SEMANTICS")
+        if (self.manifest.provider == "ALPACA_NASDAQ") != (
+                self.manifest.normalization_version == ALPACA_NORMALIZATION):
+            raise RollingInputsRefused("SNAPSHOT_PROVIDER_NORMALIZATION_MISMATCH")
         reference = rolling_store.load_evidence(conn, self.manifest.reference_sha256)
+        reference_schema = ("sentinel.rolling-alpaca-nasdaq-references/1"
+                            if self.manifest.provider == "ALPACA_NASDAQ" else
+                            "sentinel.rolling-sharadar-references/1")
         if (set(reference) != {"schema", "tickers", "actions"}
-                or reference["schema"] != "sentinel.rolling-sharadar-references/1"
+                or reference["schema"] != reference_schema
                 or not isinstance(reference["tickers"], list)
                 or not isinstance(reference["actions"], list)):
             raise RollingInputsRefused("UNSUPPORTED_REFERENCE_BUNDLE")
@@ -74,7 +82,10 @@ class SnapshotReferences:
                         "WHERE candidate_id=%s", (candidate_id,))
             row = cur.fetchone()
         validation = rolling_store.load_evidence(conn, row[0]) if row else {}
-        if (validation.get("schema") != "sentinel.rolling-comparison-validation/1"
+        validation_schema = ("sentinel.alpaca-nasdaq-validation/1"
+                             if self.manifest.provider == "ALPACA_NASDAQ" else
+                             "sentinel.rolling-comparison-validation/1")
+        if (validation.get("schema") != validation_schema
                 or validation.get("scope") != "COMPARISON_ONLY"
                 or validation.get("snapshot_id") != snapshot_id
                 or not isinstance(validation.get("alias_rejections"), dict)):

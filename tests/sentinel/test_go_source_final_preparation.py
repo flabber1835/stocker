@@ -51,10 +51,10 @@ def test_source_final_preparation_does_not_require_following_open_future(monkeyp
     summary = source_final._deployment_preparation_probe(
         runner,
         env={
-            "SHARADAR_API_KEY": "private",
             "SENTINEL_POSTGRES_PASSWORD": "private",
-            "ALPACA_API_KEY": "must-not-enter",
-            "ALPACA_SECRET_KEY": "must-not-enter",
+            "ALPACA_API_KEY": "market-data-key",
+            "ALPACA_SECRET_KEY": "market-data-secret",
+            "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter",
         },
         runtime_ref=DIGEST,
         commit=COMMIT,
@@ -65,8 +65,10 @@ def test_source_final_preparation_does_not_require_following_open_future(monkeyp
     assert summary.bounded_sharadar_daily_attempted is True
     assert summary.elapsed_milliseconds == 250
     prepared_env = runner.calls[-1][1]
-    assert "ALPACA_API_KEY" not in prepared_env
-    assert "ALPACA_SECRET_KEY" not in prepared_env
+    assert prepared_env["ALPACA_API_KEY"] == "market-data-key"
+    assert prepared_env["ALPACA_SECRET_KEY"] == "market-data-secret"
+    assert "SENTINEL_PAPER_ACCOUNT_ID" not in prepared_env
+    assert "SHARADAR_API_KEY" not in prepared_env
 
 
 def test_preparation_selects_newest_causally_final_frontier():
@@ -94,8 +96,9 @@ def test_nonfinal_selected_target_can_never_pass(monkeypatch):
     summary = source_final._deployment_preparation_probe(
         runner,
         env={
-            "SHARADAR_API_KEY": "private",
             "SENTINEL_POSTGRES_PASSWORD": "private",
+            "ALPACA_API_KEY": "market-data-key",
+            "ALPACA_SECRET_KEY": "market-data-secret",
         },
         runtime_ref=DIGEST,
         commit=COMMIT,

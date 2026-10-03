@@ -15,7 +15,8 @@ def _env_file(tmp_path: Path, token: str = "file-token-value") -> Path:
         "\n".join([
             "SENTINEL_BACKUP_DIR=/tmp/sentinel-composition-backup",
             "SENTINEL_POSTGRES_PASSWORD=compositionpassword",
-            "SHARADAR_API_KEY=composition-sharadar",
+            "ALPACA_API_KEY=composition-alpaca-key",
+            "ALPACA_SECRET_KEY=composition-alpaca-secret",
             f"SENTINEL_GITHUB_READ_TOKEN={token}",
             "",
         ]),

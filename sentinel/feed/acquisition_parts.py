@@ -78,7 +78,7 @@ class Parts:
             observed = _Fingerprint()
             with store.streaming_cursor(self.conn,
                     "SELECT payload,session,ticker FROM sentinel_acquisition_prices WHERE part_id=%s "
-                    "ORDER BY session,ticker", (part_id,), batch=5000, withhold=True) as cur:
+                    'ORDER BY session,ticker COLLATE "C"', (part_id,), batch=5000, withhold=True) as cur:
                 for index, (encoded, day, ticker) in enumerate(cur, 1):
                     row = json.loads(encoded)
                     if row["date"] != str(day) or row["ticker"] != ticker:
@@ -195,7 +195,7 @@ def price_rows(conn, job_id, *, tickers=None, verifier=None):
             return
         query += "AND p.ticker = ANY(%s) "
         params += (list(tickers),)
-    query += "ORDER BY p.session,p.ticker"
+    query += 'ORDER BY p.session,p.ticker COLLATE "C"'
     with store.streaming_cursor(conn, query, params, batch=5000, withhold=True) as cur:
         previous = None
         for part_id, day, ticker, encoded in cur:

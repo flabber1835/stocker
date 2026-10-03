@@ -72,9 +72,14 @@ class RollingPriceReader:
         if self.manifest.snapshot_id != snapshot_id:
             raise RollingReaderRefused("SNAPSHOT_ID_MISMATCH")
         from sentinel.core import window_policy
-        if (self.manifest.normalization_version not in (NORMALIZATION_VERSION, window_policy.NORMALIZATION)
+        from sentinel.feed.rolling_builder import ALPACA_NORMALIZATION
+        if (self.manifest.normalization_version not in (
+                NORMALIZATION_VERSION, window_policy.NORMALIZATION, ALPACA_NORMALIZATION)
                 or self.manifest.calendar_version != calendar.calendar_version()):
             raise RollingReaderRefused("UNSUPPORTED_SNAPSHOT_SEMANTICS")
+        if (self.manifest.provider == "ALPACA_NASDAQ") != (
+                self.manifest.normalization_version == ALPACA_NORMALIZATION):
+            raise RollingReaderRefused("SNAPSHOT_PROVIDER_NORMALIZATION_MISMATCH")
 
     def require_checkpoint_window(self, state: SessionState) -> None:
         cursor = state.last_processed_session

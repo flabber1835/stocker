@@ -1,5 +1,12 @@
 # Sentinel — operational deployment ground truth
 
+[Alpaca-led cold-start GO](alpaca-go-cold-start.md) supersedes the older
+Sharadar operational-source choice for first deployment. GO uses Alpaca SIP
+bars/actions and free Nasdaq directories; Sharadar remains historical research
+data. This is a new source and strategy identity requiring its own validation.
+The first change does not authorize paper execution or unattended daily
+automation.
+
 [Large reference storage](rolling-snapshot-storage.md#large-reference-representation)
 avoids expanding full provider reference bundles into PostgreSQL JSONB. Apply
 the matching image and checkout; GO's ordinary feed migration installs the

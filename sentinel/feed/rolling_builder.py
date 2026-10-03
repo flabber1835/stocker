@@ -67,6 +67,8 @@ def benchmarks(window, rows):
 
 
 def build(conn, lease, request, source):
+    if getattr(source, "provider", None) == "ALPACA_NASDAQ":
+        return build_alpaca(conn, lease, request, source)
     from sentinel.feed import source_corrections
     with source_corrections.using(source.corrections):
         return _build(conn, lease, request, source)
@@ -180,3 +182,134 @@ def _build(conn, lease, request, source):
                         (candidate, validation))
         jobs.advance(conn, lease, "READY")
         return candidate
+
+
+ALPACA_NORMALIZATION = "sentinel.alpaca-nasdaq-dividend-current-window/1"
+MIN_ADMITTED_COMMON_STOCKS = 500
+MIN_ALPACA_ADMITTED_PERCENT = 95
+
+
+def require_alpaca_population(*, selected: int, admitted: int) -> None:
+    if admitted < MIN_ADMITTED_COMMON_STOCKS:
+        raise ValueError("Alpaca/Nasdaq admitted common-stock population is below "
+                         + str(MIN_ADMITTED_COMMON_STOCKS))
+    if admitted * 100 < selected * MIN_ALPACA_ADMITTED_PERCENT:
+        raise ValueError("Alpaca/Nasdaq admitted common-stock population is below "
+                         + str(MIN_ALPACA_ADMITTED_PERCENT) + "% of selected candidates")
+
+
+def _alpaca_rows(conn, lease, *, verifier=None):
+    """Stream retained paired bars in global key order, with optional byte proof."""
+    import json
+    from sentinel.feed import store
+    from sentinel.feed.acquisition_parts import PartCorrupt
+
+    query = ("SELECT p.part_id,p.session,p.ticker,p.payload "
+             "FROM sentinel_acquisition_prices p "
+             "JOIN sentinel_acquisition_bindings b USING(part_id) "
+             "WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' "
+             'ORDER BY p.session,p.ticker COLLATE "C"')
+    previous = None
+    with store.streaming_cursor(conn, query, (lease.job_id,), batch=5000, withhold=True) as cur:
+        for part_id, day, ticker, encoded in cur:
+            row = verifier.add(part_id, encoded, day, ticker) if verifier else json.loads(encoded)
+            key = (row["date"], row["ticker"])
+            if (key <= previous if previous is not None else False) or key != (str(day), ticker):
+                raise PartCorrupt("Alpaca retained price key is duplicate or corrupt")
+            previous = key
+            yield row
+    if verifier:
+        verifier.finish()
+
+
+def build_alpaca(conn, lease, request, source):
+    """Seal current-information prices without Sharadar semantics."""
+    from sentinel.feed.acquisition_parts import PricePartVerifier
+    from sentinel.feed.alpaca_nasdaq import reference_row
+    from sentinel.feed.alpaca_observation import admissible_history
+
+    pulse = lambda: jobs.heartbeat(conn, lease, lease_seconds=600)
+    selected = {row["ticker"]: row for row in source.selected}
+    axis = [str(day) for day in request.window.sessions]
+    dividend_dates = {}
+    for event in source.dividends:
+        dividend_dates.setdefault(event["ticker"], set()).add(event["date"])
+    verifier = PricePartVerifier(source.price_manifests) if source.price_manifests else None
+    with progress.phase("rolling_identity", subphase="alpaca_admission",
+                        selected=len(selected), job_id=lease.job_id) as counter:
+        admitted, exclusions = admissible_history(
+            _alpaca_rows(conn, lease, verifier=verifier), axis=axis,
+            symbols=set(selected), action_affected=source.action_affected,
+            pair_absent=source.pair_absent, dividend_dates=dividend_dates,
+            reset_after=source.reset_after)
+        counter[0] = len(admitted)
+    require_alpaca_population(selected=len(selected), admitted=len(admitted))
+    source.tickers = [reference_row(selected[symbol], first_session=first,
+                                    last_session=axis[-1])
+                      for symbol, first in sorted(admitted.items())]
+    dividends = source.dividend_totals(admitted)
+    reference = rolling_store.put_evidence(conn, source.reference_payload())
+    source_sha = rolling_store.put_evidence(conn, source.source_payload())
+    candidate = rolling_store.begin(
+        conn, window=request.window, reference_sha256=reference,
+        source_evidence_sha256=source_sha,
+        expected_publication_version=request.expected_publication_version,
+        dependencies_sha256=request.dependencies_sha256)
+    jobs.advance(conn, lease, "STAGING", candidate_id=candidate)
+    count = 0
+    with progress.phase("rolling_normalization", job_id=lease.job_id) as counter, \
+            closing(_alpaca_rows(conn, lease)) as rows:
+        canonical = (CanonicalBar(
+            security_id=selected[row["ticker"]]["asset_id"],
+            session=row["date"], ticker=row["ticker"],
+            close_signal=float(row["close"]),
+            close_unadjusted=float(row["closeunadj"]),
+            open_unadjusted=float(row["open"]), volume=float(row["volume"]),
+            split_ratio=1.0,
+            dividend_per_share=float(dividends.get((row["ticker"], row["date"]), "0")))
+            for row in rows if row["ticker"] in admitted
+            and row["date"] >= admitted[row["ticker"]])
+        while batch := list(islice(canonical, rolling_store.BATCH_SIZE)):
+            count += rolling_store.write_bars(conn, candidate, batch)
+            jobs.progress(conn, lease, rows=count, bytes_=0)
+            pulse()
+            counter[0] = count
+    rolling_store.write_benchmarks(conn, candidate, benchmarks(request.window, source.sfp))
+    jobs.advance(conn, lease, "VALIDATING")
+    # Derive expected keys from the retained provider prices and the admitted
+    # asset map, never from candidate bars. Materialize via SQL: a server-side
+    # price cursor cannot be consumed while the same connection is in COPY.
+    with conn.cursor() as cur:
+        cur.execute("CREATE TEMP TABLE alpaca_admitted(ticker text PRIMARY KEY,"
+                    "security_id text UNIQUE,first_session date) ON COMMIT DROP")
+        with cur.copy("COPY alpaca_admitted(ticker,security_id,first_session) FROM STDIN") as copy:
+            for symbol in sorted(admitted):
+                copy.write_row((symbol, selected[symbol]["asset_id"], admitted[symbol]))
+        cur.execute("CREATE TEMP TABLE alpaca_expected_keys("
+                    "session date,security_id text,PRIMARY KEY(session,security_id)) ON COMMIT DROP")
+        cur.execute("INSERT INTO alpaca_expected_keys "
+                    "SELECT p.session,a.security_id FROM sentinel_acquisition_prices p "
+                    "JOIN sentinel_acquisition_bindings b USING(part_id) "
+                    "JOIN alpaca_admitted a ON a.ticker=p.ticker "
+                    "WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' "
+                    "AND p.session>=a.first_session", (lease.job_id,))
+    from sentinel.feed import store
+    with store.streaming_cursor(conn,
+            'SELECT session,security_id FROM alpaca_expected_keys ORDER BY session,security_id COLLATE "C"',
+            batch=5000, withhold=True) as cur:
+        manifest = rolling_store.seal(
+            conn, candidate, expected_keys=((str(day), sid) for day, sid in cur),
+            normalization_version=ALPACA_NORMALIZATION,
+            requirements=RestartRequirement(), provider="ALPACA_NASDAQ")
+    validation = rolling_store.put_evidence(conn, {
+        "schema": "sentinel.alpaca-nasdaq-validation/1", "scope": "COMPARISON_ONLY",
+        "snapshot_id": manifest.snapshot_id, "request_sha256": request.request_sha256,
+        "admitted": len(admitted), "excluded": exclusions,
+        "action_evidence": source.action_evidence, "rows": count,
+        "alias_rejections": source_aliases.evidence(), "action_quarantine": [],
+        "split_dispositions": []})
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO sentinel_snapshot_validations VALUES (%s,%s)",
+                    (candidate, validation))
+    jobs.advance(conn, lease, "READY")
+    return candidate
