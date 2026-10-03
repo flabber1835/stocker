@@ -351,6 +351,8 @@ jobs:
           SENTINEL_TEST_IMAGE_DIGEST: sha256:1111111111111111111111111111111111111111111111111111111111111111
           SENTINEL_AUTHORITY_ARTIFACTS_DIR: /tmp/sentinel-ci-authority
           SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL: https://ci.invalid/sentinel-alerts
+          ALPACA_API_KEY: ci-market-data-key-not-production
+          ALPACA_SECRET_KEY: ci-market-data-secret-not-production
         run: |
           set -euo pipefail
           mapfile -d '' shell_scripts < <(git ls-files -z -- '*.sh')

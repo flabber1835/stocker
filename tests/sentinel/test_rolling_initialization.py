@@ -111,8 +111,12 @@ def ready(conn, operational_source, monkeypatch):
     # This fixture exercises retained historical formation semantics. The
     # selected production startup now uses CurrentFormationWindow and has its
     # own Alpaca integration tests; keep the old fixture explicitly isolated.
-    monkeypatch.setattr(op, 'acquisition_window',
-                        lambda *_a: FormationWindow.through('2026-09-14'))
+    acquire = op.acquisition_window
+    def historical_startup(conn, strategy_sha256):
+        if not cp.lineage_names(conn):
+            return FormationWindow.through(op.source_final_session())
+        return acquire(conn, strategy_sha256)
+    monkeypatch.setattr(op, 'acquisition_window', historical_startup)
     schema.ensure_schema(conn)
     data = operational_source
     template = deepcopy(data["TICKERS"][0])

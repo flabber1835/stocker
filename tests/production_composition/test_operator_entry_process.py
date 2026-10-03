@@ -206,7 +206,8 @@ def test_cancelled_real_guard_blocks_promotion_then_fresh_invocation_succeeds(
         "assert lock.lifecycle_lock_is_held(); "
         "signal.signal(signal.SIGINT, lambda *_: sys.exit(0)); "
         "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); "
-        "print(os.environ['SHARADAR_API_KEY'], flush=True); "
+        "assert not any(k.startswith(('SHARADAR_', 'NDL_')) for k in os.environ); "
+        "print(os.environ['ALPACA_API_KEY'], os.environ['ALPACA_SECRET_KEY'], flush=True); "
         "os.kill(os.getppid(), %d); time.sleep(30)" % signum
     )
     failed, calls = _run(tmp_path, process_env={
@@ -214,6 +215,8 @@ def test_cancelled_real_guard_blocks_promotion_then_fresh_invocation_succeeds(
     assert failed.returncode == 128 + signum, failed.stderr
     assert "[REDACTED]" in failed.stdout
     assert "composition-sharadar" not in failed.stdout + failed.stderr
+    assert "composition-alpaca-key" not in failed.stdout + failed.stderr
+    assert "composition-alpaca-secret" not in failed.stdout + failed.stderr
     for name in ("promotion", "post_validation"):
         assert not any(line.startswith(REAL_STAGES[name]) for line in calls)
     assert "GO lifecycle completed successfully" not in failed.stdout

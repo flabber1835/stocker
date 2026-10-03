@@ -121,7 +121,9 @@ def test_env_writer_refuses_symlink_destination_even_with_force(
         tmp_path) -> None:
     module = _load_script("sentinel-env-from-stocker.py")
     source = tmp_path / "legacy.env"
-    source.write_text("SHARADAR_API_KEY=retained-secret\n")
+    source.write_text("ALPACA_API_KEY=fixture-key\n"
+                      "ALPACA_SECRET_KEY=fixture-secret\n"
+                      "SHARADAR_API_KEY=retired-secret\n")
     victim = tmp_path / "victim"
     victim.write_text("ORIGINAL\n")
     destination = tmp_path / ".env"
@@ -138,12 +140,15 @@ def test_env_writer_refuses_symlink_destination_even_with_force(
 def test_env_writer_creates_mode_0600_from_first_publication(tmp_path) -> None:
     module = _load_script("sentinel-env-from-stocker.py")
     source = tmp_path / "legacy.env"
-    source.write_text("SHARADAR_API_KEY=retained-secret\n")
+    source.write_text("ALPACA_API_KEY=fixture-key\n"
+                      "ALPACA_SECRET_KEY=fixture-secret\n"
+                      "SHARADAR_API_KEY=retired-secret\n")
     destination = tmp_path / ".env"
 
     assert module.main([
         "--from", str(source), "--to", str(destination)]) == 0
     assert destination.stat().st_mode & 0o777 == 0o600
+    assert "SHARADAR_API_KEY" not in destination.read_text()
 
 
 def test_sep_interrupted_backed_up_promotion_restores_prior_generation(
