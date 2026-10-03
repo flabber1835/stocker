@@ -1,0 +1,162 @@
+{
+  "bundle_sha256": "e308ed05c5da66ba08846b28fd268b9c67a5549e1511cdcc254491c33e29a6fa",
+  "fixture_sha256": "c1c8afe78a5ff3ef346a34d7e86569dd96e6d0c7d4267a43fa57b40c1f1644f3",
+  "held": {
+    "blocked": true,
+    "cash": 49000.0,
+    "equity": null,
+    "fills": 0,
+    "identity": "6401378",
+    "queued": 0,
+    "scenario": "hypothetical held affected security",
+    "shares": 100,
+    "status": "PASS"
+  },
+  "renamed_held": {
+    "blocked": true,
+    "cash": 49000.0,
+    "equity": null,
+    "fills": 0,
+    "identity": "9900000",
+    "queued": 0,
+    "scenario": "hypothetical held affected security",
+    "shares": 100,
+    "status": "PASS"
+  },
+  "renamed_unheld": {
+    "identical_state_orders_ledger": true,
+    "sessions": [
+      {
+        "affected_rows": {
+          "9900000": 0,
+          "9900001": 1
+        },
+        "blocked": false,
+        "eligible": 30,
+        "equity": 50000.0,
+        "fills": 0,
+        "queued": 17,
+        "session": "2026-09-23"
+      },
+      {
+        "affected_rows": {
+          "9900000": 0,
+          "9900001": 2
+        },
+        "blocked": false,
+        "eligible": 30,
+        "equity": 49957.98628322286,
+        "fills": 17,
+        "queued": 1,
+        "session": "2026-09-24"
+      },
+      {
+        "affected_rows": {
+          "9900000": 0,
+          "9900001": 3
+        },
+        "blocked": false,
+        "eligible": 30,
+        "equity": 49971.71463322798,
+        "fills": 1,
+        "queued": 1,
+        "session": "2026-09-25"
+      },
+      {
+        "affected_rows": {
+          "9900000": 1,
+          "9900001": 4
+        },
+        "blocked": false,
+        "eligible": 30,
+        "equity": 49932.89640054644,
+        "fills": 1,
+        "queued": 1,
+        "session": "2026-09-28"
+      },
+      {
+        "affected_rows": {
+          "9900000": 2,
+          "9900001": 5
+        },
+        "blocked": false,
+        "eligible": 30,
+        "equity": 49851.14959090839,
+        "fills": 1,
+        "queued": 0,
+        "session": "2026-09-29"
+      }
+    ],
+    "status": "PASS",
+    "synthetic_mature_candidates": 30,
+    "variant": "snapshot"
+  },
+  "unheld": {
+    "identical_state_orders_ledger": true,
+    "sessions": [
+      {
+        "affected_rows": {
+          "6400999": 1,
+          "6401378": 0
+        },
+        "blocked": false,
+        "eligible": 30,
+        "equity": 50000.0,
+        "fills": 0,
+        "queued": 17,
+        "session": "2026-09-23"
+      },
+      {
+        "affected_rows": {
+          "6400999": 2,
+          "6401378": 0
+        },
+        "blocked": false,
+        "eligible": 30,
+        "equity": 49957.98628322286,
+        "fills": 17,
+        "queued": 1,
+        "session": "2026-09-24"
+      },
+      {
+        "affected_rows": {
+          "6400999": 3,
+          "6401378": 0
+        },
+        "blocked": false,
+        "eligible": 30,
+        "equity": 49971.71463322798,
+        "fills": 1,
+        "queued": 1,
+        "session": "2026-09-25"
+      },
+      {
+        "affected_rows": {
+          "6400999": 4,
+          "6401378": 1
+        },
+        "blocked": false,
+        "eligible": 30,
+        "equity": 49932.89640054644,
+        "fills": 1,
+        "queued": 1,
+        "session": "2026-09-28"
+      },
+      {
+        "affected_rows": {
+          "6400999": 5,
+          "6401378": 2
+        },
+        "blocked": false,
+        "eligible": 30,
+        "equity": 49851.14959090839,
+        "fills": 1,
+        "queued": 0,
+        "session": "2026-09-29"
+      }
+    ],
+    "status": "PASS",
+    "synthetic_mature_candidates": 30,
+    "variant": "snapshot"
+  }
+}
