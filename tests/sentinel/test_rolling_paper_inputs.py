@@ -10,6 +10,7 @@ import pytest
 
 from sentinel import binding, dual_plan_authority, rolling_runtime, rolling_initialization, paper
 from sentinel import automation_runtime
+from sentinel.automation.model import NonRetryableCallbackRefused
 from sentinel.execution import feed_inputs, feed_actions, journal, certification, target_reprojection
 from sentinel.execution.feed_cash import SnapshotCashInputs
 from sentinel.execution.contract import BrokerAccountIdentity
@@ -621,18 +622,28 @@ def test_automation_refresh_consumes_current_shadow_without_acquisition(conn, pu
             pass
     runtime = object.__new__(automation_runtime.ProductionAutomation)
     runtime._dual_run_enabled = True
+    # This shared fixture publishes retained historical Sharadar material.
+    # Explicitly select its research mode instead of bypassing constructor state.
+    runtime._operational_source_only = False
     runtime._shadow_observation_id, runtime._shadow_starting_cash = OBS, 100000
     runtime.connect = lambda: Borrowed()
     runtime._assert_cycle_authority = lambda *_a, **_k: (SimpleNamespace(decision_session=date.fromisoformat(DAY)), None)
+    monkeypatch.setattr(automation_runtime.ingest, "daily", lambda *_a, **_k: pytest.fail("paper acquisition"))
+    monkeypatch.setattr(rolling_runtime, "advance", lambda *_a, **_k: pytest.fail("paper advanced shadow"))
     result = asyncio.run(runtime.refresh(SimpleNamespace()))
     assert result.already_published and result.diagnostic["scope"] == "ROLLING_VERIFIED_SHADOW"
+    # Authenticate the real bound manifest at the deployed boundary, even
+    # though this historical publication uses the same rolling schema.
+    runtime._operational_source_only = True
+    with pytest.raises(NonRetryableCallbackRefused,
+                       match="OPERATIONAL_ALPACA_NASDAQ_SOURCE_REQUIRED"):
+        asyncio.run(runtime.refresh(SimpleNamespace()))
+    runtime._operational_source_only = False
     runtime._fenced_data_next_wake = None
     runtime._fenced_data_poll_seconds = 300
     runtime.automation_config = SimpleNamespace(alert_max_attempts=3)
     monkeypatch.setattr(automation_runtime.schedule, "for_clock",
         lambda *_: SimpleNamespace(decision_session=date.fromisoformat(DAY)))
-    monkeypatch.setattr(automation_runtime.ingest, "daily", lambda *_a, **_k: pytest.fail("paper acquisition"))
-    monkeypatch.setattr(rolling_runtime, "advance", lambda *_a, **_k: pytest.fail("paper advanced shadow"))
     assert asyncio.run(runtime._fenced_data_wake(conn)) is not None
 
 
