@@ -65,12 +65,12 @@ class SnapshotReferences:
                 NORMALIZATION_VERSION, window_policy.NORMALIZATION, ALPACA_NORMALIZATION)
                 or self.manifest.calendar_version != calendar.calendar_version()):
             raise RollingInputsRefused("UNSUPPORTED_SNAPSHOT_SEMANTICS")
-        if (self.manifest.provider == "ALPACA_NASDAQ") != (
+        if (self.manifest.provider == "ALPACA_OPENFIGI") != (
                 self.manifest.normalization_version == ALPACA_NORMALIZATION):
             raise RollingInputsRefused("SNAPSHOT_PROVIDER_NORMALIZATION_MISMATCH")
         reference = rolling_store.load_evidence(conn, self.manifest.reference_sha256)
-        reference_schema = ("sentinel.rolling-alpaca-nasdaq-references/1"
-                            if self.manifest.provider == "ALPACA_NASDAQ" else
+        reference_schema = ("sentinel.rolling-alpaca-openfigi-references/1"
+                            if self.manifest.provider == "ALPACA_OPENFIGI" else
                             "sentinel.rolling-sharadar-references/1")
         if (set(reference) != {"schema", "tickers", "actions"}
                 or reference["schema"] != reference_schema
@@ -82,8 +82,8 @@ class SnapshotReferences:
                         "WHERE candidate_id=%s", (candidate_id,))
             row = cur.fetchone()
         validation = rolling_store.load_evidence(conn, row[0]) if row else {}
-        validation_schema = ("sentinel.alpaca-nasdaq-validation/1"
-                             if self.manifest.provider == "ALPACA_NASDAQ" else
+        validation_schema = ("sentinel.alpaca-openfigi-validation/1"
+                             if self.manifest.provider == "ALPACA_OPENFIGI" else
                              "sentinel.rolling-comparison-validation/1")
         if (validation.get("schema") != validation_schema
                 or validation.get("scope") != "COMPARISON_ONLY"

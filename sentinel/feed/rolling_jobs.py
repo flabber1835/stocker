@@ -20,7 +20,7 @@ WAITING = {"WAIT_SOURCE", "RETRY_WAIT", "INTERRUPTED"}
 _CODE = re.compile(r"[A-Z][A-Z0-9_]{0,95}\Z")
 _COMPONENT = re.compile(
     r"(?:SEP|SFP|ACTIONS|TICKERS)(?:\.[0-9]{4}-[0-9]{2}-[0-9]{2}"
-    r"\.[0-9]{4}-[0-9]{2}-[0-9]{2})?\Z")
+    r"\.[0-9]{4}-[0-9]{2}-[0-9]{2})?|TICKERS\.(?:ASSETS|PLAN)|TICKERS\.FIGI\.[1-9][0-9]{0,4}\Z")
 
 
 class JobRefused(RuntimeError):

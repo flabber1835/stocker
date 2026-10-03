@@ -133,7 +133,7 @@ def test_recover_flag_is_compatibility_only_and_go_owns_recovery():
     assert 'parser.add_argument(\n        "--recover"' in source
     assert "compatibility mode only; no financial data" in source
     assert "Certified GO owns bounded recovery" in source
-    assert "Alpaca/Nasdaq acquisition, rolling publication" in source
+    assert "Alpaca/OpenFIGI acquisition, rolling publication" in source
 
 
 def test_fast_liveness_has_hard_diagnostic_fetch_budgets():

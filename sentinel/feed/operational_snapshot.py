@@ -161,11 +161,11 @@ def _bound(conn, pub):
             "job_id": str(row[0]), "candidate_id": str(row[1]), "snapshot_id": manifest.snapshot_id}
 
 
-def require_alpaca_nasdaq(conn, pub):
+def require_alpaca_openfigi(conn, pub):
     """Reject a legacy rolling candidate at a deployed operational boundary."""
     binding = _bound(conn, pub)
-    if rolling_store.manifest(conn, binding["candidate_id"]).provider != "ALPACA_NASDAQ":
-        raise OperationalSnapshotRefused("OPERATIONAL_ALPACA_NASDAQ_SOURCE_REQUIRED")
+    if rolling_store.manifest(conn, binding["candidate_id"]).provider != "ALPACA_OPENFIGI":
+        raise OperationalSnapshotRefused("OPERATIONAL_ALPACA_OPENFIGI_SOURCE_REQUIRED")
     return binding
 
 

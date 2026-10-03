@@ -212,7 +212,7 @@ docs/wealth-core-test-rewrite.md
 - Wealth Core remains independent of broker state.
 - Sentinel controls exposure only; it does not choose Wealth Core holdings.
 - Execution is the only broker-facing layer.
-- Alpaca SIP bars/actions plus free Nasdaq directories are the production GO
+- Alpaca SIP bars/actions plus free OpenFIGI classifications are the production GO
   market-data inputs; Sharadar is retained for historical backtests. See
   `docs/alpaca-go-cold-start.md` for this scoped source transition.
 - Preserve the price-domain rules documented in the repository.

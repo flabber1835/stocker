@@ -62,7 +62,7 @@ def test_composed_input_keeps_spy_equity_and_bil_domains_separate(transport):
         assert published.spy_closeadj[:-2] == tuple(300.+i for i in range(251))
         assert published.spy_sessions == tuple(source.axis)
     else:
-        from unittest.mock import patch
+        from unittest.mock import Mock, patch
         from sentinel.core.formation_inputs import FormationInputs
         from sentinel.feed import calendar
         source = object.__new__(FormationInputs)
@@ -78,10 +78,12 @@ def test_composed_input_keeps_spy_equity_and_bil_domains_separate(transport):
         prices = SimpleNamespace(bars=(equity,), benchmarks=benchmarks, signal_basis_anchors={})
         reader = SimpleNamespace(prices=lambda **kw: prices)
         features = SimpleNamespace(model_dump=lambda **kw: {})
+        feature_loader = Mock(return_value=features)
+        source.features = SimpleNamespace(load=feature_loader)
         state = SimpleNamespace(wealth_core={}, pending=[], median5={}, last_processed_session=None)
-        with patch('sentinel.core.rolling_reader.RollingPriceReader', return_value=reader), \
-                patch('sentinel.core.window_features.load', return_value=features):
+        with patch('sentinel.core.rolling_reader.RollingPriceReader', return_value=reader):
             published = source.session(axis[-1], state)
+        feature_loader.assert_called_once_with(prior=state, session=axis[-1])
     assert published.spy_closeadj[-2:] == (600., 601.)
     assert published.spy_sessions[-2:] == published.spy_expected_sessions[-2:] == axis
     assert published.bars == (equity,)

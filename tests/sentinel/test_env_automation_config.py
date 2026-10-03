@@ -126,6 +126,16 @@ def test_local_bringup_needs_no_provider_or_alert_credentials():
     preflight.validate(candidate, profile="bringup", target="DUAL_RUN_OBSERVATION")
 
 
+def test_optional_openfigi_key_survives_strict_file_load_and_service_handoff(tmp_path):
+    path = tmp_path / '.env'
+    path.write_text("OPENFIGI_API_KEY='synthetic-figi-key'\n", encoding='utf-8')
+    values = preflight.load(path, required=True)
+    assert values == {'OPENFIGI_API_KEY':'synthetic-figi-key'}
+    assert preflight.operational_values(values) == values
+    assert service_environment('sentinel-automation', values)['OPENFIGI_API_KEY'] == 'synthetic-figi-key'
+    assert service_environment('sentinel-shadow', values)['OPENFIGI_API_KEY'] == 'synthetic-figi-key'
+
+
 def test_shared_graph_resolves_for_shadow_and_maintenance_before_alert_setup():
     candidate = {key: value for key, value in BASE.items()
                  if key != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}

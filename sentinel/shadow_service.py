@@ -2,7 +2,7 @@
 
 This module deliberately imports neither ProductionAutomation nor any Sentinel
 execution/broker adapter. Deployed shadow mode uses Alpaca credentials only
-through the GET-only market-data client, requires an Alpaca/Nasdaq rolling
+through the GET-only market-data client, requires an Alpaca/OpenFIGI rolling
 publication, and rejects account identity and Sharadar credentials. The legacy
 path remains for offline historical fixtures and cannot be entered by the
 deployed shadow service.
@@ -145,7 +145,7 @@ def _preflight(conn, config: ShadowServiceConfig, *,
             raise ShadowServiceRefused(
                 "operational shadow requires rolling Alpaca inputs")
         try:
-            operational_snapshot.require_alpaca_nasdaq(conn, current)
+            operational_snapshot.require_alpaca_openfigi(conn, current)
         except operational_snapshot.OperationalSnapshotRefused as exc:
             raise ShadowServiceRefused(str(exc)) from exc
     classified = shadow_runtime.classify_shadow_lineage(

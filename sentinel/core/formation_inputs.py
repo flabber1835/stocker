@@ -1,4 +1,4 @@
-"""Current-information startup inputs from one admitted Sharadar generation."""
+"""Current-information startup inputs from one admitted market-data generation."""
 from sentinel.core.loader import CorpusWindow
 from sentinel.core.rolling_inputs import SnapshotReferences, _mapped_bars, fresh_anchors
 from sentinel.core.session import DefensiveBar, PublishedSession
@@ -28,6 +28,8 @@ class FormationInputs:
         self.current_window = isinstance(self.refs.manifest.window, CurrentFormationWindow)
         if self.current_window and not self.refs.current_window:
             raise ValueError('CURRENT_WINDOW_PUBLICATION_REQUIRED')
+        from sentinel.core.formation_features import FormationFeatures
+        self.features = FormationFeatures(conn, refs=self.refs, publication=publication) if self.current_window else None
         self.warmup_sessions = 299 if self.current_window else 252
         self.benchmarks = tuple(rolling_store.read_benchmarks(conn, binding['candidate_id']))
         if [str(b.session) for b in self.benchmarks] != self.axis:
@@ -97,8 +99,7 @@ class FormationInputs:
                 raise ValueError('FORMATION_LIVE_ANCHOR_MISSING: ' + sid)
             anchors[sid] = anchor[0]
         prices = reader.prices(session=day, spy_sessions=254, anchor_sessions=anchors)
-        features = window_features.load(self.conn, prior=state, refs=self.refs,
-                                        publication=self.publication, session=day)
+        features = self.features.load(prior=state, session=day)
         meta, sectors = self.refs.current_metadata(session=day)
         proof = None
         if state.last_processed_session:

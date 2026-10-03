@@ -296,7 +296,7 @@ try:
     with readers.pinned(c, commit=False) as current:
         if not readers.is_rolling(current):
             raise RuntimeError('operational install requires rolling Alpaca inputs')
-        operational_snapshot.require_alpaca_nasdaq(c, current)
+        operational_snapshot.require_alpaca_openfigi(c, current)
         frontier = readers.frontier(c, current)
     if frontier is None or current.window_end != frontier:
         raise RuntimeError('current publication/frontier disagree')

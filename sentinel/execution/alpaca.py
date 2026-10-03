@@ -445,7 +445,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
         from datetime import timedelta
         from sentinel.feed import calendar
         from sentinel.execution.opening_prices import (
-            ENDPOINT, OpeningPriceNotReady, OpeningPriceUnavailable, parse_bars)
+            ENDPOINT, FEED, OpeningPriceNotReady, OpeningPriceUnavailable, parse_bars)
         self.capabilities.require("regular_session_open_prices")
         opened, closed = calendar.session_window(session)
         now = self._now()
@@ -466,7 +466,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
             async with self._httpx.AsyncClient(timeout=20.0) as client:
                 resp = await client.get(ENDPOINT, headers=self._headers(), params={
                     "symbols": ",".join(sorted(broker_symbols.values())),
-                    "timeframe": "1Min", "feed": "sip", "adjustment": "raw",
+                    "timeframe": "1Min", "feed": FEED, "adjustment": "raw",
                     "start": opened.isoformat(),
                     "end": (opened + timedelta(minutes=1, microseconds=-1)).isoformat(),
                     "asof": session.isoformat(), "sort": "asc", "limit": 10000,

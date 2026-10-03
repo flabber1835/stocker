@@ -66,7 +66,7 @@ from sentinel.shadow_segments import (
 
 WARMUP_SESSIONS = SHADOW_WARMUP_SESSIONS
 SHADOW_PUBLICATION_TIMING_POLICY = (
-    "ALPACA_NASDAQ_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
+    "ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _GIT_OBJECT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?\Z")
 _IMAGE_DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")

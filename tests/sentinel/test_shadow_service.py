@@ -93,11 +93,11 @@ def test_operational_source_gate_rejects_sharadar_rolling_candidate(monkeypatch)
     monkeypatch.setattr(rolling_store, "manifest", lambda *_a: SimpleNamespace(
         provider="SHARADAR"))
     with pytest.raises(operational_snapshot.OperationalSnapshotRefused,
-                       match="ALPACA_NASDAQ_SOURCE_REQUIRED"):
-        operational_snapshot.require_alpaca_nasdaq(object(), object())
+                       match="ALPACA_OPENFIGI_SOURCE_REQUIRED"):
+        operational_snapshot.require_alpaca_openfigi(object(), object())
     monkeypatch.setattr(rolling_store, "manifest", lambda *_a: SimpleNamespace(
-        provider="ALPACA_NASDAQ"))
-    assert operational_snapshot.require_alpaca_nasdaq(
+        provider="ALPACA_OPENFIGI"))
+    assert operational_snapshot.require_alpaca_openfigi(
         object(), object())["candidate_id"] == "candidate"
 
 
@@ -116,14 +116,14 @@ def test_deployed_shadow_preflight_checks_provider_before_lineage(monkeypatch):
                         lambda *_a: None)
     monkeypatch.setattr(readers, "current", lambda *_a: object())
     monkeypatch.setattr(readers, "is_rolling", lambda *_a: True)
-    monkeypatch.setattr(operational_snapshot, "require_alpaca_nasdaq",
+    monkeypatch.setattr(operational_snapshot, "require_alpaca_openfigi",
                         lambda *_a: (_ for _ in ()).throw(
                             operational_snapshot.OperationalSnapshotRefused(
-                                "OPERATIONAL_ALPACA_NASDAQ_SOURCE_REQUIRED")))
+                                "OPERATIONAL_ALPACA_OPENFIGI_SOURCE_REQUIRED")))
     monkeypatch.setattr(shadow_service.shadow_runtime, "classify_shadow_lineage",
                         lambda *_a, **_k: pytest.fail("lineage reached before source gate"))
     with pytest.raises(shadow_service.ShadowServiceRefused,
-                       match="ALPACA_NASDAQ_SOURCE_REQUIRED"):
+                       match="ALPACA_OPENFIGI_SOURCE_REQUIRED"):
         shadow_service._preflight(Conn(), config)
 
 

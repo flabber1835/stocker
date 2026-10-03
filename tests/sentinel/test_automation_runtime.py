@@ -174,14 +174,14 @@ def test_deployed_automation_refuses_wrong_rolling_provider_before_plan(
                         lambda *_a: SimpleNamespace(version=1))
     monkeypatch.setattr(automation_runtime.feed_inputs, "is_rolling",
                         lambda *_a: True)
-    monkeypatch.setattr(operational_snapshot, "require_alpaca_nasdaq",
+    monkeypatch.setattr(operational_snapshot, "require_alpaca_openfigi",
                         lambda *_a: (_ for _ in ()).throw(
                             operational_snapshot.OperationalSnapshotRefused(
-                                "OPERATIONAL_ALPACA_NASDAQ_SOURCE_REQUIRED")))
+                                "OPERATIONAL_ALPACA_OPENFIGI_SOURCE_REQUIRED")))
     monkeypatch.setattr(automation_runtime.feed_inputs, "require_shadow_mode",
                         lambda *_a: pytest.fail("plan path reached"))
     with pytest.raises(NonRetryableCallbackRefused,
-                       match="ALPACA_NASDAQ_SOURCE_REQUIRED"):
+                       match="ALPACA_OPENFIGI_SOURCE_REQUIRED"):
         asyncio.run(worker.refresh(SimpleNamespace()))
 
 

@@ -246,7 +246,9 @@ def successor(conn, job_id, component):
     details = {}
     if component != "*":
         details["table"] = component.split(".")[0]
-        if "." in component:
+        if component.startswith(('TICKERS.ASSETS','TICKERS.PLAN','TICKERS.FIGI.')):
+            details['component'] = component
+        elif "." in component:
             _, lo, hi = component.split(".")
             details.update(date_from=lo, date_to=hi)
     progress.emit("source_replay", "selected", reason="SOURCE_REVISION_RESTART", **details,

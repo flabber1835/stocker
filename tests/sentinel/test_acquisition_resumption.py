@@ -382,6 +382,23 @@ def test_successor_never_renews_exhausted_deadline(conn, source):
     assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_jobs").fetchone()[0] == 1
 
 
+@pytest.mark.parametrize('component', ['TICKERS.ASSETS','TICKERS.PLAN','TICKERS.FIGI.1'])
+def test_metadata_successor_does_not_parse_suffix_as_date(conn,source,capsys,component):
+    from sentinel.feed.acquisition_parts import successor
+    import sentinel_go_feed_progress as host_progress
+    job = formation_job(conn,source)
+    lease = jobs.claim(conn,job,lease_seconds=600)
+    deadline = jobs.status(conn,job)['deadline']
+    jobs.finish(conn,lease,state='REFUSED',reason='SOURCE_GENERATION_CHANGED')
+    conn.commit()
+    child = successor(conn,job,component)
+    assert jobs.status(conn,child)['deadline'] == deadline
+    events = host_progress.collect(capsys.readouterr().err)
+    assert events[-1]['reason'] == 'SOURCE_REVISION_RESTART'
+    assert events[-1]['component'] == component
+    assert 'date_from' not in events[-1] and 'date_to' not in events[-1]
+
+
 def test_retention_pins_parts_until_successor_finishes(conn, source):
     from sentinel.feed.acquisition_parts import Parts, successor
     from sentinel.feed import retention
@@ -611,12 +628,12 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
     from sentinel.feed import rolling_builder
     from sentinel.feed.alpaca_source import AlpacaSource
     from sentinel.feed.alpaca_transport import BAR_URL
-    from tests.sentinel.test_alpaca_operational_snapshot import FakeClient
+    from tests.sentinel.test_alpaca_operational_snapshot import FakeClient, FakeClassifier
 
     provider = FakeClient(window=window)
     monkeypatch.setattr(publisher, "_operational_source",
         lambda observed_window, worker, lease, *, corrections, verify_during_coverage:
-            AlpacaSource(observed_window, worker, lease, client=provider,
+            AlpacaSource(observed_window, worker, lease, client=provider, classifier=FakeClassifier(),
                          verify_during_coverage=verify_during_coverage))
     monkeypatch.setattr(rolling_builder, "MIN_ADMITTED_COMMON_STOCKS", 2)
     monkeypatch.setitem(backup.phase._PHASE, "certified", True)
@@ -630,8 +647,10 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
 
     def horizon(c, *, operation, **kwargs):
         current = jobs.status(c, job)
-        # 19 monthly SEP parts plus ACTIONS, TICKERS, SFP, all committed.
-        completed = len(jobs.components(c, job)) == 22
+        # Completion is independent of the number of classification batches.
+        names = {part['component'] for part in jobs.components(c,job)}
+        completed = ({'ACTIONS','TICKERS','SFP'} <= names
+                     and sum(name.startswith('SEP.') for name in names) == 19)
         due = len(renewed) < len(boundaries) and current["state"] == boundaries[len(renewed)]
         if completed and due and not in_failure[0]:
             authority._expected_wals("000000010000000000000000", "000000010000000000000040",
@@ -694,7 +713,7 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
         held = jobs.status(conn, job)
         assert held["state"] == "RETRY_WAIT" and held["deadline"] == deadline
         assert held["owner"] is None and len(runner.preparations) == 1
-        assert len(jobs.components(conn, job)) == 22
+        assert len(jobs.components(conn, job)) == 25
         assert conn.execute("SELECT COUNT(*) FROM sentinel_acquisition_prices").fetchone()[0] == 758
         # A later host invocation can still use the exact durable work.
         renewal_failure = None
@@ -706,9 +725,9 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
     assert jobs.status(conn, job)["deadline"] == deadline
     assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_jobs").fetchone()[0] == 1
     bar_requests = [params for endpoint, params in provider.calls if endpoint == BAR_URL]
-    assert len(bar_requests) == 40  # 19 months x raw/split plus SPY/BIL raw/all.
+    assert len(bar_requests) == 41  # 19 months x raw/split plus benchmark raw/all and BIL split.
     assert len({(params["start"], params["end"], params["adjustment"])
-                for params in bar_requests}) == 40
+                for params in bar_requests}) == 41
     assert "RETAINED_PART_REUSED" in runner.last_preparation_output
     audit = json.loads((tmp_path / "audit.json").read_text())
     assert audit["status"] == "PASS"

@@ -215,7 +215,7 @@ def test_projection_json_round_trip_and_tamper_refusal():
 
 
 @pytest.mark.asyncio
-async def test_alpaca_reads_raw_sip_opening_minute_after_it_completes():
+async def test_alpaca_reads_free_raw_iex_opening_minute_after_it_completes():
     from sentinel.execution.alpaca import AlpacaExecutionBroker
     opened, _ = calendar.session_window(EFFECTIVE_SESSION)
     calls = []
@@ -234,7 +234,7 @@ async def test_alpaca_reads_raw_sip_opening_minute_after_it_completes():
         instruments={"SEC-AAA": BrokerInstrument("SEC-AAA", "AAA", "asset")})
     assert result.prices["SEC-AAA"] == 50
     assert calls[0][0] == ENDPOINT
-    assert calls[0][1] == {"symbols": "AAA", "feed": "sip", "adjustment": "raw",
+    assert calls[0][1] == {"symbols": "AAA", "feed": "iex", "adjustment": "raw",
         "timeframe": "1Min", "start": opened.isoformat(),
         "end": (opened+timedelta(minutes=1, microseconds=-1)).isoformat(),
         "asof": EFFECTIVE_SESSION.isoformat(), "sort": "asc", "limit": 10000, "currency": "USD"}
@@ -330,7 +330,7 @@ def test_paper_target_path_consumes_opening_evidence(monkeypatch):
         target_actions=lambda sid: D(1), persist_projection=False,
         opening_prices=prices(env, plan, price="50"))
     assert result.target_basket["SEC-AAA"] == 99
-    assert result.opening_sizing["prices"]["source"] == "ALPACA_SIP_RAW_OPENING_MINUTE_V1"
+    assert result.opening_sizing["prices"]["source"] == "ALPACA_IEX_RAW_OPENING_MINUTE_V1"
 
 
 @pytest.mark.asyncio

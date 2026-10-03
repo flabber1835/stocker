@@ -7,6 +7,20 @@ old Sharadar certificate into an Alpaca certificate or authorize paper orders.
 
 ## Ownership and sources
 
+Decision: 2026-10-03. Daily-bar request bounds use the inclusive New York
+midnight timestamp of the first and last requested sessions. Alpaca labels
+daily bars at that timestamp; requesting 23:59:59 unnecessarily reaches into
+the future or the recent SIP interval unavailable to the free subscription.
+This changes the timestamp filter, not the bar contents or the permission to
+consume a session: the existing closed-session and source-final guards remain
+required. Each boundary independently uses the New York daylight-saving offset.
+Apply the same bounds to raw, split-adjusted and total-return benchmark bars
+in GO and daily acquisition. Real authenticated requests returned identical
+complete SPY/BIL bars with midnight and later historical bounds, including
+the final requested session.
+See the [SIP access restriction](https://docs.alpaca.markets/us/docs/market-data-faq)
+and [inclusive stock-bar bounds](https://docs.alpaca.markets/us/reference/stockbars).
+
 Alpaca SIP daily bars and corporate actions supply operational market facts.
 The free Nasdaq Trader `nasdaqlisted.txt` and `otherlisted.txt` directories
 supply a conservative current common-stock universe. This is an Alpaca-led,
@@ -43,6 +57,20 @@ continuation and action-economics qualification. A GO refusal must retain its
 failed-attempt evidence and cannot delete the historical corpus.
 
 ## Current universe
+
+Decision: 2026-10-03. Universe policy v4 also rejects a plain `Unit` or `Units`
+security descriptor after Nasdaq's issuer/issue separator and descriptions of
+units consisting of bundled instruments. The former filter caught `Equity
+Units` but missed plain SPAC-style units. This is a description-based rule for
+all securities, without symbol-specific corrections. Preserve issuer names
+containing `Unit`, ordinary-share descriptions, and the existing common/limited
+partnership-unit perimeter; those are distinct from a plain bundled-unit
+descriptor. The 95% admission guard and per-security history checks stay intact.
+The real 2026-10-02 capture selected 6,157 candidates, including 248 such plain
+unit issues; 194 of those lacked a final-session bar. Removing these incorrectly
+selected issues leaves 5,909 candidates and 97.78% paired frontier coverage.
+The failed attempt's inputs were recovered from its verified base backup for
+this diagnosis; the fresh acquisition must independently validate the correction.
 
 Intersect the current Alpaca `active`, `tradable`, `us_equity` assets with both
 current Nasdaq Trader directories. The Nasdaq row must uniquely match the

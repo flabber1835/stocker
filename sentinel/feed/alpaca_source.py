@@ -1,17 +1,17 @@
-"""Retained Alpaca/Nasdaq inputs for GO and daily rolling candidates."""
+"""Retained Alpaca/OpenFIGI inputs for GO and daily rolling candidates."""
 from __future__ import annotations
 
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from sentinel.feed import calendar, progress, rolling_jobs as jobs
 from sentinel.feed.acquisition_parts import Parts
-from sentinel.feed.alpaca_nasdaq import DIRECTORY_URLS, parse_directory, select_assets
+from sentinel.feed import openfigi
 from sentinel.feed.alpaca_observation import (
     action_participants, action_symbols, cash_dividend, paired_month,
-    structural_action_date,
+    structural_action_date, stock_split, bar_page_rows, admissible_history,
 )
 from sentinel.feed.alpaca_transport import (
     ACTION_URL, ASSETS, BAR_URL, AlpacaTransportRefused, Client,
@@ -19,13 +19,15 @@ from sentinel.feed.alpaca_transport import (
 from sentinel.feed.operational_source import _months
 from sentinel.feed.rolling_contract import digest
 
-SOURCE = "sentinel.alpaca-nasdaq-operational-source/1"
+SOURCE = "sentinel.alpaca-openfigi-operational-source/1"
 _NY = ZoneInfo("America/New_York")
 
 
 def _bounds(first: str, last: str):
     start = datetime.fromisoformat(first + "T00:00:00").replace(tzinfo=_NY)
-    end = datetime.fromisoformat(last + "T23:59:59").replace(tzinfo=_NY)
+    # Daily bars are labelled at New York midnight; end is inclusive. Asking
+    # for day-end reaches unavailable recent SIP data during source-final runs.
+    end = datetime.fromisoformat(last + "T00:00:00").replace(tzinfo=_NY)
     return start.isoformat(), end.isoformat()
 
 
@@ -33,6 +35,10 @@ def _groups(values, size=400):
     ordered = sorted(values)
     for offset in range(0, len(ordered), size):
         yield ordered[offset:offset + size]
+
+
+def _today():
+    return datetime.now(timezone.utc).date()
 
 
 def _merged(pages, *, symbols):
@@ -48,11 +54,12 @@ def _merged(pages, *, symbols):
 
 
 class AlpacaSource:
-    provider = "ALPACA_NASDAQ"
+    provider = "ALPACA_OPENFIGI"
 
-    def __init__(self, window, conn, lease, *, client=None, verify_during_coverage=False):
+    def __init__(self, window, conn, lease, *, client=None, classifier=None, verify_during_coverage=False):
         self.window, self.conn, self.lease = window, conn, lease
         self.client = client or Client()
+        self.classifier = classifier or openfigi.Client()
         self.parts = Parts(conn, lease)
         self.verify_during_coverage = verify_during_coverage
         self.price_manifests = {}
@@ -66,6 +73,7 @@ class AlpacaSource:
         self.sfp = []
         self.tickers = []
         self.actions = []
+        self.splits = []
         self.months = []
 
     def preflight(self):
@@ -74,12 +82,18 @@ class AlpacaSource:
         self.months = list(_months(str(self.window.start), str(self.window.end)))
 
     def _part(self, component, generation, acquire, checkpoint):
+        details = {'table':component.split('.')[0]}
+        if component.startswith('TICKERS.'):
+            details['component'] = component
+        elif component.startswith('SEP.'):
+            _, lo, hi = component.split('.')
+            details.update(date_from=lo,date_to=hi)
         with self.parts.unit():
             retained = self.parts.get(component, generation,
                                       defer_prices=self.verify_during_coverage
                                       and component.startswith("SEP."))
             if retained is None:
-                progress.emit("source_download", "started", table=component.split(".")[0],
+                progress.emit("source_download", "started", **details,
                               reason="ACQUIRE_MISSING_PART", job_id=self.lease.job_id)
                 payload, prices, evidence, rows = acquire()
                 retained = self.parts.put(component, generation, payload=payload,
@@ -96,24 +110,78 @@ class AlpacaSource:
                                   "evidence": manifest["evidence"]})
             checkpoint(component, generation, manifest["content_sha256"],
                        manifest["rows"], 0)
-            progress.emit("source_replay", "completed", table=component.split(".")[0],
+            progress.emit("source_replay", "completed", **details,
                           reason=reason, rows=manifest["rows"], job_id=self.lease.job_id)
             return payload
 
-    def _references(self):
+    def _inventory(self):
         assets, asset_proof = self.client.get(ASSETS, {"status": "active", "asset_class": "us_equity"})
         if not isinstance(assets, list) or not assets:
             raise AlpacaTransportRefused("Alpaca asset inventory is absent")
-        listed_text, listed_proof = self.client.get(DIRECTORY_URLS[0], text=True)
-        other_text, other_proof = self.client.get(DIRECTORY_URLS[1], text=True)
-        listed = parse_directory(listed_text, name="nasdaqlisted")
-        other = parse_directory(other_text, name="otherlisted")
-        selected, selection = select_assets(assets, listed, other)
-        payload = {"selected": selected, "selection": selection,
-                   "assets": assets, "nasdaqlisted": listed, "otherlisted": other}
-        proof = {"assets": asset_proof, "nasdaqlisted": listed_proof,
-                 "otherlisted": other_proof}
-        return payload, None, proof, len(selected)
+        values = openfigi.inventory(assets)
+        return {"assets": values}, None, asset_proof, len(values)
+
+    def _prior_classifications(self):
+        from sentinel.feed import operational_snapshot
+        current = operational_snapshot._current(self.conn)
+        if current is None:
+            return {}
+        binding = operational_snapshot._bound(self.conn, current)
+        row = self.conn.execute('SELECT part_id FROM sentinel_acquisition_bindings '
+            'WHERE job_id=%s AND component=%s', (binding['job_id'], 'TICKERS')).fetchone()
+        if row is None:
+            return {}
+        retained = self.parts._manifest(row[0])
+        if retained is None or retained[0]['generation'].get('provider') != self.provider:
+            return {}
+        return retained[1].get('classifications', {})
+
+    def _classified_references(self, base, checkpoint):
+        captured = self._part('TICKERS.ASSETS', {**base, 'component': 'assets'},
+                              self._inventory, checkpoint)
+        self.assets = captured['assets']
+        plan = self._part('TICKERS.PLAN', {**base, 'component':'classification-plan',
+            'assets_sha256':digest(self.assets)}, self._classification_plan, checkpoint)
+        observations, missing = dict(plan['observations']), plan['missing']
+        size = plan['batch_size']
+        for number, offset in enumerate(range(0, len(missing), size), 1):
+            group = missing[offset:offset+size]
+            def acquire(group=group):
+                responses, proof = self.classifier.mapping(group)
+                observed = datetime.fromisoformat(proof['observed_at']).astimezone(timezone.utc).date()
+                values = {digest(asset): {'response': response, 'observed_day': str(observed)}
+                          for asset, response in zip(group, responses, strict=True)}
+                for asset, response in zip(group, responses, strict=True):
+                    openfigi.classify(asset, response)
+                return values, None, proof, len(group)
+            values = self._part('TICKERS.FIGI.'+str(number),
+                {**base, 'component': 'figi', 'assets_sha256': digest(group)}, acquire, checkpoint)
+            observations.update(values)
+            progress.emit('source_classification', 'working', rows=len(observations),
+                          table='TICKERS',component='TICKERS.FIGI.'+str(number),
+                          part=number,parts=(len(missing)+size-1)//size, job_id=self.lease.job_id)
+        selected, selection = openfigi.select_assets(self.assets, observations)
+        payload = {'selected': selected, 'selection': selection,
+                   'assets': self.assets, 'classifications': observations}
+        return self._part('TICKERS', {**base, 'component': 'assets-and-openfigi'},
+            lambda: (payload, None, {'policy': openfigi.POLICY}, len(selected)), checkpoint)
+
+    def _classification_plan(self):
+        prior = self._prior_classifications()
+        today = _today()
+        observations, missing = {}, []
+        for asset in self.assets:
+            key = digest(asset)
+            cached = prior.get(key)
+            if cached:
+                item, reason = openfigi.classify(asset, cached['response'])
+                age = (today - date.fromisoformat(cached['observed_day'])).days
+                if 0 <= age < (7 if item is not None or reason == 'non_ordinary_equity' else 1):
+                    observations[key] = cached
+                    continue
+            missing.append(asset)
+        return {'observations':observations, 'missing':missing,
+                'batch_size':self.classifier.batch_size}, None, {'policy':openfigi.POLICY}, len(self.assets)
 
     def _action_rows(self):
         start = (self.window.start - timedelta(days=365)).isoformat()
@@ -124,8 +192,9 @@ class AlpacaSource:
         affected = set()
         reset_after = {}
         dividends = []
+        splits = {}
         by_type = Counter()
-        selected = {row["ticker"] for row in self.selected}
+        selected = {row["ticker"] for row in self.selected} | {'BIL'}
         axis = {str(day) for day in self.window.sessions}
         for page, proof in self.client.pages(ACTION_URL, params, key="corporate_actions"):
             proofs.append(proof)
@@ -155,6 +224,18 @@ class AlpacaSource:
                             if economic_date is None or economic_date > str(self.window.end):
                                 affected.update(involved)
                             elif economic_date >= str(self.window.start):
+                                if kind in ('forward_splits', 'reverse_splits'):
+                                    try:
+                                        event = stock_split(kind, record, axis=axis)
+                                        key = (event['ticker'], event['date'])
+                                        old = splits.get(key)
+                                        if old is not None and old['ratio'] != event['ratio']:
+                                            raise AlpacaTransportRefused('conflicting split terms')
+                                        splits[key] = event
+                                        continue
+                                    except AlpacaTransportRefused:
+                                        # No split inference: reset only an unowned candidate.
+                                        pass
                                 for symbol in involved:
                                     reset_after[symbol] = max(
                                         economic_date, reset_after.get(symbol, ""))
@@ -167,6 +248,7 @@ class AlpacaSource:
                    "cash_dividend_rows": len(dividends)}
         return {"affected": sorted(affected), "reset_after": reset_after,
                 "dividends": dividends,
+                "splits": sorted(splits.values(), key=lambda item:(item['date'],item['ticker'])),
                 "summary": summary}, None, \
             {"pages": proofs}, len(seen)
 
@@ -190,20 +272,31 @@ class AlpacaSource:
         symbols, sessions = {"SPY", "BIL"}, {str(day) for day in self.window.sessions}
         raw, raw_proofs = self._bars(symbols, first, last, "raw")
         adjusted, adjusted_proofs = self._bars(symbols, first, last, "all")
+        if 'BIL' in self.action_affected or 'BIL' in self.reset_after:
+            raise AlpacaTransportRefused('BIL structural action terms are unavailable')
+        split, split_proofs = self._bars({'BIL'}, first, last, 'split')
+        split_bars = bar_page_rows(split, symbols={'BIL'}, sessions=sessions)
+        paired_bil, absent_bil = paired_month({'BIL':raw.get('BIL',[])}, split,
+                                            symbols={'BIL'}, sessions=sessions)
+        bil_history, _ = admissible_history(paired_bil, axis=list(map(str,self.window.sessions)),
+            symbols={'BIL'}, action_affected=frozenset(), pair_absent=absent_bil,
+            split_terms=self.split_terms())
+        if bil_history != {'BIL':first}:
+            raise AlpacaTransportRefused('BIL split-only/raw prices lack corroborated coverage')
         paired, absent = paired_month(raw, adjusted, symbols=symbols, sessions=sessions)
         if absent or {(row["ticker"], row["date"]) for row in paired} != {
                 (symbol, day) for symbol in symbols for day in sessions}:
             raise AlpacaTransportRefused("SPY/BIL lack exact paired daily coverage")
         rows = [{"date": row["date"], "ticker": row["ticker"],
-                 "open": row["open"], "close": row["close"],
+                 "open": split_bars[('BIL',row['date'])]['open'] if row['ticker']=='BIL' else row['open'],
+                 "close": split_bars[('BIL',row['date'])]['close'] if row['ticker']=='BIL' else row['close'],
                  "closeunadj": row["closeunadj"], "closeadj": row["adjusted_close"]}
                 for row in paired]
-        return rows, None, {"raw": raw_proofs, "all": adjusted_proofs}, len(rows)
+        return rows, None, {"raw": raw_proofs, "all": adjusted_proofs, 'bil_split':split_proofs}, len(rows)
 
     def references(self, checkpoint):
         base = {"provider": self.provider, "target": str(self.window.end)}
-        refs = self._part("TICKERS", {**base, "component": "assets-and-directories"},
-                          self._references, checkpoint)
+        refs = self._classified_references(base, checkpoint)
         self.selected = refs["selected"]
         actions = self._part("ACTIONS", {**base, "component": "actions",
                                           "start": (self.window.start - timedelta(days=365)).isoformat()},
@@ -212,6 +305,7 @@ class AlpacaSource:
         self.reset_after = actions["reset_after"]
         self.action_evidence = actions["summary"]
         self.dividends = actions["dividends"]
+        self.splits = actions["splits"]
         self.sfp = self._part("SFP", {**base, "component": "benchmarks",
                                       "window": self.window.model_dump(mode="json")},
                               self._benchmark_rows, checkpoint)
@@ -225,7 +319,8 @@ class AlpacaSource:
             generation = {"provider": self.provider, "component": component,
                           "selection_sha256": digest(self.selected),
                           "actions_sha256": digest({"affected": sorted(self.action_affected),
-                                                    "reset_after": self.reset_after}),
+                                                    "reset_after": self.reset_after,
+                                                    "splits": self.splits}),
                           "asof": str(self.window.end)}
             def acquire():
                 raw, raw_proofs = self._bars(safe_symbols, lo, hi, "raw")
@@ -244,24 +339,33 @@ class AlpacaSource:
     def corroborate(self):
         # Reobserve current admission metadata and actions after the long price
         # acquisition. A changed provider view cannot certify this candidate.
-        newer, *_ = self._references()
-        if newer["selected"] != self.selected:
-            raise AlpacaTransportRefused("Alpaca/Nasdaq current universe changed during GO")
+        newer, *_ = self._inventory()
+        if newer["assets"] != self.assets:
+            raise AlpacaTransportRefused("Alpaca/OpenFIGI current universe changed during GO")
         actions, *_ = self._action_rows()
         if (frozenset(actions["affected"]) != self.action_affected
                 or actions["reset_after"] != self.reset_after
-                or actions["dividends"] != self.dividends):
+                or actions["dividends"] != self.dividends
+                or actions['splits'] != self.splits):
             raise AlpacaTransportRefused("Alpaca action participants changed during GO")
 
     def reference_payload(self):
         admitted = {row["ticker"]: row["firstpricedate"] for row in self.tickers}
+        admitted['BIL'] = str(self.window.start)
         actions = [{"date": day, "action": "dividend",
                     "ticker": symbol, "name": None,
                     "value": rate, "contraticker": None,
                     "contraname": None}
                    for (symbol, day), rate in sorted(self.dividend_totals(admitted).items())]
-        return {"schema": "sentinel.rolling-alpaca-nasdaq-references/1",
+        actions.extend({'date':event['date'], 'action':'split', 'ticker':event['ticker'],
+            'name':None, 'value':event['ratio'], 'contraticker':None, 'contraname':None}
+            for event in self.splits if event['ticker'] in admitted
+            and event['date'] >= admitted[event['ticker']])
+        return {"schema": "sentinel.rolling-alpaca-openfigi-references/1",
                 "tickers": self.tickers, "actions": actions}
+
+    def split_terms(self):
+        return {(event['ticker'],event['date']):event['ratio'] for event in self.splits}
 
     def dividend_totals(self, admitted):
         totals = {}

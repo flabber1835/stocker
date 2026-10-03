@@ -61,6 +61,24 @@ def test_otherlisted_and_exact_asset_intersection():
                          last_session="2026-10-01")["category"] == CATEGORY
 
 
+@pytest.mark.parametrize("name", [
+    "Example Acquisition Corp - Units",
+    "Example Acquisition Corp - Unit",
+    "Example Acquisition Corp Units, each consisting of one Class A Ordinary Share",
+    "Example Acquisition Corp Units comprised of common shares",
+    "Example Acquisition Corp Units composed of common shares",
+])
+def test_plain_and_bundled_units_do_not_count_as_common_stock_candidates(name):
+    listed = parse_directory(_file(
+        "A|" + name + "|Q|N|N|100|N|N",
+        "B|Unit Corporation - Common Stock|Q|N|N|100|N|N",
+        "C|Example Partners LP - Common Units Representing Limited Partnership Interests|Q|N|N|100|N|N"),
+        name="nasdaqlisted")
+    selected, proof = select_assets([_asset(s) for s in "ABC"], listed, {})
+    assert [row["ticker"] for row in selected] == ["B", "C"]
+    assert proof["excluded"] == {"explicit_non_stock_instrument": 1}
+
+
 @pytest.mark.parametrize("bad", [
     "Symbol|Security Name|ETF\nA|Alpha Inc - Common Stock|N",
     _file("A|Alpha Inc - Common Stock|Q|N|N|100|N|N", "A|Again|Q|N|N|100|N|N"),

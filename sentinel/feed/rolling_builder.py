@@ -67,7 +67,7 @@ def benchmarks(window, rows):
 
 
 def build(conn, lease, request, source):
-    if getattr(source, "provider", None) == "ALPACA_NASDAQ":
+    if getattr(source, "provider", None) == "ALPACA_OPENFIGI":
         return build_alpaca(conn, lease, request, source)
     from sentinel.feed import source_corrections
     with source_corrections.using(source.corrections):
@@ -184,17 +184,17 @@ def _build(conn, lease, request, source):
         return candidate
 
 
-ALPACA_NORMALIZATION = "sentinel.alpaca-nasdaq-dividend-current-window/1"
+ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/2"
 MIN_ADMITTED_COMMON_STOCKS = 500
 MIN_ALPACA_ADMITTED_PERCENT = 95
 
 
 def require_alpaca_population(*, selected: int, admitted: int) -> None:
     if admitted < MIN_ADMITTED_COMMON_STOCKS:
-        raise ValueError("Alpaca/Nasdaq admitted common-stock population is below "
+        raise ValueError("Alpaca/OpenFIGI admitted common-stock population is below "
                          + str(MIN_ADMITTED_COMMON_STOCKS))
     if admitted * 100 < selected * MIN_ALPACA_ADMITTED_PERCENT:
-        raise ValueError("Alpaca/Nasdaq admitted common-stock population is below "
+        raise ValueError("Alpaca/OpenFIGI admitted common-stock population is below "
                          + str(MIN_ALPACA_ADMITTED_PERCENT) + "% of selected candidates")
 
 
@@ -225,7 +225,7 @@ def _alpaca_rows(conn, lease, *, verifier=None):
 def build_alpaca(conn, lease, request, source):
     """Seal current-information prices without Sharadar semantics."""
     from sentinel.feed.acquisition_parts import PricePartVerifier
-    from sentinel.feed.alpaca_nasdaq import reference_row
+    from sentinel.feed.openfigi import reference_row
     from sentinel.feed.alpaca_observation import admissible_history
 
     pulse = lambda: jobs.heartbeat(conn, lease, lease_seconds=600)
@@ -241,13 +241,14 @@ def build_alpaca(conn, lease, request, source):
             _alpaca_rows(conn, lease, verifier=verifier), axis=axis,
             symbols=set(selected), action_affected=source.action_affected,
             pair_absent=source.pair_absent, dividend_dates=dividend_dates,
-            reset_after=source.reset_after)
+            reset_after=source.reset_after, split_terms=source.split_terms())
         counter[0] = len(admitted)
     require_alpaca_population(selected=len(selected), admitted=len(admitted))
     source.tickers = [reference_row(selected[symbol], first_session=first,
                                     last_session=axis[-1])
                       for symbol, first in sorted(admitted.items())]
     dividends = source.dividend_totals(admitted)
+    splits = source.split_terms()
     reference = rolling_store.put_evidence(conn, source.reference_payload())
     source_sha = rolling_store.put_evidence(conn, source.source_payload())
     candidate = rolling_store.begin(
@@ -262,10 +263,10 @@ def build_alpaca(conn, lease, request, source):
         canonical = (CanonicalBar(
             security_id=selected[row["ticker"]]["asset_id"],
             session=row["date"], ticker=row["ticker"],
-            close_signal=float(row["close"]),
+            close_signal=float(row["adjusted_close"]),
             close_unadjusted=float(row["closeunadj"]),
             open_unadjusted=float(row["open"]), volume=float(row["volume"]),
-            split_ratio=1.0,
+            split_ratio=float(splits.get((row['ticker'], row['date']), '1')),
             dividend_per_share=float(dividends.get((row["ticker"], row["date"]), "0")))
             for row in rows if row["ticker"] in admitted
             and row["date"] >= admitted[row["ticker"]])
@@ -300,14 +301,17 @@ def build_alpaca(conn, lease, request, source):
         manifest = rolling_store.seal(
             conn, candidate, expected_keys=((str(day), sid) for day, sid in cur),
             normalization_version=ALPACA_NORMALIZATION,
-            requirements=RestartRequirement(), provider="ALPACA_NASDAQ")
+            requirements=RestartRequirement(), provider="ALPACA_OPENFIGI")
     validation = rolling_store.put_evidence(conn, {
-        "schema": "sentinel.alpaca-nasdaq-validation/1", "scope": "COMPARISON_ONLY",
+        "schema": "sentinel.alpaca-openfigi-validation/1", "scope": "COMPARISON_ONLY",
         "snapshot_id": manifest.snapshot_id, "request_sha256": request.request_sha256,
         "admitted": len(admitted), "excluded": exclusions,
         "action_evidence": source.action_evidence, "rows": count,
         "alias_rejections": source_aliases.evidence(), "action_quarantine": [],
-        "split_dispositions": []})
+        "split_dispositions": [{"ticker":event['ticker'],"session":event['date'],
+            "disposition":actions_map.SPLIT_CORROBORATED_DIRECT,
+            "applied_ratio":float(event['ratio'])} for event in source.splits
+            if event['ticker'] in admitted and event['date'] >= admitted[event['ticker']]]})
     with conn.cursor() as cur:
         cur.execute("INSERT INTO sentinel_snapshot_validations VALUES (%s,%s)",
                     (candidate, validation))

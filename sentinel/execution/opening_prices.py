@@ -9,7 +9,8 @@ from typing import Mapping
 
 from sentinel.feed import calendar
 
-SOURCE = "ALPACA_SIP_RAW_OPENING_MINUTE_V1"
+SOURCE = "ALPACA_IEX_RAW_OPENING_MINUTE_V1"
+FEED = "iex"
 UNAVAILABLE_SOURCE = "ALPACA_OPENING_EVIDENCE_UNAVAILABLE_V1"
 ENDPOINT = "https://data.alpaca.markets/v2/stocks/bars"
 

@@ -80,7 +80,7 @@ DATA_PUBLICATION_SCHEMA = "sentinel.data-publication-binding/1"
 SHADOW_EXECUTION_MODEL = "PROSPECTIVE_CONCORDANCE_SCALAR_CORE_BIL_V3"
 SHADOW_CUTOFF_POLICY = "STRICT_BEFORE_OFFICIAL_NEXT_XNYS_OPEN_V1"
 SHADOW_PUBLICATION_TIMING_POLICY = (
-    "ALPACA_NASDAQ_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
+    "ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
 _OBSERVATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$")
 VALIDATION_MEMBERS = frozenset({
     "validation.json",
@@ -1104,7 +1104,7 @@ class Config:
                 "ALPACA_BASE_URL must be exactly %s for autonomous deployment" % PAPER_URL)
         for name in (
                 "SENTINEL_POSTGRES_PASSWORD", "SENTINEL_BACKUP_DIR",
-                "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "SHARADAR_API_KEY"):
+                "ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
             _require(env, name)
         if "@" in self.runtime_repository or "@" in self.test_repository:
             raise DeployRefused("image repositories must be mutable repository names, not digests")

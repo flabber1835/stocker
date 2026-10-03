@@ -900,7 +900,8 @@ def test_operational_parity_reuses_identical_certified_image_and_binds_cash():
     assert calls[0][calls[0].index("--starting-cash") + 1] == "250000"
 
 
-def test_upgrade_preparation_uses_exact_runtime_with_market_data_authority_only():
+@pytest.mark.parametrize("openfigi_key", [None, "classification-key"])
+def test_upgrade_preparation_uses_exact_runtime_with_market_data_authority_only(openfigi_key):
     class PreparationRunner:
         def __init__(self):
             self.calls = []
@@ -925,13 +926,16 @@ def test_upgrade_preparation_uses_exact_runtime_with_market_data_authority_only(
 
     runner = PreparationRunner()
     ticks = iter((10.0, 11.5))
+    env = {
+        "SENTINEL_POSTGRES_PASSWORD": "private",
+        "ALPACA_API_KEY": "market-data-key",
+        "ALPACA_SECRET_KEY": "market-data-secret",
+        "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-preparation",
+    }
+    if openfigi_key is not None:
+        env["OPENFIGI_API_KEY"] = openfigi_key
     summary = go.probe_prevalidation_preparation(
-        runner, env={
-            "SENTINEL_POSTGRES_PASSWORD": "private",
-            "ALPACA_API_KEY": "market-data-key",
-            "ALPACA_SECRET_KEY": "market-data-secret",
-            "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-preparation",
-        }, runtime_ref=DIGEST_B, commit=COMMIT,
+        runner, env=env, runtime_ref=DIGEST_B, commit=COMMIT,
         monotonic=lambda: next(ticks))
 
     assert summary.complete is True
@@ -961,9 +965,10 @@ def test_upgrade_preparation_uses_exact_runtime_with_market_data_authority_only(
     assert prepared_env["SENTINEL_FEED_SERVICE_MODE"] == "GO_VALIDATION"
     assert prepared_env["ALPACA_API_KEY"] == "market-data-key"
     assert prepared_env["ALPACA_SECRET_KEY"] == "market-data-secret"
-    assert command.count("--env") == 2
-    assert command[command.index("--env") + 1] == "ALPACA_API_KEY"
-    assert command[command.index("--env", command.index("--env") + 1) + 1] == "ALPACA_SECRET_KEY"
+    assert [command[index + 1] for index, value in enumerate(command)
+            if value == "--env"] == [
+                "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "OPENFIGI_API_KEY"]
+    assert prepared_env.get("OPENFIGI_API_KEY") == openfigi_key
     assert "SENTINEL_PAPER_ACCOUNT_ID" not in prepared_env
     assert "SHARADAR_API_KEY" not in prepared_env
     assert "after.version >" not in go._PREPARATION_CODE

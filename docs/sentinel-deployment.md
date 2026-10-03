@@ -1,14 +1,41 @@
 # Sentinel — operational deployment ground truth
 
+## Local GO validation before publication
+
+Decision: 2026-10-03. For GO-path changes, first run the real Alpaca/OpenFIGI
+acquisition, verified backup and renewal path, canonical book formation,
+restart/parity proof and financial readiness locally against the feature branch.
+Keep broker access GET-only. Diagnose failures, apply generic fixes and add
+focused regression falsifiers locally; rerun until these operational checks
+pass before pushing the completed change or updating its pull request.
+
+This local diagnostic run uses a clean branch and its exact runtime image. It
+does not fabricate software-certification evidence, issue deployment admission,
+promote a runtime or activate trading. Report the tested commit, actual provider
+inputs, failures and untested boundaries. GitHub CI and protected image
+publication remain the later release gates for the final reviewed commit.
+Their runtime certification does not replace the real-provider local GO test.
+An already-open pull request may finish its existing checks, but further fixes
+stay local until the operational run passes.
+
 [Alpaca-led cold-start GO](alpaca-go-cold-start.md) supersedes the older
 Sharadar operational-source choice for first deployment. GO uses Alpaca SIP
-bars/actions and free Nasdaq directories; Sharadar remains historical research
+bars/actions and free OpenFIGI instrument classification; Sharadar remains historical research
 data. This is a new source and strategy identity requiring its own validation.
 The subsequent [Alpaca/Nasdaq daily-operation decision](alpaca-daily-operations.md)
 extends that source to the production shadow publisher and automation reader.
 Historical Sharadar storage and research readers remain; operational fallback
 to Sharadar is retired. Neither change authorizes paper execution without the
 existing signed admission and deployed qualification gates.
+
+[Operational completion](alpaca-operational-readiness.md) supersedes the Nasdaq
+classification policy with typed OpenFIGI mappings and retained daily reuse.
+OPENFIGI_API_KEY is optional; unauthenticated mapping uses smaller paced batches.
+Use the new ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1 timing policy;
+an explicitly configured older Nasdaq policy must be updated before installation.
+Free execution sizing uses raw IEX opening-minute evidence, with the same price
+freshness and execution guards. Formation reuses bounded price work while keeping
+every canonical decision's exact trailing 300-session inputs.
 
 [Large reference storage](rolling-snapshot-storage.md#large-reference-representation)
 avoids expanding full provider reference bundles into PostgreSQL JSONB. Apply

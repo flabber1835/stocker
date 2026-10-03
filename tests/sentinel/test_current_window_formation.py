@@ -1,9 +1,10 @@
 """Selected production formation and bounded source/restart falsifiers."""
+import os
 import pytest
 
 from sentinel import rolling_checkpoint as origin, rolling_initialization as init
 from sentinel import formation_bootstrap, observation_authority, observation_startup
-from sentinel.core import formation_preview, window_features, window_policy
+from sentinel.core import formation_features, formation_preview, window_features, window_policy
 from sentinel.core.formation_inputs import FormationInputs
 from sentinel.core.history import FormationWindowProof, require_history_compatible
 from sentinel.feed import operational_snapshot as op, rolling_store
@@ -122,13 +123,16 @@ def test_selected_formation_go_restart_and_daily_preserve_simplifications(conn, 
     from sentinel.feed import calendar
     config, strategy = production_strategy()
     slices = []
-    original_load = window_features.load
-    def bounded(*args, **kwargs):
-        result = original_load(*args, **kwargs)
+    original_load = formation_features.FormationFeatures.load
+    def bounded(loader, **kwargs):
+        result = original_load(loader, **kwargs)
         assert list(result.sessions) == calendar.previous_sessions(result.sessions[-1], 300)
+        assert all(len(ring.indices) <= 300 for ring in loader.rings.values())
+        assert all(loader.axis[index] in result.sessions
+                   for ring in loader.rings.values() for index in ring.indices)
         slices.append(result.sessions)
         return result
-    monkeypatch.setattr(window_features, 'load', bounded)
+    monkeypatch.setattr(formation_features.FormationFeatures, 'load', bounded)
     with op.pinned(conn) as (pub, binding):
         source = FormationInputs(conn, binding, pub)
         seed, warmup, published, formation = formation_preview.run(
@@ -164,7 +168,8 @@ def test_selected_formation_go_restart_and_daily_preserve_simplifications(conn, 
         'sources_known':True, 'pin_drift':{}, 'lock_present':True,
         'sentinel_source':{'hash':'c'*64}, 'wealth_core_source':{'hash':'d'*64}}})
     report = parity.run_proof(conn, starting_cash='50000', expected_commit=commit)
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2]/'scripts'))
+    root = Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[2])
+    monkeypatch.syspath_prepend(str(root/'scripts'))
     import sentinel_go_validate as host
     assert host._operational_parity_report_valid(report, commit=commit, starting_cash='50000')
     assert report['proof']['result_state_sha256'] == expected.state_hash

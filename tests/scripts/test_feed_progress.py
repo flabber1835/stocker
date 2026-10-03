@@ -21,6 +21,41 @@ def test_real_formation_protocol_reaches_host(capsys):
     assert 'rows' not in progress.describe(events[1])
 
 
+def test_classification_batches_are_distinct_and_anonymous_batch_counts_are_supported(capsys):
+    from sentinel.feed import progress as producer
+    producer.emit('source_replay','completed',table='TICKERS',component='TICKERS.ASSETS',rows=13200)
+    producer.emit('source_classification','working',table='TICKERS',component='TICKERS.FIGI.1320',
+                  rows=13200,part=1320,parts=1320)
+    with producer.phase('rolling_identity',subphase='alpaca_admission',selected=5910):
+        pass
+    events = progress.collect(capsys.readouterr().err)
+    assert len(events) == 4
+    assert 'TICKERS.ASSETS' in progress.describe(events[0])
+    assert 'TICKERS.FIGI.1320 partition 1320/1320' in progress.describe(events[1])
+    assert 'alpaca admission' in progress.describe(events[2])
+
+
+@pytest.mark.parametrize('component',['TICKERS.FIGI.0','TICKERS.FIGI.100000',
+    'TICKERS.FIGI.secret','TICKERS.PLAN/../../password','secret'])
+def test_component_progress_cannot_print_unreviewed_diagnostics(component):
+    event = dict(stage='source_replay',status='working',rows=0,elapsed_ms=0,
+                 table='TICKERS',component=component)
+    assert progress.parse(progress.PREFIX+json.dumps(event)) is None
+
+
+@pytest.mark.parametrize('selected',[-1,True,100001,'secret'])
+def test_admission_progress_cannot_print_unbounded_or_arbitrary_selection(selected):
+    event = dict(stage='rolling_identity',status='working',rows=0,elapsed_ms=0,
+                 subphase='alpaca_admission',selected=selected)
+    assert progress.parse(progress.PREFIX+json.dumps(event)) is None
+
+
+def test_large_mapping_batch_count_does_not_relax_other_partition_bounds():
+    event = dict(stage='source_download',status='working',rows=0,elapsed_ms=0,
+                 part=1320,parts=1320)
+    assert progress.parse(progress.PREFIX+json.dumps(event)) is None
+
+
 @pytest.mark.parametrize('changes', [dict(sessions=True), dict(sessions=-1), dict(sessions=127),
     dict(required_sessions=125), dict(required_sessions='126'), dict(session='secret'),
     dict(session='2026-02-30'), dict(session=[]), dict(session=''), dict(stage='source_download')])

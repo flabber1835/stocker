@@ -31,12 +31,15 @@ DDL = [
         WHERE state NOT IN ('REFUSED','ABORTED','PUBLISHED')""",
     r"""CREATE TABLE IF NOT EXISTS sentinel_snapshot_job_components (
         job_id UUID NOT NULL REFERENCES sentinel_snapshot_jobs,
-        component TEXT NOT NULL CHECK (component ~ '^(SEP|SFP|ACTIONS|TICKERS)(\.[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{4}-[0-9]{2}-[0-9]{2})?$'),
+        component TEXT NOT NULL CHECK (component ~ '^((SEP|SFP|ACTIONS|TICKERS)(\.[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{4}-[0-9]{2}-[0-9]{2})?|TICKERS\.(ASSETS|PLAN)|TICKERS\.FIGI\.[1-9][0-9]{0,4})$'),
         generation_sha256 TEXT NOT NULL CHECK (generation_sha256 ~ '^[0-9a-f]{64}$'),
         artifact_sha256 TEXT NOT NULL CHECK (artifact_sha256 ~ '^[0-9a-f]{64}$'),
         rows_done BIGINT NOT NULL CHECK (rows_done>=0),
         bytes_done BIGINT NOT NULL CHECK (bytes_done>=0),
         PRIMARY KEY (job_id,component))""",
+    "ALTER TABLE sentinel_snapshot_job_components DROP CONSTRAINT IF EXISTS sentinel_snapshot_job_components_component_check",
+    r"""ALTER TABLE sentinel_snapshot_job_components ADD CONSTRAINT sentinel_snapshot_job_components_component_check
+        CHECK (component ~ '^((SEP|SFP|ACTIONS|TICKERS)(\.[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{4}-[0-9]{2}-[0-9]{2})?|TICKERS\.(ASSETS|PLAN)|TICKERS\.FIGI\.[1-9][0-9]{0,4})$')""",
     """CREATE OR REPLACE FUNCTION sentinel_snapshot_job_guard()
         RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
