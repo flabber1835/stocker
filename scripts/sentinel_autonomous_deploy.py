@@ -538,10 +538,10 @@ def parse_reviewed_validation_bundle(
             or counts["publication_versions"] <= 0
             or counts["publication_chain_gaps"] != 0
             or counts["duplicate_publication_run_ids"] != 0
-            or counts["recent_xnys_sessions"] != 252
+            or counts["recent_xnys_sessions"] not in (252, 299)
             or counts["frontier_security_rows"] <= 0
             or counts["frontier_duplicate_security_keys"] != 0
-            or counts["warmup_revision_sessions"] != 252
+            or counts["warmup_revision_sessions"] != counts["recent_xnys_sessions"]
             or thresholds != fixed_thresholds
             or any(measured[name] > thresholds[name]
                    for name in expected_timings)

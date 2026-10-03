@@ -36,7 +36,12 @@ book by this proof.
 
 Database health verifies the actual snapshot relations and indexed bounded
 queries, exact schema, real shared-lock exclusion, stable publication, complete
-warmup input and measured validation duration. Report the snapshot contract
+warmup input and measured validation duration. A current 300-session decision
+window contributes 299 prior feature sessions; its health summary, GO
+installation gate and reviewed deployment parser must agree on that count.
+The retained 252-session health contract remains accepted for existing evidence,
+but both axis and warmup counts must match and all other exact health bounds
+remain mandatory. Report the snapshot contract
 explicitly. Never report legacy-table query plans as proof of snapshot behavior.
 
 The independent writer-exclusion connection uses the caller's original database
@@ -69,3 +74,12 @@ frontiers, read-only probe behavior, immutable source inputs, canonical restart
 equivalence, exact pin exclusion, unexpected behavioral state and refusal to
 promote an unversioned data proof into runtime authority. Remove guards in child
 processes to prove their focused falsifiers fail.
+
+## Physical restore receipt verification
+
+The isolated semantic restore child must inherit only the configured publication
+receipt key needed to authenticate snapshot publications, alongside its isolated
+database credentials. The maintenance environment already validates this key;
+the launcher forwards it by environment name, without placing its value in
+command arguments or logs. Broker and provider credentials remain absent.
+A successful WAL replay alone is not a successful semantic restore.

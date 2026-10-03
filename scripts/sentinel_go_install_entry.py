@@ -172,10 +172,10 @@ def _database_maps_structurally_safe(
         counts["publication_versions"] > 0
         and counts["publication_chain_gaps"] == 0
         and counts["duplicate_publication_run_ids"] == 0
-        and counts["recent_xnys_sessions"] == 252
+        and counts["recent_xnys_sessions"] in (252, 299)
         and counts["frontier_security_rows"] > 0
         and counts["frontier_duplicate_security_keys"] == 0
-        and counts["warmup_revision_sessions"] == 252
+        and counts["warmup_revision_sessions"] == counts["recent_xnys_sessions"]
         and thresholds == fixed_thresholds
         and all(measured[name] <= thresholds[name] for name in expected_timings)
         and measured["combined_pretrade_work"] == sum(
