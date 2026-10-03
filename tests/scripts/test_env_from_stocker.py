@@ -85,8 +85,9 @@ class TestItNeverPrintsAValue:
         assert len(CANARIES) >= 5
         _, dst = run(tmp_path)
         written = dst.read_text()
-        assert "LEAKCANARY_SHARADAR" in written, (
-            "the key was not written at all — the leak test is vacuous")
+        assert "LEAKCANARY_ALPACA" in written, (
+            "the Alpaca key was not written at all — the leak test is vacuous")
+        assert "LEAKCANARY_SHARADAR" not in written
 
     def test_it_leaks_nothing_on_the_REFUSAL_path_either(self, tmp_path):
         """An error message is the likeliest place to interpolate the value
@@ -111,7 +112,8 @@ class TestTheWhitelist:
         docstring, which this repository has now hit three times."""
         got = set(mod.parse_env(dst := run(tmp_path)[1]))
         assert dst.exists()
-        for dead in ("AV_API_KEY", "ANTHROPIC_API_KEY", "IBKR_PASSWORD",
+        for dead in ("AV_API_KEY", "SHARADAR_API_KEY", "SHARADAR_FETCH_RETRIES",
+                     "ANTHROPIC_API_KEY", "IBKR_PASSWORD",
                      "STRATEGY_CONFIG_PATH", "TAVILY_API_KEY"):
             assert dead not in got, f"{dead} was carried forward"
 
@@ -178,16 +180,21 @@ class TestTheOutputIsFAITHFUL:
 
 
 class TestItFailsClosed:
-    def test_a_missing_sharadar_key_REFUSES(self, tmp_path):
-        r, dst = run(tmp_path, "ALPACA_API_KEY=x\n")
+    def test_a_missing_alpaca_secret_REFUSES(self, tmp_path):
+        r, dst = run(tmp_path, "ALPACA_API_KEY=x\nSHARADAR_API_KEY=historical\n")
         assert r.returncode == 1
         assert not dst.exists()
 
-    def test_a_PLACEHOLDER_sharadar_key_refuses(self, tmp_path):
-        """The old `.env.example` ships `your_..._here`. A file copied from it
-        and never filled in would otherwise pass and die hours later."""
-        r, _ = run(tmp_path, "SHARADAR_API_KEY=your_sharadar_key_here\n")
+    def test_a_PLACEHOLDER_alpaca_key_refuses(self, tmp_path):
+        """A copied placeholder must refuse before an Alpaca GO attempt."""
+        r, _ = run(tmp_path, "ALPACA_API_KEY=your_alpaca_key_here\n"
+                             "ALPACA_SECRET_KEY=valid\n")
         assert r.returncode == 1
+
+    def test_sharadar_is_not_needed_for_the_deployed_env(self, tmp_path, mod):
+        r, dst = run(tmp_path, "ALPACA_API_KEY=key\nALPACA_SECRET_KEY=secret\n")
+        assert r.returncode == 0, r.stderr
+        assert "SHARADAR_API_KEY" not in mod.parse_env(dst)
 
     def test_it_will_not_clobber_an_existing_env(self, tmp_path):
         src = tmp_path / "old.env"

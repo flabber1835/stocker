@@ -65,7 +65,7 @@ DATA_PUBLICATION_SCHEMA = "sentinel.data-publication-binding/1"
 SHADOW_EXECUTION_MODEL = "PROSPECTIVE_CONCORDANCE_SCALAR_CORE_BIL_V3"
 SHADOW_CUTOFF_POLICY = "STRICT_BEFORE_OFFICIAL_NEXT_XNYS_OPEN_V1"
 SHADOW_PUBLICATION_TIMING_POLICY = (
-    "SHARADAR_SEP_SFP_SECOND_UPDATE_PLUS_15M_2345_AMERICA_NEW_YORK_V1")
+    "ALPACA_NASDAQ_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
 
 GATE_IDS = (
     "git_identity",
@@ -783,7 +783,8 @@ def load_dotenv_literal(path: Path) -> Dict[str, str]:
 def merged_environment(path: Path = ROOT / ".env") -> Dict[str, str]:
     values = load_dotenv_literal(path)
     try:
-        return sentinel_env.merge(values, os.environ)
+        return sentinel_env.operational_values(
+            sentinel_env.merge(values, os.environ))
     except sentinel_env.EnvRefused as exc:
         raise ValidationRefused(str(exc)) from None
 

@@ -521,6 +521,11 @@ class ProductionAutomation:
         if reviewed_mode not in {"", "shadow", "dual", "paper"}:
             raise ValueError("SENTINEL_REVIEWED_DEPLOYMENT_MODE is invalid")
         self._dual_run_enabled = reviewed_mode == "dual"
+        # The deployed Compose service fixes this mode. Historical fixtures may
+        # still exercise legacy readers, but a production worker cannot fall
+        # back to Sharadar when a rolling publication is missing.
+        self._operational_source_only = (
+            os.environ.get("SENTINEL_FEED_SERVICE_MODE") == "AUTOMATION")
         # Fenced installs may advance only the canonical corpus path. The timer
         # is deliberately process-local: restart may cause one extra safe probe,
         # never broker authority or a duplicate trading command.
@@ -650,6 +655,23 @@ class ProductionAutomation:
         return build_execution_broker(
             self.sentinel_config, resolve_security_id=resolver)
 
+    def _require_operational_inputs(self, conn):
+        """Recheck source authority when a persisted cycle skips refresh."""
+        if not getattr(self, "_operational_source_only", False):
+            return
+        if not getattr(self, "_dual_run_enabled", False):
+            raise NonRetryableCallbackRefused(
+                "operational paper automation requires reviewed dual mode")
+        current = feed_inputs.current(conn)
+        if not feed_inputs.is_rolling(current):
+            raise NonRetryableCallbackRefused(
+                "operational automation requires rolling Alpaca inputs")
+        from sentinel.feed import operational_snapshot
+        try:
+            operational_snapshot.require_alpaca_nasdaq(conn, current)
+        except operational_snapshot.OperationalSnapshotRefused as exc:
+            raise NonRetryableCallbackRefused(str(exc)) from exc
+
     def _require_dual_plan_shadow_match(
             self, conn, plan, *, pending_is_retryable: bool) -> Mapping:
         """Read-only bridge; PAPER may transport only certified shadow intent."""
@@ -737,6 +759,16 @@ class ProductionAutomation:
             cycle, _control = self._assert_cycle_authority(
                 conn, context, operation_scope="REFRESH")
             current = feed_inputs.current(conn)
+            if (self._operational_source_only
+                    and not feed_inputs.is_rolling(current)):
+                raise NonRetryableCallbackRefused(
+                    "operational automation requires rolling Alpaca inputs")
+            if self._operational_source_only:
+                from sentinel.feed import operational_snapshot
+                try:
+                    operational_snapshot.require_alpaca_nasdaq(conn, current)
+                except operational_snapshot.OperationalSnapshotRefused as exc:
+                    raise NonRetryableCallbackRefused(str(exc)) from exc
             if feed_inputs.is_rolling(current):
                 feed_inputs.require_shadow_mode(current, self._dual_run_enabled)
                 from sentinel import dual_reconciliation
@@ -825,6 +857,7 @@ class ProductionAutomation:
             require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="PREPARE")
+            self._require_operational_inputs(conn)
             missed = ()
             if not self._dual_run_enabled:
                 # Reviewed dual mode adopts the exact current shadow-produced
@@ -1163,6 +1196,7 @@ class ProductionAutomation:
             require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="EXECUTE")
+            self._require_operational_inputs(conn)
             if self._dual_run_enabled:
                 current_plan = journal.latest_plan(conn)
                 if (current_plan is None
@@ -1396,7 +1430,7 @@ class ProductionAutomation:
         return row[0] if row and row[0] is not None else None
 
     async def _fenced_data_wake(self, conn):
-        """Check canonical Sharadar readiness while broker mutation is fenced.
+        """Check current publication readiness while broker mutation is fenced.
 
         This path intentionally has no CycleContext, leader permit, broker, plan,
         or execution grant. Rolling inputs are checked against the independently
@@ -1415,6 +1449,13 @@ class ProductionAutomation:
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
             current = feed_inputs.current(conn)
+            if (getattr(self, "_operational_source_only", False)
+                    and not feed_inputs.is_rolling(current)):
+                raise feed_inputs.ExecutionInputsRefused(
+                    "fenced automation requires rolling Alpaca inputs")
+            if getattr(self, "_operational_source_only", False):
+                from sentinel.feed import operational_snapshot
+                operational_snapshot.require_alpaca_nasdaq(conn, current)
             if feed_inputs.is_rolling(current):
                 feed_inputs.require_shadow_mode(current, getattr(self, "_dual_run_enabled", False))
                 from sentinel import dual_reconciliation

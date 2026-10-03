@@ -135,6 +135,25 @@ def test_alpaca_snapshot_publishes_and_reads_without_sharadar(conn, alpaca_path,
                for call in alpaca_path.calls)
 
 
+def test_alpaca_transport_exhaustion_keeps_daily_job_retryable(
+        conn, alpaca_path, monkeypatch):
+    from sentinel.feed.alpaca_transport import AlpacaTransportUnavailable
+    from sentinel.feed import rolling_jobs
+
+    def unavailable(*_a, **_k):
+        raise AlpacaTransportUnavailable("provider request exhausted its retry budget")
+
+    monkeypatch.setattr(alpaca_path, "get", unavailable)
+    job = op.enqueue(conn, strategy_sha256=digest("test-strategy"),
+                     dependencies_sha256=digest("test-deps"), budget_seconds=240)
+    conn.commit()
+    with pytest.raises(AlpacaTransportUnavailable):
+        op.prepare(conn, job)
+    state = rolling_jobs.status(conn, job)
+    assert state["state"] == "RETRY_WAIT"
+    assert state["reason"] == "SOURCE_RETRY"
+
+
 def test_alpaca_action_and_missing_bar_remove_only_affected_security(conn, alpaca_path):
     alpaca_path.action = True
     alpaca_path.missing = ("AAA", "2026-09-11")

@@ -8,7 +8,8 @@ from urllib.error import HTTPError
 import pytest
 
 from sentinel.feed.alpaca_transport import (
-    ACTION_URL, ASSETS, BAR_URL, AlpacaTransportRefused, Client,
+    ACTION_URL, ASSETS, BAR_URL, AlpacaTransportRefused,
+    AlpacaTransportUnavailable, Client,
 )
 from sentinel.feed.alpaca_source import _groups
 
@@ -64,11 +65,21 @@ def test_repeated_page_token_refuses_without_requerying_forever():
 def test_retry_is_bounded_and_withholds_provider_body_and_credentials():
     error = HTTPError(BAR_URL, 503, "test-secret", {}, io.BytesIO(b"test-key"))
     opener = _Opener([error, error, error, error])
-    with pytest.raises(AlpacaTransportRefused) as raised:
+    with pytest.raises(AlpacaTransportUnavailable) as raised:
         Client(opener=opener, sleeper=lambda _delay: None).get(BAR_URL)
     assert len(opener.urls) == 4
     assert "test-secret" not in str(raised.value)
     assert "test-key" not in str(raised.value)
+    from sentinel.shadow_worker import _availability_failure
+    assert _availability_failure(raised.value)
+
+
+def test_auth_refusal_is_not_classified_as_temporary_availability():
+    error = HTTPError(BAR_URL, 401, "denied", {}, io.BytesIO(b"private"))
+    with pytest.raises(AlpacaTransportRefused) as raised:
+        Client(opener=_Opener([error])).get(BAR_URL)
+    from sentinel.shadow_worker import _availability_failure
+    assert not _availability_failure(raised.value)
 
 
 def test_action_pagination_accepts_distinct_pages():

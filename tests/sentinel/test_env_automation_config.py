@@ -99,7 +99,7 @@ def test_required_service_inputs_have_preflight_or_provisioning_authority():
 
 
 @pytest.mark.parametrize("value", [None, "", "   "])
-@pytest.mark.parametrize("profile", ["install", "go", "bringup", "maintenance"])
+@pytest.mark.parametrize("profile", ["install", "go", "maintenance"])
 def test_missing_webhook_refuses_at_host_and_real_dispatcher(profile, value):
     key = "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"
     candidate = dict(BASE)
@@ -118,14 +118,30 @@ def test_missing_webhook_refuses_at_host_and_real_dispatcher(profile, value):
         connect.assert_not_called()
 
 
+def test_local_bringup_needs_no_provider_or_alert_credentials():
+    candidate = {key: value for key, value in BASE.items()
+                 if key not in {"ALPACA_API_KEY", "ALPACA_SECRET_KEY",
+                                "SHARADAR_API_KEY",
+                                "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}}
+    preflight.validate(candidate, profile="bringup", target="DUAL_RUN_OBSERVATION")
+
+
 def test_shared_graph_resolves_for_shadow_and_maintenance_before_alert_setup():
     candidate = {key: value for key, value in BASE.items()
-                 if not key.startswith("ALPACA_")
-                 and key != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}
+                 if key != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}
     for service in compose_model()["services"]:
         service_environment(service, {}, configured=candidate)
     shadow = service_environment("sentinel-shadow", {}, configured=candidate)
-    assert "ALPACA_API_KEY" not in shadow
+    assert shadow["ALPACA_API_KEY"] == BASE["ALPACA_API_KEY"]
+    assert shadow["ALPACA_SECRET_KEY"] == BASE["ALPACA_SECRET_KEY"]
+    assert "SHARADAR_API_KEY" not in shadow
+    standby = (ROOT / "docker-compose.sentinel-automation-standby.yml").read_text(
+        encoding="utf-8")
+    assert "SHARADAR_API_KEY" not in standby
+    assert "SENTINEL_FEED_SERVICE_MODE: AUTOMATION" in standby
+    assert "SENTINEL_SHADOW_STARTING_CASH: ${SENTINEL_SHADOW_STARTING_CASH:-50000}" in standby
+    assert service_environment("sentinel-automation", {}, configured=candidate)[
+        "SENTINEL_SHADOW_STARTING_CASH"] == "50000"
     assert "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL" not in shadow
 
 

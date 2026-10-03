@@ -281,7 +281,7 @@ class EnvReviewFixes(unittest.TestCase):
                          SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL="https://alerts.example.invalid/sentinel")
         # The dispatcher does not receive this low automation heartbeat.
         candidate["SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"] = "1"
-        for profile in ("install", "go", "bringup"):
+        for profile in ("install", "go"):
             for target in ("DUAL_RUN_OBSERVATION", "HISTORICAL_PAPER_EXECUTION"):
                 with self.subTest(profile=profile, target=target):
                     for deadline in ("1", "3", "9"):

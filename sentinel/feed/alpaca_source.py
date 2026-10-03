@@ -1,4 +1,4 @@
-"""Retained Alpaca/Nasdaq inputs for a first, read-only GO candidate."""
+"""Retained Alpaca/Nasdaq inputs for GO and daily rolling candidates."""
 from __future__ import annotations
 
 from collections import Counter

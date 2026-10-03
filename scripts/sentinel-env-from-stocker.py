@@ -70,29 +70,20 @@ if sys.version_info < MIN_PYTHON:                       # pragma: no cover
            sys.version_info[1], sys.argv[0]))
     raise SystemExit(2)
 
-#: Read by Sentinel, and carried across if present. The comment on each is why
+#: Read by deployed Sentinel, and carried across if present. The comment on each is why
 #: it survives — verified against the source, not against the old .env.example,
 #: which still describes the deleted runtime.
 CARRY: dict[str, str] = {
-    "SHARADAR_API_KEY":
-        "the corpus. sentinel/feed/sharadar.py. THE SEED CANNOT RUN WITHOUT IT",
     "ALPACA_API_KEY":
-        "sentinel/config.py. Not needed for #15; needed for the paper leg",
+        "required for Alpaca market-data acquisition and the paper account",
     "ALPACA_SECRET_KEY":
-        "sentinel/config.py",
+        "required for Alpaca market-data acquisition and the paper account",
     "SENTINEL_MAX_CYCLES": "optional; compose defaults to 40",
     "SENTINEL_POLL_SECONDS": "optional; compose defaults to 5",
-    "NDL_BASE_URL":
-        "optional. Nasdaq Data Link endpoint override",
-    "SHARADAR_FETCH_TIMEOUT": "optional tuning",
-    "SHARADAR_FETCH_RETRIES": "optional tuning",
-    "SHARADAR_FETCH_BACKOFF": "optional tuning",
-    "SHARADAR_429_BACKOFF_CAP": "optional tuning",
 }
 
-#: Required for the seed. Absent or placeholder is a REFUSAL, not a warning:
-#: discovering it when `feed-seed` dies is a wasted trip to the NAS.
-REQUIRED = ("SHARADAR_API_KEY",)
+#: GO and daily rolling snapshots both require Alpaca market-data access.
+REQUIRED = ("ALPACA_API_KEY", "ALPACA_SECRET_KEY")
 
 #: Generated here because the old file has no equivalent, and compose declares
 #: it `${SENTINEL_POSTGRES_PASSWORD:?...}` — it REFUSES to start without one
@@ -110,6 +101,13 @@ GENERATE = {
 #: classified here or in CARRY, rather than silently defaulting.
 #:
 DELIBERATELY_UNSET = {
+    "SHARADAR_API_KEY":
+        "historical research only; never copy into deployed Sentinel environment",
+    "SHARADAR_FETCH_TIMEOUT": "historical research tuning only",
+    "SHARADAR_FETCH_RETRIES": "historical research tuning only",
+    "SHARADAR_FETCH_BACKOFF": "historical research tuning only",
+    "SHARADAR_429_BACKOFF_CAP": "historical research tuning only",
+    "NDL_BASE_URL": "historical Data Link override, not Nasdaq directory input",
     "SHARADAR_ALLOW_INSECURE_BASE_URL":
         "development transport opt-in must be selected explicitly, never inherited",
     "SENTINEL_REVIEWED_DEPLOYMENT_MODE":
@@ -385,8 +383,8 @@ def main(argv: list[str] | None = None) -> int:
     missing = [k for k in REQUIRED if k not in carried]
     if missing:
         print(f"\nREFUSED: {', '.join(missing)} is absent, empty or a "
-              f"placeholder in {src}. The seed cannot run without it, and "
-              f"finding that out when feed-seed dies is a wasted trip.",
+              f"placeholder in {src}. Alpaca GO and daily acquisition "
+              f"cannot run without it.",
               file=sys.stderr)
         return 1
 

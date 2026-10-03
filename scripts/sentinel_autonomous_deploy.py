@@ -80,7 +80,7 @@ DATA_PUBLICATION_SCHEMA = "sentinel.data-publication-binding/1"
 SHADOW_EXECUTION_MODEL = "PROSPECTIVE_CONCORDANCE_SCALAR_CORE_BIL_V3"
 SHADOW_CUTOFF_POLICY = "STRICT_BEFORE_OFFICIAL_NEXT_XNYS_OPEN_V1"
 SHADOW_PUBLICATION_TIMING_POLICY = (
-    "SHARADAR_SEP_SFP_SECOND_UPDATE_PLUS_15M_2345_AMERICA_NEW_YORK_V1")
+    "ALPACA_NASDAQ_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
 _OBSERVATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$")
 VALIDATION_MEMBERS = frozenset({
     "validation.json",
@@ -1033,7 +1033,8 @@ def load_dotenv(path: Path) -> Dict[str, str]:
 def merged_environment(path: Path = ENV_PATH) -> Dict[str, str]:
     env = dict(load_dotenv(path))
     try:
-        return sentinel_env.merge(env, os.environ)
+        return sentinel_env.operational_values(
+            sentinel_env.merge(env, os.environ))
     except sentinel_env.EnvRefused as exc:
         raise DeployRefused(str(exc)) from None
 
@@ -1768,10 +1769,9 @@ class AutonomousDeploy:
             raise DeployRefused("automation did not reach disabled+killed deployment state")
 
     def refresh_data(self) -> None:
-        self.phase("data: current daily ingest and full readiness contract")
-        self._base_cli(["feed-daily"])
-        self._base_cli(["check-data"])
-        self.runner.run(self.base_compose + ["up", "-d", "sentinel-panel"])
+        raise DeployRefused(
+            "base deployment cannot refresh market data; use the rolling "
+            "source-aware deploy driver")
 
     def _artifact_rel(self, path: Path) -> str:
         try:

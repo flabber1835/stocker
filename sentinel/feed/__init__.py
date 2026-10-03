@@ -1,8 +1,7 @@
-"""Sentinel's market-data feed — Sharadar, replacing Alpha Vantage.
+"""Sentinel's market-data feed.
 
-The retirement of AV is the point, not a side effect: Wealth Core was certified
-on Sharadar, so reading Sharadar in production makes live and certification share
-a price history instead of merely resembling one.
+Production uses Alpaca/Nasdaq rolling snapshots. Historical Sharadar readers
+remain for offline research and old backtest datasets.
 
 The historical ``SENTINEL_FEED_SERVICE_MODE=GO_VALIDATION`` child belonged to
 the pre-phased validator. It could self-assert feed-binding environment and run

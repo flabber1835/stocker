@@ -92,6 +92,127 @@ def test_transport_evidence_never_claims_clean_success():
                       transport_reconciliation_id="12")
 
 
+def test_deployed_automation_refuses_legacy_publication_before_source_fallback(
+        monkeypatch):
+    class Connection:
+        def close(self):
+            pass
+
+    worker = object.__new__(automation_runtime.ProductionAutomation)
+    worker._operational_source_only = True
+    worker.connect = Connection
+    worker._assert_cycle_authority = lambda *_a, **_k: (
+        SimpleNamespace(decision_session=DECISION), None)
+    monkeypatch.setattr(automation_runtime.feed_store, "require_feed_schema",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime.schema, "require_runtime_schema",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime, "require_observation_integrity",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime.feed_inputs, "current",
+                        lambda *_a: SimpleNamespace(version=1))
+    monkeypatch.setattr(automation_runtime.feed_inputs, "is_rolling",
+                        lambda *_a: False)
+    monkeypatch.setattr(automation_runtime.feed_inputs, "frontier",
+                        lambda *_a: pytest.fail("legacy publisher reached"))
+    with pytest.raises(NonRetryableCallbackRefused,
+                       match="rolling Alpaca inputs"):
+        asyncio.run(worker.refresh(SimpleNamespace()))
+
+
+@pytest.mark.parametrize("callback", ["prepare", "execute"])
+def test_resumed_operational_cycle_rechecks_alpaca_source_before_broker(
+        monkeypatch, callback):
+    class Connection:
+        def close(self):
+            pass
+
+    worker = object.__new__(automation_runtime.ProductionAutomation)
+    worker._operational_source_only = True
+    worker._dual_run_enabled = True
+    worker.connect = Connection
+    worker._assert_cycle_authority = lambda *_a, **_k: (
+        SimpleNamespace(decision_session=DECISION), None)
+    worker._broker = lambda *_a, **_k: pytest.fail("broker reached")
+    monkeypatch.setattr(automation_runtime.feed_store, "require_feed_schema",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime.schema, "require_runtime_schema",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime, "require_observation_integrity",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime.feed_inputs, "current",
+                        lambda *_a: SimpleNamespace(version=1))
+    monkeypatch.setattr(automation_runtime.feed_inputs, "is_rolling",
+                        lambda *_a: False)
+    monkeypatch.setattr(automation_runtime.journal, "latest_plan",
+                        lambda *_a: pytest.fail("legacy plan reached"))
+    with pytest.raises(NonRetryableCallbackRefused,
+                       match="rolling Alpaca inputs"):
+        asyncio.run(getattr(worker, callback)(SimpleNamespace()))
+
+
+def test_deployed_automation_refuses_wrong_rolling_provider_before_plan(
+        monkeypatch):
+    from sentinel.feed import operational_snapshot
+
+    class Connection:
+        def close(self):
+            pass
+
+    worker = object.__new__(automation_runtime.ProductionAutomation)
+    worker._operational_source_only = True
+    worker.connect = Connection
+    worker._assert_cycle_authority = lambda *_a, **_k: (
+        SimpleNamespace(decision_session=DECISION), None)
+    monkeypatch.setattr(automation_runtime.feed_store, "require_feed_schema",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime.schema, "require_runtime_schema",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime, "require_observation_integrity",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime.feed_inputs, "current",
+                        lambda *_a: SimpleNamespace(version=1))
+    monkeypatch.setattr(automation_runtime.feed_inputs, "is_rolling",
+                        lambda *_a: True)
+    monkeypatch.setattr(operational_snapshot, "require_alpaca_nasdaq",
+                        lambda *_a: (_ for _ in ()).throw(
+                            operational_snapshot.OperationalSnapshotRefused(
+                                "OPERATIONAL_ALPACA_NASDAQ_SOURCE_REQUIRED")))
+    monkeypatch.setattr(automation_runtime.feed_inputs, "require_shadow_mode",
+                        lambda *_a: pytest.fail("plan path reached"))
+    with pytest.raises(NonRetryableCallbackRefused,
+                       match="ALPACA_NASDAQ_SOURCE_REQUIRED"):
+        asyncio.run(worker.refresh(SimpleNamespace()))
+
+
+def test_fenced_deployed_wake_alerts_without_legacy_ingest(monkeypatch):
+    class Connection:
+        def rollback(self):
+            pass
+
+    worker = object.__new__(automation_runtime.ProductionAutomation)
+    worker._operational_source_only = True
+    worker._fenced_data_next_wake = None
+    worker._fenced_data_poll_seconds = 30
+    worker.automation_config = config()
+    conn = Connection()
+    alerts = []
+    monkeypatch.setattr(automation_runtime.feed_store, "require_feed_schema",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime.schema, "require_runtime_schema",
+                        lambda *_a: None)
+    monkeypatch.setattr(automation_runtime.feed_inputs, "current",
+                        lambda *_a: SimpleNamespace(version=1))
+    monkeypatch.setattr(automation_runtime.feed_inputs, "is_rolling",
+                        lambda *_a: False)
+    monkeypatch.setattr(automation_runtime.ingest, "daily",
+                        lambda *_a, **_k: pytest.fail("legacy ingest reached"))
+    monkeypatch.setattr(automation_runtime, "_enqueue_fenced_recovery_alert",
+                        lambda *_a, **_k: alerts.append(True))
+    assert asyncio.run(worker._fenced_data_wake(conn)) is not None
+    assert alerts == [True]
+
+
 def async_test(function):
     """Keep focused async tests runnable in the dependency-minimal image."""
     @wraps(function)
@@ -274,6 +395,11 @@ def test_production_composition_accepts_only_an_explicit_typed_alert_adapter():
         holder_id="worker-a", alert_adapter=adapter)
 
     assert runtime.alert_adapter is adapter
+
+
+def test_deployed_automation_mode_enables_operational_source_guard(monkeypatch):
+    monkeypatch.setenv("SENTINEL_FEED_SERVICE_MODE", "AUTOMATION")
+    assert production(config())._operational_source_only is True
 
 
 @async_test

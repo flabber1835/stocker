@@ -6,6 +6,7 @@ import sys
 
 from sentinel import backup_guard, shadow_runtime
 from sentinel.feed import sharadar
+from sentinel.feed.alpaca_transport import AlpacaTransportUnavailable
 from sentinel.dependency_availability import database_unavailable, local_contention
 from sentinel.shadow_recovery import (
     ShadowServiceConfig,
@@ -64,7 +65,7 @@ def _availability_failure(exc: BaseException) -> bool:
             return True
         if _backup_availability(current):
             return True
-        if _sharadar_availability(current):
+        if isinstance(current, AlpacaTransportUnavailable) or _sharadar_availability(current):
             return True
         current = current.__cause__ if isinstance(current, ShadowServiceRetry) else None
     return False

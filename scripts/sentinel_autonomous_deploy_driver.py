@@ -52,10 +52,13 @@ class AutonomousDeploy(core.AutonomousDeploy):
         """Read the exact readiness object as JSON without parsing terminal prose."""
         code = r'''
 import json, os
-from sentinel.feed import readiness, readers, store
+from sentinel.feed import operational_snapshot, readiness, readers, store
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
     result = readers.readiness(c)
+    current = readers.current(c)
+    if readers.is_rolling(current):
+        operational_snapshot.require_alpaca_nasdaq(c, current)
     readiness.save_snapshot(c, result)
     checks = [
         {'name': item.name, 'status': item.status,
@@ -105,6 +108,9 @@ finally:
         `feed-daily` attempt is warranted. Full readiness remains the sole policy.
         """
         failures = verdict.get("failures") or []
+        if verdict.get("rolling") is True:
+            return ((), 0) if (len(failures) == 1 and
+                failures[0].get("name") == "rolling source-final frontier") else None
         if (len(failures) != 1
                 or str(failures[0].get("name") or "") != "freshness"):
             return None
@@ -281,6 +287,10 @@ print(json.dumps({
 
     def _wait_for_data(self, *, deadline: float) -> None:
         """Wait until the current corpus is ready, without repeated full ingests."""
+        if getattr(self, "_operational_source_only", False):
+            raise core.DeployRefused(
+                "operational install cannot wait for its quiesced shadow "
+                "publisher; run GO again")
         attempt = 1
         previous_positive_frontier = None
         stable_positive_polls = 0
@@ -388,6 +398,20 @@ print(json.dumps({
         self._assert_wait_fence()
         verdict = self._readiness_verdict()
         requirements = self._freshness_wait_requirements(verdict)
+
+        if getattr(self, "_operational_source_only", False):
+            if verdict.get("rolling") is not True:
+                raise core.DeployRefused(
+                    "operational deployment requires rolling Alpaca inputs")
+            if verdict.get("ready") is not True:
+                self._refuse_data_readiness(
+                    verdict, attempt=1,
+                    reason="rolling GO publication is not ready while the "
+                           "shadow publisher is quiesced; run GO again")
+            self._base_cli(["check-data"])
+            self.runner.run(self.base_compose + ["up", "-d", "sentinel-panel"])
+            self._write_deployment_state("DATA_READY", attempt=1, failures=[])
+            return
 
         if verdict.get("rolling") is True:
             if verdict.get("ready") is not True:

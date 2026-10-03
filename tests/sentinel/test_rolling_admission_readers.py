@@ -287,7 +287,9 @@ def test_integrity_refusal_never_dispatches_to_a_different_reader(monkeypatch):
         readers.current(object())
 
 
-def test_generated_installer_programs_read_real_rolling_publication(conn, published, monkeypatch):
+def test_generated_installer_programs_refuse_legacy_provider_then_read_rolling(
+        conn, published, monkeypatch):
+    from sentinel.feed import operational_snapshot
     root = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
     monkeypatch.syspath_prepend(str(root / "scripts"))
     import sentinel_autonomous_deploy as deploy
@@ -310,6 +312,14 @@ def test_generated_installer_programs_read_real_rolling_publication(conn, publis
 
     task = object.__new__(install.InstallAnytimeDeploy)
     task.runner, task.base_compose = LocalPython(), []
+    with pytest.raises(operational_snapshot.OperationalSnapshotRefused,
+                       match="ALPACA_NASDAQ_SOURCE_REQUIRED"):
+        driver.AutonomousDeploy._readiness_verdict(task)
+    # This fixture intentionally publishes a historical Sharadar candidate.
+    # The provider refusal above is real; isolate the remaining generated
+    # installer-program assertions from that independently tested policy.
+    monkeypatch.setattr(operational_snapshot, "require_alpaca_nasdaq",
+                        lambda c, pub: operational_snapshot._bound(c, pub))
     report = driver.AutonomousDeploy._readiness_verdict(task)
     assert report["ready"] and report["rolling"] and report["failures"] == []
     calls = []

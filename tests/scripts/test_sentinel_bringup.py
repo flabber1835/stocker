@@ -98,7 +98,7 @@ def test_launcher_uses_go_lifecycle_lock_but_never_runs_certification_or_recover
     source = LAUNCHER.read_text(encoding="utf-8")
     assert "scripts/sentinel_go_lock.py" in source
     assert "scripts/sentinel_bringup_install_anytime.py" in source
-    assert 'phase "LOCAL + SOURCE LIVENESS"' in source
+    assert 'phase "LOCAL DURABILITY + IMAGE"' in source
     assert "sentinel-go-validate.sh" not in "\n".join(
         line for line in source.splitlines()
         if line.strip() and not line.lstrip().startswith("#"))
@@ -133,7 +133,7 @@ def test_recover_flag_is_compatibility_only_and_go_owns_recovery():
     assert 'parser.add_argument(\n        "--recover"' in source
     assert "compatibility mode only; no financial data" in source
     assert "Certified GO owns bounded recovery" in source
-    assert "full stable SEP observation, TICKERS/history validation" in source
+    assert "Alpaca/Nasdaq acquisition, rolling publication" in source
 
 
 def test_fast_liveness_has_hard_diagnostic_fetch_budgets():

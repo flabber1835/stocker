@@ -4,7 +4,7 @@
 A GO bundle carrying ``deployment_wait_policy`` may promote and stage the exact
 certified dual-run software while session authority remains NO_GO. At the
 existing quiesced pre-shadow boundary this entry waits for a causally eligible
-source-final publication, re-runs the exact Wealth Core parity and Sharadar
+source-final publication, re-runs the exact Wealth Core parity and market-data
 readiness probes, binds that publication, and only then lets the retained shadow
 lineage/authority path continue.
 
@@ -275,6 +275,10 @@ class InstallAnytimeConfig(hardened.Config):
 
 
 class InstallAnytimeDeploy(bootstrap.BootstrapDeploy):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._operational_source_only = True
+
     def _deferred_install(self) -> bool:
         return bool(
             self.reviewed_validation is not None
@@ -285,11 +289,14 @@ class InstallAnytimeDeploy(bootstrap.BootstrapDeploy):
         code = r'''
 import json, os
 from datetime import datetime, timezone
-from sentinel.feed import calendar, readers, store
+from sentinel.feed import calendar, operational_snapshot, readers, store
 from sentinel.shadow_runtime import publication_not_before
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
     with readers.pinned(c, commit=False) as current:
+        if not readers.is_rolling(current):
+            raise RuntimeError('operational install requires rolling Alpaca inputs')
+        operational_snapshot.require_alpaca_nasdaq(c, current)
         frontier = readers.frontier(c, current)
     if frontier is None or current.window_end != frontier:
         raise RuntimeError('current publication/frontier disagree')
@@ -373,6 +380,10 @@ finally:
 
     def _base_cli(self, args: Sequence[str], *, capture: bool = False,
                   check: bool = True) -> subprocess.CompletedProcess:
+        if (getattr(self, "_operational_source_only", False)
+                and args and args[0] in {"feed-daily", "feed-seed"}):
+            raise core.DeployRefused(
+                "operational deployment cannot run legacy Sharadar ingestion")
         if (list(args) == ["feed-daily"]
                 and getattr(self, "_causal_wait_target", None) is not None):
             self._assert_causal_vendor_window()
@@ -385,6 +396,11 @@ finally:
         while True:
             self._assert_wait_fence()
             timing = self._causal_timing()
+            if (getattr(self, "_operational_source_only", False)
+                    and timing["frontier"] != timing["target"]):
+                raise core.DeployRefused(
+                    "reviewed rolling GO frontier is stale while the shadow "
+                    "publisher is quiesced; run GO again before installation")
             if not self._timing_eligible(timing):
                 self._write_deployment_state(
                     "WAITING_FOR_CAUSAL_SESSION", attempt=attempt, failures=[])
@@ -407,6 +423,11 @@ finally:
                     self._write_deployment_state(
                         "DATA_READY_CAUSAL", attempt=attempt, failures=[])
                     return timing
+                if getattr(self, "_operational_source_only", False):
+                    self._refuse_data_readiness(
+                        verdict, attempt=attempt,
+                        reason="reviewed rolling GO publication is not ready "
+                               "while its publisher is quiesced; run GO again")
                 if self._freshness_wait_requirements(verdict) is None:
                     self._refuse_data_readiness(
                         verdict, attempt=attempt,

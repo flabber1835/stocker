@@ -1,4 +1,4 @@
-"""Prospective shadow recovery across prolonged Sentinel/Sharadar outages.
+"""Prospective shadow recovery across prolonged legacy-source outages.
 
 The ordinary shadow service is intentionally strict: it refuses a missing
 session rather than replaying performance retrospectively. This composition
@@ -71,7 +71,7 @@ def _fresh_target(now: Optional[datetime]) -> str:
     not_before = shadow_runtime.publication_not_before(target)
     if instant < not_before:
         raise base.ShadowServiceWaiting(
-            "shadow recovery is waiting for current Sharadar source finality "
+            "shadow recovery is waiting for current legacy source finality "
             f"at {not_before.isoformat()}")
     following = calendar.next_session(target)
     following_open, _close = calendar.session_window(following)

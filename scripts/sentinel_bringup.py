@@ -2,9 +2,10 @@
 """Fast non-authoritative Sentinel bootstrap diagnostics.
 
 Bring-up is intentionally cheap and read-only with respect to financial data. It
-checks host/runtime/database/backup prerequisites plus a bounded Sharadar liveness
-probe, then hands full source validation, bounded data preparation, backup refresh,
-and certification to ``scripts/sentinel-go-validate.sh``.
+checks host/runtime/database/backup prerequisites. Alpaca/Nasdaq source checks
+remain exclusively in certified GO; bring-up performs no provider request.
+It hands full source validation, bounded data preparation, backup refresh, and
+certification to ``scripts/sentinel-go-validate.sh``.
 
 The legacy ``--recover`` flag remains accepted for operator compatibility but no
 longer mutates the corpus. Recovery authority belongs exclusively to certified GO.
@@ -106,7 +107,6 @@ def _require_exact_main(runner: go.CommandRunner):
 
 def _require_environment(env: Mapping[str, str]) -> None:
     required = (
-        "SHARADAR_API_KEY",
         "SENTINEL_POSTGRES_PASSWORD",
         "SENTINEL_BACKUP_DIR",
     )
@@ -257,14 +257,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("bring-up gate: exact ordinary runtime", flush=True)
         runtime_ref = _runtime_for_commit(runner, env=env, commit=git.commit)
 
-        print("bring-up gate: lightweight Sharadar/local liveness", flush=True)
-        report = _source_liveness_report(
-            runner, env=env, runtime_ref=runtime_ref, compose_args=compose_args)
-        _print_source_report(report, prefix="bring-up liveness")
-        decision = source_decision(report)
-        if not decision.proceed:
-            print("%s - %s" % (BLOCKED, decision.reason_code), flush=True)
-            return 3
+        # GO owns Alpaca/Nasdaq source observation. Bring-up is a local
+        # durability/image diagnostic and must not query the retired provider.
 
         if backup_repair_reason is not None:
             print(
@@ -290,8 +284,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(READY, flush=True)
         print(
             "No certification or deployment authority was created. Certified GO "
-            "owns full stable SEP observation, TICKERS/history validation, bounded "
-            "data recovery, post-recovery validation, and certification. Run: "
+            "owns Alpaca/Nasdaq acquisition, rolling publication, post-recovery "
+            "validation, and certification. Run: "
             "bash scripts/sentinel-go-validate.sh",
             flush=True,
         )
