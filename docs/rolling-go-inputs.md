@@ -74,3 +74,12 @@ frontiers, read-only probe behavior, immutable source inputs, canonical restart
 equivalence, exact pin exclusion, unexpected behavioral state and refusal to
 promote an unversioned data proof into runtime authority. Remove guards in child
 processes to prove their focused falsifiers fail.
+
+## Physical restore receipt verification
+
+The isolated semantic restore child must inherit only the configured publication
+receipt key needed to authenticate snapshot publications, alongside its isolated
+database credentials. The maintenance environment already validates this key;
+the launcher forwards it by environment name, without placing its value in
+command arguments or logs. Broker and provider credentials remain absent.
+A successful WAL replay alone is not a successful semantic restore.

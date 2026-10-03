@@ -268,6 +268,7 @@ docker run --rm --name "$CONTAINER-semantic" --label sentinel.restore-drill=v1 \
   --network "$NETWORK" --read-only --cap-drop ALL --memory 1g --pids-limit 128 \
   --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   -e SENTINEL_RESTORE_DATABASE_HOST=restored-postgres \
+  -e SENTINEL_PUBLICATION_RECEIPT_KEY \
   -e SENTINEL_RESTORE_DATABASE_PASSWORD="$SENTINEL_POSTGRES_PASSWORD" \
   --entrypoint python "$RUNTIME_IMAGE" -c \
   'import runpy,signal; signal.alarm(600); runpy.run_module("sentinel.restore_validation",run_name="__main__")'
