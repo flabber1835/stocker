@@ -36,7 +36,12 @@ book by this proof.
 
 Database health verifies the actual snapshot relations and indexed bounded
 queries, exact schema, real shared-lock exclusion, stable publication, complete
-warmup input and measured validation duration. Report the snapshot contract
+warmup input and measured validation duration. A current 300-session decision
+window contributes 299 prior feature sessions; its health summary, GO
+installation gate and reviewed deployment parser must agree on that count.
+The retained 252-session health contract remains accepted for existing evidence,
+but both axis and warmup counts must match and all other exact health bounds
+remain mandatory. Report the snapshot contract
 explicitly. Never report legacy-table query plans as proof of snapshot behavior.
 
 The independent writer-exclusion connection uses the caller's original database

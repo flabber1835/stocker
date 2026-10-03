@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 import os
@@ -53,7 +54,7 @@ def _preparation():
         elapsed_milliseconds=1_000)
 
 
-def _database_base(*, prospective=False, structural_failure=None):
+def _database_base(*, prospective=False, structural_failure=None, sessions=252):
     checks = {name: True for name in go.DATABASE_CHECK_IDS}
     checks["prospective_trading_window"] = bool(prospective)
     if structural_failure is not None:
@@ -72,10 +73,10 @@ def _database_base(*, prospective=False, structural_failure=None):
             "publication_versions": 42,
             "publication_chain_gaps": 0,
             "duplicate_publication_run_ids": 0,
-            "recent_xnys_sessions": 252,
+            "recent_xnys_sessions": sessions,
             "frontier_security_rows": 8_000,
             "frontier_duplicate_security_keys": 0,
-            "warmup_revision_sessions": 252,
+            "warmup_revision_sessions": sessions,
         },
         measured_milliseconds=measured,
         threshold_milliseconds={
@@ -97,9 +98,9 @@ def _database_base(*, prospective=False, structural_failure=None):
         evidence_sha256="2" * 64)
 
 
-def _waiting_probes():
+def _waiting_probes(*, sessions=252):
     database = install_go.InstallCompatibleDatabaseHealthView(
-        _database_base(prospective=False), 0, NOW_TEXT)
+        _database_base(prospective=False, sessions=sessions), 0, NOW_TEXT)
     gates = {}
     for gate_id in go.GATE_IDS:
         status = go.PASS
@@ -238,8 +239,9 @@ def test_waiting_install_preserves_truthful_session_and_database_no_go():
     assert "SESSION_TIMING_NOT_READY" in failures["paper_execution"]
 
 
-def test_waiting_bundle_is_install_safe_but_not_session_go(tmp_path):
-    probes = _waiting_probes()
+@pytest.mark.parametrize("sessions", [252, 299])
+def test_waiting_bundle_is_install_safe_but_not_session_go(tmp_path, sessions):
+    probes = _waiting_probes(sessions=sessions)
     original_derive = go.derive_verdicts
     go.derive_verdicts = install_go.derive_installable_verdicts
     try:
@@ -387,3 +389,38 @@ def test_deferred_dual_uses_quiesced_boundary_before_publication_binding(monkeyp
     instance.verify_reviewed_shadow_bindings_quiesced()
     assert [item[0] for item in events] == ["phase", "wait", "bind"]
     assert events[-1][1] == timing
+
+
+@pytest.mark.parametrize("sessions", [252, 299])
+def test_ready_health_survives_go_and_reviewed_deployment(tmp_path, monkeypatch, sessions):
+    probes = _waiting_probes(sessions=sessions)
+    health = install_go.InstallCompatibleDatabaseHealthView(
+        _database_base(prospective=True, sessions=sessions),
+        go.MIN_REMAINING_DEADLINE_MARGIN_MS + 60_000,
+        install_go.phase._utc(datetime.now(timezone.utc)))
+    probes = replace(
+        probes, database_health=health,
+        subject_values={"shadow_configuration": "3" * 64,
+                        "data_publication": "4" * 64},
+        gates={name: go.make_gate(name, go.PASS, NOW_TEXT, {"test": True})
+               for name in go.GATE_IDS})
+    assert health.complete and health.session_ready
+    monkeypatch.setattr(go, "derive_verdicts", install_go.derive_installable_verdicts)
+    result = go.emit_bundle(
+        probes, output_dir=tmp_path, created_at=NOW,
+        valid_for=install_go.timedelta(hours=24), scan_env={})
+    assert result.dual_run_verdict == go.DUAL_RUN_GO
+    reviewed = install_deploy.parse_reviewed_validation_bundle(
+        result.path, mode="dual", confirmation=result.sha256, now=NOW)
+    assert reviewed.data_publication_sha256 is not None
+
+
+@pytest.mark.parametrize("axis,warmup", [(298, 298), (300, 300), (299, 252), (252, 299)])
+def test_install_health_rejects_wrong_or_mismatched_session_counts(axis, warmup):
+    base = _database_base(prospective=True)
+    base = replace(base, counts={**base.counts, "recent_xnys_sessions": axis,
+                                 "warmup_revision_sessions": warmup})
+    view = install_go.InstallCompatibleDatabaseHealthView(base, 60_000_000, NOW_TEXT)
+    assert not view.complete
+    assert not install_go._database_document_install_safe(
+        view.to_dict(), runtime_image_digest=RUNTIME_DIGEST)
