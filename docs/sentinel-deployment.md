@@ -1,5 +1,23 @@
 # Sentinel — operational deployment ground truth
 
+## Local GO validation before publication
+
+Decision: 2026-10-03. For GO-path changes, first run the real Alpaca/Nasdaq
+acquisition, verified backup and renewal path, canonical book formation,
+restart/parity proof and financial readiness locally against the feature branch.
+Keep broker access GET-only. Diagnose failures, apply generic fixes and add
+focused regression falsifiers locally; rerun until these operational checks
+pass before pushing the completed change or updating its pull request.
+
+This local diagnostic run uses a clean branch and its exact runtime image. It
+does not fabricate software-certification evidence, issue deployment admission,
+promote a runtime or activate trading. Report the tested commit, actual provider
+inputs, failures and untested boundaries. GitHub CI and protected image
+publication remain the later release gates for the final reviewed commit.
+Their runtime certification does not replace the real-provider local GO test.
+An already-open pull request may finish its existing checks, but further fixes
+stay local until the operational run passes.
+
 [Alpaca-led cold-start GO](alpaca-go-cold-start.md) supersedes the older
 Sharadar operational-source choice for first deployment. GO uses Alpaca SIP
 bars/actions and free Nasdaq directories; Sharadar remains historical research

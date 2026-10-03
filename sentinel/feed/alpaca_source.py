@@ -25,7 +25,9 @@ _NY = ZoneInfo("America/New_York")
 
 def _bounds(first: str, last: str):
     start = datetime.fromisoformat(first + "T00:00:00").replace(tzinfo=_NY)
-    end = datetime.fromisoformat(last + "T23:59:59").replace(tzinfo=_NY)
+    # Daily bars are labelled at New York midnight; end is inclusive. Asking
+    # for day-end reaches unavailable recent SIP data during source-final runs.
+    end = datetime.fromisoformat(last + "T00:00:00").replace(tzinfo=_NY)
     return start.isoformat(), end.isoformat()
 
 
