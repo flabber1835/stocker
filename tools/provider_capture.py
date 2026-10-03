@@ -191,9 +191,11 @@ def acquire(root, *, end):
         {'table':'SEP', 'qopts.per_page':10000}, kind='tickers')
     manifest['files']['sharadar_tickers'] = tickers
     listed = list(datatable(root, tickers))
-    symbols = sorted({r['symbol'] for r in assets} | {r['ticker'] for r in listed
+    alpaca_symbols = sorted({r['symbol'] for r in assets})
+    symbols = sorted(set(alpaca_symbols) | {r['ticker'] for r in listed
         if r.get('isdelisted') == 'N'} | {'SPY','BIL'})
     save(root/'universe.json', dict(symbols=symbols, count=len(symbols),
+        alpaca_query_symbols=alpaca_symbols, alpaca_query_count=len(alpaca_symbols),
         identity_equivalence='NOT_ESTABLISHED', metadata='CURRENT_INFORMATION'))
     bounds = {'date.gte':axis[0], 'date.lte':end, 'qopts.per_page':10000}
     for table, extra in [('SEP',{}), ('SFP',{'ticker':'SPY,BIL'}), ('ACTIONS',{})]:
@@ -202,8 +204,8 @@ def acquire(root, *, end):
         save(root/'manifest.json', manifest)
     for adjustment in ('raw','split'):
         files = []
-        for offset in range(0,len(symbols),100):
-            params = dict(symbols=','.join(symbols[offset:offset+100]), timeframe='1Day',
+        for offset in range(0,len(alpaca_symbols),100):
+            params = dict(symbols=','.join(alpaca_symbols[offset:offset+100]), timeframe='1Day',
                 start=datetime.fromisoformat(axis[0]+'T00:00:00').replace(tzinfo=ZoneInfo('America/New_York')).isoformat(),
                 end=datetime.fromisoformat(end+'T23:59:59').replace(tzinfo=ZoneInfo('America/New_York')).isoformat(),
                 limit=10000, feed='sip', adjustment=adjustment, asof=end, sort='asc')

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.provider_capture import Capture, CaptureError, DATA, NASDAQ, encoded
+from tools.provider_capture import Capture, CaptureError, DATA, NASDAQ, acquire, encoded
 from tools.provider_preprocess import sharadar_row
 
 
@@ -69,6 +69,32 @@ def test_incomplete_capture_cannot_be_preprocessed(tmp_path):
     (tmp_path/'manifest.json').write_text('{"status":"INCOMPLETE"}')
     with pytest.raises(CaptureError,match='incomplete'):
         preprocess(tmp_path)
+
+
+def test_sharadar_only_names_remain_in_coverage_but_never_reach_alpaca_bars(tmp_path, monkeypatch):
+    from tools import provider_capture
+    requested = []
+    monkeypatch.setattr(Capture, 'page', lambda *args: (
+        [dict(symbol='ABC'), dict(symbol='SPY')], 'assets.json'))
+    monkeypatch.setattr(provider_capture, 'datatable', lambda *args: iter([
+        dict(ticker='ABC', isdelisted='N'),
+        dict(ticker='ABR-PD', isdelisted='N')]))
+
+    def pages(self, provider, url, params, *, kind):
+        if url == DATA+'/v2/stocks/bars':
+            names = params['symbols'].split(',')
+            requested.append(names)
+            if 'ABR-PD' in names:
+                raise CaptureError('alpaca HTTP 400; response body withheld')
+        return []
+
+    monkeypatch.setattr(Capture, 'pages', pages)
+    manifest = acquire(tmp_path, end='2026-09-30')
+    universe = json.loads((tmp_path/'universe.json').read_text())
+    assert manifest['status'] == 'COMPLETE'
+    assert universe['symbols'] == ['ABC', 'ABR-PD', 'BIL', 'SPY']
+    assert universe['alpaca_query_symbols'] == ['ABC', 'SPY']
+    assert requested == [['ABC', 'SPY'], ['ABC', 'SPY']]
 
 
 def test_offline_preprocessing_keeps_domains_and_zero_coverage(tmp_path, monkeypatch):
