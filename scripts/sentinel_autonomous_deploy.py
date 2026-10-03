@@ -1104,7 +1104,7 @@ class Config:
                 "ALPACA_BASE_URL must be exactly %s for autonomous deployment" % PAPER_URL)
         for name in (
                 "SENTINEL_POSTGRES_PASSWORD", "SENTINEL_BACKUP_DIR",
-                "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "SHARADAR_API_KEY"):
+                "ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
             _require(env, name)
         if "@" in self.runtime_repository or "@" in self.test_repository:
             raise DeployRefused("image repositories must be mutable repository names, not digests")

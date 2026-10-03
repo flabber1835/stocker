@@ -78,6 +78,17 @@ def test_data_wait_defaults_are_bounded_and_operator_overridable(tmp_path):
     assert cfg.data_wait_timeout_seconds == 600
 
 
+def test_deployment_requires_alpaca_without_retired_sharadar(tmp_path):
+    env = _config_env(tmp_path)
+    env.pop('SHARADAR_API_KEY')
+    assert driver.Config(env).account_id == 'PAPER-1'
+    for name in ('ALPACA_API_KEY', 'ALPACA_SECRET_KEY'):
+        missing = dict(env)
+        missing.pop(name)
+        with pytest.raises(core.DeployRefused, match=name):
+            driver.Config(missing)
+
+
 def test_shipped_wait_settings_agree_with_actual_driver(tmp_path):
     import sentinel_env
     env = _config_env(tmp_path)
