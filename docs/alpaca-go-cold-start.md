@@ -7,6 +7,20 @@ old Sharadar certificate into an Alpaca certificate or authorize paper orders.
 
 ## Ownership and sources
 
+Decision: 2026-10-03. Daily-bar request bounds use the inclusive New York
+midnight timestamp of the first and last requested sessions. Alpaca labels
+daily bars at that timestamp; requesting 23:59:59 unnecessarily reaches into
+the future or the recent SIP interval unavailable to the free subscription.
+This changes the timestamp filter, not the bar contents or the permission to
+consume a session: the existing closed-session and source-final guards remain
+required. Each boundary independently uses the New York daylight-saving offset.
+Apply the same bounds to raw, split-adjusted and total-return benchmark bars
+in GO and daily acquisition. Real authenticated requests returned identical
+complete SPY/BIL bars with midnight and later historical bounds, including
+the final requested session.
+See the [SIP access restriction](https://docs.alpaca.markets/us/docs/market-data-faq)
+and [inclusive stock-bar bounds](https://docs.alpaca.markets/us/reference/stockbars).
+
 Alpaca SIP daily bars and corporate actions supply operational market facts.
 The free Nasdaq Trader `nasdaqlisted.txt` and `otherlisted.txt` directories
 supply a conservative current common-stock universe. This is an Alpaca-led,
