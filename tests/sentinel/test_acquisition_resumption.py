@@ -382,6 +382,23 @@ def test_successor_never_renews_exhausted_deadline(conn, source):
     assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_jobs").fetchone()[0] == 1
 
 
+@pytest.mark.parametrize('component', ['TICKERS.ASSETS','TICKERS.PLAN','TICKERS.FIGI.1'])
+def test_metadata_successor_does_not_parse_suffix_as_date(conn,source,capsys,component):
+    from sentinel.feed.acquisition_parts import successor
+    import sentinel_go_feed_progress as host_progress
+    job = formation_job(conn,source)
+    lease = jobs.claim(conn,job,lease_seconds=600)
+    deadline = jobs.status(conn,job)['deadline']
+    jobs.finish(conn,lease,state='REFUSED',reason='SOURCE_GENERATION_CHANGED')
+    conn.commit()
+    child = successor(conn,job,component)
+    assert jobs.status(conn,child)['deadline'] == deadline
+    events = host_progress.collect(capsys.readouterr().err)
+    assert events[-1]['reason'] == 'SOURCE_REVISION_RESTART'
+    assert events[-1]['component'] == component
+    assert 'date_from' not in events[-1] and 'date_to' not in events[-1]
+
+
 def test_retention_pins_parts_until_successor_finishes(conn, source):
     from sentinel.feed.acquisition_parts import Parts, successor
     from sentinel.feed import retention

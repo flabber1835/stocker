@@ -36,6 +36,11 @@ Retain the latest publication's aggregated TICKERS acquisition part as a durable
 classification dependency. Ordinary scratch cleanup must not delete that part
 immediately after publication; older aggregates are released when replaced.
 This pin does not retain completed price partitions or expired mappings as authority.
+Operator progress identifies the retained component and FIGI batch count so a
+metadata batch cannot look like a repeated whole-universe download. Classification
+progress admits only bounded counts and the existing safe component-name grammar.
+Source-revision recovery treats dated partitions and metadata subcomponents as
+different names; a FIGI batch suffix is never parsed as a date interval.
 Recheck Alpaca inventory after acquisition without repeating the entire classification.
 The new ALPACA_OPENFIGI source identity cannot silently reuse an older Nasdaq
 source as deployment authority. Old manifests remain inspectable with their

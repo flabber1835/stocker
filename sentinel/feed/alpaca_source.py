@@ -82,12 +82,18 @@ class AlpacaSource:
         self.months = list(_months(str(self.window.start), str(self.window.end)))
 
     def _part(self, component, generation, acquire, checkpoint):
+        details = {'table':component.split('.')[0]}
+        if component.startswith('TICKERS.'):
+            details['component'] = component
+        elif component.startswith('SEP.'):
+            _, lo, hi = component.split('.')
+            details.update(date_from=lo,date_to=hi)
         with self.parts.unit():
             retained = self.parts.get(component, generation,
                                       defer_prices=self.verify_during_coverage
                                       and component.startswith("SEP."))
             if retained is None:
-                progress.emit("source_download", "started", table=component.split(".")[0],
+                progress.emit("source_download", "started", **details,
                               reason="ACQUIRE_MISSING_PART", job_id=self.lease.job_id)
                 payload, prices, evidence, rows = acquire()
                 retained = self.parts.put(component, generation, payload=payload,
@@ -104,7 +110,7 @@ class AlpacaSource:
                                   "evidence": manifest["evidence"]})
             checkpoint(component, generation, manifest["content_sha256"],
                        manifest["rows"], 0)
-            progress.emit("source_replay", "completed", table=component.split(".")[0],
+            progress.emit("source_replay", "completed", **details,
                           reason=reason, rows=manifest["rows"], job_id=self.lease.job_id)
             return payload
 
@@ -152,7 +158,8 @@ class AlpacaSource:
                 {**base, 'component': 'figi', 'assets_sha256': digest(group)}, acquire, checkpoint)
             observations.update(values)
             progress.emit('source_classification', 'working', rows=len(observations),
-                          total=len(self.assets), job_id=self.lease.job_id)
+                          table='TICKERS',component='TICKERS.FIGI.'+str(number),
+                          part=number,parts=(len(missing)+size-1)//size, job_id=self.lease.job_id)
         selected, selection = openfigi.select_assets(self.assets, observations)
         payload = {'selected': selected, 'selection': selection,
                    'assets': self.assets, 'classifications': observations}

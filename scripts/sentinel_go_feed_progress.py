@@ -10,7 +10,7 @@ STAGES = frozenset({
     "seed_database_replay", "post_seed_proof", "database_tickers",
     "database_actions", "database_spy", "database_prices",
     "source_preflight", "export_preflight", "source_download", "source_refresh",
-    "source_replay", "bounded_recovery", "corpus_publication", "database_connect", "readiness_check",
+    "source_replay", "source_classification", "bounded_recovery", "corpus_publication", "database_connect", "readiness_check",
     "backup_durability", "schema_migration", "daily_catchup", "publication_check",
     "readiness_history", "readiness_domains", "readiness_splits", "readiness_maintenance",
     "rolling_identity", "rolling_normalization", "rolling_seal",
@@ -31,7 +31,7 @@ def parse(line):
     optional = {"refreshed_at", "snapshot_at", "table", "date_from", "date_to",
                 "updated_from", "updated_to", "part", "parts", "reason",
                 "ready", "retry_seconds", "remaining_seconds", "bytes", "job_id", "subphase",
-                "sessions", "required_sessions", "session"}
+                "sessions", "required_sessions", "session", "component", "selected"}
     if not isinstance(value, dict) or not required.issubset(value) or set(value) - required - optional:
         return None
     if value.get("stage") == "historical_formation":
@@ -44,7 +44,15 @@ def parse(line):
             r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", value["job_id"])):
         return None
     if "subphase" in value and (not isinstance(value["subphase"], str)
-                               or value["subphase"] not in {"alias_discovery", "independent_coverage"}):
+                               or value["subphase"] not in {"alias_discovery", "independent_coverage", "alpaca_admission"}):
+        return None
+    if 'component' in value and (value.get('table') != 'TICKERS'
+            or not isinstance(value['component'],str)
+            or not re.fullmatch(r'TICKERS\.(ASSETS|PLAN|FIGI\.[1-9][0-9]{0,4})',value['component'])):
+        return None
+    if 'selected' in value and (value['stage'] != 'rolling_identity'
+            or value.get('subphase') != 'alpaca_admission'
+            or type(value['selected']) is not int or not 0 <= value['selected'] <= 100000):
         return None
     if "reason" in value and (not isinstance(value["reason"], str)
                              or not re.fullmatch(r"[A-Z][A-Z_0-9]{0,79}", value["reason"])):
@@ -65,7 +73,8 @@ def parse(line):
             except ValueError:
                 return None
     for field in ("part", "parts"):
-        if field in value and (type(value[field]) is not int or not 1 <= value[field] <= 1000):
+        maximum = 99999 if value.get('stage') == 'source_classification' else 1000
+        if field in value and (type(value[field]) is not int or not 1 <= value[field] <= maximum):
             return None
     for field in ("ready", "retry_seconds", "remaining_seconds", "bytes"):
         if field in value and (type(value[field]) is not int or not 0 <= value[field] <= 10**12):
@@ -97,7 +106,7 @@ def describe(value):
     if value.get("subphase"):
         text += " " + value["subphase"].replace("_", " ")
     if value.get("table"):
-        text += " " + value["table"]
+        text += " " + (value.get('component') or value["table"])
     if value.get("date_from") or value.get("date_to"):
         text += " " + (value.get("date_from") or "all") + ".." + (value.get("date_to") or "all")
     if value.get("part") and value.get("parts"):
