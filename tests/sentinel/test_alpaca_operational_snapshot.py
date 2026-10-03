@@ -162,6 +162,80 @@ def test_alpaca_transport_exhaustion_keeps_daily_job_retryable(
     assert state["reason"] == "SOURCE_RETRY"
 
 
+def test_backup_horizon_precedes_full_validation_and_provider_recheck(
+        conn, alpaca_path, monkeypatch):
+    from sentinel import backup_runtime_authority as backup
+    from sentinel.core import rolling_inputs
+    from sentinel.feed import rolling_jobs as jobs
+
+    job = op.enqueue(conn, strategy_sha256=digest('test-strategy'),
+                     dependencies_sha256=digest('test-deps'), budget_seconds=240)
+    conn.commit()
+    deadline = jobs.status(conn, job)['deadline']
+    original_require = backup.require
+    original_readiness = rolling_inputs.readiness_inputs
+    original_build = rolling_builder.build
+    renewed = [False]
+    validation_reads, builds = [], []
+
+    def guard(c, *, operation, **kwargs):
+        if operation == 'operational snapshot validation' and not renewed[0]:
+            raise backup.BackupHorizonExceeded('fixture WAL horizon exhausted')
+        return original_require(c, operation=operation, **kwargs)
+
+    def readiness(*args, **kwargs):
+        validation_reads.append(True)
+        return original_readiness(*args, **kwargs)
+
+    def build(*args, **kwargs):
+        builds.append(True)
+        return original_build(*args, **kwargs)
+
+    monkeypatch.setattr(backup, 'require', guard)
+    monkeypatch.setattr(rolling_inputs, 'readiness_inputs', readiness)
+    monkeypatch.setattr(rolling_builder, 'build', build)
+    with pytest.raises(backup.BackupHorizonExceeded) as caught:
+        op.prepare(conn, job)
+    paused = jobs.status(conn, job)
+    assert caught.value.resume_job_id == job
+    assert paused['state'] == 'RETRY_WAIT' and paused['resume_state'] == 'READY'
+    assert paused['owner'] is None and paused['deadline'] == deadline
+    assert validation_reads == []
+    assert sum(endpoint == ASSETS for endpoint, _ in alpaca_path.calls) == 1
+    assert sum(endpoint == ACTION_URL for endpoint, _ in alpaca_path.calls) == 1
+    price_calls = sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls)
+    assert price_calls > 0 and builds == [True]
+    assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == 0
+
+    renewed[0] = True
+    conn.execute('UPDATE sentinel_snapshot_jobs SET next_retry=clock_timestamp() WHERE job_id=%s', (job,))
+    conn.commit()
+    result = op.prepare(conn, job)
+    assert result['scope'] == 'DATA_ONLY'
+    assert jobs.status(conn, job)['deadline'] == deadline
+    assert validation_reads == [True] and builds == [True]
+    assert sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls) == price_calls
+    assert sum(endpoint == ASSETS for endpoint, _ in alpaca_path.calls) == 2
+    assert sum(endpoint == ACTION_URL for endpoint, _ in alpaca_path.calls) == 2
+
+
+def test_post_validation_provider_change_still_prevents_publication(
+        conn, alpaca_path, monkeypatch):
+    from sentinel.feed.alpaca_transport import AlpacaTransportRefused
+    original = AlpacaSource.corroborate
+
+    def changed(source):
+        count = conn.execute('SELECT count(*) FROM sentinel_operational_snapshot_validations').fetchone()[0]
+        assert count == 1, 'operational validation must precede final corroboration'
+        alpaca_path.action = True
+        return original(source)
+
+    monkeypatch.setattr(AlpacaSource, 'corroborate', changed)
+    with pytest.raises(AlpacaTransportRefused, match='action participants changed'):
+        _publish(conn)
+    assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == 0
+
+
 def test_alpaca_action_and_missing_bar_remove_only_affected_security(conn, alpaca_path):
     alpaca_path.action = True
     alpaca_path.missing = ("AAA", "2026-09-11")

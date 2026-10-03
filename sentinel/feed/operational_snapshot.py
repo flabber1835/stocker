@@ -116,12 +116,13 @@ def validate(conn, lease, request):
         raise OperationalSnapshotRefused("OPERATIONAL_VALIDATION_REQUIRES_READY")
     candidate = str(row[6])
     manifest = rolling_store.manifest(conn, candidate)
+    backup_runtime_authority.require(conn, operation="operational snapshot validation")
+    jobs._owned(conn, lease)
     readiness_inputs(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id)
     proof = {"schema": VALIDATION_SCHEMA, "scope": "DATA_ONLY",
              "snapshot_id": manifest.snapshot_id, "reference_sha256": manifest.reference_sha256,
              "source_evidence_sha256": manifest.source_evidence_sha256,
              "request_sha256": request.request_sha256}
-    backup_runtime_authority.require(conn, operation="operational snapshot validation")
     jobs._owned(conn, lease)
     sha = rolling_store.put_evidence(conn, proof)
     with conn.cursor() as cur:

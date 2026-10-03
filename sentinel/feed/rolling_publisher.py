@@ -261,14 +261,17 @@ def _prepare(conn, job_id, *, operational):
                     raise ComparisonRefused("sealed candidate references/source changed on resume")
                 conn.commit()
             rolling_work.checkpoint()
+            if operational:
+                # Catch restore-horizon growth before another full assets/actions
+                # observation. A renewed READY candidate still gets both checks.
+                with progress.phase("rolling_operational_validation", job_id=job_id):
+                    operational_snapshot.validate(conn, lease, request)
+                    conn.commit()
+            rolling_work.checkpoint()
             with acquisition_work.budget(seconds=min(500, jobs.status(conn, job_id)["remaining_seconds"])):
                 conn.commit()
                 source.corroborate()
             rolling_work.checkpoint()
-            if operational:
-                with progress.phase("rolling_operational_validation", job_id=job_id):
-                    operational_snapshot.validate(conn, lease, request)
-                    conn.commit()
         phase = "rolling_operational_publication" if operational else "rolling_comparison_publication"
         with progress.phase(phase, job_id=job_id), store.corpus_write_lock(conn):
             producer = identity.require_feed_producer_identity()
