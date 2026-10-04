@@ -20,6 +20,24 @@ The broker-capable deployment phase remains separate: simulator evidence and
 shadow success do not establish actual paper account execution or unattended
 trading. Record incomplete qualification explicitly before publication.
 
+## Semantic restore after book formation
+
+Decision: 2026-10-04. An empty or still-forming database does not exercise
+rolling-origin verification. A formed rolling book requires its reviewed source,
+configuration and initial-publication bindings as well as the actual runtime
+commit and immutable image digest. The isolated semantic restore launcher must
+forward exactly those five non-secret deployment facts, alongside the receipt
+key and isolated restore database connection. It must not forward the primary
+database URL, provider credentials, signing key, execution authorization or a
+whole host environment. The validator still compares the retained checkpoint
+with the actual source/runtime and configuration; absent or changed facts must
+refuse, never fall back to trusting the restored payload alone.
+
+Qualify the actual launcher argument/environment boundary and falsify a missing
+or changed binding. A successful pre-formation restore is not evidence for a
+formed book: exercise a complete physical restore and semantic validation after
+the real book has earned its attestation, using the exact immutable runtime.
+
 ## Bounded shadow health after full formation
 
 Decision: 2026-10-04. The real full-universe appliance earned a prospective
@@ -219,3 +237,44 @@ trust root, signed-certificate requirement, broker endpoint, backup requirement,
 fencing or reconciliation rule. A local parser/installer regression test grants
 no authority to activate unmerged code. Production activation still waits for
 the fixed release's normal merge certification and a matching GO bundle.
+
+## Plain-language casino dashboard
+
+Decision: 2026-10-04, requested by the operator. Present the current simulated
+strategy portfolio separately from the Alpaca paper account. Reviewed shadow
+mode must use the same independently verified shadow reader as dual mode, but
+omit paper reconciliation rather than reading obsolete trial certificates. A
+missing, unreadable or stale shadow remains explicitly unverified; presentation
+never changes a verdict or uses the health projection as financial authority.
+
+Keep stable internal row keys and raw financial values. A pure presentation
+layer supplies familiar labels, descriptions of what each fact means and an
+explicit warning when it is not current. Retain original technical values,
+reasons and timestamps in expandable details. Explain simulated book formation,
+market data and paper account differences on the page, including shadow-only
+operation and intentionally disabled paper trading. Notification removal means
+disabling that device's subscription, not deleting a received message.
+
+Use a dark casino lounge with gold marquee lights, decorative slot reels,
+moving chips and original vector hostess silhouettes. Decorations are
+noninteractive, hidden from accessibility APIs and independent of financial
+numbers. Animate only CSS transforms/opacity, stop animations for reduced-motion
+preferences and keep contrasting status text, legible mobile cards and touch
+targets. Serve all art locally. No new trade controls, provider calls, execution
+authority or external asset dependency. Qualify both mode selection and truthful
+failure/staleness presentation, then inspect the actual desktop and phone views.
+
+The document generation time is sampled after the bounded status reads finish,
+not before a potentially slow financial verification. This prevents an old
+render timestamp from making every delivered page immediately expire and
+reload. Individual fact timestamps and causal validity boundaries are retained
+unchanged and evaluated against completion time, so slow reads cannot make an
+old healthy fact current. Explicit test clocks remain deterministic.
+
+The read-only semantic restore uses a dedicated 16 MiB temporary directory at
+`/tmp/sentinel-restore` and sets `TMPDIR` to that path. Mounting tmpfs over all of
+`/tmp` hides the image's baked `/tmp/req/requirements.lock` and changes its
+computational identity. Keep that immutable build metadata visible; never
+compensate by ignoring the dependency-lock hash or weakening runtime comparison.
+The database password, like the receipt key, is forwarded by environment name
+and never included in Docker command arguments.

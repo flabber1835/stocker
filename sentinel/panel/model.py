@@ -224,12 +224,12 @@ def shadow_verification_row(
             "shadow_verification", "Certified shadow strategy",
             f"SHADOW NOT VERIFIED — {reason}", FAIL,
             "strategy performance is authoritative only while the complete "
-            "broker-free lineage and current Sharadar corpus revalidate")
+            "broker-free lineage and current published input history revalidate")
     return Row(
         "shadow_verification", "Certified shadow strategy",
         f"SHADOW VERIFIED THROUGH {session}", OK,
         "sole strategy-performance authority · canonical Wealth Core plus "
-        "accepted Sharadar inputs · independent of Alpaca PAPER accounting")
+        "accepted market inputs · independent of Alpaca PAPER accounting")
 
 
 def shadow_metric_row(

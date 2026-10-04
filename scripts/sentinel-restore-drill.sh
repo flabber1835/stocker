@@ -263,13 +263,20 @@ IN_RECOVERY="$(docker exec "$CONTAINER" psql -U sentinel -d sentinel -Atc \
   exit 4
 }
 
+export SENTINEL_RESTORE_DATABASE_PASSWORD="$SENTINEL_POSTGRES_PASSWORD"
 SEMANTIC_STARTED=1
 docker run --rm --name "$CONTAINER-semantic" --label sentinel.restore-drill=v1 \
   --network "$NETWORK" --read-only --cap-drop ALL --memory 1g --pids-limit 128 \
-  --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --security-opt no-new-privileges --tmpfs /tmp/sentinel-restore:rw,noexec,nosuid,size=16m \
+  -e TMPDIR=/tmp/sentinel-restore \
   -e SENTINEL_RESTORE_DATABASE_HOST=restored-postgres \
   -e SENTINEL_PUBLICATION_RECEIPT_KEY \
-  -e SENTINEL_RESTORE_DATABASE_PASSWORD="$SENTINEL_POSTGRES_PASSWORD" \
+  -e SENTINEL_GIT_COMMIT \
+  -e SENTINEL_RUNTIME_IMAGE_DIGEST \
+  -e SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256 \
+  -e SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256 \
+  -e SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256 \
+  -e SENTINEL_RESTORE_DATABASE_PASSWORD \
   --entrypoint python "$RUNTIME_IMAGE" -c \
   'import runpy,signal; signal.alarm(600); runpy.run_module("sentinel.restore_validation",run_name="__main__")'
 echo "restore_semantics_ready:true backup=$LATEST image=$RUNTIME_IMAGE"
