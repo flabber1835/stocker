@@ -18,12 +18,13 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sentinel.feed import calendar
-from sentinel import supervisor_io, shadow_budget
-from sentinel.shadow_recovery import ShadowServiceConfig, service_health
+from sentinel import supervisor_io, shadow_budget, shadow_worker_liveness
+from sentinel.shadow_recovery import ShadowServiceConfig, ShadowServiceWaiting, service_health
 from sentinel.shadow_worker import (
     EXIT_AVAILABILITY, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
 )
@@ -51,15 +52,19 @@ def _pending_file():
 def _arm_worker():
     # A positive, durable acknowledgement is required before launching work.
     # Never reuse an existing marker from an unacknowledged prior attempt.
+    attempt = uuid.uuid4().hex
     _write_marker(_pending_file(), {
-        'schema': 'sentinel.shadow-supervisor-pending/1',
+        'schema': 'sentinel.shadow-supervisor-pending/2',
+        'attempt_id': attempt,
         'started_at_unix': time.time(),
     })
+    return attempt
 
 
 def _clear_worker():
     _pending_file().unlink()
     _sync_state_directory()
+    shadow_worker_liveness.clear()
 
 
 def _sync_state_directory():
@@ -255,7 +260,9 @@ def _health_snapshot(max_age_seconds, config):
             f"REFUSED: shadow supervisor heartbeat stale ({age:.3f}s)",
             file=sys.stderr)
         return 1
-    if _latch_exists():
+    pending = _pending_file().exists()
+    active = pending and shadow_worker_liveness.matches(_pending_file())
+    if LATCH_FILE.exists() or (pending and not active):
         try:
             with LATCH_FILE.open(encoding="utf-8") as stream:
                 detail = stream.read(4096)
@@ -267,9 +274,14 @@ def _health_snapshot(max_age_seconds, config):
     try:
         resolved = config if config is not None else ShadowServiceConfig.from_env()
         health = service_health(resolved)
-        if health.get("service_health") == "RECONSTRUCTION_PENDING":
+        if health.get("service_health") == "RECONSTRUCTION_PENDING" and not active:
             supervisor_io.report("REFUSED: shadow reconstruction is pending", file=sys.stderr)
             return 1
+    except ShadowServiceWaiting as exc:
+        if active:
+            return 0  # Recovering worker is live; financial admission stays red.
+        supervisor_io.report(f"REFUSED: shadow financial readiness pending: {exc}")
+        return 1
     except Exception as exc:  # structural corruption still fails health closed
         supervisor_io.report(
             "REFUSED: shadow frontier health failed: "
@@ -317,7 +329,7 @@ def run() -> int:
             return _latched_wait(lambda: stopping)
         while not stopping:
             try:
-                supervisor_io.run(_arm_worker, timeout=2)
+                attempt = supervisor_io.run(_arm_worker, timeout=2)
             except Exception as exc:
                 supervisor_io.report('REFUSED: shadow worker could not be durably armed: '
                                      + type(exc).__name__)
@@ -331,6 +343,16 @@ def run() -> int:
                 stdin=subprocess.DEVNULL, env=worker_env)
             if stopping:
                 stop()  # A signal during arming/spawn must also terminate this child.
+            if active.poll() is None:
+                try:
+                    supervisor_io.run(shadow_worker_liveness.record, attempt,
+                                      os.getpid(), active.pid,
+                                      started + deadline_seconds, timeout=2)
+                except Exception as exc:
+                    if active.poll() is None:
+                        supervisor_io.report('REFUSED: active worker proof unavailable: '
+                                             + type(exc).__name__)
+                        return EXIT_REFUSED  # finally reaps child; pending stays fenced.
             timed_out = False
             while not stopping and active.poll() is None:
                 _touch()
@@ -397,6 +419,7 @@ def run() -> int:
         if active is not None:
             _terminate(active)
         try:
+            supervisor_io.run(shadow_worker_liveness.clear)
             supervisor_io.run(_remove_heartbeat)
         except Exception:
             pass

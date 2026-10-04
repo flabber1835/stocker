@@ -1153,12 +1153,12 @@ class Runner:
         self.log_path = log_path
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def _stream(self, argv, *, cwd, timeout):
+    def _stream(self, argv, *, cwd, timeout, env):
         deadline = None if timeout is None else time.monotonic() + timeout
         output = []
         decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         process = subprocess.Popen(
-            argv, cwd=str(cwd), env=self.env, stdout=subprocess.PIPE,
+            argv, cwd=str(cwd), env=env, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, start_new_session=True)
 
         def remaining():
@@ -1199,18 +1199,20 @@ class Runner:
 
     def run(self, argv: Sequence[str], *, check: bool = True,
             capture: bool = False, stream: bool = False,
-            cwd: Path = ROOT, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
+            cwd: Path = ROOT, timeout: Optional[float] = None,
+            env: Optional[Mapping[str, str]] = None) -> subprocess.CompletedProcess:
         argv = [str(item) for item in argv]
+        command_env = dict(self.env if env is None else env)
         stamp = _utc_text(_utcnow())
         with self.log_path.open("a", encoding="utf-8") as log:
             log.write("\n[%s] $ %s\n" % (stamp, " ".join(shlex.quote(x) for x in argv)))
             log.flush()
         try:
             if stream:
-                completed = self._stream(argv, cwd=cwd, timeout=timeout)
+                completed = self._stream(argv, cwd=cwd, timeout=timeout, env=command_env)
             else:
                 completed = subprocess.run(
-                    argv, cwd=str(cwd), env=self.env,
+                    argv, cwd=str(cwd), env=command_env,
                     stdout=subprocess.PIPE if capture else None,
                     stderr=subprocess.PIPE if capture else None,
                     text=True, check=False, timeout=timeout)
@@ -1438,12 +1440,16 @@ class AutonomousDeploy:
             raise DeployRefused(
                 "reviewed validation identity changed before deployment")
 
-        def invoke(argv, **_kwargs):
-            return self.runner.run(argv, capture=True)
-
         verify_reviewed_validation_environment(
-            reviewed, env=self.env, invoke=invoke)
+            reviewed, env=self.env, invoke=self._reviewed_invoke)
         verify_reviewed_account_binding(reviewed, self.cfg.account_id)
+
+    def _reviewed_invoke(self, argv, *, cwd=ROOT, env=None, check=False,
+                         timeout=None, stdout=None, stderr=None, text=True):
+        # Reviewed readers deliberately narrow credentials and pin runtime/bindings.
+        # Capture matches their PIPE/text contract; preserve unchecked refusals.
+        return self.runner.run(argv, capture=True, cwd=cwd, env=env,
+                               check=check, timeout=timeout)
 
     def verify_reviewed_shadow_bindings_quiesced(self) -> None:
         """Recheck reviewed corpus/lineage after all old writers are stopped."""
@@ -1453,11 +1459,8 @@ class AutonomousDeploy:
         self.phase(
             "review: recheck exact publication and lineage under writer fence")
 
-        def invoke(argv, **_kwargs):
-            return self.runner.run(argv, capture=True)
-
         verify_reviewed_shadow_bindings(
-            reviewed, env=self.env, invoke=invoke)
+            reviewed, env=self.env, invoke=self._reviewed_invoke)
 
     def read_paper_account(self) -> None:
         self.phase("preflight: read-only Alpaca paper account identity")

@@ -1,5 +1,32 @@
 # Installing the CI-certified single runtime
 
+## Reviewed command environments and active shadow workers
+
+Decision: 2026-10-04. The real certified cold installation exposed two adapter
+failures after GO passed. Every reviewed read-only subprocess must receive its
+own exact environment, including the selected image, reviewed shadow bindings
+and removal of broker credentials. The installer runner forwards that environment
+and the caller's unchecked-result contract without mutating its shared environment.
+The preflight and the post-fence recheck use the same adapter.
+
+The durable shadow pending marker means an outcome has not been acknowledged.
+It remains mandatory before spawn, and any retained pending marker at supervisor
+startup still prevents a new worker. During a live attempt it is not a critical
+latch. An ephemeral process proof links the pending attempt nonce to the exact
+supervisor and its child, using Linux boot identity, PID, process start ticks and
+parent identity. A fresh heartbeat and an unexpired worker deadline are also
+required. A critical latch always wins; absent, malformed, abandoned or stale
+proof never turns an unacknowledged outcome green. The proof cannot acknowledge
+work, remove a durable guard or authorize trading.
+
+Container health admits a proven active worker while it forms or reconstructs
+the book; structural refusals remain red. Financial readiness remains a separate
+gate: the installer must wait for the exact verified decision-close attestation
+before issuing execution authority, and automation retains its existing admission
+checks. Without a proven active worker, reconstruction remains unhealthy. Worker
+outcomes, bounded semantic retries, signal termination and restart fencing retain
+their existing contracts. No strategy, broker state or economic logic changes.
+
 Decision: 2026-10-03. This completes the existing single-runtime contract from
 `sentinel-handoff/ci-certified-runtime/PR-C.md` and `PR-D.md` at the reviewed
 paper installer. A successful real GO exposed legacy installer checks that
