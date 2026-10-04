@@ -459,3 +459,34 @@ def test_install_health_rejects_wrong_or_mismatched_session_counts(axis, warmup)
     assert not view.complete
     assert not install_go._database_document_install_safe(
         view.to_dict(), runtime_image_digest=RUNTIME_DIGEST)
+
+
+@pytest.mark.parametrize("timeout", [None, 0.25, 15])
+def test_installed_status_dispatch_preserves_runner_deadline(timeout):
+    instance = object.__new__(install_deploy.InstallAnytimeDeploy)
+    instance.base_compose = ["docker", "compose", "-f", "compose.yml"]
+    calls = []
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({
+            "enabled": False, "kill_switch_engaged": True}), stderr="")
+    instance.runner = SimpleNamespace(run=run)
+    assert instance._automation_status(timeout=timeout) == {
+        "enabled": False, "kill_switch_engaged": True}
+    assert calls == [(
+        instance.base_compose + ["--profile", "cli", "run", "--rm", "-T",
+                                  "sentinel", "automation-status"],
+        {"capture": True, "check": True, "timeout": timeout})]
+
+
+def test_installed_cli_timeout_retains_unchecked_failure():
+    instance = object.__new__(install_deploy.InstallAnytimeDeploy)
+    instance.base_compose = ["docker", "compose"]
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(argv, 124, stdout="", stderr="deadline")
+    instance.runner = SimpleNamespace(run=run)
+    result = instance._base_cli(["check-data"], capture=True, check=False, timeout=0.25)
+    assert result.returncode == 124
+    assert calls == [{"capture": True, "check": False, "timeout": 0.25}]

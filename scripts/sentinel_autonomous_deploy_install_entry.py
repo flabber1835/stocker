@@ -379,7 +379,8 @@ finally:
         return super()._vendor_publication_probe(sessions, minimum_rows)
 
     def _base_cli(self, args: Sequence[str], *, capture: bool = False,
-                  check: bool = True) -> subprocess.CompletedProcess:
+                  check: bool = True, timeout: Optional[float] = None
+                  ) -> subprocess.CompletedProcess:
         if (getattr(self, "_operational_source_only", False)
                 and args and args[0] in {"feed-daily", "feed-seed"}):
             raise core.DeployRefused(
@@ -387,7 +388,7 @@ finally:
         if (list(args) == ["feed-daily"]
                 and getattr(self, "_causal_wait_target", None) is not None):
             self._assert_causal_vendor_window()
-        return super()._base_cli(args, capture=capture, check=check)
+        return super()._base_cli(args, capture=capture, check=check, timeout=timeout)
 
     def _wait_until_causal_ready(self) -> Mapping:
         """Wait without vendor mutation until the target itself is source-final."""
