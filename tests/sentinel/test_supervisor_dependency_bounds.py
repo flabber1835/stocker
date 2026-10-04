@@ -297,6 +297,7 @@ def test_supervised_termination_acknowledges_worker_and_allows_restart(
     monkeypatch.setattr(shadow, 'time', SimpleNamespace(
         time=time.time, monotonic=lambda: next(clock, 31), sleep=time.sleep))
     class Child:
+        pid = 1
         code = None
         def poll(self): return self.code
         def terminate(self): self.code = shadow.EXIT_REFUSED if refusal_races_termination else -15
@@ -309,6 +310,7 @@ def test_supervised_termination_acknowledges_worker_and_allows_restart(
         starts.append(True)
         return Child()
     monkeypatch.setattr(shadow.subprocess, 'Popen', spawn)
+    monkeypatch.setattr(shadow.shadow_worker_liveness, 'record', lambda *args: None)
     if stop_by_signal:
         # Stop on the next supervisor heartbeat, after assigning active child.
         def heartbeat():
