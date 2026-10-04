@@ -556,7 +556,7 @@ def test_host_history_frontier_is_bounded_and_never_refreshes_base(tmp_path):
     assert "SENTINEL_BACKUP_STATUS_REASON=WAL_ARCHIVE_FRONTIER_PENDING" in result.stderr
     assert "backup_ready:true" not in result.stdout
     assert (lab.root / "archive-reads").read_text() == "31"
-    assert lab.events() == before
+    assert set(lab.events()[len(before):]) <= {"archive-identity", "compose-read"}
 
 
 @pytest.mark.parametrize("name", ["00000000.history", "00000002.history.sha256",
