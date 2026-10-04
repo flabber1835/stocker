@@ -730,11 +730,11 @@ def test_renderer_exposes_owner_audit_without_a_write_control():
 
     assert "Positions — target vs Alpaca" in html
     assert "Orders and commands" in html
-    assert "Cash and NAV attribution" in html and "type=DIV" in html
-    assert "Corporate actions and terminals" in html
+    assert "Cash and portfolio value" in html and "type=DIV" in html
+    assert "Splits, dividends and company events" in html
     assert "SEC-A dividend entitlement" in html
     assert "Alpaca paper unsupported; no compensation applied" in html
-    assert "Trial session history" in html
+    assert "Paper trading history" in html
     for forbidden in ("<form", "<input", 'type="submit"'):
         assert forbidden not in html.lower()
     assert html.lower().count("<button") == 2
