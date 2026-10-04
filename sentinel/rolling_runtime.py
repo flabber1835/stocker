@@ -215,7 +215,20 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
                             absolute_deadline=acquisition_deadline)
     # Fresh genesis and crash recovery must consume the reviewed/current exact
     # publication; neither is permitted to replace it with newly acquired data.
-    result = advance(conn, through=through, observation_id=observation_id, starting_cash=starting_cash)
-    from sentinel.feed import retention
-    retention.maintain(conn)
-    return result
+    # Keep the same canonical session lock through post-commit retention and
+    # the small health projection, so it cannot certify a concurrently changed
+    # behavioral row inventory. Financial guards never consume the projection.
+    with journal.writer_lock(conn):
+        result = advance(conn, through=through, observation_id=observation_id, starting_cash=starting_cash)
+        from sentinel.feed import retention
+        retention.maintain(conn)
+        import os, sys
+        if os.environ.get('SENTINEL_FEED_SERVICE_MODE') == 'SHADOW':
+            try:
+                from sentinel import shadow_health_projection, shadow_service
+                shadow_health_projection.publish(
+                    shadow_service.ShadowServiceConfig.from_env(), result.to_dict(), conn)
+            except Exception as exc:
+                print('WARNING: shadow health projection unavailable: ' +
+                      type(exc).__name__, file=sys.stderr, flush=True)
+        return result

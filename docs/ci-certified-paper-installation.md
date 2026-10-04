@@ -20,6 +20,38 @@ The broker-capable deployment phase remains separate: simulator evidence and
 shadow success do not establish actual paper account execution or unattended
 trading. Record incomplete qualification explicitly before publication.
 
+## Bounded shadow health after full formation
+
+Decision: 2026-10-04. The real full-universe appliance earned a prospective
+SHADOW_GO/VERIFIED decision but its five-second container health probes could
+not finish repeated retained-book authentication. Killing a probe parent also
+left its dependency child readers behind. Health must not reproduce the book.
+
+After the canonical worker fully verifies a rolling decision, it may publish a
+small, authenticated health projection bound to that exact runtime/config,
+database identity, authority record, and fresh PostgreSQL row versions of the
+retained behavioral and publication inventory. The projection is health-only:
+GO, strategy status, execution admission and broker guards retain full financial
+verification and never consume it. Probes reread the cheap inventory and causal
+session boundary; missing, malformed, stale or changed projections cannot report
+an attested healthy book. A fresh database without a retained origin continues
+through the existing reconstruction/liveness checks. A worker projection write
+failure cannot change or acknowledge a financial result.
+
+Use an atomic bounded file and publication-receipt HMAC. Do not cache verdicts
+across row-version/config/database changes or claim that a health projection is
+financial authority. Qualify tampering, changed rows/publication/config, causal
+lag, restart, projection I/O failure and a large retained origin without decoding
+its payload in the probe. Linux dependency observer children must install a
+parent-death SIGKILL before opening dependencies, with a parent identity race
+check; killing a Docker probe parent cannot leave readers running indefinitely.
+Use Docker's init process for the long-running shadow, automation and alert
+supervisors so dead orphan observers are reaped. Do not add a supervisor-wide
+waitpid(-1) handler: it could consume a financial worker outcome owned by Popen.
+Test parent death and orphan reaping through the actual container configuration.
+Preserve the formed book and incident evidence,
+then repeat exact-image local GO and persistent shadow qualification before PR.
+
 ## Cold dual installation and the canonical writer lock
 
 Decision: 2026-10-04. Cold formation and administrative/execution certificate

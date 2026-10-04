@@ -295,7 +295,10 @@ def _health_snapshot(max_age_seconds, config):
         return 1
     try:
         resolved = config if config is not None else ShadowServiceConfig.from_env()
-        health = service_health(resolved)
+        from sentinel import shadow_health_projection
+        health = shadow_health_projection.health(
+            resolved, fallback=service_health,
+            target=LATCH_FILE.with_name('shadow-health-projection.json'))
         if health.get("service_health") == "RECONSTRUCTION_PENDING" and not active:
             supervisor_io.report("REFUSED: shadow reconstruction is pending", file=sys.stderr)
             return 1
