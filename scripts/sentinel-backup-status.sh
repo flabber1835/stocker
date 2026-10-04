@@ -44,6 +44,13 @@ COMPOSE=(docker compose -f docker-compose.sentinel.yml \
 . scripts/sentinel-backup-archive-identity.sh
 sentinel_backup_archive_identity || refuse "WAL_ARCHIVE_SCRIPT_DRIFT" 4 \
   "running WAL archive script differs from checkout or is unreadable; recreate sentinel-postgres using sentinel-compose.sh, then create and verify a fresh base"
+WAL_BYTES="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
+  "SELECT pg_size_bytes(current_setting('wal_segment_size'))")"
+[[ "$WAL_BYTES" =~ ^[0-9]+$ ]] && [ "$WAL_BYTES" -gt 0 ] ||
+  refuse "CONFIGURATION_INVALID" 4 "WAL segment size is unavailable"
+# pg_stat_archiver also reports normal .backup/.history metadata. Never
+# truncate it to a segment or reuse an older observation as write authority.
+for attempt in {0..30}; do
 if ! ARCHIVER="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
   "SELECT current_setting('archive_mode'), coalesce(last_archived_wal,''),
           coalesce(floor(extract(epoch from last_archived_time))::bigint,0),
@@ -76,12 +83,14 @@ WAL_NAMESPACE="cluster-$SYSTEM_ID"
 [ "$UNRESOLVED" = f ] ||
   refuse "WAL_ARCHIVE_UNRESOLVED_FAILURE" 4 \
     "an unresolved archive failure is newer than the last success"
-[[ "$LAST_WAL" =~ ^[0-9A-F]{24}$ ]] ||
-  refuse "WAL_OBJECT_INVALID" 4 "last archived WAL name is malformed"
-WAL_BYTES="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
-  "SELECT pg_size_bytes(current_setting('wal_segment_size'))")"
-[[ "$WAL_BYTES" =~ ^[0-9]+$ ]] && [ "$WAL_BYTES" -gt 0 ] ||
-  refuse "CONFIGURATION_INVALID" 4 "WAL segment size is unavailable"
+if ! KIND="$("$PYTHON" -m sentinel.backup_archive_names "$LAST_WAL" "$WAL_BYTES" 2>/dev/null)"; then
+  refuse "WAL_OBJECT_INVALID" 4 "last archived object name or geometry is malformed"
+fi
+[ "$KIND" != SEGMENT ] || break
+[ "$attempt" -lt 30 ] || refuse "WAL_ARCHIVE_FRONTIER_PENDING" 4 \
+  "archive frontier is history metadata; awaiting a WAL segment"
+sleep 1
+done
 if ! ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   namespace="$1" wal="$2"
   test -d "/sentinel-backup/wal/$namespace"

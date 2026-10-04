@@ -28,6 +28,7 @@ import shlex
 import time
 
 from sentinel import backup_guard
+from sentinel.backup_archive_names import archive_kind
 
 AUTHORITY_ENV = "SENTINEL_RUNTIME_BACKUP_AUTHORITY"
 AUTHORITY_VALUE = "REQUIRED_V1"
@@ -286,6 +287,20 @@ def _expected_wals(start: str, end: str, *, segment_size: int) -> tuple[str, ...
     return tuple(out)
 
 
+def _require_segment_frontier(name: str, *, segment_size: int,
+                              operation: str) -> None:
+    """Archive metadata is temporary unavailability, never WAL authority."""
+    try:
+        kind = archive_kind(name, segment_size)
+    except ValueError as exc:
+        raise BackupRuntimeRefused(str(exc)) from exc
+    if kind == "SEGMENT":
+        return
+    raise BackupRuntimeUnavailable(
+        f"{operation}: latest archived object is PostgreSQL history metadata; "
+        "awaiting an archived WAL segment before mutation")
+
+
 def _connection_scope(conn) -> str:
     info = getattr(conn, "info", None)
     dsn = getattr(info, "dsn", None)
@@ -527,6 +542,7 @@ def _require(conn, *, operation: str,
     if last_fail is not None and (last_ok is None or last_fail > last_ok):
         raise BackupRuntimeUnavailable(
             f"{operation}: PostgreSQL WAL archiver has an unresolved failure")
+    _require_segment_frontier(end, segment_size=segment_size, operation=operation)
     start = _manifest_end_wal(conn, base, segment_size=segment_size)
     expected = _expected_wals(start, end, segment_size=segment_size)
     if marker_wal not in set(expected):

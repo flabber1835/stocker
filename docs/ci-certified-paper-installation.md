@@ -1,5 +1,61 @@
 # Installing the CI-certified single runtime
 
+## Local shadow qualification before publication
+
+Decision: 2026-10-04. Qualify deployment changes locally before opening the
+fix PR. Use a clean feature branch and its exact single runtime image, real
+Alpaca/OpenFIGI inputs, the ordinary durable backup producer and runtime
+guards, canonical book formation, post-commit shadow verification, and restart
+verification. Broker trading remains disabled and killed. Preserve the prior
+database and incident markers before a fresh diagnostic installation; never
+discard historical research data or import simulated decisions as proof.
+
+This is explicitly unpublished operational qualification, not CI certification
+or signed deployment admission. It must not issue account-binding/execution
+certificates, enable paper automation, modify the production certificate gates,
+or claim that a local PASS is a certified deployment. Exercise backup renewal
+while formation is active and preserve actual failures, fixes, image/commit
+identity, checkpoint progress and the boundaries left untested. Continue local
+fixes and targeted regressions until the complete shadow path passes; then
+publish one validated PR. Broker enrollment and activation follow separately
+after the resulting release is certified.
+
+The local cold qualification preserves the previous failed appliance database
+under a distinct retained name before creating an empty `sentinel` database.
+It uses the ordinary Compose project, selected immutable local image ID and
+backup scripts, avoiding project-name or certificate bypasses. Existing keys,
+research archives and backup generations remain untouched. The old backup timer
+is paused during this explicit transition, then recurring maintenance uses the
+same clean checkout and image as the diagnostic shadow. Local reviewed facts
+are bound to a diagnostic report marked `LOCAL_ONLY`, never a forged GO ZIP.
+The existing certified installation remains reproducible from its clean checkout;
+the diagnostic installation cannot be admitted to paper execution.
+
+## Archive metadata during backup renewal
+
+Decision: 2026-10-04. PostgreSQL's `pg_stat_archiver.last_archived_wal`
+reports the latest successfully archived object, which can be a backup-history
+or timeline-history file rather than a WAL segment. A canonical PostgreSQL
+metadata name is a temporary restore-frontier observation: refuse financial
+mutation with the existing retryable backup-unavailable type until an actual
+WAL segment is reported. It grants no restore-chain or mutation authority and
+must not be parsed as a segment, truncated into a segment name, or silently
+replaced by an older successful proof. Existing recurring backup maintenance
+publishes its recovery marker and advances archival normally.
+
+Malformed object names, invalid timeline/segment geometry, missing selection,
+checksum contradictions, symlinks and hardlinks retain their existing integrity
+refusals. Valid WAL segments still require the complete bounded, cluster-bound
+restore-chain proof. Qualify this distinction at the runtime guard, common
+writer boundaries, shadow worker and automation dependency classifier, including
+recovery and negative falsifiers. Backup files and their checksums are preserved.
+
+The host status checkpoint uses the same host-Python-compatible name classifier.
+For valid history metadata it rereads the complete archive observation for at
+most 30 one-second waits. A segment proceeds through the existing full proof;
+expiry returns `WAL_ARCHIVE_FRONTIER_PENDING`, without creating another base
+or treating metadata as corruption. Invalid metadata still fails immediately.
+
 ## Reviewed command environments and active shadow workers
 
 Decision: 2026-10-04. The real certified cold installation exposed two adapter

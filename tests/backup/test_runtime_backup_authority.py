@@ -27,6 +27,43 @@ def world(tmp_path, monkeypatch):
     return Database(Media(tmp_path / "media"))
 
 
+@pytest.mark.parametrize("name", [
+    wal_name(5) + ".000000D8.backup", "00000002.history",
+])
+@pytest.mark.parametrize("boundary", [feed_store.corpus_write_lock, journal.writer_lock])
+def test_archive_metadata_temporarily_fences_writers_and_recovers(world, name, boundary):
+    from sentinel.automation_runtime import classify_dependency_failure
+    from sentinel.automation.model import TransientInfrastructureFailure
+    from sentinel.shadow_worker import _availability_failure
+
+    world.frontier = name
+    with pytest.raises(authority.BackupRuntimeUnavailable, match="history metadata") as refused:
+        with boundary(world):
+            pytest.fail("archive metadata authorized financial mutation")
+    assert _availability_failure(refused.value)
+    assert isinstance(classify_dependency_failure(refused.value), TransientInfrastructureFailure)
+    assert world.locks == {}
+    # Actual WAL archival restores the normal complete chain proof; metadata
+    # never becomes a segment or a substitute for earlier successful authority.
+    world.frontier = wal_name(5)
+    with boundary(world):
+        proof = authority.require(world, operation="metadata recovery")
+        assert proof["recoverable_through_wal"] == wal_name(5)
+
+
+@pytest.mark.parametrize("name", [
+    "00000000.history", "0000000g.history", "00000002.history.sha256",
+    wal_name(5) + ".01000000.backup", wal_name(5) + ".000000d8.backup",
+    "000000010000000000001000.000000D8.backup",
+    "000000000000000000000005.000000D8.backup",
+    wal_name(5) + ".000000D8.backup.tmp",
+])
+def test_malformed_archive_metadata_remains_an_integrity_refusal(world, name):
+    world.frontier = name
+    with pytest.raises(authority.BackupRuntimeRefused):
+        authority.require(world, operation="malformed archive metadata")
+
+
 def test_same_size_wal_corruption_is_an_integrity_refusal_and_repairs(world):
     assert authority.require(world, operation="review regression")["wal_integrity"] == \
         "sha256-sidecar-v1"

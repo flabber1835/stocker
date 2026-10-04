@@ -44,6 +44,10 @@ class ShellLab:
                      "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh",
                      "sentinel-env.sh", "sentinel_env.py"):
             shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
+        package = self.repo / "sentinel"
+        package.mkdir()
+        (package / "__init__.py").write_text("")
+        shutil.copy2(ROOT / "sentinel" / "backup_archive_names.py", package)
         # Separate mount-validation tests execute the real backup library.
         (self.scripts / "sentinel-backup-lib.sh").write_text(
             'sentinel_backup_root() { printf "%s\\n" "$BACKUP_LAB_ROOT/media"; }\n')
@@ -527,3 +531,43 @@ def test_status_age_limit_is_bounded_decimal(tmp_path, maximum, age_hours, reaso
         assert reason in result.stderr
     else:
         assert result.stderr == ""
+
+
+@pytest.mark.parametrize("name", [wal_name(3)+".000000D8.backup", "00000002.history"])
+def test_host_history_frontier_waits_and_then_proves_segment(tmp_path, name):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    os.utime(lab.base / "base-20260910T120000Z" / "backup_manifest", (1789041600, 1789041600))
+    lab.env["BACKUP_LAB_FRONTIER_SEQUENCE"] = json.dumps([name, name, wal_name(3)])
+    result = lab.run("sentinel-backup-status.sh")
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    assert "backup_ready:true" in result.stdout
+    assert (lab.root / "archive-reads").read_text() == "3"
+
+
+def test_host_history_frontier_is_bounded_and_never_refreshes_base(tmp_path):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    os.utime(lab.base / "base-20260910T120000Z" / "backup_manifest", (1789041600, 1789041600))
+    before = lab.events()
+    lab.env["BACKUP_LAB_FRONTIER_SEQUENCE"] = json.dumps([wal_name(3)+".000000D8.backup"])
+    result = lab.run("sentinel-backup-status.sh")
+    assert result.returncode == 4
+    assert "SENTINEL_BACKUP_STATUS_REASON=WAL_ARCHIVE_FRONTIER_PENDING" in result.stderr
+    assert "backup_ready:true" not in result.stdout
+    assert (lab.root / "archive-reads").read_text() == "31"
+    assert lab.events() == before
+
+
+@pytest.mark.parametrize("name", ["00000000.history", "00000002.history.sha256",
+    wal_name(3)+".01000000.backup", wal_name(3)+".000000D8.backup.tmp",
+    "000000010000000000000100.000000D8.backup"])
+def test_host_invalid_archive_metadata_is_not_retryable(tmp_path, name):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    os.utime(lab.base / "base-20260910T120000Z" / "backup_manifest", (1789041600, 1789041600))
+    lab.env["BACKUP_LAB_FRONTIER_SEQUENCE"] = json.dumps([name, wal_name(3)])
+    result = lab.run("sentinel-backup-status.sh")
+    assert result.returncode == 4
+    assert "SENTINEL_BACKUP_STATUS_REASON=WAL_OBJECT_INVALID" in result.stderr
+    assert (lab.root / "archive-reads").read_text() == "1"
