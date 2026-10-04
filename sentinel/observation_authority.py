@@ -106,7 +106,13 @@ def _rolling_metadata_snapshot_identity(conn, pub) -> Mapping:
                       if item.get("component") == "TICKERS"]
         if len(components) != 1:
             raise AuthorityRefused("Alpaca/OpenFIGI metadata evidence is missing")
-        at = components[0].get("evidence", {}).get("assets", {}).get("observed_at")
+        # Classification and inventory are separate retained acquisition parts.
+        # The aggregate TICKERS proof names the policy, not the asset GET time.
+        assets = [item for item in source.get("components", [])
+                  if item.get("component") == "TICKERS.ASSETS"]
+        if len(assets) != 1:
+            raise AuthorityRefused("Alpaca asset inventory evidence is missing")
+        at = assets[0].get("evidence", {}).get("observed_at")
         try:
             observed = datetime.fromisoformat(at)
             if observed.tzinfo is None:

@@ -139,8 +139,40 @@ def test_alpaca_snapshot_publishes_and_reads_without_sharadar(conn, alpaca_path,
     assert manifest.bar_count == 600
     assert readiness_inputs(conn, candidate_id=result["candidate_id"],
                             snapshot_id=result["snapshot_id"]).counts["2026-09-14"] == 2
+    # Follow the real producer's retained parts through the shared authority
+    # reader used by empty enrollment, paper issuance and daily renewal.
+    from sentinel.observation_authority import current_metadata_snapshot_identity
+    from sentinel.core.rolling_inputs import SnapshotReferences
+    refs = SnapshotReferences(conn, candidate_id=result["candidate_id"],
+                              snapshot_id=result["snapshot_id"])
+    from sentinel.feed.rolling_contract import canonical_json
+    assert current_metadata_snapshot_identity(conn) == {
+        "snapshot_date": "2026-09-15", "row_count": 2,
+        "sha256": digest(sorted(refs.tickers, key=canonical_json))}
     assert all(call[0] not in ("https://data.nasdaq.com/api/v3/datatables/SHARADAR/SEP",)
                for call in alpaca_path.calls)
+
+
+def test_published_alpaca_metadata_supports_signed_daily_authority(conn, alpaca_path):
+    from sentinel import binding, schema, authority
+    from sentinel.standing_observation_authority import require_standing_observation_authority
+    from tests.sentinel.test_paper_observation_authority import claims, activate
+    from tests.sentinel.test_issue_209_standing_authority import _kwargs
+
+    job = op.enqueue(conn, strategy_sha256=digest("test-strategy"),
+                     dependencies_sha256=digest("test-deps"), budget_seconds=240)
+    conn.commit()
+    op.prepare(conn, job)
+    schema.ensure_schema(conn)
+    binding.bind(conn, deployment_id="nas-paper-observe", broker="alpaca",
+                 broker_account_id="paper-123")
+    document = claims(conn)
+    activate(conn, document)  # Test-only enrolled root, no real key or broker.
+    kwargs = _kwargs(document, now=datetime(2026, 10, 1, tzinfo=timezone.utc))
+    kwargs["current_publication_version"] = document["bindings"]["current_corpus"]["data_version"]
+    standing = require_standing_observation_authority(conn, **kwargs)
+    assert standing.authorization_mode == authority.PAPER_OBSERVATION_ONLY
+    assert document["bindings"]["current_metadata_snapshot"]["snapshot_date"] == "2026-09-15"
 
 
 def test_alpaca_transport_exhaustion_keeps_daily_job_retryable(
