@@ -526,6 +526,7 @@ def _require(conn, *, operation: str,
     base = _selected_base(
         conn, system_id=system_id, base_backup=base_backup)
     marker_wal = _recovery_wal(conn, base, system_id=system_id)
+    backup_guard.clear_archive_snapshot(conn)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT last_archived_wal,last_archived_time,last_failed_time,"

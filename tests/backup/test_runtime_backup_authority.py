@@ -361,3 +361,60 @@ def test_recovery_lock_exemptions_are_limited_to_observation_and_lease():
     assert found == {
         "sentinel/automation/store.py", "sentinel/paper/recovery.py",
         "sentinel/execution/executor.py"}
+
+
+@pytest.mark.parametrize("event", ["advance", "failure"])
+def test_transaction_cached_archive_success_cannot_authorize_later_mutation(world, event):
+    from datetime import timedelta
+    from lab import Cursor
+    class ConcurrentArchive(Cursor):
+        def execute(self, sql, params=()):
+            query = " ".join(sql.split())
+            if query == "SELECT pg_stat_clear_snapshot()":
+                world.cached_archiver = None
+            super().execute(sql, params)
+            if query.startswith("SELECT current_setting('archive_mode')"):
+                world.cached_archiver = (world.frontier, world.last_ok, world.last_fail, 1024*1024)
+                # Independent archiver activity while this business transaction
+                # reads its selected base/marker, exactly as on PostgreSQL 16.
+                if event == "advance":
+                    world.frontier = wal_name(5)
+                else:
+                    world.last_fail = world.now - timedelta(seconds=1)
+            elif query.startswith("SELECT last_archived_wal,last_archived_time,last_failed_time,"):
+                if world.cached_archiver is not None:
+                    self.rows = [world.cached_archiver]
+    world.cached_archiver = None
+    world.cursor = lambda: ConcurrentArchive(world)
+    if event == "advance":
+        world.frontier = wal_name(1)
+        proof = authority.require(world, operation="concurrent archived segment")
+        assert proof["recoverable_through_wal"] == wal_name(5)
+    else:
+        with pytest.raises(authority.BackupRuntimeUnavailable, match="unresolved failure"):
+            authority.require(world, operation="concurrent archive failure")
+
+
+def test_real_postgres_archive_snapshot_clear_preserves_business_transaction():
+    import psycopg
+    from tests.support.postgres import _EphemeralPostgres
+    from sentinel.backup_guard import clear_archive_snapshot
+    server = _EphemeralPostgres()
+    server.start()
+    try:
+        with psycopg.connect(server.sync_dsn) as held, psycopg.connect(server.sync_dsn, autocommit=True) as writer:
+            held.execute("SET TRANSACTION READ ONLY")
+            started = held.execute("SELECT transaction_timestamp()").fetchone()[0]
+            query = "SELECT stats_reset FROM pg_stat_archiver"
+            old = held.execute(query).fetchone()[0]
+            # This resets only the disposable test server's counters, producing
+            # an independently observable update even with archive_mode=off.
+            writer.execute("SELECT pg_stat_reset_shared('archiver')")
+            fresh = writer.execute(query).fetchone()[0]
+            assert fresh != old
+            assert held.execute(query).fetchone()[0] == old
+            clear_archive_snapshot(held)
+            assert held.execute(query).fetchone()[0] == fresh
+            assert held.execute("SELECT transaction_timestamp()").fetchone()[0] == started
+    finally:
+        server.stop()

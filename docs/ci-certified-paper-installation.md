@@ -56,6 +56,20 @@ most 30 one-second waits. A segment proceeds through the existing full proof;
 expiry returns `WAL_ARCHIVE_FRONTIER_PENDING`, without creating another base
 or treating metadata as corruption. Invalid metadata still fails immediately.
 
+## Fresh archiver observations inside transactions
+
+Decision: 2026-10-04. Real PostgreSQL 16 qualification reproduced cached
+`pg_stat_archiver` values in a held transaction after another connection saw
+archival advance. Durability checks and the stale-target probe must discard
+that backend's statistics snapshot before each archiver read. Use
+`pg_stat_clear_snapshot()`, not a statistics reset, transaction commit, rollback,
+or isolation change. This prevents a cached success from hiding a newer failure
+and a stale frontier from contradicting a newly selected base. Filesystem and
+business publication proofs retain their existing pinning and complete checks.
+Qualify concurrent advancement and failure as well as the real PostgreSQL cache
+behavior. This is durability observation only; strategy and broker rules do not
+change.
+
 ## Reviewed command environments and active shadow workers
 
 Decision: 2026-10-04. The real certified cold installation exposed two adapter
