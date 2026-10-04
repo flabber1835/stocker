@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Convergent, fail-closed fenced installation for Sentinel.
 
-The launcher fast-forwards Git before entering here. This program builds and
-tests exact images, promotes them to immutable registry digests, fences old
+The launcher fast-forwards Git before entering here. Reviewed CI installation
+reuses the signed exact runtime; explicit local-full installation retains its
+build/test/promotion path. This program fences old
 automation, verifies backup/restore, migrates schema explicitly, and installs
 the exact runtime disabled and killed. Financial GO validation and any selected
 observation-mode activation are separate transactions.
@@ -14,8 +15,8 @@ transition boundary attempts the minimal emergency fence and stops the
 unattended container before returning non-zero.
 
 Host requirement: Python 3.8.15+.  Certificate signing itself happens in the
-newly built, network-disabled Sentinel test image with the private key mounted
-read-only, so the NAS host does not need the cryptography package.
+network-disabled selected image with the private key mounted read-only, so the
+host does not need the cryptography package.
 """
 from __future__ import annotations
 
@@ -46,6 +47,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 import sentinel_env
+import sentinel_go_feed_progress as feed_progress
 
 
 MIN_PYTHON = (3, 8, 15)
@@ -447,8 +449,7 @@ def parse_reviewed_validation_bundle(
     candidate_digest = str(runtime.get("candidate_image_digest") or "")
     runtime_digest = str(runtime.get("runtime_image_digest") or "")
     source_identity = str(runtime.get("source_identity_sha256") or "")
-    if (candidate_digest == runtime_digest
-            or _DIGEST.fullmatch(candidate_digest) is None
+    if (_DIGEST.fullmatch(candidate_digest) is None
             or _DIGEST.fullmatch(runtime_digest) is None
             or _HEX64.fullmatch(source_identity) is None):
         raise DeployRefused("validation image/runtime identities are malformed")
@@ -456,12 +457,21 @@ def parse_reviewed_validation_bundle(
     preparation = validation.get("preparation")
     if not isinstance(preparation, dict):
         raise DeployRefused("validation preparation record is malformed")
-    _require_exact_keys(preparation, {
+    preparation_keys = {
         "schema", "status", "runtime_image_digest",
         "schema_migration_attempted", "bounded_sharadar_daily_attempted",
         "database_mutation_scope", "broker_mutation_attempts",
         "completed_before_validation_boundary", "evidence_sha256",
-    }, label="validation preparation")
+    }
+    if "progress_events" in preparation:
+        events = preparation["progress_events"]
+        if (not isinstance(events, list) or len(events) > 512
+                or any(feed_progress.parse(
+                    feed_progress.PREFIX + json.dumps(event)) is None
+                    for event in events)):
+            raise DeployRefused("validation preparation progress events are malformed")
+        preparation_keys.add("progress_events")
+    _require_exact_keys(preparation, preparation_keys, label="validation preparation")
     if (preparation.get("schema") != VALIDATION_PREPARATION_SCHEMA
             or preparation.get("status") != "PASS"
             or preparation.get("runtime_image_digest") != runtime_digest
@@ -784,6 +794,8 @@ def _reviewed_shadow_lineage_preflight(
             reviewed.shadow_configuration_sha256 or ""),
         "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": (
             reviewed.data_publication_sha256 or ""),
+        "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256": reviewed.bundle_sha256,
+        "SENTINEL_REVIEWED_DEPLOYMENT_MODE": reviewed.mode,
         "SENTINEL_GIT_COMMIT": reviewed.git_commit,
         # Runtime identity keeps registry/deployment artifacts outside the
         # source hash but inside immutable lineage identity. Before promotion,
@@ -798,6 +810,8 @@ def _reviewed_shadow_lineage_preflight(
         "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256",
         "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256",
         "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256",
+        "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256",
+        "SENTINEL_REVIEWED_DEPLOYMENT_MODE",
         "SENTINEL_GIT_COMMIT",
         "SENTINEL_RUNTIME_IMAGE_DIGEST",
     )
@@ -870,13 +884,16 @@ def verify_reviewed_validation_environment(
         raise DeployRefused(
             "reviewed bundle does not match exact local HEAD and origin/main")
 
-    image_ids = (
+    image_roles = (
         reviewed.runtime_image_digest,
         reviewed.test_image_digest,
         *reviewed.auxiliary_image_digests,
     )
-    if len(set(image_ids)) != len(image_ids):
-        raise DeployRefused("reviewed image identities are not distinct")
+    auxiliary = reviewed.auxiliary_image_digests
+    if (len(set(auxiliary)) != len(auxiliary)
+            or any(item in image_roles[:2] for item in auxiliary)):
+        raise DeployRefused("reviewed auxiliary image identities are not distinct")
+    image_ids = tuple(dict.fromkeys(image_roles))
     inspected = _read_only_command(
         invoke, ["docker", "image", "inspect", *image_ids])
     if inspected.returncode != 0:
@@ -934,6 +951,13 @@ def verify_reviewed_validation_environment(
             != reviewed.source_identity_sha256):
         raise DeployRefused(
             "reviewed runtime source identity differs from validation")
+    if reviewed.test_image_digest == reviewed.runtime_image_digest:
+        import sentinel_autonomous_deploy_ci_runtime as ci_runtime
+        try:
+            ci_runtime.verify_reviewed_runtime(
+                reviewed, env=env, invoke=invoke, root=ROOT)
+        except ci_runtime.CertifiedInstallRefused as exc:
+            raise DeployRefused(str(exc)) from None
     verify_reviewed_shadow_bindings(
         reviewed, env=env, invoke=invoke)
 
@@ -1788,16 +1812,28 @@ class AutonomousDeploy:
         auth_mount = "type=bind,src=%s,dst=/authority" % self.cfg.authority_dir
         candidate_in = "/authority/" + self._artifact_rel(candidate)
         output_in = "/authority/" + self._artifact_rel(output)
-        self.runner.run([
-            "docker", "run", "--rm", "--network", "none",
-            "--mount", key_mount, "--mount", auth_mount,
-            "--entrypoint", "python", "sentinel-test:latest",
+        self.runner.run(self._offline_tool_argv([key_mount, auth_mount], [
             "-m", tool, "issue", "--candidate", candidate_in,
             "--private-key-file", "/signing-key", "--key-id",
-            self.cfg.signing_key_id, "--output", output_in, confirmation])
+            self.cfg.signing_key_id, "--output", output_in, confirmation]))
         if not output.is_file():
             raise DeployRefused("offline signer did not create %s" % output)
         return hashlib.sha256(output.read_bytes()).hexdigest()
+
+    def _offline_tool_argv(self, mounts: Sequence[str],
+                           arguments: Sequence[str]) -> List[str]:
+        argv = ["docker", "run", "--rm", "--network", "none"]
+        image = "sentinel-test:latest"
+        if getattr(self, "_ci_single_runtime", False):
+            # Only issuer tools are supplied by the exact reviewed checkout.
+            # Production modules remain those inside the signed runtime.
+            image = self.runtime_repo_digest
+            argv += ["--user", "%d:%d" % (os.getuid(), os.getgid()),
+                     "--mount", "type=bind,src=%s,dst=/app/tools,readonly"
+                     % (ROOT / "tools")]
+        for mount in mounts:
+            argv += ["--mount", mount]
+        return argv + ["--entrypoint", "python", image, *arguments]
 
     def _wait_for(self, instant: str) -> None:
         boundary = datetime.strptime(instant, "%Y-%m-%dT%H:%M:%SZ").replace(

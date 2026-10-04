@@ -312,6 +312,47 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         self.account_equity = equity
 
     def build_promote(self) -> None:
+        reviewed = self.reviewed_validation
+        if (reviewed is not None
+                and reviewed.test_image_digest == reviewed.runtime_image_digest):
+            import sentinel_autonomous_deploy_ci_runtime as ci_runtime
+            self.phase("select: exact signed CI runtime; no build, test rerun or push")
+            self.resolve_compose()
+            try:
+                result = ci_runtime.verify_reviewed_runtime(
+                    reviewed, env=self.env,
+                    invoke=lambda argv, **kwargs: self.runner.run(
+                        argv, capture=True, check=kwargs.get("check", False),
+                        cwd=Path(kwargs["cwd"]), timeout=kwargs["timeout"]),
+                    root=core.ROOT)
+            except ci_runtime.CertifiedInstallRefused as exc:
+                raise core.DeployRefused(str(exc)) from None
+            self.runtime_repo_digest = str(result["certified_image"])
+            self.runtime_digest = str(result["image_digest"])
+            if self.runtime_repo_digest.split("@", 1)[0] != self.cfg.runtime_repository:
+                raise core.DeployRefused("configured repository differs from signed runtime")
+            self.test_repo_digest = self.runtime_repo_digest
+            self.test_digest = self.runtime_digest
+            self.cfg.test_repository = self.cfg.runtime_repository
+            self._ci_single_runtime = True
+            self.env.update({
+                "SENTINEL_GIT_COMMIT": self.commit,
+                "SENTINEL_RUNTIME_IMAGE_REF": self.runtime_repo_digest,
+                "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
+                "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
+                "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest,
+                "SENTINEL_FEED_AUTHORIZED": "DEPLOYED_REVIEWED_IMAGE_V1",
+                "SENTINEL_FEED_SERVICE_MODE": "DEPLOY",
+                "SENTINEL_FEED_GIT_COMMIT": self.commit,
+                "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
+                "SENTINEL_AUTHORITY_ARTIFACTS_DIR": str(self.cfg.authority_dir),
+            })
+            self.runner.env.update(self.env)
+            (self.attempt_dir / "ci-certified-runtime.json").write_text(
+                json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
+            if reviewed.mode in {"dual", "paper"}:
+                self._verify_signing_key_is_trusted()
+            return
         super().build_promote()
         # From here onward even the ordinary read/write CLI service resolves to
         # the immutable runtime just promoted, rather than mutable sentinel:latest.
@@ -468,10 +509,8 @@ now = datetime.now(timezone.utc)
 assert root.not_before <= now < root.not_after, 'configured signing root is outside its validity interval'
 print(actual)
 '''.strip()
-        completed = self.runner.run([
-            "docker", "run", "--rm", "--network", "none",
-            "--mount", key_mount, "--entrypoint", "python",
-            "sentinel-test:latest", "-c", code, self.cfg.signing_key_id],
+        completed = self.runner.run(self._offline_tool_argv(
+            [key_mount], ["-c", code, self.cfg.signing_key_id]),
             capture=True)
         actual = (completed.stdout or "").strip().splitlines()[-1]
         if not actual.startswith("ed25519-sha256:"):

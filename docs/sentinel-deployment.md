@@ -1,5 +1,11 @@
 # Sentinel — operational deployment ground truth
 
+[CI-certified paper installation](ci-certified-paper-installation.md) extends
+the existing single-runtime contract through reviewed activation. Candidate and
+runtime roles may bind the same signed image; normal installation reuses the
+certified registry reference without rebuilding or republishing it. Offline
+issuer tools come read-only from the exact reviewed checkout.
+
 ## Local GO validation before publication
 
 Decision: 2026-10-03. For GO-path changes, first run the real Alpaca/OpenFIGI

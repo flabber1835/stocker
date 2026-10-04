@@ -392,8 +392,17 @@ def test_deferred_dual_uses_quiesced_boundary_before_publication_binding(monkeyp
 
 
 @pytest.mark.parametrize("sessions", [252, 299])
-def test_ready_health_survives_go_and_reviewed_deployment(tmp_path, monkeypatch, sessions):
+@pytest.mark.parametrize("single_runtime", [False, True])
+def test_ready_health_survives_go_and_reviewed_deployment(
+        tmp_path, monkeypatch, sessions, single_runtime):
     probes = _waiting_probes(sessions=sessions)
+    if single_runtime:
+        probes = replace(probes, tests=replace(
+            probes.tests, candidate_image_digest=RUNTIME_DIGEST),
+            preparation=install_go.phase.controller.PreparationView(
+                probes.preparation, progress_events=({
+                    "stage": "publication_check", "status": "started",
+                    "rows": 0, "elapsed_ms": 0, "date_to": "2026-08-27"},)))
     health = install_go.InstallCompatibleDatabaseHealthView(
         _database_base(prospective=True, sessions=sessions),
         go.MIN_REMAINING_DEADLINE_MARGIN_MS + 60_000,
@@ -413,6 +422,32 @@ def test_ready_health_survives_go_and_reviewed_deployment(tmp_path, monkeypatch,
     reviewed = install_deploy.parse_reviewed_validation_bundle(
         result.path, mode="dual", confirmation=result.sha256, now=NOW)
     assert reviewed.data_publication_sha256 is not None
+
+
+@pytest.mark.parametrize("progress", [None, {}, [None], [{
+    "stage": "publication_check", "status": "started", "rows": 0,
+    "elapsed_ms": 0, "credential": "unexpected"}], [{
+        "stage": "publication_check", "status": "started", "rows": 0,
+        "elapsed_ms": 0}] * 513])
+def test_reviewed_preparation_rejects_malformed_progress(tmp_path, monkeypatch, progress):
+    probes = _waiting_probes(sessions=299)
+    health = install_go.InstallCompatibleDatabaseHealthView(
+        _database_base(prospective=True, sessions=299),
+        go.MIN_REMAINING_DEADLINE_MARGIN_MS + 60_000, NOW_TEXT)
+    probes = replace(probes, database_health=health,
+        subject_values={"shadow_configuration": "3" * 64, "data_publication": "4" * 64},
+        gates={name: go.make_gate(name, go.PASS, NOW_TEXT, {"test": True})
+               for name in go.GATE_IDS})
+    monkeypatch.setattr(go, "derive_verdicts", install_go.derive_installable_verdicts)
+    result = go.emit_bundle(probes, output_dir=tmp_path, created_at=NOW,
+        valid_for=install_go.timedelta(hours=24), scan_env={})
+    members = install_deploy.core._read_validation_members(result.path)
+    validation = json.loads(members["validation.json"])
+    validation["preparation"]["progress_events"] = progress
+    path = install_deploy._write_normalized_bundle(members, validation, tmp_path)
+    with pytest.raises(install_deploy.core.DeployRefused, match="progress events"):
+        install_deploy.parse_reviewed_validation_bundle(path, mode="dual",
+            confirmation=install_deploy.core._sha256(path.read_bytes()), now=NOW)
 
 
 @pytest.mark.parametrize("axis,warmup", [(298, 298), (300, 300), (299, 252), (252, 299)])
