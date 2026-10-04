@@ -37,6 +37,27 @@ def _touch() -> None:
     supervisor_io.run(_write_heartbeat)
 
 
+class _Heartbeat:
+    """A bounded liveness projection cannot acknowledge a financial outcome."""
+
+    def __init__(self):
+        self.unavailable = False
+
+    def __call__(self):
+        try:
+            _touch()
+        except (OSError, RuntimeError, TimeoutError) as exc:
+            if not self.unavailable:
+                supervisor_io.report(
+                    'WARNING: shadow heartbeat unavailable; worker deadline '
+                    'remains enforced: ' + type(exc).__name__, file=sys.stderr)
+            self.unavailable = True
+        else:
+            if self.unavailable:
+                supervisor_io.report('shadow heartbeat observation recovered',
+                                     file=sys.stderr)
+            self.unavailable = False
+
 def _write_heartbeat():
     HEARTBEAT_FILE.touch(exist_ok=True)
 
@@ -231,10 +252,11 @@ def _report_latch(reason, *, failures=None):
 
 
 def _latched_wait(stopping, pending=None) -> int:
+    heartbeat = _Heartbeat()
     while not stopping():
         if pending is not None:
             pending = _try_persist_latch(pending)
-        _touch()
+        heartbeat()
         time.sleep(1.0)
     return 0
 
@@ -304,6 +326,7 @@ def run() -> int:
               file=sys.stderr)
         return EXIT_REFUSED
 
+    heartbeat = _Heartbeat()
     stopping = False
     active: subprocess.Popen | None = None
     terminated = False
@@ -319,7 +342,7 @@ def run() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
-        _touch()
+        heartbeat()
         try:
             latched = supervisor_io.run(_latch_exists)
         except Exception as exc:
@@ -355,7 +378,7 @@ def run() -> int:
                         return EXIT_REFUSED  # finally reaps child; pending stays fenced.
             timed_out = False
             while not stopping and active.poll() is None:
-                _touch()
+                heartbeat()
                 if time.monotonic() - started > deadline_seconds:
                     supervisor_io.report(
                         "shadow supervisor terminating overdue advance after "
@@ -409,10 +432,10 @@ def run() -> int:
             if stopping:
                 break
 
-            _touch()
+            heartbeat()
             deadline = time.monotonic() + config.poll_seconds
             while not stopping and time.monotonic() < deadline:
-                _touch()
+                heartbeat()
                 time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
     finally:
         # Dispose of the active worker before any best-effort filesystem cleanup.

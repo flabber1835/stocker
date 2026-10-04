@@ -1,5 +1,42 @@
 # Installing the CI-certified single runtime
 
+## Qualification scope for the operational provider replacement
+
+The 2026-10-04 local campaign also covers the Alpaca/OpenFIGI replacement.
+Review and exercise the source transport, typed security classification,
+classification age and restart reuse, raw/split price pairing, corporate
+actions, normalized snapshot publication, formation and daily continuation.
+Use real captured data for the cold acquisition and appliance run, and isolated
+PostgreSQL tests with explicit provider/clock fixtures for deterministically
+reproducing unavailable or malformed responses and next-session behavior.
+A fixture result must not be described as a real-provider daily deployment.
+
+Exercise the actual shadow worker entrypoint through publication, durable
+formation, source failure, retry, next-session commit, and repeat/restart.
+Assert that legacy Sharadar acquisition cannot be reached and no broker plan,
+command or fill is created. Qualify the adjacent GO renewal/deadline, installer
+fence/recovery, automation source-check and leader/retry paths separately.
+The broker-capable deployment phase remains separate: simulator evidence and
+shadow success do not establish actual paper account execution or unattended
+trading. Record incomplete qualification explicitly before publication.
+
+## Heartbeat observation availability during formation
+
+Decision: 2026-10-04. The real appliance repeated a one-second filesystem
+heartbeat observation timeout while the canonical formation worker remained
+alive. A supervisor heartbeat is a liveness projection, not the durable
+acknowledgement of the financial worker. An unavailable heartbeat write must
+leave health stale and retry its bounded observation without abandoning a
+supervised worker or guessing its outcome. Coalesce the warning until recovery.
+The original monotonic worker deadline continues through observation failures;
+only an observed worker result or observed supervised signal termination can
+acknowledge its durable pending attempt. A terminal worker refusal still latches
+with heartbeat storage unavailable. Arming, active-worker proof and durable
+acknowledgement failures retain their existing fences. Startup with an
+unacknowledged pending attempt remains refused. No broker authority changes.
+Qualify transient recovery, persistent filesystem stalls, deadline termination,
+terminal refusal and restart with actual child processes. Compare automation's
+existing bounded observation-loss deadline behavior and execution recovery too.
 ## Local shadow qualification before publication
 
 Decision: 2026-10-04. Qualify deployment changes locally before opening the

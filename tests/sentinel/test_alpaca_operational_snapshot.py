@@ -401,3 +401,39 @@ def test_resumed_job_keeps_initial_cache_plan_across_expiry(conn,alpaca_path,mon
     monkeypatch.setattr(alpaca_source,'_today',lambda:date(2026,9,22))
     source().references(checkpoint)
     assert len(alpaca_path.classifier.calls) == 1
+
+
+@pytest.mark.parametrize("failure", ["job-error", "malformed-batch"])
+def test_figi_classification_failure_never_publishes_partial_universe(
+        conn, alpaca_path, monkeypatch, failure):
+    from sentinel.feed import rolling_jobs as jobs
+    from sentinel.feed.alpaca_transport import AlpacaTransportRefused, AlpacaTransportUnavailable
+
+    original = alpaca_path.classifier.mapping
+    def broken(assets):
+        responses, proof = original(assets)
+        responses[-1] = ({"error": "temporary mapping job failure"} if failure == "job-error"
+                         else {"data": []})
+        return responses, proof
+    monkeypatch.setattr(alpaca_path.classifier, "mapping", broken)
+    job = op.enqueue(conn, strategy_sha256=digest("test-strategy"),
+                     dependencies_sha256=digest("figi failure qualification"), budget_seconds=240)
+    conn.commit()
+    expected = AlpacaTransportUnavailable if failure == "job-error" else AlpacaTransportRefused
+    with pytest.raises(expected):
+        op.prepare(conn, job)
+    state = jobs.status(conn, job)
+    assert state["state"] == ("RETRY_WAIT" if failure == "job-error" else "REFUSED")
+    assert state["owner"] is None
+    assert not conn.execute("SELECT 1 FROM sentinel_corpus_publications").fetchall()
+    assert not conn.execute("SELECT 1 FROM sentinel_acquisition_bindings WHERE job_id=%s "
+                            "AND component LIKE 'TICKERS.FIGI.%%'", (job,)).fetchall()
+    conn.rollback()
+    if failure == "job-error":
+        monkeypatch.setattr(alpaca_path.classifier, "mapping", original)
+        conn.execute("UPDATE sentinel_snapshot_jobs SET next_retry=clock_timestamp() WHERE job_id=%s", (job,))
+        conn.commit()
+        published = op.prepare(conn, job)
+        assert jobs.status(conn, job)["deadline"] == state["deadline"]
+        assert rolling_store.manifest(conn, published["candidate_id"]).bar_count == 600
+        assert sum(url == ASSETS for url, _ in alpaca_path.calls) == 2  # initial capture + corroboration
