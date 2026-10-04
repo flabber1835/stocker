@@ -70,13 +70,21 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
     await page.locator(".detail").first().evaluate((node) => {
       node.textContent = "BROKER_ACCOUNT_RUNTIME_FAILURE_".repeat(80);
     });
-    const details = page.locator("details").first();
-    if (await details.count()) {
+    // Help and technical text can precede the financial table sections.
+    // Require real tables and stress every section instead of depending on
+    // the first disclosure or silently skipping the overflow check.
+    const tableSections = page.locator("details").filter({
+      has: page.locator("table")
+    });
+    expect(await tableSections.count()).toBeGreaterThan(0);
+    for (const details of await tableSections.all()) {
       await details.locator("summary").click();
-      await details.locator("table").evaluate((table) => {
-        const row = table.insertRow();
-        row.insertCell().textContent = "WIDE_COLUMN_".repeat(100);
-      });
+      for (const table of await details.locator("table").all()) {
+        await table.evaluate((node) => {
+          const row = node.insertRow();
+          row.insertCell().textContent = "WIDE_COLUMN_".repeat(100);
+        });
+      }
     }
 
     const sizes = await page.evaluate(() => ({
