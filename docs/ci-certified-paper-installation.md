@@ -20,6 +20,17 @@ The broker-capable deployment phase remains separate: simulator evidence and
 shadow success do not establish actual paper account execution or unattended
 trading. Record incomplete qualification explicitly before publication.
 
+## Cold dual installation and the canonical writer lock
+
+Decision: 2026-10-04. Cold formation and administrative/execution certificate
+installation acquire the same exclusive Sentinel writer lock. Complete strict
+empty-account enrollment and observation authority installation while all
+publishers remain quiesced and automation remains disabled and killed. Then
+start the broker-free shadow, wait for its exact signed decision-close
+attestation, and prepare and reconcile the paper plan before releasing paper
+automation. Installing authority is not trading activation. Never solve this
+startup race by removing the lock or retrying an unknown certificate mutation.
+An enrollment/authority failure cannot start shadow or release automation.
 ## Heartbeat observation availability during formation
 
 Decision: 2026-10-04. The real appliance repeated a one-second filesystem
