@@ -20,6 +20,8 @@ env/
 
 # Environment / secrets
 .env
+# Persistent flock sidecar from the atomic host environment writer.
+/.env.deploy-safe.lock
 
 # Docker volumes / local data
 database/

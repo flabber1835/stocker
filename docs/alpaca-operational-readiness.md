@@ -39,6 +39,11 @@ This pin does not retain completed price partitions or expired mappings as autho
 Operator progress identifies the retained component and FIGI batch count so a
 metadata batch cannot look like a repeated whole-universe download. Classification
 progress admits only bounded counts and the existing safe component-name grammar.
+Enrollment and renewable paper authority bind the published ticker content and
+the original inventory GET timestamp in its retained `TICKERS.ASSETS` evidence.
+The aggregate `TICKERS` part identifies the classification policy; it does not
+contain a second copy of that timestamp. Reuse preserves the original observation
+date. Missing, duplicate or timezone-free inventory observations refuse authority.
 Source-revision recovery treats dated partitions and metadata subcomponents as
 different names; a FIGI batch suffix is never parsed as a date interval.
 Recheck Alpaca inventory after acquisition without repeating the entire classification.
