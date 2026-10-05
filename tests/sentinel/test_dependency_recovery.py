@@ -6,6 +6,7 @@ import psycopg
 import pytest
 
 from sentinel import automation_runtime, automation_recovery, shadow_worker
+from sentinel.backup_runtime_authority import BackupRuntimeUnavailable
 from sentinel.automation.model import NonRetryableCallbackRefused, TransientInfrastructureFailure
 from sentinel.execution.guarded import ExecutionBrokerGuard, GuardedExecutionBroker
 from tests.sentinel import test_automation_runtime as fixture
@@ -14,7 +15,7 @@ from tests.sentinel.test_rolling_snapshot_publisher import conn, pg
 
 @pytest.mark.parametrize('error', [psycopg.errors.QueryCanceled,
     psycopg.OperationalError, psycopg.errors.SerializationFailure,
-    psycopg.errors.LockNotAvailable])
+    psycopg.errors.LockNotAvailable, BackupRuntimeUnavailable])
 def test_shadow_preflight_database_outage_is_retryable(monkeypatch, error):
     monkeypatch.setattr(shadow_worker.ShadowServiceConfig, 'from_env', lambda: object())
     def unavailable(_):

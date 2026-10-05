@@ -1658,11 +1658,11 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
 
 
 def _dual_authority_rows(
-        database_url: str, *, now: datetime
+        database_url: str, *, now: datetime, include_paper: bool = True
         ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
     """Project the sole shadow authority and separate PAPER transport state.
 
-    This path is selected only by a reviewed ``dual`` deployment.  It never
+    Reviewed shadow and dual modes use this independent authority. It never
     reads a legacy broker trial certificate, so Alpaca accounting cannot be
     promoted to strategy performance by an old retained row.
     """
@@ -1672,8 +1672,8 @@ def _dual_authority_rows(
             error="SENTINEL_DATABASE_URL is unset", unreadable=True)
         paper = model.paper_reconciliation_row(
             state="UNKNOWN", error="SENTINEL_DATABASE_URL is unset")
-        return [shadow, paper], {}, [], [
-            "dual authority database: SENTINEL_DATABASE_URL is unset"]
+        return ([shadow, paper] if include_paper else [shadow]), {}, [], [
+            "shadow authority database: SENTINEL_DATABASE_URL is unset"]
 
     observation_id = os.environ.get(
         "SENTINEL_SHADOW_OBSERVATION_ID", "primary").strip()
@@ -1684,7 +1684,8 @@ def _dual_authority_rows(
         return ([
             model.shadow_verification_row(
                 verdict=None, verification=None, session=None, error=detail),
-            model.paper_reconciliation_row(state="UNKNOWN", error=detail),
+            *([model.paper_reconciliation_row(state="UNKNOWN", error=detail)]
+              if include_paper else []),
         ], {}, [], [])
 
     from sentinel import informational_paper_mirror, shadow_runtime
@@ -1742,6 +1743,8 @@ def _dual_authority_rows(
                 detail="cumulative return from the certified shadow ledger"),
         ]
 
+        if not include_paper:
+            return rows, {}, [], []
         paper_errors: list[str] = []
         try:
             paper = _dual_paper_row(
@@ -1769,8 +1772,9 @@ def _dual_authority_rows(
             model.shadow_metric_row(
                 "shadow_return", "Certified strategy return", None,
                 verified=False, detail=detail),
-            model.paper_reconciliation_row(state="UNKNOWN", error=detail),
-        ], {}, [], [f"dual authority database: {detail}"])
+            *([model.paper_reconciliation_row(state="UNKNOWN", error=detail)]
+              if include_paper else []),
+        ], {}, [], [f"shadow authority database: {detail}"])
     finally:
         if conn is not None:
             try:
@@ -2226,14 +2230,16 @@ def build_panel(*, state_dir: Path, database_url: str,
     a malformed or unreadable fact becomes UNKNOWN rather than falling back to
     the deployment-stage placeholders this panel used before item E landed.
     """
+    fixed_now = now
     now = now or datetime.now(timezone.utc)
     errors: list[str] = []
 
-    dual_mode = os.environ.get(
-        "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "").strip().lower() == "dual"
-    if dual_mode:
+    mode = os.environ.get(
+        "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "").strip().lower()
+    if mode in {"dual", "shadow"}:
         financial_rows, trial_details, trial_history, financial_errs = (
-            _dual_authority_rows(database_url, now=now))
+            _dual_authority_rows(database_url, now=now) if mode == "dual" else
+            _dual_authority_rows(database_url, now=now, include_paper=False))
     else:
         financial_rows, trial_details, trial_history, financial_errs = (
             _trial_rows(database_url, now=now))
@@ -2265,7 +2271,8 @@ def build_panel(*, state_dir: Path, database_url: str,
         *runtime_rows[1:],
         *automation_rows[2:],
     ]
-    return model.Panel(rows=rows, now=now, source_errors=errors,
+    completed_at = fixed_now or datetime.now(timezone.utc)
+    return model.Panel(rows=rows, now=completed_at, source_errors=errors,
                        trial_details=trial_details,
                        trial_history=trial_history)
 

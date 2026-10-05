@@ -353,7 +353,8 @@ def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
         "durable-integrity", "mode", "install", "fenced"]
 
 
-def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path):
+@pytest.mark.parametrize('authority_failure', [None, 'ownership', 'authority'])
+def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path, authority_failure):
     events = []
 
     class Runner:
@@ -380,9 +381,19 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path):
     obj.configure_reviewed_mode_while_fenced = lambda: events.append("mode")
     obj.start_fenced_runtime = lambda: events.append("shadow-start")
     obj.read_paper_account = lambda: events.append("paper-read")
-    obj.ensure_ownership = lambda: events.append("ownership")
-    obj.rotate_observation_authority = lambda: (
-        events.append("authority") or ("c" * 64, "2026-08-20"))
+    def ownership():
+        assert 'shadow-start' not in events, 'formation already owns the writer lock'
+        events.append('ownership')
+        if authority_failure == 'ownership':
+            raise deploy.DeployRefused('enrollment unavailable')
+    obj.ensure_ownership = ownership
+    def authority():
+        assert 'shadow-start' not in events, 'publisher started before authority installation'
+        events.append('authority')
+        if authority_failure == 'authority':
+            raise deploy.DeployRefused('authority installation unavailable')
+        return 'c' * 64, '2026-08-20'
+    obj.rotate_observation_authority = authority
     obj._wait_for_dual_shadow_session = \
         lambda session: events.append("shadow-attested:" + session)
     obj.prepare_activate_start = \
@@ -391,12 +402,18 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path):
         lambda cert: events.append("operational") or {"ok": True}
     obj.persist_success = lambda health: events.append("receipt")
 
+    if authority_failure:
+        with pytest.raises(deploy.DeployRefused):
+            obj.run()
+        assert 'shadow-start' not in events
+        assert not any(event.startswith('paper-released:') for event in events)
+        return
     obj.run()
 
     assert events == [
         "git", "review", "broker-integrity", "build", "quiesce",
-        "durable-integrity", "quiesced-review", "mode", "shadow-start",
-        "paper-read", "ownership", "authority",
+        "durable-integrity", "quiesced-review", "mode",
+        "paper-read", "ownership", "authority", "shadow-start",
         "shadow-attested:2026-08-20", "paper-released:2026-08-20",
         "operational", "panel", "receipt",
     ]

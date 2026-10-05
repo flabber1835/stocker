@@ -2408,14 +2408,15 @@ class AutonomousDeploy:
             # shadow must never let the no-args fenced installer restart shadow.
             self.configure_reviewed_mode_while_fenced()
             if reviewed is not None and reviewed.mode == "dual":
-                # The broker-free ledger is brought up and attested first.
-                # PAPER remains killed until its immutable plan proves exact
-                # equality with that same decision-close state and intent.
-                self.start_fenced_runtime()
+                # Enrollment and authority installation share the formation
+                # writer lock. Finish them while the publisher is quiesced.
+                # PAPER remains killed until the subsequently attested shadow
+                # and its immutable plan prove the same decision-close intent.
                 self.read_paper_account()
                 self.ensure_ownership()
                 certificate, decision_session = (
                     self.rotate_observation_authority())
+                self.start_fenced_runtime()
                 self._wait_for_dual_shadow_session(decision_session)
                 self.prepare_activate_start(certificate, decision_session)
                 health = self.verify_operational(certificate)

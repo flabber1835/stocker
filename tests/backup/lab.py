@@ -120,7 +120,9 @@ class Cursor:
         query = " ".join(sql.split())
         db = self.db
         self.rows = []
-        if query == "SELECT pg_try_advisory_lock(%s)":
+        if query == "SELECT pg_stat_clear_snapshot()":
+            self.rows = [(None,)]
+        elif query == "SELECT pg_try_advisory_lock(%s)":
             db.locks[params[0]] = db.locks.get(params[0], 0) + 1
             self.rows = [(True,)]
         elif query == "SELECT pg_advisory_unlock(%s)":

@@ -27,6 +27,43 @@ def world(tmp_path, monkeypatch):
     return Database(Media(tmp_path / "media"))
 
 
+@pytest.mark.parametrize("name", [
+    wal_name(5) + ".000000D8.backup", "00000002.history",
+])
+@pytest.mark.parametrize("boundary", [feed_store.corpus_write_lock, journal.writer_lock])
+def test_archive_metadata_temporarily_fences_writers_and_recovers(world, name, boundary):
+    from sentinel.automation_runtime import classify_dependency_failure
+    from sentinel.automation.model import TransientInfrastructureFailure
+    from sentinel.shadow_worker import _availability_failure
+
+    world.frontier = name
+    with pytest.raises(authority.BackupRuntimeUnavailable, match="history metadata") as refused:
+        with boundary(world):
+            pytest.fail("archive metadata authorized financial mutation")
+    assert _availability_failure(refused.value)
+    assert isinstance(classify_dependency_failure(refused.value), TransientInfrastructureFailure)
+    assert world.locks == {}
+    # Actual WAL archival restores the normal complete chain proof; metadata
+    # never becomes a segment or a substitute for earlier successful authority.
+    world.frontier = wal_name(5)
+    with boundary(world):
+        proof = authority.require(world, operation="metadata recovery")
+        assert proof["recoverable_through_wal"] == wal_name(5)
+
+
+@pytest.mark.parametrize("name", [
+    "00000000.history", "0000000g.history", "00000002.history.sha256",
+    wal_name(5) + ".01000000.backup", wal_name(5) + ".000000d8.backup",
+    "000000010000000000001000.000000D8.backup",
+    "000000000000000000000005.000000D8.backup",
+    wal_name(5) + ".000000D8.backup.tmp",
+])
+def test_malformed_archive_metadata_remains_an_integrity_refusal(world, name):
+    world.frontier = name
+    with pytest.raises(authority.BackupRuntimeRefused):
+        authority.require(world, operation="malformed archive metadata")
+
+
 def test_same_size_wal_corruption_is_an_integrity_refusal_and_repairs(world):
     assert authority.require(world, operation="review regression")["wal_integrity"] == \
         "sha256-sidecar-v1"
@@ -324,3 +361,60 @@ def test_recovery_lock_exemptions_are_limited_to_observation_and_lease():
     assert found == {
         "sentinel/automation/store.py", "sentinel/paper/recovery.py",
         "sentinel/execution/executor.py"}
+
+
+@pytest.mark.parametrize("event", ["advance", "failure"])
+def test_transaction_cached_archive_success_cannot_authorize_later_mutation(world, event):
+    from datetime import timedelta
+    from lab import Cursor
+    class ConcurrentArchive(Cursor):
+        def execute(self, sql, params=()):
+            query = " ".join(sql.split())
+            if query == "SELECT pg_stat_clear_snapshot()":
+                world.cached_archiver = None
+            super().execute(sql, params)
+            if query.startswith("SELECT current_setting('archive_mode')"):
+                world.cached_archiver = (world.frontier, world.last_ok, world.last_fail, 1024*1024)
+                # Independent archiver activity while this business transaction
+                # reads its selected base/marker, exactly as on PostgreSQL 16.
+                if event == "advance":
+                    world.frontier = wal_name(5)
+                else:
+                    world.last_fail = world.now - timedelta(seconds=1)
+            elif query.startswith("SELECT last_archived_wal,last_archived_time,last_failed_time,"):
+                if world.cached_archiver is not None:
+                    self.rows = [world.cached_archiver]
+    world.cached_archiver = None
+    world.cursor = lambda: ConcurrentArchive(world)
+    if event == "advance":
+        world.frontier = wal_name(1)
+        proof = authority.require(world, operation="concurrent archived segment")
+        assert proof["recoverable_through_wal"] == wal_name(5)
+    else:
+        with pytest.raises(authority.BackupRuntimeUnavailable, match="unresolved failure"):
+            authority.require(world, operation="concurrent archive failure")
+
+
+def test_real_postgres_archive_snapshot_clear_preserves_business_transaction():
+    import psycopg
+    from tests.support.postgres import _EphemeralPostgres
+    from sentinel.backup_guard import clear_archive_snapshot
+    server = _EphemeralPostgres()
+    server.start()
+    try:
+        with psycopg.connect(server.sync_dsn) as held, psycopg.connect(server.sync_dsn, autocommit=True) as writer:
+            held.execute("SET TRANSACTION READ ONLY")
+            started = held.execute("SELECT transaction_timestamp()").fetchone()[0]
+            query = "SELECT stats_reset FROM pg_stat_archiver"
+            old = held.execute(query).fetchone()[0]
+            # This resets only the disposable test server's counters, producing
+            # an independently observable update even with archive_mode=off.
+            writer.execute("SELECT pg_stat_reset_shared('archiver')")
+            fresh = writer.execute(query).fetchone()[0]
+            assert fresh != old
+            assert held.execute(query).fetchone()[0] == old
+            clear_archive_snapshot(held)
+            assert held.execute(query).fetchone()[0] == fresh
+            assert held.execute("SELECT transaction_timestamp()").fetchone()[0] == started
+    finally:
+        server.stop()

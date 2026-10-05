@@ -51,6 +51,12 @@ def sql():
         rounding = ROUND_FLOOR if "floor(extract" in query else ROUND_HALF_UP
         epoch = lambda value: str(value.to_integral_value(rounding=rounding))
         frontier = os.environ.get("BACKUP_LAB_FRONTIER", WAL)
+        if os.environ.get("BACKUP_LAB_FRONTIER_SEQUENCE"):
+            sequence = json.loads(os.environ["BACKUP_LAB_FRONTIER_SEQUENCE"])
+            counter = ROOT / "archive-reads"
+            count = int(counter.read_text()) if counter.exists() else 0
+            frontier = sequence[min(count, len(sequence)-1)]
+            counter.write_text(str(count+1))
         row = f"on|{frontier}|{epoch(last_ok)}|{epoch(last_fail)}|0|{SYSTEM_ID}"
         if "clock_timestamp()" in query:
             row += f"|{'t' if max(last_ok, last_fail) > now else 'f'}|{epoch(now)}"

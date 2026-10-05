@@ -82,7 +82,8 @@ def _env():
 
 
 @pytest.fixture(autouse=True)
-def _verified_go_authority(monkeypatch):
+def _verified_go_authority(monkeypatch, tmp_path):
+    monkeypatch.setattr(backup, '_AUDIT_PATH', tmp_path / 'backup-refresh-audit.json')
     monkeypatch.setitem(backup.phase._PHASE, "certified", True)
     monkeypatch.setattr(
         backup.go_lock, "lifecycle_lock_is_held", lambda env=None: True)

@@ -85,7 +85,14 @@ def _aware(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
+def clear_archive_snapshot(conn) -> None:
+    """Discard backend statistics caching without changing the transaction."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_stat_clear_snapshot()")
+
+
 def status(conn) -> BackupGuardStatus:
+    clear_archive_snapshot(conn)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT current_setting('archive_mode'), last_archived_time, "
@@ -137,6 +144,7 @@ def status(conn) -> BackupGuardStatus:
 
 
 def _archiver_observation(conn):
+    clear_archive_snapshot(conn)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT last_archived_wal,last_archived_time,last_failed_time,"

@@ -9,8 +9,20 @@ import sys
 _UNREAPED = []
 
 
-def _call(channel, function, args):
+def _parent_death(parent_pid):
+    # Docker can kill the probe parent before its observer cleanup executes.
+    # Set the kernel boundary before opening dependencies; close the fork race.
+    import ctypes
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+        raise OSError(ctypes.get_errno(), 'dependency parent-death signal unavailable')
+    if os.getppid() != parent_pid:
+        os.kill(os.getpid(), signal.SIGKILL)
+
+
+def _call(channel, function, args, parent_pid):
     try:
+        _parent_death(parent_pid)
         value = function(*args)
         channel.send(('ok', value))
     except Exception as exc:
@@ -36,7 +48,7 @@ def run(function, *args, timeout=1.0):
         _UNREAPED.remove(prior)
     context = multiprocessing.get_context('fork')
     receiver, sender = context.Pipe(duplex=False)
-    process = context.Process(target=_call, args=(sender, function, args))
+    process = context.Process(target=_call, args=(sender, function, args, os.getpid()))
     try:
         process.start()
         sender.close()

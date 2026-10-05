@@ -44,7 +44,9 @@ class _ProbeCursor:
 
     def execute(self, statement, *_args, **_kwargs):
         text = str(statement)
-        if "pg_control_system()" in text:
+        if text == "SELECT pg_stat_clear_snapshot()":
+            self.kind = "clear"
+        elif "pg_control_system()" in text:
             self.kind = "system"
         elif "pg_create_restore_point" in text:
             self.kind = "restore"

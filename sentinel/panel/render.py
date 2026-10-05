@@ -21,6 +21,8 @@ import json
 from dataclasses import replace
 from datetime import datetime, timezone
 
+from sentinel.panel.presentation import describe, CASINO_STAGE, CASINO_ACCENT, CASINO_CSS
+
 from sentinel.panel.model import (
     FAIL, OK, PENDING, TRIAL_ROW_KEYS, UNKNOWN, WARN, Panel, Row)
 
@@ -239,7 +241,7 @@ PUSH_SCRIPT = r"""
         if (!response.ok) { throw new Error("Subscription removal could not be saved."); }
         await sub.unsubscribe();
       }
-      message("Notifications removed from this device.");
+      message("Notifications disabled on this device.");
       remove.hidden = true;
       enable.textContent = "Enable notifications";
     } catch (error) {
@@ -252,6 +254,7 @@ PUSH_SCRIPT = r"""
 
 def _row_html(r: Row, now: datetime) -> str:
     st = r.effective_status(now)
+    label, value, explanation = describe(r, st)
     stale = r.is_stale(now)
     age = _ago(r.staleness(now))
     age_html = ""
@@ -262,9 +265,11 @@ def _row_html(r: Row, now: datetime) -> str:
     return (
         f'<div class="row {st}" data-key="{_esc(r.key)}" data-status="{st}">'
         f'<div class="dot {st}">{_DOT.get(st, "?")}</div>'
-        f'<div class="label">{_esc(r.label)}</div>'
-        f'<div class="value">{_esc(r.value)}</div>'
-        f'<div class="detail">{_esc(r.detail)}{age_html}</div>'
+        f'<div class="label">{_esc(label)}</div>'
+        f'<div class="value">{_esc(value)}</div>'
+        f'<div class="detail">{_esc(explanation)}{age_html}</div>'
+        f'<details class="technical"><summary>Technical details</summary>'
+        f'<div class="detail-body">{_esc(r.label)} · {_esc(r.value)}<br>{_esc(r.detail)}</div></details>'
         f"</div>"
     )
 
@@ -375,11 +380,11 @@ def _detail_sections(panel: Panel) -> str:
             command_rows) + _table(
                 ("Fill key", "Qty", "Price", "Filled at", "Broker order"),
                 fill_rows)),
-        ("Cash and NAV attribution", _table(("Fact", "Value"), accounting)
+        ("Cash and portfolio value", _table(("Fact", "Value"), accounting)
          + _table(("Class", "Amount", "Detail", "Recorded"), cash_rows)),
-        ("Corporate actions and terminals", _table(
+        ("Splits, dividends and company events", _table(
             ("Security", "Applied share multiplier"), corporate_rows)),
-        ("Trial session history", _table(
+        ("Paper trading history", _table(
             ("Session", "Verdict", "Cycle", "Close equity", "Daily", "Total",
              "External", "Reasons"), history_rows)),
     ]
@@ -428,8 +433,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
         page_name = "Caesar's Palace"
         page_heading = "CAESAR'S PALACE"
         footer_authority = (
-            "certified shadow is performance authority · Alpaca PAPER is "
-            "informational only")
+            "Strategy results come from the checked simulated portfolio. Alpaca paper holdings are shown separately.")
     else:
         trial = panel.row("trial_verification")
         trial_status = trial.effective_status(now) if trial is not None else FAIL
@@ -457,7 +461,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
         page_name = "Caesar's Palace"
         page_heading = "CAESAR'S PALACE"
         footer_authority = (
-            "paper account · performance is explicitly verified or unverified")
+            "Paper account results are shown as checked or unverified.")
     stale_headline = "OPERATIONAL RED — STATUS NOT CURRENT"
     rows = "".join(_row_html(r, now) for r in rendered_rows)
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
@@ -475,9 +479,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/caesars-palace-180.png">
 <title>{_esc(page_name)}</title>
-<style>{CSS}</style>
+<style>{CSS}{CASINO_CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
              data-max-age-seconds="{PRESENTATION_MAX_AGE_SECONDS}">
+{CASINO_STAGE}
 <div class="wrap">
 <header>
   <div class="brand"><img src="/static/caesars-palace-192.png" alt="">
@@ -485,21 +490,28 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
   <span id="operational-state" class="state {headline_status}">{_esc(operational_headline)}</span>
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
         aria-live="polite">DASHBOARD HEARTBEAT · UPDATED 0s AGO</span>
+  {CASINO_ACCENT}
 </header>
+<details class="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
+  <p><strong>Your strategy, at a glance.</strong> The simulated portfolio is the strategy’s model book. Formation builds it by simulating earlier trading days; daily updates then carry it forward.</p>
+  <p>Market data comes from Alpaca, with OpenFIGI identifying common stocks. The paper account is separate: it uses simulated money and only trades after activation. A simulated portfolio check does not mean paper orders have been placed.</p>
+  <p>Green means the check passed. Amber means waiting or review needed. Red means a failed or unreadable check. Open technical details for the precise reason.</p>
+</div></details>
 {errs}
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
   <div class="label">Notifications</div>
   <div id="push-status" aria-live="polite">Checking this device…</div>
   <div class="push-actions">
     <button id="push-enable" type="button">Enable notifications</button>
-    <button id="push-remove" class="secondary" type="button" hidden>Remove</button>
+    <button id="push-remove" class="secondary" type="button" hidden>Disable notifications</button>
   </div>
 </section>
 {rows}{details}
 <footer>
   as of {_esc(stamp)} · refreshes every {refresh_seconds}s<br>
-  financially read-only · {_esc(footer_authority)}<br>
-  operational condition: {_esc(operational)} · all-row condition: {_esc(overall)}
+  This page shows status; it cannot place trades.<br>
+  {_esc(footer_authority)}<br>
+  <details class="technical"><summary>Technical status</summary>operational condition: {_esc(operational)} · all-row condition: {_esc(overall)}</details>
 </footer>
 </div>
 <script>
