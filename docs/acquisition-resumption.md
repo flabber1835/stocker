@@ -93,3 +93,35 @@ This establishes local acquisition recovery behavior. It does not establish live
 Sharadar availability, NAS throughput or end-to-end deployment success. Previous
 scratch-staging resource measurements do not measure the new logged retained-part
 path; its capacity should be measured separately before making capacity claims.
+
+## Alpaca reference reobservation
+
+Decision: 2026-10-05. A real certified cold GO captured 19,037 eligible
+cash dividends, then Alpaca stopped returning three of those records before
+publication. The inconsistent candidate must remain unpublished. Classify a
+changed action projection as the existing typed `SourceRevision` for `ACTIONS`,
+so foreground GO and daily scheduler slices enter the same bounded successor
+path instead of latching an unrelated operational refusal. Preserve the exact
+request, original absolute deadline, maximum successor count, writer fence,
+retained-payload authentication and final source corroboration.
+
+Refresh the action component and rebuild the candidate. Reuse asset,
+classification, benchmark and monthly price parts only when their existing
+component generations still match. A cash-dividend change alone leaves the
+raw/split price generations compatible; a changed structural-action dependency
+requires acquiring the incompatible price parts again. Do not ignore changed
+amounts, identities, dates or participants to obtain a verdict.
+
+A changed Alpaca asset inventory invalidates the whole captured source generation
+(`*`), including the dependent classification plan and selected universe. Merely
+refreshing the inventory while retaining the old aggregate `TICKERS` component
+would mix incompatible views. Reacquire that generation within the same bounded
+successor policy. Malformed observations, retained corruption, lost authority,
+exhausted restart limits and expired deadlines remain refusals.
+
+Qualify removal and correction of dividends, structural-action changes, asset
+inventory changes, persistent instability, and foreground plus daily-slice
+recovery with real PostgreSQL. Prove zero stale publication, compatible price
+reuse, incompatible-generation reacquisition and unchanged deadlines. This is
+source-acquisition recovery; strategy, economic accounting and broker authority
+are unchanged. Certification does not establish provider-data immutability.

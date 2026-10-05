@@ -7,7 +7,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from sentinel.feed import calendar, progress, rolling_jobs as jobs
-from sentinel.feed.acquisition_parts import Parts
+from sentinel.feed.acquisition_parts import Parts, SourceRevision
 from sentinel.feed import openfigi
 from sentinel.feed.alpaca_observation import (
     action_participants, action_symbols, cash_dividend, paired_month,
@@ -341,13 +341,17 @@ class AlpacaSource:
         # acquisition. A changed provider view cannot certify this candidate.
         newer, *_ = self._inventory()
         if newer["assets"] != self.assets:
-            raise AlpacaTransportRefused("Alpaca/OpenFIGI current universe changed during GO")
+            raise SourceRevision("*", digest(self.assets), digest(newer["assets"]))
         actions, *_ = self._action_rows()
         if (frozenset(actions["affected"]) != self.action_affected
                 or actions["reset_after"] != self.reset_after
                 or actions["dividends"] != self.dividends
                 or actions['splits'] != self.splits):
-            raise AlpacaTransportRefused("Alpaca action participants changed during GO")
+            before = {"affected": sorted(self.action_affected),
+                      "reset_after": self.reset_after, "dividends": self.dividends,
+                      "splits": self.splits}
+            after = {key: actions[key] for key in before}
+            raise SourceRevision("ACTIONS", digest(before), digest(after))
 
     def reference_payload(self):
         admitted = {row["ticker"]: row["firstpricedate"] for row in self.tickers}
