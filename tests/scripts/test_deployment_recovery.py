@@ -47,6 +47,49 @@ assert events == ['fence', 'automation', 'shadow'], events
     assert 'fixture-' + failure in result.stderr
 
 
+@pytest.mark.parametrize('mode', ['shadow', 'dual', 'paper'])
+def test_actual_public_installer_starts_operator_services_before_financial_progress(mode):
+    script = r'''
+import sys
+from types import SimpleNamespace
+sys.path.insert(0, 'scripts')
+import sentinel_autonomous_deploy_entry as entry
+entry.install_runtime_guards(sys.argv[1])
+entry.bootstrap._install_wallclock_independent_dual_overlay()
+cls = entry.bootstrap.BootstrapDeploy
+events = []
+def run(argv, **kwargs):
+    events.append(argv)
+    if 'sentinel-alert-dispatcher' in argv:
+        raise entry.core.DeployRefused('sender absent')
+    return SimpleNamespace(stdout='', stderr='', returncode=0)
+obj = cls(SimpleNamespace(health_timeout=45), SimpleNamespace(
+    env={'SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY': 'fixture'}, run=run),
+    entry.core.Path('/tmp'), reviewed_validation=SimpleNamespace(mode=sys.argv[1]))
+obj.base_compose = ['docker', 'compose', '-f', 'canonical.yml']
+for name in ['git_preflight', 'verify_reviewed_preflight', 'build_promote',
+             'check_paper_account_deployment_integrity', 'quiesce_backup_and_migrate',
+             'check_durable_deployment_integrity', 'verify_reviewed_shadow_bindings_quiesced',
+             'configure_reviewed_mode_while_fenced']:
+    setattr(obj, name, lambda: None)
+obj.fail_close = lambda: events.append(['fenced'])
+for name in ['read_paper_account','ensure_ownership','rotate_observation_authority',
+             'start_fenced_runtime','prepare_activate_start','persist_deployed','persist_success']:
+    setattr(obj, name, lambda *args: (_ for _ in ()).throw(AssertionError('progressed without sender')))
+try:
+    obj.run()
+    raise AssertionError('missing sender succeeded')
+except entry.core.DeployRefused as exc:
+    assert str(exc) == 'sender absent'
+assert events[-1] == ['fenced']
+assert any('sentinel-panel' in argv and '--wait' in argv for argv in events)
+assert any('sentinel-alert-dispatcher' in argv and '--wait' in argv for argv in events)
+'''
+    result = subprocess.run([sys.executable, '-c', script, mode], cwd=ROOT,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_unreviewed_install_builds_runtime_then_its_test_lens(tmp_path):
     obj = object.__new__(deploy.AutonomousDeploy)
     obj.reviewed_validation = None
@@ -205,6 +248,7 @@ obj._authorized_cli = command
 obj._base_cli = command
 obj._authorized_compose = lambda: ['simulated-compose']
 obj.runner = SimpleNamespace(run=lambda *a, **k: None)
+obj.verify_operator_services = lambda: None
 obj._automation_status = lambda: {'enabled': True, 'kill_switch_engaged': True,
                                 'certificate_sha256': 'local-certificate'}
 assert obj.prepare_activate_start('local-certificate', '2026-09-14') == plan

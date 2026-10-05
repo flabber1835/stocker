@@ -621,6 +621,8 @@ async def dispatch_once(
         if inspect.isawaitable(result):
             await result
     except Exception as exc:                                  # noqa: BLE001
+        from sentinel.notification_policy import (
+            ACTOR, REASON, TestNotificationCancelled)
         retryable = getattr(exc, "retryable", True) is not False
         failed = mark_failed(
             conn, alert_id=alert.alert_id, holder_id=holder_id,
@@ -629,6 +631,12 @@ async def dispatch_once(
             retry_base_seconds=retry_base_seconds,
             retry_max_seconds=retry_max_seconds,
             retryable=retryable)
+        if (isinstance(exc, TestNotificationCancelled)
+                and alert.event_type == "PUSH_ENROLLMENT_TEST"
+                and alert.severity == "INFO"):
+            cancelled = acknowledge(conn, alert_id=failed.alert_id,
+                                    actor=ACTOR, acknowledgement=REASON)
+            return DispatchResult(alert=cancelled)
         return DispatchResult(
             alert=failed,
             dead_lettered=failed.state is AlertState.DEAD_LETTER,

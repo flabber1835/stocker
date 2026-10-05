@@ -777,6 +777,7 @@ def _automation_cycle_events(conn, cycle_id: str) -> list[dict]:
 
 
 def _automation_alert_counts(conn) -> dict:
+    from sentinel.notification_policy import CANCELLED_TEST_SQL
     with conn.cursor() as cur:
         cur.execute(
             "SELECT"
@@ -790,7 +791,7 @@ def _automation_alert_counts(conn) -> dict:
             "   ('PENDING','DELIVERING')) ,"
             " MIN(next_attempt_at) FILTER (WHERE state IN"
             "   ('PENDING','DELIVERING')) ,"
-            " MAX(updated_at) FROM sentinel_alert_outbox")
+            f" MAX(updated_at) FROM sentinel_alert_outbox a WHERE NOT {CANCELLED_TEST_SQL}")
         row = cur.fetchone()
     if row is None:
         raise ValueError("durable alert outbox aggregate returned no row")
@@ -1248,6 +1249,8 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
             found.get(table) for table in _AUTOMATION_COLUMNS)
         authority_present = any(
             found.get(table) for table in _AUTHORITY_COLUMNS)
+        push_required = bool(os.environ.get(
+            "SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY", "").strip())
         if not automation_present:
             automation = [
                 model.automation_row(installed=False),
@@ -1255,7 +1258,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 model.automation_cycle_row(installed=False),
                 *model.automation_step_rows(installed=False),
                 model.automation_alerts_row(installed=False),
-                model.alert_dispatcher_row(installed=False),
+                model.alert_dispatcher_row(installed=False, push_required=push_required),
             ]
             control = None
         else:

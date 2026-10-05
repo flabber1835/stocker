@@ -1728,6 +1728,38 @@ class AutonomousDeploy:
     def _authorized_compose(self) -> List[str]:
         return self.base_compose + ["-f", self.automation_overlay]
 
+    def _notification_transport_configured(self) -> bool:
+        return any(self.env.get(key, "").strip() for key in (
+            "SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY",
+            "SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY",
+            "SENTINEL_WEB_PUSH_VAPID_SUBJECT",
+            "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"))
+
+    def start_operator_services(self) -> None:
+        self.phase("install: dashboard and configured notification sender")
+        self.runner.run(self.base_compose + [
+            "up", "-d", "--wait", "--wait-timeout",
+            str(self.cfg.health_timeout), "sentinel-panel"])
+        if self._notification_transport_configured():
+            self.runner.run(self._authorized_compose() + [
+                "--profile", "automation", "up", "-d", "--no-deps",
+                "--wait", "--wait-timeout", str(self.cfg.health_timeout),
+                "sentinel-alert-dispatcher"])
+        self.verify_operator_services()
+
+    def verify_operator_services(self) -> None:
+        # exec fails for an absent/stopped service; probe durable health freshly.
+        self.runner.run(self.base_compose + [
+            "exec", "-T", "sentinel-panel", "python", "-c",
+            "import urllib.request; "
+            "assert urllib.request.urlopen('http://127.0.0.1:8000/health',"
+            "timeout=3).status==200"], timeout=10)
+        if self._notification_transport_configured():
+            self.runner.run(self._authorized_compose() + [
+                "--profile", "automation", "exec", "-T",
+                "sentinel-alert-dispatcher", "python", "-m",
+                "sentinel.alert_liveness"], timeout=10)
+
     def _authorized_cli(self, args: Sequence[str], *, capture: bool = False,
                         check: bool = True) -> subprocess.CompletedProcess:
         return self.runner.run(self._authorized_compose() + [
@@ -2021,6 +2053,7 @@ class AutonomousDeploy:
                 or killed.get("kill_switch_engaged") is not True
                 or killed.get("certificate_sha256") != certificate_sha256):
             raise DeployRefused("automation did not start behind the expected kill fence")
+        self.verify_operator_services()
         self._authorized_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,
@@ -2232,6 +2265,7 @@ class AutonomousDeploy:
             raise DeployRefused(
                 "deployment receipt requires disabled+killed automation")
         post_backup = self._post_deploy_backup()
+        self.verify_operator_services()
         managed = {
             "SENTINEL_GIT_COMMIT": self.commit,
             "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
@@ -2348,6 +2382,7 @@ class AutonomousDeploy:
         self.runner.run(["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"])
         self.runner.run(["bash", "scripts/sentinel-backup-status.sh"])
         self.runner.run(["bash", "scripts/sentinel-restore-drill.sh"])
+        self.verify_operator_services()
         receipt = {
             "schema": DEPLOY_SCHEMA,
             "completed_at": _utc_text(_utcnow()),
@@ -2408,6 +2443,7 @@ class AutonomousDeploy:
             # This is unconditional. A stale `.env` from an earlier reviewed
             # shadow must never let the no-args fenced installer restart shadow.
             self.configure_reviewed_mode_while_fenced()
+            self.start_operator_services()
             if reviewed is not None and reviewed.mode == "dual":
                 # Enrollment and authority installation share the formation
                 # writer lock. Finish them while the publisher is quiesced.
@@ -2421,8 +2457,6 @@ class AutonomousDeploy:
                 self._wait_for_dual_shadow_session(decision_session)
                 self.prepare_activate_start(certificate, decision_session)
                 health = self.verify_operational(certificate)
-                self.runner.run(self.base_compose + [
-                    "up", "-d", "sentinel-panel"])
                 self.persist_success(health)
             elif reviewed is not None and reviewed.mode == "paper":
                 # This branch is unreachable for the current two-source bundle,

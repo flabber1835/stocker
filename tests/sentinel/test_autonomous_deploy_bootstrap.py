@@ -215,6 +215,7 @@ def test_bootstrap_does_not_persist_discovered_facts_before_final_pass(tmp_path)
     obj.test_repo_digest = cfg.test_repository + "@" + obj.test_digest
     obj._post_deploy_backup = lambda: calls.append("backup") or "/backups/final"
     obj._persist_deploy_facts = lambda _updates: calls.append("persist")
+    obj.verify_operator_services = lambda: calls.append("operator-verified")
 
     obj.persist_deployed({
         "enabled": False,
@@ -223,4 +224,106 @@ def test_bootstrap_does_not_persist_discovered_facts_before_final_pass(tmp_path)
         "policy_state": "INERT",
     })
 
-    assert calls == ["backup", "persist"]
+    assert calls == ["backup", "operator-verified", "persist"]
+
+
+@pytest.mark.parametrize('mode', ['shadow', 'dual', 'paper', None])
+@pytest.mark.parametrize('transport', ['push', 'webhook', 'unconfigured'])
+def test_operator_services_start_and_verify_in_every_install_mode(tmp_path, mode, transport):
+    calls = []
+    env = ({'SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY': 'configured'} if transport == 'push'
+           else {'SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL': 'https://fixture.test'}
+           if transport == 'webhook' else {})
+    obj = bootstrap.BootstrapDeploy(SimpleNamespace(health_timeout=45),
+        SimpleNamespace(env=env, run=lambda argv, **kw: calls.append((argv, kw))), tmp_path,
+        reviewed_validation=SimpleNamespace(mode=mode) if mode else None)
+    obj.base_compose = ['docker', 'compose', '-f', 'canonical.yml', '-f', 'backup.yml']
+    obj.start_operator_services()
+    started = [argv[-1] for argv, _ in calls if 'up' in argv]
+    assert started == (['sentinel-panel'] if transport == 'unconfigured'
+                       else ['sentinel-panel', 'sentinel-alert-dispatcher'])
+    assert all('--wait' in argv and '--wait-timeout' in argv for argv, _ in calls if 'up' in argv)
+    assert all('sentinel-automation' not in argv and 'sentinel-shadow' not in argv for argv, _ in calls)
+    probes = [(argv, kwargs) for argv, kwargs in calls if 'exec' in argv]
+    assert len(probes) == len(started)
+    assert all(kwargs['timeout'] == 10 for _, kwargs in probes)
+    assert obj.base_compose == ['docker', 'compose', '-f', 'canonical.yml', '-f', 'backup.yml']
+
+
+@pytest.mark.parametrize('service', ['sentinel-panel', 'sentinel-alert-dispatcher'])
+@pytest.mark.parametrize('condition', ['absent', 'stopped', 'stale', 'crashed-after-backup'])
+def test_public_installation_cannot_succeed_when_operator_service_is_lost(
+        tmp_path, service, condition):
+    """Use real start/probe and final receipt owners, with Docker fault responses."""
+    calls = []
+    lost = False
+    def invoke(argv, **kwargs):
+        calls.append(argv)
+        if lost and 'exec' in argv and service in argv:
+            raise core.DeployRefused(condition + ': ' + service)
+        return SimpleNamespace(stdout='', stderr='', returncode=0)
+    cfg = SimpleNamespace(health_timeout=45, deployment_id='fixture', account_id='paper',
+                          runtime_repository='registry/sentinel', test_repository='registry/sentinel')
+    obj = bootstrap.BootstrapDeploy(cfg, SimpleNamespace(
+        env={'SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY': 'configured'}, run=invoke), tmp_path)
+    obj.base_compose = ['docker', 'compose', '-f', 'canonical.yml']
+    obj.start_operator_services()
+    obj._persist_deploy_facts = lambda *_: pytest.fail('wrote successful deployment facts')
+    def final_backup():
+        nonlocal lost
+        lost = True
+        return '/fixture/backup'
+    obj._post_deploy_backup = final_backup
+    with pytest.raises(core.DeployRefused, match=condition):
+        obj.persist_deployed({'enabled': False, 'kill_switch_engaged': True})
+    assert not (tmp_path / 'deployment-receipt.json').exists()
+    assert not any('release-paper-automation-kill-switch' in argv for argv in calls)
+
+
+@pytest.mark.parametrize('mode', ['dual', 'paper'])
+@pytest.mark.parametrize('service', ['sentinel-panel', 'sentinel-alert-dispatcher'])
+def test_public_activation_rechecks_operator_services_before_kill_release(tmp_path, mode, service):
+    calls = []
+    def run(argv, **kwargs):
+        if 'exec' in argv and service in argv:
+            raise core.DeployRefused('operator service stopped')
+        return SimpleNamespace(stdout='', stderr='', returncode=0)
+    obj = bootstrap.BootstrapDeploy(SimpleNamespace(account_id='PAPER', deployment_id='fixture', actor='test'),
+        SimpleNamespace(env={'SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY': 'fixture'}, run=run), tmp_path,
+        reviewed_validation=SimpleNamespace(mode=mode))
+    obj.base_compose = ['docker', 'compose', '-f', 'fixture.yml']
+    plan = {'plan': {'plan_id': 'same-plan', 'decision_session': '2026-10-02'},
+            'database_authorities_match': True}
+    def cli(args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(stdout=json.dumps(plan), stderr='', returncode=0)
+    obj._authorized_cli = cli
+    obj._base_cli = cli
+    obj._verify_dual_plan_shadow_reconciliation = lambda: None
+    obj._automation_status = lambda: {'enabled': True, 'kill_switch_engaged': True,
+                                     'certificate_sha256': 'certificate'}
+    with pytest.raises(core.DeployRefused, match='operator service stopped'):
+        obj.prepare_activate_start('certificate', '2026-10-02')
+    assert any(args[0] == 'activate-paper-automation' for args in calls)
+    assert not any(args[0] == 'release-paper-automation-kill-switch' for args in calls)
+
+
+@pytest.mark.parametrize('service', ['sentinel-panel', 'sentinel-alert-dispatcher'])
+def test_active_installation_final_backup_cannot_hide_a_service_crash(tmp_path, service):
+    lost = False
+    def run(argv, **kwargs):
+        if lost and 'exec' in argv and service in argv:
+            raise core.DeployRefused('service crashed during final backup')
+        return SimpleNamespace(stdout='', stderr='', returncode=0)
+    obj = bootstrap.BootstrapDeploy(SimpleNamespace(health_timeout=45),
+        SimpleNamespace(env={'SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY': 'fixture'}, run=run), tmp_path)
+    obj.base_compose = ['docker', 'compose', '-f', 'fixture.yml']
+    obj.start_operator_services()
+    def backup(**kwargs):
+        nonlocal lost
+        lost = True
+        return '/fixture/backup'
+    obj._create_backup = backup
+    with pytest.raises(core.DeployRefused, match='service crashed'):
+        obj.persist_success({})
+    assert not (tmp_path / 'deployment-receipt.json').exists()

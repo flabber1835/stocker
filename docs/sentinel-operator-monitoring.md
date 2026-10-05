@@ -6,6 +6,27 @@ broker authority.
 
 ## 1. Boundary and name
 
+### Notification availability and cancelled tests
+
+Decision: 2026-10-05. Browser enrollment/test requests remain durable while a
+sender is down, but return its actual heartbeat/health availability. A bounded
+read-only test receipt reports queued, sending, push-service accepted, failed,
+or cancelled; it exposes no endpoint, browser key, VAPID private key or broker
+fact. The UI warns when the sender is unavailable and never calls enqueue
+delivery. Subscription refresh and removal do not depend on sender availability.
+
+Disabling notifications cancels that device's undelivered informational test
+requests only. Retain the original outbox record and attempt history: cancelled
+tests remain terminal records, with the exact policy acknowledgement
+`notification-policy / CANCELLED_BY_DEVICE`. They are excluded from actionable
+alert aggregates, never marked delivered and never counted as transport success.
+Historical dead tests may acquire this acknowledgement only when the retained
+subscription proves explicit device removal after that test was queued. A
+transport rejection, expired subscription, malformed evidence, WARN/CRITICAL
+event, or missing recipient is not user cancellation. No operational alert is
+silenced by device removal. Re-enrollment cannot revive an already cancelled
+test. Preserve claim fencing when cancellation occurs during a send attempt.
+
 **Caesar's Palace** is the user-facing name of Sentinel's operator panel and
 notifications. Internal package, database, service, and execution-contract
 names remain `sentinel_*` so branding cannot create a second architecture.

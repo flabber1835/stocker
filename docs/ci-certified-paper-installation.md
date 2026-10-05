@@ -4,6 +4,25 @@
 the real GO result, installation failures, corrections, local test boundaries,
 and the remaining actual paper deployment evidence.
 
+## Operator services are installation dependencies
+
+Decision: 2026-10-05. Every installation mode starts the private panel and waits
+for its database/schema readiness. If Web Push or the legacy alert webhook is
+configured, start the independent dispatcher using the same pinned runtime and
+wait for its health before releasing automation. Recheck both services before
+writing a successful installation receipt, including after the final backup.
+An unavailable configured sender is an installation failure, not an optional
+omission. A deliberately unconfigured transport remains explicitly unavailable.
+Do not start broker automation to obtain notification delivery, stop the sender
+when financial activation fails, or grant the panel broker credentials.
+
+Docker readiness alone does not supervise a stopped container. The durable
+dispatcher heartbeat and the panel's operational verdict remain the independent
+observations of absence, including while trading is disabled. Test submission
+reports sender availability and a durable receipt; the browser checks that
+receipt for push-service acceptance rather than claiming delivery from enqueue.
+Transport acceptance cannot prove that iOS displayed a notification.
+
 ## Independent failure cleanup
 
 Decision: 2026-10-04. After a deployment transition fails, first attempt the

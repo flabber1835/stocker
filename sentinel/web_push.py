@@ -377,6 +377,10 @@ class WebPushAlertAdapter:
 
     def deliver(self, alert, idempotency_key: str, *, claim_seconds=60, claimed=False) -> None:
         del idempotency_key  # alert_id is the immutable notification tag
+        from sentinel.notification_policy import removed_by_device, TestNotificationCancelled
+        with closing(self._connection_factory()) as conn:
+            if removed_by_device(conn, alert):
+                raise TestNotificationCancelled("test cancelled by this device")
         def record(**kwargs):
             self._record(**kwargs, claim=alert if claimed else None, claim_seconds=claim_seconds,
                          created_at=alert.created_at, recipient=recipient)
@@ -456,6 +460,9 @@ class WebPushAlertAdapter:
                 retryable=retryable)
         counts = self._fanout_counts(alert.alert_id)
         if counts.get("DELIVERED", 0) == 0:
+            with closing(self._connection_factory()) as conn:
+                if removed_by_device(conn, alert):
+                    raise TestNotificationCancelled("test cancelled by this device")
             raise WebPushDeliveryFailure(
                 "all captured Web Push subscriptions were retired",
                 retryable=False)

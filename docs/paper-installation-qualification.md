@@ -52,6 +52,57 @@ Real certified-adapter GET qualification completed 13 account, clock, position
 and order reads, with stable identity and complete observation. Positions and
 orders were empty. Non-GET transport was prohibited in that diagnostic.
 
+## Notification installation and monitoring qualification
+
+The private dashboard was running while its sender container had been stopped
+for hours. Enrollment correctly persisted requests, but the installer never
+started that dependency and the browser reported queueing without a delivery
+receipt. Restoring the unchanged certified sender resulted in three current
+tests accepted by the external push service (HTTP 201). Three older tests for an
+explicitly removed subscription remained dead letters; they are not successful
+deliveries.
+
+Every installer mode now starts the panel and configured notification sender,
+waits for readiness, checks them before kill-switch release and checks again
+after the final backup before retaining success. Failure cleanup keeps the
+independent sender running while attempting the financial fence and stops.
+The browser reports sender availability and polls a restricted, read-only test
+receipt; it distinguishes service acceptance, failure and unreadable status.
+Only explicitly cancelled informational device tests leave actionable alert
+aggregates. Operational warnings, critical incidents and transport failures
+remain visible.
+
+Qualification uses disposable PostgreSQL with the actual public installer
+class, dispatcher supervisor/worker processes and dashboard readers. The real
+dispatcher test starts a worker, stops it, waits for its heartbeat to expire
+using the database clock, observes failure and restarts it. Other cases cover
+absent/stopped services, faults after final backup, all installer modes, device
+rotation and removal, delivery claim fencing and receipt privacy. Isolated
+mutants removing startup, activation or availability checks fail their
+regressions. Removing the narrow cancellation filter causes the tests for real
+WARN/CRITICAL incidents to fail. Mutants never alter tracked source or deployed
+services.
+
+Five Edge Chromium browser tests cover explicit permission/subscription gesture,
+sender absence, push-service acceptance, delivery failure and an unreadable
+receipt. Their transport responses are fixtures; these tests do not establish
+physical iPhone presentation or click delivery. Edge was used because the
+cached Chromium executable could not launch on this host.
+
+The final notification/monitoring/installer selection passed 355 tests in
+154.82 seconds. It includes the real stop/expiry/restart test and all public
+installer service guards. Python AST parsing, browser JavaScript syntax,
+`git diff --check` and test-responsibility validation also passed. Exact test
+commands are retained in PR #477; the larger earlier groups overlap this one.
+
+Docker probes automation every five seconds, the dispatcher every ten seconds
+and the panel every thirty seconds while their containers run. Worker
+supervisors also enforce progress deadlines. These mechanisms do not install a
+host-level watchdog that restarts manually stopped containers, and a stopped
+sender cannot report its own absence through itself. The independent dashboard
+can expose its stale heartbeat; the installer now enforces service presence at
+the installation boundaries.
+
 ## Remaining deployment evidence
 
 Local admission and transport fixtures are explicit in the software regressions;

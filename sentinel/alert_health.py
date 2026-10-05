@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from sentinel.notification_policy import CANCELLED_TEST_SQL
 
 
 STARTING = "STARTING"
@@ -167,7 +168,7 @@ def require_healthy(
             " EXTRACT(EPOCH FROM (clock_timestamp()-heartbeat_at)),"
             " EXTRACT(EPOCH FROM (clock_timestamp()-started_at)),"
             " (SELECT COUNT(*) FROM sentinel_alert_outbox"
-            "   WHERE state='DEAD_LETTER')"
+            f"   a WHERE state='DEAD_LETTER' AND NOT {CANCELLED_TEST_SQL})"
             " FROM sentinel_alert_dispatcher_health WHERE dispatcher_id=%s",
             (identity,))
         row = cur.fetchone()

@@ -1096,13 +1096,17 @@ def alert_dispatcher_row(*, installed: Optional[bool],
     """Durable alert-dispatcher and first-party delivery health."""
     if error or installed is None:
         return Row("alert_dispatcher", "Alert delivery", "UNKNOWN", UNKNOWN,
-                   error or "alert dispatcher health could not be read")
+                   error or "alert dispatcher health could not be read",
+                   required_current=push_required or installed is True)
     if not installed:
         return Row("alert_dispatcher", "Alert delivery", "NOT INSTALLED",
-                   PENDING, "no durable alert-dispatcher health schema exists")
+                   FAIL if push_required else PENDING,
+                   "no durable alert-dispatcher health schema exists",
+                   required_current=push_required)
     if not dispatchers:
         return Row("alert_dispatcher", "Alert delivery", "NO DISPATCHER",
-                   FAIL, "health schema exists but no dispatcher has registered")
+                   FAIL, "health schema exists but no dispatcher has registered",
+                   required_current=True)
 
     failed = []
     degraded = []

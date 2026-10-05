@@ -227,7 +227,8 @@ test.describe("Caesar's Palace PWA and push path", () => {
       await route.fulfill({
         status: 201,
         contentType: "application/json",
-        body: JSON.stringify({ status: "subscribed" })
+        body: JSON.stringify({ status: "subscribed", delivery_status: "QUEUED",
+          sender_available: true })
       });
     });
 
@@ -246,6 +247,47 @@ test.describe("Caesar's Palace PWA and push path", () => {
     expect(enrolled.endpoint).toBe("https://push.example.test/device-browser");
     expect(enrolled.test_id).toMatch(/^[0-9a-f-]{36}$/);
   });
+
+  for (const outcome of ["unavailable", "accepted", "failed", "unreadable"]) {
+    test(`test notification shows ${outcome} rather than assuming delivery`, async ({ context, page }) => {
+      await context.grantPermissions(["notifications"]);
+      await page.addInitScript(() => {
+        Object.defineProperty(ServiceWorkerRegistration.prototype, "pushManager", {
+          configurable: true,
+          get: () => ({ getSubscription: async () => ({
+            toJSON: () => ({endpoint: "https://push.example.test/current",
+              keys: {p256dh: "fixture", auth: "fixture"}}),
+            unsubscribe: async () => true
+          }) })
+        });
+      });
+      const alert_id = "a".repeat(64);
+      let submissions = 0;
+      await page.route("**/push/subscriptions", async route => {
+        submissions++;
+        await route.fulfill({status: 201, contentType: "application/json",
+          body: JSON.stringify({alert_id, delivery_status: "QUEUED",
+            sender_available: outcome !== "unavailable"})});
+      });
+      await page.route("**/push/tests/*", route => route.fulfill({
+        status: outcome === "unreadable" ? 503 : 200, contentType: "application/json",
+        body: JSON.stringify({alert_id,
+          delivery_status: outcome === "accepted" ? "ACCEPTED" : outcome === "failed" ? "FAILED" : "QUEUED",
+          sender_available: outcome !== "unavailable"})
+      }));
+      await page.goto("/", {waitUntil: "networkidle"});
+      await waitForActiveWorker(page);
+      await page.locator("#push-enable").click();
+      await expect(page.locator("#push-status")).toContainText(
+        outcome === "accepted" ? "accepted by the push service"
+          : outcome === "failed" ? "notification failed"
+          : outcome === "unreadable" ? "status could not be read" : "sender is unavailable");
+      expect(submissions).toBe(1);
+      if (outcome === "unavailable") {
+        await expect(page.locator("#push-status")).not.toContainText("accepted");
+      }
+    });
+  }
 
   test("the registered worker receives a synthetic push and focuses Sentinel", async ({
     context,

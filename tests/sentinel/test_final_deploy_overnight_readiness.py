@@ -78,6 +78,7 @@ def test_bootstrap_persists_reviewed_dual_as_dual(monkeypatch, tmp_path):
     obj.test_repo_digest = cfg.test_repository + "@" + obj.test_digest
     obj.new_certificate = "f" * 64
     obj.active_certificate = ""
+    obj.verify_operator_services = lambda: None
     monkeypatch.setattr(
         obj, "_create_backup",
         lambda *, restore_drill: "/backups/final")
