@@ -223,7 +223,8 @@ def test_unfenced_migration_stops_before_backup_and_schema_commands():
 
 
 @pytest.mark.parametrize('mode', ['dual', 'paper'])
-def test_public_installer_hierarchy_preserves_reviewed_preparation_mode(mode):
+@pytest.mark.parametrize('window', ['valid', 'expired-before-plan', 'expires-before-release'])
+def test_public_installer_hierarchy_preserves_reviewed_preparation_mode(mode, window):
     # The public entry mutates class dispatch; exercise it in its own process.
     script = r'''
 import json, sys
@@ -238,6 +239,16 @@ obj = object.__new__(cls)
 obj.cfg = SimpleNamespace(account_id='SIMULATED', deployment_id='local', actor='fixture')
 obj.reviewed_validation = SimpleNamespace(mode=sys.argv[1])
 obj.phase = lambda _: None
+window = sys.argv[2]
+timing_checks = []
+def causal_timing():
+    timing_checks.append(len(timing_checks) + 1)
+    expired = (window == 'expired-before-plan'
+               or (window == 'expires-before-release' and len(timing_checks) == 2))
+    return {'frontier': '2026-09-14', 'target': '2026-09-14',
+            'target_source_final': True, 'prospective': not expired,
+            'remaining_ms': 0 if expired else 60_000}
+obj._causal_timing = causal_timing
 calls = []
 plan = {'plan': {'plan_id': 'local-plan', 'decision_session': '2026-09-14'},
         'database_authorities_match': True}
@@ -251,11 +262,24 @@ obj.runner = SimpleNamespace(run=lambda *a, **k: None)
 obj.verify_operator_services = lambda: None
 obj._automation_status = lambda: {'enabled': True, 'kill_switch_engaged': True,
                                 'certificate_sha256': 'local-certificate'}
-assert obj.prepare_activate_start('local-certificate', '2026-09-14') == plan
-assert ('--reviewed-informational-dual' in calls[0]) == (sys.argv[1] == 'dual')
-assert [c[0] for c in calls] == ['prepare-paper-plan', 'current-paper-plan',
-                               'activate-paper-automation', 'release-paper-automation-kill-switch']
+try:
+    assert obj.prepare_activate_start('local-certificate', '2026-09-14') == plan
+except entry.core.DeployRefused as exc:
+    assert window != 'valid'
+    assert 'following-open cutoff' in str(exc), str(exc)
+else:
+    assert window == 'valid', 'expired timing released paper automation'
+expected = ['prepare-paper-plan', 'current-paper-plan', 'activate-paper-automation']
+if window == 'expired-before-plan':
+    expected = []
+    assert timing_checks == [1]
+else:
+    assert timing_checks == [1, 2]
+    assert ('--reviewed-informational-dual' in calls[0]) == (sys.argv[1] == 'dual')
+    if window == 'valid':
+        expected.append('release-paper-automation-kill-switch')
+assert [c[0] for c in calls] == expected
 '''
-    result = subprocess.run([sys.executable, '-c', script, mode],
+    result = subprocess.run([sys.executable, '-c', script, mode, window],
                             cwd=ROOT, capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
