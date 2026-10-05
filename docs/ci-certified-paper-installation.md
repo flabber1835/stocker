@@ -366,8 +366,10 @@ backdate evidence, replay a missed open or extend the execution window.
 
 Before the source-final boundary or after a missed open, keep installation
 staged with automation disabled and killed. Start and verify the private panel
-and configured notification dispatcher before this wait. Financial publishers
-remain quiesced until publication and account authority are bound.
+and configured notification dispatcher before this wait. After binding,
+repeat idempotent operator-service startup to load the newly persisted review
+configuration. Financial publishers remain quiesced until publication and
+account authority are bound.
 
 When a new source-final session becomes eligible, refresh a behind rolling
 publication through the same canonical Alpaca/OpenFIGI acquisition and durable
@@ -378,7 +380,11 @@ source/config, account and lineage checks before binding. The original reviewed
 bundle remains unchanged, and the later binding receipt identifies the new
 publication. A changed target during refresh or binding returns to the same
 bounded wait; corruption and non-temporal failures refuse. One monotonic wait
-budget covers the entire attempt, including retries and backup renewal.
+budget covers the entire attempt, including retries, publication probes and
+backup renewal. Acquisition waits on recorded temporary provider delays within
+that original budget. All disposable source and binding containers have exact
+ownership and are removed on completion, timeout or interruption; a killed Docker
+client must not leave an unowned acquisition child running.
 
 Installation may stage at any time; active paper operation still requires an
 actual prospective attested decision and all existing execution/reconciliation

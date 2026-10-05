@@ -464,6 +464,27 @@ finally:
                 self.cfg.data_retry_seconds, max(1, int(remaining))))
             attempt += 1
 
+    def _binding_runner(self, expected_timing: Mapping):
+        """Bound every probe and remove only the disposable container it owns."""
+        from sentinel_go_process import owned_command
+        opened = datetime.fromisoformat(expected_timing["execution_open_at"])
+        deadline = getattr(self, "_causal_wait_deadline", None)
+
+        def execute(argv, **kwargs):
+            remaining = (opened - datetime.now(timezone.utc)).total_seconds()
+            if deadline is not None:
+                remaining = min(remaining, deadline - time.monotonic())
+            if remaining <= 0:
+                raise CausalSessionExpired("publication probe reached its actual cutoff")
+            with owned_command(argv) as owner:
+                try:
+                    return subprocess.run(owner["command"], timeout=remaining, **kwargs)
+                except subprocess.TimeoutExpired:
+                    raise CausalSessionExpired(
+                        "publication probe exceeded its actual cutoff") from None
+
+        return go.CommandRunner(run=execute)
+
     def _bind_current_publication(self, expected_timing: Mapping) -> None:
         reviewed = self.reviewed_validation
         if reviewed is None:
@@ -475,7 +496,7 @@ finally:
         now_text = go._utc_text(datetime.now(timezone.utc))
         subjects = {}
         timings = {}
-        runner = go.CommandRunner()
+        runner = self._binding_runner(expected_timing)
         parity = go.probe_active_wealth_parity(
             runner, env=self.env,
             commit=reviewed.git_commit,
@@ -525,7 +546,7 @@ finally:
         os.environ["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = digest
 
         def invoke(argv, **_kwargs):
-            return self.runner.run(argv, capture=True)
+            return runner.run(argv, env=self.env)
 
         try:
             _ORIGINAL_VERIFY(reviewed, env=self.env, invoke=invoke)
@@ -593,15 +614,21 @@ finally:
 
         self.phase(
             "review: quiesced install waits for causal source and binds publication")
-        while True:
-            timing = self._wait_until_causal_ready()
-            try:
-                self._bind_current_publication(timing)
-                return
-            except CausalSessionExpired as exc:
-                self._write_deployment_state(
-                    "WAITING_FOR_NEXT_CAUSAL_SESSION", attempt=1,
-                    failures=[{"name": "session_timing", "detail": str(exc)}])
+        from sentinel_install_source_refresh import wait_commands
+        deadline = getattr(self, "_causal_wait_deadline", None)
+        if deadline is None:
+            deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
+            self._causal_wait_deadline = deadline
+        with wait_commands(self, deadline):
+            while True:
+                timing = self._wait_until_causal_ready()
+                try:
+                    self._bind_current_publication(timing)
+                    return
+                except CausalSessionExpired as exc:
+                    self._write_deployment_state(
+                        "WAITING_FOR_NEXT_CAUSAL_SESSION", attempt=1,
+                        failures=[{"name": "session_timing", "detail": str(exc)}])
 
 
 def _install_overlay() -> None:

@@ -1,6 +1,7 @@
 """Bounded Alpaca-only data renewal inside the already-fenced installer."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import json
 import time
@@ -8,6 +9,7 @@ import uuid
 
 import sentinel_autonomous_deploy as core
 import sentinel_go_validate as go
+from sentinel_go_process import owned_command
 
 MARKER = "SENTINEL_INSTALL_SOURCE_REFRESH="
 CODE = r'''
@@ -31,7 +33,7 @@ try:
     else:
         try:
             prepared = rolling_go_inputs._prepare(
-                c, target_session=target,
+                c, target_session=target, wait=True,
                 absolute_deadline=rolling_go_inputs.deadline_from_host(
                     os.environ['SENTINEL_INSTALL_SOURCE_DEADLINE']),
                 resume_job_id=os.environ.get('SENTINEL_INSTALL_RESUME_JOB_ID'))
@@ -95,8 +97,9 @@ def refresh(deploy, *, timing, deadline):
             '--entrypoint', 'python', 'sentinel', '-c', CODE,
         ]
         deploy.phase('data: refresh source-final Alpaca/OpenFIGI ' + target)
-        completed = deploy.runner.run(
-            command, capture=True, stream=True, timeout=seconds, env=env)
+        with owned_command(command) as owner:
+            completed = deploy.runner.run(
+                owner["command"], capture=True, stream=True, timeout=seconds, env=env)
         values = [json.loads(line[len(MARKER):])
                   for line in (completed.stdout or '').splitlines()
                   if line.startswith(MARKER)]
@@ -119,3 +122,27 @@ def refresh(deploy, *, timing, deadline):
         except (ValueError, TypeError, AttributeError):
             raise core.DeployRefused('source refresh backup resume identity invalid') from None
         deploy._create_backup(restore_drill=False, deadline=deadline)
+
+
+@contextmanager
+def wait_commands(deploy, deadline):
+    """Bound status/readiness commands too; restore the normal activation runner."""
+    delegate = deploy.runner
+    class WaitRunner:
+        env = delegate.env
+        def run(self, command, **kwargs):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise core.DeployRefused('installation command wait deadline exhausted')
+            requested = kwargs.get('timeout')
+            kwargs['timeout'] = min(remaining, requested) if requested is not None else remaining
+            # Source renewal already establishes exact ownership externally.
+            if '--name' in command:
+                return delegate.run(command, **kwargs)
+            with owned_command(command) as owner:
+                return delegate.run(owner['command'], **kwargs)
+    deploy.runner = WaitRunner()
+    try:
+        yield
+    finally:
+        deploy.runner = delegate

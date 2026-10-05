@@ -351,7 +351,7 @@ def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
         obj.run()
     assert events == [
         "git", "broker-integrity", "build", "quiesce",
-        "durable-integrity", "operator-services", "mode", "install", "fenced"]
+        "durable-integrity", "operator-services", "mode", "operator-services", "install", "fenced"]
 
 
 @pytest.mark.parametrize('authority_failure', [None, 'ownership', 'authority'])
@@ -414,7 +414,7 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path, 
 
     assert events == [
         "git", "review", "broker-integrity", "build", "quiesce",
-        "durable-integrity", "operator-services", "quiesced-review", "mode",
+        "durable-integrity", "operator-services", "quiesced-review", "mode", "operator-services",
         "paper-read", "ownership", "authority", "shadow-start",
         "shadow-attested:2026-08-20", "paper-released:2026-08-20",
         "operational", "receipt",

@@ -2449,6 +2449,8 @@ class AutonomousDeploy:
             # This is unconditional. A stale `.env` from an earlier reviewed
             # shadow must never let the no-args fenced installer restart shadow.
             self.configure_reviewed_mode_while_fenced()
+            # Idempotent up refreshes panel/sender configuration after binding.
+            self.start_operator_services()
             if reviewed is not None and reviewed.mode == "dual":
                 # Enrollment and authority installation share the formation
                 # writer lock. Finish them while the publisher is quiesced.

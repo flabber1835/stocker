@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
+from contextlib import contextmanager
 
 import pytest
 
@@ -125,6 +126,10 @@ def refresh_instance(monkeypatch, results):
     obj.base_compose = ['docker', 'compose']
     obj.phase = lambda *_a: None
     obj._causal_timing = lambda: timing(target='2026-10-05', remaining_ms=180_000)
+    @contextmanager
+    def owned(command):
+        yield {'command': command}
+    monkeypatch.setattr(source, 'owned_command', owned)
     calls = []
     def run(args, **kwargs):
         calls.append((args, kwargs))
@@ -185,3 +190,136 @@ def test_source_refresh_deadline_exhaustion_starts_no_child(monkeypatch):
     with pytest.raises(install.core.DeployRefused, match='deadline exhausted'):
         source.refresh(obj, timing=timing(target='2026-10-05'), deadline=100.0)
     assert calls == []
+
+
+# Actual SQL fencing and the exchange calendar exercise the acquisition child.
+from tests.sentinel.test_rolling_snapshot_publisher import conn, pg
+
+
+@pytest.mark.parametrize('instant,target,expected', [
+    ('2026-10-05T13:29:59+00:00', '2026-10-02', 'PUBLISHED'),
+    ('2026-10-05T13:30:00+00:00', '2026-10-02', 'WINDOW_EXPIRED'),
+    ('2026-10-05T15:00:00+00:00', '2026-10-02', 'WINDOW_EXPIRED'),
+    ('2026-10-05T21:00:00+00:00', '2026-10-05', 'WINDOW_EXPIRED'),
+    ('2026-10-06T03:45:00+00:00', '2026-10-05', 'PUBLISHED'),
+    ('2026-10-04T12:00:00+00:00', '2026-10-02', 'PUBLISHED'),
+    ('2026-11-26T15:00:00+00:00', '2026-11-25', 'PUBLISHED'),
+])
+def test_acquisition_child_uses_real_fence_and_calendar(
+        conn, monkeypatch, capsys, instant, target, expected):
+    import datetime
+    from sentinel import schema
+    from sentinel.feed import rolling_go_inputs, store
+    schema.ensure_schema(conn)
+    conn.commit()
+    fixed = datetime.datetime.fromisoformat(instant)
+    # Keep the real connection open for inspection after the child exits.
+    class Connection:
+        def __getattr__(self, name):
+            return getattr(conn, name)
+        def close(self):
+            pass
+    monkeypatch.setattr(store, 'connect', lambda *_a, **_k: Connection())
+    monkeypatch.setattr(rolling_go_inputs, 'require_schemas', lambda *_a: None)
+    calls = []
+    def prepare(*args, **kwargs):
+        calls.append(kwargs)
+        return {'status': 'PUBLISHED'}
+    monkeypatch.setattr(rolling_go_inputs, '_prepare', prepare)
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'fixture-only')
+    monkeypatch.setenv('SENTINEL_INSTALL_SOURCE_TARGET', target)
+    monkeypatch.setenv('SENTINEL_INSTALL_SOURCE_DEADLINE', '2026-10-06T13:30:00+00:00')
+    # Replace only the clock read; retain every production branch and SQL guard.
+    assert source.CODE.count('now = datetime.now(timezone.utc)') == 1
+    child = source.CODE.replace('now = datetime.now(timezone.utc)', 'now = _qualified_now')
+    exec(compile(child, '<actual-source-refresh-child>', 'exec'), {'_qualified_now': fixed})
+    value = json.loads(capsys.readouterr().out.split(source.MARKER)[-1])
+    assert value == dict(status=expected, resume_job_id=None)
+    assert len(calls) == (1 if expected == 'PUBLISHED' else 0)
+    if calls:
+        assert calls[0]['target_session'] == target
+        assert calls[0]['wait'] is True
+
+
+def test_acquisition_child_database_fence_cannot_be_skipped(conn, monkeypatch):
+    from sentinel import deployment_fence, schema
+    from sentinel.feed import store
+    schema.ensure_schema(conn)
+    conn.execute('UPDATE sentinel_automation_control SET kill_switch_engaged=FALSE WHERE id=1')
+    conn.commit()
+    class Connection:
+        def __getattr__(self, name):
+            return getattr(conn, name)
+        def close(self):
+            pass
+    monkeypatch.setattr(store, 'connect', lambda *_a, **_k: Connection())
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'fixture-only')
+    with pytest.raises(deployment_fence.DeploymentFenceRefused):
+        exec(compile(source.CODE, '<actual-source-refresh-child>', 'exec'), {})
+
+
+def test_binding_commands_share_original_deadline(monkeypatch):
+    import datetime
+    import sentinel_go_process
+    obj = wait_instance()
+    clock = [100.0]
+    monkeypatch.setattr(install.time, 'monotonic', lambda: clock[0])
+    obj._causal_wait_deadline = 160.0
+    args = timing(execution_open_at=(datetime.datetime.now(datetime.timezone.utc)
+                                    + datetime.timedelta(hours=1)).isoformat())
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(kwargs['timeout'])
+        return subprocess.CompletedProcess(argv, 0, stdout='', stderr='')
+    monkeypatch.setattr(install.subprocess, 'run', run)
+    runner = obj._binding_runner(args)
+    runner.run(['git', 'rev-parse', 'HEAD'])
+    clock[0] = 150.0
+    runner.run(['git', 'status', '--short'])
+    assert calls == [60.0, 10.0]
+    clock[0] = 160.0
+    with pytest.raises(install.CausalSessionExpired, match='cutoff'):
+        runner.run(['git', 'status', '--short'])
+    assert calls == [60.0, 10.0]
+
+
+def test_source_child_failure_removes_its_owned_container(monkeypatch):
+    obj, calls = refresh_instance(monkeypatch, [])
+    events = []
+    @contextmanager
+    def owned(command):
+        events.append('owned')
+        try:
+            yield {'command': command}
+        finally:
+            events.append('removed')
+    monkeypatch.setattr(source, 'owned_command', owned)
+    def failed(*args, **kwargs):
+        raise install.core.DeployRefused('fixture timeout')
+    obj.runner.run = failed
+    with pytest.raises(install.core.DeployRefused, match='fixture timeout'):
+        source.refresh(obj, timing=timing(target='2026-10-05'), deadline=160.0)
+    assert events == ['owned', 'removed']
+
+
+def test_wait_budget_bounds_poll_commands_and_restores_runner(monkeypatch):
+    obj, calls = refresh_instance(monkeypatch, [])
+    delegate = obj.runner
+    delegate.env = {}
+    delegate.run = lambda command, **kwargs: calls.append((command, kwargs))
+    with source.wait_commands(obj, 160.0):
+        obj.runner.run(['git', 'status'], timeout=120)
+        obj.runner.run(['git', 'status'], timeout=10)
+        assert obj.runner.env is delegate.env
+    assert obj.runner is delegate
+    assert [kwargs['timeout'] for _, kwargs in calls] == [60.0, 10]
+
+
+def test_expired_poll_budget_starts_no_child_and_restores_runner(monkeypatch):
+    obj, calls = refresh_instance(monkeypatch, [])
+    delegate = obj.runner
+    delegate.env = {}
+    with pytest.raises(install.core.DeployRefused, match='deadline exhausted'):
+        with source.wait_commands(obj, 100.0):
+            obj.runner.run(['git', 'status'])
+    assert calls == [] and obj.runner is delegate

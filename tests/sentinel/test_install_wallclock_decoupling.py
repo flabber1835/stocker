@@ -393,6 +393,8 @@ def test_deferred_dual_uses_quiesced_boundary_before_publication_binding(monkeyp
         events.append(("wait", None)) or timing)
     instance._bind_current_publication = lambda value: events.append(("bind", value))
 
+    instance.cfg = SimpleNamespace(data_wait_timeout_seconds=60)
+    instance.runner = SimpleNamespace(env={})
     instance.verify_reviewed_shadow_bindings_quiesced()
     assert [item[0] for item in events] == ["phase", "wait", "bind"]
     assert events[-1][1] == timing

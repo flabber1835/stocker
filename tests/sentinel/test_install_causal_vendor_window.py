@@ -56,7 +56,7 @@ def _bind_instance(tmp_path):
 
 
 def _stub_bind_probes(monkeypatch, events):
-    monkeypatch.setattr(go, "CommandRunner", lambda: object())
+    monkeypatch.setattr(go, "CommandRunner", lambda **_kwargs: object())
 
     def parity(*args, **kwargs):
         assert kwargs["runtime_image_digest"] == "sha256:" + "c" * 64
