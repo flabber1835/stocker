@@ -2375,3 +2375,10 @@ supported recreation: `bash scripts/sentinel-compose.sh --run up -d --no-deps
 base with `bash scripts/sentinel-base-backup.sh` and check it with
 `bash scripts/sentinel-backup-status.sh`. Retain older backup generations; never
 create retrospective checksum sidecars for archived WAL without its live source.
+
+The installation timing decision in
+[CI-certified paper installation](ci-certified-paper-installation.md#installation-timing-and-a-fenced-source-final-wait)
+separates the fixed GO database benchmark reserve from actual installer timing.
+Fenced installation waits can refresh a later source-final Alpaca/OpenFIGI
+publication; operator services remain available. Actual following-open deadlines
+and execution authority are unchanged.

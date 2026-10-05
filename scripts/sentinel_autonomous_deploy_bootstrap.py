@@ -25,6 +25,7 @@ import re
 import shlex
 import stat
 import subprocess
+import time
 import sys
 from typing import Dict, Mapping, Optional, Sequence
 import urllib.error
@@ -359,14 +360,22 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         self.env["SENTINEL_RUNTIME_IMAGE_REF"] = self.runtime_repo_digest
         self.runner.env["SENTINEL_RUNTIME_IMAGE_REF"] = self.runtime_repo_digest
 
-    def _create_backup(self, *, restore_drill: bool) -> str:
-        created = self.runner.run(
+    def _create_backup(self, *, restore_drill: bool, deadline=None) -> str:
+        def run(argv, **kwargs):
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise core.DeployRefused("installation backup wait deadline exhausted")
+                kwargs["timeout"] = remaining
+            return self.runner.run(argv, **kwargs)
+
+        created = run(
             ["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"], capture=True)
         backup = _backup_path(created)
-        self.runner.run([
+        run([
             "bash", "scripts/sentinel-backup-status.sh", "--backup", backup])
         if restore_drill:
-            self.runner.run([
+            run([
                 "bash", "scripts/sentinel-restore-drill.sh", "--backup", backup])
         return backup
 

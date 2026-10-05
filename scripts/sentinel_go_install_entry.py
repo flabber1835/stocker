@@ -28,7 +28,7 @@ controller = verified.controller
 go = verified.go
 phase = verified.phase
 
-WAIT_POLICY = "CAUSAL_SESSION_BINDING_AFTER_SOURCE_FINAL_V1"
+WAIT_POLICY = "CAUSAL_SESSION_BINDING_ACTUAL_OPEN_CUTOFF_V2"
 WAIT_POLICY_SUBJECT = "deployment_wait_policy"
 _ALLOWED_WAIT_DUAL_FAILURES = frozenset({
     "GATE_DATABASE_FINANCIAL_HEALTH_NOT_PASS",

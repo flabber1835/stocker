@@ -322,19 +322,26 @@ def test_deferred_wait_never_enters_vendor_path_before_target_source_final(
     assert events.index("readiness") > events.index("state")
 
 
-def test_operational_install_refuses_stale_go_frontier_without_waiting():
+def test_operational_install_refreshes_eligible_stale_go_once(monkeypatch):
+    import sentinel_install_source_refresh as renewal
     instance = object.__new__(install_deploy.InstallAnytimeDeploy)
     instance._operational_source_only = True
     instance.cfg = SimpleNamespace(
         data_wait_timeout_seconds=60, data_retry_seconds=1)
     instance._assert_wait_fence = lambda: None
-    instance._causal_timing = lambda: _timing(
-        source_final=True, prospective=True, frontier="2026-08-26")
-    instance._readiness_verdict = lambda: pytest.fail("readiness reached")
-    instance._wait_for_data = lambda **_k: pytest.fail("stopped publisher waited on")
-    with pytest.raises(install_deploy.core.DeployRefused,
-                       match="run GO again"):
-        instance._wait_until_causal_ready()
+    timings = iter([
+        _timing(source_final=True, prospective=True, frontier="2026-08-26"),
+        _timing(source_final=True, prospective=True, frontier="2026-08-27"),
+    ])
+    instance._causal_timing = lambda: next(timings)
+    calls = []
+    monkeypatch.setattr(renewal, "refresh",
+                        lambda *_a, **kw: calls.append(kw["timing"]["target"]))
+    instance._readiness_verdict = lambda: {"ready": True}
+    instance._base_cli = lambda *_a, **_k: None
+    instance._write_deployment_state = lambda *_a, **_k: None
+    assert instance._wait_until_causal_ready()["frontier"] == "2026-08-27"
+    assert calls == ["2026-08-27"]
 
 
 def test_vendor_catchup_is_allowed_only_after_target_source_final(monkeypatch):
@@ -386,6 +393,8 @@ def test_deferred_dual_uses_quiesced_boundary_before_publication_binding(monkeyp
         events.append(("wait", None)) or timing)
     instance._bind_current_publication = lambda value: events.append(("bind", value))
 
+    instance.cfg = SimpleNamespace(data_wait_timeout_seconds=60)
+    instance.runner = SimpleNamespace(env={})
     instance.verify_reviewed_shadow_bindings_quiesced()
     assert [item[0] for item in events] == ["phase", "wait", "bind"]
     assert events[-1][1] == timing
