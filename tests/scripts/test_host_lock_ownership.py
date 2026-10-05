@@ -243,6 +243,41 @@ def test_disposable_host_diagnostic(capsys):
     assert 'host flock compatibility: PASS' in capsys.readouterr().out
 
 
+def test_backup_wait_does_not_acquire_after_deadline(tmp_path, monkeypatch):
+    path = tmp_path / 'bounded-backup.lock'
+    monkeypatch.setattr(backup, '_lock_path', lambda env: path)
+    clock = [0.]
+    monkeypatch.setattr(backup.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(backup.time, 'sleep', lambda delay: clock.__setitem__(0, 2.))
+    attempts = []
+    def busy_then_available(fd, operation):
+        attempts.append(operation)
+        if len(attempts) == 1:
+            raise BlockingIOError()
+    monkeypatch.setattr(backup.fcntl, 'flock', busy_then_available)
+    entered = []
+    monkeypatch.setattr(backup, 'owns_exclusive_flock', lambda fd: True)
+    monkeypatch.setattr(backup.subprocess, 'run', lambda *a, **k: entered.append(a))
+    assert backup._hold(['never-run'], wait_seconds=1) == 2
+    assert len(attempts) == 1
+    assert entered == []
+
+
+def test_deployment_wait_covers_complete_maintenance_invocation(monkeypatch):
+    import sentinel_maintenance_process as maintenance
+    timeouts = []
+
+    def bounded(argv, *, timeout):
+        timeouts.append(timeout)
+        return maintenance.Result(0, '')
+
+    monkeypatch.setattr(maintenance, 'run_bounded', bounded)
+    monkeypatch.setattr(maintenance, 'emit_result', lambda result: True)
+    assert maintenance.main([]) == 0
+    assert len(timeouts) == 1
+    assert backup.MAX_WAIT_SECONDS >= timeouts[0] + 60
+
+
 @pytest.mark.parametrize('kind', ['owned', 'unrelated', 'shared', 'unlocked'])
 def test_deployment_shell_verifies_exact_lock_before_git(tmp_path, procfs_mode, kind):
     source = (SCRIPTS / 'sentinel-autonomous-deploy.sh').read_text()

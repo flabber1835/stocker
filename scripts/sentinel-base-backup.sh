@@ -16,8 +16,23 @@ sentinel_load_environment --profile maintenance
 . scripts/sentinel-backup-lib.sh
 BACKUP_ROOT="$(sentinel_backup_root)"
 export SENTINEL_BASE_BACKUP_LOCK_ROOT="$BACKUP_ROOT"
+LOCK_WAIT=0
+if [ "$#" -ne 0 ]; then
+  if [ "$#" -ne 2 ] || [ "$1" != --wait-seconds ]; then
+    echo "REFUSED: usage: sentinel-base-backup.sh [--wait-seconds 0..3660]" >&2
+    exit 2
+  fi
+  LOCK_WAIT="$2"
+  "$PYTHON" - "$LOCK_WAIT" <<'PY'
+import sys
+value = sys.argv[1]
+if not value.isascii() or not value.isdigit() or len(value) > 4 or not 0 <= int(value) <= 3660:
+    print("REFUSED: backup lock wait must be an integer from 0 to 3660 seconds", file=sys.stderr)
+    raise SystemExit(2)
+PY
+fi
 if ! "$PYTHON" scripts/sentinel_backup_lock.py verify >/dev/null 2>&1; then
-  exec "$PYTHON" scripts/sentinel_backup_lock.py hold \
+  exec "$PYTHON" scripts/sentinel_backup_lock.py hold --wait-seconds "$LOCK_WAIT" \
     bash scripts/sentinel-base-backup.sh "$@"
 fi
 

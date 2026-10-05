@@ -2,16 +2,197 @@
 import asyncio
 import json
 import threading
+import os
+import subprocess
+import sys
+import time
 from uuid import uuid4
 
 import pytest
 
 from sentinel.automation import outbox
+from sentinel.automation.health import read_health
 from sentinel.automation.model import AlertState
 from sentinel.feed import store
 from sentinel.web_push import WebPushAlertAdapter
+from sentinel import alert_health, notification_policy
+from sentinel.panel import push_enrollment, sources, model
+from sentinel.web_push import subscription_id
+from fastapi.testclient import TestClient
 from tests.sentinel.test_operator_monitoring import (
     _add_subscription, _subscription_material, _vapid, db, issue369_pg)
+
+
+def _healthy_sender(db):
+    alert_health.register(db, dispatcher_id='primary')
+    alert_health.heartbeat(db, dispatcher_id='primary')
+
+
+@pytest.mark.parametrize('sender', ['missing', 'stopped', 'failed', 'healthy'])
+def test_submission_reports_actual_sender_and_keeps_durable_receipt(
+        db, issue369_pg, monkeypatch, sender):
+    from sentinel.panel.app import app
+    origin = 'https://notifications.tailnet.test'
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', issue369_pg.sync_dsn)
+    monkeypatch.setenv('SENTINEL_PUBLIC_ORIGIN', origin)
+    if sender != 'missing':
+        _healthy_sender(db)
+    if sender == 'stopped':
+        db.execute("UPDATE sentinel_alert_dispatcher_health SET heartbeat_at="
+                   "clock_timestamp()-interval '31 seconds'")
+        db.commit()
+    if sender == 'failed':
+        alert_health.record_failure(db, dispatcher_id='primary', error='fixture', terminal=True)
+    p256dh, auth = _subscription_material(31)
+    client = TestClient(app)
+    response = client.post('/push/subscriptions', headers={'Origin': origin}, json={
+        'endpoint': 'https://push.example.test/availability',
+        'keys': {'p256dh': p256dh, 'auth': auth}, 'test_id': str(uuid4())})
+    assert response.status_code == 201
+    receipt = response.json()
+    assert receipt['sender_available'] is (sender == 'healthy')
+    assert receipt['delivery_status'] == 'QUEUED'
+    assert db.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone()[0] == 1
+    status = client.get('/push/tests/' + receipt['alert_id'])
+    assert status.status_code == 200 and status.json()['delivery_status'] == 'QUEUED'
+    assert status.headers['cache-control'] == 'no-store'
+    assert 'endpoint' not in status.text and 'p256dh' not in status.text
+    assert 'subscription_id' not in status.text
+    assert db.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('removal', ['removed by device', 'push service HTTP 410', None])
+def test_only_explicit_device_removal_cancels_a_test(db, issue369_pg, removal):
+    endpoint = _add_subscription(db, 'cancel-test')
+    alert = outbox.enqueue(db, idempotency_key='cancel-test', event_type='PUSH_ENROLLMENT_TEST',
+                           severity='INFO', payload={'subscription_id': subscription_id(endpoint)})
+    if removal:
+        db.execute("UPDATE sentinel_web_push_subscriptions SET retired_at=clock_timestamp(),"
+                   "retire_reason=%s", (removal,))
+        db.commit()
+    calls = []
+    adapter = WebPushAlertAdapter(connection_factory=lambda: store.connect(issue369_pg.sync_dsn),
+        credentials=_vapid(), sender=lambda *args: calls.append(args[0]) or 503)
+    result = asyncio.run(outbox.dispatch_once(db, adapter=adapter, holder_id='cancellation'))
+    if removal == 'removed by device':
+        assert notification_policy.is_cancelled(result.alert)
+        assert not result.delivered and not result.dead_lettered and not result.error
+        assert result.alert.delivered_at is None and calls == []
+        assert sources._automation_alert_counts(db)['dead_letter'] == 0
+        assert sources._automation_alert_counts(db)['pending'] == 0
+        _healthy_sender(db)
+        assert alert_health.require_healthy(db, dispatcher_id='primary',
+            maximum_age_seconds=30, startup_grace_seconds=330).state == 'HEALTHY'
+        # New enrollment cannot revive the cancelled obligation.
+        db.execute("UPDATE sentinel_web_push_subscriptions SET retired_at=NULL,retire_reason=NULL")
+        db.commit()
+        assert notification_policy.is_cancelled(outbox.load_alert(db, alert.alert_id))
+    else:
+        assert not notification_policy.is_cancelled(result.alert)
+        assert result.error
+        assert result.dead_lettered is bool(removal)
+
+
+@pytest.mark.parametrize('event_type,severity', [
+    ('PUSH_ENROLLMENT_TEST', 'INFO'), ('PUSH_ENROLLMENT_TEST', 'CRITICAL'),
+    ('AUTOMATION_BLOCKED', 'CRITICAL'), ('AUTOMATION_RETRY', 'WARN')])
+def test_historical_cancellation_cannot_silence_operational_alerts(db, event_type, severity):
+    endpoint = _add_subscription(db, 'old-cancelled')
+    alert = outbox.enqueue(db, idempotency_key='historical', event_type=event_type,
+                           severity=severity, payload={'subscription_id': subscription_id(endpoint)})
+    claimed = outbox.claim_next(db, holder_id='old')
+    outbox.mark_failed(db, alert_id=claimed.alert_id, holder_id='old',
+                      attempt=claimed.attempt_count, error='old failure', retryable=False)
+    db.execute("UPDATE sentinel_web_push_subscriptions SET retired_at=clock_timestamp(),"
+               "retire_reason='removed by device'")
+    db.commit()
+    notification_policy.acknowledge_removed_tests(db)
+    notification_policy.acknowledge_removed_tests(db)
+    expected = event_type == 'PUSH_ENROLLMENT_TEST' and severity == 'INFO'
+    retained = outbox.load_alert(db, alert.alert_id)
+    assert notification_policy.is_cancelled(retained) is expected
+    assert (retained.ack_state == 'ACKNOWLEDGED') is expected
+    assert retained.state == 'DEAD_LETTER' and retained.delivered_at is None
+    assert sources._automation_alert_counts(db)['dead_letter'] == int(not expected)
+    assert read_health(db).dead_letter_alerts == int(not expected)
+    _healthy_sender(db)
+    if expected:
+        alert_health.require_healthy(db, dispatcher_id='primary',
+            maximum_age_seconds=30, startup_grace_seconds=330)
+    else:
+        with pytest.raises(alert_health.AlertDispatcherUnhealthy, match='dead-letter'):
+            alert_health.require_healthy(db, dispatcher_id='primary',
+                maximum_age_seconds=30, startup_grace_seconds=330)
+
+
+def test_test_receipt_reports_service_acceptance_and_never_leaks_real_alert(db, issue369_pg, monkeypatch):
+    from sentinel.panel.app import app
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', issue369_pg.sync_dsn)
+    endpoint = _add_subscription(db, 'receipt')
+    alert = outbox.enqueue(db, idempotency_key='receipt-test', event_type='PUSH_ENROLLMENT_TEST',
+        severity='INFO', payload={'subscription_id': subscription_id(endpoint)})
+    adapter = WebPushAlertAdapter(connection_factory=lambda: store.connect(issue369_pg.sync_dsn),
+                                  credentials=_vapid(), sender=lambda *_: 201)
+    asyncio.run(outbox.dispatch_once(db, adapter=adapter, holder_id='receipt'))
+    client = TestClient(app)
+    assert client.get('/push/tests/' + alert.alert_id).json()['delivery_status'] == 'ACCEPTED'
+    real_alert = outbox.enqueue(db, idempotency_key='secret-incident', event_type='AUTOMATION_BLOCKED',
+                               severity='CRITICAL', payload={'secret': 'do not expose'})
+    for identity in [real_alert.alert_id, '0' * 64, 'invalid']:
+        assert client.get('/push/tests/' + identity).status_code == 404
+
+
+@pytest.mark.parametrize('installed', [None, False, True])
+def test_configured_notification_absence_is_required_red(installed):
+    row = model.alert_dispatcher_row(installed=installed, push_required=True)
+    assert row.status in {model.UNKNOWN, model.FAIL}
+    assert row.required_current
+
+
+def test_real_dispatcher_stop_and_restart_are_seen_without_docker_health(db, issue369_pg):
+    """Actual supervisor/worker processes and DB clock; no external transport."""
+    from sentinel.web_push import b64url_encode
+    env = {key: value for key, value in os.environ.items()
+           if key in {'PATH', 'PYTHONPATH', 'PYTHONDONTWRITEBYTECODE', 'HOME'}}
+    env.update({
+        'SENTINEL_DATABASE_URL': issue369_pg.sync_dsn,
+        'SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY': b64url_encode((7).to_bytes(32, 'big')),
+        'SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY': b64url_encode(_vapid().public_key_bytes),
+        'SENTINEL_WEB_PUSH_VAPID_SUBJECT': 'mailto:qualification@example.test',
+        'SENTINEL_AUTOMATION_ALERT_POLL_SECONDS': '0.1',
+    })
+    def wait_available(expected, seconds):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if push_enrollment._sender_available(db) is expected:
+                return
+            time.sleep(.1)
+        pytest.fail('dispatcher availability did not become ' + str(expected))
+    assert not push_enrollment._sender_available(db)
+    child = subprocess.Popen([sys.executable, '-m', 'sentinel.alert_service'],
+        env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    try:
+        wait_available(True, 15)
+        assert child.poll() is None
+        child.terminate()
+        child.wait(timeout=10)
+        # The observer has no Docker daemon and receives no fake timestamp.
+        wait_available(False, 33)
+        row = model.alert_dispatcher_row(installed=True,
+                                        dispatchers=sources._alert_dispatchers(db))
+        assert row.status == model.FAIL
+        child = subprocess.Popen([sys.executable, '-m', 'sentinel.alert_service'],
+            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        wait_available(True, 15)
+        assert child.poll() is None
+        assert db.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            child.wait(timeout=10)
+        errors = child.stderr.read()
+        child.stderr.close()
+        assert child.returncode == 0, errors
 
 
 def due(db, alert_id):

@@ -671,6 +671,7 @@ c.rollback(); c.close()
                 or killed.get("certificate_sha256") != certificate_sha256):
             raise core.DeployRefused(
                 "automation did not start behind the expected kill fence")
+        self.verify_operator_services()
         self._authorized_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,

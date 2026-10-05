@@ -1,5 +1,79 @@
 # Installing the CI-certified single runtime
 
+[Paper installation qualification](paper-installation-qualification.md) records
+the real GO result, installation failures, corrections, local test boundaries,
+and the remaining actual paper deployment evidence.
+
+## Operator services are installation dependencies
+
+Decision: 2026-10-05. Every installation mode starts the private panel and waits
+for its database/schema readiness. If Web Push or the legacy alert webhook is
+configured, start the independent dispatcher using the same pinned runtime and
+wait for its health before releasing automation. Recheck both services before
+writing a successful installation receipt, including after the final backup.
+An unavailable configured sender is an installation failure, not an optional
+omission. A deliberately unconfigured transport remains explicitly unavailable.
+Do not start broker automation to obtain notification delivery, stop the sender
+when financial activation fails, or grant the panel broker credentials.
+
+Docker readiness alone does not supervise a stopped container. The durable
+dispatcher heartbeat and the panel's operational verdict remain the independent
+observations of absence, including while trading is disabled. Test submission
+reports sender availability and a durable receipt; the browser checks that
+receipt for push-service acceptance rather than claiming delivery from enqueue.
+Transport acceptance cannot prove that iOS displayed a notification.
+
+## Independent failure cleanup
+
+Decision: 2026-10-04. After a deployment transition fails, first attempt the
+durable emergency fence, then independently attempt to stop automation and
+shadow. Failure to stop either service must not suppress the other stop attempt.
+Report each unavailable cleanup boundary and preserve the original deployment
+failure. Do not describe best-effort cleanup as confirmed fencing when the
+database or Docker operation failed. Qualify the actual public installer class
+with emergency-fence failure and each service-stop failure.
+
+## Administrative identity on weekends and holidays
+
+Decision: 2026-10-04. Installing a paper account must not depend on the wall
+clock falling on a trading date. Administrative inspection and empty-account
+binding use the XNYS session at or before the current New York calendar date
+for their symbol-identity resolver. On a trading date this remains that date,
+including before the open; on a weekend or exchange holiday it is the preceding
+session. The broker account is still observed at the actual current time.
+
+Keep the rolling reader's existing identity bound: a request beyond the
+published close may use only the immediately following exchange session.
+Do not extend stale publications, change time, infer a future listing, relax
+signatures, or alter order scheduling to make installation pass. Ordinary
+execution and recovery continue using their explicit plan/cycle sessions.
+Apply the same administrative policy to inherited-account inspection,
+empty-account inspection, and empty-account binding. Qualify all three CLI
+owners with the real exchange calendar and real PostgreSQL rolling resolver,
+including weekends, holidays, New York date boundaries, and refusal when the
+publication is genuinely too old. Installation at any time does not permit
+trading outside the execution contract's session window.
+
+## Deployment backups and recurring maintenance
+
+Decision: 2026-10-04. Pre-migration and final deployment base backups wait for
+the existing canonical target lock for at most 3,660 seconds. This covers the
+maintenance invocation's 3,600-second outer deadline and 60 seconds for process
+cleanup and lock handoff. The wait covers the entire tick, not just its
+2,100-second restore subprocess. Recurring
+maintenance may hold that lock while it verifies a physical restore; normal
+contention must not abort an otherwise valid installation. The installer
+requests this wait explicitly. Ordinary backup and maintenance commands retain
+their immediate contention refusal. Waiting neither terminates the owner nor
+accepts its result as the installer's required fresh backup.
+
+Use nonblocking flock attempts and one monotonic deadline, then verify exclusive
+descriptor ownership before starting the child. Invalid wait requests, timeout,
+target/ownership failure and backup failures remain refusals. Waiting cannot
+renew or replace the deadline, change an inherited lock, or run two producers.
+Qualify actual process contention, timeout, argument validation, inheritance,
+and both installer backup phases.
+
 ## Qualification scope for the operational provider replacement
 
 The 2026-10-04 local campaign also covers the Alpaca/OpenFIGI replacement.

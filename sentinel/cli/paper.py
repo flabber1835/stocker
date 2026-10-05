@@ -19,6 +19,15 @@ from sentinel.cli._shared import (
 from sentinel.cli import authority as authority_cli
 from sentinel.config import SentinelConfig, build_execution_broker
 
+
+def _administrative_identity_session() -> str:
+    """Inspect today's account using an actual XNYS identity session."""
+    from sentinel.feed import calendar
+
+    today = datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)).date().isoformat()
+    return calendar.previous_sessions(today, 1)[0]
+
+
 def cmd_compare_paper_warmup(_config: SentinelConfig | None, args) -> int:
     """Compare the two existing 253-session target surfaces; broker-free."""
     import hashlib
@@ -64,7 +73,7 @@ async def _inspect_paper_account(config: SentinelConfig, args) -> int:
     if refusal is not None:
         return refusal
     from sentinel import paper
-    from sentinel.feed import calendar, store as feed_store
+    from sentinel.feed import store as feed_store
 
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
@@ -75,7 +84,7 @@ async def _inspect_paper_account(config: SentinelConfig, args) -> int:
         # Inspection is read-only in PostgreSQL as well as at the broker. The
         # feed/migration prerequisites create the schema; this command only
         # reads the permanent-identity map and canonical binding.
-        as_of = datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)).date().isoformat()
+        as_of = _administrative_identity_session()
         takeover_epoch = authority_cli._administrative_epoch(
             conn, deployment_id=args.deployment_id,
             broker_account_id=args.expect_account)
@@ -110,7 +119,7 @@ async def _inspect_empty_paper_account(config: SentinelConfig, args) -> int:
     if refusal is not None:
         return refusal
     from sentinel import binding as binding_mod, empty_account, paper, schema
-    from sentinel.feed import calendar, store as feed_store
+    from sentinel.feed import store as feed_store
 
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
@@ -126,7 +135,7 @@ async def _inspect_empty_paper_account(config: SentinelConfig, args) -> int:
             conn, config=config, operation="ADMIN_BIND_EMPTY",
             deployment_id=args.deployment_id,
             broker_account_id=args.expect_account, takeover_epoch=1)
-        as_of = datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)).date().isoformat()
+        as_of = _administrative_identity_session()
         resolver = paper.build_security_resolver(conn, as_of)
         broker = empty_account.GuardedEmptyAccountBroker(
             inner=build_execution_broker(
@@ -153,7 +162,7 @@ async def _bind_empty_paper_account(config: SentinelConfig, args) -> int:
         administrative_authority, binding as binding_mod, empty_account,
         paper, schema,
     )
-    from sentinel.feed import calendar, store as feed_store
+    from sentinel.feed import store as feed_store
 
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
@@ -169,7 +178,7 @@ async def _bind_empty_paper_account(config: SentinelConfig, args) -> int:
             conn, config=config, operation="ADMIN_BIND_EMPTY",
             deployment_id=args.deployment_id,
             broker_account_id=args.expect_account, takeover_epoch=1)
-        as_of = datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)).date().isoformat()
+        as_of = _administrative_identity_session()
         resolver = paper.build_security_resolver(conn, as_of)
         broker = empty_account.GuardedEmptyAccountBroker(
             inner=build_execution_broker(

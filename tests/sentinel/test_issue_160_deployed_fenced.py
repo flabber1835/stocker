@@ -36,6 +36,7 @@ def test_deploy_success_boundary_stops_before_operational_gates(tmp_path):
     obj.verify_reviewed_shadow_bindings_quiesced = lambda: events.append(
         "reviewed-bindings")
     obj.configure_reviewed_mode_while_fenced = lambda: events.append("mode")
+    obj.start_operator_services = lambda: events.append("operator-services")
     obj.start_fenced_runtime = lambda: (
         events.append("install") or {
             "enabled": False, "kill_switch_engaged": True,
@@ -53,7 +54,7 @@ def test_deploy_success_boundary_stops_before_operational_gates(tmp_path):
 
     assert events == [
         "git", "broker-integrity", "build", "migrate", "durable-integrity",
-        "reviewed-bindings", "mode", "install", ("receipt", True)]
+        "reviewed-bindings", "mode", "operator-services", "install", ("receipt", True)]
 
 
 def test_quiesced_review_failure_precedes_mode_persistence_and_start(tmp_path):
@@ -133,6 +134,7 @@ def test_persisted_deployment_receipt_is_explicitly_fenced(tmp_path):
     obj.phase = lambda _text: None
     obj._persist_deploy_facts = lambda _updates: None
     obj._post_deploy_backup = lambda: "/backup/exact"
+    obj.verify_operator_services = lambda: None
 
     obj.persist_deployed({
         "enabled": False, "kill_switch_engaged": True,

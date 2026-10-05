@@ -75,6 +75,7 @@ def read_health(conn) -> AutomationHealth:
     broker commands remain visible after kill/deactivation because revoking local
     authority cannot recall an already accepted broker request.
     """
+    from sentinel.notification_policy import CANCELLED_TEST_SQL
     with conn.cursor() as cur:
         cur.execute(
             "SELECT to_regclass('sentinel_automation_control'),"
@@ -157,7 +158,7 @@ def read_health(conn) -> AutomationHealth:
             " COUNT(*) FILTER (WHERE state IN ('PENDING','DELIVERING')),"
             " COUNT(*) FILTER (WHERE state='DEAD_LETTER'),"
             " COUNT(*) FILTER (WHERE ack_state='UNACKNOWLEDGED')"
-            " FROM sentinel_alert_outbox")
+            f" FROM sentinel_alert_outbox a WHERE NOT {CANCELLED_TEST_SQL}")
         pending, dead, unacknowledged = cur.fetchone()
         # Health belongs to the CURRENT LEASE HOLDER. A hot standby also emits
         # its own heartbeat; selecting the globally newest service row would let

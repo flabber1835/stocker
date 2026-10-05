@@ -14,6 +14,7 @@ from starlette.concurrency import run_in_threadpool
 
 from sentinel.automation import outbox
 from sentinel import push_recipients
+from sentinel import alert_health, notification_policy
 from sentinel.panel.sources import _bounded_dsn
 from sentinel.web_push import b64url_decode, subscription_id, validate_subscription
 
@@ -21,6 +22,49 @@ from sentinel.web_push import b64url_decode, subscription_id, validate_subscript
 router = APIRouter()
 _TEST_ID = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
+_ALERT_ID = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _sender_available(conn) -> bool:
+    try:
+        health = alert_health.require_healthy(
+            conn, dispatcher_id="primary", maximum_age_seconds=30,
+            startup_grace_seconds=330)
+        return health.state == alert_health.HEALTHY
+    except Exception:  # The absence is returned explicitly, never called delivery.
+        conn.rollback()
+        return False
+
+
+def _test_receipt(conn, alert) -> dict:
+    state = ("CANCELLED" if notification_policy.is_cancelled(alert) else {
+        "PENDING": "QUEUED", "DELIVERING": "SENDING",
+        "DELIVERED": "ACCEPTED", "DEAD_LETTER": "FAILED",
+    }[alert.state])
+    return {"alert_id": alert.alert_id, "delivery_status": state,
+            "sender_available": _sender_available(conn)}
+
+
+@router.get("/push/tests/{alert_id}")
+def test_status(alert_id: str) -> JSONResponse:
+    if _ALERT_ID.fullmatch(alert_id) is None:
+        raise HTTPException(404, "test notification not found")
+    from sentinel.feed import store as feed_store
+    try:
+        with closing(feed_store.connect(_bounded_dsn(_database_url()),
+                     connect_timeout=3, statement_timeout_ms=2000)) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT alert_id FROM sentinel_alert_outbox"
+                            " WHERE alert_id=%s AND event_type='PUSH_ENROLLMENT_TEST'"
+                            " AND severity='INFO'", (alert_id,))
+                if cur.fetchone() is None:
+                    raise HTTPException(404, "test notification not found")
+            receipt = _test_receipt(conn, outbox.load_alert(conn, alert_id))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, "test notification status unavailable") from exc
+    return JSONResponse(receipt, headers={"Cache-Control": "no-store"})
 
 
 def _public_origin() -> str:
@@ -213,20 +257,21 @@ async def enroll(request: Request) -> JSONResponse:
                     _upsert_subscription(
                         cur, endpoint=endpoint, p256dh=p256dh, auth=auth,
                         user_agent=request.headers.get("user-agent", ""))
-                outbox.enqueue(
+                alert = outbox.enqueue(
                     conn,
                     idempotency_key=f"push-enrollment-test:{sub_id}:{test_id}",
                     event_type="PUSH_ENROLLMENT_TEST", severity="INFO",
                     payload={"subscription_id": sub_id, "test_id": test_id},
                     max_attempts=3)
+                return _test_receipt(conn, alert)
         except HTTPException:
             raise
         except Exception as exc:                                  # noqa: BLE001
             raise HTTPException(
                 503, f"push enrollment unavailable: {type(exc).__name__}") from exc
-    await run_in_threadpool(persist)
+    receipt = await run_in_threadpool(persist)
     return JSONResponse(
-        {"status": "subscribed", "subscription_id": sub_id},
+        {"status": "subscribed", "subscription_id": sub_id, **receipt},
         status_code=201, headers={"Cache-Control": "no-store"})
 
 

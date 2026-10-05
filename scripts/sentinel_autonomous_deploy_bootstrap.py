@@ -361,7 +361,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
 
     def _create_backup(self, *, restore_drill: bool) -> str:
         created = self.runner.run(
-            ["bash", "scripts/sentinel-base-backup.sh"], capture=True)
+            ["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"], capture=True)
         backup = _backup_path(created)
         self.runner.run([
             "bash", "scripts/sentinel-backup-status.sh", "--backup", backup])
@@ -415,6 +415,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         """Persist the exact reviewed activation mode after operational PASS."""
         self.phase("finalize: post-deploy backup, persist facts, and retain receipt")
         post_backup = self._create_backup(restore_drill=True)
+        self.verify_operator_services()
         reviewed = self.reviewed_validation
         activation_mode = reviewed.mode if reviewed is not None else "paper"
         dual = activation_mode == "dual"

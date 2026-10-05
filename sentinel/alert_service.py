@@ -317,6 +317,8 @@ async def run() -> int:
             # Database failures are isolated to database-backed operations. A
             # later webhook failure must never enter this classification path.
             conn = feed_store.connect(config.database_url, connect_timeout=3, statement_timeout_ms=2000)
+            from sentinel.notification_policy import acknowledge_removed_tests
+            acknowledge_removed_tests(conn)
             if registered:
                 alert_health.heartbeat(conn, dispatcher_id=dispatcher_id)
             else:

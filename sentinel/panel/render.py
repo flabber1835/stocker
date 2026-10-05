@@ -180,6 +180,41 @@ PUSH_SCRIPT = r"""
   async function registration() {
     return navigator.serviceWorker.register("/service-worker.js", {scope: "/", updateViaCache: "none"});
   }
+  function deliveryMessage(receipt) {
+    if (receipt.delivery_status === "ACCEPTED") {
+      message("Test accepted by the push service. Check this device’s notifications.");
+      return true;
+    }
+    if (receipt.delivery_status === "FAILED") {
+      message("Test notification failed. Check Alert delivery on the dashboard.");
+      return true;
+    }
+    if (receipt.delivery_status === "CANCELLED") {
+      message("Test cancelled because notifications were disabled on this device.");
+      return true;
+    }
+    message(receipt.sender_available
+      ? "A single test notification is queued; waiting for the push service."
+      : "Test queued, but the notification sender is unavailable. Check Alert delivery on the dashboard.");
+    return false;
+  }
+  async function followTest(receipt) {
+    if (deliveryMessage(receipt) || !receipt.alert_id) { return; }
+    for (var attempt = 0; attempt < 10; attempt++) {
+      await new Promise(function(resolve) { setTimeout(resolve, 2000); });
+      try {
+        var response = await fetch("/push/tests/" + encodeURIComponent(receipt.alert_id), {
+          credentials: "same-origin", cache: "no-store"
+        });
+        if (!response.ok) { throw new Error("status unavailable"); }
+        receipt = await response.json();
+      } catch (_) {
+        message("Test is queued, but its current delivery status could not be read.");
+        return;
+      }
+      if (deliveryMessage(receipt)) { return; }
+    }
+  }
   async function refreshButtons() {
     var reg = await registration();
     var sub = await reg.pushManager.getSubscription();
@@ -220,9 +255,10 @@ PUSH_SCRIPT = r"""
         headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
       });
       if (!response.ok) { throw new Error("Subscription could not be saved."); }
-      message("Subscribed. A single test notification is queued.");
+      var receipt = await response.json();
       remove.hidden = false;
       enable.textContent = "Send test notification";
+      await followTest(receipt);
     } catch (error) {
       message(error && error.message ? error.message : "Notification enrollment failed.");
     } finally { enable.disabled = false; }

@@ -339,6 +339,7 @@ def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
     obj.quiesce_backup_and_migrate = lambda: events.append("quiesce")
     obj.check_durable_deployment_integrity = lambda: events.append("durable-integrity")
     obj.configure_reviewed_mode_while_fenced = lambda: events.append("mode")
+    obj.start_operator_services = lambda: events.append("operator-services")
 
     def fail_install():
         events.append("install")
@@ -350,7 +351,7 @@ def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
         obj.run()
     assert events == [
         "git", "broker-integrity", "build", "quiesce",
-        "durable-integrity", "mode", "install", "fenced"]
+        "durable-integrity", "mode", "operator-services", "install", "fenced"]
 
 
 @pytest.mark.parametrize('authority_failure', [None, 'ownership', 'authority'])
@@ -379,6 +380,7 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path, 
     obj.verify_reviewed_shadow_bindings_quiesced = \
         lambda: events.append("quiesced-review")
     obj.configure_reviewed_mode_while_fenced = lambda: events.append("mode")
+    obj.start_operator_services = lambda: events.append("operator-services")
     obj.start_fenced_runtime = lambda: events.append("shadow-start")
     obj.read_paper_account = lambda: events.append("paper-read")
     def ownership():
@@ -412,10 +414,10 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path, 
 
     assert events == [
         "git", "review", "broker-integrity", "build", "quiesce",
-        "durable-integrity", "quiesced-review", "mode",
+        "durable-integrity", "quiesced-review", "mode", "operator-services",
         "paper-read", "ownership", "authority", "shadow-start",
         "shadow-attested:2026-08-20", "paper-released:2026-08-20",
-        "operational", "panel", "receipt",
+        "operational", "receipt",
     ]
 
 

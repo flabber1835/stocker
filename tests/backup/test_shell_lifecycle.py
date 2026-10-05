@@ -8,6 +8,7 @@ import shutil
 import shlex
 import subprocess
 import sys
+import selectors
 
 import pytest
 
@@ -78,6 +79,45 @@ class ShellLab:
     def events(self):
         return [json.loads(line)["stage"] for line in
                 (self.root / "events.jsonl").read_text().splitlines()]
+
+
+def test_base_backup_shell_waits_without_entering_another_owner(tmp_path):
+    from tests.production_composition.test_go_backup_lock_concurrency import (
+        _backup_holder, _release_holder,
+    )
+    lab = ShellLab(tmp_path)
+    owner = _backup_holder(tmp_path, lab.media)
+    try:
+        contender = subprocess.Popen(
+            ['bash', str(lab.scripts / 'sentinel-base-backup.sh'), '--wait-seconds', '5'],
+            env=lab.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        with selectors.DefaultSelector() as selector:
+            selector.register(contender.stderr, selectors.EVENT_READ)
+            assert selector.select(timeout=5), 'shell never reported waiting'
+            assert '[WAIT]' in contender.stderr.readline()
+        assert not (tmp_path / 'events.jsonl').exists()
+        _release_holder(owner)
+        stdout, stderr = contender.communicate(timeout=20)
+        assert contender.returncode == 0, (stdout, stderr)
+        assert 'verified_base_backup:' in stdout
+        assert len(list(lab.base.glob('base-*'))) == 1
+    finally:
+        if owner.poll() is None:
+            _release_holder(owner)
+        if 'contender' in locals():
+            if contender.poll() is None:
+                contender.terminate()
+            contender.communicate(timeout=10)
+
+
+@pytest.mark.parametrize('wait', ['-1', '3661', '1.5', '١'])
+def test_invalid_shell_backup_wait_cannot_start_producer(tmp_path, wait):
+    lab = ShellLab(tmp_path)
+    result = lab.run('sentinel-base-backup.sh', '--wait-seconds', wait)
+    assert result.returncode == 2
+    assert 'backup lock wait must be an integer' in result.stderr
+    assert not (tmp_path / 'events.jsonl').exists()
+    assert not list(lab.base.glob('base-*'))
 
 
 def _runtime_horizon_lab(tmp_path, count, timeline=1):
