@@ -54,11 +54,13 @@ def test_deploy_success_boundary_stops_before_operational_gates(tmp_path):
 
     assert events == [
         "git", "broker-integrity", "build", "migrate", "durable-integrity",
-        "reviewed-bindings", "mode", "operator-services", "install", ("receipt", True)]
+        "operator-services", "reviewed-bindings", "mode",
+        "operator-services", "install", ("receipt", True)]
 
 
-def test_quiesced_review_failure_precedes_mode_persistence_and_start(tmp_path):
-    reviewed = SimpleNamespace(mode="shadow")
+@pytest.mark.parametrize("mode", ["shadow", "dual", "paper"])
+def test_quiesced_review_failure_precedes_mode_persistence_and_runtime_start(tmp_path, mode):
+    reviewed = SimpleNamespace(mode=mode)
     obj = deploy.AutonomousDeploy(
         SimpleNamespace(), SimpleNamespace(env={}), tmp_path,
         reviewed_validation=reviewed)
@@ -76,6 +78,7 @@ def test_quiesced_review_failure_precedes_mode_persistence_and_start(tmp_path):
         events.append("quiesced-review")
         raise deploy.DeployRefused("publication changed after initial review")
 
+    obj.start_operator_services = lambda: events.append("operator-services")
     obj.verify_reviewed_shadow_bindings_quiesced = changed_publication
     obj.configure_reviewed_mode_while_fenced = lambda: pytest.fail(
         "changed corpus persisted reviewed mode")
@@ -88,7 +91,7 @@ def test_quiesced_review_failure_precedes_mode_persistence_and_start(tmp_path):
 
     assert events == [
         "git", "initial-review", "broker-integrity", "build", "quiesce",
-        "durable-integrity", "quiesced-review", "fail-close"]
+        "durable-integrity", "operator-services", "quiesced-review", "fail-close"]
 
 
 def test_no_args_fenced_install_forces_stale_shadow_configuration_off(tmp_path):
