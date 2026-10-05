@@ -2015,8 +2015,12 @@ class AutonomousDeploy:
         self.new_certificate = digest
         return digest, decision_session
 
+    def assert_activation_timing(self, decision_session: str) -> None:
+        """Install overlays may recheck the actual prospective decision window."""
+
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
+        self.assert_activation_timing(decision_session)
         self.phase("plan: prepare one current durable paper plan")
         prepare_args = [
             "prepare-paper-plan", "--through", decision_session,
@@ -2054,6 +2058,7 @@ class AutonomousDeploy:
                 or killed.get("certificate_sha256") != certificate_sha256):
             raise DeployRefused("automation did not start behind the expected kill fence")
         self.verify_operator_services()
+        self.assert_activation_timing(decision_session)
         self._authorized_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,
@@ -2439,11 +2444,11 @@ class AutonomousDeploy:
             # publisher to move the corpus. Recheck the reviewed publication
             # and exact lineage only after writers are stopped, immediately
             # before any reviewed mode fact is persisted or shadow is started.
+            self.start_operator_services()
             self.verify_reviewed_shadow_bindings_quiesced()
             # This is unconditional. A stale `.env` from an earlier reviewed
             # shadow must never let the no-args fenced installer restart shadow.
             self.configure_reviewed_mode_while_fenced()
-            self.start_operator_services()
             if reviewed is not None and reviewed.mode == "dual":
                 # Enrollment and authority installation share the formation
                 # writer lock. Finish them while the publisher is quiesced.

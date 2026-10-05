@@ -182,7 +182,7 @@ def test_expired_vendor_wait_returns_to_next_causal_session():
     assert instance._causal_wait_target is None
 
 
-def test_publication_bind_rechecks_margin_after_full_verification_and_rolls_back(
+def test_publication_bind_rechecks_open_after_full_verification_and_rolls_back(
         monkeypatch, tmp_path):
     events = []
     instance = _bind_instance(tmp_path)
@@ -197,7 +197,7 @@ def test_publication_bind_rechecks_margin_after_full_verification_and_rolls_back
             remaining=go.MIN_REMAINING_DEADLINE_MARGIN_MS + 5_000),
         _timing(
             frontier="2026-08-27",
-            remaining=go.MIN_REMAINING_DEADLINE_MARGIN_MS - 1),
+            remaining=0),
     ])
     instance._causal_timing = lambda: next(timings)
 

@@ -627,6 +627,7 @@ c.rollback(); c.close()
 
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
+        self.assert_activation_timing(decision_session)
         self.phase("plan: prepare and re-read one exact durable paper plan")
         prepare_args = [
             "prepare-paper-plan", "--through", decision_session,
@@ -672,6 +673,7 @@ c.rollback(); c.close()
             raise core.DeployRefused(
                 "automation did not start behind the expected kill fence")
         self.verify_operator_services()
+        self.assert_activation_timing(decision_session)
         self._authorized_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,

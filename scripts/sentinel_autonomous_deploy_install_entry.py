@@ -343,7 +343,7 @@ finally:
             value.get("target_source_final") is True
             and value.get("prospective") is True
             and type(value.get("remaining_ms")) is int
-            and value["remaining_ms"] >= go.MIN_REMAINING_DEADLINE_MARGIN_MS)
+            and value["remaining_ms"] > 0)
 
     def _assert_causal_vendor_window(
             self, *, sessions: Optional[Sequence[str]] = None) -> None:
@@ -355,7 +355,7 @@ finally:
         if (timing.get("target") != target
                 or not self._timing_eligible(timing)):
             raise CausalSessionExpired(
-                "causal vendor wait lost its exact target or minimum pre-open margin")
+                "causal vendor wait lost its exact target or following-open cutoff")
         if sessions is None:
             return
         requested = tuple(str(item) for item in sessions)
@@ -392,16 +392,25 @@ finally:
 
     def _wait_until_causal_ready(self) -> Mapping:
         """Wait without vendor mutation until the target itself is source-final."""
-        deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
+        deadline = getattr(self, "_causal_wait_deadline", None)
+        if deadline is None:
+            deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
+            self._causal_wait_deadline = deadline
         attempt = 1
         while True:
             self._assert_wait_fence()
             timing = self._causal_timing()
-            if (getattr(self, "_operational_source_only", False)
-                    and timing["frontier"] != timing["target"]):
+            if time.monotonic() >= deadline:
                 raise core.DeployRefused(
-                    "reviewed rolling GO frontier is stale while the shadow "
-                    "publisher is quiesced; run GO again before installation")
+                    "timed out waiting for a causally eligible source-final session; "
+                    "automation remains fenced")
+            if (getattr(self, "_operational_source_only", False)
+                    and self._timing_eligible(timing)
+                    and timing["frontier"] != timing["target"]):
+                from sentinel_install_source_refresh import refresh
+                refresh(self, timing=timing, deadline=deadline)
+                attempt += 1
+                continue
             if not self._timing_eligible(timing):
                 self._write_deployment_state(
                     "WAITING_FOR_CAUSAL_SESSION", attempt=attempt, failures=[])
@@ -460,6 +469,9 @@ finally:
         if reviewed is None:
             raise core.DeployRefused(
                 "causal publication binding requires reviewed validation")
+        wait_deadline = getattr(self, "_causal_wait_deadline", None)
+        if wait_deadline is not None and time.monotonic() >= wait_deadline:
+            raise core.DeployRefused("causal publication binding wait deadline exhausted")
         now_text = go._utc_text(datetime.now(timezone.utc))
         subjects = {}
         timings = {}
@@ -487,7 +499,7 @@ finally:
                 or final_timing.get("frontier") != expected_timing.get("target")
                 or not self._timing_eligible(final_timing)):
             raise CausalSessionExpired(
-                "causal target changed or lost minimum pre-open margin during "
+                "causal target changed or lost following-open cutoff during "
                 "post-wait parity/readiness")
 
         digest = core._validation_subject_digest(
@@ -519,12 +531,14 @@ finally:
             _ORIGINAL_VERIFY(reviewed, env=self.env, invoke=invoke)
             core.verify_reviewed_account_binding(reviewed, self.cfg.account_id)
             binding_timing = self._causal_timing()
+            if wait_deadline is not None and time.monotonic() >= wait_deadline:
+                raise core.DeployRefused("causal publication binding wait deadline exhausted")
             if (binding_timing.get("target") != expected_timing.get("target")
                     or binding_timing.get("frontier")
                         != expected_timing.get("target")
                     or not self._timing_eligible(binding_timing)):
                 raise CausalSessionExpired(
-                    "causal target changed or lost minimum pre-open margin "
+                    "causal target changed or lost following-open cutoff "
                     "before publication authority could be persisted")
         except BaseException:
             reviewed.data_publication_sha256 = prior_reviewed_digest
@@ -559,6 +573,17 @@ finally:
         temporary.replace(path)
         bootstrap._safe_update_dotenv(core.ENV_PATH, {
             "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": digest})
+
+    def assert_activation_timing(self, decision_session: str) -> None:
+        reviewed = self.reviewed_validation
+        if reviewed is None or reviewed.mode not in {"dual", "paper"}:
+            return
+        timing = self._causal_timing()
+        if (timing["target"] != decision_session
+                or timing["frontier"] != decision_session
+                or not self._timing_eligible(timing)):
+            raise core.DeployRefused(
+                "paper activation lost its exact attested decision or following-open cutoff")
 
     def verify_reviewed_shadow_bindings_quiesced(self) -> None:
         reviewed = self.reviewed_validation

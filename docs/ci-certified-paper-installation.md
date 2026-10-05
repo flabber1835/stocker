@@ -352,3 +352,38 @@ computational identity. Keep that immutable build metadata visible; never
 compensate by ignoring the dependency-lock hash or weakening runtime comparison.
 The database password, like the receipt key, is forwarded by environment name
 and never included in Docker command arguments.
+
+## Installation timing and a fenced source-final wait
+
+Decision: 2026-10-05. A cold installation must not require the operator to
+start more than 4h52m30s before the next open. That fixed reserve belongs to the
+GO database processing benchmark. It is not an elapsed installation deadline.
+The installer may bind an independently verified source-final publication while
+its actual following XNYS open is still future. Recheck actual time after
+parity and publication verification, before paper-plan preparation and immediately
+before releasing the kill switch. Losing that window fences activation; never
+backdate evidence, replay a missed open or extend the execution window.
+
+Before the source-final boundary or after a missed open, keep installation
+staged with automation disabled and killed. Start and verify the private panel
+and configured notification dispatcher before this wait. Financial publishers
+remain quiesced until publication and account authority are bound.
+
+When a new source-final session becomes eligible, refresh a behind rolling
+publication through the same canonical Alpaca/OpenFIGI acquisition and durable
+backup guards, with no broker mutations and no Sharadar fallback. Reuse retained
+provider parts and permit one successful refresh per target; polling current
+ready data does not reacquire it. Then re-earn exact parity, readiness, image,
+source/config, account and lineage checks before binding. The original reviewed
+bundle remains unchanged, and the later binding receipt identifies the new
+publication. A changed target during refresh or binding returns to the same
+bounded wait; corruption and non-temporal failures refuse. One monotonic wait
+budget covers the entire attempt, including retries and backup renewal.
+
+Installation may stage at any time; active paper operation still requires an
+actual prospective attested decision and all existing execution/reconciliation
+gates. A slow formation that misses its open fails closed and preserves its
+state for explicit recovery. No local test or staged receipt is trading authority.
+Qualify the former 4h52 boundary, actual-open equality, post-close/source-final
+lag, weekends/holidays, target changes, zero repeated acquisition on polling,
+wait-budget exhaustion, loss of fencing and expiry before kill release.
