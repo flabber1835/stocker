@@ -253,7 +253,7 @@ def test_backup_horizon_precedes_full_validation_and_provider_recheck(
 
 def test_post_validation_provider_change_still_prevents_publication(
         conn, alpaca_path, monkeypatch):
-    from sentinel.feed.alpaca_transport import AlpacaTransportRefused
+    from sentinel.feed.acquisition_parts import SourceRevision
     original = AlpacaSource.corroborate
 
     def changed(source):
@@ -263,7 +263,7 @@ def test_post_validation_provider_change_still_prevents_publication(
         return original(source)
 
     monkeypatch.setattr(AlpacaSource, 'corroborate', changed)
-    with pytest.raises(AlpacaTransportRefused, match='action participants changed'):
+    with pytest.raises(SourceRevision, match='ACTIONS'):
         _publish(conn)
     assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == 0
 
