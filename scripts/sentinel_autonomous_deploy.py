@@ -1703,11 +1703,12 @@ class AutonomousDeploy:
                 print("!! durable emergency fence could not be confirmed", file=sys.stderr)
         except Exception as exc:  # noqa: BLE001 - best-effort emergency path
             print("!! emergency fence error: %s" % exc, file=sys.stderr)
-        try:
-            self._direct_stop_automation()
-            self._direct_stop_shadow()
-        except Exception as exc:  # noqa: BLE001
-            print("!! automation stop error: %s" % exc, file=sys.stderr)
+        for name, stop in (("automation", self._direct_stop_automation),
+                           ("shadow", self._direct_stop_shadow)):
+            try:
+                stop()
+            except Exception as exc:  # noqa: BLE001 - independent best-effort stops
+                print("!! %s stop error: %s" % (name, exc), file=sys.stderr)
 
     @contextlib.contextmanager
     def transition(self):
@@ -1766,7 +1767,7 @@ class AutonomousDeploy:
     def quiesce_backup_and_migrate(self) -> None:
         first_kill = self._quiesce_database()
         self.phase("durability: fresh pre-migration backup and physical replay")
-        self.runner.run(["bash", "scripts/sentinel-base-backup.sh"])
+        self.runner.run(["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"])
         self.runner.run(["bash", "scripts/sentinel-backup-status.sh"])
         self.runner.run([
             "bash", "scripts/sentinel-restore-drill.sh", "--physical-only"])
@@ -2218,7 +2219,7 @@ class AutonomousDeploy:
         update_dotenv(ENV_PATH, updates)
 
     def _post_deploy_backup(self) -> Optional[str]:
-        self.runner.run(["bash", "scripts/sentinel-base-backup.sh"])
+        self.runner.run(["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"])
         self.runner.run(["bash", "scripts/sentinel-backup-status.sh"])
         self.runner.run(["bash", "scripts/sentinel-restore-drill.sh"])
         return None
@@ -2344,7 +2345,7 @@ class AutonomousDeploy:
                     if dual else ""),
             })
         update_dotenv(ENV_PATH, managed)
-        self.runner.run(["bash", "scripts/sentinel-base-backup.sh"])
+        self.runner.run(["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"])
         self.runner.run(["bash", "scripts/sentinel-backup-status.sh"])
         self.runner.run(["bash", "scripts/sentinel-restore-drill.sh"])
         receipt = {

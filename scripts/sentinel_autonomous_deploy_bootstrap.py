@@ -361,7 +361,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
 
     def _create_backup(self, *, restore_drill: bool) -> str:
         created = self.runner.run(
-            ["bash", "scripts/sentinel-base-backup.sh"], capture=True)
+            ["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"], capture=True)
         backup = _backup_path(created)
         self.runner.run([
             "bash", "scripts/sentinel-backup-status.sh", "--backup", backup])

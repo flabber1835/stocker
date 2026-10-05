@@ -33,6 +33,13 @@ competing successor. Historical lookup remains point-in-time and cannot reuse
 that extension for another date. No current ticker is guessed for an unmapped
 broker asset.
 
+Administrative inspection and empty-account binding project the current New
+York calendar date to the XNYS session at or before that date. This admits
+weekend and holiday installation without requesting a nonexistent execution
+session. The next-session identity bound above remains mandatory, and the
+broker observation retains its actual timestamp. See
+[administrative installation policy](ci-certified-paper-installation.md).
+
 Corporate-action reconciliation consumes snapshot bars, benchmark domains,
 bound ACTIONS and normalization split dispositions through the existing scalar
 and material-event algorithm. It does not implement another split policy.

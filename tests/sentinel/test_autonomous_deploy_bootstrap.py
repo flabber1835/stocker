@@ -137,7 +137,8 @@ def test_safe_dotenv_preserves_mode_and_collapses_managed_duplicates(tmp_path):
     assert "sha256:old-a" not in text and "sha256:old-b" not in text
 
 
-def test_backup_checks_and_restore_use_the_exact_created_backup(tmp_path):
+@pytest.mark.parametrize("restore_drill", [False, True], ids=["pre-deploy", "post-deploy"])
+def test_backup_checks_and_restore_use_the_exact_created_backup(tmp_path, restore_drill):
     calls = []
     exact = "/backups/base/base-20260817T120000Z"
 
@@ -145,16 +146,17 @@ def test_backup_checks_and_restore_use_the_exact_created_backup(tmp_path):
         env = {}
         def run(self, args, **kwargs):
             calls.append(list(args))
-            if args[-1] == "scripts/sentinel-base-backup.sh":
+            if args[:2] == ["bash", "scripts/sentinel-base-backup.sh"]:
                 return SimpleNamespace(
                     stdout="verified_base_backup:" + exact + "\n",
                     stderr="", returncode=0)
             return SimpleNamespace(stdout="", stderr="", returncode=0)
 
     obj = bootstrap.BootstrapDeploy(SimpleNamespace(), Runner(), tmp_path)
-    assert obj._create_backup(restore_drill=True) == exact
+    assert obj._create_backup(restore_drill=restore_drill) == exact
+    assert calls[0] == ["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"]
     assert ["bash", "scripts/sentinel-backup-status.sh", "--backup", exact] in calls
-    assert ["bash", "scripts/sentinel-restore-drill.sh", "--backup", exact] in calls
+    assert (["bash", "scripts/sentinel-restore-drill.sh", "--backup", exact] in calls) is restore_drill
 
 
 def test_promoted_runtime_becomes_the_ordinary_cli_image(monkeypatch, tmp_path):

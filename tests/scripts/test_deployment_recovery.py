@@ -10,6 +10,43 @@ import pytest
 from tests.scripts.test_sentinel_reviewed_deploy_gate import ROOT, deploy
 
 
+@pytest.mark.parametrize('failure', ['fence', 'automation', 'shadow'])
+def test_public_installer_failure_cleanup_attempts_every_boundary(failure):
+    script = r'''
+import sys
+from types import SimpleNamespace
+sys.path.insert(0, 'scripts')
+import sentinel_autonomous_deploy_entry as entry
+entry.install_runtime_guards('dual')
+entry.bootstrap._install_wallclock_independent_dual_overlay()
+obj = object.__new__(entry.bootstrap.BootstrapDeploy)
+events = []
+failure = sys.argv[1]
+def boundary(name):
+    def attempt():
+        events.append(name)
+        if name == failure:
+            raise RuntimeError('fixture-' + name)
+        return True
+    return attempt
+obj._try_emergency_kill = boundary('fence')
+obj._direct_stop_automation = boundary('automation')
+obj._direct_stop_shadow = boundary('shadow')
+try:
+    with obj.transition():
+        raise entry.bootstrap.core.DeployRefused('original deployment failure')
+except entry.bootstrap.core.DeployRefused as exc:
+    assert str(exc) == 'original deployment failure'
+else:
+    raise AssertionError('failure was swallowed')
+assert events == ['fence', 'automation', 'shadow'], events
+'''
+    result = subprocess.run([sys.executable, '-c', script, failure], cwd=ROOT,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'fixture-' + failure in result.stderr
+
+
 def test_unreviewed_install_builds_runtime_then_its_test_lens(tmp_path):
     obj = object.__new__(deploy.AutonomousDeploy)
     obj.reviewed_validation = None
