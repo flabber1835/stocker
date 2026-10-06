@@ -10,6 +10,15 @@ database tests passed and backup scenarios were still progressing. These remain
 bounded job deadlines; all existing assertions, scenario ownership checks and
 required-check aggregation remain mandatory.
 
+Decision: 2026-10-06. The complete source-seed warmup lane has a 60-minute
+whole-job budget, including checkout, image download/loading, all 20 tests and
+evidence upload. Its passing PR run needed 37m41s for tests and almost 44 minutes
+overall. The merged run spent 13m11s fetching the repository and exhausted the
+previous 45-minute limit after 19 tests passed. The additional setup margin does
+not remove tests, reduce the million-row fixture, or change production deadlines.
+Rolling lanes retain their 60-minute budget; all other matrix lanes retain 45
+minutes. Exact-source, same-attempt evidence and failure aggregation are unchanged.
+
 ## Read-only operational shadow preflight
 
 The installer must inspect the Alpaca/OpenFIGI lineage under the same closed-
