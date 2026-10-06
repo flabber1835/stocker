@@ -66,6 +66,10 @@ class PreTransportAuthorityRefused(BrokerAuthorityRefused):
     """
 
 
+class OrderFundingNotReady(RuntimeError):
+    """The fixed order is currently unaffordable; no submit was attempted."""
+
+
 class BrokerOperation(str, Enum):
     IDENTIFY_ACCOUNT = "identify_account"
     ACCOUNT_SNAPSHOT = "account_snapshot"
@@ -215,6 +219,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         self._inner = inner
         self._grant = grant
         self._guard = guard
+        self._unsent_proofs = {}
         self.capabilities = inner.capabilities
         self.certification_name = getattr(inner, "certification_name", None)
         from sentinel.execution.certification import (
@@ -413,6 +418,35 @@ class GuardedExecutionBroker(ExecutionBroker):
     async def submit(
             self, *, client_key: str, instrument: BrokerInstrument,
             side: Side, quantity: Decimal) -> CommandOutcome:
+        # A proof is valid only for the immediately preceding guarded attempt.
+        # It cannot survive a later attempt that might cross transport.
+        self._unsent_proofs.clear()
+        try:
+            await self._prepare_submit(instrument=instrument, side=side,
+                                       quantity=quantity)
+        except PreTransportAuthorityRefused as exc:
+            # Issued only before the inner submit call. An inner transport
+            # exception, even one with the same class, cannot acquire a proof.
+            nonce = object()
+            self._unsent_proofs[nonce] = (client_key, instrument, side, quantity)
+            exc._not_transported = nonce
+            raise
+        return await self._inner.submit(
+            client_key=client_key, instrument=instrument,
+            side=side, quantity=quantity)
+
+    def consume_not_transported(self, exc, command) -> None:
+        """Validate a single-use, exact-command proof before journal restoration."""
+        nonce = getattr(exc, '_not_transported', None)
+        actual = self._unsent_proofs.pop(nonce, None)
+        expected = (command.client_key, command.instrument, command.side,
+                    command.quantity)
+        if (not isinstance(exc, PreTransportAuthorityRefused)
+                or actual is None or actual != expected):
+            raise ValueError('no matching unused pre-transport submission proof')
+
+    async def _prepare_submit(self, *, instrument: BrokerInstrument,
+                              side: Side, quantity: Decimal) -> None:
         if (isinstance(self._grant, PaperPreparationGrant)
                 or (isinstance(self._grant, AutomationExecutionGrant)
                     and self._grant.operation_scope != "EXECUTE")):
@@ -463,6 +497,24 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "broker-native instrument identity changed before submit; "
                     f"durable={instrument}, current={current}")
 
+        quote = None
+        if side is Side.BUY and self.capabilities.regular_session_quote_prices:
+            try:
+                from sentinel.execution.opening_prices import OpeningPriceNotReady, RegularQuotes
+                quote = await self.opening_prices(session=clock.timestamp.date(),
+                    instruments={instrument.security_id:instrument})
+                if (not isinstance(quote, RegularQuotes)
+                        or quote.broker_ids.get(instrument.security_id) != instrument.broker_id):
+                    raise ValueError('executable quote names another instrument or evidence type')
+                if instrument.security_id not in quote.prices:
+                    raise OpeningPriceNotReady('fresh executable quote is not available')
+                account = await self.account_snapshot()
+                # Funding does not assume a favourable fill or unsettled proceeds.
+                if quantity * quote.prices[instrument.security_id] > account.cash:
+                    raise OrderFundingNotReady('fresh ask exceeds available cash for the fixed quantity')
+            except Exception as exc:
+                raise PreTransportAuthorityRefused(
+                    'increase quote or affordability unavailable before transport: ' + type(exc).__name__) from exc
         await self._authorize_mutation(BrokerOperation.SUBMIT)
         if side is Side.BUY and self.supports_market_clock:
             try:
@@ -473,20 +525,20 @@ class GuardedExecutionBroker(ExecutionBroker):
                     raise ValueError("broker has no fresh timezone-aware submission clock")
                 from sentinel.feed import calendar
                 opened, closed = calendar.session_window(now.date())
-                latest = min(closed, opened + timedelta(seconds=120))
-                if not opened <= now <= latest:
+                latest = min(closed, opened + timedelta(seconds=600))
+                if not opened <= now < latest:
                     raise ValueError(
                         f"increase freshness expired at {latest.isoformat()}; "
                         f"submission time is {now.isoformat()}")
+                if quote is not None and now - quote.quoted_at[instrument.security_id] > timedelta(seconds=60):
+                    from sentinel.execution.opening_prices import OpeningPriceNotReady
+                    raise OpeningPriceNotReady('executable quote expired during submission authority checks')
             except PreTransportAuthorityRefused:
                 raise
             except Exception as exc:                          # noqa: BLE001
                 raise PreTransportAuthorityRefused(
                     "increase refused at final next-open freshness boundary: "
                     f"{type(exc).__name__}: {exc}") from exc
-        return await self._inner.submit(
-            client_key=client_key, instrument=instrument,
-            side=side, quantity=quantity)
 
     async def cancel(self, broker_order_id: str) -> CommandOutcome:
         if (isinstance(self._grant, PaperPreparationGrant)

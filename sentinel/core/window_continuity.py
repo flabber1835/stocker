@@ -51,7 +51,15 @@ def prepare(conn, *, prior, previous_binding, publication, binding):
         if not anchor:
             raise RollingContinuityRefused('LIVE_SIGNAL_ANCHOR_REQUIRED: '+sid)
         anchors[sid] = anchor[0]
-    prices = reader.prices(session=session, spy_sessions=254, anchor_sessions=anchors)
+    try:
+        prices = reader.prices(session=session, spy_sessions=254, anchor_sessions=anchors)
+    except RuntimeError as exc:
+        from sentinel.core.rolling_reader import RollingReaderRefused
+        if (isinstance(exc, RollingReaderRefused) and str(exc) == 'LIVE_SIGNAL_ANCHOR_MISSING'
+                and refs.manifest.provider == 'ALPACA_OPENFIGI'):
+            from sentinel.rolling_reconstruction_evidence import InputsUnavailable
+            raise InputsUnavailable('HELD_ECONOMIC_INPUT_PENDING:' + session) from exc
+        raise
     economics = protected_economics(conn, previous=previous, current=refs, live=live,
         start=str(refs.manifest.window.start), cursor=cursor)
     meta, sectors = refs.current_metadata()

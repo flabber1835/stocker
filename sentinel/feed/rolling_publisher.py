@@ -209,7 +209,7 @@ def _prepare(conn, job_id, *, operational):
         ready = current["state"] == "READY"
         if current["state"] not in {"ACQUIRING", "READY"}:
             raise ComparisonRefused("unexpected persisted direct-builder stage")
-        with store.corpus_write_lock(conn):
+        with store.acquisition_write_lock(conn):
             boundary.freeze(conn, lease, request)
             conn.commit()
         corrections = None
@@ -250,7 +250,7 @@ def _prepare(conn, job_id, *, operational):
             source.tickers = rolling_store.load_evidence(conn, manifest.reference_sha256)["tickers"]
         with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):
             if not ready:
-                with store.corpus_write_lock(conn):
+                with store.acquisition_write_lock(conn):
                     identity.require_feed_producer_identity()
                     rolling_builder.build(conn, lease, request, source)
                     conn.commit()
@@ -267,10 +267,17 @@ def _prepare(conn, job_id, *, operational):
                 with progress.phase("rolling_operational_validation", job_id=job_id):
                     operational_snapshot.validate(conn, lease, request)
                     conn.commit()
+                # Staging validation deliberately uses archive health only.
+                # Once READY, prove financial durability before the final
+                # provider reobservation, so a horizon renewal cannot duplicate
+                # that expensive network work. Publication checks again.
+                backup_runtime_authority.require(conn, operation="operational publication preflight")
+                conn.commit()
             rolling_work.checkpoint()
             with acquisition_work.budget(seconds=min(500, jobs.status(conn, job_id)["remaining_seconds"])):
                 conn.commit()
-                source.corroborate()
+                with progress.phase('rolling_source_corroboration', job_id=job_id):
+                    source.corroborate()
             rolling_work.checkpoint()
         phase = "rolling_operational_publication" if operational else "rolling_comparison_publication"
         with progress.phase(phase, job_id=job_id), store.corpus_write_lock(conn):

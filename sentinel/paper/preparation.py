@@ -393,7 +393,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 if observation_time < not_before:
                     raise PaperRetryableRefused(
                         "informational PAPER unit revalidation waits for the "
-                        "reviewed source-final 23:45 New York boundary")
+                        "closed exchange session and validated provider input")
                 try:
                     informational_paper_mirror.revalidate_all(
                         conn, checked_through=through_date,

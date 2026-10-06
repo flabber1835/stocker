@@ -60,7 +60,7 @@ def operational_values(values: Mapping[str, str]) -> Dict[str, str]:
 HEX64_OR_EMPTY = re.compile(r"(?:|[0-9a-f]{64})\Z")
 OBSERVATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,63}\Z")
 PUBLICATION_POLICY = (
-    "ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
+    "ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2")
 FLEX_BOOLEAN = frozenset({
     "", "0", "1", "false", "true", "no", "yes", "off", "on",
 })

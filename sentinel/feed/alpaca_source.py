@@ -134,7 +134,9 @@ class AlpacaSource:
         retained = self.parts._manifest(row[0])
         if retained is None or retained[0]['generation'].get('provider') != self.provider:
             return {}
-        return retained[1].get('classifications', {})
+        return openfigi.reuse_classifications(self.assets,
+            previous_assets=retained[1].get('assets', []),
+            observations=retained[1].get('classifications', {}))
 
     def _classified_references(self, base, checkpoint):
         captured = self._part('TICKERS.ASSETS', {**base, 'component': 'assets'},
@@ -340,7 +342,9 @@ class AlpacaSource:
         # Reobserve current admission metadata and actions after the long price
         # acquisition. A changed provider view cannot certify this candidate.
         newer, *_ = self._inventory()
-        if newer["assets"] != self.assets:
+        before_inventory = [openfigi.listing_identity(asset) for asset in self.assets]
+        after_inventory = [openfigi.listing_identity(asset) for asset in newer['assets']]
+        if after_inventory != before_inventory:
             raise SourceRevision("*", digest(self.assets), digest(newer["assets"]))
         actions, *_ = self._action_rows()
         if (frozenset(actions["affected"]) != self.action_affected

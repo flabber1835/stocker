@@ -20,6 +20,7 @@ def advance_one(conn, *, through, observation_id, starting_cash):
     try:
         inputs.require_schemas(conn)
         context = initial._context(observation_id, starting_cash)
+        _prepare_missing(conn, context=context, through=through)
         with journal.writer_lock(conn), snapshots.pinned(conn, commit=False):
             checkpoint, observer, prior, attested, previous = runtime._closure(conn, context)
             if checkpoint.session == through and isinstance(attested, authority.ReconstructionReceipt):
@@ -33,10 +34,19 @@ def advance_one(conn, *, through, observation_id, starting_cash):
                 raw = checkpoint.publication
                 pub = publication.Publication(raw["version"], raw["previous_version"], raw["run_id"],
                                               *raw["window"], raw["evidence"])
-                evidence.require_dated(conn, pub)
+                evidence.require_inputs(conn, pub)
                 result = prior
             else:
-                pub, binding = evidence.select(conn, session=session, previous_version=prior.state.data_version)
+                try:
+                    pub, binding = evidence.select(conn, session=session, previous_version=prior.state.data_version)
+                except evidence.InputsUnavailable as exc:
+                    if not str(exc).startswith('MISSING_DATED_PUBLICATION:'):
+                        raise
+                    pub = snapshots._current(conn)
+                    if (pub.window_end != session or pub.version <= prior.state.data_version
+                            or not pub.evidence.get('operational_recovery')):
+                        raise
+                    binding = evidence.require_inputs(conn, pub)
                 inputs.validate_reconstruction(conn, pub, summary_only=True)
                 result = daily.commit_next(
                     conn, checkpoint=checkpoint, observer=observer, prior=prior, pub=pub, binding=binding,
@@ -64,3 +74,39 @@ def advance_one(conn, *, through, observation_id, starting_cash):
     except BaseException:
         conn.rollback()
         raise
+
+
+def _prepare_missing(conn, *, context, through):
+    """Release the read pin before acquisition; freeze against the retained cursor."""
+    from sentinel import rolling_runtime as runtime, shadow_budget
+    from sentinel.core import window_policy
+    from sentinel.feed import preparation_wait
+    if not window_policy.enabled(context['strategy']):
+        return
+    with snapshots.pinned(conn, commit=False):
+        checkpoint, _, prior, attested, _ = runtime._closure(conn, context)
+        if attested is None:
+            conn.rollback()
+            return
+        session = calendar.next_session(checkpoint.session)
+        if session > through:
+            conn.rollback()
+            return
+        try:
+            evidence.select(conn, session=session, previous_version=prior.state.data_version)
+            conn.rollback()
+            return
+        except evidence.InputsUnavailable as exc:
+            if not str(exc).startswith('MISSING_DATED_PUBLICATION:'):
+                raise
+        current = snapshots._current(conn)
+        if current.window_end == session and current.evidence.get('operational_recovery'):
+            evidence.require_inputs(conn, current)
+            conn.rollback()
+            return
+    conn.rollback()
+    job = snapshots.enqueue_reconstruction(conn, session=session, cursor=checkpoint.session,
+        strategy_sha256=digest(context['strategy']), dependencies_sha256=digest('operational-recovery/1'),
+        absolute_deadline=shadow_budget.cutoff())
+    conn.commit()
+    preparation_wait.run(conn, job, prepare=snapshots.prepare, check_target=lambda:None)

@@ -99,15 +99,15 @@ class AutomationConfig(_FrozenModel):
     schema_version: int = Field(default=1, ge=1)
     publication_timing_policy: str = Field(
         default=(
-            "ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1"),
+            "ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2"),
         pattern=(
-            r"^ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1$"))
+            r"^ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2$"))
     # Retained in the v1 identity for compatibility with already persisted
     # configuration rows. Scheduling no longer derives source finality from a
     # close-relative delay; publication_timing_policy is authoritative.
     publication_delay_seconds: int = Field(default=900, ge=0)
     execution_delay_seconds: int = Field(default=60, ge=0)
-    maximum_execution_lateness_seconds: int = Field(default=60, ge=0)
+    maximum_execution_lateness_seconds: int = Field(default=540, ge=0)
     lease_seconds: int = Field(default=45, ge=3)
     heartbeat_seconds: int = Field(default=10, ge=1)
     callback_deadline_seconds: int = Field(default=900, ge=1)

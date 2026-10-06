@@ -20,6 +20,59 @@ def enqueue(conn):
     return job
 
 
+def test_backup_renewal_keeps_ready_candidate_and_does_not_repeat_downloads(conn, alpaca_path, monkeypatch, capsys):
+    from sentinel import backup_runtime_authority as backup
+    job = enqueue(conn)
+    deadline = jobs.status(conn, job)['deadline']
+    require, corroborate = backup.require, AlpacaSource.corroborate
+    ready_checks, observations = [], []
+    def durability(conn, *, operation, **kwargs):
+        if operation == 'operational publication preflight':
+            ready_checks.append(operation)
+            if len(ready_checks) == 1:
+                raise backup.BackupHorizonExceeded('fixture restore horizon exceeded')
+        return require(conn, operation=operation, **kwargs)
+    def observed(source):
+        observations.append(True)
+        return corroborate(source)
+    monkeypatch.setattr(backup, 'require', durability)
+    monkeypatch.setattr(AlpacaSource, 'corroborate', observed)
+    with pytest.raises(backup.BackupHorizonExceeded) as paused:
+        op.prepare(conn, job)
+    assert paused.value.resume_job_id == job
+    assert observations == [] and jobs.status(conn, job)['candidate_id'] is not None
+    candidate = jobs.status(conn, job)['candidate_id']
+    downloads = sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls)
+    conn.execute('UPDATE sentinel_snapshot_jobs SET next_retry=clock_timestamp() WHERE job_id=%s', (job,))
+    conn.commit()
+    result = op.prepare(conn, job)
+    assert result['candidate_id'] == candidate and jobs.status(conn, job)['deadline'] == deadline
+    assert sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls) == downloads
+    assert observations == [True] and len(ready_checks) == 2
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_corpus_publications').fetchone()[0] == 1
+    from scripts import sentinel_go_feed_progress
+    progress_output = capsys.readouterr().err
+    assert progress_output.count('"stage": "rolling_source_corroboration"') == 2
+    parsed = sentinel_go_feed_progress.collect(progress_output)
+    assert [event['status'] for event in parsed if event['stage'] == 'rolling_source_corroboration'] == [
+        'started', 'completed']
+
+
+def test_removed_publication_preflight_is_detected(conn, alpaca_path, monkeypatch, capsys):
+    """A guard-removal falsifier; mutation exists only in this test process."""
+    import inspect
+    from sentinel.feed import rolling_publisher
+    original = inspect.getsource(rolling_publisher._prepare)
+    guard = 'backup_runtime_authority.require(conn, operation="operational publication preflight")'
+    assert guard in original
+    namespace = dict(vars(rolling_publisher))
+    exec(compile(original.replace(guard, 'pass'), '<removed publication preflight>', 'exec'), namespace)
+    monkeypatch.setattr(rolling_publisher, '_prepare', namespace['_prepare'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_backup_renewal_keeps_ready_candidate_and_does_not_repeat_downloads(
+            conn, alpaca_path, monkeypatch, capsys)
+
+
 def changing_source(fake, monkeypatch, *, change, persistent=False):
     version = [0]
     observed = []
@@ -139,6 +192,30 @@ def test_inventory_revision_rebuilds_classification_and_aggregate_references(
     assert manifest.bar_count == 900
     reference = rolling_store.load_evidence(conn, manifest.reference_sha256)
     assert {row['ticker'] for row in reference['tickers']} == {'AAA','BBB','CCC'}
+
+
+def test_cosmetic_inventory_revision_does_not_repeat_acquisition(
+        conn, alpaca_path, monkeypatch):
+    original = alpaca_path.get
+    reads = []
+
+    def inventory(endpoint, params=None, **kwargs):
+        data, proof = original(endpoint, params, **kwargs)
+        if endpoint == ASSETS:
+            reads.append(endpoint)
+            data = deepcopy(data)
+            for asset in data:
+                asset['name'] = 'Updated label' if len(reads) > 1 else 'Original label'
+        return data, proof
+
+    monkeypatch.setattr(alpaca_path, 'get', inventory)
+    job = enqueue(conn)
+    result = preparation_wait.run(conn, job, prepare=op.prepare, check_target=lambda:None)
+    assert result['job_id'] == job
+    assert len(reads) == 2
+    assert len(alpaca_path.classifier.calls) == 1
+    assert conn.execute('SELECT count(*) FROM sentinel_snapshot_jobs').fetchone()[0] == 1
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_successors').fetchone()[0] == 0
 
 
 def test_persistent_alpaca_revision_exhausts_fixed_successor_budget(

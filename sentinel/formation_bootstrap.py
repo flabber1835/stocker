@@ -1,7 +1,7 @@
 """Broker-free formation under the existing writer and publication locks."""
 import hmac
 
-from sentinel import backup_runtime_authority, formed_origin, observation_storage
+from sentinel import backup_runtime_authority, formed_origin, observation_storage, formation_cache
 from sentinel.core.formation import Formation, FormationPlan
 from sentinel.core.formation_inputs import FormationInputs
 from sentinel.feed import progress, publication
@@ -87,10 +87,19 @@ def prepare(conn, *, pub, binding, context, check_current):
     check_current()
     retire_previous_generation(conn, name, bound, plan)
     formed = read(conn, name, bound, plan)
+    cache = formation_cache.location(plan)
+    if formed is None:
+        formed = formation_cache.reusable(cache, plan)
+        if formed is not None:
+            check_current()
+            write(conn, name, formed, bound)
+            progress.emit('historical_formation', 'completed' if formed.complete else 'working',
+                          sessions=formed.count, required_sessions=126, reason='AUTHENTICATED_WORK_REUSED')
     if formed is None:
         formed = Formation(plan, source.warmup(), data_version=pub.version)
         check_current()
         write(conn, name, formed, bound)
+        formation_cache.remember(cache, formed)
         progress.emit('historical_formation', 'started', sessions=0, required_sessions=126)
     while not formed.complete:
         check_current()
@@ -99,6 +108,7 @@ def prepare(conn, *, pub, binding, context, check_current):
         # loads the exact committed cursor and cannot apply a session twice.
         check_current()
         write(conn, name, formed, bound)
+        formation_cache.remember(cache, formed)
         if formed.count % 10 == 0 or formed.complete:
             progress.emit('historical_formation', 'completed' if formed.complete else 'working',
                           sessions=formed.count, required_sessions=126, session=formed.state.last_processed_session)

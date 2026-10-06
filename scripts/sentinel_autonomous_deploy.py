@@ -82,7 +82,7 @@ DATA_PUBLICATION_SCHEMA = "sentinel.data-publication-binding/1"
 SHADOW_EXECUTION_MODEL = "PROSPECTIVE_CONCORDANCE_SCALAR_CORE_BIL_V3"
 SHADOW_CUTOFF_POLICY = "STRICT_BEFORE_OFFICIAL_NEXT_XNYS_OPEN_V1"
 SHADOW_PUBLICATION_TIMING_POLICY = (
-    "ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
+    "ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2")
 _OBSERVATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$")
 VALIDATION_MEMBERS = frozenset({
     "validation.json",
@@ -2121,7 +2121,8 @@ class AutonomousDeploy:
         self.phase(
             "shadow: wait for current decision-close runtime attestation")
         started = time.monotonic()
-        deadline = started + self.cfg.formation_timeout_seconds
+        deadline = started + max(self.cfg.formation_timeout_seconds,
+                                 getattr(self.cfg, 'data_wait_timeout_seconds', 0))
         last_report = started
         last = None
         while time.monotonic() < deadline:
@@ -2137,7 +2138,8 @@ class AutonomousDeploy:
                 except json.JSONDecodeError:
                     last = None
                 if (isinstance(last, dict)
-                        and last.get("session") == decision_session
+                        and isinstance(last.get('session'), str)
+                        and last['session'] >= decision_session
                         and last.get("shadow_verdict") == "SHADOW_GO"
                         and last.get("verification") == "VERIFIED"):
                     return last
@@ -2461,7 +2463,11 @@ class AutonomousDeploy:
                 certificate, decision_session = (
                     self.rotate_observation_authority())
                 self.start_fenced_runtime()
-                self._wait_for_dual_shadow_session(decision_session)
+                shadow_ready = self._wait_for_dual_shadow_session(decision_session)
+                # A midday origin is state-only. The first prospective shadow
+                # decision may be the next close; activation uses that actual
+                # attested session, never the origin's expired execution date.
+                decision_session = shadow_ready['session']
                 self.prepare_activate_start(certificate, decision_session)
                 health = self.verify_operational(certificate)
                 self.persist_success(health)

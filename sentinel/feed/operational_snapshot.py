@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, time, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone
 
 from sentinel import backup_runtime_authority, identity
 from sentinel.feed import calendar, publication, rolling_jobs as jobs, rolling_store, store
 from sentinel.feed.rolling_contract import FormationWindow, PriceWindow, digest
+from sentinel.feed.observation_timing import latest_acquirable_session
 
 SCHEMA = "sentinel.operational-snapshot-publication/1"
 VALIDATION_SCHEMA = "sentinel.operational-snapshot-validation/1"
@@ -25,10 +25,7 @@ def source_final_session(now=None):
     now = _now() if now is None else now
     if now.tzinfo is None or now.utcoffset() is None:
         raise OperationalSnapshotRefused("SOURCE_CLOCK_MUST_BE_AWARE")
-    now = now.astimezone(ZoneInfo("America/New_York"))
-    latest = calendar.latest_closed_session(now)
-    not_before = datetime.combine(datetime.fromisoformat(latest).date(), time(23, 45), now.tzinfo)
-    return latest if now >= not_before else calendar.previous_sessions(latest, 2)[0]
+    return latest_acquirable_session(now)
 
 
 def registered(conn, job_id):
@@ -86,6 +83,36 @@ def acquisition_window(conn, strategy_sha256):
     return PriceWindow.through(source_final_session())
 
 
+def enqueue_reconstruction(conn, *, session, cursor, strategy_sha256,
+                           dependencies_sha256, budget_seconds=3600, absolute_deadline=None):
+    """Acquire a missed bounded transition now; never backdate publication."""
+    current = _current(conn)
+    request = jobs.PreparationRequest(window=PriceWindow.through(session),
+        cursor=cursor, expected_publication_version=current.version if current else None,
+        strategy_sha256=strategy_sha256,
+        dependencies_sha256=digest({'schema': SCHEMA, 'scope':'CURRENT_INFORMATION_RECOVERY_V1',
+                                    'dependencies':dependencies_sha256}))
+    _require_reconstruction_request(conn, request)
+    job = jobs.enqueue(conn, request, budget_seconds=budget_seconds, absolute_deadline=absolute_deadline)
+    conn.execute('INSERT INTO sentinel_operational_snapshot_jobs VALUES (%s) ON CONFLICT DO NOTHING', (job,))
+    return job
+
+
+def _require_reconstruction_request(conn, request):
+    from sentinel import rolling_checkpoint, rolling_daily_checkpoint
+    from sentinel.core import window_policy
+    from sentinel.strategy import production_strategy
+    _, strategy = production_strategy()
+    previous = rolling_daily_checkpoint.read(conn) or rolling_checkpoint.read(conn)
+    if (not window_policy.enabled(strategy) or request.strategy_sha256 != digest(strategy)
+            or request.cursor is None or previous is None
+            or previous.session != str(request.cursor)
+            or calendar.next_session(previous.session) != str(request.window.end)
+            or str(request.window.end) > source_final_session()
+            or type(request.window) is not PriceWindow):
+        raise OperationalSnapshotRefused('RECONSTRUCTION_REQUEST_NOT_BOUND_TO_RETAINED_BOOK')
+
+
 def freeze(conn, lease, request):
     store._assert_corpus_locked(conn)
     jobs._owned(conn, lease)
@@ -98,9 +125,12 @@ def freeze(conn, lease, request):
     current = _current(conn)
     if (current.version if current else None) != request.expected_publication_version:
         raise OperationalSnapshotRefused("PUBLICATION_CAS_CHANGED")
-    if str(request.window.end) != source_final_session():
+    reconstruction = request.cursor is not None
+    if reconstruction:
+        _require_reconstruction_request(conn, request)
+    elif str(request.window.end) != source_final_session():
         raise OperationalSnapshotRefused("SOURCE_FINAL_TARGET_CHANGED")
-    if current and current.window_end and str(request.window.end) < current.window_end:
+    if not reconstruction and current and current.window_end and str(request.window.end) < current.window_end:
         raise OperationalSnapshotRefused("PUBLICATION_FRONTIER_REGRESSION")
     if isinstance(request.window, FormationWindow):
         expected = acquisition_window(conn, request.strategy_sha256)
@@ -116,7 +146,7 @@ def validate(conn, lease, request):
         raise OperationalSnapshotRefused("OPERATIONAL_VALIDATION_REQUIRES_READY")
     candidate = str(row[6])
     manifest = rolling_store.manifest(conn, candidate)
-    backup_runtime_authority.require(conn, operation="operational snapshot validation")
+    backup_runtime_authority.require_staging(conn, operation="operational snapshot validation")
     jobs._owned(conn, lease)
     readiness_inputs(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id)
     proof = {"schema": VALIDATION_SCHEMA, "scope": "DATA_ONLY",
@@ -217,6 +247,12 @@ def publish(conn, lease, request, *, producer):
                     "job_id": lease.job_id, "validation_sha256": validated[0]},
                 "strategy_history": {"schema": "sentinel.strategy-history-mutations/1",
                     "baseline_version": version, "publication_version": version, "changes": []}}
+    if request.cursor is not None:
+        evidence['operational_recovery'] = {
+            'schema':'sentinel.current-information-recovery-inputs/1',
+            'policy':'CURRENT_INFORMATION_RECOVERY_V1', 'cursor':str(request.cursor),
+            'session':str(request.window.end), 'observed_at':at.isoformat(),
+            'historical_availability_claim':False, 'broker_authority':False}
     from sentinel.feed import action_history, rolling_work
     with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):
         evidence["action_history"] = action_history.append(

@@ -210,6 +210,35 @@ def _reconstruct_copies(dockerfile: Path, build_root: Path, image_root: Path) ->
     return app
 
 
+def test_ci_lens_progress_parser_resolves_from_its_copied_namespace(tmp_path):
+    """A checkout's full scripts directory must not mask an incomplete CI lens."""
+    destination = '/work/scripts/sentinel_go_feed_progress.py'
+    sources = [source for source, target in _copy_directives(ROOT / 'Dockerfile.sentinel-test')
+               if target == destination]
+    assert len(sources) == 1, 'CI lens progress parser COPY missing or ambiguous'
+    target = tmp_path / destination.lstrip('/')
+    target.parent.mkdir(parents=True)
+    shutil.copy2(ROOT / sources[0], target)
+    result = subprocess.run(
+        [sys.executable, '-I', '-c',
+         "import sys; sys.path.insert(0, sys.argv[1]); "
+         "from scripts import sentinel_go_feed_progress as progress; "
+         "assert progress.__file__ == sys.argv[2]; "
+         "assert 'rolling_source_corroboration' in progress.STAGES",
+         str(tmp_path / 'work'), str(target)],
+        cwd=tmp_path, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+
+
+def test_ci_lens_missing_progress_parser_copy_is_detected(tmp_path, monkeypatch):
+    original = _copy_directives
+    monkeypatch.setattr(sys.modules[__name__], '_copy_directives',
+        lambda path: [(source, target) for source, target in original(path)
+                      if target != '/work/scripts/sentinel_go_feed_progress.py'])
+    with pytest.raises(AssertionError, match='CI lens progress parser COPY missing'):
+        test_ci_lens_progress_parser_resolves_from_its_copied_namespace(tmp_path)
+
+
 class TestCopyDirectiveReconstruction:
     @pytest.mark.parametrize("instruction, expected", [
         ("COPY source /app/target\n", [("source", "/app/target")]),

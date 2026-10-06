@@ -12,7 +12,7 @@ import pytest
 from sentinel.authority import RolloutMode, RolloutState
 from sentinel.core import decision
 from sentinel.execution import opening_sizing, target_reprojection as projections
-from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable, parse_bars, ENDPOINT
+from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable, parse_bars
 from sentinel.execution.plan import OpeningIntent
 from sentinel.execution.contract import BrokerInstrument
 from sentinel.feed import calendar
@@ -215,7 +215,7 @@ def test_projection_json_round_trip_and_tamper_refusal():
 
 
 @pytest.mark.asyncio
-async def test_alpaca_reads_free_raw_iex_opening_minute_after_it_completes():
+async def test_alpaca_reads_free_raw_iex_regular_quotes():
     from sentinel.execution.alpaca import AlpacaExecutionBroker
     opened, _ = calendar.session_window(EFFECTIVE_SESSION)
     calls = []
@@ -226,19 +226,19 @@ async def test_alpaca_reads_free_raw_iex_opening_minute_after_it_completes():
         async def get(self, url, *, headers, params):
             calls.append((url, params))
             return SimpleNamespace(status_code=200, raise_for_status=lambda: None,
-                                   json=lambda **kwargs: bar_payload())
+                                   json=lambda **kwargs: {'quotes':{'AAA':{
+                                       't':(opened+timedelta(minutes=1)).isoformat(),
+                                       'ap':50,'bp':49.99,'as':100,'bs':100}}})
     broker = AlpacaExecutionBroker(api_key="test", secret_key="test",
         base_url="https://paper-api.alpaca.markets", http_provider=lambda: SimpleNamespace(AsyncClient=Client),
         clock_provider=lambda: opened+timedelta(minutes=1))
     result = await broker.opening_prices(session=EFFECTIVE_SESSION,
         instruments={"SEC-AAA": BrokerInstrument("SEC-AAA", "AAA", "asset")})
     assert result.prices["SEC-AAA"] == 50
-    assert calls[0][0] == ENDPOINT
-    assert calls[0][1] == {"symbols": "AAA", "feed": "iex", "adjustment": "raw",
-        "timeframe": "1Min", "start": opened.isoformat(),
-        "end": (opened+timedelta(minutes=1, microseconds=-1)).isoformat(),
-        "asof": EFFECTIVE_SESSION.isoformat(), "sort": "asc", "limit": 10000, "currency": "USD"}
-    broker._clock_provider = lambda: opened
+    from sentinel.execution.opening_prices import QUOTE_ENDPOINT
+    assert calls[0][0] == QUOTE_ENDPOINT
+    assert calls[0][1] == {"symbols": "AAA", "feed": "iex"}
+    broker._clock_provider = lambda: opened+timedelta(minutes=10)
     with pytest.raises(OpeningPriceUnavailable):
         await broker.opening_prices(session=EFFECTIVE_SESSION,
             instruments={"SEC-AAA": BrokerInstrument("SEC-AAA", "AAA", "asset")})

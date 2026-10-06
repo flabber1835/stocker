@@ -345,6 +345,11 @@ finally:
             and type(value.get("remaining_ms")) is int
             and value["remaining_ms"] > 0)
 
+    def _data_timing_eligible(self, value: Mapping) -> bool:
+        if getattr(self, '_operational_source_only', False):
+            return value.get('target_source_final') is True
+        return self._timing_eligible(value)
+
     def _assert_causal_vendor_window(
             self, *, sessions: Optional[Sequence[str]] = None) -> None:
         """Recheck the exact session window before any Sharadar-side operation."""
@@ -405,13 +410,13 @@ finally:
                     "timed out waiting for a causally eligible source-final session; "
                     "automation remains fenced")
             if (getattr(self, "_operational_source_only", False)
-                    and self._timing_eligible(timing)
+                    and self._data_timing_eligible(timing)
                     and timing["frontier"] != timing["target"]):
                 from sentinel_install_source_refresh import refresh
                 refresh(self, timing=timing, deadline=deadline)
                 attempt += 1
                 continue
-            if not self._timing_eligible(timing):
+            if not self._data_timing_eligible(timing):
                 self._write_deployment_state(
                     "WAITING_FOR_CAUSAL_SESSION", attempt=attempt, failures=[])
                 print("\nDEPLOYMENT STAGED: WAITING_FOR_CAUSAL_SESSION", flush=True)
@@ -471,7 +476,9 @@ finally:
         deadline = getattr(self, "_causal_wait_deadline", None)
 
         def execute(argv, **kwargs):
-            remaining = (opened - datetime.now(timezone.utc)).total_seconds()
+            remaining = (deadline - time.monotonic() if
+                         getattr(self, '_operational_source_only', False) and deadline is not None
+                         else (opened - datetime.now(timezone.utc)).total_seconds())
             if deadline is not None:
                 remaining = min(remaining, deadline - time.monotonic())
             if remaining <= 0:
@@ -518,7 +525,7 @@ finally:
         final_timing = self._causal_timing()
         if (final_timing.get("target") != expected_timing.get("target")
                 or final_timing.get("frontier") != expected_timing.get("target")
-                or not self._timing_eligible(final_timing)):
+                or not self._data_timing_eligible(final_timing)):
             raise CausalSessionExpired(
                 "causal target changed or lost following-open cutoff during "
                 "post-wait parity/readiness")
@@ -557,7 +564,7 @@ finally:
             if (binding_timing.get("target") != expected_timing.get("target")
                     or binding_timing.get("frontier")
                         != expected_timing.get("target")
-                    or not self._timing_eligible(binding_timing)):
+                    or not self._data_timing_eligible(binding_timing)):
                 raise CausalSessionExpired(
                     "causal target changed or lost following-open cutoff "
                     "before publication authority could be persisted")

@@ -1,5 +1,10 @@
 # Sentinel — operational deployment ground truth
 
+[Current unattended operating contract](unattended-operating-contract.md)
+supersedes the fixed 23:45 source clock and the related installation, formation,
+outage reconstruction and free-feed execution restrictions described below.
+Older records preserve their historical scope; they are not the active policy.
+
 [CI-certified paper installation](ci-certified-paper-installation.md) extends
 the existing single-runtime contract through reviewed activation. Candidate and
 runtime roles may bind the same signed image; normal installation reuses the
@@ -37,10 +42,12 @@ existing signed admission and deployed qualification gates.
 [Operational completion](alpaca-operational-readiness.md) supersedes the Nasdaq
 classification policy with typed OpenFIGI mappings and retained daily reuse.
 OPENFIGI_API_KEY is optional; unauthenticated mapping uses smaller paced batches.
-Use the new ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1 timing policy;
-an explicitly configured older Nasdaq policy must be updated before installation.
-Free execution sizing uses raw IEX opening-minute evidence, with the same price
-freshness and execution guards. Formation reuses bounded price work while keeping
+Use ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2; explicitly configured older
+Nasdaq or fixed-clock policies must be updated before installation. Closed-session
+availability depends on validated provider coverage, not a wall-clock promise.
+Free execution sizing uses fresh raw IEX bid/ask quotes in the first ten regular
+session minutes, with per-security availability and fresh pre-submit funding
+checks. Formation reuses authenticated calculation work while keeping
 every canonical decision's exact trailing 300-session inputs.
 
 [Large reference storage](rolling-snapshot-storage.md#large-reference-representation)

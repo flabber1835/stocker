@@ -65,7 +65,7 @@ DATA_PUBLICATION_SCHEMA = "sentinel.data-publication-binding/1"
 SHADOW_EXECUTION_MODEL = "PROSPECTIVE_CONCORDANCE_SCALAR_CORE_BIL_V3"
 SHADOW_CUTOFF_POLICY = "STRICT_BEFORE_OFFICIAL_NEXT_XNYS_OPEN_V1"
 SHADOW_PUBLICATION_TIMING_POLICY = (
-    "ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
+    "ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2")
 
 GATE_IDS = (
     "git_identity",
@@ -112,7 +112,8 @@ DUAL_RUN_NO_GO = "DUAL_RUN_NO_GO"
 PAPER_GO = "PAPER_EXECUTION_GO"
 PAPER_NO_GO = "PAPER_EXECUTION_NO_GO"
 
-# The fixed reviewed source-final boundary is 23:45 New York and the normal
+# The retained performance certification uses a conservative 9h45 margin; the
+# operational readiness boundary is the actual exchange close. The normal
 # following XNYS open is 09:30 New York: 9h45m, or 35,100 seconds.  Certification
 # spends at most half of that shortest window on the three measured database
 # workloads, leaving at least another 4h52m30s before the trading cutoff.  A

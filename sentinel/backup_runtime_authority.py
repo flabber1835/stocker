@@ -590,9 +590,35 @@ def require(conn, *, operation: str,
         raise
 
 
+def require_staging(conn, *, operation: str) -> dict:
+    """Archive health for disposable acquisition, never financial admission.
+
+    A large private capture may outgrow the bounded restore scrub. It cannot
+    publish or become book/order authority until ``require`` passes separately.
+    Missing media, archive failures and unsupported policies still fence work.
+    """
+    if not enabled():
+        return {'enabled': False, 'scope': 'NON_AUTHORITATIVE_STAGING'}
+    try:
+        result = backup_guard.require_bulk_writes_permitted(conn, operation=operation)
+        if result.unresolved_failure:
+            raise BackupRuntimeUnavailable(f'{operation}: unresolved WAL archive failure')
+        _require_marker(conn, WAL_ROOT)
+        _require_marker(conn, BASE_ROOT)
+        return {'enabled': True, 'scope': 'NON_AUTHORITATIVE_STAGING'}
+    except backup_guard.BackupConfigurationRefused as exc:
+        raise BackupRuntimeRefused(str(exc)) from exc
+    except backup_guard.BackupUnavailable as exc:
+        raise BackupRuntimeUnavailable(str(exc)) from exc
+    except Exception as exc:
+        if _is_media_error(exc):
+            raise BackupRuntimeUnavailable(f'{operation}: backup media unavailable') from exc
+        raise
+
+
 __all__ = [
     "AUTHORITY_ENV", "AUTHORITY_VALUE", "BackupRuntimeRefused", "BackupHorizonExceeded",
     "BackupRuntimeUnavailable",
     "RUNTIME_MAX_ARCHIVE_OBJECTS", "RUNTIME_MAX_VERIFIED_BYTES",
-    "current_system_id", "enabled", "require",
+    "current_system_id", "enabled", "require", "require_staging",
 ]

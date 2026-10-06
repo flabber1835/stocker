@@ -245,7 +245,8 @@ def preflight(config: ShadowServiceConfig, *,
         # A deploy/health preflight must not advertise a fresh lineage as
         # startable when its only source-final close is already retrospective.
         # No database or ingest is touched by this clock-only eligibility gate.
-        _causal_target(preflight_status="NOT_STARTED", now=now)
+        _causal_target(preflight_status="NOT_STARTED", now=now,
+                       allow_state_preparation=config.operational_source_only)
     return result
 
 
@@ -297,7 +298,8 @@ def service_health(config: ShadowServiceConfig, *,
 
 
 def _causal_target(*, preflight_status: str,
-                   now: Optional[datetime] = None) -> str:
+                   now: Optional[datetime] = None,
+                   allow_state_preparation: bool = False) -> str:
     instant = now or datetime.now(timezone.utc)
     if instant.tzinfo is None or instant.utcoffset() is None:
         raise ShadowServiceRefused("shadow service clock must be timezone-aware")
@@ -307,7 +309,7 @@ def _causal_target(*, preflight_status: str,
         raise ShadowServiceWaiting(
             "shadow observation is waiting for the reviewed daily "
             f"publication not-before {eligible.isoformat()}")
-    if preflight_status == "NOT_STARTED":
+    if preflight_status == "NOT_STARTED" and not allow_state_preparation:
         following = calendar.next_session(target)
         following_open, _following_close = calendar.session_window(following)
         if instant.astimezone(timezone.utc) >= following_open.astimezone(timezone.utc):
@@ -337,7 +339,8 @@ def advance_once(config: ShadowServiceConfig, *,
     target = (str(retained.get("recovery_session"))
               if retained_status == "RECOVERY_REQUIRED"
               else _causal_target(
-                  preflight_status=retained_status, now=now))
+                  preflight_status=retained_status, now=now,
+                  allow_state_preparation=config.operational_source_only))
     if "input_contract" in retained:
         from sentinel import rolling_runtime
         if retained["input_contract"] != rolling_runtime.SCHEMA:

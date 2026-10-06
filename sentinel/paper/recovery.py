@@ -252,7 +252,7 @@ async def recover_automated_paper_cycle(
                             str(current_frontier)):
                         raise informational_paper_mirror.InformationalPaperMirrorPending(
                             "current publication has not reached the reviewed "
-                            "23:45 New York source-final boundary")
+                            "closed exchange session and validated provider input")
                     informational_paper_mirror.revalidate_all(
                         conn, checked_through=current_frontier,
                         publication_version=mirror_pin.version, commit=True)

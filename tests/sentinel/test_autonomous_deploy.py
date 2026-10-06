@@ -355,7 +355,9 @@ def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
 
 
 @pytest.mark.parametrize('authority_failure', [None, 'ownership', 'authority'])
-def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path, authority_failure):
+@pytest.mark.parametrize('attested_session', ['2026-08-20', '2026-08-21'])
+def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(
+        tmp_path, authority_failure, attested_session):
     events = []
 
     class Runner:
@@ -396,8 +398,11 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path, 
             raise deploy.DeployRefused('authority installation unavailable')
         return 'c' * 64, '2026-08-20'
     obj.rotate_observation_authority = authority
-    obj._wait_for_dual_shadow_session = \
-        lambda session: events.append("shadow-attested:" + session)
+    def attested(session):
+        assert session == '2026-08-20'
+        events.append("shadow-attested:" + attested_session)
+        return {'session': attested_session}
+    obj._wait_for_dual_shadow_session = attested
     obj.prepare_activate_start = \
         lambda cert, session: events.append("paper-released:" + session)
     obj.verify_operational = \
@@ -416,7 +421,7 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(tmp_path, 
         "git", "review", "broker-integrity", "build", "quiesce",
         "durable-integrity", "operator-services", "quiesced-review", "mode", "operator-services",
         "paper-read", "ownership", "authority", "shadow-start",
-        "shadow-attested:2026-08-20", "paper-released:2026-08-20",
+        "shadow-attested:" + attested_session, "paper-released:" + attested_session,
         "operational", "receipt",
     ]
 

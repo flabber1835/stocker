@@ -73,11 +73,11 @@ def test_large_forward_clock_jump_never_skips_exchange_calendar_authority():
     assert calendar.next_session("2026-09-04") == "2026-09-08"
 
 
-def test_sharadar_publication_final_boundary_is_exact_and_timezone_aware():
+def test_acquisition_boundary_is_exchange_close_and_timezone_aware():
     session = "2026-09-10"
     eligible = shadow_runtime.publication_not_before(session)
     assert eligible.tzinfo == timezone.utc
-    assert eligible == datetime(2026, 9, 11, 3, 45, tzinfo=timezone.utc)
+    assert eligible == datetime(2026, 9, 10, 20, 0, tzinfo=timezone.utc)
 
     with pytest.raises(
             shadow_runtime.ShadowSourceFinalPending,
@@ -93,11 +93,16 @@ def test_sharadar_publication_final_boundary_is_exact_and_timezone_aware():
         session, now=eligible + timedelta(hours=8)) == eligible
 
 
-def test_sharadar_publication_final_boundary_tracks_dst_in_new_york():
+def test_acquisition_boundary_tracks_exchange_close_dst_in_new_york():
     winter = shadow_runtime.publication_not_before("2026-01-05")
     summer = shadow_runtime.publication_not_before("2026-07-06")
-    assert winter == datetime(2026, 1, 6, 4, 45, tzinfo=timezone.utc)
-    assert summer == datetime(2026, 7, 7, 3, 45, tzinfo=timezone.utc)
+    assert winter == datetime(2026, 1, 5, 21, 0, tzinfo=timezone.utc)
+    assert summer == datetime(2026, 7, 6, 20, 0, tzinfo=timezone.utc)
+
+
+def test_acquisition_boundary_uses_actual_half_day_close():
+    assert shadow_runtime.publication_not_before("2026-11-27") == datetime(
+        2026, 11, 27, 18, 0, tzinfo=timezone.utc)
 
 
 def test_reboot_over_weekend_resolves_same_execution_session_deterministically():

@@ -15,6 +15,7 @@ STAGES = frozenset({
     "readiness_history", "readiness_domains", "readiness_splits", "readiness_maintenance",
     "rolling_identity", "rolling_normalization", "rolling_seal",
     "rolling_operational_validation", "rolling_operational_publication",
+    "rolling_source_corroboration",
     "rolling_comparison_publication", "historical_formation",
 } | {kind + "_" + table for kind in ("capture", "download")
      for table in ("sep", "sfp", "tickers", "actions")})

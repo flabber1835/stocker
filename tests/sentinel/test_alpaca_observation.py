@@ -82,6 +82,22 @@ def test_pairing_and_no_action_contiguous_history():
     assert reasons == {}
 
 
+def test_old_gap_retains_only_clean_tail_and_never_fills_missing_prices():
+    from sentinel.feed import calendar
+    axis = calendar.previous_sessions('2026-09-30', 300)
+    rows = [_row('A', day) for i, day in enumerate(axis) if i != 100]
+    admitted, reasons = admissible_history(rows, axis=axis, symbols={'A'},
+        action_affected=frozenset(), pair_absent=set())
+    assert admitted == {'A': axis[101]} and reasons == {}
+    assert len([row for row in rows if row['date'] >= admitted['A']]) == 199
+
+
+def test_old_adjustment_anomaly_does_not_poison_tail_after_later_gap():
+    rows = [_row('A', AXIS[0], adjusted=20), _row('A', AXIS[2])]
+    assert admissible_history(rows, axis=AXIS, symbols={'A'},
+        action_affected=frozenset(), pair_absent={('A', AXIS[0])}) == ({'A': AXIS[2]}, {})
+
+
 def test_benchmark_wire_uses_total_return_only_for_spy_and_bil():
     source = object.__new__(AlpacaSource)
     source.action_affected,source.reset_after,source.splits = frozenset(),{},[]
@@ -122,9 +138,8 @@ def test_price_gaps_actions_and_adjustment_changes_exclude_security():
             _row("A", AXIS[2]), _row("B", AXIS[2]), _row("C", AXIS[2])]
     admitted, reasons = admissible_history(rows, axis=AXIS, symbols={"A", "B", "C"},
                                           action_affected=frozenset({"A"}), pair_absent=set())
-    assert admitted == {}
+    assert admitted == {'B': AXIS[2]}
     assert reasons == {"adjustment_discontinuity": 1,
-                       "noncontiguous_or_stale_prices": 1,
                        "reported_corporate_action": 1}
 
 

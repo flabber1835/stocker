@@ -11,6 +11,25 @@ def asset(symbol='ABC'):
     return {'asset_id':'uuid', 'ticker':symbol, 'name':'Name', 'exchange':'NYSE'}
 
 
+def test_cosmetic_name_change_reuses_mapping_without_renewing_its_age():
+    prior = asset()
+    current = {**prior, 'name': 'Updated display label'}
+    observation = {'response': response(), 'observed_day': '2026-10-02'}
+    reused = openfigi.reuse_classifications([current], previous_assets=[prior],
+        observations={openfigi.digest(prior): observation})
+    assert reused == {openfigi.digest(current): observation}
+    assert openfigi.select_assets([current], reused)[0][0]['name'] == current['name']
+
+
+@pytest.mark.parametrize('changed', [{'ticker':'OTHER'}, {'asset_id':'other-uuid'},
+                                     {'exchange':'NASDAQ'}])
+def test_changed_listing_cannot_inherit_a_mapping(changed):
+    prior = asset()
+    assert openfigi.reuse_classifications([{**prior, **changed}],
+        previous_assets=[prior], observations={openfigi.digest(prior): {
+            'response':response(), 'observed_day':'2026-10-02'}}) == {}
+
+
 def response(kind='Common Stock', broad='Common Stock', **changes):
     return {'data':[{'ticker':'ABC','exchCode':'US','marketSector':'Equity',
         'securityType':kind,'securityType2':broad,'compositeFIGI':'composite',

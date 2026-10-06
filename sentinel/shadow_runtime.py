@@ -13,10 +13,9 @@ import re
 import hashlib
 import json
 from dataclasses import asdict
-from datetime import datetime, time as datetime_time, timezone
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Mapping
-from zoneinfo import ZoneInfo
 
 from sentinel import identity as system_identity
 from sentinel.controller import ldrc as ldrc_module
@@ -42,6 +41,7 @@ from sentinel.core.production import (
     warm_session_state,
 )
 from sentinel.feed import calendar, publication, readiness
+from sentinel.feed.observation_timing import POLICY, acquisition_not_before
 from sentinel.feed import store as feed_store
 from sentinel.shadow_observation import (
     BEFORE_NEXT_OPEN,
@@ -65,8 +65,7 @@ from sentinel.shadow_segments import (
 
 
 WARMUP_SESSIONS = SHADOW_WARMUP_SESSIONS
-SHADOW_PUBLICATION_TIMING_POLICY = (
-    "ALPACA_OPENFIGI_DAILY_SNAPSHOT_2345_AMERICA_NEW_YORK_V1")
+SHADOW_PUBLICATION_TIMING_POLICY = POLICY
 _HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 _GIT_OBJECT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?\Z")
 _IMAGE_DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -86,7 +85,7 @@ class ShadowSourceFinalPending(ShadowRuntimeRefused):
         self.eligible_at = eligible_at.astimezone(timezone.utc)
         super().__init__(
             f"shadow session {self.session} is not source-final before "
-            f"reviewed Sharadar not-before {self.eligible_at.isoformat()}")
+            f"exchange close {self.eligible_at.isoformat()}")
 
 
 def _starting_cash(value: Decimal | str | int | float) -> Decimal:
@@ -113,16 +112,17 @@ def _utcnow() -> datetime:
 
 
 def publication_not_before(session: str) -> datetime:
-    """Fixed source-valid not-before for one Sharadar decision session."""
+    """Earliest acquisition time; content validation still establishes readiness."""
     if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", str(session)) is None:
         raise ShadowRuntimeRefused("shadow decision session is malformed")
     try:
-        session_date = datetime.strptime(str(session), "%Y-%m-%d").date()
+        datetime.strptime(str(session), "%Y-%m-%d")
     except ValueError as exc:
         raise ShadowRuntimeRefused("shadow decision session is invalid") from exc
-    return datetime.combine(
-        session_date, datetime_time(23, 45),
-        tzinfo=ZoneInfo("America/New_York")).astimezone(timezone.utc)
+    try:
+        return acquisition_not_before(str(session))
+    except calendar.NonSessionDate as exc:
+        raise ShadowRuntimeRefused("shadow decision date is not an XNYS session") from exc
 
 
 def _require_publication_not_before(

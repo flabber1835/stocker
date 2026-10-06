@@ -39,7 +39,7 @@ class Guard:
     async def before_mutation(self, grant, operation):
         if self.cross_deadline:
             opened, _closed = calendar.session_window(self.inner.now.date())
-            self.inner.now = opened + timedelta(seconds=121)
+            self.inner.now = opened + timedelta(seconds=601)
 
 
 def wrap(inner, *, cross_deadline=False):
@@ -64,7 +64,7 @@ def instrument():
 def test_buy_inside_opening_freshness_reaches_transport():
     inner = ClockedBroker()
     opened, _closed = calendar.session_window(inner.now.date())
-    inner.now = opened + timedelta(seconds=119)
+    inner.now = opened + timedelta(seconds=599)
     broker = wrap(inner)
     outcome = asyncio.run(broker.submit(
         client_key="fresh-buy", instrument=instrument(),
@@ -76,7 +76,7 @@ def test_buy_inside_opening_freshness_reaches_transport():
 def test_authority_latency_crossing_deadline_refuses_before_transport():
     inner = ClockedBroker()
     opened, _closed = calendar.session_window(inner.now.date())
-    inner.now = opened + timedelta(seconds=119)
+    inner.now = opened + timedelta(seconds=599)
     broker = wrap(inner, cross_deadline=True)
     with pytest.raises(PreTransportAuthorityRefused, match="final next-open freshness"):
         asyncio.run(broker.submit(
@@ -96,3 +96,13 @@ def test_late_sell_remains_risk_reducing_and_executable():
         side=Side.SELL, quantity=Decimal(1)))
     assert outcome.state.value == "ACKNOWLEDGED"
     assert "submit:late-sell" in inner.calls
+
+
+def test_exact_ten_minute_boundary_is_expired_consistently():
+    inner = ClockedBroker()
+    opened, _ = calendar.session_window(inner.now.date())
+    inner.now = opened + timedelta(seconds=600)
+    with pytest.raises(PreTransportAuthorityRefused, match='final next-open freshness'):
+        asyncio.run(wrap(inner).submit(client_key='boundary-buy', instrument=instrument(),
+                                     side=Side.BUY, quantity=Decimal(1)))
+    assert 'submit:boundary-buy' not in inner.calls

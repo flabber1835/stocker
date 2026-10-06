@@ -189,11 +189,14 @@ MIN_ADMITTED_COMMON_STOCKS = 500
 MIN_ALPACA_ADMITTED_PERCENT = 95
 
 
-def require_alpaca_population(*, selected: int, admitted: int) -> None:
+def require_alpaca_population(*, selected: int, admitted: int,
+                             deliberate_exclusions: int = 0) -> None:
+    if not 0 <= deliberate_exclusions <= selected - admitted:
+        raise ValueError('Alpaca population exclusion accounting is invalid')
     if admitted < MIN_ADMITTED_COMMON_STOCKS:
         raise ValueError("Alpaca/OpenFIGI admitted common-stock population is below "
                          + str(MIN_ADMITTED_COMMON_STOCKS))
-    if admitted * 100 < selected * MIN_ALPACA_ADMITTED_PERCENT:
+    if admitted * 100 < (selected - deliberate_exclusions) * MIN_ALPACA_ADMITTED_PERCENT:
         raise ValueError("Alpaca/OpenFIGI admitted common-stock population is below "
                          + str(MIN_ALPACA_ADMITTED_PERCENT) + "% of selected candidates")
 
@@ -243,7 +246,14 @@ def build_alpaca(conn, lease, request, source):
             pair_absent=source.pair_absent, dividend_dates=dividend_dates,
             reset_after=source.reset_after, split_terms=source.split_terms())
         counter[0] = len(admitted)
-    require_alpaca_population(selected=len(selected), admitted=len(admitted))
+    # Quarantined economic ambiguities are explicitly observed exclusions.
+    # Absent or stale prices remain unexpected coverage loss and cannot dilute
+    # the collapse denominator. The broad admitted floor always still applies.
+    deliberate = sum(exclusions.get(reason, 0) for reason in (
+        'reported_corporate_action', 'adjustment_discontinuity',
+        'split_predecessor_missing'))
+    require_alpaca_population(selected=len(selected), admitted=len(admitted),
+                             deliberate_exclusions=deliberate)
     source.tickers = [reference_row(selected[symbol], first_session=first,
                                     last_session=axis[-1])
                       for symbol, first in sorted(admitted.items())]

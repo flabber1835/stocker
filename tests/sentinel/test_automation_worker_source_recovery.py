@@ -285,7 +285,10 @@ def test_worker_wait_restart_source_healing_and_transport(assembly, monkeypatch,
             assert full_sep() == 2
             return
         if finish == "expired":
-            clock.value = dt.datetime(2026, 8, 12, 13, 33, tzinfo=dt.timezone.utc).timestamp()
+            clock.value = min(
+                pending.execution_close_at,
+                pending.execute_at + dt.timedelta(
+                    seconds=cfg.maximum_execution_lateness_seconds + 1)).timestamp()
         healed.set()
         clock.value += 2
         ready = _eventually(read, lambda c: c.state in {CycleState.PLAN_READY, CycleState.WAITING_OPEN,

@@ -411,14 +411,22 @@ def test_producer_refusal_happens_before_source_io(conn, source, monkeypatch):
     assert count(conn, "sentinel_price_candidates") == 0
 
 
-def test_backup_refusal_happens_before_source_io(conn, source, monkeypatch):
+@pytest.mark.parametrize("boundary", ["staging", "publication"])
+def test_backup_refusal_preserves_staging_publication_boundary(conn, source, monkeypatch, boundary):
     def refused(*a, **kw):
         raise RuntimeError("backup refused")
-    monkeypatch.setattr(store.backup_runtime_authority, "require", refused)
+    guard = "require_staging" if boundary == "staging" else "require"
+    monkeypatch.setattr(store.backup_runtime_authority, guard, refused)
     with pytest.raises(RuntimeError, match="backup refused"):
         publisher.prepare(conn, enqueue(conn))
-    assert not source["calls"]
-    assert count(conn, "sentinel_price_candidates") == 0
+    if boundary == "staging":
+        assert not source["calls"]
+        assert count(conn, "sentinel_price_candidates") == 0
+    else:
+        assert any(call[0] == "download" for call in source["calls"])
+        assert count(conn, "sentinel_price_candidates") == 1
+    assert count(conn, "sentinel_snapshot_comparisons") == 0
+    assert count(conn, "sentinel_corpus_publications") == 0
 
 
 def test_legacy_publication_change_invalidates_ready(conn, source, monkeypatch):

@@ -168,12 +168,12 @@ def main(argv=None) -> int:
         _require(identity.returncode == 0,
                  "ordinary Sentinel probe did not run as uid/gid 10001")
 
-        nonfinal = _run_probe(
+        before_close = _run_probe(
             runner, compose_args, env, preflight._READ_ONLY_CODE,
-            source_export_status="creating",
-            source_observed_at="2026-08-22T03:44:59+00:00")
+            source_export_status="fresh",
+            source_observed_at="2026-08-21T19:59:59+00:00")
         _require_readonly_report(
-            nonfinal, check="cold_source_not_final", status="RECOVERY_REQUIRED",
+            before_close, check="cold_previous_closed_session", status="RECOVERY_REQUIRED",
             reason="CORPUS_SCHEMA_NOT_INSTALLED")
 
         creating = _run_probe(

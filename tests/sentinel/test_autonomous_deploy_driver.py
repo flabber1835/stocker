@@ -108,7 +108,9 @@ def test_shipped_wait_settings_agree_with_actual_driver(tmp_path):
     assert cfg.data_wait_timeout_seconds == 43200 and cfg.formation_timeout_seconds == 30
 
 
-def test_driver_formation_cannot_consume_provider_wait_budget(tmp_path, monkeypatch):
+@pytest.mark.parametrize('elapsed,expired', [(31.0, False), (43201.0, True)])
+def test_driver_attestation_wait_retains_bounded_next_decision_budget(
+        tmp_path, monkeypatch, elapsed, expired):
     env = _config_env(tmp_path)
     env.update(SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS='43200',
                SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS='30')
@@ -119,15 +121,18 @@ def test_driver_formation_cannot_consume_provider_wait_budget(tmp_path, monkeypa
     clock = [0.0]
 
     def status(*args, **kwargs):
-        assert 0 < kwargs['timeout'] <= 30
-        clock[0] = 31.0
+        assert 0 < kwargs['timeout'] <= 300
+        clock[0] = elapsed
         return SimpleNamespace(returncode=0, stdout=json.dumps({
             'session': '2026-08-28', 'verification': 'VERIFIED', 'shadow_verdict': 'SHADOW_GO'}))
 
     obj.runner = SimpleNamespace(run=status)
     monkeypatch.setattr(core.time, 'monotonic', lambda: clock[0])
-    with pytest.raises(core.DeployRefused, match='deployment timeout'):
-        obj._wait_for_dual_shadow_session('2026-08-28')
+    if expired:
+        with pytest.raises(core.DeployRefused, match='deployment timeout'):
+            obj._wait_for_dual_shadow_session('2026-08-28')
+    else:
+        assert obj._wait_for_dual_shadow_session('2026-08-28')['session'] == '2026-08-28'
 
 
 def _deploy_for_wait(tmp_path):

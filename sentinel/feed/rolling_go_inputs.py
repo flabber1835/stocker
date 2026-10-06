@@ -69,7 +69,7 @@ def validate_status(conn, pub, *, now=None):
 def validate_reconstruction(conn, pub, *, summary_only=False):
     """Historical data readiness under actual authenticated availability evidence."""
     from sentinel import rolling_reconstruction_evidence
-    rolling_reconstruction_evidence.require_dated(conn, pub)
+    rolling_reconstruction_evidence.require_inputs(conn, pub)
     return _validate(conn, pub, target=pub.window_end, summary_only=summary_only)
 
 

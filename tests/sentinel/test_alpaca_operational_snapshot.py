@@ -109,6 +109,16 @@ def test_current_universe_collapse_refuses_before_publication():
     rolling_builder.require_alpaca_population(selected=1000, admitted=950)
 
 
+def test_deliberate_quarantine_is_separate_from_missing_provider_coverage():
+    rolling_builder.require_alpaca_population(selected=1000, admitted=850, deliberate_exclusions=150)
+    with pytest.raises(ValueError, match='below 95%'):
+        rolling_builder.require_alpaca_population(selected=1000, admitted=800, deliberate_exclusions=150)
+    with pytest.raises(ValueError, match='below 500'):
+        rolling_builder.require_alpaca_population(selected=1000, admitted=499, deliberate_exclusions=501)
+    with pytest.raises(ValueError, match='accounting'):
+        rolling_builder.require_alpaca_population(selected=1000, admitted=850, deliberate_exclusions=151)
+
+
 @pytest.fixture
 def alpaca_path(monkeypatch):
     fake = FakeClient()
@@ -194,7 +204,7 @@ def test_alpaca_transport_exhaustion_keeps_daily_job_retryable(
     assert state["reason"] == "SOURCE_RETRY"
 
 
-def test_backup_horizon_precedes_full_validation_and_provider_recheck(
+def test_publication_backup_horizon_precedes_provider_recheck(
         conn, alpaca_path, monkeypatch):
     from sentinel import backup_runtime_authority as backup
     from sentinel.core import rolling_inputs
@@ -211,7 +221,7 @@ def test_backup_horizon_precedes_full_validation_and_provider_recheck(
     validation_reads, builds = [], []
 
     def guard(c, *, operation, **kwargs):
-        if operation == 'operational snapshot validation' and not renewed[0]:
+        if operation == 'operational publication preflight' and not renewed[0]:
             raise backup.BackupHorizonExceeded('fixture WAL horizon exhausted')
         return original_require(c, operation=operation, **kwargs)
 
@@ -232,7 +242,7 @@ def test_backup_horizon_precedes_full_validation_and_provider_recheck(
     assert caught.value.resume_job_id == job
     assert paused['state'] == 'RETRY_WAIT' and paused['resume_state'] == 'READY'
     assert paused['owner'] is None and paused['deadline'] == deadline
-    assert validation_reads == []
+    assert validation_reads == [True]
     assert sum(endpoint == ASSETS for endpoint, _ in alpaca_path.calls) == 1
     assert sum(endpoint == ACTION_URL for endpoint, _ in alpaca_path.calls) == 1
     price_calls = sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls)
@@ -245,7 +255,7 @@ def test_backup_horizon_precedes_full_validation_and_provider_recheck(
     result = op.prepare(conn, job)
     assert result['scope'] == 'DATA_ONLY'
     assert jobs.status(conn, job)['deadline'] == deadline
-    assert validation_reads == [True] and builds == [True]
+    assert validation_reads == [True, True] and builds == [True]
     assert sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls) == price_calls
     assert sum(endpoint == ASSETS for endpoint, _ in alpaca_path.calls) == 2
     assert sum(endpoint == ACTION_URL for endpoint, _ in alpaca_path.calls) == 2

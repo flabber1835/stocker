@@ -66,7 +66,7 @@ def test_expired_unsent_projection_retains_original_economics(monkeypatch):
 
 
 @pytest.mark.parametrize('seconds', [0, 30, 59])
-def test_forming_opening_minute_retries_then_sizes_the_same_intent(monkeypatch, seconds):
+def test_absent_regular_quotes_retry_then_size_the_same_intent(monkeypatch, seconds):
     from sentinel.execution.alpaca import AlpacaExecutionBroker
     from sentinel.execution.opening_prices import OpeningPrices
     published_opening_identity(monkeypatch)
@@ -83,8 +83,8 @@ def test_forming_opening_minute_retries_then_sizes_the_same_intent(monkeypatch, 
         async def get(self, url, **kwargs):
             reads.append(url)
             return httpx.Response(200, request=httpx.Request('GET', url), json={
-                'bars': {'AAA': [{'t': opened.isoformat(), 'o': 100, 'v': 10}]},
-                'next_page_token': None})
+                'quotes':{} if now[0] < opened+timedelta(seconds=60) else {'AAA':{
+                    't':now[0].isoformat(),'ap':100,'bp':99.99,'as':10,'bs':10}}})
     broker = AlpacaExecutionBroker(api_key='test', secret_key='test',
         base_url='https://paper-api.alpaca.markets',
         http_provider=lambda: SimpleNamespace(AsyncClient=Client),
@@ -92,15 +92,15 @@ def test_forming_opening_minute_retries_then_sizes_the_same_intent(monkeypatch, 
     async def resolve_instrument(*, security_id, symbol):
         return BrokerInstrument(security_id, symbol, 'asset-'+security_id)
     monkeypatch.setattr(broker, 'resolve_instrument', resolve_instrument)
-    with pytest.raises(paper.PaperRetryableRefused, match='still forming'):
+    with pytest.raises(paper.PaperRetryableRefused, match='no fresh'):
         asyncio.run(paper_execution._opening_prices_or_retry(
             object(), state=env, plan=plan, broker=broker))
-    assert reads == []
+    assert len(reads) == 1
     now[0] = opened + timedelta(seconds=60)
     evidence = asyncio.run(paper_execution._opening_prices_or_retry(
         object(), state=env, plan=plan, broker=broker))
     assert isinstance(evidence, OpeningPrices)
-    assert len(reads) == 1
+    assert len(reads) == 2
     projected = opening_sizing.resolve(env, plan, base(env, plan), evidence)
     assert projected.target_basket['SEC-AAA'] == D(49)
     assert projected.opening_sizing['mode'] == opening_sizing.FINAL_MODE
@@ -137,7 +137,7 @@ def test_finalization_preserves_split_authority_for_opening_entry():
 
 
 @pytest.mark.parametrize('status', [429, 503])
-def test_opening_asset_lookup_transient_failure_becomes_no_buy(monkeypatch, status):
+def test_opening_asset_lookup_transient_failure_preserves_retry(monkeypatch, status):
     published_opening_identity(monkeypatch)
     env, plan = case()
     monkeypatch.setattr(opening_sizing, 'load_projection', lambda *a, **k: None)
@@ -147,12 +147,9 @@ def test_opening_asset_lookup_transient_failure_becomes_no_buy(monkeypatch, stat
             request = httpx.Request('GET', 'https://paper-api.alpaca.markets/v2/assets/AAA')
             response = httpx.Response(status, request=request)
             response.raise_for_status()
-    evidence = asyncio.run(paper_execution._opening_prices_or_retry(
-        object(), state=env, plan=plan, broker=Broker()))
-    assert isinstance(evidence, OpeningPriceUnavailability)
-    projected = opening_sizing.resolve(env, plan, base(env, plan), evidence)
-    assert projected.target_basket['SEC-AAA'] == 0
-    assert projected.opening_sizing['mode'] == opening_sizing.UNAVAILABLE_MODE
+    with pytest.raises(paper.PaperRetryableRefused):
+        asyncio.run(paper_execution._opening_prices_or_retry(
+            object(), state=env, plan=plan, broker=Broker()))
 
 
 def test_restart_before_projection_can_reconcile_a_proven_unsent_plan(monkeypatch):
@@ -284,7 +281,7 @@ def test_opening_asset_lookup_non_authority_4xx_suppresses_buy(monkeypatch, stat
     assert isinstance(evidence, OpeningPriceUnavailability)
 
 
-def test_opening_asset_lookup_timeout_suppresses_buy_and_authority_refusal_propagates(monkeypatch):
+def test_opening_asset_lookup_timeout_retries_and_authority_refusal_propagates(monkeypatch):
     published_opening_identity(monkeypatch)
     from sentinel.execution.guarded import BrokerAuthorityRefused
     env, plan = case()
@@ -294,9 +291,9 @@ def test_opening_asset_lookup_timeout_suppresses_buy_and_authority_refusal_propa
         async def resolve_instrument(self, **kwargs):
             raise failure
     failure = httpx.ReadTimeout('late')
-    evidence = asyncio.run(paper_execution._opening_prices_or_retry(
-        object(), state=env, plan=plan, broker=Broker()))
-    assert isinstance(evidence, OpeningPriceUnavailability)
+    with pytest.raises(paper.PaperRetryableRefused):
+        asyncio.run(paper_execution._opening_prices_or_retry(
+            object(), state=env, plan=plan, broker=Broker()))
     for failure, expected in [(BrokerAuthorityRefused('revoked'), BrokerAuthorityRefused),
                               (ValueError('software defect'), ValueError)]:
         with pytest.raises(expected):

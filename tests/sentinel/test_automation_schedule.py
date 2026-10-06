@@ -60,7 +60,7 @@ def test_clock_resolution_and_wake_are_restart_deterministic() -> None:
     restarted = for_clock(now, cfg)
     assert first == restarted
     assert first.decision_session == date(2026, 8, 13)
-    assert next_wake(now=now, schedule=first) == first.prepare_at
+    assert next_wake(now=now, schedule=first) == now
 
     after_due = first.prepare_at.replace(microsecond=0)
     assert next_wake(now=after_due, schedule=first) == after_due

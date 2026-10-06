@@ -24,7 +24,7 @@ def test_missing_or_invalid_host_cutoff_cannot_default_to_one_hour(value):
 def test_slow_preparation_and_backup_share_original_host_deadline(
         conn, issuer_source, monkeypatch, tmp_path, exhaust):
     from sentinel import backup_guard, backup_runtime_authority as authority, shadow_runtime
-    from sentinel.feed import rolling_builder, rolling_publisher, store, calendar
+    from sentinel.feed import rolling_builder, rolling_publisher, store, calendar, operational_snapshot
     from tests.sentinel.test_go_backup_refresh import backup, GrowingWalRunner, TOKEN, _cp, run_overlay
     import sentinel_go_deadline as host_deadline
     import sentinel_go_feed_progress as host_progress
@@ -72,7 +72,7 @@ def test_slow_preparation_and_backup_share_original_host_deadline(
     monkeypatch.setattr(rolling_publisher, "_checkpoint", slow_checkpoint)
     build = rolling_builder.build
     def slow_build(c, lease, *args, **kwargs):
-        for _ in range(20 if exhaust else 4):
+        for _ in range(6):
             elapsed[0] += 300
             jobs.heartbeat(c, lease, lease_seconds=600)
         return build(c, lease, *args, **kwargs)
@@ -82,12 +82,21 @@ def test_slow_preparation_and_backup_share_original_host_deadline(
     original_require = authority.require
     def horizon(c, *, operation, **kwargs):
         row = c.execute("SELECT job_id,state FROM sentinel_snapshot_jobs ORDER BY created_at DESC LIMIT 1").fetchone()
-        if (row and row[1] == "ACQUIRING" and not renewed
-                and len(jobs.components(c, str(row[0]))) == 22):
+        if (row and row[1] == "READY" and not renewed
+                and operation == 'operational publication preflight'):
             authority._expected_wals("000000010000000000000000", "000000010000000000000040",
                                      segment_size=16 * 1024 * 1024)
         return original_require(c, operation=operation, **kwargs)
     monkeypatch.setattr(authority, "require", horizon)
+
+    validate = operational_snapshot.validate
+    def slow_resumed_validation(c, lease, request):
+        if exhaust and renewed:
+            for _ in range(20):
+                elapsed[0] += 300
+                jobs.heartbeat(c, lease, lease_seconds=600)
+        return validate(c, lease, request)
+    monkeypatch.setattr(operational_snapshot, 'validate', slow_resumed_validation)
 
     class Runner(GrowingWalRunner):
         def run(self, argv, *, env=None, cwd=None):
