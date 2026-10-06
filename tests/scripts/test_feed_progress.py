@@ -67,7 +67,8 @@ def test_formation_progress_rejects_unreviewed_details(changes):
 
 
 @pytest.mark.parametrize("stage", ["rolling_identity", "rolling_normalization", "rolling_seal",
-    "rolling_operational_validation", "rolling_operational_publication", "rolling_comparison_publication"])
+    "rolling_operational_validation", "rolling_operational_publication", "rolling_comparison_publication",
+    "rolling_source_corroboration"])
 def test_real_builder_protocol_reaches_host(stage, capsys):
     from sentinel.feed import progress as producer
     details = {"job_id": "12f7a9c2-7bf5-41a9-9ad9-eead86e0d3d4"}

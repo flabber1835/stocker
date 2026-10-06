@@ -50,7 +50,12 @@ def test_backup_renewal_keeps_ready_candidate_and_does_not_repeat_downloads(conn
     assert sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls) == downloads
     assert observations == [True] and len(ready_checks) == 2
     assert conn.execute('SELECT COUNT(*) FROM sentinel_corpus_publications').fetchone()[0] == 1
-    assert capsys.readouterr().err.count('"stage": "rolling_source_corroboration"') == 2
+    from scripts import sentinel_go_feed_progress
+    progress_output = capsys.readouterr().err
+    assert progress_output.count('"stage": "rolling_source_corroboration"') == 2
+    parsed = sentinel_go_feed_progress.collect(progress_output)
+    assert [event['status'] for event in parsed if event['stage'] == 'rolling_source_corroboration'] == [
+        'started', 'completed']
 
 
 def test_removed_publication_preflight_is_detected(conn, alpaca_path, monkeypatch, capsys):
