@@ -196,7 +196,8 @@ def classify_dependency_failure(
     """Map reviewed dependency failures; leave programming defects unknown."""
     from sentinel.backup_guard import BackupConfigurationRefused, BackupUnavailable
     from sentinel.dependency_availability import database_unavailable, local_contention
-    from sentinel.execution.guarded import BrokerAuthorityCheckFailed, PreTransportAuthorityRefused
+    from sentinel.execution.guarded import BrokerAuthorityCheckFailed, OrderFundingNotReady, PreTransportAuthorityRefused
+    from sentinel.execution.opening_prices import OpeningPriceNotReady
 
     if isinstance(exc, (BrokerAuthorityCheckFailed, PreTransportAuthorityRefused)):
         # Only wrappers identifying a failed check preserve a temporary cause.
@@ -208,6 +209,8 @@ def classify_dependency_failure(
         return None
     if isinstance(exc, AutomationRefused):
         return exc
+    if isinstance(exc, (OpeningPriceNotReady, OrderFundingNotReady)):
+        return SourceDataPending(f'{type(exc).__name__}: {exc}')
     if local_contention(exc):
         return TransientInfrastructureFailure(f"local database lock unavailable: {exc}")
     if isinstance(exc, BackupConfigurationRefused):

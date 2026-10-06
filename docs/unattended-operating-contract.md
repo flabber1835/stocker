@@ -98,6 +98,18 @@ subset. Required reductions and broker reconciliation remain independently
 permitted. Persist sized quantities and price identities before transport;
 UNKNOWN outcomes always reconcile rather than being retried blindly.
 
+A refusal proven inside the execution membrane before calling the submit
+transport is different from a lost submit response. The membrane issues a
+single-use, command-bound in-process proof; the executor may then atomically
+restore that exact unfilled `SEND_PENDING` checkpoint to `PLANNED`, recording
+the proof reason, before reporting the refusal. This is a narrowly checked
+checkpoint restoration, not a general state-machine edge or negative broker
+lookup. A crash before restoration, a missing/mismatched proof, a database
+failure or any exception after transport preserves `SEND_PENDING`/`UNKNOWN`.
+Pending quotes and temporarily insufficient cash retry under normal bounded
+orchestration; identity corruption and revoked authority still refuse. Retry
+reuses the same planned command economics and identity and rechecks authority.
+
 Current executable quote evidence may replace an exact first-minute print in the
 operational policy. Evidence must belong to the same regular session, correct
 instrument and raw-price domain and be fresh at sizing and submission. The

@@ -1,5 +1,10 @@
 # Sentinel — the execution and recovery contract
 
+[Unattended operation](unattended-operating-contract.md) defines the current
+Alpaca execution price evidence: fresh raw IEX bid/ask quotes, partial per-security
+availability, a ten-minute increase window, and a new quote/cash check before
+each BUY. Dollar intents and durable whole-share projections are unchanged;
+older opening-minute records keep their historical scope.
 
 [Current-window book formation](current-window-formation.md) restores 126
 broker-free ownership/controller transitions after 299 feature sessions. The
@@ -417,6 +422,12 @@ send and response — all of these are `UNKNOWN`. None of them are evidence that
 the order does not exist.
 
 `REJECTED` requires the broker to have *said so*. There is no inferred rejection.
+The current operational profile also permits the narrowly proven pre-transport
+checkpoint restoration described in
+[the unattended operating contract](unattended-operating-contract.md). Only a
+single-use proof from the canonical membrane, bound to the exact unsent command,
+can restore its pending checkpoint to `PLANNED`. Ordinary command transitions,
+negative broker lookups and any `UNKNOWN` outcome cannot do this.
 At the Alpaca create-order boundary this is an endpoint-specific allowlist, not
 the generic HTTP class: the documented `403` buying-power/share refusal and a
 documented `422` input refusal prove non-acceptance, except that any duplicate

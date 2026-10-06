@@ -12,7 +12,7 @@ import pytest
 from sentinel.authority import RolloutMode, RolloutState
 from sentinel.core import decision
 from sentinel.execution import opening_sizing, target_reprojection as projections
-from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable, parse_bars, ENDPOINT
+from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable, parse_bars
 from sentinel.execution.plan import OpeningIntent
 from sentinel.execution.contract import BrokerInstrument
 from sentinel.feed import calendar

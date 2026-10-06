@@ -555,6 +555,39 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
     conn.commit()
 
 
+def restore_proven_unsent(conn, command: Command, *, broker, refusal) -> None:
+    """Restore only an exact pending checkpoint never handed to transport.
+
+    Generic command transitions still forbid SEND_PENDING -> PLANNED. This
+    operation requires a live, single-use membrane proof, and a conditional
+    database write refuses changed/fill-bearing state. Crashes without the
+    committed restoration retain the ordinary UNKNOWN recovery boundary.
+    """
+    from sentinel.execution.guarded import GuardedExecutionBroker
+    if type(broker) is not GuardedExecutionBroker:
+        raise ValueError('only the canonical execution membrane proves no transport')
+    if (command.state is not CommandState.SEND_PENDING
+            or command.broker_order_id is not None
+            or command.filled_quantity != 0):
+        raise ValueError('only an unfilled pending command can be restored')
+    broker.consume_not_transported(refusal, command)
+    detail = 'PRE_TRANSPORT_CHECKPOINT_RESTORED: ' + str(refusal)
+    with conn.cursor() as cur:
+        _assert_economics_unchanged(cur, command)
+        cur.execute(
+            "UPDATE sentinel_commands SET state='PLANNED', detail=%s, updated_at=NOW()"
+            " WHERE client_key=%s AND state='SEND_PENDING'"
+            " AND broker_order_id IS NULL AND filled_quantity=0 RETURNING client_key",
+            (detail, command.client_key))
+        if cur.fetchone() is None:
+            raise ValueError('pending checkpoint changed before no-transport restoration')
+        cur.execute(
+            "INSERT INTO sentinel_command_events (client_key,from_state,to_state,"
+            "filled_quantity,detail) VALUES (%s,'SEND_PENDING','PLANNED',0,%s)",
+            (command.client_key, detail))
+    conn.commit()
+
+
 def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> None:
     """Write a Sentinel-keyed broker order the journal has never heard of.
 

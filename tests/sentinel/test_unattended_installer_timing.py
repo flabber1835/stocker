@@ -1,5 +1,4 @@
 """Operational preparation may be late; paper activation must still be fresh."""
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
 import subprocess

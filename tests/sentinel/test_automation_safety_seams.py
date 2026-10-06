@@ -185,17 +185,25 @@ def harmless_heartbeat(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("blocked_boundary", ["sleep", "postgres", "vendor"])
 async def test_blocking_sync_work_inside_async_callback_is_process_killed(
-        harmless_heartbeat, blocked_boundary) -> None:
+        harmless_heartbeat, blocked_boundary, tmp_path) -> None:
+    pid_file = tmp_path / 'callback-pid'
+    late_write = tmp_path / 'late-write'
     async def blocked(_context):
         assert blocked_boundary in {"sleep", "postgres", "vendor"}
+        pid_file.write_text(str(os.getpid()))
         time.sleep(5)
+        late_write.write_text('unsafe')
 
-    started = time.monotonic()
     with pytest.raises(CallbackDeadlineExceeded, match="bounded runtime"):
         await service()._invoke(  # noqa: SLF001
             blocked, Context(), permit=object(), phase="REFRESH",
             heartbeat_conn_factory=Connection)
-    assert time.monotonic() - started < 2
+    # Prove containment, not a two-second host scheduling benchmark. Startup
+    # and reap I/O can take longer on a contended host without giving the
+    # blocked callback permission to continue after its deadline.
+    if pid_file.exists():
+        assert not _pid_is_executing(int(pid_file.read_text()))
+    assert not late_write.exists()
 
 
 @pytest.mark.asyncio

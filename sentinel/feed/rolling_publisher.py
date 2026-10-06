@@ -267,6 +267,12 @@ def _prepare(conn, job_id, *, operational):
                 with progress.phase("rolling_operational_validation", job_id=job_id):
                     operational_snapshot.validate(conn, lease, request)
                     conn.commit()
+                # Staging validation deliberately uses archive health only.
+                # Once READY, prove financial durability before the final
+                # provider reobservation, so a horizon renewal cannot duplicate
+                # that expensive network work. Publication checks again.
+                backup_runtime_authority.require(conn, operation="operational publication preflight")
+                conn.commit()
             rolling_work.checkpoint()
             with acquisition_work.budget(seconds=min(500, jobs.status(conn, job_id)["remaining_seconds"])):
                 conn.commit()

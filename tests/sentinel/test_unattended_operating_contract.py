@@ -1,5 +1,5 @@
 """Falsifiers for installation clocks, scoped staging and sparse free prices."""
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal as D
 import json
 from types import SimpleNamespace
@@ -10,7 +10,7 @@ from sentinel import backup_runtime_authority as backup, rolling_initialization 
 from sentinel import shadow_observation as shadow
 from sentinel.execution.contract import BrokerInstrument
 from sentinel.execution.opening_prices import (
-    OpeningPrices, OpeningPriceUnavailable, OpeningPriceNotReady, RegularQuotes, parse_quotes)
+    OpeningPrices, OpeningPriceUnavailable, OpeningPriceNotReady, parse_quotes)
 from sentinel.execution import opening_sizing
 from sentinel.feed import calendar
 from sentinel.strategy import production_strategy

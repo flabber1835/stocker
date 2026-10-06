@@ -148,7 +148,7 @@ def _opening_resolution_freshness_or_refuse(
         return
     opened, closed = calendar.session_window(plan.effective_session)
     latest = min(closed, opened + _V5_OPENING_FRESHNESS)
-    if (now_et > latest and target_reprojection.load_projection(
+    if (now_et >= latest and target_reprojection.load_projection(
             conn, plan_id=plan.plan_id) is None):
         return OpeningPriceUnavailability(
             plan.effective_session,

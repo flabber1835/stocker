@@ -10,7 +10,7 @@ from sentinel.core import formation_preview
 from sentinel.core.formation import Formation
 from sentinel.core.formation_inputs import FormationInputs
 from sentinel.feed import calendar, operational_snapshot as snapshots
-from sentinel.feed.rolling_contract import PriceWindow, digest
+from sentinel.feed.rolling_contract import PriceWindow
 from sentinel.strategy import production_strategy
 from tests.sentinel.test_alpaca_daily_formation import provider, OBS  # noqa: F401
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg  # noqa: F401
@@ -81,7 +81,7 @@ def test_missing_publisher_day_is_acquired_now_without_reset_or_broker_authority
     prices, publish = provider
     publish()
     first_day = str(prices.window.end)
-    first = rolling_runtime.advance(conn, through=first_day, observation_id=OBS, starting_cash=50_000)
+    rolling_runtime.advance(conn, through=first_day, observation_id=OBS, starting_cash=50_000)
     genesis = rolling_checkpoint.read(conn).genesis_sha256
     conn.rollback()
     missing = calendar.next_session(first_day)

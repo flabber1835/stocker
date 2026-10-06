@@ -821,7 +821,15 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
     pending = recovery.prepare_send(command)
     journal.save_command(conn, pending, previous=command.state)
 
-    settled = await recovery.dispatch(broker, pending)
+    try:
+        settled = await recovery.dispatch(broker, pending)
+    except Exception as exc:
+        from sentinel.execution.guarded import GuardedExecutionBroker, PreTransportAuthorityRefused
+        if (type(broker) is GuardedExecutionBroker
+                and isinstance(exc, PreTransportAuthorityRefused)
+                and getattr(exc, '_not_transported', None) is not None):
+            journal.restore_proven_unsent(conn, pending, broker=broker, refusal=exc)
+        raise
     journal.save_command(conn, settled, previous=pending.state)
 
     if settled.state is CommandState.UNKNOWN:

@@ -43,7 +43,8 @@ def advance_one(conn, *, through, observation_id, starting_cash):
                     if not str(exc).startswith('MISSING_DATED_PUBLICATION:'):
                         raise
                     pub = snapshots._current(conn)
-                    if pub.window_end != session or pub.version <= prior.state.data_version:
+                    if (pub.window_end != session or pub.version <= prior.state.data_version
+                            or not pub.evidence.get('operational_recovery')):
                         raise
                     binding = evidence.require_inputs(conn, pub)
                 inputs.validate_reconstruction(conn, pub, summary_only=True)

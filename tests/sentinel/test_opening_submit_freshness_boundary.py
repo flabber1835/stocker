@@ -96,3 +96,13 @@ def test_late_sell_remains_risk_reducing_and_executable():
         side=Side.SELL, quantity=Decimal(1)))
     assert outcome.state.value == "ACKNOWLEDGED"
     assert "submit:late-sell" in inner.calls
+
+
+def test_exact_ten_minute_boundary_is_expired_consistently():
+    inner = ClockedBroker()
+    opened, _ = calendar.session_window(inner.now.date())
+    inner.now = opened + timedelta(seconds=600)
+    with pytest.raises(PreTransportAuthorityRefused, match='final next-open freshness'):
+        asyncio.run(wrap(inner).submit(client_key='boundary-buy', instrument=instrument(),
+                                     side=Side.BUY, quantity=Decimal(1)))
+    assert 'submit:boundary-buy' not in inner.calls
