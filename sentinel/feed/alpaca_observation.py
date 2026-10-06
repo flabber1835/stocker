@@ -196,7 +196,11 @@ def admissible_history(rows, *, axis: list[str], symbols: set[str],
                        dividend_dates: dict[str, set[str]] | None = None,
                        reset_after: dict[str, str] | None = None,
                        split_terms: dict[tuple[str, str], str] | None = None):
-    """Return only contiguous, structurally action-free histories and first dates."""
+    """Return usable contiguous tails, never inventing a missing observation.
+
+    The published candidate history starts after its last gap. Protected book
+    anchors and already-applied economics are checked separately by continuity.
+    """
     index = {day: position for position, day in enumerate(axis)}
     by_symbol = {}
     split_symbols = {symbol for symbol, _day in (split_terms or {})}
@@ -215,7 +219,7 @@ def admissible_history(rows, *, axis: list[str], symbols: set[str],
         if not isfinite(ratio) or ratio <= 0:
             raise AlpacaTransportRefused("retained bar adjustment is invalid")
         current = by_symbol.get(symbol)
-        if current is None:
+        if current is None or position != current[1] + 1:
             lo, hi = _adjustment_interval(row, Decimal(1))
             by_symbol[symbol] = [position, position, 1, ratio, ratio, Decimal(1), lo, hi]
         else:
@@ -232,7 +236,9 @@ def admissible_history(rows, *, axis: list[str], symbols: set[str],
         observed = by_symbol.get(symbol)
         if symbol in action_affected:
             reasons["reported_corporate_action"] += 1
-        elif any(pair_symbol == symbol and pair_day > (reset_after or {}).get(symbol, "")
+        elif any(pair_symbol == symbol and pair_day >= (
+                    axis[observed[0]] if observed else axis[0])
+                 and pair_day > (reset_after or {}).get(symbol, "")
                  for pair_symbol, pair_day in pair_absent):
             reasons["raw_adjusted_key_mismatch"] += 1
         elif observed is None:
@@ -249,8 +255,7 @@ def admissible_history(rows, *, axis: list[str], symbols: set[str],
             if (symbol, axis[first]) in (split_terms or {}):
                 reasons['split_predecessor_missing'] += 1
                 continue
-            if any((reset_after or {}).get(symbol, "") < day < axis[first]
-                   or day > axis[last]
+            if any(day > axis[last]
                    for day in (dividend_dates or {}).get(symbol, ())):
                 reasons["cash_dividend_outside_price_history"] += 1
                 continue

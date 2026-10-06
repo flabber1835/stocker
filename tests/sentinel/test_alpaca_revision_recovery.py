@@ -141,6 +141,30 @@ def test_inventory_revision_rebuilds_classification_and_aggregate_references(
     assert {row['ticker'] for row in reference['tickers']} == {'AAA','BBB','CCC'}
 
 
+def test_cosmetic_inventory_revision_does_not_repeat_acquisition(
+        conn, alpaca_path, monkeypatch):
+    original = alpaca_path.get
+    reads = []
+
+    def inventory(endpoint, params=None, **kwargs):
+        data, proof = original(endpoint, params, **kwargs)
+        if endpoint == ASSETS:
+            reads.append(endpoint)
+            data = deepcopy(data)
+            for asset in data:
+                asset['name'] = 'Updated label' if len(reads) > 1 else 'Original label'
+        return data, proof
+
+    monkeypatch.setattr(alpaca_path, 'get', inventory)
+    job = enqueue(conn)
+    result = preparation_wait.run(conn, job, prepare=op.prepare, check_target=lambda:None)
+    assert result['job_id'] == job
+    assert len(reads) == 2
+    assert len(alpaca_path.classifier.calls) == 1
+    assert conn.execute('SELECT count(*) FROM sentinel_snapshot_jobs').fetchone()[0] == 1
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_successors').fetchone()[0] == 0
+
+
 def test_persistent_alpaca_revision_exhausts_fixed_successor_budget(
         conn, alpaca_path, monkeypatch):
     observed = changing_source(alpaca_path, monkeypatch, change='amount', persistent=True)

@@ -1,5 +1,10 @@
 # Sentinel — operational deployment ground truth
 
+[Current unattended operating contract](unattended-operating-contract.md)
+supersedes the fixed 23:45 source clock and the related installation, formation,
+outage reconstruction and free-feed execution restrictions described below.
+Older records preserve their historical scope; they are not the active policy.
+
 [CI-certified paper installation](ci-certified-paper-installation.md) extends
 the existing single-runtime contract through reviewed activation. Candidate and
 runtime roles may bind the same signed image; normal installation reuses the

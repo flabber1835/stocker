@@ -208,6 +208,19 @@ def corpus_write_lock(conn):
     holder's connection dies — an ingest killed mid-chunk must not lock the
     corpus until someone notices.
     """
+    with _locked_writer(conn, backup_runtime_authority.require):
+        yield
+
+
+@contextmanager
+def acquisition_write_lock(conn):
+    """Exclusive corpus lock for non-authoritative rolling candidate staging."""
+    with _locked_writer(conn, backup_runtime_authority.require_staging):
+        yield
+
+
+@contextmanager
+def _locked_writer(conn, guard):
     from sentinel.feed.publication import CORPUS_LOCK_KEY, CorpusLockUnavailable
 
     with conn.cursor() as cur:
@@ -220,7 +233,7 @@ def corpus_write_lock(conn):
                 "— the version would not move and the snapshot would.")
     conn.commit()
     try:
-        backup_runtime_authority.require(conn, operation="corpus writer mutation")
+        guard(conn, operation="corpus writer mutation")
         yield
     except BaseException:
         conn.rollback()

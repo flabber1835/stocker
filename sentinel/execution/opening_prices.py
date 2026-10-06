@@ -10,6 +10,8 @@ from typing import Mapping
 from sentinel.feed import calendar
 
 SOURCE = "ALPACA_IEX_RAW_OPENING_MINUTE_V1"
+QUOTE_SOURCE = "ALPACA_IEX_RAW_REGULAR_QUOTES_V2"
+QUOTE_ENDPOINT = "https://data.alpaca.markets/v2/stocks/quotes/latest"
 FEED = "iex"
 UNAVAILABLE_SOURCE = "ALPACA_OPENING_EVIDENCE_UNAVAILABLE_V1"
 ENDPOINT = "https://data.alpaca.markets/v2/stocks/bars"
@@ -86,16 +88,20 @@ class OpeningPrices:
 
     def __post_init__(self):
         opened, closed = calendar.session_window(self.session)
-        if (self.source != SOURCE or self.opening_at != opened
+        if self.source == QUOTE_SOURCE and not isinstance(self, RegularQuotes):
+            raise OpeningPriceUnavailable('regular quotes require authenticated sides and timestamps')
+        if (self.source not in {SOURCE, QUOTE_SOURCE} or self.opening_at != opened
                 or self.observed_at.tzinfo is None
-                or not opened + timedelta(minutes=1) <= self.observed_at < closed):
+                or not opened + (timedelta(minutes=1) if self.source == SOURCE else timedelta(0)) <= self.observed_at < closed):
             raise OpeningPriceUnavailable("opening prices have invalid source or session timestamps")
-        if (not self.prices or set(self.prices) != set(self.symbols)
+        coverage_valid = (set(self.prices) == set(self.symbols) if self.source == SOURCE
+                          else set(self.prices) <= set(self.symbols))
+        if (not self.prices or not coverage_valid
                 or any(not isinstance(sid, str) or not sid for sid in self.prices)
                 or len(set(self.symbols.values())) != len(self.symbols)
                 or any(not isinstance(symbol, str) or not symbol for symbol in self.symbols.values())):
             raise OpeningPriceUnavailable("opening prices have incomplete or ambiguous identities")
-        if (set(self.broker_ids) != set(self.prices)
+        if (set(self.broker_ids) != set(self.symbols)
                 or any(not isinstance(asset, str) or not asset.strip()
                        for asset in self.broker_ids.values())
                 or len(set(self.broker_ids.values())) != len(self.broker_ids)):
@@ -117,6 +123,8 @@ class OpeningPrices:
 
     @classmethod
     def from_dict(cls, raw):
+        if isinstance(raw, dict) and raw.get('source') == QUOTE_SOURCE:
+            return RegularQuotes.from_dict(raw)
         if isinstance(raw, dict) and raw.get("source") == UNAVAILABLE_SOURCE:
             return OpeningPriceUnavailability.from_dict(raw)
         if not isinstance(raw, dict) or set(raw) != {
@@ -129,6 +137,81 @@ class OpeningPrices:
                 raw["broker_ids"], raw["source"])
         except (TypeError, ValueError, ArithmeticError, AttributeError) as exc:
             raise OpeningPriceUnavailable("corrupt opening price evidence") from exc
+
+
+@dataclass(frozen=True)
+class RegularQuotes(OpeningPrices):
+    """Raw asks fund entries; raw bids conservatively value pending sales."""
+    bids: Mapping[str, Decimal] = None
+    quoted_at: Mapping[str, datetime] = None
+    source: str = QUOTE_SOURCE
+
+    def __post_init__(self):
+        super().__post_init__()
+        if (self.source != QUOTE_SOURCE or self.bids is None or self.quoted_at is None
+                or set(self.bids) != set(self.prices) or set(self.quoted_at) != set(self.prices)):
+            raise OpeningPriceUnavailable('regular quote evidence has incomplete sides or timestamps')
+        for sid, ask in self.prices.items():
+            bid, stamp = self.bids[sid], self.quoted_at[sid]
+            if (not isinstance(bid, Decimal) or not bid.is_finite() or not 0 < bid <= ask
+                    or not isinstance(stamp, datetime) or stamp.utcoffset() is None
+                    or not self.opening_at <= stamp <= self.observed_at
+                    or self.observed_at - stamp > timedelta(seconds=60)):
+                raise OpeningPriceUnavailable('regular quote is invalid, crossed, stale or outside session')
+        object.__setattr__(self, 'bids', MappingProxyType(dict(self.bids)))
+        object.__setattr__(self, 'quoted_at', MappingProxyType(dict(self.quoted_at)))
+
+    def to_dict(self):
+        return {**super().to_dict(), 'bids':{sid:str(p) for sid,p in sorted(self.bids.items())},
+                'quoted_at':{sid:t.isoformat() for sid,t in sorted(self.quoted_at.items())}}
+
+    @classmethod
+    def from_dict(cls, raw):
+        if not isinstance(raw, dict) or set(raw) != {
+                'source','session','opening_at','observed_at','prices','symbols','broker_ids','bids','quoted_at'}:
+            raise OpeningPriceUnavailable('invalid regular quote evidence shape')
+        try:
+            return cls(session=date.fromisoformat(raw['session']),
+                opening_at=datetime.fromisoformat(raw['opening_at']), observed_at=datetime.fromisoformat(raw['observed_at']),
+                prices={sid:Decimal(p) for sid,p in raw['prices'].items()}, symbols=raw['symbols'],
+                broker_ids=raw['broker_ids'], source=raw['source'],
+                bids={sid:Decimal(p) for sid,p in raw['bids'].items()},
+                quoted_at={sid:datetime.fromisoformat(t) for sid,t in raw['quoted_at'].items()})
+        except (TypeError, ValueError, ArithmeticError, AttributeError) as exc:
+            raise OpeningPriceUnavailable('corrupt regular quote evidence') from exc
+
+
+def parse_quotes(payload, *, session, instruments, observed_at, broker_symbols):
+    opened, _ = calendar.session_window(session)
+    symbols = {sid:item.symbol for sid,item in instruments.items()}
+    if (not instruments or any(sid != item.security_id for sid,item in instruments.items())
+            or set(broker_symbols) != set(symbols) or len(set(broker_symbols.values())) != len(symbols)
+            or not isinstance(payload, dict) or not isinstance(payload.get('quotes'), dict)
+            or not set(payload['quotes']) <= set(broker_symbols.values())):
+        raise OpeningPriceUnavailable('regular quote response identities are invalid')
+    asks, bids, stamps = {}, {}, {}
+    for sid, symbol in broker_symbols.items():
+        row = payload['quotes'].get(symbol)
+        if row is None:
+            continue
+        try:
+            if not isinstance(row, dict):
+                raise ValueError
+            ask, bid = Decimal(str(row['ap'])), Decimal(str(row['bp']))
+            stamp = datetime.fromisoformat(row['t'].replace('Z','+00:00'))
+            ask_size, bid_size = Decimal(str(row['as'])), Decimal(str(row['bs']))
+            if (not all(p.is_finite() and p > 0 for p in (ask,bid,ask_size,bid_size))
+                    or bid > ask or stamp.utcoffset() is None or not opened <= stamp <= observed_at
+                    or observed_at - stamp > timedelta(seconds=60)):
+                continue  # Security-specific unavailable observation; never invent a price.
+        except (KeyError, TypeError, ValueError, ArithmeticError, AttributeError):
+            continue
+        asks[sid], bids[sid], stamps[sid] = ask, bid, stamp
+    if not asks:
+        raise OpeningPriceNotReady('no fresh regular-session IEX quotes; retry within execution window')
+    return RegularQuotes(session=session, opening_at=opened, observed_at=observed_at,
+        prices=asks, symbols=symbols, broker_ids={sid:item.broker_id for sid,item in instruments.items()},
+        bids=bids, quoted_at=stamps)
 
 
 def parse_bars(payload, *, session, instruments, observed_at, broker_symbols=None):

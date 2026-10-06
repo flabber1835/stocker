@@ -102,7 +102,10 @@ def test_full_formation_chain_and_frontier_match_unchanged_loader(conn,provider,
         actual = formation_preview.run(cached,capital=50_000,strategy=strategy,data_version=pub.version)
         uncached = FormationInputs(conn,binding,pub)
         uncached.features.load = lambda **kw:window_features.load(conn,refs=uncached.refs,publication=pub,**kw)
-        expected = formation_preview.run(uncached,capital=50_000,strategy=strategy,data_version=pub.version)
+        from sentinel import formation_cache
+        with monkeypatch.context() as independent:
+            independent.setattr(formation_cache, 'location', lambda plan: None)
+            expected = formation_preview.run(uncached,capital=50_000,strategy=strategy,data_version=pub.version)
     assert actual[0].to_dict() == expected[0].to_dict()
     assert actual[1:] == expected[1:]
     assert cached.features.rows_read == 426*25
@@ -166,7 +169,8 @@ def test_unsupported_held_event_refuses_without_mutating_book(conn,provider):
     prices.split,prices.unsupported = (episode['ticker'],day),True
     publish()
     from sentinel.core.rolling_reader import RollingReaderRefused
-    with pytest.raises((ValueError,RollingReaderRefused),match='ANCHOR'):
+    from sentinel.rolling_reconstruction_evidence import InputsUnavailable
+    with pytest.raises((ValueError,RollingReaderRefused,InputsUnavailable),match='ANCHOR|HELD_ECONOMIC_INPUT_PENDING'):
         daily.advance(conn,observation_id=OBS,starting_cash=50_000)
     conn.rollback()
     from sentinel import rolling_daily_checkpoint

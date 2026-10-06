@@ -463,6 +463,22 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "broker-native instrument identity changed before submit; "
                     f"durable={instrument}, current={current}")
 
+        quote = None
+        if side is Side.BUY and self.capabilities.regular_session_quote_prices:
+            try:
+                from sentinel.execution.opening_prices import RegularQuotes
+                quote = await self.opening_prices(session=clock.timestamp.date(),
+                    instruments={instrument.security_id:instrument})
+                if (not isinstance(quote, RegularQuotes) or instrument.security_id not in quote.prices
+                        or quote.broker_ids[instrument.security_id] != instrument.broker_id):
+                    raise ValueError('fresh executable quote is absent or names another instrument')
+                account = await self.account_snapshot()
+                # Funding does not assume a favourable fill or unsettled proceeds.
+                if quantity * quote.prices[instrument.security_id] > account.cash:
+                    raise ValueError('fresh ask exceeds available cash for the fixed quantity')
+            except Exception as exc:
+                raise PreTransportAuthorityRefused(
+                    'increase quote or affordability unavailable before transport: ' + type(exc).__name__) from exc
         await self._authorize_mutation(BrokerOperation.SUBMIT)
         if side is Side.BUY and self.supports_market_clock:
             try:
@@ -473,11 +489,13 @@ class GuardedExecutionBroker(ExecutionBroker):
                     raise ValueError("broker has no fresh timezone-aware submission clock")
                 from sentinel.feed import calendar
                 opened, closed = calendar.session_window(now.date())
-                latest = min(closed, opened + timedelta(seconds=120))
+                latest = min(closed, opened + timedelta(seconds=600))
                 if not opened <= now <= latest:
                     raise ValueError(
                         f"increase freshness expired at {latest.isoformat()}; "
                         f"submission time is {now.isoformat()}")
+                if quote is not None and now - quote.quoted_at[instrument.security_id] > timedelta(seconds=60):
+                    raise ValueError('executable quote expired during submission authority checks')
             except PreTransportAuthorityRefused:
                 raise
             except Exception as exc:                          # noqa: BLE001

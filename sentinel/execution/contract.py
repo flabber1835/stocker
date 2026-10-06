@@ -129,6 +129,7 @@ class BrokerCapabilities:
     account_close_valuation: bool = False
     market_on_open: bool = False
     regular_session_open_prices: bool = False
+    regular_session_quote_prices: bool = False
 
     def __post_init__(self) -> None:
         if (not isinstance(self.minimum_quantity_increment, Decimal)

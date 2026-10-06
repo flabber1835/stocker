@@ -7,7 +7,7 @@ from fractions import Fraction
 import math
 
 from sentinel.execution.opening_prices import (
-    OpeningPrices, OpeningPriceNotReady, OpeningPriceUnavailable, OpeningPriceUnavailability)
+    OpeningPrices, RegularQuotes, OpeningPriceNotReady, OpeningPriceUnavailable, OpeningPriceUnavailability)
 from sentinel.execution.numeric import display_decimal
 from sentinel.execution.target_reprojection import (
     TargetProjectionRefused, _decimal, load_projection)
@@ -139,9 +139,11 @@ async def prices_for_plan(conn, *, state, plan, broker):
         if httpx is not None and isinstance(exc, httpx.HTTPStatusError):
             if exc.response.status_code in (401, 403):
                 raise
+            if exc.response.status_code == 429 or exc.response.status_code >= 500:
+                raise OpeningPriceNotReady('opening evidence read temporarily unavailable') from exc
             return _unavailable(plan, instruments, exc)
         if httpx is not None and isinstance(exc, httpx.TransportError):
-            return _unavailable(plan, instruments, exc)
+            raise OpeningPriceNotReady('opening evidence transport temporarily unavailable') from exc
         raise
 
 
@@ -184,8 +186,10 @@ def resolve(state, plan, projection,
             "reason": prices.reason,
             "intents": [item.to_dict() for item in plan.opening_intents],
             "entries": []})
+    required = set(required_prices(state, plan))
     if (not isinstance(prices, OpeningPrices) or prices.session != plan.effective_session
-            or set(prices.prices) != set(required_prices(state, plan))):
+            or set(prices.symbols) != required
+            or (not isinstance(prices, RegularQuotes) and set(prices.prices) != required)):
         raise OpeningPriceUnavailable("opening sizing requires complete effective-session prices")
     portfolio = PortfolioState.from_dict(state.wealth_core)
     cfg = v5.config()
@@ -202,6 +206,9 @@ def resolve(state, plan, projection,
         if pending.operation is not Operation.CLOSE_POSITION:
             continue
         sid = pending.security_id
+        if sid not in prices.prices:
+            exits.append({'security_id':sid, 'status':'PRICE_PENDING', 'proceeds':'0'})
+            continue  # An absent sale quote cannot fund an entry.
         multiplier = projection.action_multipliers.get(sid, Decimal(1))
         if multiplier <= 0:
             raise TargetProjectionRefused("opening sale funding requires positive share units")
@@ -209,12 +216,21 @@ def resolve(state, plan, projection,
                     split_shares(pending.shares, multiplier))
         if not math.isfinite(quantity) or quantity <= 0:
             raise TargetProjectionRefused("opening sale funding requires positive share units")
-        proceeds = exit_proceeds(quantity, float(prices.prices[sid]), cfg)
+        sale_price = prices.bids[sid] if isinstance(prices, RegularQuotes) else prices.prices[sid]
+        proceeds = exit_proceeds(quantity, float(sale_price), cfg)
         cash += proceeds
         exits.append({"security_id": sid, "shares": str(quantity), "proceeds": str(proceeds)})
     scale = Fraction(plan.target_exposure) * Fraction(plan.account_nav) / Fraction(_shadow_equity(state))
     entries = []
     for intent in plan.opening_intents:
+        if intent.security_id not in prices.prices:
+            reserved = min(float(intent.intended_dollars), cash)
+            before = cash
+            cash -= reserved  # Preserve canonical priority; later entries cannot steal its budget.
+            entries.append({**intent.to_dict(), 'status':'PRICE_PENDING',
+                'cash_before':str(before), 'reserved_cash':str(reserved), 'core_shares':'0',
+                'account_shares':'0', 'cash_after':str(cash)})
+            continue
         price = float(prices.prices[intent.security_id])
         intended = float(intent.intended_dollars)
         budget = min(intended, cash)

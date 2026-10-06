@@ -174,6 +174,10 @@ def test_selected_formation_go_restart_and_daily_preserve_simplifications(conn, 
     assert host._operational_parity_report_valid(report, commit=commit, starting_cash='50000')
     assert report['proof']['result_state_sha256'] == expected.state_hash
     # Lose a committed progress reply, then resume rather than replay the prefix.
+    # Exercise the database checkpoint fallback with no disposable preview cache.
+    # Cache reuse itself is covered by test_unattended_formation_recovery.
+    from sentinel import formation_cache
+    monkeypatch.setattr(formation_cache, 'location', lambda plan: None)
     original_write = formation_bootstrap.write
     seen = []
     def lose(conn, name, formed, context):

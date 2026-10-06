@@ -109,6 +109,16 @@ def test_current_universe_collapse_refuses_before_publication():
     rolling_builder.require_alpaca_population(selected=1000, admitted=950)
 
 
+def test_deliberate_quarantine_is_separate_from_missing_provider_coverage():
+    rolling_builder.require_alpaca_population(selected=1000, admitted=850, deliberate_exclusions=150)
+    with pytest.raises(ValueError, match='below 95%'):
+        rolling_builder.require_alpaca_population(selected=1000, admitted=800, deliberate_exclusions=150)
+    with pytest.raises(ValueError, match='below 500'):
+        rolling_builder.require_alpaca_population(selected=1000, admitted=499, deliberate_exclusions=501)
+    with pytest.raises(ValueError, match='accounting'):
+        rolling_builder.require_alpaca_population(selected=1000, admitted=850, deliberate_exclusions=151)
+
+
 @pytest.fixture
 def alpaca_path(monkeypatch):
     fake = FakeClient()

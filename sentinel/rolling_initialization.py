@@ -45,6 +45,25 @@ def _timing(conn, session):
             "status": shadow.BEFORE_NEXT_OPEN}
 
 
+def _preparation_timing(conn, session, strategy):
+    """Late preparation can establish state, never prospective authority."""
+    from sentinel.core import window_policy
+    if not window_policy.formed(strategy):
+        return _timing(conn, session)
+    now = _now(conn)
+    if operational_snapshot.source_final_session(now) != session:
+        raise RollingColdStartRefused("SOURCE_FINAL_TARGET_CHANGED")
+    execution = calendar.next_session(session)
+    opened, _ = calendar.session_window(execution)
+    if now < opened:
+        return _timing(conn, session)
+    return {"schema": "sentinel.shadow-state-preparation-timing/1",
+            "decision_session": session, "execution_session": execution,
+            "observed_at": now.astimezone(timezone.utc).isoformat(),
+            "execution_open_at": opened.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "status": "STATE_ONLY_AFTER_OPEN"}
+
+
 def _published(material, pub):
     def defensive(row):
         return DefensiveBar(str(row.session), "SENTINEL:BIL", "BIL", row.bil_open_signal,
@@ -83,7 +102,7 @@ def _initialize(conn, pub, binding, context):
     request = rolling_jobs.status(conn, binding["job_id"])["request"]
     if request["strategy_sha256"] != digest(context["strategy"]):
         raise RollingColdStartRefused("ACQUISITION_STRATEGY_CHANGED")
-    timing = _timing(conn, pub.window_end)
+    timing = _preparation_timing(conn, pub.window_end, context['strategy'])
     from sentinel.controller.owned_impairment import enabled as owned
     from sentinel.core import window_policy
     formed = owned(context['strategy']) and (not window_policy.enabled(context['strategy']) or window_policy.formed(context['strategy']))
@@ -91,7 +110,7 @@ def _initialize(conn, pub, binding, context):
         from sentinel import formation_bootstrap
         def current():
             checkpoints.require_fresh(conn)
-            _timing(conn, pub.window_end)
+            _preparation_timing(conn, pub.window_end, context['strategy'])
             if operational_snapshot._current(conn).to_dict() != pub.to_dict():
                 raise RollingColdStartRefused('FORMATION_PUBLICATION_CHANGED')
         seed, warmup, published = formation_bootstrap.prepare(
@@ -114,7 +133,7 @@ def _initialize(conn, pub, binding, context):
         strategy_identity=context["strategy"], runtime_identity=context["runtime"],
         activation_timing=timing, warmup_input_identity=warmup)
     result = observer.observe(shadow.FullyPublishedSession(published, pub.to_dict()))
-    completed = _timing(conn, published.session)
+    completed = _preparation_timing(conn, published.session, context['strategy'])
     backup_runtime_authority.require(conn, operation="rolling cold-start checkpoint")
     checkpoint = checkpoints.Checkpoint(
         status='FORMED_START_COMMITTED' if formed else 'COLD_START_COMMITTED',
@@ -141,7 +160,7 @@ def initialize(conn, *, observation_id: str, starting_cash):
         with operational_snapshot.pinned(conn, commit=False) as (pub, binding):
             try:
                 result = _initialize(conn, pub, binding, context)
-                _timing(conn, result.session)  # Final writes cannot extend the opening deadline.
+                _preparation_timing(conn, result.session, context['strategy'])
                 conn.commit()
                 return result
             except BaseException:

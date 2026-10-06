@@ -28,7 +28,7 @@ try:
     now = datetime.now(timezone.utc)
     opened, _ = calendar.session_window(calendar.next_session(target))
     if (target != operational_snapshot.source_final_session(now)
-            or target != calendar.latest_closed_session(now) or now >= opened):
+            or target != calendar.latest_closed_session(now)):
         result = {'status': 'WINDOW_EXPIRED', 'resume_job_id': None}
     else:
         try:
@@ -66,15 +66,13 @@ def refresh(deploy, *, timing, deadline):
     while True:
         deploy._assert_wait_fence()
         current = deploy._causal_timing()
-        if (current['target'] != target or not deploy._timing_eligible(current)):
+        if (current['target'] != target or not deploy._data_timing_eligible(current)):
             return
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise core.DeployRefused('installation source wait deadline exhausted')
-        seconds = min(remaining, current['remaining_ms'] / 1000)
-        cutoff = min(
-            datetime.fromisoformat(current['execution_open_at']),
-            datetime.now(timezone.utc) + timedelta(seconds=remaining))
+        seconds = remaining
+        cutoff = datetime.now(timezone.utc) + timedelta(seconds=remaining)
         env = go._with_market_data_authority(deploy.env)
         env.update({
             'SENTINEL_INSTALL_SOURCE_TARGET': target,

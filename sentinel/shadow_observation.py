@@ -172,7 +172,7 @@ def _utc_text(value: Any, *, where: str) -> str:
 
 def _timing_proof(
         value: Mapping[str, Any], *, decision_session: str,
-        committed: bool, where: str) -> dict:
+        committed: bool, where: str, allow_state_only: bool = False) -> dict:
     raw = _as_mapping(value, where=where)
     fields = {
         "schema", "decision_session", "execution_session", "observed_at",
@@ -188,11 +188,13 @@ def _timing_proof(
     observed = _utc_instant(raw.get("observed_at"), where=f"{where} observed_at")
     cutoff = _utc_instant(
         raw.get("execution_open_at"), where=f"{where} execution_open_at")
+    state_only = (allow_state_only and not committed
+                  and raw.get('schema') == 'sentinel.shadow-state-preparation-timing/1'
+                  and raw.get('status') == 'STATE_ONLY_AFTER_OPEN' and observed >= cutoff)
     if (raw.get("decision_session") != decision_session
             or raw.get("execution_session") != expected_execution
             or raw.get("execution_open_at") != expected_open_text
-            or raw.get("status") != BEFORE_NEXT_OPEN
-            or observed >= cutoff):
+            or (not state_only and (raw.get("status") != BEFORE_NEXT_OPEN or observed >= cutoff))):
         raise ShadowObservationRefused(
             f"{where} does not prove commitment before the following XNYS open")
     if committed:
@@ -1242,9 +1244,11 @@ class ShadowObserver:
             raise ShadowObservationRefused(
                 "shadow runtime identity cannot be empty")
         self.runtime_identity_sha256 = _sha256(self.runtime_identity)
+        from sentinel.core import window_policy
         self.activation_timing = _timing_proof(
             activation_timing, decision_session=self.first_session,
-            committed=False, where="shadow activation timing")
+            committed=False, where="shadow activation timing",
+            allow_state_only=window_policy.formed(self.strategy_identity))
         self.warmup_input_identity = _validate_warmup_input_identity(
             warmup_input_identity, first_session=self.first_session)
         from sentinel.core import window_policy

@@ -154,5 +154,6 @@ def restore_observer(conn, checkpoint, *, observation_id, starting_cash, control
     if pub.to_dict() != checkpoint.publication:
         raise RollingColdStartRefused("CHECKPOINT_PUBLICATION_CHANGED")
     shadow._timing_proof(checkpoint.precommit_timing, decision_session=checkpoint.session,
-                         committed=False, where="rolling checkpoint precommit timing")
+                         committed=False, where="rolling checkpoint precommit timing",
+                         allow_state_only=checkpoint.status == 'FORMED_START_COMMITTED')
     return None if status_only else observer, result

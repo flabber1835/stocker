@@ -46,6 +46,23 @@ def job(asset):
             'exchCode': 'US', 'marketSecDes': 'Equity', 'includeUnlistedEquities': False}
 
 
+def listing_identity(asset):
+    """Fields affecting mapping and prices; a display name is not identity."""
+    return {field: asset[field] for field in ('asset_id', 'ticker', 'exchange')}
+
+
+def reuse_classifications(assets, *, previous_assets, observations):
+    """Rebind cosmetic metadata without refreshing the provider observation age.
+
+    Full capture hashes remain the persisted keys. Only an exact listing
+    identity can inherit the original mapping response and observation day.
+    """
+    prior = {digest(listing_identity(asset)): observations.get(digest(asset))
+             for asset in previous_assets}
+    return {digest(asset): prior[digest(listing_identity(asset))]
+            for asset in assets if prior.get(digest(listing_identity(asset))) is not None}
+
+
 def classify(asset, response):
     if not isinstance(response, dict):
         raise AlpacaTransportRefused('OpenFIGI mapping result is not an object')

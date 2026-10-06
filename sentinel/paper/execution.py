@@ -124,7 +124,7 @@ from .reconciliation_evidence import (
 from .preparation import _default_paper_strategy
 
 
-_V5_OPENING_FRESHNESS = timedelta(seconds=120)
+_V5_OPENING_FRESHNESS = timedelta(seconds=600)
 
 
 def _opening_resolution_freshness_or_refuse(

@@ -192,6 +192,17 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
     if acquisition_deadline is None:
         acquisition_deadline = shadow_budget.cutoff()
     classified = classify(conn, observation_id=observation_id, starting_cash=starting_cash, structural_only=True)
+    if classified['status'] == 'NOT_STARTED':
+        context = initial._context(observation_id, starting_cash)
+        from sentinel.core import window_policy
+        opened, _ = calendar.session_window(calendar.next_session(through))
+        late = initial._now(conn) >= opened
+        conn.rollback()
+        if late and window_policy.formed(context['strategy']):
+            initial.initialize(conn, observation_id=observation_id, starting_cash=starting_cash)
+            from sentinel import rolling_recovery
+            return rolling_recovery.advance_one(conn, through=through,
+                observation_id=observation_id, starting_cash=starting_cash)
     if classified["status"] in {"ATTESTED_STRUCTURAL", "RECONSTRUCTED_STRUCTURAL", "RECONSTRUCTION_REQUIRED"}:
         previous = classified["latest_session"]
         next_step = previous if classified["status"] == "RECONSTRUCTION_REQUIRED" else calendar.next_session(previous)

@@ -14,7 +14,7 @@ from sentinel.core.kernel import advance_session
 from sentinel.core.session import PublishedSession, SessionState, _feed_to_dict
 from sentinel.execution.alpaca import AlpacaExecutionBroker
 from sentinel.execution import opening_sizing
-from sentinel.execution.opening_prices import ENDPOINT, OpeningPrices, OpeningPriceUnavailable
+from sentinel.execution.opening_prices import QUOTE_ENDPOINT as ENDPOINT, OpeningPrices, OpeningPriceUnavailable
 from sentinel.feed import calendar, universe
 from sentinel.paper.inspection import build_security_resolver
 from sentinel.strategy import owned_impairment_strategy as production_strategy
@@ -199,8 +199,8 @@ def test_normal_metadata_allows_next_open_and_pending_sale_funding(monkeypatch, 
             return httpx.Response(200, json={'symbol': symbol, 'id': 'asset-'+symbol,
                                             'status': 'active', 'tradable': True})
         symbols = request.url.params['symbols'].split(',')
-        return httpx.Response(200, json={'bars': {s: [{'t': opened.isoformat(), 'o': 100, 'v': 10}]
-                                                        for s in symbols}, 'next_page_token': None})
+        return httpx.Response(200, json={'quotes': {s: {'t':(opened+timedelta(minutes=1)).isoformat(),
+            'ap':100, 'bp':100, 'as':10, 'bs':10} for s in symbols}})
     provider = lambda: SimpleNamespace(AsyncClient=lambda **k: httpx.AsyncClient(transport=httpx.MockTransport(transport)))
     broker = AlpacaExecutionBroker(api_key='test', secret_key='test', base_url='https://paper-api.alpaca.markets',
         resolve_security_id=resolver, http_provider=provider, clock_provider=lambda: opened+timedelta(minutes=1))
@@ -242,8 +242,8 @@ def test_actual_alpaca_class_share_request_and_response_conversion(custom):
                                             'status': 'active', 'tradable': True})
         assert str(request.url).startswith(ENDPOINT)
         assert set(request.url.params['symbols'].split(',')) == set(mapping.values())
-        return httpx.Response(200, json={'bars': {s: [{'t': opened.isoformat(), 'o': 500.125, 'v': 30}]
-                                                for s in mapping.values()}, 'next_page_token': None})
+        return httpx.Response(200, json={'quotes': {s: {'t':(opened+timedelta(minutes=1)).isoformat(),
+            'ap':500.125, 'bp':500, 'as':30, 'bs':30} for s in mapping.values()}})
     provider = lambda: SimpleNamespace(AsyncClient=lambda **k: httpx.AsyncClient(transport=httpx.MockTransport(transport)))
     broker = AlpacaExecutionBroker(api_key='test', secret_key='test', base_url='https://paper-api.alpaca.markets',
         http_provider=provider, clock_provider=lambda: opened+timedelta(minutes=1),

@@ -283,11 +283,6 @@ def test_public_preflight_never_marks_retrospective_fresh_start_healthy(
         lambda _now: "2026-08-20")
     monkeypatch.setattr(
         shadow_service.calendar, "next_session", lambda _session: "2026-08-21")
-    monkeypatch.setattr(
-        shadow_service.calendar, "session_window",
-        lambda _session: (
-            datetime(2026, 8, 21, 13, 30, tzinfo=timezone.utc),
-            datetime(2026, 8, 21, 20, 0, tzinfo=timezone.utc)))
 
     with pytest.raises(shadow_service.ShadowServiceWaiting,
                        match="next freshly completed close"):
@@ -374,11 +369,6 @@ def test_new_lineage_waits_during_market_hours_for_a_fresh_close(monkeypatch):
     monkeypatch.setattr(
         shadow_service.calendar, "next_session",
         lambda _session: "2026-08-21")
-    monkeypatch.setattr(
-        shadow_service.calendar, "session_window",
-        lambda _session: (
-            datetime(2026, 8, 21, 13, 30, tzinfo=timezone.utc),
-            datetime(2026, 8, 21, 20, 0, tzinfo=timezone.utc)))
 
     with pytest.raises(shadow_service.ShadowServiceWaiting,
                        match="next freshly completed close"):
@@ -393,11 +383,6 @@ def test_new_lineage_may_use_a_close_whose_following_open_is_future(monkeypatch)
     monkeypatch.setattr(
         shadow_service.calendar, "next_session",
         lambda _session: "2026-08-24")
-    monkeypatch.setattr(
-        shadow_service.calendar, "session_window",
-        lambda _session: (
-            datetime(2026, 8, 24, 13, 30, tzinfo=timezone.utc),
-            datetime(2026, 8, 24, 20, 0, tzinfo=timezone.utc)))
     target = shadow_service._causal_target(
         preflight_status="NOT_STARTED",
         now=datetime(2026, 8, 22, 4, 0, tzinfo=timezone.utc))
@@ -427,11 +412,6 @@ def test_service_health_keeps_exact_daily_gap_healthy_before_source_final(
         shadow_service.calendar, "next_session",
         lambda session: ("2026-08-21" if str(session) == "2026-08-20"
                          else "2026-08-24"))
-    monkeypatch.setattr(
-        shadow_service.calendar, "session_window",
-        lambda _session: (
-            datetime(2026, 8, 24, 13, 30, tzinfo=timezone.utc),
-            datetime(2026, 8, 24, 20, 0, tzinfo=timezone.utc)))
 
     result = shadow_service.service_health(
         cfg, now=datetime(2026, 8, 21, 20, 1, tzinfo=timezone.utc))
@@ -451,11 +431,6 @@ def test_day_two_structural_lineage_ingests_then_fully_advances(monkeypatch):
         shadow_service.calendar, "next_session",
         lambda session: ("2026-08-21" if str(session) == "2026-08-20"
                          else "2026-08-24"))
-    monkeypatch.setattr(
-        shadow_service.calendar, "session_window",
-        lambda _session: (
-            datetime(2026, 8, 24, 13, 30, tzinfo=timezone.utc),
-            datetime(2026, 8, 24, 20, 0, tzinfo=timezone.utc)))
 
     class Connection:
         def rollback(self):
@@ -540,11 +515,6 @@ def test_verified_lineage_gap_refuses_before_post_cutoff_ingest(monkeypatch):
         lambda session: ("2026-08-20" if str(session) == "2026-08-19"
                          else "2026-08-21"))
     monkeypatch.setattr(
-        shadow_service.calendar, "session_window",
-        lambda _session: (
-            datetime(2026, 8, 21, 13, 30, tzinfo=timezone.utc),
-            datetime(2026, 8, 21, 20, 0, tzinfo=timezone.utc)))
-    monkeypatch.setattr(
         shadow_service.feed_store, "connect",
         lambda _url: pytest.fail("missed cutoff must refuse before ingest/DB"))
 
@@ -609,53 +579,36 @@ def test_restart_routes_exact_recovery_session_without_ingest(monkeypatch, kind)
 
 
 @pytest.mark.parametrize(("session", "expected_utc"), [
-    ("2026-08-21", "2026-08-22T03:45:00+00:00"),  # regular EDT
-    ("2026-11-27", "2026-11-28T04:45:00+00:00"),  # half-day EST
-    ("2026-03-06", "2026-03-07T04:45:00+00:00"),  # before DST
-    ("2026-03-09", "2026-03-10T03:45:00+00:00"),  # after DST
+    ("2026-08-21", "2026-08-21T20:00:00+00:00"),  # regular EDT
+    ("2026-11-27", "2026-11-27T18:00:00+00:00"),  # half-day EST
+    ("2026-03-06", "2026-03-06T21:00:00+00:00"),  # before DST
+    ("2026-03-09", "2026-03-09T20:00:00+00:00"),  # after DST
 ])
-def test_reviewed_sharadar_not_before_is_fixed_local_2345(
+def test_acquisition_not_before_is_actual_exchange_close(
         session, expected_utc):
     assert shadow_service.shadow_runtime.publication_not_before(
         session).isoformat() == expected_utc
 
 
-def test_visible_close_is_never_trusted_before_local_2345(monkeypatch):
+def test_acquisition_can_begin_after_half_day_close(monkeypatch):
     eastern = ZoneInfo("America/New_York")
     monkeypatch.setattr(
         shadow_service.calendar, "latest_closed_session",
         lambda _now: "2026-11-27")
     monkeypatch.setattr(
         shadow_service.calendar, "next_session", lambda _session: "2026-11-30")
-    monkeypatch.setattr(
-        shadow_service.calendar, "session_window",
-        lambda _session: (
-            datetime(2026, 11, 30, 14, 30, tzinfo=timezone.utc),
-            datetime(2026, 11, 30, 21, 0, tzinfo=timezone.utc)))
-
-    with pytest.raises(shadow_service.ShadowServiceWaiting,
-                       match="reviewed daily publication"):
-        shadow_service._causal_target(
-            preflight_status="NOT_STARTED",
-            now=datetime(2026, 11, 27, 23, 44, tzinfo=eastern))
     assert shadow_service._causal_target(
         preflight_status="NOT_STARTED",
-        now=datetime(2026, 11, 27, 23, 45, tzinfo=eastern)) == "2026-11-27"
+        now=datetime(2026, 11, 27, 13, 1, tzinfo=eastern)) == "2026-11-27"
 
 
-def test_weekend_resume_uses_friday_only_after_friday_2345(monkeypatch):
+def test_weekend_resume_uses_fridays_closed_session(monkeypatch):
     eastern = ZoneInfo("America/New_York")
     monkeypatch.setattr(
         shadow_service.calendar, "latest_closed_session",
         lambda _now: "2026-08-21")
     monkeypatch.setattr(
         shadow_service.calendar, "next_session", lambda _session: "2026-08-24")
-    monkeypatch.setattr(
-        shadow_service.calendar, "session_window",
-        lambda _session: (
-            datetime(2026, 8, 24, 13, 30, tzinfo=timezone.utc),
-            datetime(2026, 8, 24, 20, 0, tzinfo=timezone.utc)))
-
     assert shadow_service._causal_target(
         preflight_status="NOT_STARTED",
         now=datetime(2026, 8, 22, 12, 0, tzinfo=eastern)) == "2026-08-21"
