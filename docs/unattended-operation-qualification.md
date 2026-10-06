@@ -187,3 +187,39 @@ PostgreSQL reported no OOM and no restarts throughout these diagnostics.
 
 Failed evidence was preserved. No real orders were submitted and the cancelled
 certified paper installation was not restarted by this campaign.
+
+## PR #480 CI follow-up
+
+The first GitHub run exposed two composition assertions and one container
+fixture that still expected the retired 23:45 clock. They were updated to the
+documented exchange-close boundary, including DST, exact close and half-day
+checks. No production module changed in this follow-up. The retained legacy
+read-only preflight is not called by the production GO launcher; its isolated
+container fixture now checks the previous closed session before today's close.
+
+Focused command: **73 passed in 25.85 seconds**:
+
+```sh
+python -m pytest tests/production_composition/test_clock_calendar_faults.py tests/sentinel/test_bounded_operational_publication.py tests/sentinel/test_go_readonly_data_preflight.py -q --tb=short
+```
+
+Broader command:
+
+```sh
+python -m pytest tests/production_composition -q --tb=short
+```
+
+This produced **572 passes and one prerequisite failure in 167.31 seconds**:
+the runtime contains no `sudo`, which the existing foreign-owner CI test invokes.
+The same atomic ownership replacement was separately exercised on Ubuntu:
+root created one temporary selector, the normal `bron` process replaced it,
+and the new owner, inode, mode 0600 and selected digest all matched. That native
+check passed; it is not represented as a passing pytest test. No host sudo policy
+was changed. GitHub's corresponding ownership test passed in the first CI run.
+
+The corrected `test_go_probe_runtime_integration.py` also passed against the
+real non-root runtime `sentinel-go-local:3ed428e8`, a unique disposable Compose
+database and a local override removing its host port. All six read-only marker
+checks, import/authentication failures, publication lock exclusion and receipt
+ancestry checks passed. This fixture's synthetic legacy export seam cannot
+contact a provider and is not real-data acquisition evidence.
