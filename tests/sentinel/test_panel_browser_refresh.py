@@ -1,6 +1,7 @@
 """Adversarial browser refresh execution; no browser or broker network calls."""
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -14,6 +15,8 @@ from sentinel.panel.render import render
 def run_refresh(failure, *, remove_guard=False):
     node = shutil.which('node')
     if node is None:
+        if os.environ.get('SENTINEL_IN_IMAGE') == '1':
+            pytest.fail('Node is required in the CI lens; browser qualification cannot skip')
         pytest.skip('Node is required only for this browser-controller execution test')
     generated = datetime(2026, 10, 6, 4, tzinfo=timezone.utc)
     html = render(Panel(rows=[], now=generated))
@@ -36,3 +39,10 @@ def test_removed_browser_single_request_guard_is_detected():
     result = run_refresh('busy', remove_guard=True)
     assert result.returncode != 0
     assert 'overlapping wakeups' in result.stderr
+
+
+def test_missing_node_in_ci_lens_fails_instead_of_skipping(monkeypatch):
+    monkeypatch.setenv('SENTINEL_IN_IMAGE', '1')
+    monkeypatch.setattr(shutil, 'which', lambda _: None)
+    with pytest.raises(pytest.fail.Exception, match='qualification cannot skip'):
+        run_refresh('busy')

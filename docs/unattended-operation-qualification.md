@@ -318,3 +318,21 @@ python -m pytest tests/sentinel/test_rolling_snapshot_publisher.py::test_backup_
 
 All 78 changed Python files compiled with zero new lint findings. This additional
 repair changes only qualification assertions, not production behavior.
+
+The final evidence assembler correctly refused six skipped browser-controller
+tests: Node was available in the local qualification but absent from the CI
+lens. Node is required test tooling in that lens, never a production-runtime
+dependency. The lens must execute the browser refresh campaign during its build,
+and an in-image missing Node must fail immediately instead of skipping. The
+assembler's existing all-tests-passed requirement remains unchanged.
+
+The actual repaired lens built locally from the previously qualified single
+runtime `sentinel-go-local:3ed428e8`. Its production imports remained under
+`/app`; build checks passed **46 image-layout tests**, **663 script tests** and
+**7 browser-controller tests** with Node 20.19.2. Those seven include the six
+previous skips and the missing-runner failure regression. The build log is
+retained locally; this tooling check does not certify or deploy a release.
+
+```sh
+docker build --progress plain -f Dockerfile.sentinel-test --build-arg SENTINEL_IMAGE=sentinel-go-local:3ed428e8 --build-arg SOURCE_GIT_SHA=9b1bda06723b0bcf53e81840eab73ada1ea03f45 -t sentinel-ci-lens-local:pr480-node .
+```
