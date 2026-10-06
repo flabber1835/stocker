@@ -145,6 +145,7 @@ table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:ta
 th,td{padding:7px 6px;text-align:left;border-top:1px solid var(--line);vertical-align:top}
 th{color:var(--muted);font-weight:600;letter-spacing:.04em}
 .not-current .row.ok{border-color:var(--fail)}
+.not-current .dot.ok{color:var(--fail)}
 .push-card{
   background:var(--card);border:1px solid var(--line);border-radius:14px;
   padding:13px 15px;margin:10px 0;box-shadow:var(--shadow);

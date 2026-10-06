@@ -1,11 +1,13 @@
 """Actual provider publication and canonical state through restart boundaries."""
 from datetime import timedelta
+from decimal import Decimal
 import json
 
 import pytest
 
 from sentinel import formation_cache, rolling_initialization as initial, rolling_runtime
 from sentinel import rolling_recovery, rolling_authority, rolling_checkpoint
+from sentinel import shadow_runtime, shadow_service
 from sentinel.core import formation_preview
 from sentinel.core.formation import Formation
 from sentinel.core.formation_inputs import FormationInputs
@@ -74,6 +76,36 @@ def test_midday_origin_commits_once_without_trading_authority(conn, provider, mo
     assert repeated.state.state_hash == result.state.state_hash
     assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
     assert len(rolling_authority.latest(conn, OBS)) == 1
+    conn.rollback()
+
+
+def test_worker_attests_initialized_candidate_once_then_keeps_same_session_book(conn, provider, monkeypatch):
+    prices, publish = provider
+    publish()
+    transitions = []
+    original = Formation.advance
+    def counted(formed, published):
+        transitions.append(published.session)
+        return original(formed, published)
+    monkeypatch.setattr(Formation, 'advance', counted)
+    formed = initial.initialize(conn, observation_id=OBS, starting_cash=50_000)
+    assert len(transitions) == 126
+    conn.rollback()
+    config = shadow_service.ShadowServiceConfig(conn.info.dsn, OBS, Decimal('50000'),
+        shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY, 5, True)
+    now = initial._now(conn)
+    conn.rollback()
+    assert shadow_service.service_health(config, now=now)['service_health'] == 'RECONSTRUCTION_PENDING'
+    first = shadow_service.advance_once(config, now=now)
+    assert shadow_service.service_health(config, now=now)['service_health'] == 'HEALTHY_ATTESTED'
+    second = shadow_service.advance_once(config, now=now)
+    assert first == second
+    assert first['state_sha256'] == formed.state.state_hash
+    assert first['record_sha256'] == formed.record_sha256
+    assert first['session'] == str(prices.window.end) and not first['appended']
+    assert len(transitions) == 126
+    assert len(rolling_authority.latest(conn, OBS)) == 1
+    assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
     conn.rollback()
 
 
