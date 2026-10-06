@@ -20,6 +20,12 @@
 # a row in PostgreSQL — not, as it once was, of a file being present.
 name: sentinel
 
+x-sentinel-logging: &sentinel-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   # Sentinel's OWN database. bt-postgres already holds 35M rows of the same
   # corpus and reading it would have been faster — rejected because it is a
@@ -27,6 +33,7 @@ services:
   # that cannot start unless a retired platform's database is up is not a
   # retirement.
   sentinel-postgres:
+    logging: *sentinel-logging
     # PINNED BY DIGEST, like the Python base. Leaving the database on a mutable
     # tag while pinning tzdata to the day is inconsistent in the direction that
     # matters: the corpus digests in the identity record are produced by reading
@@ -84,6 +91,7 @@ services:
       retries: 20
 
   sentinel:
+    logging: *sentinel-logging
     build:
       context: .
       dockerfile: Dockerfile.sentinel
@@ -157,6 +165,7 @@ services:
   # to be UP. It never constructs a broker. Its only write routes enroll or
   # retire this browser's non-financial Web Push subscription.
   sentinel-panel:
+    logging: *sentinel-logging
     build:
       context: .
       dockerfile: Dockerfile.sentinel

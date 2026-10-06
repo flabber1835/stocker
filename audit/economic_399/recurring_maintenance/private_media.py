@@ -34,7 +34,7 @@ import json,os
 from test_recurring_maintenance import media,receipt,IMAGE,NOW,SEGMENT,SYSTEM
 value=media.__wrapped__(Path('/backup'))
 namespace=value.wal/('cluster-'+SYSTEM)
-for index in (130,131):
+for index in (169,170):
     p=namespace/('0000000100000000%08X'%index)
     p.write_bytes(b'fixture')
     os.chmod(p,0o600);os.chown(p,999,999)
@@ -69,12 +69,12 @@ print(json.dumps(request))
         allowed = run(invocation + ['--cap-drop', 'ALL', '--cap-add', 'DAC_OVERRIDE'] + worker,
                       input=request)
         assert allowed.returncode == 0
-        assert json.loads(allowed.stdout)['base_removed'] == 62
+        assert json.loads(allowed.stdout)['base_removed'] == 70
         assert json.loads(allowed.stdout)['wal_removed'] == 1
         check = run(common + ['sentinel-test:ci', '-c',
             "from pathlib import Path; p=Path('/backup/wal/cluster-7377777777777777777'); "
-            "assert not (p/'000000010000000000000082').exists(); "
-            "assert (p/'000000010000000000000083').read_bytes()==b'fixture'; "
+            "assert not (p/'0000000100000000000000A9').exists(); "
+            "assert (p/'0000000100000000000000AA').read_bytes()==b'fixture'; "
             "assert p.stat().st_mode & 0o777 == 0o700; assert p.stat().st_uid==999; "
             "print('PRIVATE_MEDIA: exact floor retained; PostgreSQL 0700 ownership unchanged')"])
         assert check.returncode == 0

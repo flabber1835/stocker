@@ -43,8 +43,15 @@ x-sentinel-authorized-environment: &sentinel-authorized-environment
   SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256: ${SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256:-}
   SENTINEL_REVIEWED_DEPLOYMENT_MODE: ${SENTINEL_REVIEWED_DEPLOYMENT_MODE:-}
 
+x-sentinel-logging: &sentinel-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   sentinel-authority-permissions:
+    logging: *sentinel-logging
     image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
     profiles: ["authorized-cli"]
     restart: "no"
@@ -64,6 +71,7 @@ services:
         target: /authority
 
   sentinel-authorized-cli:
+    logging: *sentinel-logging
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
     profiles: ["authorized-cli"]
     restart: "no"
@@ -88,6 +96,7 @@ services:
         condition: service_completed_successfully
 
   sentinel-automation:
+    logging: *sentinel-logging
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
     profiles: ["automation"]
     init: true
@@ -115,6 +124,7 @@ services:
         condition: service_healthy
 
   sentinel-alert-dispatcher:
+    logging: *sentinel-logging
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
     profiles: ["automation"]
     init: true
@@ -162,6 +172,7 @@ services:
         condition: service_healthy
 
   sentinel-shadow:
+    logging: *sentinel-logging
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
     profiles: ["shadow"]
     init: true

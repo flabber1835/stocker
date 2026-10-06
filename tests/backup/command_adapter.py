@@ -40,6 +40,8 @@ def sql():
     query = args[-1]
     if query == "SHOW archive_mode":
         print("on")
+    elif query == "SELECT sum(pg_database_size(oid))::bigint FROM pg_database":
+        print("4096")
     elif query == "SELECT system_identifier::text FROM pg_control_system()":
         print(SYSTEM_ID)
     elif query == "SELECT pg_size_bytes(current_setting('wal_segment_size'))":
@@ -158,6 +160,11 @@ def runtime_backup_probe():
 
 
 def docker():
+    if args[:1] == ["info"]:
+        path = ROOT / "volumes"
+        path.mkdir(exist_ok=True)
+        print(str(path) + "|Fixture Linux")
+        return event("physical-capacity", lambda: 0)
     if args[:1] == ["compose"]:
         if ("run" in args and "sentinel.backup_runtime_probe" in args
                 and "sentinel-postgres" not in args):

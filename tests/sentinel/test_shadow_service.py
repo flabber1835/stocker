@@ -59,6 +59,33 @@ def test_shadow_service_config_is_explicit_and_normalized():
             SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY="close-plus-one-second"))
 
 
+@pytest.mark.parametrize('argv', [
+    ['--operational-inputs'],
+    ['--operational-inputs', '--once'],
+    ['--operational-inputs', '--service-health'],
+    ['--operational-inputs', '--preflight', '--once'],
+    ['--operational-inputs', '--preflight', '--service-health'],
+])
+def test_operational_input_selector_cannot_start_a_worker(monkeypatch, argv):
+    monkeypatch.setattr(shadow_service.ShadowServiceConfig, 'from_env',
+                        lambda: pytest.fail('configuration or worker reached'))
+    with pytest.raises(SystemExit) as exc:
+        shadow_service.main(argv)
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize('name', [
+    'ALPACA_API_KEY', 'ALPACA_SECRET_KEY', 'SENTINEL_PAPER_ACCOUNT_ID',
+])
+def test_credential_free_operational_preflight_still_rejects_authority(
+        monkeypatch, name, capsys):
+    monkeypatch.setattr(shadow_service.os, 'environ', _env(**{name: 'forbidden'}))
+    monkeypatch.setattr(shadow_service.feed_store, 'connect',
+                        lambda _: pytest.fail('database reached with leaked authority'))
+    assert shadow_service.main(['--preflight', '--operational-inputs']) == 2
+    assert 'broker authority is forbidden' in capsys.readouterr().err
+
+
 def test_deployed_shadow_requires_alpaca_and_refuses_sharadar():
     env = _env(SENTINEL_FEED_SERVICE_MODE="SHADOW",
                ALPACA_API_KEY="data-key", ALPACA_SECRET_KEY="data-secret")

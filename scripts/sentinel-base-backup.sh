@@ -106,6 +106,7 @@ EOF
 }
 PITR_EPOCH_BEFORE="$(xid_epoch "$PITR_XID8_BEFORE")"
 
+"$PYTHON" scripts/sentinel_storage_capacity.py base --backup-root "$BACKUP_ROOT"
 STAGING_CREATED=1
 ${COMPOSE[@]} exec -T sentinel-postgres timeout --kill-after=30s 600 sh -ceu '
   staging="$1" final="$2"

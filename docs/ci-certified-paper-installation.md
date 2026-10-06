@@ -1,5 +1,20 @@
 # Installing the CI-certified single runtime
 
+## Read-only operational shadow preflight
+
+The installer must inspect the Alpaca/OpenFIGI lineage under the same closed-
+session preparation policy as the deployed shadow worker. Its credential-free
+CLI reader must not inherit the offline historical path's following-open cutoff.
+The read-only `--preflight --operational-inputs` command explicitly selects
+operational input validation and preparation timing. It still verifies the
+rolling provider receipt, source/configuration bindings and retained lineage
+inside a read-only transaction, then rolls back and closes the connection.
+The additional option is valid only with preflight; it cannot select a worker,
+health loop, ingestion or financial advance. No provider or broker credentials
+are needed or forwarded. Actual workers retain their existing credential and
+source gates. `NOT_STARTED` proves only safe preparation, never a prospective
+decision, signed paper authority or permission to place an order.
+
 [Paper installation qualification](paper-installation-qualification.md) records
 the real GO result, installation failures, corrections, local test boundaries,
 and the remaining actual paper deployment evidence.

@@ -1,4 +1,4 @@
-"""Positive lifecycle and independent calendar/WAL retention boundary oracles."""
+"""Positive lifecycle and independent bounded-generation/WAL retention oracles."""
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -75,22 +75,20 @@ def apply(media):
         return retention.retain(media, receipt(media.selected()), IMAGE, NOW, SEGMENT)
 
 
-def test_calendar_retention_and_exact_start_segment_boundary(media):
+def test_bounded_retention_and_exact_start_segment_boundary(media):
     namespace = media.wal / ("cluster-" + SYSTEM)
-    for name in ("000000010000000000000082", "000000010000000000000083",
+    for name in ("0000000100000000000000A9", "0000000100000000000000AA",
                  "000000020000000000000001", "00000002.history", "unknown.keep"):
         (namespace / name).write_bytes(b"archived fixture")
         (namespace / (name + ".sha256")).write_text("fixture")
     result = apply(media)
-    # Sep 13..19 daily, Aug 30 and Sep 6 weekly, plus the recent midnight.
-    expected = {f"base-202609{day:02}T120000Z" for day in range(13, 20)} | {
-        "base-20260919T000000Z", "base-20260906T120000Z", "base-20260830T120000Z"}
+    expected = {"base-20260919T120000Z", "base-20260919T000000Z"}
     assert set(media.inventory()) == expected
-    assert result["base_removed"] == 62
-    assert result["wal_floor_segment"] == 131
-    assert not (namespace / "000000010000000000000082").exists()
-    assert not (namespace / "000000010000000000000082.sha256").exists()
-    for name in ("000000010000000000000083", "000000020000000000000001",
+    assert result["base_removed"] == 70
+    assert result["wal_floor_segment"] == 170
+    assert not (namespace / "0000000100000000000000A9").exists()
+    assert not (namespace / "0000000100000000000000A9.sha256").exists()
+    for name in ("0000000100000000000000AA", "000000020000000000000001",
                  "00000002.history", "unknown.keep"):
         assert (namespace / name).read_bytes() == b"archived fixture"
     assert apply(media)["base_removed"] == 0
@@ -110,7 +108,7 @@ def test_bad_restore_evidence_never_deletes(media, field, value):
 
 
 def test_every_manifest_range_contributes_to_retention_floor(media):
-    path = media.base / "base-20260830T120000Z" / "backup_manifest"
+    path = media.base / "base-20260919T000000Z" / "backup_manifest"
     value = json.loads(path.read_text())
     value["WAL-Ranges"].insert(0, {"Timeline": 1, "Start-LSN": "0/1000000", "End-LSN": "0/2000000"})
     path.write_text(json.dumps(value))
@@ -118,7 +116,7 @@ def test_every_manifest_range_contributes_to_retention_floor(media):
 
 
 def test_mixed_timelines_keep_all_wal(media):
-    path = media.base / "base-20260830T120000Z" / "backup_manifest"
+    path = media.base / "base-20260919T000000Z" / "backup_manifest"
     value = json.loads(path.read_text())
     value["WAL-Ranges"][0]["Timeline"] = 2
     path.write_text(json.dumps(value))
@@ -162,7 +160,7 @@ def test_restart_after_partial_quarantine_deletion(media, monkeypatch):
     assert list(media.base.glob(".sentinel-prune-*"))
     monkeypatch.setattr(retention.shutil, "rmtree", real)
     assert apply(media)["retention_ready"]
-    assert len(media.inventory()) == 10
+    assert len(media.inventory()) == 2
     assert not (media.base / retention.JOURNAL).exists()
 
 
@@ -172,7 +170,7 @@ def test_restart_revalidates_every_protected_identity(media, monkeypatch):
     with pytest.raises(OSError):
         apply(media)
     monkeypatch.setattr(retention.os, "rename", real)
-    (media.base / "base-20260830T120000Z" / "backup_label").write_text("changed")
+    (media.base / "base-20260919T000000Z" / "backup_label").write_text("changed")
     with pytest.raises(retention.Refused, match="protected backup changed"):
         apply(media)
     assert (media.base / "base-20260815T000000Z").is_dir()
@@ -335,6 +333,40 @@ def test_selected_historical_generation_is_never_pruned(media):
     result = apply(media)
     assert "base-20260815T000000Z" in result["kept"]
     assert result["wal_floor_segment"] == 100
+    assert set(result["kept"]) == {
+        "base-20260815T000000Z", "base-20260919T000000Z", "base-20260919T120000Z"}
+
+
+def test_many_intraday_renewals_do_not_expand_hot_retention(media):
+    for minute in range(1, 60):
+        make_base(media.base.parent, f"base-20260919T11{minute:02}00Z", 170)
+    result = apply(media)
+    assert set(result["kept"]) == {"base-20260919T120000Z", "base-20260919T115900Z"}
+    assert result["base_removed"] == 129
+
+
+def test_healthy_tick_reclaims_only_after_exact_existing_restore_proof(boundary):
+    boundary.restored = True
+    coordinator.tick("/media", boundary)
+    calls = [" ".join(call) for call in boundary.calls]
+    proof = next(i for i, call in enumerate(calls) if "SELECT proof::text" in call)
+    verify = next(i for i, call in enumerate(calls) if "scripts/sentinel-backup-status.sh" in call)
+    retain = next(i for i, call in enumerate(calls) if "sentinel.backup_retention retain" in call)
+    assert proof < verify < retain
+    assert sum("sentinel.backup_retention retain" in call for call in calls) == 1
+    assert sum("scripts/sentinel-backup-status.sh" in call for call in calls) == 1
+    assert not any("scripts/sentinel-base-backup.sh" in call or "scripts/sentinel-restore-drill.sh" in call
+                   for call in calls)
+
+
+def test_expired_proven_base_is_replaced_before_any_chain_or_retention_check(boundary):
+    boundary.restored = True
+    boundary.old = True
+    coordinator.tick("/media", boundary)
+    calls = [" ".join(call) for call in boundary.calls]
+    producer = next(i for i, call in enumerate(calls) if "scripts/sentinel-base-backup.sh" in call)
+    verify = next(i for i, call in enumerate(calls) if "scripts/sentinel-backup-status.sh" in call)
+    assert producer < verify
 
 
 def test_successor_identity_mismatch_refuses_before_status_or_retention(boundary):
