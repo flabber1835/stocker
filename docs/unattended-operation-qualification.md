@@ -305,3 +305,16 @@ All 77 changed Python files compiled with zero new lint findings. These follow-u
 changes affect CI packaging, explicit provenance and tests; no new deployed
 financial module was modified by this batch. The actual certified paper
 activation and first market-open cycle remain outstanding.
+
+The rolling-comparison CI group passed 129 tests and found one further obsolete
+backup-ordering assertion. Its replacement separately proves that staging
+archive refusal prevents source I/O and that financial backup refusal retains
+the downloaded candidate but prevents comparison and corpus publication.
+Both cases passed against isolated PostgreSQL: **2 passed in 8.98 seconds**.
+
+```sh
+python -m pytest tests/sentinel/test_rolling_snapshot_publisher.py::test_backup_refusal_preserves_staging_publication_boundary -q --tb=short
+```
+
+All 78 changed Python files compiled with zero new lint findings. This additional
+repair changes only qualification assertions, not production behavior.
