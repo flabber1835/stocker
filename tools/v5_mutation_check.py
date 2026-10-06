@@ -62,8 +62,8 @@ def run():
         ("opening_split_share_precision_ignored",
          lambda: rounding_checks.test_sale_funding_and_repeated_entries_preserve_float_cash_order(1./30.),
          opening_sizing, "split_shares", lambda shares, ratio: float(shares)*float(ratio)),
-        ("forming_opening_minute_permanently_suppresses_buy",
-         lambda: checked(review_checks.test_forming_opening_minute_retries_then_sizes_the_same_intent, 30),
+        ("missing_regular_quotes_permanently_suppresses_buy",
+         lambda: checked(review_checks.test_absent_regular_quotes_retry_then_size_the_same_intent, 30),
          opening_sizing, "prices_for_plan", rewritten(opening_sizing.prices_for_plan,
              "except OpeningPriceNotReady:\n        raise",
              "except OpeningPriceNotReady as exc:\n        return _unavailable(plan, instruments, exc)")),
@@ -212,12 +212,12 @@ def run():
          review_checks.test_finalization_preserves_split_authority_for_opening_entry,
          targets, "_target_action_multipliers",
          rewritten(targets._target_action_multipliers, " or plan.opening_intents", "")),
-        ("opening_transient_failure_blocks_reductions",
-         lambda: checked(review_checks.test_opening_asset_lookup_transient_failure_becomes_no_buy, 429),
+        ("opening_transient_failure_permanently_suppresses_buy",
+         lambda: checked(review_checks.test_opening_asset_lookup_transient_failure_preserves_retry, 429),
          opening_sizing, "prices_for_plan",
          rewritten(opening_sizing.prices_for_plan,
-                   "if httpx is not None and isinstance(exc, httpx.HTTPStatusError):",
-                   "if False:")),
+                   "raise OpeningPriceNotReady('opening evidence read temporarily unavailable') from exc",
+                   "return _unavailable(plan, instruments, exc)")),
     )
     results = []
     for name, falsifier, module, attribute, mutant in cases:

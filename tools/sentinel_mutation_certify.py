@@ -37,12 +37,14 @@ MUTANTS = (
         original=(
             "    pending = recovery.prepare_send(command)\n"
             "    journal.save_command(conn, pending, previous=command.state)\n\n"
-            "    settled = await recovery.dispatch(broker, pending)\n"
+            "    try:\n"
+            "        settled = await recovery.dispatch(broker, pending)\n"
         ),
         replacement=(
             "    pending = recovery.prepare_send(command)\n\n"
-            "    settled = await recovery.dispatch(broker, pending)\n"
-            "    journal.save_command(conn, pending, previous=command.state)\n"
+            "    try:\n"
+            "        settled = await recovery.dispatch(broker, pending)\n"
+            "        journal.save_command(conn, pending, previous=command.state)\n"
         ),
         test=(
             "tests/sentinel/test_process_death_recovery.py::"

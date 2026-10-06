@@ -223,3 +223,39 @@ database and a local override removing its host port. All six read-only marker
 checks, import/authentication failures, publication lock exclusion and receipt
 ancestry checks passed. This fixture's synthetic legacy export seam cannot
 contact a provider and is not real-data acquisition evidence.
+
+The next CI run exposed one production configuration mismatch: the optional
+standby automation service still defaulted to the retired 23:45 policy. Its
+default now matches the documented validated-closed-session policy and the
+primary service. The existing primary/standby parity and configuration-loading
+tests catch the old default. This restores the current contract; it does not
+claim an actual deployment or failover to a second host.
+
+The worker-expiry fixture now advances beyond the configured execution
+deadline, rather than assuming the former three-minute window. Mutation
+drivers now refer to the current opening-quote retry tests and the actual
+dispatch code seam. They retain the checks that unavailable/transient opening
+evidence must remain retryable and that SEND_PENDING precedes broker transport.
+
+The focused Linux/PostgreSQL command produced **30 passed in 54.13 seconds**:
+
+```sh
+python -m pytest tests/sentinel/test_automation_process_contracts.py tests/sentinel/test_automation_worker_source_recovery.py tests/sentinel/test_process_death_recovery.py -q --tb=short
+```
+
+This used a disposable PostgreSQL 16 server with actual private WAL archival;
+the local fixture adapter verifies the runtime backup guard after a restore
+point and WAL switch. No deployment database or real broker was used.
+
+`python tools/v5_mutation_check.py` passed: **all 43 mutations were caught**.
+The updated `submit-before-send-pending` mutant was separately exercised against
+real PostgreSQL. Its process died after simulated broker acceptance, leaving
+PLANNED rather than SEND_PENDING, and the intended assertion failed (one failure,
+zero test errors). The unmodified process-death test passed in the 30-test run.
+GitHub had already caught the other ten Sentinel mutations; the repaired driver
+still requires all eleven on the next exact-head run.
+
+Local launcher failures (missing archive support and Windows dependency import
+order) were retained and corrected before these successful checks. They were
+not counted as production defects or successful mutation detection. All 71
+changed Python files compiled with zero new lint findings.
