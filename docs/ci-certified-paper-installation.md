@@ -1,5 +1,15 @@
 # Installing the CI-certified single runtime
 
+## CI setup and recovery campaign budgets
+
+Decision: 2026-10-06. The database preflight job has a 20-minute whole-job
+budget, including PostgreSQL/package installation and cleanup. Backup reliability
+has 30 minutes for its sequential fault, physical recovery, promotion and runtime
+media campaigns. The previous 10/15-minute limits cancelled PR481 even though the
+database tests passed and backup scenarios were still progressing. These remain
+bounded job deadlines; all existing assertions, scenario ownership checks and
+required-check aggregation remain mandatory.
+
 ## Read-only operational shadow preflight
 
 The installer must inspect the Alpaca/OpenFIGI lineage under the same closed-
