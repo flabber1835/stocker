@@ -27,7 +27,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from sentinel import shadow_segments
 from sentinel.operational_status import color
-from sentinel.panel import model
+from sentinel.panel import last_known, model
 from sentinel.panel.pwa import MANIFEST, SERVICE_WORKER
 from sentinel.panel.render import REFRESH_SECONDS, render
 from sentinel.panel.push_enrollment import router as push_enrollment_router
@@ -40,13 +40,17 @@ _PANEL_BUILD_SLOT = BoundedSemaphore(1)
 
 
 def _one_panel_build(function):
-    """Bound complete response allocation; never reuse a prior verdict."""
+    """Bound expensive builds; retained HTML is explicitly non-current."""
     @wraps(function)
     def guarded(*args, **kwargs):
         if not _PANEL_BUILD_SLOT.acquire(blocking=False):
             headers = {"Cache-Control": "no-store", "Retry-After": "5"}
             message = "A status refresh is already running. Please retry shortly."
             if function.__name__ == "panel":
+                retained = last_known.read(_config())
+                if retained is not None:
+                    return HTMLResponse(retained, headers={**headers,
+                        'X-Sentinel-Panel-Status': 'LAST_KNOWN'})
                 return HTMLResponse(
                     '<!doctype html><html><head><meta charset="utf-8">'
                     '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -236,7 +240,10 @@ def panel() -> HTMLResponse:
     p = _shadow_segment_disclosure(
         build_panel(state_dir=state_dir, database_url=dsn), dsn)
     html = render(p, refresh_seconds=REFRESH_SECONDS)
-    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+    last_known.remember((state_dir, dsn), render(p, refresh_seconds=REFRESH_SECONDS,
+                                              refresh_pending=True))
+    return HTMLResponse(html, headers={"Cache-Control": "no-store",
+                                       'X-Sentinel-Panel-Status': 'CURRENT'})
 
 
 @app.get("/panel.json")

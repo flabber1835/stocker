@@ -128,6 +128,23 @@ can change account quantities and fills and require separate execution evidence,
 not a claim of historical performance equivalence. Long-only affordability and
 exposure limits remain mandatory.
 
+## Dashboard refresh under load
+
+Keep the single expensive panel-build slot. Concurrent phone refreshes must not
+multiply database work or replace an already displayed dashboard with a busy
+error document. The browser owns one bounded refresh request at a time, retains
+its last known values while retrying, and removes any current/green indication
+before refresh or loss of connectivity. Only a newly completed server response
+can establish current status again.
+
+The HTML route may retain one bounded, configuration-bound last-known rendering
+for a phone reopening while another request owns the build slot. That rendering
+keeps its original observation time and explicitly marks every row and headline
+as non-current. It is presentation only: JSON and operational-health endpoints
+continue to return UNKNOWN/503 under contention, and no financial or service
+guard reads the presentation cache. A process restart or changed database/state
+configuration cannot inherit another installation's last-known page.
+
 ## Recoverable state and qualification
 
 The formation cache is disposable calculation work, not financial state. An

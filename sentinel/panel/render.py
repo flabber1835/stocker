@@ -430,7 +430,8 @@ def _detail_sections(panel: Panel) -> str:
         for title, content in sections)
 
 
-def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
+def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
+           refresh_pending: bool = False) -> str:
     now = panel.now
     overall = panel.overall
     operational = panel.operational
@@ -499,11 +500,16 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
         footer_authority = (
             "Paper account results are shown as checked or unverified.")
     stale_headline = "OPERATIONAL RED — STATUS NOT CURRENT"
+    if refresh_pending:
+        headline_status = FAIL
+        operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
+        rendered_rows = [replace(row, status=UNKNOWN,
+            detail='LAST KNOWN · not current · ' + row.detail) for row in rendered_rows]
     rows = "".join(_row_html(r, now) for r in rendered_rows)
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
     return f"""<!doctype html>
-<html lang="en"><head>
+<html lang="en"{' class="not-current"' if refresh_pending else ''}><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
@@ -517,6 +523,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
 <title>{_esc(page_name)}</title>
 <style>{CSS}{CASINO_CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
+             data-refresh-pending="{'true' if refresh_pending else 'false'}"
              data-max-age-seconds="{PRESENTATION_MAX_AGE_SECONDS}">
 {CASINO_STAGE}
 <div class="wrap">
@@ -525,7 +532,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
     <h1>{_esc(page_heading)}</h1></div>
   <span id="operational-state" class="state {headline_status}">{_esc(operational_headline)}</span>
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
-        aria-live="polite">DASHBOARD HEARTBEAT · UPDATED 0s AGO</span>
+        aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO'}</span>
   {CASINO_ACCENT}
 </header>
 <details class="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
@@ -562,6 +569,45 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
   var hasBeenVisible = document.visibilityState === "visible";
   var wentToBackground = false;
   var wentOffline = !navigator.onLine;
+  var refreshing = false;
+  var retryTimer = null;
+  var ageTimer;
+  var refreshTimer;
+  async function refreshDocument(){{
+    if (refreshing || retryTimer !== null || !navigator.onLine){{ return; }}
+    refreshing = true;
+    var controller = new AbortController();
+    var deadline = setTimeout(function(){{ controller.abort(); }}, 15000);
+    try {{
+      var response = await fetch(location.href, {{cache:"no-store", signal:controller.signal}});
+      if (!response.ok || response.headers.get("X-Sentinel-Panel-Status") !== "CURRENT"){{
+        throw new Error("Current dashboard is not ready");
+      }}
+      var html = await response.text();
+      var next = new DOMParser().parseFromString(html, "text/html");
+      var nextAge = Date.now() - Date.parse(next.body.dataset.generatedAt);
+      if (!next.getElementById("operational-state") ||
+          next.body.dataset.refreshPending !== "false" ||
+          !Number.isFinite(nextAge) || nextAge < -5000 ||
+          nextAge > Number(next.body.dataset.maxAgeSeconds) * 1000){{
+        throw new Error("Dashboard response is incomplete");
+      }}
+      clearInterval(ageTimer);
+      clearTimeout(refreshTimer);
+      clearTimeout(deadline);
+      var scroll = window.scrollY;
+      document.open();
+      document.write(html);
+      document.close();
+      window.scrollTo(0, scroll);
+    }} catch (_error) {{
+      heartbeat.textContent = "Refreshing status · showing last known values";
+      retryTimer = setTimeout(function(){{ retryTimer = null; refreshDocument(); }}, 5000);
+    }} finally {{
+      clearTimeout(deadline);
+      refreshing = false;
+    }}
+  }}
   function invalidate(andReload){{
     if (!invalidated){{
       invalidated = true;
@@ -570,7 +616,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
       badge.textContent = "{_esc(stale_headline)}";
       heartbeat.textContent = "DASHBOARD HEARTBEAT LOST · STATUS STALE";
     }}
-    if (andReload && navigator.onLine){{ location.reload(); }}
+    if (andReload){{ refreshDocument(); }}
   }}
   function checkAge(){{
     var age = Date.now() - generated;
@@ -600,8 +646,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
     invalidate(false);
   }});
   if (wentOffline){{ invalidate(false); }}
-  setInterval(checkAge, 1000);
-  setTimeout(function(){{ invalidate(true); }}, {refresh_seconds * 1000});
+  ageTimer = setInterval(checkAge, 1000);
+  refreshTimer = setTimeout(function(){{ invalidate(true); }}, {refresh_seconds * 1000});
+  if (document.body.dataset.refreshPending === "true"){{ invalidate(true); }}
 }})();
 </script>
 <script>{PUSH_SCRIPT}</script>
