@@ -1,5 +1,30 @@
 # Installing the CI-certified single runtime
 
+## CI setup and recovery campaign budgets
+
+Decision: 2026-10-06. The database preflight job has a 20-minute whole-job
+budget, including PostgreSQL/package installation and cleanup. Backup reliability
+has 30 minutes for its sequential fault, physical recovery, promotion and runtime
+media campaigns. The previous 10/15-minute limits cancelled PR481 even though the
+database tests passed and backup scenarios were still progressing. These remain
+bounded job deadlines; all existing assertions, scenario ownership checks and
+required-check aggregation remain mandatory.
+
+## Read-only operational shadow preflight
+
+The installer must inspect the Alpaca/OpenFIGI lineage under the same closed-
+session preparation policy as the deployed shadow worker. Its credential-free
+CLI reader must not inherit the offline historical path's following-open cutoff.
+The read-only `--preflight --operational-inputs` command explicitly selects
+operational input validation and preparation timing. It still verifies the
+rolling provider receipt, source/configuration bindings and retained lineage
+inside a read-only transaction, then rolls back and closes the connection.
+The additional option is valid only with preflight; it cannot select a worker,
+health loop, ingestion or financial advance. No provider or broker credentials
+are needed or forwarded. Actual workers retain their existing credential and
+source gates. `NOT_STARTED` proves only safe preparation, never a prospective
+decision, signed paper authority or permission to place an order.
+
 [Paper installation qualification](paper-installation-qualification.md) records
 the real GO result, installation failures, corrections, local test boundaries,
 and the remaining actual paper deployment evidence.

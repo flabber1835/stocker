@@ -2,8 +2,15 @@
 # Deploy on a SECOND failure-domain host against the same durable/HA PostgreSQL
 # endpoint. Database fencing permits only one trading leader; alert delivery uses
 # SKIP LOCKED claims and may safely run on both hosts.
+x-sentinel-logging: &sentinel-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   sentinel-automation-standby:
+    logging: *sentinel-logging
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
     restart: unless-stopped
     mem_limit: 2g
@@ -62,6 +69,7 @@ services:
       start_period: 20s
 
   sentinel-alert-dispatcher-standby:
+    logging: *sentinel-logging
     image: ${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel}@${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable SENTINEL_RUNTIME_IMAGE_DIGEST}
     restart: unless-stopped
     mem_limit: 512m

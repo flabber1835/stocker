@@ -5,6 +5,13 @@ supersedes the fixed 23:45 source clock and the related installation, formation,
 outage reconstruction and free-feed execution restrictions described below.
 Older records preserve their historical scope; they are not the active policy.
 
+[Recurring backup maintenance](backup-recurring-maintenance.md#retention)
+defines the bounded hot recovery set, physical backing-disk admission and
+container log rotation. Daily/weekly research archives are not retained on the
+hot backup target. Installation's credential-free shadow reader uses the
+[operational preflight policy](ci-certified-paper-installation.md#read-only-operational-shadow-preflight)
+so market-hours state preparation follows the actual Alpaca worker's contract.
+
 [CI-certified paper installation](ci-certified-paper-installation.md) extends
 the existing single-runtime contract through reviewed activation. Candidate and
 runtime roles may bind the same signed image; normal installation reuses the

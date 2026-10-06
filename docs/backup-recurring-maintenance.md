@@ -85,13 +85,44 @@ journal for guarded recovery. Scheduled retries do not silently repair corruptio
 
 ## Retention
 
-Preserve all bases younger than 24 hours, the selected generation, the newest
-two generations, seven distinct UTC daily representatives and four distinct
-ISO-week representatives (all available representatives while history builds).
-Take the newest generation in each bucket. Completed metadata must be valid
+The hot recovery target preserves the selected generation and the newest two
+complete generations. Normally this is two bases; an older selected base can
+temporarily make it three. It is not a daily/weekly historical archive. Keeping
+every intraday renewal caused thirty roughly 11 GiB copies during acquisition,
+and historical representatives also prevented pruning weeks of WAL. Research
+datasets and backtest results are separate and are never retention candidates.
+Completed metadata must be valid
 and current-cluster-bound before an inventory can authorize deletion; unknown,
 foreign, aliased or incomplete generations require operator disposition.
 Inventory entry and aggregate metadata byte limits bound each worker.
+
+At the start of a still-current tick, maintenance may prune using an existing exact-image full
+restore receipt for the selected base, after freshly checking that base's chain.
+Missing or stale proof authorizes no early deletion. An already expired base
+must be renewed first; an old chain refusal must not block its replacement.
+After renewal, the successor
+still requires its own full semantic restore before further deletion. This lets
+a healthy target reclaim obsolete copies before allocating another base and
+restore, without weakening restore authority or journal recovery.
+
+The producer reserves room for both its estimated physical copy and the next
+isolated restore before creating staging; the restore entry point independently
+checks its actual source size before allocating a Docker volume. Estimates allow
+50 percent growth plus 1 GiB; a further 10 GiB remains free on each backing disk.
+Allocations sharing a disk are added together. Under Docker Desktop/WSL, checks
+use the actual Windows drives backing the distribution and Docker data VHD, not
+their virtual filesystem free space. Unresolved backing paths or unavailable
+capacity refuse allocation. These are admission estimates, not reservations
+against unrelated applications or arbitrarily rapid growth. No automatic host
+restart or VHD compaction is performed.
+WSL host scheduler jobs resolve their own distribution through `WSL_DISTRO_NAME`
+or the current root's `wslpath` UNC identity. An unresolved identity fails
+admission rather than guessing the default distribution.
+
+Production Compose services rotate Docker diagnostic logs at 10 MiB, keeping
+three files per container. Signed evidence, financial journals, subscriptions
+and research data are not log-cleanup candidates. Existing rolling feed cleanup
+and bounded source caches remain authoritative for market-data retention.
 
 A durable deletion journal records candidates and the identities of every
 protected base before any rename. Move each obsolete base to a reserved
@@ -117,7 +148,7 @@ See [PostgreSQL 16 continuous archiving](https://www.postgresql.org/docs/16/cont
 
 Local acceptance must exercise renewal/no-renewal, exact successor verification,
 restore evidence identity, failed/physical-only restore, restart on both sides
-of publication, real filesystem journal recovery and retention bucket/WAL
+of publication, real filesystem journal recovery and bounded-generation/WAL
 boundaries with an independent expected set. Falsifiers must kill disabled
 renewal, proof, protected-base and WAL-floor guards. Run real process-lock death
 tests and PostgreSQL physical tests; simulations do not establish deployed
@@ -125,7 +156,7 @@ filesystem, throughput, free-space, scheduler or notification guarantees.
 
 NAS handoff must install the schedule, retain scheduler configuration and image
 identity, demonstrate renewal before the horizon limit under measured load,
-reboot/restart recovery, seven daily/four weekly policy, interrupted deletion,
+reboot/restart recovery, bounded hot recovery policy, interrupted deletion,
 successful full semantic restore and operator-visible failure. Failure or
 missing evidence keeps Step 1 deployment qualification/economic certification
 open. Maintenance never marks provider or historical replay gates complete.

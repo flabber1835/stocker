@@ -158,6 +158,7 @@ for object in "$CONTAINER" "$CONTAINER-semantic"; do
     echo 'REFUSED: restore container identity already exists' >&2; exit 4
   fi
 done
+"$PYTHON" scripts/sentinel_storage_capacity.py restore --backup-root "$BACKUP_ROOT" --base-name "$NAME"
 docker volume create --label sentinel.restore-drill=v1 "$VOLUME" >/dev/null
 VOLUME_CREATED=1
 docker network create --internal --label sentinel.restore-drill=v1 "$NETWORK" >/dev/null

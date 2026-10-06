@@ -10,7 +10,7 @@ deployed shadow service.
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import json
@@ -476,12 +476,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Dedicated broker-free Sentinel shadow observer")
     parser.add_argument("--preflight", action="store_true")
+    parser.add_argument("--operational-inputs", action="store_true",
+                        help="Validate operational inputs in a read-only preflight")
     parser.add_argument("--service-health", action="store_true")
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args(argv)
+    if args.operational_inputs and (
+            not args.preflight or args.service_health or args.once):
+        parser.error("--operational-inputs requires only --preflight")
     try:
         config = ShadowServiceConfig.from_env()
         if args.preflight:
+            if args.operational_inputs:
+                # The installer has no provider credentials and cannot ingest.
+                # Read-only input/lineage checks still use operational timing.
+                config = replace(config, operational_source_only=True)
             print(json.dumps(preflight(config), sort_keys=True))
             return 0
         if args.service_health:

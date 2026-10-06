@@ -820,7 +820,7 @@ def _reviewed_shadow_lineage_preflight(
         "docker", "compose", *compose_args, "--profile", "cli", "run",
         "--rm", "-T", "--no-deps", *env_args,
         "--entrypoint", "python", "sentinel",
-        "-m", "sentinel.shadow_service", "--preflight",
+        "-m", "sentinel.shadow_service", "--preflight", "--operational-inputs",
     ], env=run_env)
     if completed.returncode != 0:
         raise DeployRefused(

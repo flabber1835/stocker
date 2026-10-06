@@ -6,12 +6,92 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
+from datetime import datetime, timezone
 
 import pytest
 
 ROOT = Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[2])
 sys.path.insert(0, str(ROOT / 'scripts'))
 import sentinel_autonomous_deploy as deploy
+
+
+@pytest.mark.parametrize('stage', ['preflight', 'quiesced'])
+@pytest.mark.parametrize('instant', [
+    datetime(2026, 10, 6, 17, 30, tzinfo=timezone.utc),
+    datetime(2026, 10, 6, 12, 0, tzinfo=timezone.utc),
+    datetime(2026, 10, 4, 17, 30, tzinfo=timezone.utc),
+])
+def test_installer_runs_real_operational_shadow_preflight_during_market_hours(
+        monkeypatch, tmp_path, stage, instant, capsys):
+    from sentinel import shadow_service as shadow
+    from sentinel.feed import operational_snapshot, readers
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant
+    monkeypatch.setattr(shadow, 'datetime', Clock)
+    calls = []
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def execute(self, sql): calls.append(sql)
+    class Conn:
+        def cursor(self): return Cursor()
+        def rollback(self): calls.append('rollback')
+        def close(self): calls.append('close')
+    conn = Conn()
+    monkeypatch.setattr(shadow.feed_store, 'connect', lambda _: conn)
+    monkeypatch.setattr(shadow.schema, 'require_runtime_schema', lambda _: None)
+    monkeypatch.setattr(readers, 'current', lambda _: 'rolling-publication')
+    monkeypatch.setattr(readers, 'is_rolling', lambda _: True)
+    monkeypatch.setattr(operational_snapshot, 'require_alpaca_openfigi',
+                        lambda *_: calls.append('provider-verified'))
+    monkeypatch.setattr(shadow.shadow_runtime, 'classify_shadow_lineage',
+                        lambda *_a, **_kw: {'status': 'NOT_STARTED'})
+    monkeypatch.setattr(shadow, 'advance_once', lambda *_: pytest.fail('financial advance'))
+    monkeypatch.setattr(shadow, 'run', lambda *_: pytest.fail('worker started'))
+    bundle = tmp_path / 'review.zip'
+    bundle.write_bytes(b'reviewed-fixture')
+    review = SimpleNamespace(path=bundle,
+        bundle_sha256=hashlib.sha256(bundle.read_bytes()).hexdigest(), git_commit='b' * 40,
+        mode='dual', runtime_image_digest='sha256:' + 'c' * 64,
+        source_identity_sha256='d' * 64, shadow_configuration_sha256='e' * 64,
+        data_publication_sha256='f' * 64)
+    env = {'ALPACA_API_KEY': 'must-not-forward', 'ALPACA_SECRET_KEY': 'must-not-forward',
+           'SENTINEL_PAPER_ACCOUNT_ID': 'must-not-forward',
+           'SENTINEL_DATABASE_URL': 'postgresql://local/test'}
+    obj = object.__new__(deploy.AutonomousDeploy)
+    obj.env = dict(env)
+    obj.runner = deploy.Runner(env, tmp_path / 'log')
+    obj.cfg = SimpleNamespace(account_id='must-not-forward')
+    obj.commit = review.git_commit
+    obj.reviewed_validation = review
+    obj.phase = lambda _: None
+    def invoke(argv, **kwargs):
+        if argv[0] == 'bash':
+            return subprocess.CompletedProcess(argv, 0, stdout='-f compose.yml', stderr='')
+        child_env = kwargs['env']
+        assert not set(child_env) & {'ALPACA_API_KEY', 'ALPACA_SECRET_KEY', 'SENTINEL_PAPER_ACCOUNT_ID'}
+        # Run the real CLI, provider check, read-only transaction and clock gate,
+        # rather than fabricate a successful subprocess response.
+        with monkeypatch.context() as patch:
+            patch.setattr(shadow.os, 'environ', dict(child_env))
+            code = shadow.main(argv[argv.index('sentinel.shadow_service') + 1:])
+        output = capsys.readouterr()
+        assert code == 0, output.err
+        return subprocess.CompletedProcess(argv, code, stdout=output.out, stderr=output.err)
+    monkeypatch.setattr(deploy.subprocess, 'run', invoke)
+    def preflight(reviewed, *, env, invoke):
+        deploy._reviewed_shadow_lineage_preflight(reviewed, env=env, invoke=invoke)
+    monkeypatch.setattr(deploy, 'verify_reviewed_validation_environment', preflight)
+    monkeypatch.setattr(deploy, 'verify_reviewed_shadow_bindings', preflight)
+    monkeypatch.setattr(deploy, 'verify_reviewed_account_binding', lambda *_: None)
+    if stage == 'preflight':
+        obj.verify_reviewed_preflight()
+    else:
+        obj.verify_reviewed_shadow_bindings_quiesced()
+    assert calls == ['BEGIN TRANSACTION READ ONLY', 'provider-verified', 'rollback', 'close']
+    assert obj.env == obj.runner.env == env
 
 
 @pytest.mark.parametrize('stage', ['preflight', 'quiesced'])

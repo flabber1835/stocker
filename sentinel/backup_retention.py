@@ -199,20 +199,9 @@ def protected(inventory, selected, now):
     names = sorted(inventory, reverse=True)
     require(selected in inventory, "selected generation absent")
     keep = {selected, *names[:2]}
-    days, weeks = set(), set()
     for name in names:
         stamp = inventory[name]["timestamp"]
         require(stamp <= now, "future-dated generation")
-        dt = datetime.fromtimestamp(stamp, timezone.utc)
-        day, week = dt.date(), dt.isocalendar()[:2]
-        if now - stamp <= 86400:
-            keep.add(name)
-        if day not in days and len(days) < 7:
-            keep.add(name)
-            days.add(day)
-        if week not in weeks and len(weeks) < 4:
-            keep.add(name)
-            weeks.add(week)
     return keep
 
 

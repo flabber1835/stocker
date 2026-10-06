@@ -182,7 +182,24 @@ def tick(root, runner=run):
     observation = observe_primary(runner)
     reap_restore_resources(observation["now"], runner)
     selected = worker("observe", image, root, observation, runner)
+    # Reclaim obsolete copies before allocating a successor, only when this
+    # exact selected base already has current-image full semantic restore proof.
     renewed = renewal_due(selected, observation)
+    if not renewed:
+        existing_receipt = receipt_for(selected, observation, image, runner)
+        if existing_receipt is not None:
+            runner(["bash", "scripts/sentinel-backup-status.sh", "--backup",
+                    root + "/base/" + selected["name"]], timeout=600)
+            observation = observe_primary(runner)
+            renewed = renewal_due(selected, observation)
+            if not renewed:
+                result = worker("retain", image, root, observation, runner, {
+                    "receipt": existing_receipt, "image": image, "now": observation["now"],
+                    "segment_size": observation["segment_size"],
+                })
+                print(json.dumps({"maintenance_ready": True, "observed_at": observation["now"],
+                                  "renewed": False, "base": selected["name"], **result}, sort_keys=True))
+                return result
     if renewed:
         output = runner(["bash", "scripts/sentinel-base-backup.sh"], timeout=600)
         paths = [line[len("verified_base_backup:"):] for line in output.splitlines()
