@@ -259,3 +259,49 @@ Local launcher failures (missing archive support and Windows dependency import
 order) were retained and corrected before these successful checks. They were
 not counted as production defects or successful mutation detection. All 71
 changed Python files compiled with zero new lint findings.
+
+The four ordinary Sentinel shards subsequently exposed incomplete CI-lens
+packaging and assertions tied to the superseded operating contract. The lens
+now explicitly copies/imports the host progress parser. An isolated namespace
+test proves that the full checkout cannot mask that dependency; removing its
+COPY is detected. The dual-installer fixture now returns the attested session
+and covers both same-origin and later-session activation. Acquisition tests
+permit the latest closed session during market hours and still refuse an
+unclosed or obsolete target. Activation cutoff tests remain unchanged.
+
+The paper provenance delta record explicitly documents three reviewed changes:
+the exact endpoint of the ten-minute execution window and two obsolete clock
+messages. The historical decomposition manifest and economic golden inputs were
+not changed. This records the current contract rather than claiming byte-for-byte
+equivalence with the historical implementation.
+
+Focused command: **184 passed in 145.54 seconds**:
+
+```sh
+python -m pytest tests/sentinel/test_alpaca_revision_recovery.py tests/sentinel/test_autonomous_deploy.py tests/sentinel/test_install_actual_open_cutoff.py tests/sentinel/test_paper_package_architecture.py tests/scripts/test_feed_progress.py tests/sentinel/test_image_layout.py -q --tb=short
+```
+
+Backup/deadline fixtures now inject financial restore-horizon exhaustion at
+READY publication preflight, after staging validation and before final provider
+corroboration. Staging still exercises archive-health guards. The campaign
+covers renewal failure, interruption, retained-candidate reuse, exact download
+counts, a successful preparation lasting over an hour and refusal when the
+original deadline expires during resumed validation. The coordinator test also
+covers both a successful wait beyond the short formation setting and expiry
+of its bounded next-decision wait.
+
+The following command produced **105 passes and one outdated assertion** in
+190.72 seconds. That assertion wrongly required retained-part reuse when there
+had been no renewal; the corrected case passed separately in 3.15 seconds.
+Failed evidence was preserved. Neither result is represented as a full rerun
+of all 106 tests after that assertion correction.
+
+```sh
+python -m pytest tests/sentinel/test_autonomous_deploy_driver.py tests/sentinel/test_acquisition_resumption.py tests/sentinel/test_alpaca_operational_snapshot.py tests/sentinel/test_go_preparation_deadline.py -q --tb=short
+python -m pytest 'tests/sentinel/test_acquisition_resumption.py::test_go_renews_after_real_retained_acquisition_without_redownload[staging-needs-no-financial-renewal]' -q --tb=short
+```
+
+All 77 changed Python files compiled with zero new lint findings. These follow-up
+changes affect CI packaging, explicit provenance and tests; no new deployed
+financial module was modified by this batch. The actual certified paper
+activation and first market-open cycle remain outstanding.

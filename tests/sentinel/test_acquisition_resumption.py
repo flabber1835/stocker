@@ -594,11 +594,10 @@ def test_go_reports_specific_acquisition_failures(script, monkeypatch):
 
 
 @pytest.mark.parametrize("boundaries,renewal_failure", [
-    pytest.param(("ACQUIRING",), None, id="acquiring"),
+    pytest.param(("ACQUIRING",), None, id="staging-needs-no-financial-renewal"),
     pytest.param(("READY",), None, id="ready"),
-    pytest.param(("ACQUIRING", "READY"), None, id="both"),
-    pytest.param(("ACQUIRING",), "copy", id="copy-failed"),
-    pytest.param(("ACQUIRING",), "interrupt", id="interrupted"),
+    pytest.param(("READY",), "copy", id="copy-failed"),
+    pytest.param(("READY",), "interrupt", id="interrupted"),
 ])
 def test_go_renews_after_real_retained_acquisition_without_redownload(
         conn, source, monkeypatch, tmp_path, boundaries, renewal_failure):
@@ -643,10 +642,12 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
     original_require = authority.require
     renewed = []
     paused = []
+    financial_checks = []
     in_failure = [False]
 
     def horizon(c, *, operation, **kwargs):
         current = jobs.status(c, job)
+        financial_checks.append(current['state'])
         # Completion is independent of the number of classification batches.
         names = {part['component'] for part in jobs.components(c,job)}
         completed = ({'ACTIONS','TICKERS','SFP'} <= names
@@ -720,7 +721,13 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
         retry_now(conn, job)
     summary = run_overlay(monkeypatch, runner)
     assert summary.complete
-    assert paused[-len(boundaries):] == list(boundaries) and len(renewed) == len(boundaries)
+    expected_renewals = list(boundaries) if boundaries == ('READY',) else []
+    if expected_renewals:
+        assert paused[-len(expected_renewals):] == expected_renewals
+    else:
+        assert paused == []
+    assert len(renewed) == len(expected_renewals)
+    assert 'ACQUIRING' not in financial_checks
     assert jobs.status(conn, job)["state"] == "PUBLISHED"
     assert jobs.status(conn, job)["deadline"] == deadline
     assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_jobs").fetchone()[0] == 1
@@ -728,6 +735,10 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
     assert len(bar_requests) == 41  # 19 months x raw/split plus benchmark raw/all and BIL split.
     assert len({(params["start"], params["end"], params["adjustment"])
                 for params in bar_requests}) == 41
-    assert "RETAINED_PART_REUSED" in runner.last_preparation_output
+    if expected_renewals:
+        assert "RETAINED_PART_REUSED" in runner.last_preparation_output
+    else:
+        assert len(runner.preparations) == 1
+        assert "RETAINED_PART_REUSED" not in runner.last_preparation_output
     audit = json.loads((tmp_path / "audit.json").read_text())
     assert audit["status"] == "PASS"

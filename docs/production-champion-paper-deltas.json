@@ -92,9 +92,12 @@
       "module": "execution"
     },
     "_opening_resolution_freshness_or_refuse": {
-      "generated_ast_sha256": "5df90ec614e998f52ad83e46bfce446fda9814e5d338375ed9f3fcc5afd8282b",
+      "acceptance": "docs/unattended-operation-qualification.md",
+      "design": "docs/unattended-operating-contract.md",
+      "generated_ast_sha256": "f83de627682c4af43f9f94dc3da903f79b9a382ed7edb246361517d433704e1e",
       "historical_ast_sha256": null,
-      "module": "execution"
+      "module": "execution",
+      "reason": "PR #480 uses the reviewed ten-minute regular-session quote window and refuses new sizing at its exact endpoint; an already retained projection remains recoverable."
     },
     "_preopen_active_security_ids": {
       "generated_ast_sha256": "f4d0d48fa4bb9e34a62b185b5191e54ba9a11a9352ee0f5cf7af949760431204",
@@ -162,14 +165,20 @@
       "module": "preparation"
     },
     "prepare_paper_plan": {
-      "generated_ast_sha256": "d799d311ca7ba231d5d1fab85dea138d38e1a1afe1d80197659e9be970b129e5",
+      "acceptance": "docs/unattended-operation-qualification.md",
+      "design": "docs/unattended-operating-contract.md",
+      "generated_ast_sha256": "8424280ce8bc0dd7b963fa70b926ae3c09c077062887fa7bc7d99ae5b6a2580a",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
-      "module": "preparation"
+      "module": "preparation",
+      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged."
     },
     "recover_automated_paper_cycle": {
-      "generated_ast_sha256": "bdc3996325ad50231e5b6fcfe19186786646823b2652461df0572e792ff35267",
+      "acceptance": "docs/unattended-operation-qualification.md",
+      "design": "docs/unattended-operating-contract.md",
+      "generated_ast_sha256": "14e4c7691afc10615d636d61f8bffda771b5641227a6d0dfe44e9429c36ac2ee",
       "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
-      "module": "recovery"
+      "module": "recovery",
+      "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged."
     }
   },
   "design": "docs/production-compact-champion.md",
