@@ -81,11 +81,14 @@ ET.ElementTree(suite).write(target)
     assert len(cases) == len(expected)
 
 
-def test_warmup_lane_streams_progress_without_raising_its_deadline():
+def test_warmup_lane_has_bounded_setup_margin_and_streams_all_test_evidence():
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
                               ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
     job = workflow["jobs"]["parallel-certification"]
-    assert job["timeout-minutes"] == "${{ startsWith(matrix.lane, 'sentinel-rolling-') && 60 || 45 }}"
+    assert job["timeout-minutes"] == (
+        "${{ (matrix.lane == 'sentinel-warmup' || "
+        "startsWith(matrix.lane, 'sentinel-rolling-')) && 60 || 45 }}"
+    )
     step = next(step for step in job["steps"]
                 if step.get("if") == "${{ matrix.lane == 'sentinel-warmup' }}")
     command = step["run"]
