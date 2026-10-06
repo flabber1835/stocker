@@ -20,7 +20,7 @@ def enqueue(conn):
     return job
 
 
-def test_backup_renewal_keeps_ready_candidate_and_does_not_repeat_downloads(conn, alpaca_path, monkeypatch):
+def test_backup_renewal_keeps_ready_candidate_and_does_not_repeat_downloads(conn, alpaca_path, monkeypatch, capsys):
     from sentinel import backup_runtime_authority as backup
     job = enqueue(conn)
     deadline = jobs.status(conn, job)['deadline']
@@ -50,9 +50,10 @@ def test_backup_renewal_keeps_ready_candidate_and_does_not_repeat_downloads(conn
     assert sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls) == downloads
     assert observations == [True] and len(ready_checks) == 2
     assert conn.execute('SELECT COUNT(*) FROM sentinel_corpus_publications').fetchone()[0] == 1
+    assert capsys.readouterr().err.count('"stage": "rolling_source_corroboration"') == 2
 
 
-def test_removed_publication_preflight_is_detected(conn, alpaca_path, monkeypatch):
+def test_removed_publication_preflight_is_detected(conn, alpaca_path, monkeypatch, capsys):
     """A guard-removal falsifier; mutation exists only in this test process."""
     import inspect
     from sentinel.feed import rolling_publisher
@@ -64,7 +65,7 @@ def test_removed_publication_preflight_is_detected(conn, alpaca_path, monkeypatc
     monkeypatch.setattr(rolling_publisher, '_prepare', namespace['_prepare'])
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_backup_renewal_keeps_ready_candidate_and_does_not_repeat_downloads(
-            conn, alpaca_path, monkeypatch)
+            conn, alpaca_path, monkeypatch, capsys)
 
 
 def changing_source(fake, monkeypatch, *, change, persistent=False):

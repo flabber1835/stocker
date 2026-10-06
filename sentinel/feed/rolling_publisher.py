@@ -276,7 +276,8 @@ def _prepare(conn, job_id, *, operational):
             rolling_work.checkpoint()
             with acquisition_work.budget(seconds=min(500, jobs.status(conn, job_id)["remaining_seconds"])):
                 conn.commit()
-                source.corroborate()
+                with progress.phase('rolling_source_corroboration', job_id=job_id):
+                    source.corroborate()
             rolling_work.checkpoint()
         phase = "rolling_operational_publication" if operational else "rolling_comparison_publication"
         with progress.phase(phase, job_id=job_id), store.corpus_write_lock(conn):

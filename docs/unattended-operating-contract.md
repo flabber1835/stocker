@@ -86,6 +86,9 @@ historical gap as proof that a provider response was truncated.
 Display-name changes do not invalidate price partitions. Symbol/UUID, selected
 membership, share-unit and price-basis changes invalidate their actual dependencies.
 Compatible completed partitions retain their original observation and deadline.
+Progress reports distinguish retained-part verification, current inventory and
+action corroboration, normalization, publication and formation. Re-reading a
+retained partition must not be presented as another provider download.
 
 ## Free-feed execution availability
 
