@@ -304,6 +304,64 @@ def test_offline_issuer_refuses_legacy_warmup_without_selected_strategy_binding(
     assert not output.exists()
 
 
+@pytest.mark.parametrize('fault', [None, 'input_count', 'formation_count', 'schema', 'digest'])
+def test_production_formed_candidate_sign_install_activate(conn, tmp_path, fault):
+    """Current /5 bytes cross the real offline issuer and durable authority APIs."""
+    from sentinel import observation_startup
+    from sentinel.strategy import production_strategy
+    from sentinel.feed.calendar import previous_sessions
+    from tools.sentinel_observation_authority import _candidate
+    from tools.sentinel_certificate_issuer import IssuanceRefused
+    controller, strategy = production_strategy()
+    document = claims(conn)
+    document['bindings']['strategy_identity_sha256'] = authority.canonical_sha256(strategy)
+    document['bindings']['controller']['rule_sha256'] = controller.digest
+    axis = previous_sessions('2026-08-14', 426)
+    inputs = {'session_count': 299}
+    warmup = dict(schema=observation_startup.WINDOW_FORMED_SCHEMA,
+        warmup_sessions=299, measured_sessions=426, first_session=axis[0],
+        decision_session=axis[-1], historical_causality='HISTORICAL_CAUSALITY_UNVERIFIED',
+        historical_certification='NOT_GRANTED',
+        strategy_identity_sha256=document['bindings']['strategy_identity_sha256'],
+        current_corpus=document['bindings']['current_corpus'],
+        formation=dict(schema='sentinel.formation-parity/1',
+            policy='CURRENT_INFORMATION_INITIALIZATION_V1', sessions=126, end=axis[-2],
+            chain_sha256=sha('a'), state_sha256=sha('b'), source_sha256=sha('c')),
+        decision={'session': axis[-1]})
+    if fault == 'input_count': inputs['session_count'] = 252
+    if fault == 'formation_count': warmup['formation']['sessions'] = 125
+    if fault == 'schema': warmup['schema'] = observation_startup.WINDOW_SCHEMA
+    warmup['warmup_input'] = {**inputs, 'warmup_input_sha256': authority.canonical_sha256(inputs)}
+    warmup['decision_sha256'] = authority.canonical_sha256(warmup['decision'])
+    if fault == 'digest': warmup['decision_sha256'] = sha('f')
+    boundary = accepted_boundary_sha256()
+    evidence = {key: document[key] for key in ('authorization_mode', 'historical_causality',
+        'historical_certification', 'scope', 'subject', 'rollout', 'bindings', 'maximum_exposure')}
+    evidence.update(schema='sentinel.paper-observation-evidence/1', warmup=warmup,
+        accepted_boundary_sha256=boundary, review=dict(reviewer='qualification', ticket='CURRENT-STARTUP',
+        reviewed_at='2026-08-16T00:00:00Z', authority_effect='PAPER_OBSERVATION_ONLY'))
+    document['retained_evidence'] = dict(schema=evidence['schema'],
+        sha256=authority.canonical_sha256(evidence), accepted_boundary_sha256=boundary,
+        warmup_sha256=authority.canonical_sha256(warmup))
+    candidate = tmp_path/'current-candidate.json'
+    candidate.write_bytes(authority.canonical_json_bytes(dict(schema='sentinel.paper-observation-candidate/1',
+        claims=document, retained_evidence=evidence)))
+    if fault:
+        with pytest.raises(IssuanceRefused): _candidate(candidate)
+        return
+    key = tmp_path/'issuer.pem'
+    key.write_bytes(PRIVATE.private_bytes(serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    key.chmod(0o600)
+    output = tmp_path/'certificate.json'
+    digest = issue(candidate=candidate, private_key_file=key, key_id=KEY_ID, output=output)
+    authority.install_signed_certificate(conn, certificate_bytes=output.read_bytes(), confirm_sha256=digest,
+        context=context(document), now=NOW, trust_roots=ROOTS)
+    authority.activate_signed_certificate(conn, certificate_sha256=digest, context=context(document),
+        reason='qualified current formed proof', now=NOW, trust_roots=ROOTS, confirm_controller_rollout=True)
+    assert hashlib.sha256(output.read_bytes()).hexdigest() == digest
+
+
 def test_expiry_limit_expiry_and_signature_tamper_refuse(conn):
     with pytest.raises(authority.AuthorityRefused, match="35 days"):
         authority.validate_observation_certificate_claims(

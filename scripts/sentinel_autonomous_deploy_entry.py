@@ -78,7 +78,7 @@ def _install_shadow_overlay() -> None:
             self.max_exposure = str(env.get(
                 "SENTINEL_DEPLOY_MAXIMUM_EXPOSURE", "1")).strip()
             self.not_before_margin = core._int(
-                env.get("SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS", "120"),
+                env.get("SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS", "0"),
                 name="SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS",
                 minimum=0, maximum=1800)
             self.health_timeout = core._int(

@@ -1,5 +1,39 @@
 # Installing the CI-certified single runtime
 
+## Installation work and recovery milestones
+
+Decision: 2026-10-07. Installation first checks the selected startup/issuer
+contract in the exact promoted runtime, before financial transitions. Candidate,
+offline issuer and runtime share the required feature-session count; formed
+current-window evidence uses 299 features, 126 formation transitions and one
+decision. Equivalent decimal cash spellings have one formation-plan identity.
+Dual observation evidence uses the reviewed shadow starting cash, never current
+broker equity. Broker equity remains an execution sizing/affordability input.
+
+Candidate CLI commands can select an issuance-relative not-before delay. The
+CLI captures one UTC-second lifecycle reference before work and uses that same
+reference for both issued-at and not-before. Installer default delay is zero;
+explicit future delays and all signed activation boundaries remain enforced.
+
+An unchanged installed behavioral AND feed schema needs no migration and no
+fresh pre-migration base or replay. Its current backup chain must still pass
+status. A schema mismatch retains the fresh exact pre-migration base and physical
+replay before explicit migration. Connection/transport errors are refusals, not
+evidence that a migration is needed. Newly formed/authorized state gets one fresh
+base and full semantic restore while paper remains killed, before kill release.
+Final receipt persistence reuses that milestone instead of making another copy.
+Maintenance sees installer ownership as a normal standby state, not a failed
+backup; WAL archiving continues. Exact-base, metadata, cluster, target marker and
+runtime restore receipts remain mandatory before bounded retention.
+
+Persist reviewed mode under the writer fence before starting panel/sender once.
+Authorized CLI dependencies are initialized and checked once per installation;
+new certificate files receive a fresh permission pass. Every command still
+performs its own runtime/schema and signed-authority checks. Candidate stdout
+remains strict JSON; safe diagnostic stderr streams to the visible installer
+terminal during formation. Human progress distinguishes enrollment permission,
+paper transport readiness and unproven paper-account return accounting.
+
 ## CI setup and recovery campaign budgets
 
 Decision: 2026-10-06. The database preflight job has a 20-minute whole-job

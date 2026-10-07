@@ -1,5 +1,12 @@
 # Sentinel — operational deployment ground truth
 
+[Installation recovery milestones](ci-certified-paper-installation.md#installation-work-and-recovery-milestones)
+supersede unconditional pre-migration copies for an unchanged schema and
+post-release backup repetition. Trading remains killed until newly formed and
+authorized state passes its full restore milestone. The same policy defines the
+shared current startup/issuer contract, reviewed seed cash, one operator-service
+startup and issuance-relative certificate clock.
+
 [Current unattended operating contract](unattended-operating-contract.md)
 supersedes the fixed 23:45 source clock and the related installation, formation,
 outage reconstruction and free-feed execution restrictions described below.

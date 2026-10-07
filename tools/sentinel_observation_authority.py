@@ -100,7 +100,7 @@ def _candidate(path: Path) -> tuple[Mapping, Mapping]:
             or not warmup["decision"]
             or warmup.get("decision_sha256") != canonical_sha256(warmup["decision"])
             or not isinstance(inputs, Mapping)
-            or inputs.get("session_count") != (299 if warmup.get('schema') == observation_startup.WINDOW_SCHEMA else 252)
+            or inputs.get("session_count") != observation_startup.feature_sessions(warmup.get('schema'))
             or inputs.get("warmup_input_sha256") != canonical_sha256({
                 k: v for k, v in inputs.items() if k != "warmup_input_sha256"})):
         raise IssuanceRefused("warmup selected-strategy, publication or computed evidence differs")
@@ -128,6 +128,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Offline Ed25519 PAPER_OBSERVATION_ONLY issuer")
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser('preflight', help='check the selected producer/issuer startup contract without keys or data')
     command = sub.add_parser("issue")
     command.add_argument("--candidate", type=Path, required=True)
     command.add_argument("--private-key-file", type=Path, required=True)
@@ -140,6 +141,11 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == 'preflight':
+        from sentinel import observation_startup
+        contract = observation_startup.selected_contract()
+        print(json.dumps({'issuer_compatible': True, **contract}, sort_keys=True))
+        return 0
     if not args.confirm_issue_paper_observation_only:
         print(
             "REFUSED: --confirm-issue-paper-observation-only is required",

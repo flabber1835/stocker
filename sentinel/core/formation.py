@@ -36,7 +36,9 @@ class FormationPlan(Contract):
     @field_validator('capital')
     @classmethod
     def exact_capital(cls, value):
-        return format(_starting_cash(value), 'f')
+        # Strip fractional zeroes without Decimal.normalize's context rounding.
+        exact = format(_starting_cash(value), 'f')
+        return exact.rstrip('0').rstrip('.') if '.' in exact else exact
 
     @model_validator(mode='after')
     def supported(self):

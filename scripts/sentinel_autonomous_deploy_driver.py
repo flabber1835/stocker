@@ -511,8 +511,6 @@ c.rollback(); c.close()
             raise core.DeployRefused(
                 "active administrative certificate identity is malformed")
 
-        now = core._utcnow()
-        not_before = now + core.timedelta(seconds=self.cfg.not_before_margin)
         candidate = self.attempt_dir / "empty-binding-candidate.json"
         cert = self.attempt_dir / "empty-binding-certificate.json"
         candidate_id = "empty-bind-%s-g%d" % (self.commit[:12], generation)
@@ -522,7 +520,7 @@ c.rollback(); c.close()
             "--issuer-generation", str(generation),
             "--deployment-id", self.cfg.deployment_id,
             "--expect-account", self.cfg.account_id,
-            "--not-before", core._utc_text(not_before),
+            "--not-before-delay-seconds", str(self.cfg.not_before_margin),
             "--reviewer", self.cfg.reviewer,
             "--ticket", "%s-empty-%d" % (
                 self.cfg.ticket_prefix, generation)], capture=True)
@@ -538,6 +536,7 @@ c.rollback(); c.close()
             tool="tools.sentinel_empty_account_authority",
             candidate=candidate, output=cert,
             confirmation="--confirm-issue-admin-bind-empty")
+        print('  enrollment permission issued; this permission cannot submit orders', flush=True)
         self._authorized_cli([
             "install-administrative-certificate", "--certificate",
             self._authorized_artifact(cert), "--confirm-certificate-sha256",
@@ -676,6 +675,7 @@ c.rollback(); c.close()
             raise core.DeployRefused(
                 "automation did not start behind the expected kill fence")
         self.verify_operator_services()
+        self.establish_activation_backup()
         self.assert_activation_timing(decision_session)
         self._authorized_cli([
             "release-paper-automation-kill-switch",

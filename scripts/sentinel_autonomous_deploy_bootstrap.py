@@ -192,12 +192,11 @@ def discover(env: Mapping[str, str]) -> Dict[str, str]:
 
 
 def _backup_path(completed: subprocess.CompletedProcess) -> str:
-    prefix = "verified_base_backup:"
-    for line in reversed((completed.stdout or "").splitlines()):
-        if line.startswith(prefix):
-            value = line[len(prefix):].strip()
-            if value:
-                return value
+    prefix = "verified_installation_backup:"
+    values = [line[len(prefix):].strip() for line in (completed.stdout or '').splitlines()
+              if line.startswith(prefix)]
+    if len(values) == 1 and values[0]:
+        return values[0]
     raise core.DeployRefused("base backup did not report its exact backup path")
 
 
@@ -345,6 +344,15 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
                 json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
             if reviewed.mode in {"dual", "paper"}:
                 self._verify_signing_key_is_trusted()
+                proof = core._json_output(self.runner.run(self._offline_tool_argv([], [
+                    '-m', 'tools.sentinel_observation_authority', 'preflight']), capture=True),
+                    label='selected observation issuer compatibility')
+                if (proof.get('issuer_compatible') is not True
+                        or proof.get('schema') not in {
+                            'sentinel.paper-observation-warmup/2', 'sentinel.paper-observation-warmup/3',
+                            'sentinel.paper-observation-warmup/4', 'sentinel.paper-observation-warmup/5'}
+                        or proof.get('feature_sessions') not in {252, 299}):
+                    raise core.DeployRefused('selected observation issuer is incompatible')
             return
         super().build_promote()
         # From here onward even the ordinary read/write CLI service resolves to
@@ -362,24 +370,37 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
             return self.runner.run(argv, **kwargs)
 
         created = run(
-            ["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"], capture=True)
+            ['bash', 'scripts/sentinel-install-backup.sh', '--restore',
+             'full' if restore_drill else 'physical'], capture=True, stream=True)
         backup = _backup_path(created)
-        run([
-            "bash", "scripts/sentinel-backup-status.sh", "--backup", backup])
-        if restore_drill:
-            run([
-                "bash", "scripts/sentinel-restore-drill.sh", "--backup", backup])
         return backup
 
     def quiesce_backup_and_migrate(self) -> None:
         first_kill = self._quiesce_database()
+        code = (
+            "import json,os; from sentinel import schema; from sentinel.feed import store; "
+            "c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=5000);\n"
+            "try:\n schema.require_runtime_schema(c); store.require_feed_schema(c)\n"
+            "except schema.SchemaMigrationRefused:\n print(json.dumps({'schema_current':False}))\n"
+            "else:\n print(json.dumps({'schema_current':True}))\n"
+            "finally:\n c.rollback(); c.close()")
+        proof = core._json_output(self.runner.run(self.base_compose + [
+            '--profile', 'cli', 'run', '--rm', '-T', '--no-deps',
+            '--entrypoint', 'python', 'sentinel', '-c', code], capture=True, timeout=30),
+            label='installed schema compatibility')
+        if type(proof.get('schema_current')) is not bool:
+            raise core.DeployRefused('installed schema compatibility is malformed')
+        if proof['schema_current']:
+            self.phase('schema: unchanged; reuse current backup chain, no migration or replay')
+            self.runner.run(['bash', 'scripts/sentinel-backup-status.sh'])
+        else:
+            self.phase("durability: fresh pre-migration backup and physical replay")
+            self._create_backup(restore_drill=False)
+            self._migrate_schema()
 
-        self.phase("durability: fresh pre-migration backup and physical replay")
-        pre_backup = self._create_backup(restore_drill=False)
-        self.runner.run([
-            "bash", "scripts/sentinel-restore-drill.sh", "--backup",
-            pre_backup, "--physical-only"])
+        self._confirm_migrated_fence(first_kill)
 
+    def _migrate_schema(self) -> None:
         self.phase("schema: explicit migration while automation is stopped")
         code = (
             "import os; from sentinel import schema,deployment_fence; from sentinel.feed import store; "
@@ -390,6 +411,8 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         self.runner.run(self.base_compose + [
             "--profile", "cli", "run", "--rm", "-T",
             "--entrypoint", "python", "sentinel", "-c", code])
+
+    def _confirm_migrated_fence(self, first_kill) -> None:
         if not self._try_emergency_kill():
             raise core.DeployRefused(
                 "durable automation kill could not be confirmed after schema migration")
@@ -410,12 +433,14 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         _safe_update_dotenv(core.ENV_PATH, updates)
 
     def _post_deploy_backup(self) -> str:
+        if getattr(self, '_activation_backup', None):
+            return self._activation_backup
         return self._create_backup(restore_drill=True)
 
     def persist_success(self, health: Mapping) -> None:
         """Persist the exact reviewed activation mode after operational PASS."""
-        self.phase("finalize: post-deploy backup, persist facts, and retain receipt")
-        post_backup = self._create_backup(restore_drill=True)
+        self.phase("finalize: reuse verified recovery milestone, persist facts, and retain receipt")
+        post_backup = self._post_deploy_backup()
         self.verify_operator_services()
         reviewed = self.reviewed_validation
         activation_mode = reviewed.mode if reviewed is not None else "paper"

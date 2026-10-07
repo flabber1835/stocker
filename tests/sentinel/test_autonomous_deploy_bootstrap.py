@@ -146,17 +146,16 @@ def test_backup_checks_and_restore_use_the_exact_created_backup(tmp_path, restor
         env = {}
         def run(self, args, **kwargs):
             calls.append(list(args))
-            if args[:2] == ["bash", "scripts/sentinel-base-backup.sh"]:
+            if args[:2] == ["bash", "scripts/sentinel-install-backup.sh"]:
                 return SimpleNamespace(
-                    stdout="verified_base_backup:" + exact + "\n",
+                    stdout="verified_installation_backup:" + exact + "\n",
                     stderr="", returncode=0)
             return SimpleNamespace(stdout="", stderr="", returncode=0)
 
     obj = bootstrap.BootstrapDeploy(SimpleNamespace(), Runner(), tmp_path)
     assert obj._create_backup(restore_drill=restore_drill) == exact
-    assert calls[0] == ["bash", "scripts/sentinel-base-backup.sh", "--wait-seconds", "3660"]
-    assert ["bash", "scripts/sentinel-backup-status.sh", "--backup", exact] in calls
-    assert (["bash", "scripts/sentinel-restore-drill.sh", "--backup", exact] in calls) is restore_drill
+    assert calls == [["bash", "scripts/sentinel-install-backup.sh", '--restore',
+                      'full' if restore_drill else 'physical']]
 
 
 def test_promoted_runtime_becomes_the_ordinary_cli_image(monkeypatch, tmp_path):

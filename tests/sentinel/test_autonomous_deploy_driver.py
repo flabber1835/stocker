@@ -587,8 +587,9 @@ def test_plan_reread_mismatch_refuses_before_automation_activation(tmp_path):
 
 
 @pytest.mark.parametrize("reconciliation_passes", [True, False])
+@pytest.mark.parametrize('backup_ready', [True, False])
 def test_public_dual_activation_reconciles_before_enabling_automation(
-        tmp_path, reconciliation_passes):
+        tmp_path, reconciliation_passes, backup_ready):
     import sentinel_autonomous_deploy_bootstrap as bootstrap
     obj = bootstrap.BootstrapDeploy(
         SimpleNamespace(account_id="PAPER-1", deployment_id="fixture", actor="test"),
@@ -607,20 +608,31 @@ def test_public_dual_activation_reconciles_before_enabling_automation(
         "enabled": True, "kill_switch_engaged": True,
         "certificate_sha256": "certificate"}
     obj.verify_operator_services = lambda: events.append("verify-services")
+    def recovery():
+        events.append('verify-recovery')
+        if not backup_ready:
+            raise core.DeployRefused('restore qualification refused')
+        return '/backups/base/base-20261007T060000Z'
+    obj._post_deploy_backup = recovery
     def reconcile():
         events.append("reconcile-shadow")
         if not reconciliation_passes:
             raise core.DeployRefused("shadow intent mismatch")
     obj._verify_dual_plan_shadow_reconciliation = reconcile
-    if reconciliation_passes:
+    if reconciliation_passes and backup_ready:
         obj.prepare_activate_start("certificate", "2026-08-14")
         assert events == ["prepare-paper-plan", "current-paper-plan",
             "reconcile-shadow", "activate-paper-automation", "start-service",
-            "verify-services", "release-paper-automation-kill-switch"]
+            "verify-services", 'verify-recovery', "release-paper-automation-kill-switch"]
     else:
-        with pytest.raises(core.DeployRefused, match="shadow intent mismatch"):
+        with pytest.raises(core.DeployRefused, match="shadow intent mismatch|restore qualification refused"):
             obj.prepare_activate_start("certificate", "2026-08-14")
-        assert events == ["prepare-paper-plan", "current-paper-plan", "reconcile-shadow"]
+        if not reconciliation_passes:
+            assert events == ["prepare-paper-plan", "current-paper-plan", "reconcile-shadow"]
+        else:
+            assert events == ['prepare-paper-plan', 'current-paper-plan', 'reconcile-shadow',
+                'activate-paper-automation', 'start-service', 'verify-services', 'verify-recovery']
+        assert 'release-paper-automation-kill-switch' not in events
 
 
 def test_optional_key_rotation_revokes_only_different_predecessor_after_rotation(tmp_path):

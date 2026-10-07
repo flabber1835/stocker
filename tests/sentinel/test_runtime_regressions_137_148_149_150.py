@@ -306,8 +306,9 @@ def test_137_future_certificate_stages_before_not_before_but_activation_waits(
     assert active.status == "ACTIVE"
 
 
+@pytest.mark.parametrize('clock_mode', ['absolute', 'issuance-relative'])
 def test_137_candidate_cli_captures_lifecycle_reference_before_warmup(
-        monkeypatch, tmp_path):
+        monkeypatch, tmp_path, clock_mode):
     events = []
     reference = datetime(2026, 8, 16, 20, 42, tzinfo=timezone.utc)
 
@@ -354,6 +355,9 @@ def test_137_candidate_cli_captures_lifecycle_reference_before_warmup(
         not_before="2026-08-16T20:42:00Z", expires_at=None,
         maximum_exposure="1", cash=100000.0,
         reviewer="reviewer", ticket="ticket")
+    if clock_mode == 'issuance-relative':
+        args.not_before = None
+        args.not_before_delay_seconds = 0
     config = SimpleNamespace(database_url="postgresql://fixture")
     assert authority_cli.cmd_create_paper_observation_candidate(
         config, args) == authority_cli.EXIT_OK
