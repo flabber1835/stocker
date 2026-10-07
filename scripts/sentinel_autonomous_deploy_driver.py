@@ -653,6 +653,9 @@ c.rollback(); c.close()
                 or current_plan.get("decision_session") != decision_session):
             raise core.DeployRefused(
                 "current plan re-read is not the exact plan just prepared")
+        if (self.reviewed_validation is not None
+                and self.reviewed_validation.mode == "dual"):
+            self._verify_dual_plan_shadow_reconciliation()
 
         self.phase(
             "automation: activate behind kill, start pinned service, then release")

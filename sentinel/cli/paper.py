@@ -126,7 +126,7 @@ async def _inspect_empty_paper_account(config: SentinelConfig, args) -> int:
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         if binding_mod.load(conn) is not None:
             raise empty_account.EmptyAccountRefused(
                 "empty-account inspection refuses an existing binding before "
@@ -169,7 +169,7 @@ async def _bind_empty_paper_account(config: SentinelConfig, args) -> int:
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         if binding_mod.load(conn) is not None:
             raise empty_account.EmptyAccountRefused(
                 "ADMIN_BIND_EMPTY refuses an existing binding before broker "

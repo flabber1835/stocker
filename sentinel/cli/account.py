@@ -186,7 +186,7 @@ async def _migrate_account(config: SentinelConfig, args) -> int:
     log.info("sentinel: config %s", json.dumps(config.redacted()))
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         from sentinel import binding as binding_mod
         if binding_mod.load(conn) is not None:
             raise handover.MigrationRefused(
@@ -283,7 +283,7 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
 
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         before = binding_mod.require(conn)
         grant, guard = authority_cli._authorized_administrative_access(
             conn, config=config, operation="ADMIN_ADOPT",

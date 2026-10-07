@@ -90,7 +90,7 @@ def _activate_paper_automation(config: SentinelConfig, args) -> int:
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         automation_config = config_from_env()
         with journal.writer_lock(conn):
             assert_no_legacy_path(conn)
@@ -142,7 +142,7 @@ def _release_paper_automation_kill(config: SentinelConfig, args) -> int:
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         automation_config = config_from_env()
         with journal.writer_lock(conn):
             binding, rollout, certificate = _automation_authority(
@@ -218,7 +218,7 @@ def _acknowledge_paper_alert(config: SentinelConfig, args) -> int:
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         alert = outbox.acknowledge(
             conn, alert_id=args.alert_id, actor=args.actor,
             acknowledgement=args.acknowledgement)

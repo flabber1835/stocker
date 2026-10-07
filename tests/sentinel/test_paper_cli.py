@@ -73,7 +73,7 @@ def _wire_database(monkeypatch, calls):
         feed_store, "require_feed_schema",
         lambda actual: calls.append(("feed_schema", actual)))
     monkeypatch.setattr(
-        schema, "ensure_schema",
+        schema, "require_runtime_schema",
         lambda actual: calls.append(("behavior_schema", actual)))
     return conn
 
@@ -313,7 +313,7 @@ def test_schema_migration_refusal_stops_paper_startup_before_broker(
         raise AssertionError(
             f"{command} continued past behavioral schema refusal")
 
-    monkeypatch.setattr(schema, "ensure_schema", refuse_schema)
+    monkeypatch.setattr(schema, "require_runtime_schema", refuse_schema)
     monkeypatch.setattr(paper, "build_security_resolver", forbidden)
     monkeypatch.setattr(paper_cli, "build_execution_broker", forbidden)
     monkeypatch.setattr(paper, "prepare_paper_plan", forbidden)
@@ -502,7 +502,7 @@ def test_pinned_rollout_does_not_load_broken_controller_and_warns_of_risk(
     calls = []
     conn = _Connection()
     monkeypatch.setattr(feed_store, "connect", lambda _url: conn)
-    monkeypatch.setattr(schema, "ensure_schema", lambda actual: None)
+    monkeypatch.setattr(schema, "require_runtime_schema", lambda actual: None)
 
     @contextmanager
     def locked(actual):
@@ -550,7 +550,7 @@ def test_emergency_automation_fencing_bypasses_execution_writer_lock(
     conn = _Connection()
     calls = []
     monkeypatch.setattr(feed_store, "connect", lambda _url: conn)
-    monkeypatch.setattr(schema, "ensure_schema", lambda actual: None)
+    monkeypatch.setattr(schema, "require_runtime_schema", lambda actual: None)
 
     @contextmanager
     def unavailable(_actual):
@@ -608,7 +608,7 @@ def test_execution_authority_revocation_bypasses_writer_lock(
     conn = _Connection()
     calls = []
     monkeypatch.setattr(feed_store, "connect", lambda _url: conn)
-    monkeypatch.setattr(schema, "ensure_schema", lambda actual: None)
+    monkeypatch.setattr(schema, "require_runtime_schema", lambda actual: None)
 
     @contextmanager
     def unavailable(_actual):
@@ -638,7 +638,7 @@ def test_administrative_authority_revocation_bypasses_writer_lock(monkeypatch):
     conn = _Connection()
     calls = []
     monkeypatch.setattr(feed_store, "connect", lambda _url: conn)
-    monkeypatch.setattr(schema, "ensure_schema", lambda actual: None)
+    monkeypatch.setattr(schema, "require_runtime_schema", lambda actual: None)
 
     @contextmanager
     def unavailable(_actual):

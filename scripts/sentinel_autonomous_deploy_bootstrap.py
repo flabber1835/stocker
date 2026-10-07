@@ -278,15 +278,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         except (OSError, ValueError) as exc:
             raise core.DeployRefused(
                 "Alpaca paper account read failed: %s" % type(exc).__name__) from exc
-        if not isinstance(payload, dict):
-            raise core.DeployRefused("Alpaca account response is not an object")
-        identities = {
-            str(payload.get("id") or ""),
-            str(payload.get("account_number") or ""),
-        }
-        if self.cfg.account_id not in identities:
-            raise core.DeployRefused(
-                "Alpaca credentials resolve to a different paper account")
+        core.require_canonical_paper_account(payload, self.cfg)
         if str(payload.get("status") or "").upper() != "ACTIVE":
             raise core.DeployRefused("Alpaca paper account is not ACTIVE")
         for flag in (

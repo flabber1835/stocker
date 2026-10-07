@@ -25,7 +25,6 @@ for p in (str(HERE), str(ROOT), str(ROOT / "shared")):
 
 _LEGACY_SCHEMA_DOUBLE_MODULES = {
     "test_automation_runtime",
-    "test_paper_cli",
 }
 _SINGLETON_REFUSAL_TESTS = {
     "test_missing_control_singleton_refuses_instead_of_reseeding",

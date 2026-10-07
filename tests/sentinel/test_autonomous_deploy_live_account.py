@@ -124,6 +124,30 @@ def test_redeploy_preflight_still_refuses_wrong_account(monkeypatch, tmp_path):
         obj.read_paper_account()
 
 
+def test_uuid_alias_is_refused_before_enrollment(monkeypatch, tmp_path):
+    obj = _object(tmp_path)
+    obj.cfg.account_id = "uuid-1"
+    payload = {"id": "uuid-1", "account_number": "PA3UVTMJYYGM"}
+    monkeypatch.setattr(bootstrap.urllib.request, "urlopen",
+                        lambda *_a, **_k: Response(payload))
+    with pytest.raises(core.DeployRefused, match="noncanonical UUID alias"):
+        obj.check_paper_account_deployment_integrity()
+    with pytest.raises(core.DeployRefused, match="noncanonical UUID alias"):
+        obj.read_paper_account()
+
+
+@pytest.mark.parametrize("payload", [
+    {"id": "uuid-1", "account_number": "PA3UVTMJYYGM"},
+    {"id": "uuid-1", "account_number": None},
+    {"id": "uuid-1"},
+])
+def test_preflight_subject_matches_actual_execution_adapter(payload):
+    from sentinel.execution.alpaca import AlpacaExecutionBroker
+    identity = AlpacaExecutionBroker._account_identity(payload)
+    core.require_canonical_paper_account(
+        payload, SimpleNamespace(account_id=identity.account_id))
+
+
 def test_redeploy_preflight_still_refuses_broker_block(monkeypatch, tmp_path):
     payload = {
         "id": "uuid-1",

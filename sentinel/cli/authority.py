@@ -104,7 +104,7 @@ def cmd_create_empty_paper_binding_candidate(
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         runtime, strategy = _current_system_identities()
         candidate = build_candidate(
             conn, certificate_id=args.certificate_id,
@@ -228,7 +228,7 @@ def _install_administrative_certificate(
     try:
         payload = Path(args.certificate).read_bytes()
         conn = feed_store.connect(config.database_url)
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         with journal.writer_lock(conn):
             prospective = authority.verify_signed_certificate(
                 payload, for_install=True)
@@ -290,7 +290,7 @@ def _activate_administrative_certificate(
     conn = None
     try:
         conn = feed_store.connect(config.database_url)
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         with journal.writer_lock(conn):
             staged = administrative_authority.load_administrative_certificate(
                 conn, args.certificate_sha256)
@@ -347,7 +347,7 @@ def _revoke_administrative_certificate(
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         # Revocation is an emergency fencing surface. It serializes on the
         # authority rows themselves and must not wait behind a writer lock held
         # across slow administrative broker I/O.
@@ -387,7 +387,7 @@ def _install_system_certificate(config: SentinelConfig, args) -> int:
     try:
         payload = Path(args.certificate).read_bytes()
         conn = feed_store.connect(config.database_url)
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         with journal.writer_lock(conn):
             binding = binding_mod.require(conn)
             rollout = authority.load_rollout_state(conn)
@@ -459,7 +459,7 @@ def _activate_system_certificate(config: SentinelConfig, args) -> int:
     conn = None
     try:
         conn = feed_store.connect(config.database_url)
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         with journal.writer_lock(conn):
             binding = binding_mod.require(conn)
             if (args.confirm_paper_account != binding.broker_account_id
@@ -546,7 +546,7 @@ def _revoke_system_key(config: SentinelConfig, args) -> int:
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         # Key revocation remains available while execution owns the writer
         # lock. The separate authority-transition lock serializes certificate
         # and key lifecycle changes without waiting for broker work.
@@ -577,7 +577,7 @@ def _revoke_system_certificate(config: SentinelConfig, args) -> int:
         return EXIT_CONFIG
     conn = feed_store.connect(config.database_url)
     try:
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         authority.revoke_system_certificate(
             conn, certificate_sha256=args.certificate_sha256,
             reason=args.reason, commit=True)
@@ -634,7 +634,7 @@ def _set_paper_rollout_mode(config: SentinelConfig, args) -> int:
         if mode is authority.RolloutMode.CONTROLLER:
             runtime, strategy = _current_system_identities()
         conn = feed_store.connect(config.database_url)
-        schema.ensure_schema(conn)
+        schema.require_runtime_schema(conn)
         with journal.writer_lock(conn):
             before = authority.load_rollout_state(conn)
             rollout = authority.set_rollout_mode(
