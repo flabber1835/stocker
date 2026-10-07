@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,21 +13,10 @@ import pytest
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
             or Path(__file__).resolve().parents[2])
 SCRIPTS = ROOT / "scripts"
-CORE = SCRIPTS / "sentinel_autonomous_deploy.py"
 DRIVER = SCRIPTS / "sentinel_autonomous_deploy_driver.py"
-
-core_spec = importlib.util.spec_from_file_location("sentinel_autonomous_deploy", CORE)
-core = importlib.util.module_from_spec(core_spec)
-assert core_spec.loader is not None
-core_spec.loader.exec_module(core)
-import sys
-sys.modules["sentinel_autonomous_deploy"] = core
-
-driver_spec = importlib.util.spec_from_file_location(
-    "sentinel_autonomous_deploy_driver", DRIVER)
-driver = importlib.util.module_from_spec(driver_spec)
-assert driver_spec.loader is not None
-driver_spec.loader.exec_module(driver)
+sys.path.insert(0, str(SCRIPTS))
+core = importlib.import_module("sentinel_autonomous_deploy")
+driver = importlib.import_module("sentinel_autonomous_deploy_driver")
 
 
 def _config_env(tmp_path, exposure="1", revoke="0"):

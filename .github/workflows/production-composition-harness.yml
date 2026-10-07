@@ -33,9 +33,9 @@ jobs:
         with:
           python-version: '3.12.13'
       - name: Install PostgreSQL and locked dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql
+          bash tools/ci_postgres.sh
           python -m pip install --require-hashes --only-binary=:all: --no-deps \
             -r sentinel/requirements.lock -r tests/requirements.lock
           python -m pip check
@@ -91,14 +91,15 @@ jobs:
             tests/requirements.lock
 
       - name: Install PostgreSQL physical restore tools
+        timeout-minutes: 10
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y postgresql
+          bash tools/ci_postgres.sh
           command -v psql
           test -n "$(find /usr/lib/postgresql -type f -name pg_verifybackup -print -quit)"
 
       - name: Install locked runtime and test dependencies
+        timeout-minutes: 10
         run: |
           set -euo pipefail
           python -m pip install --require-hashes --only-binary=:all: --no-deps \

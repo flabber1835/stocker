@@ -127,7 +127,9 @@ def test_persisted_deployment_receipt_is_explicitly_fenced(tmp_path):
         deployment_id="sentinel-a", account_id="PAPER-1",
         runtime_repository="registry/sentinel",
         test_repository="registry/sentinel-test")
-    obj = deploy.AutonomousDeploy(cfg, SimpleNamespace(env={}), tmp_path)
+    backup_status = Mock(return_value=SimpleNamespace(returncode=0))
+    obj = deploy.AutonomousDeploy(
+        cfg, SimpleNamespace(env={}, run=backup_status), tmp_path)
     obj.commit = "a" * 40
     obj.runtime_digest = "sha256:" + "1" * 64
     obj.test_digest = "sha256:" + "2" * 64
@@ -135,7 +137,8 @@ def test_persisted_deployment_receipt_is_explicitly_fenced(tmp_path):
     obj.test_repo_digest = "registry/sentinel-test@" + obj.test_digest
     obj.phase = lambda _text: None
     obj._persist_deploy_facts = lambda _updates: None
-    obj._post_deploy_backup = lambda: "/backup/exact"
+    obj._post_deploy_backup = lambda: pytest.fail(
+        "financial backup or restore inside software finalization")
     obj.verify_operator_services = lambda: None
 
     obj.persist_deployed({
@@ -144,13 +147,16 @@ def test_persisted_deployment_receipt_is_explicitly_fenced(tmp_path):
         "certificate_sha256": "c" * 64})
 
     receipt = json.loads((tmp_path / "installation-receipt.json").read_text())
+    backup_status.assert_called_once_with(['bash', 'scripts/sentinel-backup-status.sh'])
     assert receipt['schema'] == 'sentinel.installation-receipt/1'
+    assert receipt['installation_state'] == 'INSTALLED'
+    assert receipt['activation_state'] == 'FENCED'
     assert receipt["deployment_state"] == "DEPLOYED"
     assert receipt["operational_state"] == "FENCED"
     assert receipt["automation_enabled"] is False
     assert receipt["kill_switch_engaged"] is True
     assert receipt["operational_ready"] is False
-    assert receipt["post_deploy_backup"] == "/backup/exact"
+    assert receipt["post_deploy_backup"] is None
 
 
 def test_start_fenced_runtime_never_releases_kill(tmp_path):

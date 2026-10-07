@@ -53,6 +53,28 @@ authority remain unchanged. Production timeouts and trading clocks are not
 affected. A regression screens every checkout job, including manual-only paths,
 and old short budgets must fail its admission assertion.
 
+CI PostgreSQL setup first probes the complete toolchain advertised by
+`pg_config --bindir`, including version execution for server, initialization,
+control, physical backup, dump/restore and SQL client tools. A complete working
+installation is reused without contacting Ubuntu package mirrors. PR487's
+lifecycle shard spent 20m43s in checkout and then 24m23s in package setup before
+the 45-minute job expired; its campaign never started. Repeating package-index
+updates when the required tools are already present adds an unrelated failure
+dependency to financial qualification.
+
+When tools are missing or fail their probes, the shared CI-only setup helper
+installs PostgreSQL through the existing signed Ubuntu repositories. HTTP and
+HTTPS acquisitions have 30-second timeouts and two retries; any package-index
+error refuses setup. The toolchain is probed again after installation. Each
+dependency-setup step has a ten-minute bound, including locked Python package
+installation and `pip check`. There is no fallback from missing tools, failed
+hashes or failed installation to a passing test verdict. This helper starts no
+database or deployment services and does not change production setup or backup
+requirements.
+
+The filtered Alpaca workflow includes the shared setup helper and its regression
+module as trigger inputs, so later dependency-setup changes are qualified there.
+
 The four existing required context names remain unchanged:
 
 ```text
