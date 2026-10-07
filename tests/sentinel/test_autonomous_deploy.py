@@ -455,7 +455,7 @@ def _broker_probe(tmp_path):
 def _account_payload(**updates):
     payload = {
         "id": "PAPER-123",
-        "account_number": "account-number",
+        "account_number": "PAPER-123",
         "status": "ACTIVE",
         "trading_blocked": False,
         "account_blocked": False,

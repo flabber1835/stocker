@@ -300,7 +300,7 @@ class TestEstablishOwnershipIsRetired:
             SENTINEL_DATABASE_URL="postgresql://test/db"))
         monkeypatch.setattr(feed_store, "connect", lambda _url: connection)
         monkeypatch.setattr(
-            schema, "ensure_schema",
+            schema, "require_runtime_schema",
             lambda _conn: (_ for _ in ()).throw(
                 schema.SchemaMigrationRefused(
                     "behavioral migration authority is corrupt")))
@@ -350,7 +350,7 @@ class TestEstablishOwnershipIsRetired:
             SENTINEL_STATE_DIR=str(tmp_path),
             SENTINEL_DATABASE_URL="postgresql://test/db"))
         monkeypatch.setattr(feed_store, "connect", lambda _url: connection)
-        monkeypatch.setattr(schema, "ensure_schema", lambda _conn: None)
+        monkeypatch.setattr(schema, "require_runtime_schema", lambda _conn: None)
         monkeypatch.setattr(binding, "load", lambda _conn: None)
         monkeypatch.setattr(
             authority_cli, "_authorized_administrative_access",

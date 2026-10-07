@@ -496,7 +496,7 @@ def test_every_admin_broker_command_authorizes_before_construction(monkeypatch):
         database_url="postgresql://test/db")
     constructed = []
     monkeypatch.setattr(feed_store, "connect", lambda _url: Connection())
-    monkeypatch.setattr(schema, "ensure_schema", lambda _conn: None)
+    monkeypatch.setattr(schema, "require_runtime_schema", lambda _conn: None)
     monkeypatch.setattr(binding, "load", lambda _conn: None)
     monkeypatch.setattr(
         binding, "require", lambda _conn: binding.AccountBinding(

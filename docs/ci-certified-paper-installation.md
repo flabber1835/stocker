@@ -38,6 +38,33 @@ decision, signed paper authority or permission to place an order.
 the real GO result, installation failures, corrections, local test boundaries,
 and the remaining actual paper deployment evidence.
 
+## Structured CLI output and hot administrative schema gates
+
+Decision: 2026-10-07. CLI diagnostics, including HTTP client logs, go to
+stderr. Stdout remains the command's structured result so the installer can
+parse one complete JSON document. Keep the strict JSON parser; do not discard
+unexpected prefixes or infer successful inspection from an exit code alone.
+
+Administrative certificate, account binding/adoption, rollout and automation
+commands validate the established behavioral schema through
+`require_runtime_schema`. They do not run `CREATE`/`ALTER` against hot tables.
+The installer's explicit backed-up migration remains the sole installation
+step that upgrades the schema. Missing or incompatible schema still refuses
+before authority changes or broker construction. This also prevents repeated
+schema DDL from deadlocking against the already-running panel/sender readers.
+
+The earliest broker identity preflight uses execution's canonical account
+identity: account number when supplied, otherwise UUID. A configured UUID alias
+for an account with a number is an explicit configuration refusal before
+enrollment. It is not a different account, but cannot be signed as the runtime
+subject. Never silently rewrite an existing binding or certificate. A supported
+configuration correction requires proof of the same account and fresh GO.
+
+Qualify real HTTP-client logging with strict installer parsing, all affected
+CLI gates with a migration tripwire, and actual PostgreSQL runtime validation
+while a health reader holds the same table locks that exposed the deployment
+failure. Local qualification grants no deployment or broker authority.
+
 ## Operator services are installation dependencies
 
 Decision: 2026-10-05. Every installation mode starts the private panel and waits

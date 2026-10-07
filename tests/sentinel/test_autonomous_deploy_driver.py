@@ -586,6 +586,43 @@ def test_plan_reread_mismatch_refuses_before_automation_activation(tmp_path):
     assert [call[0] for call in calls] == ["prepare-paper-plan"]
 
 
+@pytest.mark.parametrize("reconciliation_passes", [True, False])
+def test_public_dual_activation_reconciles_before_enabling_automation(
+        tmp_path, reconciliation_passes):
+    import sentinel_autonomous_deploy_bootstrap as bootstrap
+    obj = bootstrap.BootstrapDeploy(
+        SimpleNamespace(account_id="PAPER-1", deployment_id="fixture", actor="test"),
+        SimpleNamespace(env={}), tmp_path,
+        reviewed_validation=SimpleNamespace(mode="dual"))
+    events = []
+    plan = {"plan": {"plan_id": "exact", "decision_session": "2026-08-14"},
+            "database_authorities_match": True}
+    def cli(args, **kwargs):
+        events.append(args[0])
+        return SimpleNamespace(stdout=json.dumps(plan), stderr="", returncode=0)
+    obj._authorized_cli = obj._base_cli = cli
+    obj._authorized_compose = lambda: ["docker", "compose"]
+    obj.runner.run = lambda *a, **k: events.append("start-service")
+    obj._automation_status = lambda: {
+        "enabled": True, "kill_switch_engaged": True,
+        "certificate_sha256": "certificate"}
+    obj.verify_operator_services = lambda: events.append("verify-services")
+    def reconcile():
+        events.append("reconcile-shadow")
+        if not reconciliation_passes:
+            raise core.DeployRefused("shadow intent mismatch")
+    obj._verify_dual_plan_shadow_reconciliation = reconcile
+    if reconciliation_passes:
+        obj.prepare_activate_start("certificate", "2026-08-14")
+        assert events == ["prepare-paper-plan", "current-paper-plan",
+            "reconcile-shadow", "activate-paper-automation", "start-service",
+            "verify-services", "release-paper-automation-kill-switch"]
+    else:
+        with pytest.raises(core.DeployRefused, match="shadow intent mismatch"):
+            obj.prepare_activate_start("certificate", "2026-08-14")
+        assert events == ["prepare-paper-plan", "current-paper-plan", "reconcile-shadow"]
+
+
 def test_optional_key_rotation_revokes_only_different_predecessor_after_rotation(tmp_path):
     obj = driver.AutonomousDeploy(
         SimpleNamespace(

@@ -1338,16 +1338,27 @@ def validate_deployment_integrity_status(status: Mapping, cfg: Config) -> str:
     return str(state)
 
 
-def classify_paper_account_for_deployment(payload: Mapping, cfg: Config) -> str:
-    """Separate broker identity integrity from temporary operational readiness."""
+def require_canonical_paper_account(payload: Mapping, cfg: Config) -> None:
+    """Match execution's subject before signing any administrative authority."""
     if not isinstance(payload, dict):
         raise DeployRefused("Alpaca account response is not an object")
+    canonical = str(payload.get("account_number") or payload.get("id") or "")
     identities = {
-        str(payload.get("id") or ""),
-        str(payload.get("account_number") or ""),
+        str(payload.get("id") or "").strip(),
+        str(payload.get("account_number") or "").strip(),
     }
-    if cfg.account_id not in identities:
-        raise DeployRefused("Alpaca credentials resolve to a different paper account")
+    if canonical and cfg.account_id == canonical:
+        return
+    if cfg.account_id and cfg.account_id in identities:
+        raise DeployRefused(
+            "configured paper account uses a noncanonical UUID alias; "
+            "use the execution account number and obtain fresh GO before enrollment")
+    raise DeployRefused("Alpaca credentials resolve to a different paper account")
+
+
+def classify_paper_account_for_deployment(payload: Mapping, cfg: Config) -> str:
+    """Separate broker identity integrity from temporary operational readiness."""
+    require_canonical_paper_account(payload, cfg)
     if str(payload.get("status") or "").upper() != "ACTIVE":
         return "BROKER_NOT_READY"
     for flag in ("trading_blocked", "account_blocked", "trade_suspended_by_user"):

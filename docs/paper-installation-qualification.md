@@ -103,6 +103,52 @@ sender cannot report its own absence through itself. The independent dashboard
 can expose its stale heartbeat; the installer now enforces service presence at
 the installation boundaries.
 
+## Certified installation boundary recovery, 2026-10-07
+
+The actual certified `edaa258fe409978823fb422d4a0d063a4521c8ee`
+installation completed real Alpaca/OpenFIGI GO, reused all price partitions and
+the authenticated 126-session formation, and passed physical backup/replay.
+It exposed three installation failures: repeated behavioral DDL deadlocked
+against notification readers; a configured UUID alias differed from execution's
+canonical account number; and ten successful HTTP GET log lines preceded an
+otherwise valid empty-account JSON result. The last inspection proved the
+correct empty $50,000 paper account, but strict installer parsing refused it.
+The UUID configuration was corrected through the supported atomic writer after
+GET-only proof of the same account, unused administrative authority was revoked,
+and fresh GO passed. Financial state and failed attempts were retained.
+
+The recovery branch routes CLI logs to stderr, changes hot administrative
+commands to read-only schema validation, and checks execution's canonical
+account subject before enrollment. Review of the later activation path also
+found that the hardened override omitted the separate verified-shadow/plan
+comparison present in the base installer. That check is restored before any
+automation activation. Strategy, input windows, execution sizing, signing,
+backup, timing and reconciliation requirements are preserved.
+
+Qualification covers actual HTTP logging in fresh processes, strict installer
+JSON parsing, every changed administrative schema gate, real PostgreSQL with
+health-reader locks held, and the public bootstrap's dual activation ordering.
+Existing focused suites exercise empty-account binding, signed authority,
+plan preparation/reread, automation kill/start/release, advancing leader proof,
+exact backup replay, service loss before release and after final backup,
+session expiry, installation overlays and notification recovery. Deliberately
+restoring stdout logging, hot DDL, UUID-alias admission or omitted shadow
+reconciliation must each fail its regression by assertion.
+
+A separate GET-only diagnostic using the recovery code made ten actual Alpaca
+account/order/position reads. It proved a complete matching empty observation
+and clean JSON accepted by the unchanged strict installer parser, with HTTP
+logs on stderr. It created no account binding, certificate, deployment GO or
+paper authority. Software regressions use isolated PostgreSQL and test signing
+keys; they do not activate the actual installation.
+
+The refused deployment remains disabled and killed, with zero account bindings
+and broker commands. Its database, sender, UI and certified backup maintenance
+are retained. Successful real enrollment, release of paper automation, the
+first market cycle and physical iPhone notification presentation remain actual
+deployment boundaries, not results of this qualification. Windows reboot or
+operation before login remains unqualified.
+
 ## Remaining deployment evidence
 
 Local admission and transport fixtures are explicit in the software regressions;
