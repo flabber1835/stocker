@@ -224,7 +224,8 @@ def test_unfenced_migration_stops_before_backup_and_schema_commands():
 
 @pytest.mark.parametrize('mode', ['dual', 'paper'])
 @pytest.mark.parametrize('window', ['valid', 'expired-before-plan', 'expires-before-release'])
-def test_public_installer_hierarchy_preserves_reviewed_preparation_mode(mode, window):
+@pytest.mark.parametrize('receipt', ['match', 'mismatch', 'malformed', 'absent'])
+def test_public_installer_hierarchy_preserves_reviewed_preparation_mode(mode, window, receipt):
     # The public entry mutates class dispatch; exercise it in its own process.
     script = r'''
 import json, sys
@@ -258,28 +259,58 @@ def command(args, **kwargs):
 obj._authorized_cli = command
 obj._base_cli = command
 obj._authorized_compose = lambda: ['simulated-compose']
-obj.runner = SimpleNamespace(run=lambda *a, **k: None)
+def run(args, **kwargs):
+    if 'sentinel-authorized-cli' in args:
+        assert kwargs.get('capture') is True
+        assert 'require_plan_matches_verified_shadow' in args[-1]
+        calls.append(['reconcile-shadow'])
+        payload = {'schema': 'sentinel.dual-plan-shadow-reconciliation/1',
+                   'verdict': 'MATCH', 'state_sha256': 'a' * 64,
+                   'shadow_runtime_authority_sha256': 'b' * 64,
+                   'sizing_authority_sha256': 'c' * 64,
+                   'plan_fingerprint': 'd' * 64}
+        if sys.argv[3] == 'mismatch':
+            payload['verdict'] = 'MISMATCH'
+        output = 'SENTINEL_DUAL_RECONCILIATION=' + json.dumps(payload)
+        if sys.argv[3] == 'malformed':
+            output = 'SENTINEL_DUAL_RECONCILIATION={invalid-json'
+        elif sys.argv[3] == 'absent':
+            output = ''
+        return SimpleNamespace(stdout=output, stderr='', returncode=0)
+    assert args[-3:] == ['up', '-d', 'sentinel-automation']
+    return SimpleNamespace(stdout='', stderr='', returncode=0)
+obj.runner = SimpleNamespace(run=run)
 obj.verify_operator_services = lambda: None
 obj._automation_status = lambda: {'enabled': True, 'kill_switch_engaged': True,
                                 'certificate_sha256': 'local-certificate'}
+reconciliation_refused = (sys.argv[1] == 'dual' and sys.argv[3] != 'match'
+                          and window != 'expired-before-plan')
 try:
     assert obj.prepare_activate_start('local-certificate', '2026-09-14') == plan
 except entry.core.DeployRefused as exc:
-    assert window != 'valid'
-    assert 'following-open cutoff' in str(exc), str(exc)
+    if reconciliation_refused:
+        assert 'did not exactly match certified shadow intent' in str(exc), str(exc)
+    else:
+        assert window != 'valid'
+        assert 'following-open cutoff' in str(exc), str(exc)
 else:
     assert window == 'valid', 'expired timing released paper automation'
+    assert not reconciliation_refused, 'invalid reconciliation released paper automation'
 expected = ['prepare-paper-plan', 'current-paper-plan', 'activate-paper-automation']
+if sys.argv[1] == 'dual':
+    expected.insert(2, 'reconcile-shadow')
 if window == 'expired-before-plan':
     expected = []
     assert timing_checks == [1]
 else:
-    assert timing_checks == [1, 2]
+    assert timing_checks == ([1] if reconciliation_refused else [1, 2])
     assert ('--reviewed-informational-dual' in calls[0]) == (sys.argv[1] == 'dual')
-    if window == 'valid':
+    if reconciliation_refused:
+        expected = expected[:-1]
+    elif window == 'valid':
         expected.append('release-paper-automation-kill-switch')
 assert [c[0] for c in calls] == expected
 '''
-    result = subprocess.run([sys.executable, '-c', script, mode, window],
+    result = subprocess.run([sys.executable, '-c', script, mode, window, receipt],
                             cwd=ROOT, capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
