@@ -4,6 +4,8 @@ import os
 import signal
 import subprocess
 import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -17,14 +19,27 @@ from sentinel import shadow_supervisor as shadow
 root, mode = Path(sys.argv[1]), sys.argv[2]
 shadow.ShadowServiceConfig.from_env = lambda: SimpleNamespace(poll_seconds=.01)
 shadow.LATCH_FILE = root / 'absent-latch'
+shadow.shadow_worker_liveness.ACTIVE_FILE = root / 'active-worker.json'
 reports = []
 shadow.supervisor_io.report = lambda *a, **kw: reports.append(str(a[0]))
 shadow.shadow_budget.seconds = lambda: 2
 original_clear = shadow._clear_worker
 def clear():
+    if mode == 'ack_stall':
+        (root / 'ack.pid').write_text(str(os.getpid()))
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        time.sleep(60)
     original_clear()
-    os.kill(parent_pid, signal.SIGTERM)
 shadow._clear_worker = clear
+original_observe = shadow.supervisor_io.run
+def observe(function, *args, **kwargs):
+    value = original_observe(function, *args, **kwargs)
+    if function is clear:
+        # Stop only after the parent receives the actual acknowledgement.
+        # An observer must not also be our test's shutdown controller.
+        os.kill(parent_pid, signal.SIGTERM)
+    return value
+shadow.supervisor_io.run = observe
 original_spawn, original_terminate = subprocess.Popen, shadow._terminate
 children = []
 def spawn(*args, **kwargs):
@@ -33,7 +48,7 @@ def spawn(*args, **kwargs):
         "import os,signal,time; from pathlib import Path; "
         "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
         "Path('worker.pid').write_text(str(os.getpid())); " +
-        ("raise SystemExit(2)" if mode == 'terminal' else ("time.sleep(1.5)" if mode == 'recover' else "time.sleep(60)"))], cwd=root,
+        ("raise SystemExit(2)" if mode == 'terminal' else ("time.sleep(1.5)" if mode in {'recover', 'ack_stall'} else "time.sleep(60)"))], cwd=root,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     children.append(child)
     until = time.monotonic() + 2
@@ -91,8 +106,18 @@ def alive(pid):
     return True
 
 
-@pytest.mark.parametrize('mode', ['error', 'stall', 'recover', 'normal', 'terminal', 'cleanup_stall'])
-def test_heartbeat_fault_never_leaves_an_unsupervised_worker(tmp_path, mode):
+@pytest.fixture
+def heartbeat_state():
+    # Exercise real writes/fsync and real observer processes independently of
+    # Docker overlayfs flush latency. These tests prove process isolation, not
+    # power-loss durability; explicit dependency stalls still use real deadlines.
+    with TemporaryDirectory(prefix='sentinel-heartbeat-', dir='/dev/shm') as root:
+        yield Path(root)
+
+
+@pytest.mark.parametrize('mode', ['error', 'stall', 'recover', 'normal', 'terminal', 'cleanup_stall', 'ack_stall'])
+def test_heartbeat_fault_never_leaves_an_unsupervised_worker(heartbeat_state, mode):
+    tmp_path = heartbeat_state
     try:
         result = subprocess.run([sys.executable, '-c', DRIVER, str(tmp_path), mode],
                                 capture_output=True, text=True, timeout=12)
@@ -100,13 +125,16 @@ def test_heartbeat_fault_never_leaves_an_unsupervised_worker(tmp_path, mode):
         evidence = json.loads(result.stdout)
         assert evidence['launches'] == 1
         assert evidence['elapsed'] < 8
-        expected = 2 if mode == 'terminal' else (0 if mode == 'recover' else -signal.SIGKILL)
+        expected = 2 if mode == 'terminal' else (0 if mode in {'recover', 'ack_stall'} else -signal.SIGKILL)
         assert evidence['worker_exits'] == [expected], evidence
-        assert evidence['returncode'] == 0, evidence
+        assert evidence['returncode'] == (2 if mode == 'ack_stall' else 0), evidence
         assert (tmp_path / 'heartbeat').exists() == (mode == 'cleanup_stall')
         # Heartbeat availability cannot discard an observed safe worker outcome.
         # Terminal refusals retain their durable pending marker and critical latch.
-        assert (tmp_path / 'shadow-supervisor-pending.json').exists() == (mode == 'terminal')
+        assert (tmp_path / 'shadow-supervisor-pending.json').exists() == (mode in {'terminal', 'ack_stall'})
+        if mode == 'ack_stall':
+            assert any('acknowledgement unavailable: TimeoutError' in r
+                       for r in evidence['reports']), evidence
         if mode in {'error', 'stall', 'recover', 'terminal'}:
             warnings = [r for r in evidence['reports'] if 'heartbeat unavailable' in r]
             assert len(warnings) == 1, evidence
