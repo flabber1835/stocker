@@ -47,7 +47,7 @@ def run():
         ('adjacent_index', Feed, 'advance', "if self.median5_state['last_index'] != idx - 1:",
          'if False:', checks.test_snapshot_feature_override_cannot_skip_an_index),
         ('fresh_startup', observation_startup, 'require',
-         "or warmup.get('warmup_sessions') != 299", 'or False',
+         "or warmup.get('warmup_sessions') != feature_sessions(WINDOW_SCHEMA)", 'or False',
          lambda: checks.test_observation_authority_requires_selected_fresh_window('warmup_count')),
     ]
     results = []

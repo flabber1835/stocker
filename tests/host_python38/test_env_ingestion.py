@@ -648,7 +648,11 @@ class EnvHarness(unittest.TestCase):
             "import os,sys\n"
             "LOCK_FD_ENV='SENTINEL_BASE_BACKUP_LOCK_FD'\n"
             "def lock_is_held(*args): return False\n"
-            "if __name__ == '__main__' and sys.argv[1] == 'hold': os.execvp(sys.argv[2],sys.argv[2:])\n")
+            "if __name__ == '__main__' and sys.argv[1] == 'hold':\n"
+            " command=sys.argv[2:]\n"
+            " if command[:1] == ['--standby-if-busy']: command=command[1:]\n"
+            " if command[:1] == ['--wait-seconds']: command=command[2:]\n"
+            " os.execvp(command[0],command)\n")
         (self.root / "scripts/sentinel_backup_maintenance.py").write_text(
             "import subprocess\nraise SystemExit(subprocess.run(['docker','info']).returncode)\n")
         docker = self.root / "bin/docker"
