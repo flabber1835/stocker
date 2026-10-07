@@ -22,7 +22,7 @@ jobs:
   contract:
     name: contract-${{ matrix.scope }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     outputs:
       source_commit: ${{ steps.verifier-source.outputs.commit }}
       source_tree: ${{ steps.verifier-source.outputs.tree }}
@@ -146,7 +146,7 @@ jobs:
   core-infrastructure:
     name: core-${{ matrix.scope }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

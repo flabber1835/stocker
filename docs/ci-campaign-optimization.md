@@ -36,6 +36,23 @@ a 30-minute cap. This changes CI scheduling only; required exact-head execution,
 synthetic tree equivalence, missing-evidence refusal and all production deadlines
 remain unchanged. A timed-out checkout cannot produce certification.
 
+All repository-checkout jobs now have a minimum 30-minute whole-job budget.
+The next PR487 run exposed the same failure in the internal-state core job:
+checkout consumed its former 15-minute budget before dependencies or tests ran.
+The minimum provides a bounded setup margin for short jobs across protected
+certification, publication, advisory campaigns and manual replay diagnostics.
+Jobs previously limited to 5, 15, 20 or 25 minutes rise to 30 minutes; existing
+30-minute and longer jobs keep their budgets. This is a scheduling allowance,
+not a guarantee that an arbitrarily stalled fetch will succeed.
+
+The internal-state final evidence job deliberately keeps its five-minute limit:
+it restores the current-attempt checksummed verifier from evidence and performs
+no repository checkout. Scope matrices, source/attempt ownership, complete test
+inventory, failed-prerequisite refusal, artifact requirements and publication
+authority remain unchanged. Production timeouts and trading clocks are not
+affected. A regression screens every checkout job, including manual-only paths,
+and old short budgets must fail its admission assertion.
+
 The four existing required context names remain unchanged:
 
 ```text
