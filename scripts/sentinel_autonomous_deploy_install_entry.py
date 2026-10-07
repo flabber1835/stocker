@@ -552,8 +552,8 @@ finally:
         self.runner.env["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = digest
         os.environ["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = digest
 
-        def invoke(argv, **_kwargs):
-            return runner.run(argv, env=self.env)
+        def invoke(argv, *, env=None, **_kwargs):
+            return runner.run(argv, env=self.env if env is None else env)
 
         try:
             _ORIGINAL_VERIFY(reviewed, env=self.env, invoke=invoke)
