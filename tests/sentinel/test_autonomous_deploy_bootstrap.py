@@ -206,13 +206,17 @@ def test_bootstrap_does_not_persist_discovered_facts_before_final_pass(tmp_path)
         runtime_repository="ghcr.io/example/sentinel",
         test_repository="ghcr.io/example/sentinel-test",
     )
-    obj = bootstrap.BootstrapDeploy(cfg, SimpleNamespace(env={}), tmp_path)
+    def storage_status(argv, **kwargs):
+        assert argv == ['bash', 'scripts/sentinel-backup-status.sh']
+        calls.append('backup-status')
+        return SimpleNamespace(stdout='', stderr='', returncode=0)
+    obj = bootstrap.BootstrapDeploy(cfg, SimpleNamespace(env={}, run=storage_status), tmp_path)
     obj.commit = "a" * 40
     obj.runtime_digest = "sha256:" + "1" * 64
     obj.test_digest = "sha256:" + "2" * 64
     obj.runtime_repo_digest = cfg.runtime_repository + "@" + obj.runtime_digest
     obj.test_repo_digest = cfg.test_repository + "@" + obj.test_digest
-    obj._post_deploy_backup = lambda: calls.append("backup") or "/backups/final"
+    obj._post_deploy_backup = lambda: pytest.fail('financial restore inside installation')
     obj._persist_deploy_facts = lambda _updates: calls.append("persist")
     obj.verify_operator_services = lambda: calls.append("operator-verified")
 
@@ -223,7 +227,7 @@ def test_bootstrap_does_not_persist_discovered_facts_before_final_pass(tmp_path)
         "policy_state": "INERT",
     })
 
-    assert calls == ["backup", "operator-verified", "persist"]
+    assert calls == ["backup-status", "operator-verified", "persist"]
 
 
 @pytest.mark.parametrize('mode', ['shadow', 'dual', 'paper', None])
@@ -257,7 +261,10 @@ def test_public_installation_cannot_succeed_when_operator_service_is_lost(
     calls = []
     lost = False
     def invoke(argv, **kwargs):
+        nonlocal lost
         calls.append(argv)
+        if argv == ['bash', 'scripts/sentinel-backup-status.sh']:
+            lost = True
         if lost and 'exec' in argv and service in argv:
             raise core.DeployRefused(condition + ': ' + service)
         return SimpleNamespace(stdout='', stderr='', returncode=0)
@@ -268,15 +275,27 @@ def test_public_installation_cannot_succeed_when_operator_service_is_lost(
     obj.base_compose = ['docker', 'compose', '-f', 'canonical.yml']
     obj.start_operator_services()
     obj._persist_deploy_facts = lambda *_: pytest.fail('wrote successful deployment facts')
-    def final_backup():
-        nonlocal lost
-        lost = True
-        return '/fixture/backup'
-    obj._post_deploy_backup = final_backup
+    obj._post_deploy_backup = lambda: pytest.fail('financial restore inside installation')
     with pytest.raises(core.DeployRefused, match=condition):
         obj.persist_deployed({'enabled': False, 'kill_switch_engaged': True})
     assert not (tmp_path / 'deployment-receipt.json').exists()
     assert not any('release-paper-automation-kill-switch' in argv for argv in calls)
+
+
+@pytest.mark.parametrize('verified', [None, '/backups/base/base-20261007T060000Z'])
+def test_activation_recovery_keeps_full_restore_or_reuses_exact_milestone(tmp_path, verified):
+    calls = []
+    exact = '/backups/base/base-20261007T060000Z'
+    def run(argv, **kwargs):
+        calls.append(argv)
+        assert argv == ['bash', 'scripts/sentinel-install-backup.sh', '--restore', 'full']
+        assert kwargs['capture'] is True and kwargs['stream'] is True
+        return SimpleNamespace(stdout='verified_installation_backup:' + exact + '\n')
+    obj = bootstrap.BootstrapDeploy(SimpleNamespace(), SimpleNamespace(env={}, run=run), tmp_path)
+    obj._activation_backup = verified
+    assert obj._post_deploy_backup() == exact
+    assert calls == ([] if verified else [
+        ['bash', 'scripts/sentinel-install-backup.sh', '--restore', 'full']])
 
 
 @pytest.mark.parametrize('mode', ['dual', 'paper'])

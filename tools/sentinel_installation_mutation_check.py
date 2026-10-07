@@ -10,6 +10,14 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 TEST = 'tests/sentinel/test_installation_activation_separation.py'
 MUTANTS = (
+    ('financial-restore-restored-to-software-finalizer', 'scripts/sentinel_autonomous_deploy.py',
+     "        self.runner.run(['bash', 'scripts/sentinel-backup-status.sh'])\n        post_backup = None\n",
+     '        post_backup = self._post_deploy_backup()\n',
+     TEST + '::test_public_install_success_is_committed_before_separate_handoff'),
+    ('software-backup-status-ignored', 'scripts/sentinel_autonomous_deploy.py',
+     "        self.runner.run(['bash', 'scripts/sentinel-backup-status.sh'])\n        post_backup = None\n",
+     '        post_backup = None\n',
+     TEST + '::test_software_finalizer_cannot_ignore_backup_chain_refusal'),
     ('financial-read-inside-install', 'scripts/sentinel_autonomous_deploy.py',
      '        self.reviewed_validation = None\n        self._installation_only = True\n        self.build_promote()',
      '        self.reviewed_validation = None\n        self._installation_only = True\n        self.read_paper_account()\n        self.build_promote()',

@@ -271,7 +271,12 @@ def test_process_probe_cannot_masquerade_as_financial_health():
 
 
 @pytest.mark.parametrize('financial_unavailable', [False, True, 'status-storage-failed'])
-def test_public_install_success_is_committed_before_separate_handoff(monkeypatch, tmp_path, financial_unavailable):
+@pytest.mark.parametrize('mode', [None, 'shadow', 'dual', 'paper'])
+@pytest.mark.parametrize('clock', ['2026-10-07T13:29:59', '2026-10-07T13:30:00',
+                                  '2026-10-07T16:00:00', '2026-10-07T20:00:00',
+                                  '2026-10-10T16:00:00', '2026-12-25T16:00:00'])
+def test_public_install_success_is_committed_before_separate_handoff(monkeypatch, tmp_path, financial_unavailable, mode, clock):
+    monkeypatch.setattr(core, '_utcnow', lambda: datetime.fromisoformat(clock).replace(tzinfo=timezone.utc))
     monkeypatch.setattr(core, 'ROOT', tmp_path)
     monkeypatch.setattr(core, 'ENV_PATH', tmp_path / '.env')
     core.ENV_PATH.write_text('SENTINEL_BACKUP_DIR=/internal/backup\nPRIVATE_NOTE=preserved\n')
@@ -280,7 +285,12 @@ def test_public_install_success_is_committed_before_separate_handoff(monkeypatch
         'SENTINEL_AUTHORITY_ARTIFACTS_DIR': str(tmp_path / 'authority')})
     monkeypatch.setattr(install.bootstrap, 'discover', lambda env, **kwargs: env)
     monkeypatch.setattr(install.bootstrap, '_run', lambda *args, **kwargs: completed(SHA))
-    monkeypatch.setattr(core.Runner, 'run', lambda *args, **kwargs: pytest.fail('unstubbed external IO'))
+    recovery_calls = []
+    def recovery_status(_runner, argv, **kwargs):
+        assert argv == ['bash', 'scripts/sentinel-backup-status.sh'], 'financial recovery inside software finalization'
+        recovery_calls.append(argv)
+        return completed('backup_ready:true')
+    monkeypatch.setattr(core.Runner, 'run', recovery_status)
     def software(obj):
         obj.commit = SHA
         obj.runtime_repo_digest = obj.test_repo_digest = IMAGE
@@ -290,7 +300,6 @@ def test_public_install_success_is_committed_before_separate_handoff(monkeypatch
     for method in ('quiesce_backup_and_migrate', 'check_durable_deployment_integrity',
                    'configure_reviewed_mode_while_fenced', 'start_operator_services', 'verify_operator_services'):
         monkeypatch.setattr(install.InstallationDeploy, method, lambda obj: None)
-    monkeypatch.setattr(install.InstallationDeploy, '_post_deploy_backup', lambda obj: '/internal/verified')
     monkeypatch.setattr(install.InstallationDeploy, 'start_fenced_runtime', lambda obj: {
         'enabled': False, 'kill_switch_engaged': True, 'operational_ready': False})
     def handoff(path):
@@ -304,14 +313,27 @@ def test_public_install_success_is_committed_before_separate_handoff(monkeypatch
             raise core.DeployRefused('no host service owner')
         return {'schema': 'sentinel.activation-handoff/1', 'activation_state': 'SUPERVISED'}
     monkeypatch.setattr(activate, 'handoff', handoff)
-    assert install.main(['--mode', 'dual', '--activate-when-ready']) == 0
+    assert install.main(['--mode', mode, '--activate-when-ready'] if mode else []) == 0
+    assert recovery_calls == [['bash', 'scripts/sentinel-backup-status.sh']]
     receipts = list((tmp_path / 'authority').rglob('installation-receipt.json'))
     assert len(receipts) == 1
     receipt = records.read_document(receipts[0])
-    assert receipt['requested_mode'] == 'dual'
+    assert receipt['requested_mode'] == (mode or 'fenced')
+    assert receipt['post_deploy_backup'] is None
+    assert len(list(receipts[0].parent.rglob('activation-request.json'))) == (1 if mode else 0)
     assert receipt['automation_enabled'] is False and receipt['kill_switch_engaged'] is True
     assert 'PRIVATE_NOTE=preserved' in core.ENV_PATH.read_text()
     assert 'SENTINEL_RUNTIME_IMAGE_REF=' + IMAGE in core.ENV_PATH.read_text()
+
+
+def test_software_finalizer_cannot_ignore_backup_chain_refusal(tmp_path):
+    def refused(argv, **kwargs):
+        assert argv == ['bash', 'scripts/sentinel-backup-status.sh']
+        raise core.DeployRefused('backup chain unavailable')
+    obj = install.InstallationDeploy(SimpleNamespace(), SimpleNamespace(env={}, run=refused), tmp_path)
+    obj._post_deploy_backup = lambda: pytest.fail('financial restore invoked')
+    with pytest.raises(core.DeployRefused, match='backup chain unavailable'):
+        obj.persist_deployed({'enabled': False, 'kill_switch_engaged': True})
 
 
 @pytest.mark.parametrize('completion', ['success', 'pending-then-success', 'interrupt', 'integrity'])
