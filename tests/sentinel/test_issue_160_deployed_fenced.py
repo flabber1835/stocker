@@ -54,7 +54,7 @@ def test_deploy_success_boundary_stops_before_operational_gates(tmp_path):
 
     assert events == [
         "git", "broker-integrity", "build", "migrate", "durable-integrity",
-        "operator-services", "reviewed-bindings", "mode",
+        "reviewed-bindings", "mode",
         "operator-services", "install", ("receipt", True)]
 
 
@@ -91,7 +91,7 @@ def test_quiesced_review_failure_precedes_mode_persistence_and_runtime_start(tmp
 
     assert events == [
         "git", "initial-review", "broker-integrity", "build", "quiesce",
-        "durable-integrity", "operator-services", "quiesced-review", "fail-close"]
+        "durable-integrity", "quiesced-review", "fail-close"]
 
 
 def test_no_args_fenced_install_forces_stale_shadow_configuration_off(tmp_path):
