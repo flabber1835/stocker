@@ -33,17 +33,17 @@ BASE_SHADOW = {
 
 
 class EnvReviewFixes(unittest.TestCase):
-    def test_install_shadow_needs_market_data_but_dual_also_needs_alerts(self):
+    def test_software_install_needs_neither_provider_credentials_nor_alert_transport(self):
         market_data_only = {k: v for k, v in BASE_SHADOW.items()
                             if k not in {"SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL",
                                          "SHARADAR_API_KEY"}}
         env.validate(market_data_only, profile="install", target="SHADOW")
         without_data_key = dict(market_data_only)
         del without_data_key["ALPACA_API_KEY"]
-        with self.assertRaisesRegex(env.EnvRefused, "ALPACA_API_KEY"):
-            env.validate(without_data_key, profile="install", target="SHADOW")
+        env.validate(without_data_key, profile="install", target="SHADOW")
+        env.validate(market_data_only, profile="install", target="DUAL_RUN_OBSERVATION")
         with self.assertRaisesRegex(env.EnvRefused, "REQUIRED_ALERT_TRANSPORT_MISSING"):
-            env.validate(market_data_only, profile="install", target="DUAL_RUN_OBSERVATION")
+            env.validate(market_data_only, profile="go", target="DUAL_RUN_OBSERVATION")
 
     def test_launcher_shadow_reaches_bootstrap_with_market_data_credentials(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -125,9 +125,8 @@ class EnvReviewFixes(unittest.TestCase):
                 cwd=str(root), env=process, pass_fds=(lock.fileno(),),
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                 timeout=10)
-            self.assertEqual(dual.returncode, 2)
-            self.assertIn("REQUIRED_ALERT_TRANSPORT_MISSING", dual.stderr)
-            self.assertFalse(marker.exists())
+            self.assertEqual(dual.returncode, 77, dual.stderr)
+            self.assertTrue(marker.exists())
 
             for suffix, value in (
                     ("LEASE_SECONDS", "3"), ("HEARTBEAT_SECONDS", "12"),
@@ -135,6 +134,7 @@ class EnvReviewFixes(unittest.TestCase):
                     ("CALLBACK_DEADLINE_SECONDS", "2")):
                 with self.subTest(setting=suffix):
                     git_marker.unlink(missing_ok=True)
+                    marker.unlink(missing_ok=True)
                     values = dict(BASE_SHADOW)
                     values["SENTINEL_AUTOMATION_" + suffix] = value
                     (root / ".env").write_text(
@@ -251,6 +251,8 @@ class EnvReviewFixes(unittest.TestCase):
         for values in cases:
             with self.subTest(values=values):
                 candidate = dict(BASE_SHADOW)
+                # No alert dispatcher is requested by this worker-only case.
+                candidate.pop('SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL')
                 candidate.update(values)
                 try:
                     env.validate(candidate, profile="install", target="SHADOW")
@@ -259,6 +261,7 @@ class EnvReviewFixes(unittest.TestCase):
 
     def test_valid_runtime_edge_spellings_survive_preflight(self):
         candidate = dict(BASE_SHADOW)
+        candidate.pop('SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL')
         candidate.update({
             "SENTINEL_SHADOW_OBSERVATION_ENABLED": "true",
             "SENTINEL_SHADOW_POLL_SECONDS": "5",

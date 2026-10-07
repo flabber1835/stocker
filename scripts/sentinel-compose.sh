@@ -35,7 +35,8 @@ note() { [ "$EXPLAIN" -eq 1 ] && printf '%s\n' "$*" >&2 || true; }
 . scripts/sentinel-env.sh
 sentinel_load_environment --profile compose
 
-# Successful GO validation atomically writes one non-secret immutable runtime
+# Signed fenced installation or successful GO validation atomically writes one
+# non-secret immutable runtime
 # selector. Prefer it over shell/.env state so an old operator export cannot
 # silently resurrect a stale image. The selector may be a local immutable image
 # ID from explicit local-full certification or the exact GHCR digest reference

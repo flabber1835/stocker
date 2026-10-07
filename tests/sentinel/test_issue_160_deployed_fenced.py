@@ -53,8 +53,7 @@ def test_deploy_success_boundary_stops_before_operational_gates(tmp_path):
     obj.run()
 
     assert events == [
-        "git", "broker-integrity", "build", "migrate", "durable-integrity",
-        "reviewed-bindings", "mode",
+        "git", "build", "migrate", "durable-integrity", "mode",
         "operator-services", "install", ("receipt", True)]
 
 
@@ -70,7 +69,7 @@ def test_quiesced_review_failure_precedes_mode_persistence_and_runtime_start(tmp
     obj.check_paper_account_deployment_integrity = lambda: events.append(
         "broker-integrity")
     obj.build_promote = lambda: events.append("build")
-    obj.quiesce_backup_and_migrate = lambda: events.append("quiesce")
+    obj._quiesce_database = lambda: events.append("quiesce") or True
     obj.check_durable_deployment_integrity = lambda: events.append(
         "durable-integrity")
 
@@ -87,7 +86,7 @@ def test_quiesced_review_failure_precedes_mode_persistence_and_runtime_start(tmp
     obj.fail_close = lambda: events.append("fail-close")
 
     with pytest.raises(deploy.DeployRefused, match="publication changed"):
-        obj.run()
+        obj.run_activation()
 
     assert events == [
         "git", "initial-review", "broker-integrity", "build", "quiesce",
@@ -144,7 +143,8 @@ def test_persisted_deployment_receipt_is_explicitly_fenced(tmp_path):
         "operational_ready": False, "policy_state": "KILLED",
         "certificate_sha256": "c" * 64})
 
-    receipt = json.loads((tmp_path / "deployment-receipt.json").read_text())
+    receipt = json.loads((tmp_path / "installation-receipt.json").read_text())
+    assert receipt['schema'] == 'sentinel.installation-receipt/1'
     assert receipt["deployment_state"] == "DEPLOYED"
     assert receipt["operational_state"] == "FENCED"
     assert receipt["automation_enabled"] is False
@@ -178,7 +178,8 @@ def test_start_fenced_runtime_never_releases_kill(tmp_path):
 def test_reviewed_shadow_starts_only_dedicated_broker_free_service(tmp_path):
     cfg = SimpleNamespace(health_timeout=45)
     calls = []
-    runner = SimpleNamespace(env={}, run=lambda argv, **_kwargs: calls.append(list(argv)))
+    runner = SimpleNamespace(env={}, run=lambda argv, **_kwargs: (
+        calls.append(list(argv)) or SimpleNamespace(returncode=0)))
     reviewed = SimpleNamespace(mode="shadow")
     obj = deploy.AutonomousDeploy(
         cfg, runner, tmp_path, reviewed_validation=reviewed)
@@ -198,8 +199,10 @@ def test_reviewed_shadow_starts_only_dedicated_broker_free_service(tmp_path):
     assert calls == [
         ["STOP_AUTOMATION"],
         ["docker", "compose", "-f", "authorized.yml",
-         "--profile", "shadow", "up", "-d", "--wait",
-         "--wait-timeout", "45", "sentinel-shadow"],
+         "--profile", "shadow", "up", "-d", "sentinel-shadow"],
+        ["docker", "compose", "-f", "authorized.yml", "--profile", "shadow",
+         "exec", "-T", "sentinel-shadow", "python", "-m",
+         "sentinel.shadow_supervisor", "--service-health"],
     ]
     assert all("sentinel-automation" not in call for call in calls)
 

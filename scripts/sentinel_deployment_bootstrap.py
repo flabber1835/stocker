@@ -506,11 +506,12 @@ def ensure_publication_receipt_key(
         path: Path = ENV_PATH,
         *, receipt_state_probe: Optional[
             Callable[[Mapping[str, str]], str]] = None,
-        allow_verified_pre_receipt: bool = False) -> str:
+        allow_verified_pre_receipt: bool = False,
+        installation_only: bool = False) -> str:
     values = _parse_env(path)
     try:
         probe_env = sentinel_env.merge(values, os.environ)
-        sentinel_env.validate(probe_env, profile="bootstrap")
+        sentinel_env.validate(probe_env, profile="install" if installation_only else "bootstrap")
     except sentinel_env.EnvRefused as exc:
         raise BootstrapRefused(str(exc)) from None
     configured = _configured_key(values)
@@ -543,6 +544,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Provision first-install Sentinel deployment secrets")
     parser.add_argument("--env-file", type=Path, default=ENV_PATH)
+    parser.add_argument("--installation-only", action="store_true")
     parser.add_argument(
         "--provision-verified-pre-receipt",
         action="store_true",
@@ -555,7 +557,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         result = ensure_publication_receipt_key(
             args.env_file,
-            allow_verified_pre_receipt=args.provision_verified_pre_receipt)
+            allow_verified_pre_receipt=args.provision_verified_pre_receipt,
+            installation_only=args.installation_only)
     except BootstrapRefused as exc:
         print("REFUSED: deployment bootstrap: %s" % exc, file=sys.stderr)
         return 2

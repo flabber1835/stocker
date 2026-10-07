@@ -53,7 +53,7 @@ MUTANTS = (
      "test_control_sentinel_compose_sh_RUN"),
     ("comment-whitespace-lost", "scripts/sentinel_env.py",
      'raw, maxsplit=1)[0].strip(" \\t")', 'raw.strip(" \\t"), maxsplit=1)[0].strip(" \\t")',
-     "test_empty_commented_credentials_block_install_before_git"),
+     "test_empty_commented_credentials_block_financial_go_before_side_effects"),
     ("go-arguments-reinterpret-preflight", "scripts/sentinel-go-validate.sh",
      "--profile go --go-args", "--profile go",
      "test_go_arguments_cannot_weaken_preflight_or_select_another_file"),

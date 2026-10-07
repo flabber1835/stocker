@@ -566,13 +566,17 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
         _fail("INVALID_TARGET", key="SENTINEL_GO_TARGET")
     required = ["SENTINEL_BACKUP_DIR"] if profile == "compose" else [
         "SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD"]
-    if profile in {"go", "install", "bootstrap"}:
+    if profile in {"go", "bootstrap"}:
         required += ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"]
     if profile == "maintenance":
         required = ["SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", RECEIPT_KEY]
     broker_credentials = (
-        profile in {"install", "go"} and target != "SHADOW")
-    alert_dispatcher = broker_credentials or require_alert_dispatcher
+        profile == "go" and target != "SHADOW")
+    configured_alert = any(usable(env.get(name, '')) for name in (
+        'SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL', 'SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY',
+        'SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY', 'SENTINEL_WEB_PUSH_VAPID_SUBJECT'))
+    alert_dispatcher = (broker_credentials or require_alert_dispatcher
+                        or (profile == 'install' and configured_alert))
     if broker_credentials:
         required += ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"]
     if alert_dispatcher:

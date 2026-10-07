@@ -100,7 +100,7 @@ def test_shadow_read_cannot_authorize_after_data_deadline(tmp_path, monkeypatch)
             "session": "2026-08-28", "verification": "VERIFIED", "shadow_verdict": "SHADOW_GO"}))
     obj.runner = SimpleNamespace(run=status)
     monkeypatch.setattr(deploy.time, "monotonic", lambda: clock[0])
-    with pytest.raises(deploy.DeployRefused, match="deployment timeout"):
+    with pytest.raises(deploy.ActivationPending, match="activation attempt timeout"):
         obj._wait_for_dual_shadow_session("2026-08-28")
 
 
@@ -326,7 +326,7 @@ def test_run_build_failure_does_not_enter_fail_close(tmp_path):
     obj.fail_close = lambda: events.append("fenced")
     with pytest.raises(deploy.DeployRefused):
         obj.run()
-    assert events == ["git", "broker-integrity", "build"]
+    assert events == ["git", "build"]
 
 
 def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
@@ -350,7 +350,7 @@ def test_run_post_transition_install_failure_always_fail_closes(tmp_path):
     with pytest.raises(deploy.DeployRefused):
         obj.run()
     assert events == [
-        "git", "broker-integrity", "build", "quiesce",
+        "git", "build", "quiesce",
         "durable-integrity", "mode", "operator-services", "install", "fenced"]
 
 
@@ -376,7 +376,7 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(
     obj.check_paper_account_deployment_integrity = \
         lambda: events.append("broker-integrity")
     obj.build_promote = lambda: events.append("build")
-    obj.quiesce_backup_and_migrate = lambda: events.append("quiesce")
+    obj._quiesce_database = lambda: events.append("quiesce") or True
     obj.check_durable_deployment_integrity = \
         lambda: events.append("durable-integrity")
     obj.verify_reviewed_shadow_bindings_quiesced = \
@@ -410,12 +410,13 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(
     obj.persist_success = lambda health: events.append("receipt")
 
     if authority_failure:
+        obj.fail_close = lambda: events.append('fenced')
         with pytest.raises(deploy.DeployRefused):
-            obj.run()
+            obj.run_activation()
         assert 'shadow-start' not in events
         assert not any(event.startswith('paper-released:') for event in events)
         return
-    obj.run()
+    obj.run_activation()
 
     assert events == [
         "git", "review", "broker-integrity", "build", "quiesce",

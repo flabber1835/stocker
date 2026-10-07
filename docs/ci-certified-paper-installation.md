@@ -1,3 +1,19 @@
+# Installation without financial admission
+
+Decision: 2026-10-07. [Installation/activation separation](installation-activation-separation.md)
+supersedes the financial ZIP and prospective-window prerequisites for software
+installation described below. Protected software certification is verified
+independently. A financial ZIP, source preparation, offline signer and actual
+trading session are exclusively activation requirements. Existing financial
+validators remain strict and never promote a NO_GO into paper authority.
+
+Use `bash scripts/sentinel-autonomous-deploy.sh` to install dormant, fenced
+software. To install and separately queue the supported dual activation, use
+`bash scripts/sentinel-autonomous-deploy.sh --mode dual --activate-when-ready`.
+An optional `--validation-bundle ZIP --confirm-reviewed-go SHA256` binds only the
+activation request; absence of that ZIP does not block installation. The
+coordinator otherwise runs the canonical locked GO producer after installation.
+
 # Installing the CI-certified single runtime
 
 ## Installation work and recovery milestones

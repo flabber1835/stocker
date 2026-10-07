@@ -104,7 +104,8 @@ def test_bootstrap_persists_reviewed_dual_as_dual(monkeypatch, tmp_path):
     assert values["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] == "d" * 64
 
     receipt = json.loads(
-        (tmp_path / "deployment-receipt.json").read_text(encoding="utf-8"))
+        (tmp_path / "activation-receipt.json").read_text(encoding="utf-8"))
+    assert receipt['schema'] == 'sentinel.activation-receipt/1'
     assert receipt["activation_mode"] == "dual"
     assert receipt["certified_performance_authority"] == \
         "BROKER_FREE_SHADOW_LEDGER"

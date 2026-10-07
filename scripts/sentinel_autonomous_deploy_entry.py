@@ -210,9 +210,8 @@ def install_runtime_guards(requested_mode: Optional[str]) -> None:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    requested_mode = _requested_mode(argv)
-    install_runtime_guards(requested_mode)
-    return bootstrap.main(argv)
+    from sentinel_installation_phase import main as installation_main
+    return installation_main(argv)
 
 
 if __name__ == "__main__":

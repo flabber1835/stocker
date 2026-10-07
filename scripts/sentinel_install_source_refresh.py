@@ -70,7 +70,7 @@ def refresh(deploy, *, timing, deadline):
             return
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise core.DeployRefused('installation source wait deadline exhausted')
+            raise core.ActivationPending('installation source wait deadline exhausted')
         seconds = remaining
         cutoff = datetime.now(timezone.utc) + timedelta(seconds=remaining)
         env = go._with_market_data_authority(deploy.env)
@@ -131,7 +131,7 @@ def wait_commands(deploy, deadline):
         def run(self, command, **kwargs):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise core.DeployRefused('installation command wait deadline exhausted')
+                raise core.ActivationPending('installation command wait deadline exhausted')
             requested = kwargs.get('timeout')
             kwargs['timeout'] = min(remaining, requested) if requested is not None else remaining
             # Source renewal already establishes exact ownership externally.

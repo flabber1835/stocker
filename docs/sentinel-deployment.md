@@ -1,3 +1,15 @@
+# Current installation boundary
+
+[Installation and activation separation](installation-activation-separation.md)
+supersedes the combined installation/financial GO sequence below. The public
+installer admits protected signed software without a financial ZIP and finishes
+with an immutable `INSTALLED/FENCED` receipt at any trading clock. Financial
+preparation and authority belong to a separately supervised explicit activation
+request. `--mode` records intent; `--activate-when-ready` queues that request.
+Existing session, broker, backup, lineage and execution guards remain mandatory
+for activation. Historical installation instructions below describe the earlier
+combined flow and must not be used to make installation wait for trading.
+
 # Sentinel — operational deployment ground truth
 
 [Installation recovery milestones](ci-certified-paper-installation.md#installation-work-and-recovery-milestones)
