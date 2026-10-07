@@ -81,6 +81,55 @@ ET.ElementTree(suite).write(target)
     assert len(cases) == len(expected)
 
 
+def test_minimum_host_lane_reserves_checkout_margin_without_weakening_evidence():
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
+                              '.github/workflows/sentinel-safety.yml').read_text(encoding='utf-8'))
+    job = workflow['jobs']['host-python-38-compatibility']
+    budget = job['timeout-minutes']
+    assert type(budget) is int
+    # The former ten-minute job was exhausted inside checkout. Keep its
+    # execution/evidence allowance after a bounded fifteen-minute setup margin.
+    assert 15 + 10 <= budget <= 30
+    assert job['strategy']['fail-fast'] is False
+    assert 'exact-head' in job['strategy']['matrix']['scope']
+    assert 'synthetic-merge' in job['strategy']['matrix']['scope']
+    proof = next(step for step in job['steps']
+                 if step.get('name') == 'Prove exact execution or synthetic-tree equivalence')
+    assert 'python tools/verify_ci_scope.py' in proof['run']
+    retained = next(step for step in job['steps']
+                    if step.get('name') == 'Retain host Python 3.8 execution evidence')
+    assert retained['if'] == 'always()'
+    assert retained['with']['if-no-files-found'] == 'error'
+
+
+def _repository_checkout_jobs():
+    directory = Path(__file__).resolve().parents[2] / '.github/workflows'
+    return [
+        (path.name, name)
+        for path in sorted(directory.glob('*.y*ml'))
+        for name, job in yaml.safe_load(path.read_text(encoding='utf-8'))['jobs'].items()
+        if any(step.get('uses', '').startswith('actions/checkout@')
+               for step in job.get('steps', ()))
+    ]
+
+
+@pytest.mark.parametrize('workflow_name,job_name', _repository_checkout_jobs())
+def test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines(workflow_name, job_name):
+    path = Path(__file__).resolve().parents[2] / '.github/workflows' / workflow_name
+    job = yaml.safe_load(path.read_text(encoding='utf-8'))['jobs'][job_name]
+    budget = job.get('timeout-minutes')
+    if type(budget) is int:
+        # Checkout exhausted both ten- and fifteen-minute CI jobs before tests.
+        # Short jobs reserve setup time; existing long campaigns stay bounded.
+        assert 30 <= budget <= 60, (workflow_name, job_name, budget)
+    else:
+        assert budget in {
+            "${{ (matrix.lane == 'sentinel-warmup' || "
+            "startsWith(matrix.lane, 'sentinel-rolling-')) && 60 || 45 }}",
+            "${{ github.event_name == 'workflow_dispatch' && 360 || 180 }}",
+        }, (workflow_name, job_name, budget)
+
+
 def test_warmup_lane_has_bounded_setup_margin_and_streams_all_test_evidence():
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
                               ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))

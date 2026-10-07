@@ -27,6 +27,54 @@ test evidence.
 
 ## Stage-one decision: certify each source tree once
 
+The minimum-host Python job has a bounded 30-minute whole-job budget in both
+scopes. Checkout is part of that budget: the PR487 synthetic checkout consumed
+the entire former 10-minute limit before Python setup or scope verification
+could begin. Reserve at least 15 minutes for repository/setup variability and
+the former 10-minute allowance for host execution and retained evidence, with
+a 30-minute cap. This changes CI scheduling only; required exact-head execution,
+synthetic tree equivalence, missing-evidence refusal and all production deadlines
+remain unchanged. A timed-out checkout cannot produce certification.
+
+All repository-checkout jobs now have a minimum 30-minute whole-job budget.
+The next PR487 run exposed the same failure in the internal-state core job:
+checkout consumed its former 15-minute budget before dependencies or tests ran.
+The minimum provides a bounded setup margin for short jobs across protected
+certification, publication, advisory campaigns and manual replay diagnostics.
+Jobs previously limited to 5, 15, 20 or 25 minutes rise to 30 minutes; existing
+30-minute and longer jobs keep their budgets. This is a scheduling allowance,
+not a guarantee that an arbitrarily stalled fetch will succeed.
+
+The internal-state final evidence job deliberately keeps its five-minute limit:
+it restores the current-attempt checksummed verifier from evidence and performs
+no repository checkout. Scope matrices, source/attempt ownership, complete test
+inventory, failed-prerequisite refusal, artifact requirements and publication
+authority remain unchanged. Production timeouts and trading clocks are not
+affected. A regression screens every checkout job, including manual-only paths,
+and old short budgets must fail its admission assertion.
+
+CI PostgreSQL setup first probes the complete toolchain advertised by
+`pg_config --bindir`, including version execution for server, initialization,
+control, physical backup, dump/restore and SQL client tools. A complete working
+installation is reused without contacting Ubuntu package mirrors. PR487's
+lifecycle shard spent 20m43s in checkout and then 24m23s in package setup before
+the 45-minute job expired; its campaign never started. Repeating package-index
+updates when the required tools are already present adds an unrelated failure
+dependency to financial qualification.
+
+When tools are missing or fail their probes, the shared CI-only setup helper
+installs PostgreSQL through the existing signed Ubuntu repositories. HTTP and
+HTTPS acquisitions have 30-second timeouts and two retries; any package-index
+error refuses setup. The toolchain is probed again after installation. Each
+dependency-setup step has a ten-minute bound, including locked Python package
+installation and `pip check`. There is no fallback from missing tools, failed
+hashes or failed installation to a passing test verdict. This helper starts no
+database or deployment services and does not change production setup or backup
+requirements.
+
+The filtered Alpaca workflow includes the shared setup helper and its regression
+module as trigger inputs, so later dependency-setup changes are qualified there.
+
 The four existing required context names remain unchanged:
 
 ```text

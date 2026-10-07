@@ -5,6 +5,15 @@ source-final installation waits in `ci-certified-paper-installation.md` and
 `unattended-operating-contract.md`. Software installation has no trading clock,
 broker-readiness, source-readiness or execution-authority prerequisite.
 
+Software receipt finalization rechecks the existing physical backup chain; it
+must not invoke the financial post-activation base/semantic-restore milestone.
+Required schema migration still proves its exact pre-migration physical replay.
+The formed/authorized state's full semantic restore remains exclusively an
+activation requirement. During a software-only upgrade, maintenance of retained
+financial state keeps its previously admitted runtime/configuration until the
+new financial identity is admitted; installing software does not invent source
+validation for retained shadow history or authorize a maintenance identity swap.
+
 The installer admits the exact protected CI-certified image independently of a
 financial GO ZIP. It verifies source/image identity, preserves the database and
 its existing account binding/journal, fences execution, performs only required
@@ -151,10 +160,30 @@ imports both new host entry points and parses every host script. Full minimum-ho
 execution remains an exact-head CI requirement.
 
 `python tools/sentinel_installation_mutation_check.py` tests disposable broken
-copies of fourteen installation/image/health/JSON/authority guards. The existing
+copies of sixteen installation/image/health/JSON/authority/recovery guards. The existing
 `python tools/sentinel_env_mutation_check.py` checks thirty-eight adjacent host
 guards. Each mutant must fail a behavioral test; syntax/import errors cannot
 substitute for a detected broken guard. The real Compose resolution witness
 uses synthetic credentials and starts no service. The real systemd witness
 proves ownership after launcher exit and SIGTERM cleanup with financial work
 deliberately forbidden. Neither witness is release or execution authority.
+
+## Recovery finalizer second pass
+
+The second repository screen at base `d8112f8e` covers 1,272 tracked source and
+configuration files. Reachability review includes all public deployment entries,
+the bootstrap/driver inheritance chain, environment profiles, Compose health,
+runtime selection, receipt finalization and the separate activation coordinator.
+The inherited software finalizer still called the full financial backup/restore
+hook. That is removed from software completion; the existing read-only physical
+backup-chain check remains mandatory. Tests exercise the actual finalizer and
+its inherited dispatch at open boundaries, midday, close, weekend and holiday,
+with missing financial inputs and unavailable activation ownership. They must
+also detect restoring the financial hook or removing backup-chain admission.
+
+Exact rolling checkpoint/runtime matching remains a financial integrity guard.
+This change does not silently rebind old history to upgraded software, certify
+cross-runtime continuation or reset a retained book. Installation must complete
+while that financial admission remains pending or refused. The screen and
+boundary tests are evidence of the reviewed paths, not a guarantee that all
+possible repository defects have been excluded.

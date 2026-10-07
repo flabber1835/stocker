@@ -22,7 +22,7 @@ jobs:
   contract:
     name: contract-${{ matrix.scope }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     outputs:
       source_commit: ${{ steps.verifier-source.outputs.commit }}
       source_tree: ${{ steps.verifier-source.outputs.tree }}
@@ -62,11 +62,11 @@ jobs:
             sentinel/requirements.lock
             tests/requirements.lock
       - name: Install locked dependencies and real PostgreSQL tools
+        timeout-minutes: 10
         run: |
           python -m pip install --require-hashes --only-binary=:all: --no-deps -r sentinel/requirements.lock -r tests/requirements.lock
           python -m pip check
-          sudo apt-get update
-          sudo apt-get install -y postgresql
+          bash tools/ci_postgres.sh
       - name: Validate test ownership and reject new incident-named suites
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
@@ -125,11 +125,11 @@ jobs:
             sentinel/requirements.lock
             tests/requirements.lock
       - name: Install locked dependencies and real PostgreSQL tools
+        timeout-minutes: 10
         run: |
           python -m pip install --require-hashes --only-binary=:all: --no-deps -r sentinel/requirements.lock -r tests/requirements.lock
           python -m pip check
-          sudo apt-get update
-          sudo apt-get install -y postgresql
+          bash tools/ci_postgres.sh
       - name: Run assigned composed lifecycle and seeded adversarial campaign
         env:
           CAMPAIGN_SEEDS: ${{ inputs.seeds || 16 }}
@@ -146,7 +146,7 @@ jobs:
   core-infrastructure:
     name: core-${{ matrix.scope }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -167,11 +167,11 @@ jobs:
             sentinel/requirements.lock
             tests/requirements.lock
       - name: Install locked dependencies and PostgreSQL
+        timeout-minutes: 10
         run: |
           python -m pip install --require-hashes --only-binary=:all: --no-deps -r sentinel/requirements.lock -r tests/requirements.lock
           python -m pip check
-          sudo apt-get update
-          sudo apt-get install -y postgresql
+          bash tools/ci_postgres.sh
       - name: Run explicitly owned small infrastructure suites
         run: |
           python tools/core_infrastructure_suite.py

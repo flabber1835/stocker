@@ -80,6 +80,8 @@ PROTECTED_CONTEXTS = {
     "host-python-38-synthetic-merge": PROTECTED_TEMPLATES["host-python-38-${{ matrix.scope }}"],
 }
 ALPACA_TRIGGER_INPUTS = {
+    "tools/ci_postgres.sh",
+    "tests/scripts/test_ci_postgres.py",
     "sentinel/requirements.lock",
     "tests/requirements.lock",
     "shared/**",

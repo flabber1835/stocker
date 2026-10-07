@@ -2357,7 +2357,10 @@ class AutonomousDeploy:
                 or status.get("kill_switch_engaged") is not True):
             raise DeployRefused(
                 "deployment receipt requires disabled+killed automation")
-        post_backup = self._post_deploy_backup()
+        # Software completion rechecks storage continuity. The financial
+        # base/full-semantic-restore milestone belongs to persist_success.
+        self.runner.run(['bash', 'scripts/sentinel-backup-status.sh'])
+        post_backup = None
         self.verify_operator_services()
         managed = {
             "SENTINEL_GIT_COMMIT": self.commit,

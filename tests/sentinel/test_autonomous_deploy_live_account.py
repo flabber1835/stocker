@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import io
 import json
 import os
@@ -16,20 +16,9 @@ ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
 SCRIPTS = ROOT / "scripts"
 
 
-def _load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    sys.modules[name] = module
-    return module
-
-
-core = _load("sentinel_autonomous_deploy", SCRIPTS / "sentinel_autonomous_deploy.py")
-_load("sentinel_autonomous_deploy_driver", SCRIPTS / "sentinel_autonomous_deploy_driver.py")
-bootstrap = _load(
-    "sentinel_autonomous_deploy_bootstrap",
-    SCRIPTS / "sentinel_autonomous_deploy_bootstrap.py")
+sys.path.insert(0, str(SCRIPTS))
+core = importlib.import_module("sentinel_autonomous_deploy")
+bootstrap = importlib.import_module("sentinel_autonomous_deploy_bootstrap")
 
 
 class Response:
