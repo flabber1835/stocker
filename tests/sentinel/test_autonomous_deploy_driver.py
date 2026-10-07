@@ -129,7 +129,7 @@ def test_driver_attestation_wait_retains_bounded_next_decision_budget(
     obj.runner = SimpleNamespace(run=status)
     monkeypatch.setattr(core.time, 'monotonic', lambda: clock[0])
     if expired:
-        with pytest.raises(core.DeployRefused, match='deployment timeout'):
+        with pytest.raises(core.ActivationPending, match='activation attempt timeout'):
             obj._wait_for_dual_shadow_session('2026-08-28')
     else:
         assert obj._wait_for_dual_shadow_session('2026-08-28')['session'] == '2026-08-28'
@@ -667,7 +667,7 @@ def test_optional_key_rotation_revokes_only_different_predecessor_after_rotation
     (["--mode=dual", "--ticket", "fixture-ticket"], "dual"),
     (["--mode", "paper"], "paper"),
 ])
-def test_launcher_entry_installs_guards_before_delegating_to_bootstrap(
+def test_launcher_entry_delegates_to_software_installation_only(
         monkeypatch, argv, mode):
     launcher = SCRIPTS / "sentinel-autonomous-deploy.sh"
     source = launcher.read_text(encoding="utf-8")
@@ -676,15 +676,14 @@ def test_launcher_entry_installs_guards_before_delegating_to_bootstrap(
     import sentinel_autonomous_deploy_entry as entry
 
     calls = []
-    monkeypatch.setattr(
-        entry, "install_runtime_guards",
-        lambda requested: calls.append(("guards", requested)))
+    monkeypatch.setattr(entry, 'install_runtime_guards', lambda _mode: pytest.fail('financial overlay during installation'))
 
     def bootstrap_main(forwarded):
         assert forwarded is argv
-        calls.append(("bootstrap", forwarded))
+        calls.append(("installation", forwarded))
         return 77
 
-    monkeypatch.setattr(entry.bootstrap, "main", bootstrap_main)
+    import sentinel_installation_phase as installation
+    monkeypatch.setattr(installation, "main", bootstrap_main)
     assert entry.main(argv) == 77
-    assert calls == [("guards", mode), ("bootstrap", argv)]
+    assert calls == [("installation", argv)]

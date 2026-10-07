@@ -1,3 +1,12 @@
+# Separate software completion
+
+Decision: 2026-10-07. [Installation/activation separation](installation-activation-separation.md)
+supersedes references below to preparation inside the installation transaction.
+Software completion creates dormant financial containers and an immutable
+`INSTALLED/FENCED` receipt. The explicitly requested host activation service then
+owns preparation, broker-free shadow start and prospective execution readiness.
+Waiting for a source or session cannot change an installation into a failure.
+
 # Current unattended paper operating contract
 
 Decision: 2026-10-06. This document supersedes the operational timing, input

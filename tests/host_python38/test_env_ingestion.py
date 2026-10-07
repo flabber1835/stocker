@@ -186,7 +186,7 @@ class EnvHarness(unittest.TestCase):
                 resolved = loader(self.path)
                 self.assertEqual(resolved["ALPACA_API_KEY"], "")
                 with self.assertRaisesRegex(env.EnvRefused, "ALPACA_API_KEY"):
-                    env.validate(resolved, profile="install")
+                    env.validate(resolved, profile="go")
 
     def test_process_override_cannot_hide_malformed_file(self):
         self.write(raw=b"SHARADAR_API_KEY=bad\nSHARADAR_API_KEY=again\n")
@@ -414,9 +414,6 @@ class EnvHarness(unittest.TestCase):
             ("empty_process_override", (key + "=" + BASE[key] + "\n").encode(), {key: ""}),
         )
         launchers = (
-            ("sentinel-autonomous-deploy.sh", ()),
-            ("sentinel-autonomous-deploy.sh", ("--mode", "dual")),
-            ("sentinel-autonomous-deploy.sh", ("--mode=paper",)),
             ("sentinel-go-validate.sh", ("--target", "DUAL_RUN_OBSERVATION")),
             ("sentinel-go-validate.sh", ("--target=HISTORICAL_PAPER_EXECUTION",)),
         )
@@ -624,14 +621,14 @@ class EnvHarness(unittest.TestCase):
                 with self.assertRaises(RUNTIME.RuntimeSelectionRefused):
                     RUNTIME._merged_environment()
 
-    def test_empty_commented_credentials_block_install_before_git(self):
+    def test_empty_commented_credentials_block_financial_go_before_side_effects(self):
         process = self.shell_repo()
         for key in ("ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
             for suffix in (" # enter value\n", "\t# enter value\r\n", "  # enter value"):
                 with self.subTest(key=key, ending=repr(suffix[-2:])):
                     raw = self.write({k: v for k, v in BASE.items() if k != key})
                     self.write(raw=raw + (key + "=" + suffix).encode())
-                    result = self.run_shell("sentinel-autonomous-deploy.sh", process)
+                    result = self.run_shell("sentinel-go-validate.sh", process)
                     self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertIn(key, result.stderr)
                     self.assertFalse((self.root / "effects").exists())
@@ -863,7 +860,7 @@ def _missing_case(key, value):
         else:
             values[key] = value
         with self.assertRaisesRegex(env.EnvRefused, key):
-            env.validate(values, profile="install")
+            env.validate(values, profile="go" if key.startswith('ALPACA_') else "install")
     return test
 
 
@@ -902,11 +899,12 @@ def _semantic_case(key, value, accepted):
             # Exercise the 1..300 numeric bound with a coherent lease. Partial
             # overrides against the service defaults have separate regressions.
             values["SENTINEL_AUTOMATION_LEASE_SECONDS"] = "301"
+        profile = 'go' if key == 'ALPACA_BASE_URL' else 'install'
         if accepted:
-            env.validate(values, profile="install")
+            env.validate(values, profile=profile)
         else:
             with self.assertRaises(env.EnvRefused):
-                env.validate(values, profile="install")
+                env.validate(values, profile=profile)
     return test
 
 

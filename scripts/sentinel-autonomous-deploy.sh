@@ -16,9 +16,8 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   exit 1
 }
 
-# Resolve the deployment mode before the first installation preflight. SHADOW
-# still needs Alpaca market-data credentials, but no broker alert transport;
-# dual/paper installation requires the paper-account safety envelope as well.
+# Record mode intent before software preflight. Provider/account/session checks
+# belong only to the separately requested activation coordinator.
 INSTALL_TARGET="DUAL_RUN_OBSERVATION"
 EXPECT_MODE=0
 for ARG in "$@"; do
@@ -114,7 +113,7 @@ fi
 # idempotent for an existing key and will generate a missing publication receipt
 # authority only when PostgreSQL proves that no authenticated receipt ancestry
 # exists. It never prints the secret.
-"$PYTHON" scripts/sentinel_deployment_bootstrap.py
+"$PYTHON" scripts/sentinel_deployment_bootstrap.py --installation-only
 
 # The deployable image now runs as fixed uid/gid 10001. Upgrade an existing
 # audit-only named volume before the bootstrap starts any new runtime. Fresh

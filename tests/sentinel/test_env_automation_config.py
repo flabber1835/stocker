@@ -99,7 +99,7 @@ def test_required_service_inputs_have_preflight_or_provisioning_authority():
 
 
 @pytest.mark.parametrize("value", [None, "", "   "])
-@pytest.mark.parametrize("profile", ["install", "go", "maintenance"])
+@pytest.mark.parametrize("profile", ["go", "maintenance"])
 def test_missing_webhook_refuses_at_host_and_real_dispatcher(profile, value):
     key = "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"
     candidate = dict(BASE)

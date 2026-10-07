@@ -149,7 +149,7 @@ def _signing_key_path(env: Mapping[str, str]) -> Optional[Path]:
     return None
 
 
-def discover(env: Mapping[str, str]) -> Dict[str, str]:
+def discover(env: Mapping[str, str], *, installation_only: bool = False) -> Dict[str, str]:
     resolved = dict(env)
     status = _existing_status(resolved)
     if status and status.get("ownership") == "OWNED":
@@ -178,7 +178,7 @@ def discover(env: Mapping[str, str]) -> Dict[str, str]:
     if runtime_repo and not str(resolved.get("SENTINEL_TEST_IMAGE_REPOSITORY", "")).strip():
         resolved["SENTINEL_TEST_IMAGE_REPOSITORY"] = runtime_repo + "-test"
 
-    key = _signing_key_path(resolved)
+    key = None if installation_only else _signing_key_path(resolved)
     if key is not None:
         resolved["SENTINEL_DEPLOY_SIGNING_KEY_FILE"] = str(key)
     if not str(resolved.get("SENTINEL_DEPLOY_SIGNING_KEY_ID", "")).strip():
@@ -270,21 +270,23 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
             }, method="GET")
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                payload = core._json_value(response.read(), label='Alpaca paper account')
         except urllib.error.HTTPError as exc:
-            raise core.DeployRefused(
+            if exc.code not in {401, 403, 408, 425, 429} and exc.code < 500:
+                raise core.DeployRefused('Alpaca account protocol refused') from exc
+            raise core.ActivationPending(
                 "Alpaca paper account read returned HTTP %d" % exc.code) from exc
-        except (OSError, ValueError) as exc:
-            raise core.DeployRefused(
+        except OSError as exc:
+            raise core.ActivationPending(
                 "Alpaca paper account read failed: %s" % type(exc).__name__) from exc
         core.require_canonical_paper_account(payload, self.cfg)
         if str(payload.get("status") or "").upper() != "ACTIVE":
-            raise core.DeployRefused("Alpaca paper account is not ACTIVE")
+            raise core.ActivationPending("Alpaca paper account is not ACTIVE")
         for flag in (
                 "trading_blocked", "account_blocked",
                 "trade_suspended_by_user"):
             if payload.get(flag) is not False:
-                raise core.DeployRefused(
+                raise core.ActivationPending(
                     "Alpaca paper account flag %s is not false" % flag)
         try:
             multiplier = Decimal(str(payload["multiplier"]))
@@ -299,11 +301,14 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
                 "Alpaca paper account contains non-finite monetary fields")
         if (multiplier != 1 or equity <= 0 or cash < 0 or buying_power < 0
                 or abs(buying_power - cash) > Decimal("1.00")):
-            raise core.DeployRefused(
+            raise core.ActivationPending(
                 "Alpaca paper account does not satisfy Sentinel's cash-only execution contract")
         self.account_equity = equity
 
     def build_promote(self) -> None:
+        if getattr(self, '_installation_only', False):
+            from sentinel_installation_phase import InstallationDeploy
+            return InstallationDeploy.build_promote(self)
         reviewed = self.reviewed_validation
         if (reviewed is not None
                 and reviewed.test_image_digest == reviewed.runtime_image_digest):
@@ -495,13 +500,11 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
                 "validated_data_publication_sha256": (
                     reviewed.data_publication_sha256 if dual else None),
             })
-        path = self.attempt_dir / "deployment-receipt.json"
-        pending = self.attempt_dir / "deployment-receipt.pending.json"
-        pending.write_text(
-            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8")
+        receipt['schema'] = 'sentinel.activation-receipt/1'
+        path = self.attempt_dir / "activation-receipt.json"
         _safe_update_dotenv(core.ENV_PATH, managed)
-        os.replace(str(pending), str(path))
+        from sentinel_phase_records import publish_immutable
+        publish_immutable(path, receipt)
         if dual:
             print(
                 "\nDEPLOYMENT PASS: certified shadow plus reconciled Alpaca "
@@ -557,53 +560,9 @@ def _install_wallclock_independent_dual_overlay() -> None:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    _install_wallclock_independent_dual_overlay()
-    parser = core.argparse.ArgumentParser(
-        description="Bootstrap and deploy reviewed Sentinel observation modes")
-    parser.add_argument("--explain", action="store_true")
-    parser.add_argument("--mode", choices=("shadow", "dual", "paper"))
-    parser.add_argument("--validation-bundle", type=Path)
-    parser.add_argument("--confirm-reviewed-go")
-    args = parser.parse_args(argv)
-    if args.explain:
-        print(
-            "discover existing durable identity -> git/build/test/push -> "
-            "kill/backup/schema -> start exact runtime disabled+killed -> "
-            "persist DEPLOYED/FENCED; runtime owns later readiness progression")
-        return 0
-    try:
-        initial_env = core.merged_environment()
-        reviewed = core.deployment_request(
-            mode=args.mode, validation_bundle=args.validation_bundle,
-            confirmation=args.confirm_reviewed_go, env=initial_env)
-        # Discovery is read-only but still consults live deployment state. The
-        # complete reviewed byte/Git/image gate above intentionally runs first.
-        env = discover(initial_env)
-        # Process environment is authoritative to the underlying core/driver;
-        # do not write discovered facts to .env until the final PASS receipt.
-        os.environ.update(env)
-        cfg = hardened.Config(env)
-        if reviewed is not None:
-            core.verify_reviewed_account_binding(reviewed, cfg.account_id)
-        if not (core.ROOT / ".git").exists():
-            raise core.DeployRefused(
-                "autonomous deploy must run from a Git checkout")
-        head = _run(["git", "rev-parse", "HEAD"], env=env).stdout.strip()
-        attempt = core._attempt_dir(
-            cfg, head if core._HEX40.fullmatch(head) else "pending")
-        runner = core.Runner(env, attempt / "commands.log")
-        with core.DeploymentLock(
-                cfg.authority_dir / "autonomous-deploy.lock"):
-            BootstrapDeploy(
-                cfg, runner, attempt,
-                reviewed_validation=reviewed).run()
-        return 0
-    except core.DeployRefused as exc:
-        print("REFUSED: %s" % exc, file=sys.stderr)
-        return 2
-    except KeyboardInterrupt:
-        print("REFUSED: deployment interrupted", file=sys.stderr)
-        return 130
+    # Every historical operator entry selects the same software-only boundary.
+    from sentinel_installation_phase import main as installation_main
+    return installation_main(argv)
 
 
 if __name__ == "__main__":

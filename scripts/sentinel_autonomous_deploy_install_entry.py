@@ -406,7 +406,7 @@ finally:
             self._assert_wait_fence()
             timing = self._causal_timing()
             if time.monotonic() >= deadline:
-                raise core.DeployRefused(
+                raise core.ActivationPending(
                     "timed out waiting for a causally eligible source-final session; "
                     "automation remains fenced")
             if (getattr(self, "_operational_source_only", False)
@@ -462,7 +462,7 @@ finally:
 
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise core.DeployRefused(
+                raise core.ActivationPending(
                     "timed out waiting for a causally eligible source-final session; "
                     "automation remains fenced")
             time.sleep(min(
@@ -499,7 +499,7 @@ finally:
                 "causal publication binding requires reviewed validation")
         wait_deadline = getattr(self, "_causal_wait_deadline", None)
         if wait_deadline is not None and time.monotonic() >= wait_deadline:
-            raise core.DeployRefused("causal publication binding wait deadline exhausted")
+            raise core.ActivationPending("causal publication binding wait deadline exhausted")
         now_text = go._utc_text(datetime.now(timezone.utc))
         subjects = {}
         timings = {}
@@ -560,7 +560,7 @@ finally:
             core.verify_reviewed_account_binding(reviewed, self.cfg.account_id)
             binding_timing = self._causal_timing()
             if wait_deadline is not None and time.monotonic() >= wait_deadline:
-                raise core.DeployRefused("causal publication binding wait deadline exhausted")
+                raise core.ActivationPending("causal publication binding wait deadline exhausted")
             if (binding_timing.get("target") != expected_timing.get("target")
                     or binding_timing.get("frontier")
                         != expected_timing.get("target")
@@ -610,7 +610,7 @@ finally:
         if (timing["target"] != decision_session
                 or timing["frontier"] != decision_session
                 or not self._timing_eligible(timing)):
-            raise core.DeployRefused(
+            raise core.ActivationPending(
                 "paper activation lost its exact attested decision or following-open cutoff")
 
     def verify_reviewed_shadow_bindings_quiesced(self) -> None:

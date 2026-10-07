@@ -689,43 +689,9 @@ c.rollback(); c.close()
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    parser = core.argparse.ArgumentParser(
-        description="Fully autonomous fail-closed Sentinel ALPACA PAPER deployment")
-    parser.add_argument(
-        "--explain", action="store_true",
-        help="print the enforced deployment phases and exit without deployment")
-    args = parser.parse_args(argv)
-    if args.explain:
-        print(
-            "git ff-only -> account read -> build/test/push -> kill/stop -> "
-            "backup/restore -> schema -> daily/readiness(wait freshness only) -> "
-            "ownership -> signed certificate/key rotation -> prepare -> "
-            "activate killed -> start -> release -> heartbeat proof -> "
-            "post-deploy backup")
-        return 0
-    try:
-        env = core.merged_environment()
-        cfg = Config(env)
-        if not (core.ROOT / ".git").exists():
-            raise core.DeployRefused(
-                "autonomous deploy must run from a Git checkout")
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=str(core.ROOT),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, check=False).stdout.strip()
-        attempt = core._attempt_dir(
-            cfg, head if core._HEX40.fullmatch(head) else "pending")
-        runner = core.Runner(env, attempt / "commands.log")
-        with core.DeploymentLock(
-                cfg.authority_dir / "autonomous-deploy.lock"):
-            AutonomousDeploy(cfg, runner, attempt).run()
-        return 0
-    except core.DeployRefused as exc:
-        print("REFUSED: %s" % exc, file=sys.stderr)
-        return 2
-    except KeyboardInterrupt:
-        print("REFUSED: deployment interrupted", file=sys.stderr)
-        return 130
+    # Every historical operator entry selects the same software-only boundary.
+    from sentinel_installation_phase import main as installation_main
+    return installation_main(argv)
 
 
 if __name__ == "__main__":

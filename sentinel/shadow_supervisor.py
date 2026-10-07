@@ -270,7 +270,7 @@ def _health(max_age_seconds: float, *, config=None) -> int:
         return 1
 
 
-def _health_snapshot(max_age_seconds, config):
+def _health_snapshot(max_age_seconds, config, *, financial=True):
     try:
         age = time.time() - HEARTBEAT_FILE.stat().st_mtime
     except OSError as exc:
@@ -293,6 +293,8 @@ def _health_snapshot(max_age_seconds, config):
         supervisor_io.report(f"REFUSED: shadow supervisor critical latch: {detail}",
               file=sys.stderr)
         return 1
+    if not financial:
+        return 0  # Process readiness does not authorize a financial decision.
     try:
         resolved = config if config is not None else ShadowServiceConfig.from_env()
         from sentinel import shadow_health_projection
@@ -458,12 +460,24 @@ def _remove_heartbeat():
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--health", action="store_true")
+    health = parser.add_mutually_exclusive_group()
+    health.add_argument("--health", action="store_true")
+    health.add_argument("--service-health", action="store_true")
     args = parser.parse_args(argv)
+    if args.service_health:
+        try:
+            return supervisor_io.run(_service_health_snapshot, 30, timeout=3)
+        except Exception as exc:
+            supervisor_io.report('REFUSED: shadow process health unavailable: ' + type(exc).__name__)
+            return 1
     if args.health:
         poll = float(os.environ.get("SENTINEL_SHADOW_POLL_SECONDS", "300"))
         return _health(max(10.0, min(30.0, poll)))
     return run()
+
+
+def _service_health_snapshot(max_age_seconds):
+    return _health_snapshot(max_age_seconds, None, financial=False)
 
 
 if __name__ == "__main__":  # pragma: no cover

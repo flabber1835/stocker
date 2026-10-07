@@ -47,7 +47,7 @@ print(json.dumps({{"approval_ready": True, "observation_complete": True}}))
     assert "HTTP Request: GET" in result.stderr
     assert deploy._json_output(result, label="empty account inspection") == {
         "approval_ready": True, "observation_complete": True}
-    with pytest.raises(deploy.DeployRefused, match="did not return JSON"):
+    with pytest.raises(deploy.DeployRefused, match="not valid UTF-8 JSON"):
         deploy._json_output(subprocess.CompletedProcess(
             [], 0, stdout=result.stderr + result.stdout), label="inspection")
 

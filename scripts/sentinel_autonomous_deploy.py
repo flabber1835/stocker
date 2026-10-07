@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Convergent, fail-closed fenced installation for Sentinel.
 
-The launcher fast-forwards Git before entering here. Reviewed CI installation
-reuses the signed exact runtime; explicit local-full installation retains its
-build/test/promotion path. This program fences old
+The launcher fast-forwards Git before entering here. Software installation
+independently verifies and reuses the signed exact runtime. This program fences old
 automation, verifies backup/restore, migrates schema explicitly, and installs
 the exact runtime disabled and killed. Financial GO validation and any selected
 observation-mode activation are separate transactions.
@@ -153,6 +152,10 @@ class DeployRefused(RuntimeError):
     pass
 
 
+class ActivationPending(DeployRefused):
+    """Financial availability/window pending; installation remains completed."""
+
+
 class ReviewedValidation:
     """A locally re-derived, explicitly reviewed deployment authorization."""
 
@@ -209,7 +212,12 @@ def _json_value(raw: bytes, *, label: str):
         return value
 
     try:
-        return json.loads(raw.decode("utf-8"), object_pairs_hook=pairs)
+        def nonfinite(_value):
+            raise DeployRefused('%s contains a non-finite JSON number' % label)
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=pairs, parse_constant=nonfinite)
+        # Exponent overflow (1e999) is not a parse_constant token.
+        _canonical_json(value)
+        return value
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise DeployRefused("%s is not valid UTF-8 JSON" % label) from exc
 
@@ -1268,6 +1276,8 @@ class DeploymentLock:
         try:
             fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
+            self.handle.close()
+            self.handle = None
             raise DeployRefused("another autonomous deployment holds %s" % self.path) from exc
         self.handle.seek(0)
         self.handle.truncate()
@@ -1282,12 +1292,9 @@ class DeploymentLock:
 
 
 def _json_output(completed: subprocess.CompletedProcess, *, label: str) -> Mapping:
-    try:
-        value = json.loads(completed.stdout or "")
-    except json.JSONDecodeError as exc:
-        raise DeployRefused("%s did not return JSON" % label) from exc
+    value = _json_value((completed.stdout or '').encode('utf-8'), label=label)
     if not isinstance(value, dict):
-        raise DeployRefused("%s did not return a JSON object" % label)
+        raise DeployRefused('%s did not return a JSON object' % label)
     return value
 
 
@@ -1581,6 +1588,9 @@ class AutonomousDeploy:
             self.automation_overlay = str(generated)
 
     def build_promote(self) -> None:
+        if getattr(self, '_installation_only', False):
+            from sentinel_installation_phase import InstallationDeploy
+            return InstallationDeploy.build_promote(self)
         reviewed = self.reviewed_validation
         self.phase(
             "promote: exact reviewed runtime and test lens" if reviewed
@@ -1740,6 +1750,21 @@ class AutonomousDeploy:
         self.transition_started = True
         try:
             yield
+        except BaseException:
+            self.fail_close()
+            raise
+
+    @contextlib.contextmanager
+    def activation_transition(self):
+        """Availability fences execution without stopping broker-free preparation."""
+        try:
+            yield
+        except ActivationPending:
+            if not self._try_emergency_kill():
+                self.fail_close()
+                raise DeployRefused("activation wait could not confirm the trading fence")
+            self._direct_stop_automation()
+            raise
         except BaseException:
             self.fail_close()
             raise
@@ -2198,9 +2223,9 @@ class AutonomousDeploy:
                       (decision_session, now - started, max(0, deadline - now)), flush=True)
                 last_report = now
             time.sleep(3)
-        raise DeployRefused(
+        raise ActivationPending(
             "certified shadow did not attest the PAPER decision close before "
-            "the deployment timeout")
+            "the activation attempt timeout")
 
     def _wait_operational(self) -> Mapping:
         deadline = time.monotonic() + self.cfg.health_timeout
@@ -2218,7 +2243,7 @@ class AutonomousDeploy:
             if last.get("latest_cycle_state") == "BLOCKED" or last.get("latest_failure_code"):
                 raise DeployRefused("automation latched a failure while becoming operational")
             time.sleep(min(3, max(0, deadline - time.monotonic())))
-        raise DeployRefused(
+        raise ActivationPending(
             "automation did not become operational before timeout; last policy=%r" %
             ((last or {}).get("policy_state"),))
 
@@ -2255,9 +2280,8 @@ class AutonomousDeploy:
                 raise DeployRefused(
                     "broker-capable automation remains running in shadow mode")
             self.runner.run(self._authorized_compose() + [
-                "--profile", "shadow", "up", "-d", "--wait",
-                "--wait-timeout", str(self.cfg.health_timeout),
-                "sentinel-shadow"])
+                "--profile", "shadow", "up", "-d", "sentinel-shadow"])
+            self.wait_shadow_process()
         else:
             # Fenced/no-args deployments may not inherit a previously reviewed
             # shadow process after its reviewed facts have been cleared.
@@ -2271,6 +2295,19 @@ class AutonomousDeploy:
             raise DeployRefused(
                 "new runtime did not remain disabled+killed after install")
         return after
+
+    def wait_shadow_process(self) -> None:
+        """Require process/structural readiness; never a financial attestation."""
+        deadline = time.monotonic() + self.cfg.health_timeout
+        while time.monotonic() < deadline:
+            result = self.runner.run(self._authorized_compose() + [
+                '--profile', 'shadow', 'exec', '-T', 'sentinel-shadow',
+                'python', '-m', 'sentinel.shadow_supervisor', '--service-health'],
+                capture=True, check=False, timeout=min(10, max(.001, deadline-time.monotonic())))
+            if result.returncode == 0 and time.monotonic() < deadline:
+                return
+            time.sleep(min(1, max(0, deadline-time.monotonic())))
+        raise DeployRefused('shadow process did not establish safe structural liveness')
 
     def configure_reviewed_mode_while_fenced(self) -> None:
         """Persist reviewed mode, or force unreviewed installs shadow-off."""
@@ -2324,6 +2361,7 @@ class AutonomousDeploy:
         self.verify_operator_services()
         managed = {
             "SENTINEL_GIT_COMMIT": self.commit,
+            "SENTINEL_RUNTIME_IMAGE_REF": self.runtime_repo_digest,
             "SENTINEL_RUNTIME_IMAGE_REPOSITORY": self.cfg.runtime_repository,
             "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
             "SENTINEL_TEST_IMAGE_REPOSITORY": self.cfg.test_repository,
@@ -2357,7 +2395,10 @@ class AutonomousDeploy:
             if self.reviewed_validation is not None
             and self.reviewed_validation.mode in {"shadow", "dual"} else None)
         receipt = {
-            "schema": DEPLOY_SCHEMA,
+            "schema": "sentinel.installation-receipt/1",
+            "installation_state": "INSTALLED",
+            "activation_state": "FENCED",
+            "requested_mode": getattr(self.cfg, "requested_mode", activation_mode),
             "completed_at": _utc_text(_utcnow()),
             "git_commit": self.commit,
             "runtime_image": self.runtime_repo_digest,
@@ -2382,19 +2423,20 @@ class AutonomousDeploy:
             "validated_data_publication_sha256": (
                 self.reviewed_validation.data_publication_sha256
                 if self.reviewed_validation is not None else None),
-            "shadow_observation_enabled": activation_mode == "shadow",
+            "shadow_observation_enabled": activation_mode in {"shadow", "dual"},
             "automation_enabled": False,
             "kill_switch_engaged": True,
-            "operational_ready": bool(status.get("operational_ready") is True),
+            "operational_ready": False,
             "policy_state": status.get("policy_state"),
             "active_certificate_sha256_at_install": status.get("certificate_sha256"),
             "broker_readiness_at_install": self.broker_readiness,
             "ownership_at_install": self.ownership_state,
             "post_deploy_backup": post_backup,
         }
-        path = self.attempt_dir / "deployment-receipt.json"
-        path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-                        encoding="utf-8")
+        from sentinel_phase_records import publish_immutable
+        path = self.attempt_dir / "installation-receipt.json"
+        publish_immutable(path, receipt)
+        self.installation_receipt = path
         if activation_mode == "shadow":
             print(
                 "\nDEPLOYMENT PASS: reviewed broker-free shadow observation is active")
@@ -2463,9 +2505,10 @@ class AutonomousDeploy:
                 self.reviewed_validation.bundle_sha256
                 if self.reviewed_validation is not None else None),
         }
-        path = self.attempt_dir / "deployment-receipt.json"
-        path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-                        encoding="utf-8")
+        receipt["schema"] = "sentinel.activation-receipt/1"
+        path = self.attempt_dir / "activation-receipt.json"
+        from sentinel_phase_records import publish_immutable
+        publish_immutable(path, receipt)
         if dual:
             print(
                 "\nDEPLOYMENT PASS: certified shadow plus reconciled Alpaca "
@@ -2482,24 +2525,36 @@ class AutonomousDeploy:
         # Operational readiness (data, broker, ownership, authority, plan, leader)
         # is deliberately not part of this success boundary.
         self.git_preflight()
-        self.verify_reviewed_preflight()
-        # A reachable broker with a different identity is a deployment-integrity
-        # contradiction. Temporary unavailability/blocking is merely readiness.
-        self.check_paper_account_deployment_integrity()
+        if self.reviewed_validation is not None:
+            self.cfg.requested_mode = self.reviewed_validation.mode
+        # Financial review belongs exclusively to the separate activation phase.
+        self.reviewed_validation = None
+        self._installation_only = True
         self.build_promote()
         with self.transition():
             self.quiesce_backup_and_migrate()
             self.check_durable_deployment_integrity()
-            reviewed = self.reviewed_validation
-            # Image promotion and quiescing may take long enough for the old
-            # publisher to move the corpus. Recheck the reviewed publication
-            # and exact lineage only after writers are stopped, immediately
-            # before any reviewed mode fact is persisted or shadow is started.
-            self.verify_reviewed_shadow_bindings_quiesced()
-            # This is unconditional. A stale `.env` from an earlier reviewed
-            # shadow must never let the no-args fenced installer restart shadow.
             self.configure_reviewed_mode_while_fenced()
-            # One startup sees the already-persisted reviewed configuration.
+            self.start_operator_services()
+            status = self.start_fenced_runtime()
+            self.persist_deployed(status)
+
+    def run_activation(self) -> None:
+        """The separate host coordinator owns financial readiness and authority."""
+        reviewed = self.reviewed_validation
+        if reviewed is None:
+            raise DeployRefused('activation requires its own exact financial admission')
+        self._installation_only = False
+        self.git_preflight()
+        self.verify_reviewed_preflight()
+        self.check_paper_account_deployment_integrity()
+        self.build_promote()
+        with self.activation_transition():
+            if not self._quiesce_database():
+                raise DeployRefused('activation could not establish its durable fence')
+            self.check_durable_deployment_integrity()
+            self.verify_reviewed_shadow_bindings_quiesced()
+            self.configure_reviewed_mode_while_fenced()
             self.start_operator_services()
             if reviewed is not None and reviewed.mode == "dual":
                 # Enrollment and authority installation share the formation
@@ -2534,7 +2589,14 @@ class AutonomousDeploy:
                 self.persist_success(health)
             else:
                 status = self.start_fenced_runtime()
-                self.persist_deployed(status)
+                from sentinel_phase_records import publish_immutable
+                publish_immutable(self.attempt_dir / 'activation-receipt.json', {
+                    'schema': 'sentinel.activation-receipt/1',
+                    'activation_mode': 'shadow', 'operational_state': 'SHADOW_OBSERVATION',
+                    'git_commit': self.commit, 'runtime_image': self.runtime_repo_digest,
+                    'automation_enabled': status.get('enabled'),
+                    'kill_switch_engaged': status.get('kill_switch_engaged'),
+                    'broker_mutations_authorized': False})
 
 
 def update_dotenv(path: Path, updates: Mapping[str, str]) -> None:
@@ -2576,48 +2638,9 @@ def _attempt_dir(cfg: Config, commit_hint: str = "pending") -> Path:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Fail-closed Sentinel reviewed-mode deployment")
-    parser.add_argument(
-        "--explain", action="store_true",
-        help="print the enforced deployment phases and exit without deployment")
-    parser.add_argument("--mode", choices=("shadow", "dual", "paper"))
-    parser.add_argument("--validation-bundle", type=Path)
-    parser.add_argument("--confirm-reviewed-go")
-    args = parser.parse_args(argv)
-    if args.explain:
-        print("git ff-only -> broker identity integrity -> build/test/push -> kill/stop -> "
-              "backup/restore -> schema -> durable authority integrity -> "
-              "start exact runtime disabled+killed -> persist DEPLOYED/FENCED; "
-              "runtime later owns data/readiness and activation prerequisites")
-        return 0
-    try:
-        env = merged_environment()
-        reviewed = deployment_request(
-            mode=args.mode, validation_bundle=args.validation_bundle,
-            confirmation=args.confirm_reviewed_go, env=env)
-        cfg = Config(env)
-        if reviewed is not None:
-            verify_reviewed_account_binding(reviewed, cfg.account_id)
-        if not (ROOT / ".git").exists():
-            raise DeployRefused("autonomous deploy must run from a Git checkout")
-        head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=str(ROOT),
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            check=False).stdout.strip()
-        attempt = _attempt_dir(cfg, head if _HEX40.fullmatch(head) else "pending")
-        runner = Runner(env, attempt / "commands.log")
-        with DeploymentLock(cfg.authority_dir / "autonomous-deploy.lock"):
-            AutonomousDeploy(
-                cfg, runner, attempt,
-                reviewed_validation=reviewed).run()
-        return 0
-    except DeployRefused as exc:
-        print("REFUSED: %s" % exc, file=sys.stderr)
-        return 2
-    except KeyboardInterrupt:
-        print("REFUSED: deployment interrupted", file=sys.stderr)
-        return 130
+    # Every historical operator entry selects the same software-only boundary.
+    from sentinel_installation_phase import main as installation_main
+    return installation_main(argv)
 
 
 if __name__ == "__main__":

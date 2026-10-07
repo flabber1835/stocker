@@ -76,6 +76,20 @@ def _manifest(*, lifecycle="FINALIZED", verdict="PASS", closure="4",
 
 class HostPythonCompatibilityTests(unittest.TestCase):
 
+    def test_separate_software_installer_imports_on_minimum_host_python(self):
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/sentinel_installation_phase.py'),
+                                 '--explain'], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('immutable INSTALLED/FENCED', result.stdout)
+
+    def test_activation_coordinator_cli_imports_on_minimum_host_python(self):
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/sentinel_activation_coordinator.py'),
+                                 '--help'], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('--queue-from-installation', result.stdout)
+
     def test_final_host_command_timeout_on_minimum_python(self):
         with tempfile.TemporaryDirectory() as directory:
             result = sentinel_host_command.run(
