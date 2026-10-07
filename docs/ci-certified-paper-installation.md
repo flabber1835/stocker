@@ -68,6 +68,15 @@ are needed or forwarded. Actual workers retain their existing credential and
 source gates. `NOT_STARTED` proves only safe preparation, never a prospective
 decision, signed paper authority or permission to place an order.
 
+Every installer adapter, including the post-wait causal-publication binding,
+must forward the reader's explicit environment unchanged. That environment
+removes broker/provider credentials and supplies the exact reviewed runtime,
+observation enablement and review hashes. An explicit empty environment must
+remain empty; only an omitted environment may use the installer's environment.
+The causal adapter retains its existing absolute wait/open deadline and exact
+disposable-container ownership. Qualify this adapter through the real reader
+CLI, including refusal, timeout cleanup and unchanged shared configuration.
+
 [Paper installation qualification](paper-installation-qualification.md) records
 the real GO result, installation failures, corrections, local test boundaries,
 and the remaining actual paper deployment evidence.
