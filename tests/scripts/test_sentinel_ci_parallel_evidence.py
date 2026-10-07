@@ -81,6 +81,27 @@ ET.ElementTree(suite).write(target)
     assert len(cases) == len(expected)
 
 
+def test_minimum_host_lane_reserves_checkout_margin_without_weakening_evidence():
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
+                              '.github/workflows/sentinel-safety.yml').read_text(encoding='utf-8'))
+    job = workflow['jobs']['host-python-38-compatibility']
+    budget = job['timeout-minutes']
+    assert type(budget) is int
+    # The former ten-minute job was exhausted inside checkout. Keep its
+    # execution/evidence allowance after a bounded fifteen-minute setup margin.
+    assert 15 + 10 <= budget <= 30
+    assert job['strategy']['fail-fast'] is False
+    assert 'exact-head' in job['strategy']['matrix']['scope']
+    assert 'synthetic-merge' in job['strategy']['matrix']['scope']
+    proof = next(step for step in job['steps']
+                 if step.get('name') == 'Prove exact execution or synthetic-tree equivalence')
+    assert 'python tools/verify_ci_scope.py' in proof['run']
+    retained = next(step for step in job['steps']
+                    if step.get('name') == 'Retain host Python 3.8 execution evidence')
+    assert retained['if'] == 'always()'
+    assert retained['with']['if-no-files-found'] == 'error'
+
+
 def test_warmup_lane_has_bounded_setup_margin_and_streams_all_test_evidence():
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
                               ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))

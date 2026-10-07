@@ -27,6 +27,15 @@ test evidence.
 
 ## Stage-one decision: certify each source tree once
 
+The minimum-host Python job has a bounded 30-minute whole-job budget in both
+scopes. Checkout is part of that budget: the PR487 synthetic checkout consumed
+the entire former 10-minute limit before Python setup or scope verification
+could begin. Reserve at least 15 minutes for repository/setup variability and
+the former 10-minute allowance for host execution and retained evidence, with
+a 30-minute cap. This changes CI scheduling only; required exact-head execution,
+synthetic tree equivalence, missing-evidence refusal and all production deadlines
+remain unchanged. A timed-out checkout cannot produce certification.
+
 The four existing required context names remain unchanged:
 
 ```text
