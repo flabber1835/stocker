@@ -17,11 +17,16 @@ class LockOwnershipCompatibility(unittest.TestCase):
     def test_backup_wait_admission_on_minimum_host_python(self):
         with patch.object(backup, '_hold', return_value=0) as hold:
             self.assertEqual(backup.main(['hold', '--wait-seconds', '3660', 'fixture']), 0)
-            hold.assert_called_once_with(['fixture'], wait_seconds=3660)
+            hold.assert_called_once_with(['fixture'], wait_seconds=3660, standby_if_busy=False)
         for wait in ('-1', '3661', '1.5', '\u0661', '9' * 100):
             with self.subTest(wait=wait), patch.object(backup, '_hold') as hold:
                 self.assertEqual(backup.main(['hold', '--wait-seconds', wait, 'fixture']), 2)
                 hold.assert_not_called()
+
+    def test_backup_standby_admission_on_minimum_host_python(self):
+        with patch.object(backup, '_hold', return_value=0) as hold:
+            self.assertEqual(backup.main(['hold', '--standby-if-busy', 'fixture']), 0)
+            hold.assert_called_once_with(['fixture'], wait_seconds=0, standby_if_busy=True)
 
     def test_linux310_procfs_with_real_flocks(self):
         with tempfile.TemporaryDirectory() as directory:

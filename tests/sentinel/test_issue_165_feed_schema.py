@@ -243,6 +243,10 @@ def _migration_trace(monkeypatch, *, bootstrap=False):
     monkeypatch.setattr(feed_store, "connect", lambda *_a, **_k: conn)
     monkeypatch.setattr(behavioral_schema, "ensure_schema", lambda _: trace.append("behavioral migration"))
     monkeypatch.setattr(feed_store, "migrate_schema", lambda _: trace.append("feed migration"))
+    def missing_schema(_conn):
+        trace.append("compatibility read")
+        raise behavioral_schema.SchemaMigrationRefused("fixture requires migration")
+    monkeypatch.setattr(behavioral_schema, "require_runtime_schema", missing_schema)
     from sentinel import deployment_fence
     monkeypatch.setattr(deployment_fence, "require",
                         lambda _: trace.append("fence") or {"status": "DURABLY_FENCED"})
@@ -255,6 +259,10 @@ def _migration_trace(monkeypatch, *, bootstrap=False):
             with redirect_stdout(io.StringIO()) as output:
                 exec(compile(argv[-1], "<deployment program>", "exec"), {})
             stdout = output.getvalue()
+        elif "scripts/sentinel-install-backup.sh" in argv:
+            assert argv[-2:] == ["--restore", "physical"]
+            trace.extend(["base backup", "backup verification", "physical replay"])
+            stdout = "verified_installation_backup: /fixture/base\n"
         elif "scripts/sentinel-base-backup.sh" in argv:
             trace.append("base backup")
             stdout = "verified_base_backup: /fixture/base\n"
@@ -273,9 +281,10 @@ def _migration_trace(monkeypatch, *, bootstrap=False):
     return trace
 
 
-def _require_migration_order(trace):
+def _require_migration_order(trace, *, compatibility_read=False):
     assert trace == [
         "kill", "stop automation", "stop shadow", "postgres", "fence",
+        *(["compatibility read"] if compatibility_read else []),
         "base backup", "backup verification", "physical replay", "fence",
         "behavioral migration", "feed migration", "kill",
     ]
@@ -286,4 +295,5 @@ def test_core_autonomous_deploy_migrates_feed_only_after_quiesce_and_replay(monk
 
 
 def test_bootstrap_autonomous_deploy_cannot_skip_feed_migration(monkeypatch):
-    _require_migration_order(_migration_trace(monkeypatch, bootstrap=True))
+    _require_migration_order(_migration_trace(monkeypatch, bootstrap=True),
+                             compatibility_read=True)

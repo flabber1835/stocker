@@ -138,6 +138,8 @@ obj._direct_stop_automation=lambda:None
 obj._direct_stop_shadow=lambda:None
 def command(argv,**kwargs):
     calls.append(argv)
+    if argv[-2:-1]==['-c'] and 'schema_current' in argv[-1]:
+        return SimpleNamespace(stdout=json.dumps({'schema_current':False}),stderr='',returncode=0)
     if 'pre-migration' in str(argv):
         raise AssertionError('unexpected command shape')
     if argv[-2:-1]==['-c'] and 'json.dumps(deployment_fence.require(c))' in argv[-1]:
@@ -281,6 +283,7 @@ def run(args, **kwargs):
     return SimpleNamespace(stdout='', stderr='', returncode=0)
 obj.runner = SimpleNamespace(run=run)
 obj.verify_operator_services = lambda: None
+obj.establish_activation_backup = lambda: calls.append(['activation-restore'])
 obj._automation_status = lambda: {'enabled': True, 'kill_switch_engaged': True,
                                 'certificate_sha256': 'local-certificate'}
 reconciliation_refused = (sys.argv[1] == 'dual' and sys.argv[3] != 'match'
@@ -307,8 +310,10 @@ else:
     assert ('--reviewed-informational-dual' in calls[0]) == (sys.argv[1] == 'dual')
     if reconciliation_refused:
         expected = expected[:-1]
-    elif window == 'valid':
-        expected.append('release-paper-automation-kill-switch')
+    else:
+        expected.append('activation-restore')
+        if window == 'valid':
+            expected.append('release-paper-automation-kill-switch')
 assert [c[0] for c in calls] == expected
 '''
     result = subprocess.run([sys.executable, '-c', script, mode, window, receipt],

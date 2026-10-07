@@ -168,14 +168,22 @@ def test_single_runtime_selection_never_builds_tests_or_pushes(tmp_path, monkeyp
                                       test_repository='unused', authority_dir=tmp_path)
     deployment.commit = COMMIT
     deployment.env = {}
-    deployment.runner = SimpleNamespace(env={})
+    checked = []
+    def preflight(argv, **kwargs):
+        assert argv[:5] == ['docker', 'run', '--rm', '--network', 'none']
+        assert argv[-3:] == ['-m', 'tools.sentinel_observation_authority', 'preflight']
+        assert kwargs['capture'] is True
+        checked.append('issuer')
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({
+            'issuer_compatible': True, 'schema': 'sentinel.paper-observation-warmup/5',
+            'feature_sessions': 299}), stderr='')
+    deployment.runner = SimpleNamespace(env={}, run=preflight)
     deployment.attempt_dir = tmp_path
     deployment.phase = lambda detail: None
     deployment.resolve_compose = lambda: None
-    checked = []
     deployment._verify_signing_key_is_trusted = lambda: checked.append('key')
     deployment.build_promote()
-    assert checked == ['key']
+    assert checked == ['key', 'issuer']
     assert deployment.runtime_repo_digest == deployment.test_repo_digest == REFERENCE
     assert deployment.runtime_digest == deployment.test_digest == RUNTIME
     assert deployment.env['SENTINEL_RUNTIME_IMAGE_REF'] == REFERENCE

@@ -67,7 +67,7 @@ def lock_is_held(env=None) -> bool:
     return owns_exclusive_flock(fd)
 
 
-def _hold(command: Sequence[str], *, wait_seconds: int = 0) -> int:
+def _hold(command: Sequence[str], *, wait_seconds: int = 0, standby_if_busy: bool = False) -> int:
     if not command:
         print("REFUSED: base-backup lock helper requires a command", file=sys.stderr)
         return 2
@@ -96,6 +96,9 @@ def _hold(command: Sequence[str], *, wait_seconds: int = 0) -> int:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
+                    if standby_if_busy:
+                        print('SENTINEL_BACKUP_MAINTENANCE=STANDBY_TARGET_OWNED', flush=True)
+                        return 0
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         print(
@@ -135,6 +138,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0 if lock_is_held() else 2
     if raw and raw[0] == "hold":
         command = raw[1:]
+        standby_if_busy = bool(command and command[0] == '--standby-if-busy')
+        if standby_if_busy:
+            command = command[1:]
         wait_seconds = 0
         if command and command[0] == "--wait-seconds":
             if (len(command) < 3 or not command[1].isascii()
@@ -145,7 +151,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 return 2
             wait_seconds = int(command[1])
             command = command[2:]
-        return _hold(command, wait_seconds=wait_seconds)
+        return _hold(command, wait_seconds=wait_seconds, standby_if_busy=standby_if_busy)
     print(
         "REFUSED: usage: sentinel_backup_lock.py verify | hold [--wait-seconds 0..3660] COMMAND...",
         file=sys.stderr,

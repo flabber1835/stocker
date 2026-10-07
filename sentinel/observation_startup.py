@@ -14,6 +14,27 @@ WINDOW_SCHEMA = 'sentinel.paper-observation-warmup/4'
 WINDOW_FORMED_SCHEMA = 'sentinel.paper-observation-warmup/5'
 
 
+def feature_sessions(schema):
+    """One producer/issuer/runtime contract; unknown versions never inherit a default."""
+    if schema in {WINDOW_SCHEMA, WINDOW_FORMED_SCHEMA}:
+        return 299
+    if schema in {COLD_SCHEMA, FORMED_SCHEMA}:
+        return 252
+    raise AuthorityRefused('unsupported observation startup schema')
+
+
+def selected_contract():
+    from sentinel.strategy import production_strategy
+    from sentinel.core import window_policy
+    _controller, strategy = production_strategy()
+    if window_policy.enabled(strategy):
+        schema = WINDOW_FORMED_SCHEMA if window_policy.formed(strategy) else WINDOW_SCHEMA
+    else:
+        config = owned_impairment.load()
+        schema = FORMED_SCHEMA if _controller.digest == config.digest else COLD_SCHEMA
+    return {'schema': schema, 'feature_sessions': feature_sessions(schema)}
+
+
 def require(warmup, *, strategy_sha256, controller_sha256):
     from sentinel.strategy import production_strategy
     from sentinel.core import window_policy
@@ -22,7 +43,7 @@ def require(warmup, *, strategy_sha256, controller_sha256):
     formed_window = selected_window and window_policy.formed(selected)
     if selected_window and not formed_window:
         if (not isinstance(warmup, Mapping) or warmup.get('schema') != WINDOW_SCHEMA
-                or warmup.get('warmup_sessions') != 299 or warmup.get('measured_sessions') != 300
+                or warmup.get('warmup_sessions') != feature_sessions(WINDOW_SCHEMA) or warmup.get('measured_sessions') != 300
                 or controller_sha256 != selected_controller.digest or warmup.get('formation')):
             raise AuthorityRefused('current-window observation requires the 299+1 fresh startup proof')
         days = calendar.previous_sessions(warmup.get('decision_session'), 300)
@@ -32,7 +53,7 @@ def require(warmup, *, strategy_sha256, controller_sha256):
     config = owned_impairment.load()
     owned = (formed_window or controller_sha256 == config.digest
              or strategy_sha256 == canonical_sha256(runtime_strategy_identity(config)))
-    feature_count = 299 if formed_window else 252
+    feature_count = feature_sessions(WINDOW_FORMED_SCHEMA if formed_window else FORMED_SCHEMA)
     total_count = feature_count + 127
     if (not isinstance(warmup, Mapping) or warmup.get('warmup_sessions') != feature_count
             or (formed_window and controller_sha256 != selected_controller.digest)):

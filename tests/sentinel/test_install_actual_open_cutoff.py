@@ -103,6 +103,7 @@ def test_open_expiry_before_kill_release_leaves_paper_fenced(tmp_path):
     obj._verify_dual_plan_shadow_reconciliation = lambda: None
     obj._authorized_compose = lambda: ['docker', 'compose']
     calls = []
+    obj.establish_activation_backup = lambda: calls.append('verified-recovery')
     plan = {'plan': {'plan_id': 'exact', 'decision_session': '2026-10-02'},
             'database_authorities_match': True}
     def cli(args, **kwargs):
@@ -115,6 +116,7 @@ def test_open_expiry_before_kill_release_leaves_paper_fenced(tmp_path):
     with pytest.raises(install.core.DeployRefused, match='following-open cutoff'):
         obj.prepare_activate_start('cert', '2026-10-02')
     assert 'activate-paper-automation' in calls
+    assert calls.index('activate-paper-automation') < calls.index('verified-recovery')
     assert 'release-paper-automation-kill-switch' not in calls
 
 

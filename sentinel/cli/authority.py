@@ -29,6 +29,17 @@ def _utc_cli_instant(value: str, *, label: str):
     return parsed
 
 
+def _candidate_not_before(args, reference):
+    from datetime import timedelta
+    delay = getattr(args, 'not_before_delay_seconds', None)
+    if delay is not None:
+        if (getattr(args, 'not_before', None) is not None
+                or type(delay) is not int or not 0 <= delay <= 1800):
+            raise ValueError('not-before delay must be an integer in [0,1800] without an absolute boundary')
+        return reference + timedelta(seconds=delay)
+    return _utc_cli_instant(args.not_before, label='not_before')
+
+
 def cmd_create_paper_observation_candidate(
         config: SentinelConfig, args) -> int:
     """Emit canonical broker-free claims/evidence from current durable facts."""
@@ -48,7 +59,7 @@ def cmd_create_paper_observation_candidate(
     # multi-minute candidate build must not consume its own not_before margin.
     lifecycle_reference = datetime.now(ZoneInfo("UTC")).replace(microsecond=0)
     try:
-        not_before = _utc_cli_instant(args.not_before, label="not_before")
+        not_before = _candidate_not_before(args, lifecycle_reference)
         expires_at = (_utc_cli_instant(args.expires_at, label="expires_at")
                       if args.expires_at else None)
         if not_before < lifecycle_reference:
@@ -102,6 +113,7 @@ def cmd_create_empty_paper_binding_candidate(
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
+    lifecycle_reference = datetime.now(ZoneInfo("UTC")).replace(microsecond=0)
     conn = feed_store.connect(config.database_url)
     try:
         schema.require_runtime_schema(conn)
@@ -114,11 +126,10 @@ def cmd_create_empty_paper_binding_candidate(
             runtime_identity=runtime, strategy_identity=strategy,
             automation_config_sha256=config_from_env().fingerprint,
             reviewer=args.reviewer, ticket=args.ticket,
-            not_before=_utc_cli_instant(
-                args.not_before, label="not_before"),
+            not_before=_candidate_not_before(args, lifecycle_reference),
             expires_at=(_utc_cli_instant(args.expires_at, label="expires_at")
                         if args.expires_at else None),
-            paper_base_url=config.base_url)
+            paper_base_url=config.base_url, now=lifecycle_reference)
     except (ValueError, RuntimeError) + _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:

@@ -2340,6 +2340,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print("shadow verdict: %s" % result.shadow_verdict)
     print("dual-run verdict: %s" % result.dual_run_verdict)
     print("paper verdict: %s" % result.paper_execution_verdict)
+    if result.paper_execution_verdict == PAPER_NO_GO:
+        print('paper-account return accounting: unproven (separate from signed paper transport permission)')
     print("bundle: %s" % _output_path_text(result.path))
     print("sha256: %s" % result.sha256)
     if result.upload_permitted:

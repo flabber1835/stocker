@@ -1104,7 +1104,7 @@ class Config:
         self.max_exposure = str(env.get(
             "SENTINEL_DEPLOY_MAXIMUM_EXPOSURE", "1")).strip()
         self.not_before_margin = _int(
-            env.get("SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS", "120"),
+            env.get("SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS", "0"),
             name="SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS",
             minimum=0, maximum=1800)
         self.health_timeout = _int(
@@ -1153,13 +1153,13 @@ class Runner:
         self.log_path = log_path
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def _stream(self, argv, *, cwd, timeout, env):
+    def _stream(self, argv, *, cwd, timeout, env, capture=False):
         deadline = None if timeout is None else time.monotonic() + timeout
         output = []
-        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        errors = []
         process = subprocess.Popen(
             argv, cwd=str(cwd), env=env, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, start_new_session=True)
+            stderr=subprocess.PIPE if capture else subprocess.STDOUT, start_new_session=True)
 
         def remaining():
             if deadline is None:
@@ -1172,19 +1172,31 @@ class Runner:
         try:
             assert process.stdout is not None
             with selectors.DefaultSelector() as selector:
-                selector.register(process.stdout, selectors.EVENT_READ)
-                while True:
-                    if not selector.select(remaining()):
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                selector.register(process.stdout, selectors.EVENT_READ, (decoder, output, not capture))
+                if capture:
+                    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                    selector.register(process.stderr, selectors.EVENT_READ, (decoder, errors, True))
+                size = 0
+                while selector.get_map():
+                    events = selector.select(remaining())
+                    if not events:
                         raise subprocess.TimeoutExpired(argv, timeout)
-                    chunk = os.read(process.stdout.fileno(), 65536)
-                    decoded = decoder.decode(chunk, final=not chunk)
-                    output.append(decoded)
-                    print(decoded, end="", flush=True)
-                    if not chunk:
-                        break
+                    for key, _ in events:
+                        chunk = os.read(key.fileobj.fileno(), 65536)
+                        size += len(chunk)
+                        if capture and size > 32 * 1024 * 1024:
+                            raise DeployRefused('candidate output exceeded capture bound')
+                        decoder, target, visible = key.data
+                        decoded = decoder.decode(chunk, final=not chunk)
+                        target.append(decoded)
+                        if visible:
+                            print(decoded, end="", flush=True)
+                        if not chunk:
+                            selector.unregister(key.fileobj)
             returncode = process.wait(timeout=remaining())
             return subprocess.CompletedProcess(
-                argv, returncode, stdout="".join(output), stderr="")
+                argv, returncode, stdout="".join(output), stderr="".join(errors))
         except BaseException as exc:
             # The group can outlive the direct child while retaining its pipe.
             with contextlib.suppress(ProcessLookupError):
@@ -1196,6 +1208,8 @@ class Runner:
         finally:
             if process.stdout is not None:
                 process.stdout.close()
+            if process.stderr is not None:
+                process.stderr.close()
 
     def run(self, argv: Sequence[str], *, check: bool = True,
             capture: bool = False, stream: bool = False,
@@ -1209,7 +1223,7 @@ class Runner:
             log.flush()
         try:
             if stream:
-                completed = self._stream(argv, cwd=cwd, timeout=timeout, env=command_env)
+                completed = self._stream(argv, cwd=cwd, timeout=timeout, env=command_env, capture=capture)
             else:
                 completed = subprocess.run(
                     argv, cwd=str(cwd), env=command_env,
@@ -1773,9 +1787,25 @@ class AutonomousDeploy:
 
     def _authorized_cli(self, args: Sequence[str], *, capture: bool = False,
                         check: bool = True) -> subprocess.CompletedProcess:
+        if not getattr(self, '_authorized_dependencies_ready', False):
+            self.runner.run(self._authorized_compose() + [
+                '--profile', 'authorized-cli', 'up', '-d', '--wait',
+                '--wait-timeout', str(self.cfg.health_timeout),
+                'sentinel-postgres'])
+            self.runner.run(self._authorized_compose() + [
+                '--profile', 'authorized-cli', 'run', '--rm', '-T', '--no-deps',
+                'sentinel-authority-permissions'])
+            self._authorized_dependencies_ready = True
+        if args and args[0] in {'install-system-certificate', 'install-administrative-certificate'}:
+            # A freshly issued file needs permissions even after dependency setup.
+            self.runner.run(self._authorized_compose() + [
+                '--profile', 'authorized-cli', 'run', '--rm', '-T', '--no-deps',
+                'sentinel-authority-permissions'])
         return self.runner.run(self._authorized_compose() + [
-            "--profile", "authorized-cli", "run", "--rm", "-T",
-            "sentinel-authorized-cli"] + list(args), capture=capture, check=check)
+            "--profile", "authorized-cli", "run", "--rm", "-T", '--no-deps',
+            "sentinel-authorized-cli"] + list(args), capture=capture, check=check,
+            stream=bool(capture and args and args[0] in {
+                'create-paper-observation-candidate', 'create-empty-paper-binding-candidate'}))
 
     def _status(self) -> Mapping:
         return _json_output(self._base_cli(["status"], capture=True), label="status")
@@ -1900,8 +1930,6 @@ class AutonomousDeploy:
         admin = status.get("administrative_authority") or {}
         highest = int(admin.get("highest_issuer_generation") or 0)
         generation = highest + 1
-        now = _utcnow()
-        not_before = now + timedelta(seconds=self.cfg.not_before_margin)
         candidate = self.attempt_dir / "empty-binding-candidate.json"
         cert = self.attempt_dir / "empty-binding-certificate.json"
         candidate_id = "empty-bind-%s-g%d" % (self.commit[:12], generation)
@@ -1911,7 +1939,7 @@ class AutonomousDeploy:
             "--issuer-generation", str(generation),
             "--deployment-id", self.cfg.deployment_id,
             "--expect-account", self.cfg.account_id,
-            "--not-before", _utc_text(not_before),
+            "--not-before-delay-seconds", str(self.cfg.not_before_margin),
             "--reviewer", self.cfg.reviewer,
             "--ticket", "%s-empty-%d" % (self.cfg.ticket_prefix, generation)],
             capture=True)
@@ -1922,6 +1950,7 @@ class AutonomousDeploy:
             tool="tools.sentinel_empty_account_authority",
             candidate=candidate, output=cert,
             confirmation="--confirm-issue-empty-paper-binding")
+        print('  enrollment permission issued; this permission cannot submit orders', flush=True)
         self._authorized_cli([
             "install-administrative-certificate", "--certificate",
             self._authorized_artifact(cert), "--confirm-certificate-sha256", digest,
@@ -1970,8 +1999,6 @@ class AutonomousDeploy:
         predecessor = state.get("active_certificate_sha256")
         if predecessor is not None and re.fullmatch(r"[0-9a-f]{64}", str(predecessor)) is None:
             raise DeployRefused("active execution certificate identity is malformed")
-        now = _utcnow()
-        not_before = now + timedelta(seconds=self.cfg.not_before_margin)
         candidate = self.attempt_dir / "paper-observation-candidate.json"
         cert = self.attempt_dir / "paper-observation-certificate.json"
         certificate_id = "paper-observation-%s-g%d" % (self.commit[:12], generation)
@@ -1981,9 +2008,9 @@ class AutonomousDeploy:
             "--issuer-generation", str(generation),
             "--deployment-id", self.cfg.deployment_id,
             "--expect-account", self.cfg.account_id,
-            "--not-before", _utc_text(not_before),
+            "--not-before-delay-seconds", str(self.cfg.not_before_margin),
             "--maximum-exposure", self.cfg.max_exposure,
-            "--cash", str(self.account_equity),
+            "--cash", self._observation_starting_cash(),
             "--reviewer", self.cfg.reviewer,
             "--ticket", "%s-observation-%d" % (self.cfg.ticket_prefix, generation)],
             capture=True)
@@ -2025,6 +2052,12 @@ class AutonomousDeploy:
         self.active_certificate = str(predecessor or "")
         self.new_certificate = digest
         return digest, decision_session
+
+    def _observation_starting_cash(self) -> str:
+        if self.reviewed_validation is not None and self.reviewed_validation.mode == 'dual':
+            return shadow_configuration_document(self.env,
+                source_identity_sha256=self.reviewed_validation.source_identity_sha256)['starting_cash']
+        return str(self.account_equity)
 
     def assert_activation_timing(self, decision_session: str) -> None:
         """Install overlays may recheck the actual prospective decision window."""
@@ -2069,6 +2102,7 @@ class AutonomousDeploy:
                 or killed.get("certificate_sha256") != certificate_sha256):
             raise DeployRefused("automation did not start behind the expected kill fence")
         self.verify_operator_services()
+        self.establish_activation_backup()
         self.assert_activation_timing(decision_session)
         self._authorized_cli([
             "release-paper-automation-kill-switch",
@@ -2078,6 +2112,10 @@ class AutonomousDeploy:
             "--actor", self.cfg.actor, "--reason", "autonomous deployment verified",
             "--confirm-release-unattended-paper-kill-switch"])
         return current
+
+    def establish_activation_backup(self) -> None:
+        self.phase('durability: verify newly formed and authorized state while paper remains killed')
+        self._activation_backup = self._post_deploy_backup()
 
     def _verify_dual_plan_shadow_reconciliation(self) -> Mapping:
         """Re-earn the exact plan/shadow bridge inside the promoted runtime."""
@@ -2457,12 +2495,11 @@ class AutonomousDeploy:
             # publisher to move the corpus. Recheck the reviewed publication
             # and exact lineage only after writers are stopped, immediately
             # before any reviewed mode fact is persisted or shadow is started.
-            self.start_operator_services()
             self.verify_reviewed_shadow_bindings_quiesced()
             # This is unconditional. A stale `.env` from an earlier reviewed
             # shadow must never let the no-args fenced installer restart shadow.
             self.configure_reviewed_mode_while_fenced()
-            # Idempotent up refreshes panel/sender configuration after binding.
+            # One startup sees the already-persisted reviewed configuration.
             self.start_operator_services()
             if reviewed is not None and reviewed.mode == "dual":
                 # Enrollment and authority installation share the formation
