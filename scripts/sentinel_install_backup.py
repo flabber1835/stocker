@@ -14,7 +14,9 @@ def milestone(mode, runner=run_bounded):
     root = Path(os.environ[LOCK_ROOT_ENV])
     def command(argv, timeout):
         print('  recovery milestone: ' + Path(argv[1]).name, file=sys.stderr, flush=True)
-        result = runner(argv, timeout=timeout, private_group=False)
+        # Each phase owns its descendants, including a shell that exits while
+        # another process still holds its pipe or inherited backup descriptor.
+        result = runner(argv, timeout=timeout, private_group=True)
         print(result.stdout, end='', file=sys.stderr, flush=True)
         print(result.stderr, end='', file=sys.stderr, flush=True)
         if result.returncode:

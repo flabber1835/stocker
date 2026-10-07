@@ -102,6 +102,8 @@ def test_one_backup_owner_exact_base_and_restore_before_success(mode, failure, m
     calls = []
     exact = '/backups/base/base-20261007T060000Z'
     def run(argv, **kwargs):
+        assert kwargs['private_group'] is True
+        assert kwargs['timeout'] > 0
         calls.append(argv)
         name = argv[1]
         fail = (failure == 'base' and 'base-backup' in name or failure == 'status' and 'backup-status' in name
