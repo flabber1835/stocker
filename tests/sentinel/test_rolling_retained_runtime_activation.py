@@ -102,6 +102,17 @@ def test_economic_policy_transition_keeps_origin_and_restarts_exactly_once(
     with inputs.pinned(conn) as held:
         proof = retained_parity.prove(conn, held=held, observation_id=OBS, starting_cash=50000)
     assert proof['state'].state_hash == second.state.state_hash
+    # A later software image with the same economic policy can reuse the
+    # migrated daily state and immutable original genesis.
+    future = deepcopy(current)
+    future['runtime'].update(git_commit='8'*40, runtime_image_digest='sha256:'+'9'*64)
+    monkeypatch.setattr(admission, 'current_context', lambda **kw: deepcopy(future))
+    monkeypatch.setattr(shadow_runtime, '_validated_runtime_identity', lambda **kw: future['runtime'])
+    subsequent = admission.admit(conn, context=future, manifest=manifest)
+    assert subsequent.process_sha256 != admitted.process_sha256
+    later = runtime.advance(conn, through='2026-09-15', observation_id=OBS, starting_cash=50000)
+    assert later.state.state_hash == second.state.state_hash and not later.appended
+    assert origin.read(conn).model_dump(by_alias=True) == before
 
 
 def _start(conn, executable):

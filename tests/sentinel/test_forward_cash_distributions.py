@@ -114,6 +114,16 @@ def test_multiple_native_payments_aggregate_and_disappearance_is_not_cancellatio
     assert observations(current, refs([]), cursor='2026-10-06')[0].per_share == Decimal('.205')
 
 
+@pytest.mark.parametrize('rate', [None, '0', '-.1', '1e500', 'NaN'])
+def test_unusable_canonical_cash_stays_pending_and_does_not_cancel_known_terms(rate):
+    known = dict(action='dividend', ticker='RENAMED', date=EX, value='.205')
+    pending = []
+    result = observations(refs([known]), refs([{**known, 'value': rate}]),
+                          cursor='2026-10-06', pending=pending)
+    assert result[0].per_share == Decimal('.205')
+    assert any(row['reason'] == 'CASH_DISTRIBUTION_TERMS_PENDING' for row in pending)
+
+
 def test_native_identity_union_retains_missing_payment_and_amends_only_named_payment():
     previous, current = refs([]), refs([])
     previous.cash_observations = [dict(id='one', ticker='RENAMED', date=EX, rate='.1'),

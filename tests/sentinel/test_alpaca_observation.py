@@ -82,13 +82,22 @@ def test_cash_knowledge_keeps_native_processing_and_payment_dates():
     assert value['id'] == 'renamed-native' and len(value['terms_sha256']) == 64
 
 
-def test_unresolved_cash_does_not_quarantine_valid_price_history():
+@pytest.mark.parametrize('rate', ['1e500', '1e-500'])
+def test_cash_rate_must_fit_canonical_shadow_domains(rate):
+    wire = dict(id='cash-domain', symbol='UNRELATED', foreign=False,
+                ex_date=AXIS[0], process_date=AXIS[-1], rate=rate)
+    with pytest.raises(AlpacaTransportRefused):
+        cash_dividend(wire, axis=set(AXIS))
+
+
+@pytest.mark.parametrize('rate', [None, '1e500', 'NaN', '-0.2'])
+def test_unresolved_cash_does_not_quarantine_valid_price_history(rate):
     source = object.__new__(AlpacaSource)
     source.window = SimpleNamespace(start=date.fromisoformat(AXIS[0]), end=date.fromisoformat(AXIS[-1]),
                                     sessions=list(map(date.fromisoformat, AXIS)))
     source.selected = [{'ticker': 'RENAMED'}]
     wire = {'id': 'pending', 'symbol': 'RENAMED', 'foreign': False,
-            'ex_date': AXIS[0], 'process_date': AXIS[-1], 'rate': None}
+            'ex_date': AXIS[0], 'process_date': AXIS[-1], 'rate': rate}
     source.client = SimpleNamespace(pages=lambda *a, **kw: [({'cash_dividends': [wire]}, {})])
     result, *_ = source._action_rows()
     assert result['affected'] == [] and result['dividends'] == []

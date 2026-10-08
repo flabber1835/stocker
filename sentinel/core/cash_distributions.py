@@ -1,8 +1,9 @@
 """Point-in-time shadow cash reconciliation; no clock, database or broker."""
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import date
+from math import isfinite
 from typing import Literal
 from pydantic import Field
 from sentinel.feed.rolling_contract import Contract, Digest, digest
@@ -128,6 +129,15 @@ def observations(previous, current, *, cursor, pending=None, retained=None, know
         for _, payload, _ in refs.actions:
             if payload['action'].lower() != 'dividend' or payload['date'] > cursor:
                 continue
+            try:
+                amount = Decimal(str(payload['value']))
+                if not amount.is_finite() or amount <= 0 or not isfinite(float(amount)) or float(amount) <= 0:
+                    raise ValueError
+            except (InvalidOperation, ValueError, OverflowError):
+                if pending is not None:
+                    pending.append({'ticker': payload['ticker'], 'ex_date': payload['date'],
+                        'reason': 'CASH_DISTRIBUTION_TERMS_PENDING', 'source_sha256': digest(payload)})
+                continue
             sid = refs.resolver.resolve(payload['ticker'], payload['date'])
             if sid is None:
                 if pending is not None:
@@ -136,7 +146,7 @@ def observations(previous, current, *, cursor, pending=None, retained=None, know
                 continue
             key = (sid, payload['date'])
             before = result.get(key, (payload['ticker'], Decimal(0), []))
-            result[key] = (payload['ticker'], before[1] + Decimal(str(payload['value'])), before[2] + [payload])
+            result[key] = (payload['ticker'], before[1] + amount, before[2] + [payload])
         return result
     retained = retained or {}
     latest = {(row['security_id'], row['entitlement_date']):

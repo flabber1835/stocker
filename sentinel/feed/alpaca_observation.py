@@ -66,7 +66,7 @@ def cash_dividend(record: dict, *, axis: set[str], retain_historical: bool = Fal
         amount = Decimal(str(record.get("rate")))
     except (InvalidOperation, ValueError):
         raise AlpacaTransportRefused("cash dividend rate is invalid") from None
-    if not amount.is_finite() or amount <= 0:
+    if not amount.is_finite() or amount <= 0 or not isfinite(float(amount)) or float(amount) <= 0:
         raise AlpacaTransportRefused("cash dividend rate is not positive")
     dates = {}
     for field in ('process_date', 'payable_date', 'record_date'):
