@@ -53,9 +53,17 @@
       "module": "reconciliation_evidence"
     },
     "_execute_current_paper_plan": {
-      "generated_ast_sha256": "3b0068e98cedf3fb3b62842b015968b682755e4795a13200c784d6b167428552",
+      "generated_ast_sha256": "4ac79b1bc7e8a7d95ec085d0c910418fc404f6c51a00b247fa15f58f31d12f50",
       "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
-      "module": "execution"
+      "module": "execution",
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "composition_acceptance": [
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_recovery_capability_boundary.py",
+        "tests/sentinel/test_historical_recovery_process_death.py"
+      ],
+      "reason": "Admit the sealed bare transport before composition and preserve reviewed informational current-book scope through execution preflight and settlement."
     },
     "_fresh_warmed_state": {
       "generated_ast_sha256": "1afd2445d98e791c34d7040fcc345f334173cf9ab9cc44ef2c5426dd1be7202f",
@@ -116,9 +124,17 @@
       "module": "validation"
     },
     "_settled_account_evidence_bracket": {
-      "generated_ast_sha256": "de7c6366383ba5c855c01f28bbb9f32de8eb047e244d86ca43ec8dc5752aa39a",
+      "generated_ast_sha256": "6e0b7b3f86c4e14786369e10680271ef144c6e16f8ca3c44b3e2f1766815f719",
       "historical_ast_sha256": "9b4fb19f26df6935be4158365011408607aa90d8b94ced772fdf277b7407a2c0",
-      "module": "reconciliation_evidence"
+      "module": "reconciliation_evidence",
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "composition_acceptance": [
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_recovery_capability_boundary.py",
+        "tests/sentinel/test_historical_recovery_process_death.py"
+      ],
+      "reason": "Preserve the verified dual scope across the second reconciled account bracket; strict historical reconciliation remains the default."
     },
     "_state_and_plan_or_refuse": {
       "generated_ast_sha256": "9b16b531f94de5e69fda3355fbbda3b63491ce6c66c8d3ef25f8635fe7baf314",
@@ -146,9 +162,17 @@
       "module": "reconciliation_evidence"
     },
     "_guard_broker": {
-      "generated_ast_sha256": "511ce5e95ac7b6fba1a0d4e55434af801cd685995bc195f4eb8c0420294d31cb",
+      "generated_ast_sha256": "eb6e72c7fd3e4661d25ad02d3c26e83f5fa44275bce0bed687f0f7fd8bd8dd0d",
       "historical_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
-      "module": "validation"
+      "module": "validation",
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "composition_acceptance": [
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_recovery_capability_boundary.py",
+        "tests/sentinel/test_historical_recovery_process_death.py"
+      ],
+      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation."
     },
     "_validate_broker_grant": {
       "generated_ast_sha256": "24d6afebf6f02a3d5086b3ce0fb57eccf3be5767fbe8d9868be37981ca055a5b",
@@ -168,19 +192,46 @@
     "prepare_paper_plan": {
       "acceptance": "docs/unattended-operation-qualification.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "8424280ce8bc0dd7b963fa70b926ae3c09c077062887fa7bc7d99ae5b6a2580a",
+      "generated_ast_sha256": "d503b1d1545bfe700dd42335b2a8cf6437ea4f43aa8cdc68d62335af4e1aea95",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "module": "preparation",
-      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged."
+      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart.",
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "composition_acceptance": [
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_recovery_capability_boundary.py",
+        "tests/sentinel/test_historical_recovery_process_death.py"
+      ]
     },
     "recover_automated_paper_cycle": {
       "acceptance": "docs/unattended-operation-qualification.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "49b48551d095818b61c724a160db56969c71bfbfd6b4101f364676eebd712597",
+      "generated_ast_sha256": "7293fa69c7cc90add2c69d240f32518b36b1374c752504f45150e9d4f8e0b79a",
       "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
       "module": "recovery",
-      "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged. PR #488 reconciles native cash even without a target projection and marks the immutable stale plan superseded after explained activity changes, without permitting new broker mutations.",
-      "forward_cash_design": "docs/late-cash-distributions.md"
+      "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged. PR #488 reconciles native cash even without a target projection and marks the immutable stale plan superseded after explained activity changes, without permitting new broker mutations. Admit the sealed bare transport before composition and recover reviewed informational dual commands from the current book and exact positive client-key evidence without promoting historical recovery watermarks.",
+      "forward_cash_design": "docs/late-cash-distributions.md",
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "composition_acceptance": [
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_recovery_capability_boundary.py",
+        "tests/sentinel/test_historical_recovery_process_death.py"
+      ]
+    },
+    "_require_certified_paper_broker": {
+      "module": "inspection",
+      "historical_ast_sha256": "80264b0b9b5f8b93f78aa943e746db36adab3512b6c599d308b1037667d3dac3",
+      "generated_ast_sha256": "61923e1748a9c45026a4ad9225802af0885fccbdb00f8d9744e42efe39c0c85e",
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "composition_acceptance": [
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_recovery_capability_boundary.py",
+        "tests/sentinel/test_historical_recovery_process_death.py"
+      ],
+      "reason": "Admit the sealed bare transport explicitly at the entry gateway; retain the separately sealed generation-fenced wrapper requirement for broker calls."
     }
   },
   "design": "docs/production-compact-champion.md",
