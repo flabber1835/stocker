@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,7 +21,8 @@ NOW = datetime(2026, 10, 8, 10, tzinfo=timezone.utc)
 
 
 @pytest.mark.parametrize('phased', [False, True], ids=['core', 'supported-phase'])
-def test_production_readers_receive_selected_certified_identity(monkeypatch, phased):
+@pytest.mark.parametrize('installed_contract', [False, True], ids=['direct', 'installed-adapter'])
+def test_production_readers_receive_selected_certified_identity(monkeypatch, phased, installed_contract):
     """Ambient identity must not replace the Git/certification observations."""
     gate = lambda name: go.make_gate(name, go.PASS, go._utc_text(NOW), {'fixture': True})
     tests = go.TestSummary(IMAGE, IMAGE, IDENTITY, passed=1, exit_code=0,
@@ -44,6 +46,20 @@ def test_production_readers_receive_selected_certified_identity(monkeypatch, pha
                         (gate('alpaca_paper_account'), {}))
     monkeypatch.setattr(go, 'shadow_configuration_sha256', lambda *_a, **_k: 'e' * 64)
     monkeypatch.setattr(controller, '_actual_remaining_ms', lambda *_a, **_k: 60_000)
+    startup_checks = []
+    if installed_contract:
+        import sentinel_go_probe_contract as contract
+        # Track every install mutation so the real wrappers cannot leak into
+        # later tests. Keep the production reader implementations underneath.
+        for name in ('probe_sharadar_readiness', 'probe_database_financial_health'):
+            monkeypatch.setattr(go, name, getattr(go, name))
+        monkeypatch.setattr(controller, '_classify_preparation_failure',
+                            controller._classify_preparation_failure)
+        monkeypatch.setattr(controller, contract._INSTALLED_MARKER, False, raising=False)
+        monkeypatch.setattr(contract, 'ensure_postgres_ready', lambda *_a, **_k:
+                            (startup_checks.append('healthy') or None))
+        contract.install(controller=controller,
+                         phase=SimpleNamespace(_PHASE={'certified': True, 'prepared': True}))
     children = []
     class Runner:
         last_preparation_output = ''
@@ -81,3 +97,5 @@ def test_production_readers_receive_selected_certified_identity(monkeypatch, pha
     assert result.gates['database_financial_health'].status == go.PASS
     assert children == [go._READINESS_CODE, go._DATABASE_HEALTH_CODE]
     assert result.production_db_writes == result.broker_mutation_attempts == 0
+    if installed_contract:
+        assert len(startup_checks) >= 3
