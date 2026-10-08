@@ -1333,9 +1333,14 @@ def probe_active_wealth_parity(
     started = monotonic()
     for image in images:
         run_env["SENTINEL_RUNTIME_IMAGE_REF"] = image
+        run_env["SENTINEL_GIT_COMMIT"] = commit
+        run_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] = image
         completed = runner.run([
             "docker", "compose", *compose_args, "--profile", "cli", "run",
-            "--rm", "-T", "--no-deps", "--entrypoint", "python", "sentinel",
+            "--rm", "-T", "--no-deps",
+            "--env", "SENTINEL_GIT_COMMIT",
+            "--env", "SENTINEL_RUNTIME_IMAGE_DIGEST",
+            "--entrypoint", "python", "sentinel",
             "-m", "tools.sentinel_operational_parity",
             "--starting-cash", configuration["starting_cash"],
             "--expected-commit", commit,

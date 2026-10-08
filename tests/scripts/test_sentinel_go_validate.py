@@ -707,6 +707,8 @@ def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary(capit
             "ALPACA_API_KEY": "must-not-enter-compose",
             "ALPACA_SECRET_KEY": "must-not-enter-compose",
             "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-compose",
+            "SENTINEL_GIT_COMMIT": "stale-host-commit",
+            "SENTINEL_RUNTIME_IMAGE_DIGEST": "stale-host-image",
             **({"SENTINEL_SHADOW_STARTING_CASH": capital} if capital else {}),
         }, commit=COMMIT, candidate_image_digest=DIGEST_A,
         runtime_image_digest=DIGEST_B, source_identity_sha256=IDENTITY,
@@ -725,6 +727,13 @@ def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary(capit
     assert DIGEST_B == forward_env["SENTINEL_RUNTIME_IMAGE_REF"]
     assert [env["SENTINEL_RUNTIME_IMAGE_REF"] for call, env in runner.calls
             if "tools.sentinel_operational_parity" in call] == [DIGEST_B, DIGEST_A]
+    for call, child_env in runner.calls:
+        if "tools.sentinel_operational_parity" not in call:
+            continue
+        injected = [call[index + 1] for index, item in enumerate(call) if item == "--env"]
+        assert injected == ["SENTINEL_GIT_COMMIT", "SENTINEL_RUNTIME_IMAGE_DIGEST"]
+        assert child_env["SENTINEL_GIT_COMMIT"] == COMMIT
+        assert child_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] == child_env["SENTINEL_RUNTIME_IMAGE_REF"]
     assert not go._BROKER_AUTH_ENV.intersection(forward_env)
     assert subjects == {
         "data_publication": go.data_publication_subject_value({
