@@ -323,7 +323,8 @@ def _validate_broker_grant(
                 conn, state=state, plan=plan, binding=binding,
                 pinned=current, frontier=str(frontier), today=now_et.date(),
                 runtime_identity=runtime_strategy, rollout=rollout,
-                verified_state_sha256=sizing["state_sha256"] if dual_mode else None)
+                verified_state_sha256=sizing["state_sha256"] if dual_mode else None,
+                retained_shadow=dual_mode)
             return
         if grant.operation_scope == "RECOVER":
             feed_inputs.coherent(conn)
@@ -415,11 +416,26 @@ def _state_and_plan_or_refuse(conn) -> tuple[SessionState, ExecutionPlan, object
         raise PaperActivationRefused("canonical state and cursor disagree")
     return state, plan, cursor
 
+def _require_state_strategy(conn, state, strategy, *, retained_shadow=False, state_sha256=None):
+    if state.strategy_identity == dict(strategy):
+        return
+    if not retained_shadow:
+        raise PaperActivationRefused("durable strategy/config/source identity differs from runtime")
+    from sentinel.runtime_admission import require_retained_state
+    try:
+        require_retained_state(conn, strategy=dict(strategy), state_strategy=state.strategy_identity,
+            state_sha256=state.state_hash if state_sha256 is None else state_sha256,
+            session=state.last_processed_session)
+    except (RuntimeError, ValueError, KeyError) as exc:
+        raise PaperActivationRefused(f"retained shadow strategy admission refused: {exc}") from exc
+
+
 def _assert_plan_authorities(conn, *, state: SessionState, plan: ExecutionPlan,
                              binding, pinned, frontier: str, today: date,
                              runtime_identity: Mapping, rollout,
                              require_effective_today: bool = True,
-                             verified_state_sha256: str | None = None) -> None:
+                             verified_state_sha256: str | None = None,
+                             retained_shadow: bool = False) -> None:
     _assert_deterministic_plan_id(plan)
     if plan.decision_session.isoformat() != frontier:
         raise PaperActivationRefused("plan decision session is not the current frontier")
@@ -441,9 +457,8 @@ def _assert_plan_authorities(conn, *, state: SessionState, plan: ExecutionPlan,
         raise PaperActivationRefused("plan controller-transition fingerprint is stale")
     if _hash(state.strategy_identity) != plan.strategy_fingerprint:
         raise PaperActivationRefused("plan strategy fingerprint is stale")
-    if state.strategy_identity != dict(runtime_identity):
-        raise PaperActivationRefused(
-            "durable strategy/config/source identity differs from runtime")
+    _require_state_strategy(conn, state, runtime_identity,
+        retained_shadow=retained_shadow, state_sha256=state_sha256)
     if (plan.data_version != pinned.version
             or state.data_version != pinned.version
             or plan.publication_fingerprint != publication_fingerprint(pinned)):

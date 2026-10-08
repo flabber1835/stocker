@@ -110,13 +110,60 @@ def test_economic_policy_transition_keeps_origin_and_restarts_exactly_once(
     # migrated daily state and immutable original genesis.
     future = deepcopy(current)
     future['runtime'].update(git_commit='8'*40, runtime_image_digest='sha256:'+'9'*64)
+    # A reviewed execution-source repair changes the source fingerprint even
+    # while every selected economic setting and the cash policy remain equal.
+    future['strategy'] = {**future['strategy'], 'data_semantics_source_sha256': 'd'*64}
     monkeypatch.setattr(admission, 'current_context', lambda **kw: deepcopy(future))
     monkeypatch.setattr(shadow_runtime, '_validated_runtime_identity', lambda **kw: future['runtime'])
+    monkeypatch.setattr(shadow_runtime, '_strategy', lambda: (future['controller'], future['strategy']))
+    monkeypatch.setattr(inputs, 'production_strategy', lambda: (future['controller'], future['strategy']))
+    monkeypatch.setattr(strategy, 'production_strategy', lambda: (future['controller'], future['strategy']))
     subsequent = admission.admit(conn, context=future, manifest=manifest)
     assert subsequent.process_sha256 != admitted.process_sha256
     later = runtime.advance(conn, through='2026-09-15', observation_id=OBS, starting_cash=50000)
     assert later.state.state_hash == second.state.state_hash and not later.appended
+    from sentinel.paper.validation import _require_state_strategy, PaperActivationRefused
+    _require_state_strategy(conn, later.state, future['strategy'], retained_shadow=True)
+    with pytest.raises(PaperActivationRefused, match='differs from runtime'):
+        _require_state_strategy(conn, later.state, future['strategy'])
     assert origin.read(conn).model_dump(by_alias=True) == before
+    conn.rollback()
+    with inputs.pinned(conn) as held:
+        proof = retained_parity.prove(conn, held=held, observation_id=OBS, starting_cash=50000)
+        assert proof['retained']['schema'] == retained_parity.SPLIT_SCHEMA
+        assert proof['retained']['book_strategy_sha256'] == digest(current['strategy'])
+        assert proof['retained']['strategy_sha256'] == digest(future['strategy'])
+        assert proof['retained']['admission_sha256'] == digest(subsequent.model_dump(by_alias=True))
+        from sentinel import observation_authority, observation_startup
+        from decimal import Decimal
+        warmup = observation_authority._retained_warmup(conn, pub=held, cash=Decimal('50000'),
+            controller=future['controller'], strategy=future['strategy'])
+        observation_startup.require(warmup, strategy_sha256=digest(future['strategy']),
+            controller_sha256=future['controller'].digest)
+    conn.rollback()
+    from sentinel import restore_validation
+    assert restore_validation._rolling_closure(conn)['session'] == second.session
+    conn.rollback()
+    # Same-session GO must authenticate the retained publication without a new
+    # price generation, formation or financial decision.
+    with monkeypatch.context() as local:
+        local.setattr(inputs, '_prepare', lambda *a, **kw: pytest.fail('same-session source reacquired'))
+        local.setattr(retained_go, 'load_manifest', lambda *a: manifest)
+        local.setenv(retained_go.MANIFEST_ENV, 'fixture')
+        assert retained_go.prepare(conn, target_session=second.session,
+            absolute_deadline=datetime.now(timezone.utc)+timedelta(minutes=10))['status'] == 'RETAINED_STATE_VERIFIED'
+    refresh(conn, operational_source, monkeypatch)
+    third = runtime.advance(conn, through='2026-09-16', observation_id=OBS, starting_cash=50000)
+    assert third.state.strategy_identity == future['strategy']
+    assert third.state.ledger['events'][:len(second.state.ledger['events'])] == second.state.ledger['events']
+    assert origin.read(conn).model_dump(by_alias=True) == before
+    conn.rollback()
+    assert runtime.advance(conn, through=third.session, observation_id=OBS, starting_cash=50000).state.state_hash == third.state.state_hash
+    with inputs.pinned(conn) as held:
+        final = retained_parity.prove(conn, held=held, observation_id=OBS, starting_cash=50000)
+    assert final['retained']['schema'] == retained_parity.SCHEMA
+    assert final['state'].state_hash == third.state.state_hash
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
 
 
 def _start(conn, executable):

@@ -93,7 +93,10 @@ def _assess(conn, pub, *, target, summary_only=False):
     _, strategy = production_strategy()
     request = rolling_jobs.status(conn, binding["job_id"])["request"]
     if request["strategy_sha256"] != digest(strategy):
-        raise RollingGoRefused("ROLLING_ACQUISITION_STRATEGY_CHANGED")
+        from sentinel.runtime_admission import retained_publication_strategy
+        retained_strategy = retained_publication_strategy(conn, pub)
+        if retained_strategy is None or request["strategy_sha256"] != digest(retained_strategy):
+            raise RollingGoRefused("ROLLING_ACQUISITION_STRATEGY_CHANGED")
     if publication.chain_gaps(conn):
         raise RollingGoRefused("ROLLING_PUBLICATION_CHAIN_GAP")
     reader = readiness_inputs if summary_only else cold_start_inputs

@@ -127,6 +127,15 @@ class HostPythonCompatibilityTests(unittest.TestCase):
             return original(name, *args, **kwargs)
         with patch.object(builtins, '__import__', host_import):
             self.assertTrue(go._operational_parity_report_valid(report, commit=GIT, starting_cash='50000'))
+            retained.update(schema='sentinel.retained-transition-proof/2', book_strategy_sha256='b'*64,
+                            admission_sha256='c'*64)
+            self.assertTrue(go._operational_parity_report_valid(report, commit=GIT, starting_cash='50000'))
+            retained['admission_sha256'] = None
+            self.assertFalse(go._operational_parity_report_valid(report, commit=GIT, starting_cash='50000'))
+            retained['admission_sha256'] = 'c'*64
+            retained['book_strategy_sha256'] = retained['strategy_sha256']
+            self.assertFalse(go._operational_parity_report_valid(report, commit=GIT, starting_cash='50000'))
+            retained['book_strategy_sha256'] = 'b'*64
             retained['checks'] = dict(checks, restart_equivalent=1)
             self.assertFalse(go._operational_parity_report_valid(report, commit=GIT, starting_cash='50000'))
 

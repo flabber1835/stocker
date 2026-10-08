@@ -18,7 +18,8 @@ SCHEMA = 'sentinel.retained-runtime-admission/1'
 PREFIX = 'runtime-admission:v1:'
 Refused = origin.RollingColdStartRefused
 ADDITIONS = {'runtime_admission.py', 'semantic_source_basis.py', 'retained_go.py', 'retained_parity.py',
-             'economic_migration.py', 'core/cash_distributions.py', 'execution_upgrade.py'}
+             'economic_migration.py', 'core/cash_distributions.py', 'execution_upgrade.py',
+             'retained_readiness_upgrade.py'}
 ADMINISTRATIVE = {'shadow_supervisor.py', 'observation_authority.py', 'observation_startup.py'}
 SEAMS = {'core/decision.py': 'sentinel.core.decision',
          'rolling_checkpoint.py': 'sentinel.rolling_checkpoint',
@@ -126,20 +127,56 @@ def _require_binding(value, checkpoint, context):
             raise Refused('RETAINED_ECONOMIC_MIGRATION_ADMISSION_REQUIRED')
 
 
-def read(conn, context, checkpoint):
-    row = conn.execute('SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s', (_key(context),)).fetchone()
-    if row is None:
-        return None
+def _decode(row, checkpoint):
     raw = row[1]
     if (not isinstance(raw, dict) or set(raw) != {'admission', 'hmac_sha256'}
+            or not isinstance(raw['admission'], dict)
             or not hmac.compare_digest(str(raw['hmac_sha256']), _signature(raw['admission']))):
         raise Refused('RETAINED_RUNTIME_ADMISSION_AUTHENTICATION_FAILED')
     cls = EconomicAdmission if raw['admission'].get('schema') == 'sentinel.retained-runtime-admission/2' else Admission
     value = cls.model_validate(raw['admission'])
     if raw['admission'] != value.model_dump(by_alias=True) or str(row[0]) != checkpoint.session:
         raise Refused('RETAINED_RUNTIME_ADMISSION_SHAPE_CHANGED')
+    return value
+
+
+def read(conn, context, checkpoint):
+    row = conn.execute('SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s', (_key(context),)).fetchone()
+    if row is None:
+        return None
+    value = _decode(row, checkpoint)
     _require_binding(value, checkpoint, context)
     return value
+
+
+def _require_retained_strategy(conn, checkpoint, context, stored):
+    if stored in (checkpoint.strategy_identity, context['strategy']):
+        return
+    from sentinel.economic_migration import POLICY, PROFILE_SHA256, compatible
+    if (stored.get('cash_distribution_policy') != POLICY
+            or context['strategy'].get('cash_distribution_policy') != POLICY
+            or not compatible(stored, context['strategy'])):
+        raise Refused('RETAINED_ECONOMIC_CHECKPOINT_IDENTITY_CHANGED')
+    prefix = PREFIX + context['observation_id'] + ':'
+    # Select only the small administrative namespace, never financial history.
+    rows = conn.execute('SELECT cursor_name,session,state FROM sentinel_processed_sessions '
+        "WHERE cursor_name LIKE %s AND state->'admission'->>'strategy_sha256'=%s",
+        (prefix + '%', digest(stored)))
+    found = False
+    for cursor, session, raw in rows:
+        value = _decode((session, raw), checkpoint)
+        if (not isinstance(value, EconomicAdmission)
+                or cursor != prefix + value.process_sha256
+                or value.observation_id != context['observation_id']
+                or value.origin_sha256 != digest(checkpoint.model_dump(by_alias=True))
+                or value.book_runtime_sha256 != digest(checkpoint.runtime_identity)
+                or value.strategy_sha256 != digest(stored)
+                or value.migration_profile_sha256 != PROFILE_SHA256
+                or value.origin_strategy_sha256 != digest(checkpoint.strategy_identity)):
+            raise Refused('RETAINED_INTERMEDIATE_ADMISSION_BINDING_CHANGED')
+        found = True
+    if not found:
+        raise Refused('RETAINED_INTERMEDIATE_ADMISSION_REQUIRED')
 
 
 def bind_context(conn, context):
@@ -155,13 +192,49 @@ def bind_context(conn, context):
     if process_binding(checkpoint.runtime_identity) != process_binding(context['runtime']):
         if read(conn, context, checkpoint) is None:
             raise Refused('RETAINED_RUNTIME_ADMISSION_REQUIRED')
-    context['runtime'] = checkpoint.runtime_identity
     from sentinel import rolling_daily_checkpoint as daily
     current = daily.read(conn)
     stored = checkpoint.strategy_identity if current is None else current.strategy_identity
-    if stored not in (checkpoint.strategy_identity, context['strategy']):
-        raise Refused('RETAINED_ECONOMIC_CHECKPOINT_IDENTITY_CHANGED')
+    _require_retained_strategy(conn, checkpoint, context, stored)
+    context['runtime'] = checkpoint.runtime_identity
     context['strategy'] = stored
+
+
+def _retained_checkpoint(conn):
+    """Authenticate both identities without loading or rewriting a strategy book."""
+    checkpoint = origin.read(conn)
+    if checkpoint is None:
+        return None, None, None
+    context = current_context(observation_id=os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID', 'primary'),
+        starting_cash=os.environ.get('SENTINEL_SHADOW_STARTING_CASH', '50000'))
+    selected = context['strategy']
+    bind_context(conn, context)
+    from sentinel import rolling_daily_checkpoint as daily
+    retained = daily.read(conn) or checkpoint
+    if (retained.observation_id != context['observation_id']
+            or retained.starting_cash != context['starting_cash']
+            or retained.runtime_identity != context['runtime']
+            or retained.strategy_identity != context['strategy']
+            or (retained is not checkpoint
+                and retained.origin_sha256 != digest(checkpoint.model_dump(by_alias=True)))):
+        raise Refused('RETAINED_PUBLICATION_CHECKPOINT_BINDING_CHANGED')
+    return retained, context, selected
+
+
+def retained_publication_strategy(conn, pub):
+    """Exact authenticated retained publication, never arbitrary input reuse."""
+    retained, context, _ = _retained_checkpoint(conn)
+    if retained is None:
+        return None
+    return context['strategy'] if retained.publication == pub.to_dict() else None
+
+
+def require_retained_state(conn, *, strategy, state_strategy, state_sha256, session):
+    """Bind dual-shadow adapter input to the current executable's admission."""
+    retained, context, selected = _retained_checkpoint(conn)
+    if (retained is None or strategy != selected or state_strategy != context['strategy']
+            or state_sha256 != retained.state_sha256 or session != retained.session):
+        raise Refused('RETAINED_ADAPTER_STATE_BINDING_CHANGED')
 
 
 def source_closure(files):
@@ -181,6 +254,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     profile()
     from sentinel.execution_upgrade import profile as execution_profile
     execution_profile()
+    from sentinel.retained_readiness_upgrade import profile as readiness_profile
+    readiness_profile()
     manifest = SourceManifest.model_validate(manifest)
     source = source or identity.rehearsal_identity()
     _require_context(checkpoint, context)
@@ -205,6 +280,9 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
             continue
         from sentinel.execution_upgrade import source_allowed as execution_source_allowed
         if execution_source_allowed(name, previous, actual[name]):
+            continue
+        from sentinel.retained_readiness_upgrade import source_allowed as readiness_source_allowed
+        if readiness_source_allowed(name, previous, actual[name]):
             continue
         if module is None:
             raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)

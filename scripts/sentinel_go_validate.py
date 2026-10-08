@@ -1182,6 +1182,11 @@ def _retained_proof_valid(value, *, proof, strategy, checks):
     hashes = {"origin_sha256", "checkpoint_sha256", "record_sha256", "state_sha256",
               "input_sha256", "prior_state_sha256", "book_runtime_sha256", "process_sha256",
               "strategy_sha256", "runtime_receipt_sha256"}
+    if not isinstance(value, dict):
+        return False
+    split = value.get("schema") == "sentinel.retained-transition-proof/2"
+    if split:
+        hashes.add("book_strategy_sha256")
     if (not isinstance(value, dict) or set(value) != hashes | {
             "schema", "authority_effect", "scope", "observation_id", "session",
             "admission_sha256", "checks"}):
@@ -1193,7 +1198,8 @@ def _retained_proof_valid(value, *, proof, strategy, checks):
         return False
     admission = value["admission_sha256"]
     return (
-        value["schema"] == "sentinel.retained-transition-proof/1"
+        value["schema"] in {"sentinel.retained-transition-proof/1", "sentinel.retained-transition-proof/2"}
+        and (not split or admission is not None and value["book_strategy_sha256"] != value["strategy_sha256"])
         and value["authority_effect"] == "NONE"
         and value["scope"] == "ROLLING_RETAINED_STATE_AND_RESTART"
         and isinstance(value["observation_id"], str)

@@ -66,6 +66,27 @@ def test_retained_evidence_is_a_separate_valid_contract(evidence):
     assert startup.selected_contract()['schema'] == startup.WINDOW_FORMED_SCHEMA
 
 
+@pytest.mark.parametrize('defect', [None, 'missing_book', 'same_strategy', 'bad_book', 'no_admission',
+    'unknown_schema', 'extra', 'wrong_target', 'legacy_label'])
+def test_split_retained_strategy_contract_requires_both_identities_and_admission(evidence, defect):
+    warmup, bindings = deepcopy(evidence)
+    proof = warmup['retained']
+    proof.update(schema=retained_parity.SPLIT_SCHEMA, book_strategy_sha256='b'*64)
+    if defect == 'missing_book': del proof['book_strategy_sha256']
+    elif defect == 'same_strategy': proof['book_strategy_sha256'] = proof['strategy_sha256']
+    elif defect == 'bad_book': proof['book_strategy_sha256'] = 1
+    elif defect == 'no_admission': proof['admission_sha256'] = None
+    elif defect == 'unknown_schema': proof['schema'] = 'sentinel.retained-transition-proof/3'
+    elif defect == 'extra': proof['future_field'] = 'ignored?'
+    elif defect == 'wrong_target': proof['strategy_sha256'] = 'c'*64
+    elif defect == 'legacy_label': proof['schema'] = retained_parity.SCHEMA
+    if defect is None:
+        startup.require(warmup, **bindings)
+        assert isinstance(retained_parity.validate(proof), retained_parity.SplitProof)
+    else:
+        with pytest.raises(AuthorityRefused): startup.require(warmup, **bindings)
+
+
 @pytest.mark.parametrize('defect', ['scope', 'authority', 'unknown', 'false', 'integer', 'missing',
     'bad_hash', 'session', 'weekend', 'strategy', 'state', 'decision', 'formation', 'measured', 'fresh_label'])
 def test_relabelled_or_malformed_retained_proof_cannot_be_admitted(evidence, defect):

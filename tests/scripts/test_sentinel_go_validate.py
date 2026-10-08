@@ -841,7 +841,8 @@ def _retained_report():
 @pytest.mark.parametrize('defect', [None, 'nullable_admission', 'scope', 'authority', 'unknown',
     'missing', 'false', 'integer', 'checks', 'hash', 'numeric_hash', 'observation', 'session',
     'date', 'weekend', 'strategy', 'state', 'prior', 'input', 'admission', 'formation'])
-def test_retained_wire_proof_is_strict_without_importing_the_engine(monkeypatch, defect):
+@pytest.mark.parametrize('split', [False, True])
+def test_retained_wire_proof_is_strict_without_importing_the_engine(monkeypatch, defect, split):
     import builtins
     original = builtins.__import__
     def host_import(name, *args, **kwargs):
@@ -850,6 +851,8 @@ def test_retained_wire_proof_is_strict_without_importing_the_engine(monkeypatch,
         return original(name, *args, **kwargs)
     report = _retained_report()
     proof = report['proof']; value = proof['retained']
+    if split:
+        value.update(schema='sentinel.retained-transition-proof/2', book_strategy_sha256='b'*64)
     if defect == 'nullable_admission': value['admission_sha256'] = None
     elif defect == 'scope': value['scope'] = 'ROLLING_FORMED_STARTUP_AND_RESTART'
     elif defect == 'authority': value['authority_effect'] = 'SHADOW_GO'
@@ -871,7 +874,21 @@ def test_retained_wire_proof_is_strict_without_importing_the_engine(monkeypatch,
     elif defect == 'admission': value['admission_sha256'] = False
     elif defect == 'formation': proof['formation'] = {'sessions': 126}
     monkeypatch.setattr(builtins, '__import__', host_import)
-    assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash='50000') is (defect in (None, 'nullable_admission'))
+    assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash='50000') is (
+        defect is None or defect == 'nullable_admission' and not split)
+
+
+@pytest.mark.parametrize('defect', ['missing_book', 'same_strategy', 'bad_book', 'unknown_schema', 'legacy_label'])
+def test_host_split_retained_proof_rejects_ambiguous_book_strategy(defect):
+    report = _retained_report()
+    value = report['proof']['retained']
+    value.update(schema='sentinel.retained-transition-proof/2', book_strategy_sha256='b'*64)
+    if defect == 'missing_book': del value['book_strategy_sha256']
+    elif defect == 'same_strategy': value['book_strategy_sha256'] = value['strategy_sha256']
+    elif defect == 'bad_book': value['book_strategy_sha256'] = False
+    elif defect == 'unknown_schema': value['schema'] = 'sentinel.retained-transition-proof/3'
+    else: value['schema'] = 'sentinel.retained-transition-proof/1'
+    assert not go._operational_parity_report_valid(report, commit=COMMIT, starting_cash='50000')
 
 
 @pytest.mark.parametrize('defect', ['duplicate_verdict', 'duplicate_check', 'NaN', 'Infinity', '1e999'])
