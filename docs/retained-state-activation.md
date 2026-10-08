@@ -89,6 +89,26 @@ reconciliation, signed paper authority and full semantic restore of the admitted
 runtime/state before kill release. An expired historical decision never becomes
 a prospective order. No installation receipt is rewritten by these operations.
 
+## Bounded backup availability during retained GO
+
+The ordinary rolling service performs one scheduler slice. A foreground GO over
+a retained book has a different lifetime: when that slice reports typed
+`BackupRuntimeUnavailable`, GO rolls back its transaction and waits within the
+original absolute acquisition deadline before invoking the same canonical
+continuation again. This includes a healthy archiver temporarily reporting a
+backup-history or timeline-history object after a scheduled backup. Metadata is
+never accepted as a WAL segment; the complete existing restore-horizon proof
+must pass before publication or a financial transition can proceed.
+
+Waiting creates no backup, forces no WAL switch, extends no deadline and grants
+no authority. Canonical enqueue/recovery retains the exact source request,
+completed acquisition parts and immutable book. Same-session acknowledgement
+recovery and compatible executable admission receive the same typed wait;
+each admission attempt rechecks the fence and authenticated original book. Malformed
+evidence remains a terminal refusal; `BackupHorizonExceeded` still reaches the
+separate, finitely bounded host renewal contract. Ordinary service scheduling
+and the fresh-state foreground acquisition driver remain unchanged.
+
 ## Qualification
 
 Use real PostgreSQL for authenticated reuse, compatible executable admission,
