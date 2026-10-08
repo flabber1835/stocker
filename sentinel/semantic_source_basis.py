@@ -21,6 +21,7 @@ bind_context(conn, context)'''),
 }
 RECIPE = '''from sentinel.semantic_source_basis import economic_sources
 return economic_sources(_DATA_SEMANTICS_MODULES, schema=DATA_SEMANTICS_IDENTITY_SCHEMA)'''
+RECIPE_HEADER = 'def data_semantics_source_identity() -> dict[str, object]: pass'
 
 
 def _sha(value):
@@ -54,6 +55,11 @@ def masked_ast(module, raw, *, baseline=False):
     if module == 'sentinel.core.decision':
         recipe = next(node for node in tree.body
                       if isinstance(node, ast.FunctionDef) and node.name == 'data_semantics_source_identity')
+        expected = ast.parse(RECIPE_HEADER).body[0]
+        header = lambda node: _ast_value([[name, value] for name, value in ast.iter_fields(node)
+                                         if name != 'body' and not (name == 'type_params' and value == [])])
+        if header(recipe) != header(expected):
+            return None
         body = recipe.body
         if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
             body = body[1:]

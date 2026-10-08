@@ -24,6 +24,10 @@ their actual source hash contributes, changing strategy identity and refusing
 reuse. All other economic modules and Wealth Core keep their exact source-byte
 identities. This recipe is deterministic and never reads a broker or database.
 The full executable hash always records the actual administrative code.
+The replaced source-identity recipe also requires its exact reviewed function
+header: no arguments, defaults, decorators, type parameters or changed return
+annotation may be hidden by replacing its body. These can change executable
+behavior and therefore cannot inherit the old economic contribution.
 
 Admitting a different executable is an explicit, broker-free operation while
 automation is disabled and killed, under the existing behavioral writer lock and

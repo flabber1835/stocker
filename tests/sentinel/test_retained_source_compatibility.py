@@ -34,6 +34,20 @@ def test_altered_admission_hook_is_not_ignored(module):
     assert basis.canonical_contribution(module, broken) != basis.basis()['seams'][module]['source_sha256']
 
 
+@pytest.mark.parametrize('header', [
+    'def data_semantics_source_identity(argument=None) -> dict[str, object]:',
+    '@changed\ndef data_semantics_source_identity() -> dict[str, object]:',
+    'def data_semantics_source_identity() -> changed:',
+])
+def test_source_identity_recipe_header_cannot_hide_executable_changes(header):
+    from sentinel.core import decision
+    raw = Path(decision.__file__).read_bytes()
+    needle = b'def data_semantics_source_identity() -> dict[str, object]:'
+    assert raw.count(needle) == 1
+    changed = raw.replace(needle, header.encode())
+    assert basis.canonical_contribution('sentinel.core.decision', changed) != basis.basis()['seams']['sentinel.core.decision']['source_sha256']
+
+
 def test_baseline_file_is_pinned(monkeypatch, tmp_path):
     path = tmp_path/'wrong.json'
     path.write_text('{}')
