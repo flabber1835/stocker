@@ -208,6 +208,16 @@ and authenticates the complete origin before granting structural status, and its
 row-version inventory invalidates reuse after any change. Outside a guarded scope
 the complete loader continues to run every time. Verify one origin authentication
 across repeated unchanged guarded checks and refusal after origin tampering.
+The retained executable-admission hooks added in PR #488 introduce two further
+origin binding reads inside the first complete closure: one binds the daily
+loader's process context and one preserves the standalone origin-restoration
+boundary. Keep these authentication checks. The bounded initial closure now
+performs exactly three origin reads; repeated unchanged guards still reuse that
+closure without any additional origin read. Changed origin or sizing rows must
+invalidate reuse and retain the existing refusals. This is an explicit increase
+in first-verification work, not a claim that admission preserved the old single
+read count. The real retained-reader and semantic-restore qualification includes
+these guards; no per-order cache or authority exemption is added.
 The authenticated checkpoint also contains historical input used only while
 verifying its origin. Do not copy that input on every status return. After the
 full closure has verified it, retain only the session/publication/snapshot fields

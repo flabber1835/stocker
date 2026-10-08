@@ -71,6 +71,9 @@ CLOSEADJ_PERMITTED = (
     # PublishedSession input but never exposes the SPY series to holdings,
     # marks, sizing, or execution.
     "sentinel/shadow_observation.py",
+    # Reconstructs the same committed SPY-only input for retained parity.
+    # Certification §5b pins both the archived key and typed argument.
+    "sentinel/retained_parity.py",
 )
 
 
@@ -167,6 +170,7 @@ class TestTheForbiddenColumn:
             "sentinel/core/session.py",
             "sentinel/core/kernel.py",
             "sentinel/shadow_observation.py",
+            "sentinel/retained_parity.py",
         )
 
     def test_the_SPY_sensor_is_the_only_strategy_reader(self):
@@ -195,6 +199,13 @@ class TestTheForbiddenColumn:
         occurrences = _closeadj_in_source(source, path)
         assert len(occurrences) == 1
         assert occurrences[0].endswith(": spy_closeadj")
+
+    def test_retained_decoder_has_only_the_named_spy_transport_occurrences(self):
+        path = "sentinel/retained_parity.py"
+        occurrences = _closeadj_in_source((REPO / path).read_text(), path)
+        assert len(occurrences) == 2
+        assert occurrences[0].endswith(": spy_closeadj")
+        assert occurrences[1].endswith(": 'spy_closeadj'")
 
     def test_the_exemption_is_by_FILE_not_by_PACKAGE(self):
         """`sentinel/regime/` is not blanket-exempt. A second module added there

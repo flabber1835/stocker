@@ -10,6 +10,41 @@ from sentinel.authority import AuthorityRefused, canonical_sha256
 from sentinel.strategy import production_strategy
 
 
+def _distinct_price_input():
+    from sentinel.core.session import PublishedSession, VendorBar, DefensiveBar
+    published = PublishedSession(
+        session='2026-09-14', data_version=7, meta={}, sectors={},
+        bars=[VendorBar(session='2026-09-14', security_id='1', ticker='AAA',
+            raw_open=19., raw_close=20., volume=1000000., signal_close=10.)],
+        spy_closeadj=[600., 601.], spy_sessions=['2026-09-11', '2026-09-14'],
+        spy_expected_sessions=['2026-09-11', '2026-09-14'],
+        defensive_previous_bar=DefensiveBar('2026-09-11', 'SENTINEL:BIL', 'BIL', 91., 101., 121., 111.),
+        defensive_bar=DefensiveBar('2026-09-14', 'SENTINEL:BIL', 'BIL', 92., 102., 122., 112.))
+    return retained_parity.shadow._published_input_value(published)
+
+
+def test_retained_decoder_keeps_spy_equity_and_bil_domains_separate():
+    archived = _distinct_price_input()
+    before = deepcopy(archived)
+    published = retained_parity.decode(archived)
+    assert published.spy_closeadj == [600., 601.]
+    assert published.spy_sessions == published.spy_expected_sessions == ['2026-09-11', '2026-09-14']
+    assert (published.bars[0].signal_close, published.bars[0].raw_open,
+            published.bars[0].raw_close) == (10., 19., 20.)
+    assert (published.defensive_previous_bar.open_signal, published.defensive_previous_bar.close_signal,
+            published.defensive_previous_bar.close_adjusted, published.defensive_previous_bar.close_unadjusted) == (91., 101., 121., 111.)
+    assert (published.defensive_bar.open_signal, published.defensive_bar.close_signal,
+            published.defensive_bar.close_adjusted, published.defensive_bar.close_unadjusted) == (92., 102., 122., 112.)
+    assert retained_parity.shadow._published_input_value(published) == archived == before
+
+
+def test_retained_decoder_refuses_unconsumed_input_evidence():
+    archived = _distinct_price_input()
+    archived['unknown_price_domain'] = 999.
+    with pytest.raises(RuntimeError, match='RETAINED_INPUT_ROUNDTRIP_CHANGED'):
+        retained_parity.decode(archived)
+
+
 @pytest.fixture
 def evidence():
     controller, strategy = production_strategy()

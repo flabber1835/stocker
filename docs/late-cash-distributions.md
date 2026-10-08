@@ -93,6 +93,14 @@ offsetting events with zero net cash. Automation then waits for the next ordinar
 decision; it does not repeatedly execute the same stale plan, resize its intents
 or backfill a missing/legacy baseline. Unknown broker outcomes retain priority.
 
+The reviewed paper lifecycle delta manifest records this change separately from
+the frozen decomposition equivalence fixture. `_cash_authority_or_refuse`
+returns whether explained native activity changed; recovery checks that result
+after clean reconciliation even when no target projection exists, and marks
+the retained plan superseded. The historical function commitments remain
+unchanged. The current commitments cover these two named execution functions;
+they do not authorize rewriting the original book or relaxing cash explanation.
+
 ## Qualification
 
 Cover current/former/zero ownership, ex-date buys and sells, splits, multiple

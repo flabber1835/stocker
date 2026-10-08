@@ -28,6 +28,7 @@ def test_slow_preparation_and_backup_share_original_host_deadline(
     from tests.sentinel.test_go_backup_refresh import backup, GrowingWalRunner, TOKEN, _cp, run_overlay
     import sentinel_go_deadline as host_deadline
     import sentinel_go_feed_progress as host_progress
+    import sentinel_go_24x7_entry as entry
     from sentinel_go_backup_retry import FAILURE
 
     initial = conn.execute("SELECT clock_timestamp()").fetchone()[0]
@@ -98,6 +99,8 @@ def test_slow_preparation_and_backup_share_original_host_deadline(
         return validate(c, lease, request)
     monkeypatch.setattr(operational_snapshot, 'validate', slow_resumed_validation)
 
+    revision_reads = []
+
     class Runner(GrowingWalRunner):
         def run(self, argv, *, env=None, cwd=None):
             if list(argv)[:2] != ["docker", "compose"]:
@@ -109,11 +112,16 @@ def test_slow_preparation_and_backup_share_original_host_deadline(
                 if "--backup" in argv and result.returncode == 0:
                     renewed.append(True)
                 return result
-            self.preparations.append((list(argv), dict(env)))
-            assert argv[argv.index(host_deadline.DEADLINE_ENV) - 1] == "--env"
+            revision_read = argv[-1] == entry._RETAINED_REVISION_CODE
+            if revision_read:
+                assert 'ALPACA_API_KEY' not in env and 'ALPACA_SECRET_KEY' not in env
+            else:
+                self.preparations.append((list(argv), dict(env)))
+                assert argv[argv.index(host_deadline.DEADLINE_ENV) - 1] == "--env"
             out, err = io.StringIO(), io.StringIO()
             # Execute the actual payload, including deadline decoding and the
-            # full rolling_go_inputs.prepare call. No fabricated success marker.
+            # full retained_go.prepare call. The preceding read-only revision
+            # probe also uses real storage; it is not a preparation attempt.
             with monkeypatch.context() as child, redirect_stdout(out), redirect_stderr(err):
                 for key, value in env.items():
                     child.setenv(key, value)
@@ -125,6 +133,9 @@ def test_slow_preparation_and_backup_share_original_host_deadline(
                     return _cp(1, out=out.getvalue(), err=err.getvalue())
                 except authority.BackupHorizonExceeded:
                     return _cp(1, out=out.getvalue(), err=err.getvalue())
+            if revision_read:
+                assert json.loads(out.getvalue()) == {'retained_revision': None}
+                revision_reads.append(True)
             return _cp(0, out=out.getvalue(), err=err.getvalue())
 
     runner = Runner([])
@@ -132,6 +143,8 @@ def test_slow_preparation_and_backup_share_original_host_deadline(
     row = conn.execute("SELECT job_id,deadline,state,reason FROM sentinel_snapshot_jobs").fetchone()
     assert row[1] == initial + timedelta(seconds=7200)
     assert len(runner.preparations) == 2 and renewed == [True]
+    # A finite WAL renewal resumes within the same retained-manifest context.
+    assert revision_reads == [True]
     assert {env[host_deadline.DEADLINE_ENV] for _, env in runner.preparations} == {row[1].isoformat()}
     assert "RETAINED_PART_REUSED" in runner.last_preparation_output
     assert len([call for call in issuer_source['calls'] if call[0] == 'download']) == 21

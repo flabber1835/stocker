@@ -77,9 +77,19 @@ def _manifest(*, lifecycle="FINALIZED", verdict="PASS", closure="4",
 class HostPythonCompatibilityTests(unittest.TestCase):
 
     def test_retained_parity_validator_does_not_import_runtime_dependencies(self):
-        from scripts import sentinel_go_validate as go
         from unittest.mock import patch
         import builtins
+        # The test lens has a deliberately narrow /work/scripts namespace.
+        # Load the complete reviewed host source, as the state helper above does.
+        spec = importlib.util.spec_from_file_location(
+            'sentinel_retained_host_validator_under_test',
+            ROOT / 'scripts' / 'sentinel_go_validate.py')
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        go = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = go
+        self.addCleanup(sys.modules.pop, spec.name, None)
+        spec.loader.exec_module(go)
         checks = {key: True for key in ('prior_unchanged', 'input_unchanged', 'restart_equivalent',
             'result_roundtrip_equivalent', 'frontier_advanced', 'publication_version_bound',
             'strategy_bound', 'decision_present')}
