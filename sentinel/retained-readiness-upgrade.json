@@ -1,0 +1,33 @@
+{
+  "files": {
+    "feed/rolling_go_inputs.py": {
+      "after": "e7165edf81c491c2423133df204a95b70a800ca75c976ffea547e185a3d7a874",
+      "before": [
+        "39634c6fba04fec3a804749dc309852705a6a0d5c94d5a3daf3e3bed2ae29c37"
+      ]
+    },
+    "paper/execution.py": {
+      "after": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
+      "before": [
+        "30a7bbd634f4916ab0cc4a112c358f1f1bb39e5ab1aad470bf46fca09f9967a5",
+        "88ab64e4e985b8d23f61f2074024d8e0bf6c51b2df6184fc0d2c9bfd28ae00ca"
+      ]
+    },
+    "paper/preparation.py": {
+      "after": "2e228c6a35d25c58a0415fa068646e85e3db13694eee24c913b408310dc11925",
+      "before": [
+        "47a3a9a9d3d37e1e42d190c4fbcf53e4f9c31d73c009bde9dfb0fda4f172e002",
+        "586287a6f6947df302d2336376b128580f3c731034b5dc5d1204aa960ac43f1e"
+      ]
+    },
+    "paper/validation.py": {
+      "after": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
+      "before": [
+        "40202c5142664a04ee68dbc0e4e912f1897475245ba7e98d32b1ac05c71e9565",
+        "5a1284301dff77ce2da4b147b38167561c5d93ec279cfef855f623c342afd5b5"
+      ]
+    }
+  },
+  "module_sha256": "17ab6dfa48424f79c057c11261be461160433e57571bdab899e2db8502ebb923",
+  "schema": "sentinel.retained-readiness-upgrade/1"
+}

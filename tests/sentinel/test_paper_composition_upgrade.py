@@ -14,9 +14,12 @@ from tests.sentinel.test_retained_source_compatibility import closure
 def test_exact_execution_upgrade_sources_are_pinned(name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-    assert actual == record['after']
+    if actual != record['after']:
+        from sentinel import retained_readiness_upgrade as subsequent
+        assert subsequent.source_allowed(name, record['after'], actual)
+    reviewed = record['after']
     for previous in record['before']:
-        assert upgrade.source_allowed(name, previous, actual)
+        assert upgrade.source_allowed(name, previous, reviewed)
         assert not upgrade.source_allowed(name, previous, 'f'*64)
     assert not upgrade.source_allowed(name, '0'*64, actual)
 
@@ -44,13 +47,13 @@ def test_execution_upgrade_module_tamper_refuses(tmp_path, monkeypatch):
         upgrade.profile()
 
 
-def _execution_closure(closure, name):
+def _execution_closure(closure, name, *, source_profile=upgrade):
     root, checkpoint, context, manifest, source = closure
     actual_root = Path(upgrade.__file__).parent
     path = root/name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes((actual_root/name).read_bytes())
-    manifest['files'][name] = upgrade.profile()['files'][name]['before'][0]
+    manifest['files'][name] = source_profile.profile()['files'][name]['before'][0]
     _refresh_current(root, context, source)
     prior_env = dict(source['environment'])
     prior_env['sentinel_source'] = {**prior_env['sentinel_source'],

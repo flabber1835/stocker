@@ -48,6 +48,26 @@ forward-cash migration profile referenced by existing admission rows. Unlisted
 paths, unreviewed neighboring changes, changed strategy/environment/capital and
 altered profile code or data still refuse. Execution changes do not reconstruct
 or rewrite the immutable strategy book and never imply complete historical fills.
+Successive executable upgrades may encounter a daily checkpoint whose strategy
+fingerprint belongs to an intermediate admitted cash-policy executable. Accept
+that retained fingerprint only when its exact strategy digest has a separate
+HMAC-authenticated economic admission bound to the same immutable origin, book
+runtime, original session and pinned cash-migration profile. Its process digest
+must match its admission cursor. The new executable still requires its own exact
+source-compatible admission, and the retained and target strategies must agree
+on the reviewed cash policy and every economic setting. Missing, malformed,
+foreign or unauthenticated intermediate admissions refuse. Reuse the authenticated
+daily strategy for replay; retain the current executable's target strategy for
+the next canonical transition. Neither admission rewrites a checkpoint or record.
+An unchanged retained publication also keeps its acquisition request's strategy
+digest. Readiness may use that digest only when the publication is exactly the
+authenticated origin/current daily checkpoint, the running executable has its
+own admission, and the intermediate strategy has the admission described above.
+Fresh or foreign publications continue to require the selected current strategy;
+the next session acquires inputs under that strategy. A separate pinned upgrade
+profile permits this exact readiness repair and the three paper adapter call
+sites described below, without changing the existing cash or execution profiles.
+Neighboring source changes still refuse.
 Substitute only that proven original source hash/count into the actual current
 environment record; its digest must reproduce the authenticated origin's
 environment digest. Dependency, calendar, interpreter or base-image changes
@@ -80,6 +100,28 @@ predecessor/input evidence refuses. GO and the paper-candidate validator accept
 only the matching retained proof schema and bindings; a retained report cannot
 stand in for fresh formation. Candidate creation independently rechecks the
 current retained evidence before issuance.
+
+When the selected executable and retained book strategies differ, emit retained
+transition proof version 2. Its `strategy_sha256` binds the selected executable's
+target strategy and its required admission; `book_strategy_sha256` binds the
+strategy actually replayed against the archived input and immutable state. The
+proof retains the exact current process digest and original book runtime. Version
+1 remains valid for equal strategies. Version 2 requires a non-null admission and
+different, valid strategy digests; missing/extra fields, unknown versions, absent
+admissions or relabeling refuse in both engine and dependency-free host readers.
+The issuer independently reproduces the proof before creating a candidate.
+
+Dual-paper plans keep the retained state's actual strategy fingerprint, state
+hash and canonical sizing proof. The current certificate still binds the running
+executable and selected target strategy. A mismatch may cross the adapter's
+strategy-equality check only for independently verified dual-shadow state, when
+the current executable admission and any intermediate admission authenticate that
+exact checkpoint's state hash, strategy, session and original runtime. Recheck
+this binding during preparation, restart, execution and each fresh automation
+broker guard. Standalone paper and manual guard paths retain strict equality.
+This compatibility check grants no broker operation and does not rewrite a plan,
+book or authority. All account, publication, effective-session, sizing,
+reconciliation, signed authority and backup checks remain mandatory.
 
 The host launcher explicitly injects the selected commit and immutable image
 digest into each read-only parity child; the ordinary CLI has no standing

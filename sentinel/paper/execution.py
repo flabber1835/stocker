@@ -281,7 +281,8 @@ async def _execute_current_paper_plan(
             _assert_plan_authorities(
                 conn, state=state, plan=plan, binding=binding, pinned=pinned,
                 frontier=str(frontier), today=today,
-                runtime_identity=strategy_identity, rollout=rollout)
+                runtime_identity=strategy_identity, rollout=rollout,
+                retained_shadow=dual_mode)
             dual_sizing_proof = None
             if dual_mode:
                 try:

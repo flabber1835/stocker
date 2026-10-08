@@ -125,6 +125,7 @@ from .validation import (
     _guard_broker,
     _state_and_plan_or_refuse,
     _assert_plan_authorities,
+    _require_state_strategy,
 )
 
 from .cash import (
@@ -380,10 +381,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     raise PaperActivationRefused(str(exc)) from exc
                 dual_state = SessionState.from_dict(
                     dual_result.state.to_dict())
-                if dual_state.strategy_identity != identity:
-                    raise PaperActivationRefused(
-                        "verified shadow strategy/config/source identity "
-                        "differs from the PAPER adapter")
+                _require_state_strategy(conn, dual_state, identity, retained_shadow=True)
                 if dual_state.data_version != pinned.version:
                     raise PaperRetryableRefused(
                         "verified shadow state does not name the exact pinned "
@@ -432,7 +430,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     today=date.fromisoformat(
                         calendar.next_session(through_text)),
                     runtime_identity=identity, rollout=rollout,
-                    require_effective_today=False)
+                    require_effective_today=False, retained_shadow=True)
                 try:
                     dual_plan_authority.rederive_plan(
                         conn, plan=existing_plan, binding=binding,

@@ -17,6 +17,7 @@ from sentinel.feed.rolling_contract import Contract, Digest, digest
 
 SCOPE = 'ROLLING_RETAINED_STATE_AND_RESTART'
 SCHEMA = 'sentinel.retained-transition-proof/1'
+SPLIT_SCHEMA = 'sentinel.retained-transition-proof/2'
 Refused = origin.RollingColdStartRefused
 
 
@@ -58,10 +59,19 @@ class Proof(Contract):
     checks: Checks
 
 
+class SplitProof(Proof):
+    schema_id: Literal['sentinel.retained-transition-proof/2'] = Field(alias='schema')
+    book_strategy_sha256: Digest
+    admission_sha256: Digest
+
+
 def validate(value):
-    proof = Proof.model_validate(value)
+    model = SplitProof if isinstance(value, dict) and value.get('schema') == SPLIT_SCHEMA else Proof
+    proof = model.model_validate(value)
     if value != proof.model_dump(by_alias=True):
         raise Refused('RETAINED_PROOF_SHAPE_CHANGED')
+    if isinstance(proof, SplitProof) and proof.book_strategy_sha256 == proof.strategy_sha256:
+        raise Refused('RETAINED_PROOF_STRATEGIES_NOT_DISTINCT')
     from sentinel.feed import calendar
     if calendar.previous_sessions(proof.session, 1) != [proof.session]:
         raise Refused('RETAINED_PROOF_SESSION_INVALID')
@@ -170,6 +180,9 @@ def prove(conn, *, held, observation_id, starting_cash):
         'runtime_receipt_sha256': digest(attested.model_dump(by_alias=True)),
         'admission_sha256': digest(admission.model_dump(by_alias=True)) if admission else None,
         'checks': checks}
+    if process_strategy != context['strategy']:
+        binding.update(schema=SPLIT_SCHEMA, book_strategy_sha256=binding['strategy_sha256'],
+            strategy_sha256=digest(process_strategy))
     validate(binding)
     return {'retained': binding, 'warmup_input': feature, 'state': result,
         'input_sha256': binding['input_sha256'], 'prior_state_sha256': prior_hash,
