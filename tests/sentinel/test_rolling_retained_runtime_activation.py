@@ -128,6 +128,71 @@ def _start(conn, executable):
 
 
 @pytest.mark.parametrize('ready', [{'formed': True}], indirect=True)
+@pytest.mark.parametrize('phase', ['admission', 'committed_candidate'])
+def test_retained_go_metadata_wait_preserves_real_book_and_recovers_once(
+        conn, ready, executable, operational_source, monkeypatch, phase):
+    from psycopg.pq import TransactionStatus
+    from sentinel import backup_runtime_authority as backup
+    first = _start(conn, executable)
+    before = dict(conn.execute('SELECT cursor_name,state FROM sentinel_processed_sessions').fetchall())
+    conn.rollback()
+    _, current, manifest = executable
+    target = first.session
+    real_require = backup.require
+    failures = []
+    def require(connection, *, operation, **kwargs):
+        selected = ('compatible retained runtime admission' if phase == 'admission'
+                    else 'rolling runtime attestation')
+        limit = 1 if phase == 'admission' else 2
+        if operation == selected and len(failures) < limit:
+            failures.append(operation)
+            backup._require_segment_frontier('000000010000001000000052.00000248.backup',
+                segment_size=16*1024*1024, operation=operation)
+        return real_require(connection, operation=operation, **kwargs)
+    if phase == 'committed_candidate':
+        admission.admit(conn, context=current, manifest=manifest)
+        monkeypatch.setattr(shadow_runtime, '_validated_runtime_identity', lambda **kw: current['runtime'])
+        refresh(conn, operational_source, monkeypatch)
+        target = '2026-09-15'
+        monkeypatch.setattr(backup, 'require', require)
+        with pytest.raises(backup.BackupRuntimeUnavailable):
+            runtime.advance(conn, through=target, observation_id=OBS, starting_cash=50000)
+        candidate = daily.read(conn)
+        assert candidate.session == target
+        conn.rollback()
+        monkeypatch.setattr(runtime.daily, 'advance', lambda *a, **kw: pytest.fail('committed decision replayed'))
+    else:
+        monkeypatch.setattr(backup, 'require', require)
+    monkeypatch.setattr(shadow_runtime, '_validated_runtime_identity', lambda **kw: current['runtime'])
+    monkeypatch.setattr(initial, 'initialize', lambda *a, **kw: pytest.fail('retained book reformed'))
+    monkeypatch.setattr(inputs, 'prepare', lambda *a, **kw: pytest.fail('fresh preparation'))
+    monkeypatch.setattr(inputs, '_prepare', lambda *a, **kw: pytest.fail('completed inputs reacquired'))
+    monkeypatch.setattr(retained_go, 'load_manifest', lambda *a: manifest)
+    monkeypatch.setenv(retained_go.MANIFEST_ENV, 'fixture')
+    waits = []
+    def sleep(seconds):
+        assert conn.info.transaction_status == TransactionStatus.IDLE
+        waits.append(seconds)
+    monkeypatch.setattr(retained_go.time, 'sleep', sleep)
+    deadline = datetime.now(timezone.utc)+timedelta(minutes=10)
+    assert retained_go.prepare(conn, target_session=target, absolute_deadline=deadline)['status'] == 'RETAINED_STATE_VERIFIED'
+    assert waits == [10.0]
+    assert len(failures) == (1 if phase == 'admission' else 2)
+    after = dict(conn.execute('SELECT cursor_name,state FROM sentinel_processed_sessions').fetchall())
+    assert all(after[key] == value for key, value in before.items())
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
+    conn.rollback()
+    verified = runtime.status(conn, observation_id=OBS, starting_cash=50000)
+    if phase == 'committed_candidate':
+        assert verified.state.state_hash == candidate.state_sha256
+    else:
+        assert verified.state.state_hash == first.state.state_hash
+    conn.rollback()
+    assert retained_go.prepare(conn, target_session=target, absolute_deadline=deadline)['status'] == 'RETAINED_STATE_VERIFIED'
+    assert dict(conn.execute('SELECT cursor_name,state FROM sentinel_processed_sessions').fetchall()) == after
+
+
+@pytest.mark.parametrize('ready', [{'formed': True}], indirect=True)
 def test_upgrade_admission_preserves_book_and_restart_then_daily(conn, ready, executable, operational_source, monkeypatch):
     first = _start(conn, executable)
     before = origin.read(conn).model_dump(by_alias=True)

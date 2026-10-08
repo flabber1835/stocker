@@ -1,8 +1,10 @@
 """GO preparation dispatch that preserves an authenticated existing book."""
 from contextlib import contextmanager
 import json
+import math
 import os
 from pathlib import Path
+import time
 
 from sentinel import rolling_checkpoint as origin, rolling_runtime, runtime_admission
 from sentinel.feed import rolling_go_inputs as inputs
@@ -48,6 +50,29 @@ def reviewed_process(context, *, data_publication_sha256, deadline):
             else: os.environ[key] = value
 
 
+def _with_backup_wait(conn, operation, *, deadline):
+    """Keep retryable backup availability inside this GO's original cutoff."""
+    from sentinel import backup_runtime_authority, shadow_budget
+    from sentinel.feed import progress
+    while True:
+        shadow_budget.require_remaining(deadline)
+        try:
+            return operation()
+        except backup_runtime_authority.BackupRuntimeUnavailable:
+            conn.rollback()
+            shadow_budget.require_remaining(deadline)
+            remaining = max(0.0, (deadline-shadow_budget.now()).total_seconds())
+            progress.emit('backup_durability', 'working', reason='BACKUP_AUTHORITY_WAIT',
+                          remaining_seconds=math.ceil(remaining))
+            time.sleep(min(10.0, remaining))
+
+
+def _advance_with_backup_wait(conn, *, target_session, context, deadline):
+    return _with_backup_wait(conn, lambda: rolling_runtime.service_advance(
+        conn, through=target_session, observation_id=context['observation_id'],
+        starting_cash=context['starting_cash'], acquisition_deadline=deadline), deadline=deadline)
+
+
 def prepare(conn, *, target_session, absolute_deadline, resume_job_id=None):
     checkpoint = origin.read(conn)
     conn.rollback()
@@ -63,7 +88,9 @@ def prepare(conn, *, target_session, absolute_deadline, resume_job_id=None):
         path = os.environ.get(MANIFEST_ENV)
         if not path:
             raise origin.RollingColdStartRefused('RETAINED_SOURCE_MANIFEST_REQUIRED')
-        runtime_admission.admit(conn, context=context, manifest=load_manifest(path))
+        manifest = load_manifest(path)
+        _with_backup_wait(conn, lambda: runtime_admission.admit(conn, context=context,
+            manifest=manifest), deadline=absolute_deadline)
     with reviewed_process(context, data_publication_sha256=checkpoint.runtime_identity['validated_data_publication_sha256'],
             deadline=absolute_deadline):
         while True:
@@ -76,17 +103,15 @@ def prepare(conn, *, target_session, absolute_deadline, resume_job_id=None):
                 if attested is None:
                     # Recover the durable candidate's receipt without replaying
                     # its transition, including after an acknowledgement loss.
-                    rolling_runtime.service_advance(conn, through=target_session,
-                        observation_id=context['observation_id'], starting_cash=context['starting_cash'],
-                        acquisition_deadline=absolute_deadline)
+                    _advance_with_backup_wait(conn, target_session=target_session,
+                        context=context, deadline=absolute_deadline)
                     continue
                 with inputs.pinned(conn) as pub:
                     rolling_runtime._current(conn, current, pub)
                 conn.rollback()
                 break
-            result = rolling_runtime.service_advance(conn, through=target_session,
-                observation_id=context['observation_id'], starting_cash=context['starting_cash'],
-                acquisition_deadline=absolute_deadline)
+            result = _advance_with_backup_wait(conn, target_session=target_session,
+                context=context, deadline=absolute_deadline)
             if result.session <= current.session:
                 raise origin.RollingColdStartRefused('RETAINED_GO_CONTINUATION_NO_PROGRESS')
     return {'status': 'RETAINED_STATE_VERIFIED', 'schema': inputs.SCHEMA}
