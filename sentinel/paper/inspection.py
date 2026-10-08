@@ -55,11 +55,13 @@ require_certified = require_certified_adapter
 
 def _require_certified_paper_broker(
         broker: ExecutionBroker, *,
-        expected_wrapper_kind: str = "generation-fenced-execution") -> None:
+        expected_wrapper_kind: str | None = "generation-fenced-execution") -> None:
     """Accept only adapter identities whose behavior is certified.
 
-    Production receives :class:`AlpacaExecutionBroker`; tests receive the
-    deterministic simulator. Treating every unknown implementation as the
+    Gateways explicitly request ``None`` for the sealed bare transport before
+    constructing their typed guard. Broker calls require the separately sealed
+    wrapper. Tests also receive the deterministic simulator. Treating an
+    unknown implementation as the
     simulator would let an unlisted transport borrow a certification it never
     earned merely by choosing a different class name.
     """

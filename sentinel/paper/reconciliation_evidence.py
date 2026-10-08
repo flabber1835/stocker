@@ -82,7 +82,8 @@ async def _settled_account_evidence_bracket(
     _account_or_refuse(before, binding, expected_account)
     confirmation = await reconciliation.reconcile(
         broker=broker, conn=conn, binding=None,
-        deployment=deployment, actions=actions)
+        deployment=deployment, actions=actions,
+        informational_current_book=dual_mode)
     confirmed_observation = _clean_or_refuse(
         confirmation, purpose="settled account evidence bracket")
     if not _account_evidence_is_quiescent(

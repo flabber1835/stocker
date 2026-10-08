@@ -133,7 +133,7 @@ async def recover_automated_paper_cycle(
             "starting-capital configuration")
     dual_mode = all(value is not None for value in dual_values)
     assert_paper_url(base_url)
-    _require_certified_paper_broker(broker)
+    _require_certified_paper_broker(broker, expected_wrapper_kind=None)
     schema.require_runtime_schema(conn)
     try:
         journal.require_observation_integrity(conn)
@@ -293,7 +293,8 @@ async def recover_automated_paper_cycle(
                             observation_target_actions, authority))
         result = await reconciliation.reconcile(
             broker=broker, conn=conn, binding=None,
-            deployment=binding.identity, actions=actions)
+            deployment=binding.identity, actions=actions,
+            informational_current_book=dual_mode)
 
         if plan is not None:
             current_commands = journal.load_commands(conn, binding.identity)

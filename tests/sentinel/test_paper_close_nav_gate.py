@@ -543,7 +543,7 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
         "sentinel.paper_performance.scan_entitlements", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(paper_preparation, "assert_paper_url", lambda _url: None)
     monkeypatch.setattr(
-        paper_preparation, "_require_certified_paper_broker", lambda _broker: None)
+        paper_preparation, "_require_certified_paper_broker", lambda _broker, **_kwargs: None)
     monkeypatch.setattr(
         paper_preparation.schema, "require_runtime_schema", lambda _conn: None)
     monkeypatch.setattr(

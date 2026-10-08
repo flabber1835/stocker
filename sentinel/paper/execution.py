@@ -205,7 +205,7 @@ async def _execute_current_paper_plan(
         ) -> ExecutionResult:
     """One durable-plan gateway shared by manual and automation grants."""
     assert_paper_url(base_url)
-    _require_certified_paper_broker(broker)
+    _require_certified_paper_broker(broker, expected_wrapper_kind=None)
     if (isinstance(grant, AutomationExecutionGrant)
             and grant.operation_scope != "EXECUTE"):
         raise PaperActivationRefused(
@@ -387,7 +387,8 @@ async def _execute_current_paper_plan(
                 allow_restrictions=True)
             preflight = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
-                deployment=binding.identity, actions=actions)
+                deployment=binding.identity, actions=actions,
+                informational_current_book=dual_mode)
             observation = (
                 _dual_mutation_observation_or_refuse(preflight)
                 if dual_mode else
@@ -510,7 +511,8 @@ async def _execute_current_paper_plan(
                     mutation_authority=(
                         authorize_dual_mutations
                         if dual_mode else None),
-                    security_restrictions=restrictions)
+                    security_restrictions=restrictions,
+                    informational_current_book=dual_mode)
             final_reconciliation = session.reconciliation
             if (final_reconciliation is not None
                     and not session.restricted_securities

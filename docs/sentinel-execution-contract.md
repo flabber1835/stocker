@@ -73,6 +73,20 @@ reconciliation/cancellation safety.
 
 ## Implementation status
 
+### Paper transport admission and guarded composition
+
+The public preparation, execution and recovery gateways receive the sealed,
+unwrapped paper transport issued by `build_execution_broker`. At entry they
+verify its exact implementation, paper mode and required capabilities; it has
+no wrapper identity yet and cannot be used for a broker call at this stage.
+After validating the durable binding, signed authority and typed operation
+grant, each gateway constructs the canonical fresh-authority execution wrapper
+exactly once. The shared constructor verifies the sealed generation-fenced
+composition before returning it for the first broker observation or mutation.
+An already wrapped transport, forged identity or altered wrapper configuration
+refuses. Administrative inspection still requires its distinct read-only
+wrapper. Preparation and recovery grants never acquire submission authority.
+
 ```text
 sentinel/execution/identity.py       derived client keys, takeover fencing
 sentinel/execution/states.py         command state machine + permission kernel
