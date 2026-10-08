@@ -178,6 +178,32 @@ and the fresh-state foreground acquisition driver remain unchanged.
 
 ## Qualification
 
+Qualify the complete retained-book activation sequence locally before spending
+another release iteration on a single downstream refusal. An isolated rehearsal
+restores an existing completed backup into a separate internal Docker network
+and preserves the restored immutable book and binding. Drive the actual host
+coordinator and engine handlers through candidate construction, test-only signed
+authority, shadow attestation, exact plan reconciliation, coordinated backup and
+kill release. Simulate external broker transport, software-publication responses,
+explicit session clocks and service-launch/HTTP-health responses only at their
+boundaries. Qualify real worker supervision, durable leader heartbeat and
+deadline behavior separately; a substituted service response proves none of
+those properties and must never be reported as an active deployment. Actual
+post-install verification still requires the installed workers and advancing
+heartbeat. No production signer,
+broker credentials, order transport or deployment admission may enter or leave
+the rehearsal. Test trust roots and simulated certification are fixture inputs,
+never release evidence. Record every substituted boundary and untested behavior;
+this rehearsal cannot replace protected certification or actual activation.
+
+Verify immutable-row/binding preservation and refusal/rollback at failed phases,
+then exercise the successful sequence and a repeated software upgrade over that
+same book. Reuse a completed backup as the starting point rather than asking the
+primary to create another one. Rehearsal backup and restore work uses its own
+internal-disk target and exclusive locks; the primary's approved backup/WAL set
+and sole maintenance owner remain intact. Actual backing-drive capacity must
+admit the complete planned disposable footprint before the rehearsal starts.
+
 Use real PostgreSQL for authenticated reuse, compatible executable admission,
 restart, lost acknowledgements, adjacent continuation, reconstruction and
 rollback. Falsify manifest completeness, economic or environment drift, changed
