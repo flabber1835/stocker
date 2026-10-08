@@ -16,7 +16,9 @@ def test_exact_execution_upgrade_sources_are_pinned(name):
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
     if actual != record['after']:
         from sentinel import retained_readiness_upgrade as subsequent
-        assert subsequent.source_allowed(name, record['after'], actual)
+        from sentinel import dual_plan_renewal_upgrade as renewal
+        assert (subsequent.source_allowed(name, record['after'], actual)
+                or renewal.source_allowed(name, record['after'], actual))
     reviewed = record['after']
     for previous in record['before']:
         assert upgrade.source_allowed(name, previous, reviewed)

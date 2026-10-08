@@ -27,21 +27,21 @@
       "generated_ast_sha256": "d1fa7e81a6a89e9246ab6d34d512997d39fd44dd847491fa2f46850713e53214",
       "historical_ast_sha256": "f4eb9043249fe20b6c5292439a6b1a07935d41807e5e7c05e679d0a39d85112b",
       "module": "validation",
-      "retained_design": "docs/retained-state-activation.md",
+      "reason": "PR #491: Preserve deterministic plan, state, strategy, transition, publication, effective-session and account guards while allowing only exact authenticated retained dual-shadow strategy admission.",
       "retained_acceptance": [
         "tests/sentinel/test_retained_admission_chain.py",
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
       ],
-      "reason": "PR #491: Preserve deterministic plan, state, strategy, transition, publication, effective-session and account guards while allowing only exact authenticated retained dual-shadow strategy admission."
+      "retained_design": "docs/retained-state-activation.md"
     },
     "_cash_authority_or_refuse": {
       "acceptance": "audit/economic_399/cash_precision/README.md",
       "design": "docs/sentinel-execution-contract.md",
+      "forward_cash_design": "docs/late-cash-distributions.md",
       "generated_ast_sha256": "b959a98a6d6d15d7091791ac2d3bc73297d28ac39a12cc3874dde220c341a71d",
       "historical_ast_sha256": "c6ba9a412b1eef9da63b19cea444dbd28794ea378c28fa926f6352059f8fe980",
       "module": "cash",
-      "reason": "PR #421 exact Fraction cash/notional accumulation and one-dollar comparison; exact Decimal conversion preserves grace identity across ambient precision contexts. PR #488 returns the explained native activity change for stale-plan supersession; all existing cash explanation refusals remain.",
-      "forward_cash_design": "docs/late-cash-distributions.md"
+      "reason": "PR #421 exact Fraction cash/notional accumulation and one-dollar comparison; exact Decimal conversion preserves grace identity across ambient precision contexts. PR #488 returns the explained native activity change for stale-plan supersession; all existing cash explanation refusals remain."
     },
     "_clean_or_refuse": {
       "generated_ast_sha256": "ac177ed6938e7a9755eeb9f7a50a8ebda2e595851154cc9507d72698a6f0038a",
@@ -58,28 +58,52 @@
       "historical_ast_sha256": "73cec241b833abc633c6c245974755105dbb7a61b13281a7bc35a127e6e2ed30",
       "module": "reconciliation_evidence"
     },
+    "_dual_renewal_rollout": {
+      "generated_ast_sha256": "3d2227fd4e04ab2f7e94bd756771a654e9ab32d00ee394b5139cbb2c30bbc527",
+      "historical_ast_sha256": null,
+      "module": "preparation",
+      "reason": " PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards.",
+      "renewal_acceptance": [
+        "tests/sentinel/test_dual_plan_renewal.py",
+        "tests/sentinel/test_dual_plan_renewal_upgrade.py"
+      ],
+      "renewal_design": "docs/retained-state-activation.md"
+    },
     "_execute_current_paper_plan": {
-      "generated_ast_sha256": "377a7a1117642848b8795426b4d1dd5d543adf086be9228cacc71ca6b7862695",
-      "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
-      "module": "execution",
-      "composition_design": "docs/sentinel-execution-contract.md",
-      "current_book_design": "docs/autonomous-paper-readiness.md",
       "composition_acceptance": [
         "tests/sentinel/test_paper_composition_gateway.py",
         "tests/sentinel/test_recovery_capability_boundary.py",
         "tests/sentinel/test_historical_recovery_process_death.py"
       ],
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "generated_ast_sha256": "377a7a1117642848b8795426b4d1dd5d543adf086be9228cacc71ca6b7862695",
+      "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
+      "module": "execution",
       "reason": "Admit the sealed bare transport before composition and preserve reviewed informational current-book scope through execution preflight and settlement. PR #491: Pass independently verified dual scope to the exact retained-state plan guard; all existing sizing, reconciliation, opening-window and broker authority guards remain.",
-      "retained_design": "docs/retained-state-activation.md",
       "retained_acceptance": [
         "tests/sentinel/test_retained_admission_chain.py",
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
-      ]
+      ],
+      "retained_design": "docs/retained-state-activation.md"
     },
     "_fresh_warmed_state": {
       "generated_ast_sha256": "1afd2445d98e791c34d7040fcc345f334173cf9ab9cc44ef2c5426dd1be7202f",
       "historical_ast_sha256": "ed5c9e76c44538c7a46dbc1738001c632996e960a8e5b2dd889a7d80cf0ce023",
       "module": "preparation"
+    },
+    "_guard_broker": {
+      "composition_acceptance": [
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_recovery_capability_boundary.py",
+        "tests/sentinel/test_historical_recovery_process_death.py"
+      ],
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "generated_ast_sha256": "eb6e72c7fd3e4661d25ad02d3c26e83f5fa44275bce0bed687f0f7fd8bd8dd0d",
+      "historical_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
+      "module": "validation",
+      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation."
     },
     "_informational_active_symbols": {
       "generated_ast_sha256": "40752dd7a661317132596995792cf2ca3445eafcf83e1ea52de614f2f61272f0",
@@ -134,17 +158,52 @@
       "historical_ast_sha256": "7ab01a9041855530fb50f2986f6691aa73324f84c2895084f66bdec0f0595e79",
       "module": "validation"
     },
-    "_settled_account_evidence_bracket": {
-      "generated_ast_sha256": "6e0b7b3f86c4e14786369e10680271ef144c6e16f8ca3c44b3e2f1766815f719",
-      "historical_ast_sha256": "9b4fb19f26df6935be4158365011408607aa90d8b94ced772fdf277b7407a2c0",
-      "module": "reconciliation_evidence",
-      "composition_design": "docs/sentinel-execution-contract.md",
-      "current_book_design": "docs/autonomous-paper-readiness.md",
+    "_require_certified_paper_broker": {
       "composition_acceptance": [
         "tests/sentinel/test_paper_composition_gateway.py",
         "tests/sentinel/test_recovery_capability_boundary.py",
         "tests/sentinel/test_historical_recovery_process_death.py"
       ],
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "generated_ast_sha256": "61923e1748a9c45026a4ad9225802af0885fccbdb00f8d9744e42efe39c0c85e",
+      "historical_ast_sha256": "80264b0b9b5f8b93f78aa943e746db36adab3512b6c599d308b1037667d3dac3",
+      "module": "inspection",
+      "reason": "Admit the sealed bare transport explicitly at the entry gateway; retain the separately sealed generation-fenced wrapper requirement for broker calls."
+    },
+    "_require_state_strategy": {
+      "generated_ast_sha256": "ef3a616fd7081aa33a76d624293f43684910f36e9723e2331945be8c1a85c7e4",
+      "historical_ast_sha256": null,
+      "module": "validation",
+      "reason": "PR #491: New exact retained-state strategy boundary: equal identities pass normally; mismatches require explicit dual scope and authenticated current/intermediate admissions matching the original runtime, checkpoint state and session.",
+      "retained_acceptance": [
+        "tests/sentinel/test_retained_admission_chain.py",
+        "tests/sentinel/test_rolling_retained_runtime_activation.py"
+      ],
+      "retained_design": "docs/retained-state-activation.md"
+    },
+    "_require_unsent_renewal": {
+      "generated_ast_sha256": "04b2f0d417724e32e166dba8501c22293d3bb628d25c9db6315b1814172486c9",
+      "historical_ast_sha256": null,
+      "module": "preparation",
+      "reason": " PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards.",
+      "renewal_acceptance": [
+        "tests/sentinel/test_dual_plan_renewal.py",
+        "tests/sentinel/test_dual_plan_renewal_upgrade.py"
+      ],
+      "renewal_design": "docs/retained-state-activation.md"
+    },
+    "_settled_account_evidence_bracket": {
+      "composition_acceptance": [
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_recovery_capability_boundary.py",
+        "tests/sentinel/test_historical_recovery_process_death.py"
+      ],
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "generated_ast_sha256": "6e0b7b3f86c4e14786369e10680271ef144c6e16f8ca3c44b3e2f1766815f719",
+      "historical_ast_sha256": "9b4fb19f26df6935be4158365011408607aa90d8b94ced772fdf277b7407a2c0",
+      "module": "reconciliation_evidence",
       "reason": "Preserve the verified dual scope across the second reconciled account bracket; strict historical reconciliation remains the default."
     },
     "_state_and_plan_or_refuse": {
@@ -172,29 +231,16 @@
       "historical_ast_sha256": null,
       "module": "reconciliation_evidence"
     },
-    "_guard_broker": {
-      "generated_ast_sha256": "eb6e72c7fd3e4661d25ad02d3c26e83f5fa44275bce0bed687f0f7fd8bd8dd0d",
-      "historical_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
-      "module": "validation",
-      "composition_design": "docs/sentinel-execution-contract.md",
-      "current_book_design": "docs/autonomous-paper-readiness.md",
-      "composition_acceptance": [
-        "tests/sentinel/test_paper_composition_gateway.py",
-        "tests/sentinel/test_recovery_capability_boundary.py",
-        "tests/sentinel/test_historical_recovery_process_death.py"
-      ],
-      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation."
-    },
     "_validate_broker_grant": {
       "generated_ast_sha256": "d98be38c794ce535e1e43bc4d8e9089b4df423c81d417dfb0faada6c3c2769cf",
       "historical_ast_sha256": "a10cb381c28e916db84d14fe6fbc617043ac4e1beaaf165a2287250fdc4ce282",
       "module": "validation",
-      "retained_design": "docs/retained-state-activation.md",
+      "reason": "PR #491: Recheck exact authenticated retained dual-shadow checkpoint state during each fresh automation broker guard; standalone and manual paths remain strict.",
       "retained_acceptance": [
         "tests/sentinel/test_retained_admission_chain.py",
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
       ],
-      "reason": "PR #491: Recheck exact authenticated retained dual-shadow checkpoint state during each fresh automation broker guard; standalone and manual paths remain strict."
+      "retained_design": "docs/retained-state-activation.md"
     },
     "build_security_resolver": {
       "generated_ast_sha256": "a7d88b8f7c1340144c469ef5ba9193d8707793807cb81ac73076eb81a15c3968",
@@ -208,63 +254,44 @@
     },
     "prepare_paper_plan": {
       "acceptance": "docs/unattended-operation-qualification.md",
-      "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "9699d3d6f8b85627f9322e41cf0d11d25466f39991f19b12411c0299c83e4128",
-      "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
-      "module": "preparation",
-      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality.",
-      "composition_design": "docs/sentinel-execution-contract.md",
-      "current_book_design": "docs/autonomous-paper-readiness.md",
       "composition_acceptance": [
         "tests/sentinel/test_paper_composition_gateway.py",
         "tests/sentinel/test_recovery_capability_boundary.py",
         "tests/sentinel/test_historical_recovery_process_death.py"
       ],
-      "retained_design": "docs/retained-state-activation.md",
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
+      "design": "docs/unattended-operating-contract.md",
+      "generated_ast_sha256": "1b60943790b0fa5cd719c7491aee979b34771334d608460bf5b8c5e8ca47fdae",
+      "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
+      "module": "preparation",
+      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality. PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards.",
+      "renewal_acceptance": [
+        "tests/sentinel/test_dual_plan_renewal.py",
+        "tests/sentinel/test_dual_plan_renewal_upgrade.py"
+      ],
+      "renewal_design": "docs/retained-state-activation.md",
       "retained_acceptance": [
         "tests/sentinel/test_retained_admission_chain.py",
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
-      ]
+      ],
+      "retained_design": "docs/retained-state-activation.md"
     },
     "recover_automated_paper_cycle": {
       "acceptance": "docs/unattended-operation-qualification.md",
+      "composition_acceptance": [
+        "tests/sentinel/test_paper_composition_gateway.py",
+        "tests/sentinel/test_recovery_capability_boundary.py",
+        "tests/sentinel/test_historical_recovery_process_death.py"
+      ],
+      "composition_design": "docs/sentinel-execution-contract.md",
+      "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
+      "forward_cash_design": "docs/late-cash-distributions.md",
       "generated_ast_sha256": "7293fa69c7cc90add2c69d240f32518b36b1374c752504f45150e9d4f8e0b79a",
       "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
       "module": "recovery",
-      "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged. PR #488 reconciles native cash even without a target projection and marks the immutable stale plan superseded after explained activity changes, without permitting new broker mutations. Admit the sealed bare transport before composition and recover reviewed informational dual commands from the current book and exact positive client-key evidence without promoting historical recovery watermarks.",
-      "forward_cash_design": "docs/late-cash-distributions.md",
-      "composition_design": "docs/sentinel-execution-contract.md",
-      "current_book_design": "docs/autonomous-paper-readiness.md",
-      "composition_acceptance": [
-        "tests/sentinel/test_paper_composition_gateway.py",
-        "tests/sentinel/test_recovery_capability_boundary.py",
-        "tests/sentinel/test_historical_recovery_process_death.py"
-      ]
-    },
-    "_require_certified_paper_broker": {
-      "module": "inspection",
-      "historical_ast_sha256": "80264b0b9b5f8b93f78aa943e746db36adab3512b6c599d308b1037667d3dac3",
-      "generated_ast_sha256": "61923e1748a9c45026a4ad9225802af0885fccbdb00f8d9744e42efe39c0c85e",
-      "composition_design": "docs/sentinel-execution-contract.md",
-      "current_book_design": "docs/autonomous-paper-readiness.md",
-      "composition_acceptance": [
-        "tests/sentinel/test_paper_composition_gateway.py",
-        "tests/sentinel/test_recovery_capability_boundary.py",
-        "tests/sentinel/test_historical_recovery_process_death.py"
-      ],
-      "reason": "Admit the sealed bare transport explicitly at the entry gateway; retain the separately sealed generation-fenced wrapper requirement for broker calls."
-    },
-    "_require_state_strategy": {
-      "module": "validation",
-      "historical_ast_sha256": null,
-      "generated_ast_sha256": "ef3a616fd7081aa33a76d624293f43684910f36e9723e2331945be8c1a85c7e4",
-      "retained_design": "docs/retained-state-activation.md",
-      "retained_acceptance": [
-        "tests/sentinel/test_retained_admission_chain.py",
-        "tests/sentinel/test_rolling_retained_runtime_activation.py"
-      ],
-      "reason": "PR #491: New exact retained-state strategy boundary: equal identities pass normally; mismatches require explicit dual scope and authenticated current/intermediate admissions matching the original runtime, checkpoint state and session."
+      "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged. PR #488 reconciles native cash even without a target projection and marks the immutable stale plan superseded after explained activity changes, without permitting new broker mutations. Admit the sealed bare transport before composition and recover reviewed informational dual commands from the current book and exact positive client-key evidence without promoting historical recovery watermarks."
     }
   },
   "design": "docs/production-compact-champion.md",

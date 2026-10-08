@@ -176,6 +176,36 @@ evidence remains a terminal refusal; `BackupHorizonExceeded` still reaches the
 separate, finitely bounded host renewal contract. Ordinary service scheduling
 and the fresh-state foreground acquisition driver remain unchanged.
 
+## Same-session authority renewal
+
+Software installation remains possible at any time and never rewrites the book.
+A later, separately authorized dual-paper activation can rotate the signed
+controller certificate before the next executable session. The old plan's
+rollout stamp is then stale: execution and read-only current-plan verification
+must continue to reject it. Ordinary preparation retries under identical
+rollout authority still return the exact original plan without resizing it.
+
+For a monotonic CONTROLLER certificate renewal only, dual preparation may replace
+an unsent same-session plan. Authenticate the old rollout stamp against immutable
+rollout history, check every state/publication/account/strategy binding and
+re-derive its exact immutable sizing proof. Its shadow-record identity must equal
+the currently verified record; only the executable runtime attestation may have
+changed. Refuse a mode change, a changed certificate at the same version, missing
+history, future stamps or any command for that plan that has left PLANNED. Check
+this before broker reads and again after reconciliation. Other unresolved
+commands and working broker orders remain blockers. A dispatched same-session
+plan waits for the next decision rather than gaining a second execution intent.
+
+An explicit certificate renewal is a new account-sizing decision, not an
+idempotent retry. Reuse the ordinary complete reconciliation, account identity,
+cash explanation and canonical dual sizing path under current authority. Commit
+the new plan, sizing proof, cash baseline and supersession atomically. Retain the
+old immutable plan/proof and command history; never edit Wealth Core state or its
+cursor. The new plan must independently pass current-authority verification,
+reconciliation and the coordinated restore before execution can resume. Admit
+this execution repair through a new exact source profile; earlier economic,
+execution and readiness profiles remain immutable.
+
 ## Qualification
 
 Qualify the complete retained-book activation sequence locally before spending
