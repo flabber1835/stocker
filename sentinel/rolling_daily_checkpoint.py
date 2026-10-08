@@ -100,6 +100,8 @@ def _publication(conn, checkpoint):
 
 
 def load(conn, context, *, status_only=False):
+    from sentinel.runtime_admission import bind_context
+    bind_context(conn, context)
     initial = origin.read(conn)
     if initial is None:
         raise Refused("COLD_START_CHECKPOINT_REQUIRED")

@@ -111,15 +111,23 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
             if not frontier or held.window_end != frontier:
                 raise OperationalParityRefused("publication does not end at visible frontier")
             formation_proof = None
+            retained_proof = None
             if rolling:
                 from sentinel.rolling_runtime import SCHEMA as runtime_contract
                 from sentinel.controller.machine import Controller
                 from sentinel.core.production import warm_session_state
                 from sentinel.rolling_initialization import _published, current_window_inputs
                 from sentinel.shadow_runtime import _warmup_input_identity
-                rolling_go_inputs.require_first_deployment(conn)
+                from sentinel import rolling_checkpoint
                 from sentinel.controller.owned_impairment import enabled as owned
-                if owned(strategy) and (not current_window or window_policy.formed(strategy)):
+                if rolling_checkpoint.read(conn) is not None:
+                    from sentinel import retained_parity
+                    binding, _ = rolling_go_inputs.validate_status(conn, held)
+                    retained_proof = retained_parity.prove(conn, held=held,
+                        observation_id=os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID', 'primary'), starting_cash=cash)
+                    warmup = retained_proof['warmup_input']
+                elif owned(strategy) and (not current_window or window_policy.formed(strategy)):
+                    rolling_go_inputs.require_first_deployment(conn)
                     # Readiness uses counts; formation owns its one feature
                     # window. Do not retain a second, unused warmup corpus.
                     binding, _ = rolling_go_inputs.validate_status(conn, held)
@@ -129,6 +137,7 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
                     prior, warmup, published, formation_proof = formation_preview.run(
                         source_inputs, capital=cash, strategy=strategy, data_version=held.version)
                 else:
+                    rolling_go_inputs.require_first_deployment(conn)
                     binding, material, _ = rolling_go_inputs.validate(conn, held)
                     prior = warm_session_state(
                         SessionState.fresh(starting_cash=float(cash), controller=Controller(controller),
@@ -153,8 +162,10 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
                     conn, frontier, spy_sessions=REQUIRED_SPY_SESSIONS)
             if warmup.get("session_count") != (299 if current_window else WARMUP_SESSIONS):
                 raise OperationalParityRefused("incomplete production feature warm-up")
-            transition = prove_transition(
-                prior, published, held=held, controller=controller, strategy=strategy)
+            transition = ({key: retained_proof[key] for key in (
+                'input_sha256', 'prior_state_sha256', 'result_state_sha256', 'decision_sha256', 'checks')}
+                if retained_proof else prove_transition(
+                    prior, published, held=held, controller=controller, strategy=strategy))
             held_identity = {
                 "publication_fingerprint": publication_fingerprint(held),
                 "visible_frontier": frontier,
@@ -180,8 +191,10 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
             },
             "proof": {
                 **({"runtime_contract": runtime_contract} if rolling else {}),
-                "scope": ("ROLLING_FORMED_STARTUP_AND_RESTART" if formation_proof else
+                "scope": ("ROLLING_RETAINED_STATE_AND_RESTART" if retained_proof else
+                          "ROLLING_FORMED_STARTUP_AND_RESTART" if formation_proof else
                           "ROLLING_STARTUP_AND_RESTART" if rolling else PROOF_SCOPE),
+                **({'retained': retained_proof['retained']} if retained_proof else {}),
                 **({'formation': formation_proof} if formation_proof else {}),
                 "strategy_identity": strategy,
                 "controller_configuration_sha256": controller.digest,

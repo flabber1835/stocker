@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[Retained-state activation](retained-state-activation.md) defines activation's
+explicit compatible-executable admission and reuse of an authenticated existing
+book. It supersedes the historical first-deployment-only GO restriction without
+changing software installation, economic transitions or paper execution guards.
+
 [Installation and activation separation](installation-activation-separation.md)
 supersedes the combined installation/financial GO sequence below. The public
 installer admits protected signed software without a financial ZIP and finishes

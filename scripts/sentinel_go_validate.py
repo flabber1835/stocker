@@ -1215,7 +1215,7 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
                    and proof.get("scope") == "CURRENT_STRATEGY_STARTUP_AND_RESTART"
                    and "runtime_contract" not in proof)
     if (coherence.get("scope") == "ROLLING_CURRENT_INPUTS_ONLY"
-            and proof.get("scope") in {"ROLLING_STARTUP_AND_RESTART", "ROLLING_FORMED_STARTUP_AND_RESTART"}
+            and proof.get("scope") in {"ROLLING_STARTUP_AND_RESTART", "ROLLING_FORMED_STARTUP_AND_RESTART", "ROLLING_RETAINED_STATE_AND_RESTART"}
             and proof.get("runtime_contract") == "sentinel.rolling-shadow-runtime/1"):
         snapshot = coherence.get("snapshot")
         scope_valid = (isinstance(snapshot, dict)
@@ -1229,7 +1229,20 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
                            for key in ("candidate_id", "job_id")))
     current_window = strategy.get('market_input_policy') == 'CURRENT_WINDOW_V1'
     formed_window = current_window and strategy.get('startup_policy') == 'CURRENT_WINDOW_FORMATION_V1'
-    if current_window and not formed_window:
+    if proof.get('scope') == 'ROLLING_RETAINED_STATE_AND_RESTART':
+        try:
+            from sentinel import retained_parity
+            retained = retained_parity.validate(proof.get('retained'))
+            scope_valid = (scope_valid and formed_window and not proof.get('formation')
+                and retained.strategy_sha256 == _evidence_digest(strategy)
+                and retained.session == proof.get('decision_session')
+                and retained.state_sha256 == proof.get('result_state_sha256')
+                and retained.prior_state_sha256 == proof.get('prior_state_sha256')
+                and retained.input_sha256 == proof.get('input_sha256')
+                and retained.checks.model_dump() == checks)
+        except (ValueError, TypeError, RuntimeError):
+            scope_valid = False
+    elif current_window and not formed_window:
         scope_valid = (scope_valid and proof.get('scope') == 'ROLLING_STARTUP_AND_RESTART'
             and proof.get('runtime_contract') == 'sentinel.rolling-shadow-runtime/1'
             and warmup.get('schema') == 'sentinel.shadow-window-warmup-input/1'

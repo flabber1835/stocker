@@ -41,6 +41,8 @@ def test_partial_preparation_attempts_survive_failure(monkeypatch, code, failure
     monkeypatch.setattr(outage_recovery, "catch_up", fail)
     from sentinel.feed import rolling_go_inputs
     monkeypatch.setattr(rolling_go_inputs, "prepare", fail)
+    from sentinel import retained_go
+    monkeypatch.setattr(retained_go, 'prepare', fail)
     # Select a deterministic eligible instant without rewriting phase/attempt code.
     code = code.replace("now = datetime.now(timezone.utc)",
                         "now = datetime(2026, 8, 12, 3, 46, tzinfo=timezone.utc)")
@@ -54,6 +56,8 @@ def test_partial_preparation_attempts_survive_failure(monkeypatch, code, failure
 
     class Runner:
         def run(self, argv, **kwargs):
+            if source_final._RETAINED_REVISION_CODE in argv:
+                return subprocess.CompletedProcess(argv, 0, '{"retained_revision":null}', '')
             return subprocess.CompletedProcess(argv, 1, output.getvalue(), "")
 
     monkeypatch.setattr(source_final.go, "_resolve_compose_args", lambda *a: [])

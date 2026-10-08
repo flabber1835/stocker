@@ -203,26 +203,8 @@ def data_semantics_source_identity() -> dict[str, object]:
     loader change makes persisted path-dependent state stale instead of
     silently advancing it under new semantics.
     """
-    files = []
-    for module_name in _DATA_SEMANTICS_MODULES:
-        module = importlib.import_module(module_name)
-        module_file = getattr(module, "__file__", None)
-        if not module_file:
-            raise RuntimeError(
-                f"data-semantics module {module_name} has no source path")
-        path = Path(module_file).resolve()
-        if not path.is_file():
-            raise RuntimeError(
-                f"data-semantics source {module_name} is not a file: {path}")
-        files.append({
-            "module": module_name,
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        })
-    payload = {
-        "schema": DATA_SEMANTICS_IDENTITY_SCHEMA,
-        "files": files,
-    }
-    return {**payload, "sha256": _canonical_hash(payload)}
+    from sentinel.semantic_source_basis import economic_sources
+    return economic_sources(_DATA_SEMANTICS_MODULES, schema=DATA_SEMANTICS_IDENTITY_SCHEMA)
 
 
 def _as_mapping(value, *, label: str) -> Mapping:
