@@ -261,7 +261,7 @@ def test_lost_commit_reply_resumes_without_duplicate_fills(conn, ready, operatio
     assert recovered.state.state_hash == expected and not recovered.appended
 
 
-def test_applied_cash_event_change_refuses_before_daily_commit(conn, ready, operational_source, monkeypatch):
+def test_late_cash_event_preserves_history_and_advances_once(conn, ready, operational_source, monkeypatch):
     first = start(conn)
     refresh(conn, operational_source, monkeypatch)
     held = advance(conn)
@@ -269,12 +269,18 @@ def test_applied_cash_event_change_refuses_before_daily_commit(conn, ready, oper
     operational_source['ACTIONS'].append(dict(ticker=episode['ticker'], date=held.session,
         action='dividend', value='1', name='late correction', contraticker=None, contraname=None))
     refresh(conn, operational_source, monkeypatch)
-    with pytest.raises(rolling_continuity.RollingContinuityRefused, match='RETAINED_ECONOMIC_EVENT_CHANGED'):
-        advance(conn)
-    assert daily.resume(conn, observation_id=OBS, starting_cash=50_000).state.state_hash == held.state.state_hash
+    result = advance(conn)
+    assert result.session == '2026-09-16'
+    assert result.state.ledger['events'][:len(held.state.ledger['events'])] == held.state.ledger['events']
+    sid = next(row['permaticker'] for row in operational_source['TICKERS'] if row['ticker'] == episode['ticker'])
+    audit = next(row for row in result.state.last_evidence['cash_distributions']['observations'] if row['security_id'] == sid)
+    # These shares were bought on the ex-date, so the new knowledge earns zero.
+    assert audit['status'] == 'ZERO_ENTITLEMENT'
+    assert not advance(conn).appended
+    assert daily.resume(conn, observation_id=OBS, starting_cash=50_000).state.state_hash == result.state.state_hash
 
 
-def test_unusable_action_on_held_security_preserves_book(conn, ready, operational_source, monkeypatch):
+def test_unknown_cash_terms_continue_without_new_entitlement(conn, ready, operational_source, monkeypatch):
     start(conn)
     refresh(conn, operational_source, monkeypatch)
     held = advance(conn)
@@ -283,9 +289,12 @@ def test_unusable_action_on_held_security_preserves_book(conn, ready, operationa
         action='dividend', value='0', name='unknown cash',
         contraticker=None, contraname=None))
     refresh(conn, operational_source, monkeypatch)
-    with pytest.raises((rolling_continuity.RollingContinuityRefused, ValueError)):
-        advance(conn)
-    assert daily.resume(conn, observation_id=OBS, starting_cash=50_000).state.state_hash == held.state.state_hash
+    result = advance(conn)
+    assert result.session == '2026-09-16'
+    assert result.state.ledger['events'][:len(held.state.ledger['events'])] == held.state.ledger['events']
+    assert any(row['ticker'] == episode['ticker'] and row['reason'] == 'CASH_DISTRIBUTION_TERMS_PENDING'
+               for row in result.state.last_evidence['cash_distributions']['pending'])
+    assert daily.resume(conn, observation_id=OBS, starting_cash=50_000).state.state_hash == result.state.state_hash
 
 
 def test_uniform_source_rebase_preserves_owned_quantities_and_peaks(conn, ready, operational_source, monkeypatch):

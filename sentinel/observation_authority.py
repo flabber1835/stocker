@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -243,6 +244,10 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
     formation = None
     with readers.pinned(conn, commit=False) as pub:
         frontier = readers.frontier(conn, pub)
+        if readers.is_rolling(pub):
+            from sentinel import rolling_checkpoint
+            if rolling_checkpoint.read(conn) is not None:
+                return _retained_warmup(conn, pub=pub, cash=cash, controller=controller, strategy=strategy)
         if owned(strategy) and (not window_policy.enabled(strategy) or window_policy.formed(strategy)):
             if not readers.is_rolling(pub):
                 raise AuthorityRefused('Owned55 observation requires a formation publication')
@@ -300,6 +305,28 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
             "paper-observation warmup did not produce the current startup decision")
     observation_startup.require(record, strategy_sha256=canonical_sha256(strategy),
                                 controller_sha256=controller.digest)
+    return record
+
+
+def _retained_warmup(conn, *, pub, cash, controller, strategy):
+    from sentinel import retained_parity, observation_startup
+    from sentinel.core.decision import publication_fingerprint
+    proved = retained_parity.prove(conn, held=pub,
+        observation_id=os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID', 'primary'), starting_cash=cash)
+    warmup, result = proved['warmup_input'], proved['state']
+    record = {'schema': observation_startup.RETAINED_SCHEMA,
+        'historical_causality': HISTORICAL_CAUSALITY_UNVERIFIED,
+        'historical_certification': 'NOT_GRANTED', 'measured_sessions': 1,
+        'warmup_sessions': warmup['session_count'], 'first_session': warmup['first_warmup_session'],
+        'decision_session': result.last_processed_session,
+        'publication_fingerprint': publication_fingerprint(pub),
+        'current_corpus': _corpus_root_identity(conn, pub),
+        'starting_cash': format(cash.normalize(), 'f'),
+        'strategy_identity_sha256': canonical_sha256(strategy), 'warmup_input': warmup,
+        'result_state_sha256': result.state_hash, 'decision': _evidence_value(result.last_decision),
+        'decision_sha256': canonical_sha256(_evidence_value(result.last_decision)),
+        'retained': proved['retained']}
+    observation_startup.require(record, strategy_sha256=canonical_sha256(strategy), controller_sha256=controller.digest)
     return record
 
 
@@ -389,6 +416,13 @@ def build_candidate(
             raise AuthorityRefused("observation warmup publication or strategy differs")
         observation_startup.require(warmup, strategy_sha256=canonical_sha256(strategy_identity),
                                     controller_sha256=controller_for_identity(strategy_identity).digest)
+        if warmup.get('schema') == observation_startup.RETAINED_SCHEMA:
+            from sentinel import retained_parity
+            actual = retained_parity.prove(conn, held=pub,
+                observation_id=warmup['retained']['observation_id'], starting_cash=warmup['starting_cash'])
+            if (actual['retained'] != warmup['retained'] or actual['warmup_input'] != warmup['warmup_input']
+                    or _evidence_value(actual['state'].last_decision) != warmup['decision']):
+                raise AuthorityRefused('retained candidate no longer matches the actual book')
     corpus = inputs["current_corpus"]
     metadata = inputs["current_metadata_snapshot"]
     controller = controller_for_identity(strategy_identity)

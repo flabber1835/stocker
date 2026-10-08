@@ -100,12 +100,17 @@ def _publication(conn, checkpoint):
 
 
 def load(conn, context, *, status_only=False):
+    target_strategy = context['strategy']
+    from sentinel.runtime_admission import bind_context
+    bind_context(conn, context)
     initial = origin.read(conn)
     if initial is None:
         raise Refused("COLD_START_CHECKPOINT_REQUIRED")
     checkpoint = read(conn)
     if checkpoint is None:
         observer, result = origin.restore_observer(conn, initial, **context, status_only=status_only)
+        if observer is not None:
+            observer._target_strategy_identity = target_strategy
         _publication(conn, initial)
         return initial, observer, result
     if (checkpoint.origin_sha256 != digest(initial.model_dump(by_alias=True))
@@ -136,11 +141,15 @@ def load(conn, context, *, status_only=False):
     observer = shadow.ShadowObserver.resume_checkpoint(
         history_anchor=checkpoint.history_anchor, store=store, observation_id=checkpoint.observation_id,
         starting_cash=checkpoint.starting_cash, first_session=initial.session,
-        controller_config=context["controller"], strategy_identity=context["strategy"], runtime_identity=context["runtime"],
+        controller_config=context["controller"], strategy_identity=initial.strategy_identity, runtime_identity=context["runtime"],
         status_only=status_only)
+    observer._accepted_strategies = (initial.strategy_identity, context['strategy'])
+    observer.strategy_identity = context['strategy']
+    observer._target_strategy_identity = target_strategy
     rows, state = observer._history(consume_seed=True) if status_only else observer._history()
     if (len(rows) != 1 or rows[0]["record_sha256"] != checkpoint.record_sha256
             or rows[0]["state_sha256"] != checkpoint.state_sha256
+            or state.strategy_identity != checkpoint.strategy_identity
             or digest(checkpoint.input_value) != rows[0]["input_sha256"]
             or rows[0]["publication"]["publication"] != checkpoint.publication
             or observer.genesis_sha256 != checkpoint.genesis_sha256):

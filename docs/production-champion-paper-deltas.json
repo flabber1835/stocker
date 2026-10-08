@@ -31,10 +31,11 @@
     "_cash_authority_or_refuse": {
       "acceptance": "audit/economic_399/cash_precision/README.md",
       "design": "docs/sentinel-execution-contract.md",
-      "generated_ast_sha256": "99feac810d791b5870b1d7f7d83514df2f2bbd49520aa75ffe8d0884f91cef9f",
+      "generated_ast_sha256": "b959a98a6d6d15d7091791ac2d3bc73297d28ac39a12cc3874dde220c341a71d",
       "historical_ast_sha256": "c6ba9a412b1eef9da63b19cea444dbd28794ea378c28fa926f6352059f8fe980",
       "module": "cash",
-      "reason": "PR #421 exact Fraction cash/notional accumulation and one-dollar comparison; exact Decimal conversion preserves grace identity across ambient precision contexts."
+      "reason": "PR #421 exact Fraction cash/notional accumulation and one-dollar comparison; exact Decimal conversion preserves grace identity across ambient precision contexts. PR #488 returns the explained native activity change for stale-plan supersession; all existing cash explanation refusals remain.",
+      "forward_cash_design": "docs/late-cash-distributions.md"
     },
     "_clean_or_refuse": {
       "generated_ast_sha256": "ac177ed6938e7a9755eeb9f7a50a8ebda2e595851154cc9507d72698a6f0038a",
@@ -175,10 +176,11 @@
     "recover_automated_paper_cycle": {
       "acceptance": "docs/unattended-operation-qualification.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "14e4c7691afc10615d636d61f8bffda771b5641227a6d0dfe44e9429c36ac2ee",
+      "generated_ast_sha256": "49b48551d095818b61c724a160db56969c71bfbfd6b4101f364676eebd712597",
       "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
       "module": "recovery",
-      "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged."
+      "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged. PR #488 reconciles native cash even without a target projection and marks the immutable stale plan superseded after explained activity changes, without permitting new broker mutations.",
+      "forward_cash_design": "docs/late-cash-distributions.md"
     }
   },
   "design": "docs/production-compact-champion.md",

@@ -181,6 +181,9 @@ def test_source_final_and_feed_binding_chain_authenticates_get_only_client(
     class AcquisitionRunner(Runner):
         def run(self, argv, *, env=None, cwd=ROOT):
             command = list(argv)
+            if command[-1] == source_final._RETAINED_REVISION_CODE:
+                assert not any((env or {}).get(key) for key in entry.go._BROKER_AUTH_ENV)
+                return subprocess.CompletedProcess(command, 0, '{"retained_revision":null}', '')
             if command[:2] == ["docker", "compose"]:
                 # Reconstruct Docker's by-name environment boundary, then call
                 # the actual transport. An unconditional success marker would

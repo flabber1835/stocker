@@ -69,6 +69,7 @@ class AlpacaSource:
         self.reset_after = {}
         self.action_evidence = {}
         self.dividends = []
+        self.pending_cash = []
         self.pair_absent = set()
         self.sfp = []
         self.tickers = []
@@ -194,6 +195,7 @@ class AlpacaSource:
         affected = set()
         reset_after = {}
         dividends = []
+        pending_cash = []
         splits = {}
         by_type = Counter()
         selected = {row["ticker"] for row in self.selected} | {'BIL'}
@@ -215,9 +217,10 @@ class AlpacaSource:
                             continue
                         if kind == "cash_dividends":
                             try:
-                                event = cash_dividend(record, axis=axis)
-                            except AlpacaTransportRefused:
-                                affected.update(involved)
+                                event = cash_dividend(record, axis=axis, retain_historical=True)
+                            except AlpacaTransportRefused as exc:
+                                pending_cash.append({'id': record['id'], 'tickers': sorted(involved),
+                                    'terms_sha256': digest(record), 'reason': str(exc)})
                                 continue
                             if event is not None:
                                 dividends.append(event)
@@ -250,6 +253,7 @@ class AlpacaSource:
                    "cash_dividend_rows": len(dividends)}
         return {"affected": sorted(affected), "reset_after": reset_after,
                 "dividends": dividends,
+                'pending_cash': sorted(pending_cash, key=lambda item: item['id']),
                 "splits": sorted(splits.values(), key=lambda item:(item['date'],item['ticker'])),
                 "summary": summary}, None, \
             {"pages": proofs}, len(seen)
@@ -307,6 +311,7 @@ class AlpacaSource:
         self.reset_after = actions["reset_after"]
         self.action_evidence = actions["summary"]
         self.dividends = actions["dividends"]
+        self.pending_cash = actions.get('pending_cash', [])
         self.splits = actions["splits"]
         self.sfp = self._part("SFP", {**base, "component": "benchmarks",
                                       "window": self.window.model_dump(mode="json")},
@@ -350,9 +355,11 @@ class AlpacaSource:
         if (frozenset(actions["affected"]) != self.action_affected
                 or actions["reset_after"] != self.reset_after
                 or actions["dividends"] != self.dividends
+                or actions['pending_cash'] != self.pending_cash
                 or actions['splits'] != self.splits):
             before = {"affected": sorted(self.action_affected),
                       "reset_after": self.reset_after, "dividends": self.dividends,
+                      'pending_cash': self.pending_cash,
                       "splits": self.splits}
             after = {key: actions[key] for key in before}
             raise SourceRevision("ACTIONS", digest(before), digest(after))
@@ -369,8 +376,10 @@ class AlpacaSource:
             'name':None, 'value':event['ratio'], 'contraticker':None, 'contraname':None}
             for event in self.splits if event['ticker'] in admitted
             and event['date'] >= admitted[event['ticker']])
-        return {"schema": "sentinel.rolling-alpaca-openfigi-references/1",
-                "tickers": self.tickers, "actions": actions}
+        return {"schema": "sentinel.rolling-alpaca-openfigi-references/2",
+                "tickers": self.tickers, "actions": actions,
+                'cash_observations': self.dividends,
+                'pending_cash': self.pending_cash}
 
     def split_terms(self):
         return {(event['ticker'],event['date']):event['ratio'] for event in self.splits}

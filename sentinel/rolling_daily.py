@@ -36,12 +36,19 @@ def commit_next(conn, *, checkpoint, observer, prior, pub, binding, context,
                 checkpoint_type=checkpoints.Checkpoint, timing=initial._timing):
     """Shared canonical transition; caller owns writer lock and publication pin."""
     backup_runtime_authority.require(conn, operation="rolling daily continuation")
+    target_strategy = getattr(observer, '_target_strategy_identity', context['strategy'])
     request = rolling_jobs.status(conn, binding["job_id"])["request"]
-    if request["strategy_sha256"] != digest(context["strategy"]):
+    if request["strategy_sha256"] != digest(target_strategy):
         raise checkpoints.Refused("ACQUISITION_STRATEGY_CHANGED")
     material, anchors, proof = rolling_continuity.prepare(
         conn, prior=prior.state, previous_binding=checkpoint.snapshot, publication=pub, binding=binding)
     published = replace(initial._published(material, pub), signal_basis_anchors=anchors, history_proof=proof)
+    if prior.state.strategy_identity != target_strategy:
+        from sentinel.economic_migration import transition
+        published = replace(published, strategy_transition=transition(prior.state, target_strategy))
+    observer._accepted_strategies = (prior.state.strategy_identity, target_strategy)
+    observer.strategy_identity = target_strategy
+    context['strategy'] = target_strategy
     previous_row = observer._history()[0][-1]
     result = observer.observe(shadow.FullyPublishedSession(published, pub.to_dict()))
     row = observer._history()[0][-1]

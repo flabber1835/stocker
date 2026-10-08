@@ -78,7 +78,8 @@ def _published(material, pub):
         defensive_bar=defensive(material.benchmarks[-1]),
         defensive_previous_bar=defensive(material.benchmarks[-2]),
         spinoff_distributions=material.spinoff_distributions, history_proof=pub.evidence["strategy_history"],
-        window_features=getattr(material, 'window_features', None))
+        window_features=getattr(material, 'window_features', None),
+        cash_distributions=getattr(material, 'cash_distributions', None))
 
 
 def current_window_inputs(conn, published, *, prior, binding, pub):

@@ -113,7 +113,7 @@ EDGES = (
     AuthorityEdge(
         "preparation_to_publication", "rolling snapshot preparation", "current publication",
         "publication completeness", "scripts/sentinel_go_24x7_entry.py",
-        ("rolling_go_inputs.prepare(c, target_session=target,",
+        ("retained_go.prepare(c, target_session=target,",
          "resume_job_id=os.environ.get('SENTINEL_GO_RESUME_JOB_ID')",
          "rolling_go_inputs.current(c)", "publication_current", "bounded_sharadar_daily"),
         "docker_postgres", True,

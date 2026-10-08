@@ -653,6 +653,8 @@ class PublishedSession:
     spinoff_distributions: Sequence = ()
     # Compact, versioned current-window facts; no provider or broker handle.
     window_features: Mapping | None = None
+    cash_distributions: Mapping | None = None
+    strategy_transition: Mapping | None = None
 
 
 def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:

@@ -87,7 +87,7 @@ def test_kill_after_backup_refresh_before_audit_cannot_enter_schema_or_ingest(mo
     (entry._RECOVERY_PREPARATION_CODE,
      "outage_recovery.catch_up_waiting(", "publication.current(c)"),
     (install_entry._PREPARATION_CODE,
-     "rolling_go_inputs.prepare(c, target_session=target,", "rolling_go_inputs.current(c)"),
+     "retained_go.prepare(c, target_session=target,", "rolling_go_inputs.current(c)"),
 ], ids=["validation", "installation"])
 def test_schema_migration_precedes_ingest_and_publication_observation_in_production_code(
         code, prepare_call, publication_call):

@@ -43,7 +43,7 @@ def run():
          checks.test_gap_excludes_candidate_until_127_consecutive_closes_return),
         ('retained_cash', window_continuity, 'protected_economics',
          "if evidence != {'actions': events(current), 'distributions': distributions(current)}:",
-         'if False:', checks.test_retained_cash_event_cannot_be_rewritten),
+         'if False:', checks.test_late_cash_is_forward_input_while_structural_history_still_refuses),
         ('adjacent_index', Feed, 'advance', "if self.median5_state['last_index'] != idx - 1:",
          'if False:', checks.test_snapshot_feature_override_cannot_skip_an_index),
         ('fresh_startup', observation_startup, 'require',

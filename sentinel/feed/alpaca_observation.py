@@ -8,6 +8,7 @@ from math import isclose, isfinite
 from zoneinfo import ZoneInfo
 
 from sentinel.feed.alpaca_transport import AlpacaTransportRefused
+from sentinel.feed.rolling_contract import digest
 from stock_strategy_shared.split_reconciliation import SPLIT_AGREEMENT_TOLERANCE
 
 _NEW_YORK = ZoneInfo("America/New_York")
@@ -38,7 +39,7 @@ def structural_action_date(kind: str, record: dict) -> str | None:
     return value
 
 
-def cash_dividend(record: dict, *, axis: set[str]) -> dict | None:
+def cash_dividend(record: dict, *, axis: set[str], retain_historical: bool = False) -> dict | None:
     """Return one usable USD cash event; malformed selected events are refused."""
     symbol = str(record.get("symbol") or "").strip().upper()
     day = record.get("ex_date")
@@ -52,7 +53,11 @@ def cash_dividend(record: dict, *, axis: set[str]) -> dict | None:
     if day not in axis:
         if min(axis) <= day <= max(axis):
             raise AlpacaTransportRefused("cash dividend ex-date is not an XNYS session")
-        return None
+        if not retain_historical or day > max(axis):
+            return None
+        from sentinel.feed import calendar
+        if calendar.previous_sessions(day, 1) != [day]:
+            raise AlpacaTransportRefused('cash dividend ex-date is not an XNYS session')
     if action_participants(record) != {symbol} or type(record.get("foreign")) is not bool:
         raise AlpacaTransportRefused("cash dividend has ambiguous participant or foreign terms")
     if record.get("currency") not in (None, "USD"):
@@ -61,10 +66,21 @@ def cash_dividend(record: dict, *, axis: set[str]) -> dict | None:
         amount = Decimal(str(record.get("rate")))
     except (InvalidOperation, ValueError):
         raise AlpacaTransportRefused("cash dividend rate is invalid") from None
-    if not amount.is_finite() or amount <= 0:
+    if not amount.is_finite() or amount <= 0 or not isfinite(float(amount)) or float(amount) <= 0:
         raise AlpacaTransportRefused("cash dividend rate is not positive")
+    dates = {}
+    for field in ('process_date', 'payable_date', 'record_date'):
+        value = record.get(field)
+        if value is not None:
+            try:
+                if not isinstance(value, str) or date.fromisoformat(value).isoformat() != value:
+                    raise ValueError
+            except ValueError:
+                raise AlpacaTransportRefused('cash dividend date is invalid: ' + field) from None
+        dates[field] = value
     return {"id": record["id"], "ticker": symbol, "date": day,
-            "rate": format(amount.normalize(), "f")}
+            "rate": format(amount.normalize(), "f"), **dates,
+            'terms_sha256': digest(record)}
 
 
 def stock_split(kind, record, *, axis):

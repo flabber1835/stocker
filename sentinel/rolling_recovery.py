@@ -106,7 +106,8 @@ def _prepare_missing(conn, *, context, through):
             return
     conn.rollback()
     job = snapshots.enqueue_reconstruction(conn, session=session, cursor=checkpoint.session,
-        strategy_sha256=digest(context['strategy']), dependencies_sha256=digest('operational-recovery/1'),
+        strategy_sha256=digest(initial._context(context['observation_id'], context['starting_cash'])['strategy']),
+        dependencies_sha256=digest('operational-recovery/1'),
         absolute_deadline=shadow_budget.cutoff())
     conn.commit()
     preparation_wait.run(conn, job, prepare=snapshots.prepare, check_target=lambda:None)

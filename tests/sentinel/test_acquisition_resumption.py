@@ -661,6 +661,8 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
 
     class Runner(GrowingWalRunner):
         def run(self, argv, *, env=None, cwd=None):
+            if entry._RETAINED_REVISION_CODE in argv:
+                return _cp(0, out='{"retained_revision":null}')
             if list(argv)[:2] != ["docker", "compose"]:
                 if "scripts/sentinel-base-backup.sh" in argv:
                     if renewal_failure == "copy":

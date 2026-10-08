@@ -63,8 +63,10 @@ catch-up or create legacy performance segments for a rolling book after a gap.
 
 GO accepts the rolling startup/restart proof only with its matching rolling
 input scope, exact snapshot binding and supported runtime-contract identifier.
-Legacy scope validation remains separate. GO remains a first-deployment proof;
-it cannot adopt failed-attempt state or reauthorize a different retained runtime.
+Legacy scope validation remains separate. The
+[retained-state activation](retained-state-activation.md) contract adds an
+authenticated continuation and restart scope. It cannot silently adopt
+failed-attempt state or reauthorize a different retained executable.
 [Rolling history and retirement](rolling-history-retention.md) now supplies
 publication-bound action history and automatic cleanup after advancement and
 during idle service wakes. Actual NAS qualification and paper activation remain

@@ -58,15 +58,18 @@ events.append('after schema')
     ("feed-catchup", "prepare"), ("sharadar-readiness", "readiness")])
 def test_rolling_fault_reaches_the_production_call_site(monkeypatch, capsys, fault, attribute):
     monkeypatch.syspath_prepend(str(Path(faults.__file__).parents[1] / "scripts"))
+    from sentinel import retained_go
     from sentinel.feed import rolling_go_inputs
     from scripts import sentinel_go_24x7_entry as preparation
     from scripts import sentinel_go_validate as go
 
     source = preparation._PREPARATION_CODE if fault == "feed-catchup" else go._READINESS_CODE
+    module_name = "retained_go" if fault == "feed-catchup" else "rolling_go_inputs"
+    module = retained_go if fault == "feed-catchup" else rolling_go_inputs
     calls = [node for node in ast.walk(ast.parse(source))
              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
              and isinstance(node.func.value, ast.Name)
-             and node.func.value.id == "rolling_go_inputs" and node.func.attr == attribute]
+             and node.func.value.id == module_name and node.func.attr == attribute]
     assert len(calls) == 1
     marker = "SENTINEL_GO_PREPARATION=" if fault == "feed-catchup" else "SENTINEL_GO_READINESS="
     witness = f"marker = {marker!r}\n" + ast.unparse(calls[0])
@@ -75,8 +78,9 @@ def test_rolling_fault_reaches_the_production_call_site(monkeypatch, capsys, fau
     monkeypatch.setenv("SENTINEL_GO_RESUME_JOB_ID", resume_job)
     deadline = "2026-09-29T20:00:00+00:00"
     monkeypatch.setenv("SENTINEL_GO_PREPARATION_DEADLINE", deadline)
-    monkeypatch.setattr(rolling_go_inputs, attribute, lambda *_a, **kw: reached.append(kw))
-    namespace = dict(rolling_go_inputs=rolling_go_inputs, c=None, target="2026-09-22", os=os)
+    monkeypatch.setattr(module, attribute, lambda *_a, **kw: reached.append(kw))
+    namespace = dict(rolling_go_inputs=rolling_go_inputs, retained_go=retained_go,
+                     c=None, target="2026-09-22", os=os)
     exec(witness, namespace)
     expected = [{"target_session": "2026-09-22", "resume_job_id": resume_job,
                  "absolute_deadline": rolling_go_inputs.deadline_from_host(deadline)}] if attribute == "prepare" else [{}]
@@ -125,7 +129,7 @@ def test_real_preparation_payload_rolls_back_and_never_emits_success_after_fault
     """Execute the complete production payload; DB/provider effects are fixtures."""
     import datetime as dt
     import json
-    from sentinel import backup_guard, schema
+    from sentinel import backup_guard, retained_go, schema
     from sentinel.feed import calendar, publication, rolling_go_inputs, store
     from sentinel import shadow_runtime
     import sentinel_go_24x7_entry as preparation
@@ -147,7 +151,7 @@ def test_real_preparation_payload_rolls_back_and_never_emits_success_after_fault
         dt.datetime.max.replace(tzinfo=dt.timezone.utc), None))
     monkeypatch.setattr(shadow_runtime, "publication_not_before", lambda _day:
                         dt.datetime.min.replace(tzinfo=dt.timezone.utc))
-    monkeypatch.setattr(rolling_go_inputs, "prepare", lambda *_a, **_k:
+    monkeypatch.setattr(retained_go, "prepare", lambda *_a, **_k:
                         events.append("prepare") or {"status": "PUBLISHED", "schema": "fixture"})
     monkeypatch.setattr(rolling_go_inputs, "current", lambda _c:
                         events.append("publication") or SimpleNamespace(window_end=target))

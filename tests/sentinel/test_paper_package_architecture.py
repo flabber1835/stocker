@@ -202,7 +202,8 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                 normalized = ast.dump(
                     node, annotate_fields=True, include_attributes=False)
                 assert record["generated_ast_sha256"] == __import__(
-                    "hashlib").sha256(normalized.encode()).hexdigest()
+                    "hashlib").sha256(normalized.encode()).hexdigest(), (
+                        f"unreviewed canonical paper definition: {module_name}.{node.name}")
     assert actual == expected
 
 

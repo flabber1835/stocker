@@ -14,6 +14,7 @@ def protected_economics(conn, *, previous, current, live, start, cursor):
     def events(refs):
         return sorted(canonical_json(payload) for _, payload, _ in refs.actions
             if start <= payload['date'] <= cursor
+            and payload['action'].lower() != 'dividend'
             and (refs.resolver.resolve(payload['ticker'], payload['date']) in live
                  or refs.resolver.resolve(payload.get('contraticker') or '', payload['date']) in live))
 
@@ -23,7 +24,7 @@ def protected_economics(conn, *, previous, current, live, start, cursor):
             'AND security_id=ANY(%s) AND (split_ratio<>1 OR dividend_per_share<>0) '
             'ORDER BY session,security_id COLLATE "C"',
             (refs.candidate_id, start, cursor, sorted(live))).fetchall()
-        return [(str(day), sid, split, cash) for day, sid, split, cash in rows]
+        return [(str(day), sid, split) for day, sid, split, cash in rows if split != 1]
 
     evidence = {'actions': events(previous), 'distributions': distributions(previous)}
     if evidence != {'actions': events(current), 'distributions': distributions(current)}:
@@ -62,12 +63,21 @@ def prepare(conn, *, prior, previous_binding, publication, binding):
         raise
     economics = protected_economics(conn, previous=previous, current=refs, live=live,
         start=str(refs.manifest.window.start), cursor=cursor)
+    from sentinel.core.cash_distributions import Inputs, observations
+    pending_cash = list(getattr(refs, 'pending_cash', []))
+    knowledge, floors = [], []
+    cash_observations = observations(previous, refs, cursor=cursor, pending=pending_cash,
+        retained=(prior.last_evidence or {}).get('cash_distributions'), knowledge=knowledge, floors=floors)
+    cash = Inputs(prior_state_sha256=prior.state_hash, publication_version=publication.version,
+        session=session, observations=cash_observations,
+        pending=pending_cash,
+        source_observations=knowledge, legacy_floors=floors).model_dump(mode='json', by_alias=True)
     meta, sectors = refs.current_metadata()
     features = window_features.load(conn, prior=prior, refs=refs, publication=publication)
     terminals = refs.terminals(start=session, end=session)
     material = DailyInputs(session, prices.bars, meta, sectors, prices.benchmarks,
         tuple(terminals.events), refs.distributions(session=session),
-        window_features=features.model_dump(mode='json', by_alias=True))
+        window_features=features.model_dump(mode='json', by_alias=True), cash_distributions=cash)
     proof = CurrentWindowProof(prior_version=prior.data_version,
         publication_version=publication.version, prior_session=cursor, session=session,
         prior_state_sha256=prior.state_hash, snapshot_sha256=refs.manifest.snapshot_id,

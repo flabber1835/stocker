@@ -453,6 +453,9 @@ class GrowingWalRunner(FakeRunner):
         self.last_preparation_output = ""
 
     def run(self, argv, *, env=None, cwd=None):
+        import sentinel_go_24x7_entry
+        if sentinel_go_24x7_entry._RETAINED_REVISION_CODE in argv:
+            return _cp(0, out='{"retained_revision":null}')
         if list(argv)[:2] == ["docker", "compose"]:
             self.preparations.append((list(argv), dict(env)))
             return self.children.pop(0)

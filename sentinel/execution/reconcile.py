@@ -102,6 +102,7 @@ class ReconciliationResult:
     detail: str = ""
     observation_id: Optional[int] = None
     restricted_securities: Mapping[str, str] = field(default_factory=dict)
+    cash_plan_superseded: bool = False
 
     @property
     def clean(self) -> bool:
@@ -131,6 +132,7 @@ class ReconciliationResult:
             "detail": self.detail,
             "observation_id": self.observation_id,
             "restricted_securities": dict(self.restricted_securities),
+            **({'cash_plan_superseded': True} if self.cash_plan_superseded else {}),
         }
 
 

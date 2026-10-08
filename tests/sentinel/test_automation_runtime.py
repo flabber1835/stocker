@@ -1778,3 +1778,25 @@ async def test_service_supersedes_clean_old_generation_planless_preflight(
     assert result.cycle.diagnostic["stale_preflight_superseded"] is True
     assert len(adopted) == 1
     assert adopted[0]["to_state"] is CycleState.SUPERSEDED
+
+
+@async_test
+async def test_reconciled_native_cash_supersedes_stale_plan_without_transport(monkeypatch):
+    cfg = config()
+    current_plan = plan(target='2')
+    ctx = context(cfg, state=CycleState.RECONCILING, plan=current_plan)
+    conn, broker, runtime = FakeConnection(), SimulatedBroker(), production(cfg)
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    install_durable_projection(monkeypatch, current_plan)
+    async def clean(**kwargs):
+        result = reconciliation(await kwargs['broker'].observe())
+        result.cash_plan_superseded = True
+        return result
+    monkeypatch.setattr(paper, 'recover_automated_paper_cycle', clean)
+    monkeypatch.setattr(journal, 'in_flight_commands', lambda *_args: ())
+    monkeypatch.setattr(journal, 'latest_plan', lambda _conn: current_plan)
+    monkeypatch.setattr(journal, 'load_commands', lambda *_args, **_kwargs: ())
+    result = await runtime.recover(ctx)
+    assert result.disposition is ExecuteDisposition.SUPERSEDED
+    assert result.failure_code == 'POST_PLAN_CASH_ACTIVITY_RECONCILED'
+    assert not any(call.startswith(('submit:', 'cancel:')) for call in broker.calls)

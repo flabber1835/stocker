@@ -19,7 +19,11 @@ from __future__ import annotations
 
 import json
 import math
+import runpy
+from contextlib import contextmanager
+from pathlib import Path
 import sys
+import tempfile
 import time
 from typing import Mapping, Optional
 
@@ -184,7 +188,8 @@ try:
     phase = 'DAILY_CATCHUP'
     progress.emit('daily_catchup', 'started', date_to=target)
     daily_attempted = True
-    recovered = rolling_go_inputs.prepare(c, target_session=target,
+    from sentinel import retained_go
+    recovered = retained_go.prepare(c, target_session=target,
         absolute_deadline=rolling_go_inputs.deadline_from_host(
             os.environ.get('SENTINEL_GO_PREPARATION_DEADLINE')),
         resume_job_id=os.environ.get('SENTINEL_GO_RESUME_JOB_ID'))
@@ -222,6 +227,57 @@ finally:
 '''.strip()
 
 
+_RETAINED_REVISION_CODE = '''
+import json, os
+from sentinel.feed import store
+c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+try:
+    c.execute('SET TRANSACTION READ ONLY')
+    exists = c.execute("SELECT to_regclass('sentinel_processed_sessions')").fetchone()[0]
+    row = c.execute("SELECT state->'checkpoint'->'runtime_identity'->>'git_commit' FROM sentinel_processed_sessions WHERE cursor_name=%s", ('rolling-cold-start:v1',)).fetchone() if exists else None
+    print(json.dumps({'retained_revision': row[0] if row else None}))
+finally:
+    c.rollback()
+    c.close()
+'''.strip()
+
+
+def _strict_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError('duplicate retained revision key')
+        value[key] = item
+    return value
+
+
+@contextmanager
+def _retained_manifest(runner, *, compose_args, env):
+    """Read only an untrusted revision; the image authenticates its entire closure."""
+    probe = runner.run(['docker', 'compose', *compose_args, '--profile', 'cli', 'run',
+        '--rm', '-T', '--no-deps', '--entrypoint', 'python', 'sentinel', '-c', _RETAINED_REVISION_CODE],
+        env=go._without_broker_authority(env))
+    value = json.loads(probe.stdout or '', object_pairs_hook=_strict_object)
+    if probe.returncode != 0 or not isinstance(value, dict) or set(value) != {'retained_revision'}:
+        raise ValueError('retained revision read failed')
+    revision = value['retained_revision']
+    if revision is None:
+        yield []
+        return
+    if not isinstance(revision, str) or go._HEX40.fullmatch(revision) is None:
+        raise ValueError('retained revision invalid')
+    # The supported host CLI puts scripts/, not the repository, on sys.path.
+    # Load this stdlib-only exporter from the verified checkout's exact path.
+    build = runpy.run_path(str(go.ROOT/'tools/sentinel_retained_source_manifest.py'))['build']
+    manifest = build(root=go.ROOT, revision=revision)
+    # Plain source evidence contains no credentials and is mounted read-only.
+    with tempfile.TemporaryDirectory(prefix='sentinel-retained-') as folder:
+        path = Path(folder)/'source.json'
+        path.write_text(json.dumps(manifest, sort_keys=True), encoding='utf-8')
+        yield ['--volume', str(path.resolve()) + ':/retained/source.json:ro',
+               '--env', 'SENTINEL_RETAINED_SOURCE_MANIFEST=/retained/source.json']
+
+
 def _deployment_preparation_probe(
         runner, *, env: Mapping[str, str], runtime_ref: Optional[str],
         commit: Optional[str], monotonic=time.monotonic):
@@ -256,12 +312,18 @@ def _deployment_preparation_probe(
     # Feed authority is injected by the existing verified FeedBoundPreparationRunner.
     run_env['SENTINEL_RUNTIME_IMAGE_REF'] = str(runtime_ref)
     started = monotonic()
-    completed = runner.run([
-        'docker', 'compose', *compose_args, '--profile', 'cli', 'run',
-        '--rm', '-T', '--no-deps', '--env', 'ALPACA_API_KEY',
-        '--env', 'ALPACA_SECRET_KEY', '--env', 'OPENFIGI_API_KEY', '--entrypoint', 'python', 'sentinel',
-        '-c', _PREPARATION_CODE,
-    ], env=run_env)
+    try:
+        with _retained_manifest(runner, compose_args=compose_args, env=run_env) as manifest_args:
+            completed = runner.run([
+                'docker', 'compose', *compose_args, '--profile', 'cli', 'run',
+                '--rm', '-T', '--no-deps', *manifest_args, '--env', 'ALPACA_API_KEY',
+                '--env', 'ALPACA_SECRET_KEY', '--env', 'OPENFIGI_API_KEY', '--entrypoint', 'python', 'sentinel',
+                '-c', _PREPARATION_CODE,
+            ], env=run_env)
+    except (ValueError, OSError, go.subprocess.SubprocessError):
+        return go.PreparationSummary(status=go.FAIL, runtime_image_digest=runtime_ref,
+            schema_migration_attempted=False, bounded_sharadar_daily_attempted=False,
+            broker_mutation_attempts=0, evidence_sha256=go._evidence_digest({'reason': 'RETAINED_SOURCE_EVIDENCE_UNAVAILABLE'}))
     elapsed = max(0, int(math.ceil((monotonic() - started) * 1000.0)))
 
     marker = 'SENTINEL_GO_PREPARATION='

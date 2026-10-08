@@ -131,6 +131,7 @@ class DailyInputs:
     spinoff_distributions: tuple
     feed_anchors: dict = dataclass_field(default_factory=dict)
     window_features: dict | None = None
+    cash_distributions: dict | None = None
 
 
 def prepare(conn, *, prior, previous_binding, publication, binding):

@@ -304,6 +304,18 @@ not allow an `all` adjusted security close into Wealth Core signals or marks.
 Pin this exact file and single wire-field occurrence rather than widening the
 feed package or weakening the tokenizer.
 
+**Retained transition reconstruction (2026-10-07, PR #488).** Add exactly
+`sentinel/retained_parity.py` to the closed transport allowlist. Its two code
+occurrences are the archived `spy_closeadj` input key and the matching typed
+`PublishedSession` argument. This read-only decoder reconstructs committed
+inputs for canonical transition/restart comparison; it neither reads the vendor
+column nor interprets SPY. Equity signal/raw and current/previous BIL fields
+must retain their separate domains. Pin both exact occurrences and qualify the
+decoder with distinct SPY, equity and BIL values. Deliberately substituting BIL
+for SPY or swapping equity/BIL domains must fail, while the existing exact input
+round-trip guard still refuses changed evidence. No package exemption, tokenizer
+relaxation, additional sensor or execution authority is introduced.
+
 **2. Why total return is CORRECT here.** SPY in this rule is not a holding. It
 is a market-regime sensor, and the frozen specification defines both of its
 predicates on a total-return series (`standalone:176-178`). A dividend paid by

@@ -71,6 +71,39 @@ def test_cash_dividend_maps_only_usable_usd_event():
                          axis=set(AXIS)) is None
 
 
+def test_cash_knowledge_keeps_native_processing_and_payment_dates():
+    wire = {'id': 'renamed-native', 'symbol': 'UNRELATED', 'foreign': False,
+            'ex_date': AXIS[0], 'process_date': AXIS[-1], 'payable_date': '2026-10-07',
+            'record_date': AXIS[0], 'rate': '.205'}
+    value = cash_dividend(wire, axis=set(AXIS))
+    assert value['date'] == AXIS[0]
+    assert value['process_date'] == AXIS[-1]
+    assert value['payable_date'] == '2026-10-07'
+    assert value['id'] == 'renamed-native' and len(value['terms_sha256']) == 64
+
+
+@pytest.mark.parametrize('rate', ['1e500', '1e-500'])
+def test_cash_rate_must_fit_canonical_shadow_domains(rate):
+    wire = dict(id='cash-domain', symbol='UNRELATED', foreign=False,
+                ex_date=AXIS[0], process_date=AXIS[-1], rate=rate)
+    with pytest.raises(AlpacaTransportRefused):
+        cash_dividend(wire, axis=set(AXIS))
+
+
+@pytest.mark.parametrize('rate', [None, '1e500', 'NaN', '-0.2'])
+def test_unresolved_cash_does_not_quarantine_valid_price_history(rate):
+    source = object.__new__(AlpacaSource)
+    source.window = SimpleNamespace(start=date.fromisoformat(AXIS[0]), end=date.fromisoformat(AXIS[-1]),
+                                    sessions=list(map(date.fromisoformat, AXIS)))
+    source.selected = [{'ticker': 'RENAMED'}]
+    wire = {'id': 'pending', 'symbol': 'RENAMED', 'foreign': False,
+            'ex_date': AXIS[0], 'process_date': AXIS[-1], 'rate': rate}
+    source.client = SimpleNamespace(pages=lambda *a, **kw: [({'cash_dividends': [wire]}, {})])
+    result, *_ = source._action_rows()
+    assert result['affected'] == [] and result['dividends'] == []
+    assert result['pending_cash'][0]['id'] == 'pending'
+
+
 def test_pairing_and_no_action_contiguous_history():
     raw = {"A": [_bar(day) for day in AXIS], "B": [_bar(AXIS[-1])]}
     adjusted = {"A": [_bar(day, 95) for day in AXIS], "B": [_bar(AXIS[-1])]}
@@ -230,6 +263,7 @@ def test_bil_split_price_domains_and_action_record_reach_execution():
     source.action_affected,source.reset_after,source.tickers = frozenset(),{},[]
     source.splits = [{'id':'split','ticker':'BIL','date':AXIS[1],'ratio':'2'}]
     source.dividends = [{'id':'cash','ticker':'BIL','date':AXIS[-1],'rate':'0.25'}]
+    source.pending_cash = []
     def bars(symbols,first,last,adjustment):
         return {symbol:[_bar(day, 100 if adjustment=='raw' and day==AXIS[0] else
             52 if adjustment=='all' else 50) for day in AXIS] for symbol in symbols}, []

@@ -101,7 +101,7 @@ def test_window_continuity_cannot_skip_or_replace_prior_state():
             require_history_compatible(**{**args, **change})
 
 
-def test_retained_cash_event_cannot_be_rewritten():
+def test_late_cash_is_forward_input_while_structural_history_still_refuses():
     from sentinel.core.window_continuity import protected_economics
     conn = SimpleNamespace(execute=lambda *args: SimpleNamespace(fetchall=lambda: []))
     resolver = SimpleNamespace(resolve=lambda ticker, day: '1' if ticker == 'ABC' else None)
@@ -110,6 +110,8 @@ def test_retained_cash_event_cannot_be_rewritten():
         'action': 'dividend', 'value': 1}, None)], resolver=resolver, candidate_id='new')
     # The same correction is immaterial to an unheld candidate.
     protected_economics(conn, previous=previous, current=current, live=set(), start=DAY, cursor=DAY)
+    protected_economics(conn, previous=previous, current=current, live={'1'}, start=DAY, cursor=DAY)
+    current.actions[0][1]['action'] = 'split'
     with pytest.raises(RuntimeError, match='RETAINED_ECONOMIC_EVENT_CHANGED'):
         protected_economics(conn, previous=previous, current=current, live={'1'}, start=DAY, cursor=DAY)
 

@@ -1,0 +1,18 @@
+{
+  "revision": "368669bbb60abe946a11b1a527308a5106a1183e",
+  "schema": "sentinel.economic-source-basis/1",
+  "seams": {
+    "sentinel.core.decision": {
+      "remaining_ast_sha256": "a0fd861aa7311dfc9bc5979d8249dab71f6dcdb5c76011295d7a62e1f5710a04",
+      "source_sha256": "f121cd1d425c023b40111db85ce741aae8a16aaf23886b3081f4372c99be16df"
+    },
+    "sentinel.rolling_checkpoint": {
+      "remaining_ast_sha256": "fbddd3645d5850ee102c7189cb3b36e4b9b6b78c9dba6e9c99e032fcd2851269",
+      "source_sha256": "d0055bccc24539f2f4259d308609b9344461cdeb565d9911b518a285dda62f93"
+    },
+    "sentinel.rolling_daily_checkpoint": {
+      "remaining_ast_sha256": "68ae8c7be5f1bad07bfcaa7e038a3422bcd8d708b556abccdb7aa319142f6aaf",
+      "source_sha256": "1d59c8bcb768ecfa3ac6efbe5d0c221bee056ea71c350f779f9b28a21bacc8cc"
+    }
+  }
+}

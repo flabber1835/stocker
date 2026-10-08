@@ -43,7 +43,7 @@ def selected_stages(group: str) -> tuple:
 _PREPARATION_HOOKS = {
     "schema-feed-permission": ("sentinel.backup_guard", "require_writes_permitted"),
     "schema-migration": ("sentinel.schema", "ensure_schema"),
-    "feed-catchup": ("sentinel.feed.rolling_go_inputs", "prepare"),
+    "feed-catchup": ("sentinel.retained_go", "prepare"),
 }
 _HOST_HOOKS = {
     "validation-evidence": ("sentinel_go_verified_entry", "go", "write_zip_no_clobber"),

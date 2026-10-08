@@ -355,7 +355,8 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
                 if (proof.get('issuer_compatible') is not True
                         or proof.get('schema') not in {
                             'sentinel.paper-observation-warmup/2', 'sentinel.paper-observation-warmup/3',
-                            'sentinel.paper-observation-warmup/4', 'sentinel.paper-observation-warmup/5'}
+                            'sentinel.paper-observation-warmup/4', 'sentinel.paper-observation-warmup/5',
+                            'sentinel.paper-observation-warmup/6'}
                         or proof.get('feature_sessions') not in {252, 299}):
                     raise core.DeployRefused('selected observation issuer is incompatible')
             return

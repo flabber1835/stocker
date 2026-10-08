@@ -42,16 +42,17 @@ class FakeClient:
                  "sha256": digest([endpoint, params])}
         if endpoint == ACTION_URL:
             records = ([{"id": "split", "process_date": "2026-09-01",
-                         "ex_date": ("2025-01-01" if self.action == "old_split"
+                         "ex_date": ("2026-09-16" if self.action == "future_split" else
+                                     "2025-01-01" if self.action == "old_split"
                                      else "2026-05-01"), "symbol": "BBB"}]
-                       if self.action in {"old_split", "mid_split"} else
+                       if self.action in {"old_split", "mid_split", "future_split"} else
                        [{"id": "div", "process_date": "2026-09-01",
                          "ex_date": "2026-09-01", "symbol": "BBB",
                          "rate": 0.25, "foreign": False}]
                        if self.action == "valid" else
                        [{"id": "div", "process_date": "2026-09-01",
                          "symbol": "BBB"}] if self.action else [])
-            yield {"forward_splits" if self.action in {"old_split", "mid_split"}
+            yield {"forward_splits" if self.action in {"old_split", "mid_split", "future_split"}
                    else "cash_dividends": records}, proof
             return
         assert endpoint == BAR_URL and key == "bars"
@@ -278,8 +279,8 @@ def test_post_validation_provider_change_still_prevents_publication(
     assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == 0
 
 
-def test_alpaca_action_and_missing_bar_remove_only_affected_security(conn, alpaca_path):
-    alpaca_path.action = True
+def test_alpaca_structural_action_and_missing_bar_preserve_population_floor(conn, alpaca_path):
+    alpaca_path.action = "future_split"
     alpaca_path.missing = ("AAA", "2026-09-11")
     job = op.enqueue(conn, strategy_sha256=digest("test-strategy"),
                      dependencies_sha256=digest("test-deps"), budget_seconds=240)
@@ -287,6 +288,24 @@ def test_alpaca_action_and_missing_bar_remove_only_affected_security(conn, alpac
     with pytest.raises(ValueError, match="population is below"):
         op.prepare(conn, job)
     assert conn.execute("SELECT COUNT(*) FROM sentinel_corpus_publications").fetchone()[0] == 0
+
+
+def test_pending_cash_terms_preserve_valid_prices_despite_another_security_gap(conn, alpaca_path):
+    alpaca_path.action = True  # Native cash row lacks ex-date and rate.
+    alpaca_path.missing = ("AAA", "2026-09-11")
+    result = _publish(conn)
+    manifest = rolling_store.manifest(conn, result['candidate_id'])
+    bars = list(rolling_store.read_bars(conn, result['candidate_id']))
+    bbb = [row for row in bars if row.ticker == 'BBB']
+    assert len(bbb) == 300 and all(row.dividend_per_share == 0 for row in bbb)
+    assert not any(row.ticker == 'AAA' and str(row.session) == '2026-09-11' for row in bars)
+    reference = rolling_store.load_evidence(conn, manifest.reference_sha256)
+    assert reference['cash_observations'] == [] and reference['actions'] == []
+    pending, = reference['pending_cash']
+    assert pending['id'] == 'div' and pending['tickers'] == ['BBB']
+    assert pending['terms_sha256'] == digest({'id': 'div', 'process_date': '2026-09-01', 'symbol': 'BBB'})
+    assert pending['reason']
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_corpus_publications').fetchone()[0] == 1
 
 
 def test_valid_cash_dividend_preserves_stock_and_credits_formation_bar(conn, alpaca_path):

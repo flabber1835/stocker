@@ -1,5 +1,9 @@
 # Sentinel — the execution and recovery contract
 
+[Late cash distributions](late-cash-distributions.md) defines point-in-time
+forward entitlement reconciliation and automatic retirement of a cleanly
+reconciled execution plan whose native cash activity set has changed.
+
 [Unattended operation](unattended-operating-contract.md) defines the current
 Alpaca execution price evidence: fresh raw IEX bid/ask quotes, partial per-security
 availability, a ten-minute increase window, and a new quote/cash check before

@@ -97,8 +97,8 @@ def test_go_refusal_reason_is_resource_not_provider_pending(monkeypatch, capsys,
     monkeypatch.syspath_prepend(str(root / "scripts"))
     import sentinel_go_validate_entry
     import sentinel_go_24x7_entry
-    from sentinel import backup_guard, schema
-    from sentinel.feed import store, rolling_go_inputs, outage_recovery
+    from sentinel import backup_guard, schema, retained_go
+    from sentinel.feed import store, outage_recovery
     calls = []
     conn = SimpleNamespace(rollback=lambda: calls.append("rollback"), close=lambda: calls.append("close"))
     noop = lambda *a, **k: None
@@ -111,7 +111,7 @@ def test_go_refusal_reason_is_resource_not_provider_pending(monkeypatch, capsys,
     monkeypatch.setattr(store, "migrate_schema", noop)
     def refuse(*a, **k):
         limits.check("ZIP_BYTES", limits.ZIP_BYTES + 1, limits.ZIP_BYTES)
-    monkeypatch.setattr(rolling_go_inputs, "prepare", refuse)
+    monkeypatch.setattr(retained_go, "prepare", refuse)
     monkeypatch.setattr(outage_recovery, "catch_up", refuse)
     code = (sentinel_go_validate_entry._RECOVERY_PREPARATION_CODE if recovery
             else sentinel_go_24x7_entry._PREPARATION_CODE)
