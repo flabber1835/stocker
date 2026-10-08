@@ -1,5 +1,6 @@
 """Real SQL recovery of changing Alpaca captures before atomic publication."""
 from copy import deepcopy
+from datetime import datetime
 
 import pytest
 
@@ -13,9 +14,10 @@ from tests.sentinel.test_alpaca_operational_snapshot import alpaca_path  # noqa:
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg  # noqa: F401
 
 
-def enqueue(conn):
+def enqueue(conn, *, absolute_deadline=None):
     job = op.enqueue(conn, strategy_sha256=digest('revision-test-strategy'),
-                     dependencies_sha256=digest('revision-test-dependencies'), budget_seconds=240)
+                     dependencies_sha256=digest('revision-test-dependencies'), budget_seconds=240,
+                     absolute_deadline=absolute_deadline)
     conn.commit()
     return job
 
@@ -221,7 +223,12 @@ def test_cosmetic_inventory_revision_does_not_repeat_acquisition(
 def test_persistent_alpaca_revision_exhausts_fixed_successor_budget(
         conn, alpaca_path, monkeypatch):
     observed = changing_source(alpaca_path, monkeypatch, change='amount', persistent=True)
-    parent = enqueue(conn)
+    # PostgreSQL JSON omits trailing fractional zeros; typed timestamps do not.
+    # Exercise that representation difference deterministically.
+    fixed = conn.execute(
+        "SELECT date_trunc('milliseconds',clock_timestamp()+interval '240 seconds')"
+    ).fetchone()[0]
+    parent = enqueue(conn, absolute_deadline=fixed)
     deadline = jobs.status(conn, parent)['deadline']
     with pytest.raises(jobs.JobRefused, match='restart limit'):
         preparation_wait.run(conn, parent, prepare=op.prepare, check_target=lambda:None)
@@ -230,5 +237,7 @@ def test_persistent_alpaca_revision_exhausts_fixed_successor_budget(
     assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == 0
     states = conn.execute('SELECT state,deadline,reason FROM sentinel_snapshot_jobs').fetchall()
     assert len(states) == MAX_SUCCESSORS + 1
-    assert all(state == 'REFUSED' and stamp.isoformat() == deadline
-               and reason == 'SOURCE_GENERATION_CHANGED' for state,stamp,reason in states)
+    expected_deadline = datetime.fromisoformat(deadline)
+    for state, stamp, reason in states:
+        assert state == 'REFUSED' and reason == 'SOURCE_GENERATION_CHANGED'
+        assert stamp == expected_deadline
