@@ -90,7 +90,8 @@ class HostPythonCompatibilityTests(unittest.TestCase):
             'process_sha256', 'runtime_receipt_sha256')}
         retained.update(schema='sentinel.retained-transition-proof/1', authority_effect='NONE',
             scope='ROLLING_RETAINED_STATE_AND_RESTART', observation_id='primary', session='2026-07-31',
-            admission_sha256=None, strategy_sha256=go._evidence_digest(strategy), checks=checks)
+            admission_sha256=None, strategy_sha256=hashlib.sha256(json.dumps(strategy, sort_keys=True,
+                separators=(',', ':'), ensure_ascii=True, allow_nan=False).encode('ascii')).hexdigest(), checks=checks)
         proof = dict(scope=retained['scope'], runtime_contract='sentinel.rolling-shadow-runtime/1',
             strategy_identity=strategy, starting_cash='50000', decision_session='2026-07-31',
             data_version=1, warmup_input=dict(session_count=299, warmup_input_sha256='a'*64),

@@ -80,6 +80,9 @@ wire shape and its report bindings using only the standard library. It must not
 import the Python 3.12 engine or its dependencies. The exact-image reader owns
 calendar, authenticated lineage and canonical transition verification. Duplicate
 JSON keys and nonfinite values refuse at the host boundary.
+Retained strategy hashes use the engine's compact, sorted ASCII JSON without a
+trailing newline. Host bundle evidence hashes retain their separate newline
+convention; one hash domain must not substitute for the other.
 
 Activation still requires its own exact GO bundle, current readiness, account
 reconciliation, signed paper authority and full semantic restore of the admitted

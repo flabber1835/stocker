@@ -1201,7 +1201,7 @@ def _retained_proof_valid(value, *, proof, strategy, checks):
         and parsed.strftime("%Y-%m-%d") == session and parsed.weekday() < 5
         and all(isinstance(value[key], str) and _HEX64.fullmatch(value[key]) is not None for key in hashes)
         and (admission is None or isinstance(admission, str) and _HEX64.fullmatch(admission) is not None)
-        and value["strategy_sha256"] == _evidence_digest(strategy)
+        and value["strategy_sha256"] == sha256_bytes(canonical_json_bytes(strategy)[:-1])
         and session == proof.get("decision_session")
         and value["state_sha256"] == proof.get("result_state_sha256")
         and value["prior_state_sha256"] == proof.get("prior_state_sha256")

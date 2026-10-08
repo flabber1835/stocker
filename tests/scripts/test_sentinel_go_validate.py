@@ -831,7 +831,8 @@ def _retained_report():
     retained.update(schema='sentinel.retained-transition-proof/1', authority_effect='NONE',
         scope=proof['scope'], observation_id='primary', session=proof['decision_session'],
         state_sha256=proof['result_state_sha256'], input_sha256=proof['input_sha256'],
-        prior_state_sha256=proof['prior_state_sha256'], strategy_sha256=go._evidence_digest(strategy),
+        prior_state_sha256=proof['prior_state_sha256'], strategy_sha256=__import__('hashlib').sha256(
+            json.dumps(strategy, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False).encode('ascii')).hexdigest(),
         checks=dict(proof['checks']))
     proof['retained'] = retained
     return report
