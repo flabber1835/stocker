@@ -67,7 +67,6 @@ def test_untrusted_manifest_json_is_not_permissive(tmp_path, raw):
 
 def test_host_reads_revision_without_broker_authority_and_mounts_exact_source(monkeypatch):
     import sentinel_go_24x7_entry as host
-    import tools.sentinel_retained_source_manifest as exporter
     revision = 'a'*40
     manifest = {'schema': 'sentinel.retained-source-manifest/1', 'revision': revision, 'files': {'x.py': 'b'*64}}
     calls = []
@@ -75,7 +74,11 @@ def test_host_reads_revision_without_broker_authority_and_mounts_exact_source(mo
         def run(self, argv, **kw):
             calls.append((argv, kw['env']))
             return subprocess.CompletedProcess(argv, 0, json.dumps({'retained_revision': revision}), '')
-    monkeypatch.setattr(exporter, 'build', lambda **kw: manifest if kw['revision'] == revision else pytest.fail('wrong revision'))
+    loaded = []
+    def exporter(path):
+        loaded.append(path)
+        return {'build': lambda **kw: manifest if kw['revision'] == revision else pytest.fail('wrong revision')}
+    monkeypatch.setattr(host.runpy, 'run_path', exporter)
     with host._retained_manifest(Runner(), compose_args=[], env={'ALPACA_API_KEY': 'private', 'ALPACA_SECRET_KEY': 'private',
             'SENTINEL_PAPER_ACCOUNT_ID': 'private'}) as args:
         mounted = args[1].rsplit(':/retained/source.json:ro', 1)[0]
@@ -84,6 +87,7 @@ def test_host_reads_revision_without_broker_authority_and_mounts_exact_source(mo
     assert not Path(mounted).exists()
     assert calls[0][1] == {}
     assert calls[0][0][-1] == host._RETAINED_REVISION_CODE
+    assert loaded == [str(host.go.ROOT/'tools/sentinel_retained_source_manifest.py')]
 
 
 @pytest.mark.parametrize('raw,exit_code', [('{}', 0), ('[]', 0), ('{"retained_revision":"bad"}', 0),

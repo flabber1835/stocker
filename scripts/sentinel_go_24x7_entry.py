@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import math
+import runpy
 from contextlib import contextmanager
 from pathlib import Path
 import sys
@@ -265,7 +266,9 @@ def _retained_manifest(runner, *, compose_args, env):
         return
     if not isinstance(revision, str) or go._HEX40.fullmatch(revision) is None:
         raise ValueError('retained revision invalid')
-    from tools.sentinel_retained_source_manifest import build
+    # The supported host CLI puts scripts/, not the repository, on sys.path.
+    # Load this stdlib-only exporter from the verified checkout's exact path.
+    build = runpy.run_path(str(go.ROOT/'tools/sentinel_retained_source_manifest.py'))['build']
     manifest = build(root=go.ROOT, revision=revision)
     # Plain source evidence contains no credentials and is mounted read-only.
     with tempfile.TemporaryDirectory(prefix='sentinel-retained-') as folder:
