@@ -18,7 +18,7 @@ SCHEMA = 'sentinel.retained-runtime-admission/1'
 PREFIX = 'runtime-admission:v1:'
 Refused = origin.RollingColdStartRefused
 ADDITIONS = {'runtime_admission.py', 'semantic_source_basis.py', 'retained_go.py', 'retained_parity.py',
-             'economic_migration.py', 'core/cash_distributions.py'}
+             'economic_migration.py', 'core/cash_distributions.py', 'execution_upgrade.py'}
 ADMINISTRATIVE = {'shadow_supervisor.py', 'observation_authority.py', 'observation_startup.py'}
 SEAMS = {'core/decision.py': 'sentinel.core.decision',
          'rolling_checkpoint.py': 'sentinel.rolling_checkpoint',
@@ -179,6 +179,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     from sentinel import semantic_source_basis as basis
     from sentinel.economic_migration import profile
     profile()
+    from sentinel.execution_upgrade import profile as execution_profile
+    execution_profile()
     manifest = SourceManifest.model_validate(manifest)
     source = source or identity.rehearsal_identity()
     _require_context(checkpoint, context)
@@ -200,6 +202,9 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
         module = SEAMS.get(name)
         from sentinel.economic_migration import source_allowed
         if source_allowed(name, previous, actual[name]):
+            continue
+        from sentinel.execution_upgrade import source_allowed as execution_source_allowed
+        if execution_source_allowed(name, previous, actual[name]):
             continue
         if module is None:
             raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)

@@ -389,7 +389,10 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
         validate_grant=validate,
         automation_config_sha256=automation_config_sha256,
         authority_check=require_current_authority)
-    return GuardedExecutionBroker(inner=broker, grant=grant, guard=guard)
+    wrapped = GuardedExecutionBroker(inner=broker, grant=grant, guard=guard)
+    from .inspection import _require_certified_paper_broker
+    _require_certified_paper_broker(wrapped)
+    return wrapped
 
 def _latest_plan_or_refuse(conn):
     try:

@@ -40,6 +40,14 @@ path/hash closure reproduces the HMAC-authenticated origin's Sentinel hash.
 Compare it with the actual current image: all changes must be in the reviewed
 administrative seams, supervision, or the new admission/proof modules. Removed
 files, economic changes, foreign additions and unexplained changes refuse.
+The certified paper-composition repair has a separate immutable execution-source
+upgrade profile. It permits only the eight reviewed paper/transport definitions'
+exact source-file hashes, from the authenticated origin or the preceding release
+to this repair. It does not broaden the administrative allowlist or change the
+forward-cash migration profile referenced by existing admission rows. Unlisted
+paths, unreviewed neighboring changes, changed strategy/environment/capital and
+altered profile code or data still refuse. Execution changes do not reconstruct
+or rewrite the immutable strategy book and never imply complete historical fills.
 Substitute only that proven original source hash/count into the actual current
 environment record; its digest must reproduce the authenticated origin's
 environment digest. Dependency, calendar, interpreter or base-image changes
@@ -88,6 +96,13 @@ Activation still requires its own exact GO bundle, current readiness, account
 reconciliation, signed paper authority and full semantic restore of the admitted
 runtime/state before kill release. An expired historical decision never becomes
 a prospective order. No installation receipt is rewritten by these operations.
+Backup maintenance transfers after the new financial identity has been
+canonically admitted and authenticated, under the existing exclusive media lock
+after any restore finishes. Requiring completed paper activation first would
+leave the old maintenance executable unable to authenticate an already migrated
+daily checkpoint. Software installation alone remains insufficient for this
+handoff; financial admission grants no broker authority. The new maintenance
+runtime must obtain its exact full semantic restore proof before retention.
 
 ## Bounded backup availability during retained GO
 

@@ -100,3 +100,99 @@ def test_reconciliation_never_calls_unaccepted_nested_fill_producer(conn, status
     assert result.observation is not None and not result.observation.is_complete
     assert result.observation.terminal_recovery_through is None
     assert not journal.load_commands(conn, DEPLOY)
+
+
+@pytest.mark.parametrize('status', [200, 403])
+def test_informational_current_book_does_not_borrow_historical_authority(conn, status):
+    b, http = broker(status)
+    assert_quarantined(b)
+    result = asyncio.run(reconcile.reconcile(
+        broker=b, conn=conn, binding=B.load(conn), deployment=DEPLOY,
+        informational_current_book=True))
+    assert result.runtime_state is RuntimeState.RUNNING
+    assert result.clean and result.observation.is_complete
+    assert result.observation.terminal_recovery_through is None
+    assert not result.observation.fill_history_complete
+    assert SSE not in http.paths
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_terminal_recovery_watermark').fetchone()[0] == 0
+    assert not journal.load_commands(conn, DEPLOY)
+
+
+@pytest.mark.parametrize('working_state', ['ACKNOWLEDGED', 'UNKNOWN', 'SEND_PENDING'])
+@pytest.mark.parametrize('found', [False, True])
+def test_current_book_requires_positive_exact_order_evidence(conn, working_state, found):
+    from decimal import Decimal
+    from sentinel.execution.commands import Command
+    from sentinel.execution.contract import BrokerInstrument, Side
+    from sentinel.execution.identity import CommandIdentity
+    from sentinel.execution.states import CommandState
+    from tests.sentinel.test_issue_183_alpaca_hardening import Httpx, Response, full_order
+
+    b, _http = broker(403)
+    command = Command(
+        identity=CommandIdentity(DEPLOY, 'fixture-plan', 'AAPL'),
+        instrument=BrokerInstrument('AAPL', 'AAPL', 'asset-aapl'),
+        side=Side.BUY, quantity=Decimal(2), state=CommandState[working_state],
+        broker_order_id='order-1' if working_state == 'ACKNOWLEDGED' else None)
+    journal.save_command(conn, command)
+    http = Httpx(routes={
+        '/v2/account': Response({'id': 'audit-native-uuid', 'account_number': ACCOUNT}),
+        '/v2/orders:by_client_order_id': Response(
+            full_order(status='filled', filled='2', client_order_id=command.client_key)
+            if found else {}, 200 if found else 404),
+        '/v2/positions': Response([
+            {'symbol': 'AAPL', 'asset_id': 'asset-aapl', 'qty': '2'}] if found else []),
+    })
+    b._inner._http_provider = lambda: http
+    result = asyncio.run(reconcile.reconcile(
+        broker=b, conn=conn, binding=B.load(conn), deployment=DEPLOY,
+        informational_current_book=True))
+    durable = journal.load_commands(conn, DEPLOY)[0]
+    assert durable.state is (CommandState.FILLED if found else CommandState.UNKNOWN)
+    assert durable.filled_quantity == (Decimal(2) if found else Decimal(0))
+    assert result.runtime_state is (RuntimeState.RUNNING if found else RuntimeState.RECONCILING)
+    assert any(call[1] == '/v2/orders:by_client_order_id' for call in http.calls)
+    assert all(call[0] == 'GET' for call in http.calls)
+    assert not any('activities' in call[1] for call in http.calls)
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_terminal_recovery_watermark').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('scope', [None, 1, 'true'])
+def test_current_book_scope_never_uses_truthy_coercion(conn, scope):
+    b, http = broker(403)
+    with pytest.raises(TypeError, match='must be boolean'):
+        asyncio.run(reconcile.reconcile(broker=b, conn=conn, binding=None,
+            deployment=DEPLOY, informational_current_book=scope))
+    assert http.paths == []
+
+
+@pytest.mark.parametrize('fault', ['account-flip', 'position-flip', 'foreign-position', 'foreign-order'])
+def test_current_book_retains_production_account_and_foreign_activity_fences(conn, fault):
+    from tests.sentinel.test_issue_183_alpaca_hardening import Httpx, Response, full_order
+    b, _http = broker(403)
+    account_reads = []
+    position_reads = []
+    def account(_params):
+        account_reads.append(1)
+        return {'id': 'other-uuid' if fault == 'account-flip' and len(account_reads) == 3 else 'audit-native-uuid',
+                'account_number': 'OTHER' if fault == 'account-flip' and len(account_reads) == 3 else ACCOUNT}
+    def positions(_params):
+        position_reads.append(1)
+        present = fault == 'foreign-position' or fault == 'position-flip' and len(position_reads) == 2
+        return [{'symbol': 'AAPL', 'asset_id': 'asset-aapl', 'qty': '2'}] if present else []
+    http = Httpx(routes={
+        '/v2/account': account, '/v2/positions': positions,
+        '/v2/orders': Response([full_order(client_order_id='foreign-human-order')]
+                               if fault == 'foreign-order' else []),
+    })
+    b._inner._http_provider = lambda: http
+    result = asyncio.run(reconcile.reconcile(
+        broker=b, conn=conn, binding=B.load(conn), deployment=DEPLOY,
+        informational_current_book=True))
+    assert result.runtime_state in {
+        RuntimeState.RECONCILING, RuntimeState.BROKER_DEGRADED, RuntimeState.FOREIGN_ACTIVITY}
+    if fault.startswith('foreign'):
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+    assert all(call[0] == 'GET' for call in http.calls)
+    assert not journal.load_commands(conn, DEPLOY)
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_terminal_recovery_watermark').fetchone()[0] == 0

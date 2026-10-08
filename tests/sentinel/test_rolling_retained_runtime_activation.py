@@ -24,6 +24,10 @@ def executable(ready, monkeypatch, request):
     actual = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
               for p in root.rglob('*.py') if '__pycache__' not in p.parts}
     old = {key: value for key, value in actual.items() if key not in admission.ADDITIONS}
+    if getattr(request, 'param', None) == 'execution':
+        from sentinel.execution_upgrade import profile
+        for name, record in profile()['files'].items():
+            old[name] = record['before'][0]
     old['shadow_supervisor.py'] = hashlib.sha256(b'prior reviewed supervisor').hexdigest()
     env = {'compatible': True, 'sentinel_source': {'path': str(root), 'files': len(actual), 'hash': admission.source_closure(actual)},
            'wealth_core_source': {'hash': '2'*64}, 'dependencies': 'fixed'}
@@ -193,6 +197,7 @@ def test_retained_go_metadata_wait_preserves_real_book_and_recovers_once(
 
 
 @pytest.mark.parametrize('ready', [{'formed': True}], indirect=True)
+@pytest.mark.parametrize('executable', [None, 'execution'], indirect=True)
 def test_upgrade_admission_preserves_book_and_restart_then_daily(conn, ready, executable, operational_source, monkeypatch):
     first = _start(conn, executable)
     before = origin.read(conn).model_dump(by_alias=True)

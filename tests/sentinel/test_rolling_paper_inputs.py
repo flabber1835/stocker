@@ -352,6 +352,48 @@ def prepare(conn, broker, **overrides):
     return asyncio.run(paper.prepare_paper_plan(**values))
 
 
+@pytest.mark.parametrize("gateway", ["alpaca"], indirect=True)
+def test_production_alpaca_dual_preparation_uses_current_book_without_fill_history(
+        conn, gateway, monkeypatch):
+    from pathlib import Path
+    from sentinel.config import SentinelConfig, build_execution_broker
+    from tests.sentinel.test_issue_183_alpaca_hardening import Httpx, Response
+
+    _shadow, bound, _simulator = gateway
+    cfg = SentinelConfig(
+        alpaca_key="fixture", alpaca_secret="fixture", base_url=DEFAULT_BASE_URL,
+        state_dir=Path("/fixture"), max_cycles=1, poll_seconds=0)
+    broker = build_execution_broker(
+        cfg, resolve_security_id=paper.build_security_resolver(conn, DAY))
+    http = Httpx(routes={"/v2/account": Response({
+        "id": "native-paper-fixture", "account_number": "paper-fixture",
+        "equity": "250000", "cash": "250000", "buying_power": "250000",
+        "multiplier": "1", "status": "ACTIVE", "trading_blocked": False,
+        "account_blocked": False, "trade_suspended_by_user": False,
+    })})
+    broker._http_provider = lambda: http
+    # Restore the actual shared constructor: the general strategy fixture
+    # substitutes it to keep unrelated economic tests independent of guards.
+    monkeypatch.setattr(preparation, "_guard_broker", validation._guard_broker)
+    for name in ("strict_checkpoint", "strict_floor", "strict_advance"):
+        from sentinel.execution import alpaca
+        monkeypatch.setattr(alpaca, name, lambda *_a, **_k:
+                            pytest.fail("current book borrowed historical recovery authority"))
+    result = prepare(conn, broker)
+    assert result.plan == journal.latest_plan(conn)
+    assert result.plan.broker == "alpaca"
+    assert result.reconciliation.runtime_state.value == "RUNNING"
+    assert result.reconciliation.observation.is_complete
+    assert not result.reconciliation.observation.fill_history_complete
+    assert result.reconciliation.observation.terminal_recovery_through is None
+    assert not broker.capabilities.recent_fill_history
+    assert http.calls and all(call[0] == "GET" for call in http.calls)
+    assert not any("activities" in call[1] for call in http.calls)
+    assert not journal.load_commands(conn, bound.identity)
+    # Same-session restart keeps the exact durable plan and the same scope.
+    assert prepare(conn, broker).plan == result.plan
+
+
 def test_fresh_dual_guard_reuses_only_its_verified_state_digest(conn, gateway, monkeypatch):
     import psycopg
     from sentinel.core.session import SessionState

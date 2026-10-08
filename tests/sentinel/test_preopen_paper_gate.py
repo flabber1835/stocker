@@ -115,7 +115,7 @@ def _install_recovery_harness(
 
     monkeypatch.setattr(paper_recovery, "assert_paper_url", lambda *_: None)
     monkeypatch.setattr(
-        paper_recovery, "_require_certified_paper_broker", lambda *_: None)
+        paper_recovery, "_require_certified_paper_broker", lambda *_, **_kwargs: None)
     monkeypatch.setattr(schema, "require_runtime_schema", lambda *_: None)
 
     def recovery_lock(_conn, *, recovery_only=False):

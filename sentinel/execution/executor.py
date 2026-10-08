@@ -255,6 +255,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           increase_authority=None,
                           mutation_authority=None,
                           security_restrictions: Optional[Mapping[str, str]] = None,
+                          informational_current_book: bool = False,
                           ) -> SessionResult:
     """TWO PHASES: reduce, settle, re-observe, re-size, increase.
 
@@ -370,7 +371,8 @@ async def execute_session(*, broker: ExecutionBroker, conn,
             min_increment=min_increment, settle_cycles=settle_cycles,
             increase_authority=increase_authority,
             mutation_authority=mutation_authority,
-            security_restrictions=security_restrictions)
+            security_restrictions=security_restrictions,
+            informational_current_book=informational_current_book)
 
 
 async def _execute_session_locked(*, broker: ExecutionBroker, conn,
@@ -385,6 +387,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   increase_authority=None,
                                   mutation_authority=None,
                                   security_restrictions: Optional[Mapping[str, str]] = None,
+                                  informational_current_book: bool = False,
                                   ) -> SessionResult:
     desired = (target_projection.target_basket
                if target_projection is not None else plan.target_basket)
@@ -393,7 +396,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     #    established — including after a restart, where the journal may be
     #    behind reality.
     rec = await R.reconcile(broker=broker, conn=conn, binding=None,
-                            deployment=deployment, actions=actions)
+                            deployment=deployment, actions=actions,
+                            informational_current_book=informational_current_book)
     if rec.runtime_state in (RuntimeState.BROKER_DEGRADED,
                              RuntimeState.RECONCILING):
         return SessionResult(runtime_state=rec.runtime_state, reconciliation=rec,
@@ -592,7 +596,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 broker=broker, conn=conn, deployment=deployment,
                 plan_id=plan.plan_id,
                 client_keys=sorted(outstanding_reduction_keys),
-                cycles=settle_cycles, actions=actions)
+                cycles=settle_cycles, actions=actions,
+                informational_current_book=informational_current_book)
             if settled_rec is not None:
                 rec = settled_rec
                 runtime = rec.runtime_state
@@ -663,7 +668,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
 async def _settle_reductions(*, broker: ExecutionBroker, conn,
                              deployment: DeploymentIdentity, plan_id: str,
                              client_keys, cycles: int,
-                             actions: Optional[R.ActionLookup]) -> tuple:
+                             actions: Optional[R.ActionLookup],
+                             informational_current_book: bool = False) -> tuple:
     """Prove every reduction FILLED through a fresh clean reconciliation.
 
     "Not working" is not settlement. A rejected, cancelled, never-landed or
@@ -687,7 +693,8 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
     for _ in range(max(1, cycles)):
         latest = await R.reconcile(
             broker=broker, conn=conn, binding=None,
-            deployment=deployment, actions=actions)
+            deployment=deployment, actions=actions,
+            informational_current_book=informational_current_book)
         observation = latest.observation
         if latest.runtime_state is not RuntimeState.RUNNING:
             reason = (f"reconciliation is {latest.runtime_state.value}: "

@@ -158,6 +158,27 @@ def run(conn, b, plan, **kw):
         instruments=INSTRUMENTS, today=TODAY, **kw))
 
 
+@pytest.mark.parametrize("current_book", [False, True])
+def test_current_book_scope_survives_executor_settlement(conn, monkeypatch, current_book):
+    b = broker(observe_hooks=settles_on_the_second_read())
+    seed_held(conn, b, AAA, 50)
+    historical_reads = []
+    original = b.observe_with_terminal_recovery
+
+    async def historical(**kwargs):
+        historical_reads.append(kwargs)
+        assert not current_book, "settlement reverted to historical recovery"
+        return await original(**kwargs)
+
+    monkeypatch.setattr(b, "observe_with_terminal_recovery", historical)
+    result = run(conn, b, a_plan({"SEC-AAA": "0", "SEC-BBB": "100"}),
+                 informational_current_book=current_book)
+    assert [command.security_id for command in result.submitted] == ["SEC-AAA", "SEC-BBB"]
+    assert bool(historical_reads) is (not current_book)
+    count = conn.execute("SELECT COUNT(*) FROM sentinel_terminal_recovery_watermark").fetchone()[0]
+    assert count == (0 if current_book else 1)
+
+
 def restart_run(pg, b, plan, **kw):
     """A second process: no Python state survives, only broker + Postgres."""
     restarted = feed_store.connect(pg.sync_dsn)

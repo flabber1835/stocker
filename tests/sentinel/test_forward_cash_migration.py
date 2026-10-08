@@ -43,12 +43,15 @@ def test_controller_and_wealth_model_cannot_migrate_as_cash_policy(field):
 
 
 def test_reviewed_source_profile_accepts_only_its_exact_bytes():
+    from sentinel import execution_upgrade
     root = Path(migration.__file__).parent
     profile = migration.profile()
     for name, item in profile['files'].items():
         actual = hashlib.sha256((root/name).read_bytes()).hexdigest()
-        assert actual == item['after'], name
-        assert migration.source_allowed(name, item['before'][0], actual)
+        if actual != item['after']:
+            assert execution_upgrade.source_allowed(name, item['after'], actual), name
+            assert not migration.source_allowed(name, item['before'][0], actual)
+        assert migration.source_allowed(name, item['before'][0], item['after'])
         assert not migration.source_allowed(name, 'f'*64, actual)
         assert not migration.source_allowed(name, item['before'][0], 'f'*64)
     assert not migration.source_allowed('unknown.py', 'a'*64, 'b'*64)

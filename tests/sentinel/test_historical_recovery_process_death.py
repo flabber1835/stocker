@@ -143,6 +143,7 @@ def test_killed_sender_absence_and_late_fill_keep_original_identity(
 
     exact_lookup = broker.find_by_client_key
     observation = broker.observe_with_terminal_recovery
+    current_observation = broker.observe
 
     async def absent_key(key):
         return replace(await exact_lookup(key), order=None)
@@ -150,9 +151,15 @@ def test_killed_sender_absence_and_late_fill_keep_original_identity(
     async def absent_observation(**kwargs):
         return replace(await observation(**kwargs), orders=(), positions=())
 
+    async def absent_current_observation():
+        return replace(await current_observation(), orders=(), positions=())
+
     with monkeypatch.context() as hidden:
         hidden.setattr(broker, "find_by_client_key", absent_key)
         hidden.setattr(broker, "observe_with_terminal_recovery", absent_observation)
+        # Absence must cover both readers: dual recovery uses the current book,
+        # while strict recovery also consults terminal history.
+        hidden.setattr(broker, "observe", absent_current_observation)
         for _ in range(3):
             with feed_store.connect(dsn) as reopened:
                 with pytest.raises(PaperRetryableRefused, match="RECONCILING"):
@@ -173,7 +180,8 @@ def test_killed_sender_absence_and_late_fill_keep_original_identity(
             blocked = asyncio.run(executor.execute_session(
                 conn=reopened, broker=broker, deployment=bound.identity,
                 plan=successor, instruments={"1": original.instrument},
-                today=successor.effective_session))
+                today=successor.effective_session,
+                informational_current_book=True))
             assert blocked.runtime_state is RuntimeState.RECONCILING
             assert blocked.submitted == ()
             assert sum(call.startswith("submit:") for call in broker.calls) == 1

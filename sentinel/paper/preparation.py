@@ -254,7 +254,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
     """Advance and adopt one current plan without any broker mutation."""
     _require_mutation_backup(conn, operation="paper plan preparation")
     assert_paper_url(base_url)
-    _require_certified_paper_broker(broker)
+    _require_certified_paper_broker(broker, expected_wrapper_kind=None)
     schema.require_runtime_schema(conn)
     try:
         journal.require_observation_integrity(conn)
@@ -444,7 +444,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 rec = await reconciliation.reconcile(
                     broker=broker, conn=conn, binding=None,
                     deployment=binding.identity,
-                    actions=_action_lookup(conn, state, through_date))
+                    actions=_action_lookup(conn, state, through_date),
+                    informational_current_book=dual_mode)
                 observation = _clean_or_refuse(
                     rec, purpose="dual PAPER preparation restart")
                 account = await broker.account_snapshot()
@@ -495,7 +496,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 rec = await reconciliation.reconcile(
                     broker=broker, conn=conn, binding=None,
                     deployment=binding.identity,
-                    actions=_action_lookup(conn, state, through_date))
+                    actions=_action_lookup(conn, state, through_date),
+                    informational_current_book=dual_mode)
                 observation = _clean_or_refuse(
                     rec, purpose="paper preparation restart")
                 account = await broker.account_snapshot()
@@ -560,7 +562,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             rec = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity,
-                actions=actions)
+                actions=actions, informational_current_book=dual_mode)
             if due_existing_cycle:
                 current_commands = journal.load_commands(
                     conn, binding.identity)

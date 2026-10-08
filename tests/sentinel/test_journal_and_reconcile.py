@@ -53,6 +53,22 @@ AAA = BrokerInstrument(security_id="SEC-AAA", symbol="AAA", broker_id="b-AAA")
 BBB = BrokerInstrument(security_id="SEC-BBB", symbol="BBB", broker_id="b-BBB")
 
 
+@pytest.mark.parametrize("completeness", [Completeness.PARTIAL, Completeness.TRUNCATED,
+                                         Completeness.INCONSISTENT])
+def test_current_book_never_promotes_incomplete_snapshot(conn, monkeypatch, completeness):
+    broker = SimulatedBroker(account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"))
+    original = broker.observe
+    async def incomplete():
+        return replace(await original(), completeness=completeness)
+    monkeypatch.setattr(broker, "observe", incomplete)
+    result = run(R.reconcile(broker=broker, conn=conn, binding=None,
+                            deployment=DEPLOY, informational_current_book=True))
+    assert result.runtime_state is RuntimeState.RECONCILING
+    assert not result.observation.is_complete
+    assert not journal.load_commands(conn, DEPLOY)
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_terminal_recovery_watermark").fetchone()[0] == 0
+
+
 def run(coro):
     return asyncio.run(coro)
 

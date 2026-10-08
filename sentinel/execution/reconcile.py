@@ -458,9 +458,12 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                     deployment: DeploymentIdentity,
                     actions: Optional[ActionLookup] = None,
                     tolerance: Decimal = Decimal("0.000001"),
+                    informational_current_book: bool = False,
                     ) -> ReconciliationResult:
     """The full sequence. Submits nothing; its output decides what may be."""
     from sentinel.execution import journal, recovery
+    if type(informational_current_book) is not bool:
+        raise TypeError("informational current-book scope must be boolean")
 
     # 1. BINDING FIRST. Every later comparison is meaningless against the wrong
     #    account, and "we reconciled someone else's book" is not recoverable by
@@ -484,19 +487,22 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     #    submit.
     try:
         from sentinel.execution import alpaca as alpaca_adapter
-        strict_recovery = _is_broker_instance(
+        strict_recovery = not informational_current_book and _is_broker_instance(
             broker, alpaca_adapter.AlpacaExecutionBroker)
-        recovery_checkpoint = (
+        recovery_checkpoint = None if informational_current_book else (
             alpaca_adapter.strict_checkpoint(conn)
             if strict_recovery
             else journal.terminal_recovery_checkpoint(conn))
-        recovery_floor = (
+        recovery_floor = None if informational_current_book else (
             alpaca_adapter.strict_floor(conn)
             if strict_recovery
             else journal.terminal_recovery_floor(conn))
-        observation = await broker.observe_with_terminal_recovery(
-            submitted_after=recovery_floor,
-            processed_through=recovery_checkpoint)
+        if informational_current_book:
+            observation = await broker.observe()
+        else:
+            observation = await broker.observe_with_terminal_recovery(
+                submitted_after=recovery_floor,
+                processed_through=recovery_checkpoint)
     except BrokerAuthorityRefused:
         raise
     except Exception as exc:                                  # noqa: BLE001
@@ -659,15 +665,16 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                    f"reconciliation needs a COMPLETE one")
 
     recovery_through = observation.terminal_recovery_through
-    if recovery_through is None:
+    if recovery_through is None and not informational_current_book:
         return ReconciliationResult(
             runtime_state=RuntimeState.RECONCILING,
             observation=observation,
             observation_id=observation_seq,
             detail="complete observation omitted its terminal-recovery upper "
                    "boundary; processed history cannot advance")
-    recovery_through = recovery_through.astimezone(timezone.utc)
-    if recovery_through < recovery_checkpoint:
+    if recovery_through is not None:
+        recovery_through = recovery_through.astimezone(timezone.utc)
+    if not informational_current_book and recovery_through < recovery_checkpoint:
         return ReconciliationResult(
             runtime_state=RuntimeState.RECONCILING,
             observation=observation,
@@ -1044,7 +1051,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     # and every ordinary progress update commit before this point. A crash any
     # earlier therefore replays the same overlapped broker window. A conflict
     # deliberately leaves the old boundary so the evidence cannot age out.
-    if not adoption_conflicts:
+    if not adoption_conflicts and not informational_current_book:
         if strict_recovery:
             alpaca_adapter.strict_advance(conn, recovery_through)
         else:

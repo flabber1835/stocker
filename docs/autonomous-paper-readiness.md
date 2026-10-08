@@ -9,6 +9,26 @@ already uses the selected strategy and rolling readers from PR #405.
 
 ## Recurring maintenance decision
 
+### Current-book reconciliation is separate from historical recovery
+
+Reviewed informational dual PAPER uses the canonical account-bound, stable
+orders/positions snapshot for current-book reconciliation. It does not request
+the quarantined historical Activity SSE reader. Known pending or uncertain
+commands still require exact-key positive evidence; absence cannot resolve an
+UNKNOWN, and unexplained positions, cash or external orders still block
+transport. The original binding, durable command book and restore-incarnation
+fences remain mandatory. This scope neither reads nor advances the historical
+terminal-recovery watermark and cannot certify fill history, close NAV or
+performance. Missing restored history must not be reconstructed from positions.
+
+The typed informational scope is passed through preparation, restart recovery,
+execution preflight, settled-account brackets and every executor re-observation.
+Ordinary historical reconciliation keeps its existing strict reader and
+refusals. A complete current snapshot is never promoted into complete historical
+fill evidence. This resolves a scope coupling that otherwise made every
+production informational snapshot PARTIAL solely because the optional historical
+stream is unaccepted.
+
 ### Audit remediation and integration, 2026-09-19
 
 Integrate main `29cdd7727ba2adea27672830c538d76a2218943e` and use its
