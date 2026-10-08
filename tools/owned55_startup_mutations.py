@@ -91,7 +91,7 @@ STARTUP_CASES = [
      'store.latest_visible_session(c) if rolling_go_inputs.is_rolling(held)',
      'tests/production_composition/test_canonical_go_e2e_harness.py::test_publication_observer_reads_the_selected_generation[rolling-startup]'),
     ('go_disconnected_preparation_fault', 'tools/production_go_stage_faults.py',
-     '("sentinel.feed.rolling_go_inputs", "prepare")',
+     '("sentinel.retained_go", "prepare")',
      '("sentinel.feed.outage_recovery", "catch_up")',
      'tests/production_composition/test_internal_go_stage_faults.py::test_rolling_fault_reaches_the_production_call_site[feed-catchup-prepare]'),
     ('go_disconnected_readiness_fault', 'tools/production_go_stage_faults.py',
