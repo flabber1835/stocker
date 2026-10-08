@@ -262,6 +262,12 @@ def _install_reviewed_preparation_contract() -> None:
     """Install and verify the source-owned single-preparation implementation."""
     controller.entry.install()
     code = controller.go._PREPARATION_CODE
+    if "retained_go.prepare" in code:
+        if (code.count("retained_go.prepare(c, target_session=target,") != 1
+                or "rolling_go_inputs.prepare" in code
+                or "outage_recovery" in code or "ingest.daily" in code):
+            raise controller.PhaseRefused("GO retained preparation has more than one data path")
+        return
     if "rolling_go_inputs.prepare" in code:
         if (code.count("rolling_go_inputs.prepare(c, target_session=target,") != 1
                 or "outage_recovery" in code or "ingest.daily" in code):

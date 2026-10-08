@@ -96,3 +96,24 @@ def test_host_refuses_unproven_origin_before_financial_preparation(raw, exit_cod
     with pytest.raises(ValueError):
         with host._retained_manifest(Runner(), compose_args=[], env={}) as _:
             pytest.fail('unproven revision reached preparation')
+
+
+@pytest.mark.parametrize('entry_point', ['controller', 'entry'])
+@pytest.mark.parametrize('defect', [None, 'duplicate', 'parallel_fresh', 'changed_call'])
+def test_actual_phase_contract_checks_single_retained_dispatcher(monkeypatch, entry_point, defect):
+    import sentinel_go_24x7_entry as host
+    import sentinel_go_phase_controller as controller
+    import sentinel_go_phase_entry as entry
+    check = (controller._install_single_preparation_contract if entry_point == 'controller'
+             else entry._install_reviewed_preparation_contract)
+    monkeypatch.setattr(controller.entry, 'install', lambda: None)
+    code = host._PREPARATION_CODE
+    assert code.count('retained_go.prepare(c, target_session=target,') == 1
+    if defect == 'duplicate': code += '\nretained_go.prepare(c, target_session=target, absolute_deadline=None)'
+    elif defect == 'parallel_fresh': code += '\nrolling_go_inputs.prepare(c, target_session=target)'
+    elif defect == 'changed_call': code = code.replace('retained_go.prepare(c,', 'retained_go.prepare(None,')
+    monkeypatch.setattr(controller.go, '_PREPARATION_CODE', code)
+    if defect:
+        with pytest.raises(controller.PhaseRefused): check()
+    else:
+        check()
