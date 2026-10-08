@@ -124,8 +124,15 @@ book or authority. All account, publication, effective-session, sizing,
 reconciliation, signed authority and backup checks remain mandatory.
 
 The host launcher explicitly injects the selected commit and immutable image
-digest into each read-only parity child; the ordinary CLI has no standing
-executable authority. The minimum Python 3.8 host validates the exact retained
+digest into every read-only engine child that authenticates retained state:
+parity, source readiness and financial database health, including post-wait
+readiness revalidation. These nonsecret identities come from the independently
+verified Git/image pair for that invocation and replace stale ambient values;
+Compose must explicitly forward them into the disposable child. Missing or
+malformed selected identity refuses before launching a reader. This identity
+binding grants no feed-write or broker capability, and broker credentials remain
+excluded. The ordinary CLI has no standing executable authority. The minimum
+Python 3.8 host validates the exact retained
 wire shape and its report bindings using only the standard library. It must not
 import the Python 3.12 engine or its dependencies. The exact-image reader owns
 calendar, authenticated lineage and canonical transition verification. Duplicate

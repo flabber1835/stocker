@@ -437,10 +437,10 @@ def run_phased_probes(*, runner=None, env=None, now=None, urlopen=None,
         now_text=now_text, subject_values=subjects,
         timing_values=timing_values)
     readiness = go.probe_sharadar_readiness(
-        runner, env=resolved_env, runtime_ref=tests.runtime_image_digest,
+        runner, env=resolved_env, runtime_ref=tests.runtime_image_digest, commit=git.commit,
         now_text=now_text)
     database_base, database_gate = go.probe_database_financial_health(
-        runner, env=resolved_env, runtime_ref=tests.runtime_image_digest,
+        runner, env=resolved_env, runtime_ref=tests.runtime_image_digest, commit=git.commit,
         now_text=now_text,
         bounded_ingest_milliseconds=preparation.elapsed_milliseconds,
         full_forward_decision_replay_milliseconds=timing_values.get(

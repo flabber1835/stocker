@@ -1490,13 +1490,15 @@ finally:
 
 
 def probe_sharadar_readiness(runner: CommandRunner, *, env: Mapping[str, str],
-                             runtime_ref: Optional[str], now_text: str) -> Gate:
+                             runtime_ref: Optional[str], now_text: str,
+                             commit: Optional[str] = None) -> Gate:
     if (not str(env.get("ALPACA_API_KEY") or "").strip()
             or not str(env.get("ALPACA_SECRET_KEY") or "").strip()):
         return make_gate(
             "sharadar_readiness", NOT_PROVEN, now_text,
             {"reason": "ALPACA_MARKET_DATA_AUTHORITY_UNAVAILABLE"})
-    if (not env.get("SENTINEL_POSTGRES_PASSWORD") or not runtime_ref
+    if (not env.get("SENTINEL_POSTGRES_PASSWORD") or not isinstance(commit, str)
+            or _HEX40.fullmatch(commit) is None or not runtime_ref
             or _IMAGE_DIGEST.fullmatch(runtime_ref) is None):
         return make_gate(
             "sharadar_readiness", NOT_PROVEN, now_text,
@@ -1507,11 +1509,16 @@ def probe_sharadar_readiness(runner: CommandRunner, *, env: Mapping[str, str],
         return make_gate(
             "sharadar_readiness", NOT_PROVEN, now_text,
             {"reason": "COMPOSE_GRAPH_UNAVAILABLE"})
-    if runtime_ref:
-        run_env["SENTINEL_RUNTIME_IMAGE_REF"] = runtime_ref
+    run_env.update({
+        "SENTINEL_RUNTIME_IMAGE_REF": runtime_ref,
+        "SENTINEL_GIT_COMMIT": commit,
+        "SENTINEL_RUNTIME_IMAGE_DIGEST": runtime_ref,
+    })
     command = [
         "docker", "compose", *compose_args, "--profile", "cli", "run",
-        "--rm", "-T", "--no-deps", "--entrypoint", "python", "sentinel",
+        "--rm", "-T", "--no-deps",
+        "--env", "SENTINEL_GIT_COMMIT", "--env", "SENTINEL_RUNTIME_IMAGE_DIGEST",
+        "--entrypoint", "python", "sentinel",
         "-c", _READINESS_CODE,
     ]
     completed = runner.run(command, env=run_env)
@@ -1757,10 +1764,12 @@ def probe_database_financial_health(
         runtime_ref: Optional[str], now_text: str,
         bounded_ingest_milliseconds: Optional[int],
         full_forward_decision_replay_milliseconds: Optional[int],
+        commit: Optional[str] = None,
         ) -> tuple[DatabaseHealthSummary, Gate]:
     """Prove financial DB correctness and measured pretrade timing margin."""
     prerequisites = (
         bool(env.get("SENTINEL_POSTGRES_PASSWORD"))
+        and isinstance(commit, str) and _HEX40.fullmatch(commit) is not None
         and runtime_ref is not None
         and _IMAGE_DIGEST.fullmatch(str(runtime_ref)) is not None
         and type(bounded_ingest_milliseconds) is int
@@ -1783,10 +1792,16 @@ def probe_database_financial_health(
         return summary, make_gate(
             "database_financial_health", NOT_PROVEN, now_text,
             summary.to_dict())
-    run_env["SENTINEL_RUNTIME_IMAGE_REF"] = str(runtime_ref)
+    run_env.update({
+        "SENTINEL_RUNTIME_IMAGE_REF": str(runtime_ref),
+        "SENTINEL_GIT_COMMIT": str(commit),
+        "SENTINEL_RUNTIME_IMAGE_DIGEST": str(runtime_ref),
+    })
     completed = runner.run([
         "docker", "compose", *compose_args, "--profile", "cli", "run",
-        "--rm", "-T", "--no-deps", "--entrypoint", "python", "sentinel",
+        "--rm", "-T", "--no-deps",
+        "--env", "SENTINEL_GIT_COMMIT", "--env", "SENTINEL_RUNTIME_IMAGE_DIGEST",
+        "--entrypoint", "python", "sentinel",
         "-c", _DATABASE_HEALTH_CODE,
     ], env=run_env)
     marker = "SENTINEL_GO_DATABASE_HEALTH="
@@ -2028,10 +2043,10 @@ def run_production_probes(*, runner: Optional[CommandRunner] = None,
     # Readiness is executed by the exact deployable runtime digest
     # recorded in TestSummary, never by a mutable tag or build-stage image.
     readiness = probe_sharadar_readiness(
-        runner, env=resolved_env, runtime_ref=tests.runtime_image_digest,
+        runner, env=resolved_env, runtime_ref=tests.runtime_image_digest, commit=git.commit,
         now_text=now_text)
     database_health, database_gate = probe_database_financial_health(
-        runner, env=resolved_env, runtime_ref=tests.runtime_image_digest,
+        runner, env=resolved_env, runtime_ref=tests.runtime_image_digest, commit=git.commit,
         now_text=now_text,
         bounded_ingest_milliseconds=preparation.elapsed_milliseconds,
         full_forward_decision_replay_milliseconds=timing_values.get(

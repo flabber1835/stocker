@@ -514,6 +514,7 @@ finally:
             timing_values=timings)
         readiness = go.probe_sharadar_readiness(
             runner, env=self.env,
+            commit=reviewed.git_commit,
             runtime_ref=reviewed.runtime_image_digest,
             now_text=now_text)
         publication_value = subjects.get("data_publication")
