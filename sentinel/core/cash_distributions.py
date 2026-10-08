@@ -70,11 +70,18 @@ def apply(inputs, *, prior, published, state, ledger, lag):
                        and e.detail.get('entitlement_date', e.session) == key[1]), Decimal(0))
         target = None if owned is None else owned * observation.per_share
         delta = None if target is None else target - accrued
+        if delta is not None:
+            future_cash = (Decimal(str(state.cash))
+                + sum((Decimal(str(r['amount'])) for r in ledger.receivables), Decimal(0))
+                + max(delta, Decimal(0)))
+            if not all(isfinite(float(amount)) for amount in (target, delta, future_cash)):
+                delta = None
         # The existing canonical shadow ledger serializes modeled amounts as
         # floats. Representation dust is not a second dividend entitlement.
         if delta is not None and abs(delta) <= Decimal('0.000000001'):
             delta = Decimal(0)
         status = ('ENTITLEMENT_PENDING' if target is None else
+                  'CASH_AMOUNT_PENDING' if delta is None else
                   'CORRECTION_PENDING' if delta < 0 else
                   'ZERO_ENTITLEMENT' if target == 0 else
                   'ALREADY_RECOGNIZED' if delta == 0 else 'ACCRUED_FORWARD')

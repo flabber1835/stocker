@@ -80,6 +80,24 @@ def test_pre_origin_entitlement_is_pending_without_cash_or_global_refusal():
     assert audit['observations'][0]['status'] == 'ENTITLEMENT_PENDING'
 
 
+def test_entitlement_multiplication_overflow_stays_pending_with_finite_json():
+    import json
+    prior = book([('2026-09-16', EventType.BUY, 100)])
+    ledger, audit = reconcile(prior, '1e308')
+    assert ledger.to_dict() == prior.ledger
+    assert audit['observations'][0]['status'] == 'CASH_AMOUNT_PENDING'
+    json.dumps({'ledger': ledger.to_dict(), 'audit': audit}, allow_nan=False)
+
+
+def test_receivable_balance_overflow_cannot_poison_subsequent_settlement():
+    prior = book([('2026-09-16', EventType.BUY, 1)])
+    prior.ledger['receivables'] = [dict(security_id='OTHER', ticker='OTHER',
+        amount=1e308, accrued_session=EX, due_in=1)]
+    ledger, audit = reconcile(prior, '1e308')
+    assert ledger.to_dict() == prior.ledger
+    assert audit['observations'][0]['status'] == 'CASH_AMOUNT_PENDING'
+
+
 def test_settlement_ages_from_knowledge_and_correction_is_scoped_to_one_ex_date():
     prior = book([('2026-09-16', EventType.BUY, 100)])
     ledger, _ = reconcile(prior)

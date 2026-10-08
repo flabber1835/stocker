@@ -23,6 +23,10 @@ floor if a later native query reports fewer components. That uncertainty is
 pending evidence, never inferred permission to cancel the missing payment.
 Malformed cash terms are pending cash evidence; they do not quarantine otherwise
 valid raw price observations or claim that a dividend was paid.
+Rates, aggregate entitlements and resulting cash/receivable balances must fit
+the canonical shadow book's finite numeric domain. An otherwise finite provider
+rate whose ownership multiplication or balance addition overflows is pending;
+it cannot publish non-finite checkpoint JSON.
 
 Entitlement is the canonical shadow ledger's ownership immediately before the
 ex-date session's fills, including that session's split/conversion receipts.

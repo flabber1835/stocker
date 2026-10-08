@@ -7,7 +7,7 @@ from pathlib import Path
 from sentinel.core.cash_distributions import POLICY
 from sentinel.feed.rolling_contract import digest
 
-PROFILE_SHA256 = '52b8646d8307c75ae5d12ab743bb12f731f850fc5775a71047900c712cac11d6'
+PROFILE_SHA256 = 'c241c1c6ea7dc302c783469fbf4f0d7684ab25c52851d49f1c00544f898c2f01'
 PROFILE = Path(__file__).with_name('forward-cash-migration.json')
 
 
