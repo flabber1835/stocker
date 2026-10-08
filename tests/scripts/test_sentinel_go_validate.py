@@ -815,6 +815,85 @@ def test_owned55_go_requires_the_formed_book_proof(defect):
     assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash='50000') is (defect is None)
 
 
+def _retained_report():
+    report = _forward_report()
+    proof = report['proof']
+    strategy = proof['strategy_identity']
+    strategy.update(market_input_policy='CURRENT_WINDOW_V1', startup_policy='CURRENT_WINDOW_FORMATION_V1')
+    proof.update(scope='ROLLING_RETAINED_STATE_AND_RESTART', runtime_contract='sentinel.rolling-shadow-runtime/1')
+    proof['warmup_input']['session_count'] = 299
+    report['publication_coherence'].update(scope='ROLLING_CURRENT_INPUTS_ONLY', snapshot={
+        'data_version': 1, 'scope': 'DATA_ONLY', 'operational_go': False,
+        'snapshot_id': 'e'*64, 'candidate_id': '11111111-1111-1111-1111-111111111111',
+        'job_id': '22222222-2222-2222-2222-222222222222'})
+    retained = {key: 'a'*64 for key in ('origin_sha256', 'checkpoint_sha256', 'record_sha256',
+        'book_runtime_sha256', 'process_sha256', 'runtime_receipt_sha256', 'admission_sha256')}
+    retained.update(schema='sentinel.retained-transition-proof/1', authority_effect='NONE',
+        scope=proof['scope'], observation_id='primary', session=proof['decision_session'],
+        state_sha256=proof['result_state_sha256'], input_sha256=proof['input_sha256'],
+        prior_state_sha256=proof['prior_state_sha256'], strategy_sha256=go._evidence_digest(strategy),
+        checks=dict(proof['checks']))
+    proof['retained'] = retained
+    return report
+
+
+@pytest.mark.parametrize('defect', [None, 'nullable_admission', 'scope', 'authority', 'unknown',
+    'missing', 'false', 'integer', 'checks', 'hash', 'numeric_hash', 'observation', 'session',
+    'date', 'weekend', 'strategy', 'state', 'prior', 'input', 'admission', 'formation'])
+def test_retained_wire_proof_is_strict_without_importing_the_engine(monkeypatch, defect):
+    import builtins
+    original = builtins.__import__
+    def host_import(name, *args, **kwargs):
+        if name == 'sentinel' or name.startswith('sentinel.') or name == 'pydantic':
+            pytest.fail('minimum host must not import engine dependencies')
+        return original(name, *args, **kwargs)
+    report = _retained_report()
+    proof = report['proof']; value = proof['retained']
+    if defect == 'nullable_admission': value['admission_sha256'] = None
+    elif defect == 'scope': value['scope'] = 'ROLLING_FORMED_STARTUP_AND_RESTART'
+    elif defect == 'authority': value['authority_effect'] = 'SHADOW_GO'
+    elif defect == 'unknown': value['new_field'] = 'ignored?'
+    elif defect == 'missing': del value['record_sha256']
+    elif defect == 'false': value['checks']['restart_equivalent'] = False
+    elif defect == 'integer': value['checks']['restart_equivalent'] = 1
+    elif defect == 'checks': value['checks']['unknown'] = True
+    elif defect == 'hash': value['origin_sha256'] = 'bad'
+    elif defect == 'numeric_hash': value['origin_sha256'] = int('1'*64)
+    elif defect == 'observation': value['observation_id'] = 'bad/id'
+    elif defect == 'session': value['session'] = '2026-07-30'
+    elif defect == 'date': value['session'] = '2026-7-31'
+    elif defect == 'weekend': value['session'] = proof['decision_session'] = report['held_publication']['visible_frontier'] = '2026-08-01'
+    elif defect == 'strategy': value['strategy_sha256'] = '0'*64
+    elif defect == 'state': value['state_sha256'] = '0'*64
+    elif defect == 'prior': value['prior_state_sha256'] = '0'*64
+    elif defect == 'input': value['input_sha256'] = '0'*64
+    elif defect == 'admission': value['admission_sha256'] = False
+    elif defect == 'formation': proof['formation'] = {'sessions': 126}
+    monkeypatch.setattr(builtins, '__import__', host_import)
+    assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash='50000') is (defect in (None, 'nullable_admission'))
+
+
+@pytest.mark.parametrize('defect', ['duplicate_verdict', 'duplicate_check', 'NaN', 'Infinity', '1e999'])
+def test_parity_reader_rejects_ambiguous_or_nonfinite_json(defect):
+    raw = json.dumps(_retained_report())
+    if defect == 'duplicate_verdict':
+        raw = raw.replace('"verdict": "PASS"', '"verdict": "REFUSED", "verdict": "PASS"')
+    elif defect == 'duplicate_check':
+        raw = raw.replace('"restart_equivalent": true', '"restart_equivalent": false, "restart_equivalent": true')
+    else:
+        raw = raw[:-1] + ', "number": ' + defect + '}'
+    class RawRunner(_Runner):
+        def run(self, argv, **kwargs):
+            if 'tools.sentinel_operational_parity' in argv:
+                return subprocess.CompletedProcess(argv, 0, raw, '')
+            return super().run(argv, **kwargs)
+    gate = go.probe_active_wealth_parity(RawRunner(_retained_report()),
+        env={'SENTINEL_POSTGRES_PASSWORD': 'private'}, commit=COMMIT,
+        candidate_image_digest=DIGEST_A, runtime_image_digest=DIGEST_B,
+        source_identity_sha256=IDENTITY, now_text=NOW_TEXT)
+    assert gate.status == go.FAIL
+
+
 def test_shadow_configuration_digest_is_exact_runtime_contract():
     env = {
         "SENTINEL_SHADOW_OBSERVATION_ID": "year-end.1",

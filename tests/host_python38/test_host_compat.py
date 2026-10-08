@@ -76,6 +76,49 @@ def _manifest(*, lifecycle="FINALIZED", verdict="PASS", closure="4",
 
 class HostPythonCompatibilityTests(unittest.TestCase):
 
+    def test_retained_parity_validator_does_not_import_runtime_dependencies(self):
+        from scripts import sentinel_go_validate as go
+        from unittest.mock import patch
+        import builtins
+        checks = {key: True for key in ('prior_unchanged', 'input_unchanged', 'restart_equivalent',
+            'result_roundtrip_equivalent', 'frontier_advanced', 'publication_version_bound',
+            'strategy_bound', 'decision_present')}
+        strategy = dict(strategy='retained-fixture', market_input_policy='CURRENT_WINDOW_V1',
+            startup_policy='CURRENT_WINDOW_FORMATION_V1', controller_rule_sha256='a'*64)
+        retained = {key: 'a'*64 for key in ('origin_sha256', 'checkpoint_sha256', 'record_sha256',
+            'state_sha256', 'input_sha256', 'prior_state_sha256', 'book_runtime_sha256',
+            'process_sha256', 'runtime_receipt_sha256')}
+        retained.update(schema='sentinel.retained-transition-proof/1', authority_effect='NONE',
+            scope='ROLLING_RETAINED_STATE_AND_RESTART', observation_id='primary', session='2026-07-31',
+            admission_sha256=None, strategy_sha256=go._evidence_digest(strategy), checks=checks)
+        proof = dict(scope=retained['scope'], runtime_contract='sentinel.rolling-shadow-runtime/1',
+            strategy_identity=strategy, starting_cash='50000', decision_session='2026-07-31',
+            data_version=1, warmup_input=dict(session_count=299, warmup_input_sha256='a'*64),
+            checks=checks, retained=retained)
+        proof.update({key: 'a'*64 for key in ('input_sha256', 'prior_state_sha256', 'result_state_sha256',
+            'decision_sha256', 'controller_configuration_sha256', 'sentinel_source_sha256',
+            'wealth_core_source_sha256', 'proof_helper_sha256')})
+        report = dict(schema='sentinel.production-operational-parity/1', verdict='PASS', authority_effect='NONE',
+            runtime_authority_changed=False, transaction=dict(isolation='repeatable read', read_only='on'),
+            publication_coherence=dict(coherent=True, scope='ROLLING_CURRENT_INPUTS_ONLY', version=1,
+                blocking_runs=[], snapshot=dict(data_version=1, scope='DATA_ONLY', operational_go=False,
+                    candidate_id='11111111-1111-1111-1111-111111111111',
+                    job_id='22222222-2222-2222-2222-222222222222', snapshot_id='a'*64)),
+            held_publication=dict(publication_fingerprint='a'*64, visible_frontier='2026-07-31'),
+            source_identity=dict(identity_hash='a'*64, image_source_revision=GIT,
+                environment=dict(compatible=True, pins_match=True, sources_known=True, lock_present=True,
+                    pin_drift={}, sentinel_source=dict(hash='a'*64), wealth_core_source=dict(hash='a'*64))),
+            proof=proof)
+        original = builtins.__import__
+        def host_import(name, *args, **kwargs):
+            if name == 'sentinel' or name.startswith('sentinel.') or name == 'pydantic':
+                raise AssertionError('host imported an engine dependency')
+            return original(name, *args, **kwargs)
+        with patch.object(builtins, '__import__', host_import):
+            self.assertTrue(go._operational_parity_report_valid(report, commit=GIT, starting_cash='50000'))
+            retained['checks'] = dict(checks, restart_equivalent=1)
+            self.assertFalse(go._operational_parity_report_valid(report, commit=GIT, starting_cash='50000'))
+
     def test_separate_software_installer_imports_on_minimum_host_python(self):
         result = subprocess.run([sys.executable, str(ROOT / 'scripts/sentinel_installation_phase.py'),
                                  '--explain'], stdout=subprocess.PIPE, stderr=subprocess.PIPE,

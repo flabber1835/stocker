@@ -73,6 +73,14 @@ only the matching retained proof schema and bindings; a retained report cannot
 stand in for fresh formation. Candidate creation independently rechecks the
 current retained evidence before issuance.
 
+The host launcher explicitly injects the selected commit and immutable image
+digest into each read-only parity child; the ordinary CLI has no standing
+executable authority. The minimum Python 3.8 host validates the exact retained
+wire shape and its report bindings using only the standard library. It must not
+import the Python 3.12 engine or its dependencies. The exact-image reader owns
+calendar, authenticated lineage and canonical transition verification. Duplicate
+JSON keys and nonfinite values refuse at the host boundary.
+
 Activation still requires its own exact GO bundle, current readiness, account
 reconciliation, signed paper authority and full semantic restore of the admitted
 runtime/state before kill release. An expired historical decision never becomes

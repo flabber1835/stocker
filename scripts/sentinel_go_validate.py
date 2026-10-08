@@ -1177,6 +1177,59 @@ def probe_prevalidation_preparation(
         elapsed_milliseconds=elapsed_milliseconds)
 
 
+def _retained_proof_valid(value, *, proof, strategy, checks):
+    """Check the engine's exact wire contract without importing it on the host."""
+    hashes = {"origin_sha256", "checkpoint_sha256", "record_sha256", "state_sha256",
+              "input_sha256", "prior_state_sha256", "book_runtime_sha256", "process_sha256",
+              "strategy_sha256", "runtime_receipt_sha256"}
+    if (not isinstance(value, dict) or set(value) != hashes | {
+            "schema", "authority_effect", "scope", "observation_id", "session",
+            "admission_sha256", "checks"}):
+        return False
+    session = value["session"]
+    try:
+        parsed = datetime.strptime(session, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return False
+    admission = value["admission_sha256"]
+    return (
+        value["schema"] == "sentinel.retained-transition-proof/1"
+        and value["authority_effect"] == "NONE"
+        and value["scope"] == "ROLLING_RETAINED_STATE_AND_RESTART"
+        and isinstance(value["observation_id"], str)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,63}", value["observation_id"]) is not None
+        and parsed.strftime("%Y-%m-%d") == session and parsed.weekday() < 5
+        and all(isinstance(value[key], str) and _HEX64.fullmatch(value[key]) is not None for key in hashes)
+        and (admission is None or isinstance(admission, str) and _HEX64.fullmatch(admission) is not None)
+        and value["strategy_sha256"] == _evidence_digest(strategy)
+        and session == proof.get("decision_session")
+        and value["state_sha256"] == proof.get("result_state_sha256")
+        and value["prior_state_sha256"] == proof.get("prior_state_sha256")
+        and value["input_sha256"] == proof.get("input_sha256")
+        and isinstance(value["checks"], dict) and value["checks"] == checks
+        and all(item is True for item in value["checks"].values()))
+
+
+def _parity_json_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate parity report key")
+        value[key] = item
+    return value
+
+
+def _parity_json_constant(value):
+    raise ValueError("nonfinite parity report value")
+
+
+def _parity_json_float(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("nonfinite parity report number")
+    return number
+
+
 def _operational_parity_report_valid(report, *, commit, starting_cash):
     if not isinstance(report, dict):
         return False
@@ -1230,18 +1283,8 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
     current_window = strategy.get('market_input_policy') == 'CURRENT_WINDOW_V1'
     formed_window = current_window and strategy.get('startup_policy') == 'CURRENT_WINDOW_FORMATION_V1'
     if proof.get('scope') == 'ROLLING_RETAINED_STATE_AND_RESTART':
-        try:
-            from sentinel import retained_parity
-            retained = retained_parity.validate(proof.get('retained'))
-            scope_valid = (scope_valid and formed_window and not proof.get('formation')
-                and retained.strategy_sha256 == _evidence_digest(strategy)
-                and retained.session == proof.get('decision_session')
-                and retained.state_sha256 == proof.get('result_state_sha256')
-                and retained.prior_state_sha256 == proof.get('prior_state_sha256')
-                and retained.input_sha256 == proof.get('input_sha256')
-                and retained.checks.model_dump() == checks)
-        except (ValueError, TypeError, RuntimeError):
-            scope_valid = False
+        scope_valid = (scope_valid and formed_window and not proof.get('formation')
+            and _retained_proof_valid(proof.get('retained'), proof=proof, strategy=strategy, checks=checks))
     elif current_window and not formed_window:
         scope_valid = (scope_valid and proof.get('scope') == 'ROLLING_STARTUP_AND_RESTART'
             and proof.get('runtime_contract') == 'sentinel.rolling-shadow-runtime/1'
@@ -1347,8 +1390,9 @@ def probe_active_wealth_parity(
         ], env=run_env)
         exits.append(int(completed.returncode))
         try:
-            report = json.loads(completed.stdout or "")
-        except json.JSONDecodeError:
+            report = json.loads(completed.stdout or "", object_pairs_hook=_parity_json_object,
+                                parse_constant=_parity_json_constant, parse_float=_parity_json_float)
+        except ValueError:
             report = None
         reports.append(report)
         if (completed.returncode != 0 or not _operational_parity_report_valid(
