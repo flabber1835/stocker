@@ -1,0 +1,56 @@
+{
+  "files": {
+    "execution/executor.py": {
+      "after": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
+      "before": [
+        "0b1401754600cce4f2fcdd82e431602c37d93907fcd928b062c7223acc4b6874"
+      ]
+    },
+    "execution/reconcile.py": {
+      "after": "cac2a3efdfb097e83631f5f7e66fd8a202fd561c25ec67969585b54365010b81",
+      "before": [
+        "c52c92fc143b390e78ebf2d0b9b5e24ca70d58822c16fa40e93caa5e0e34548f",
+        "f1fd00ac9cb4e30a311266b0eff36760bc9837c4cccb27c5fc7ad4eead19d85a"
+      ]
+    },
+    "paper/execution.py": {
+      "after": "30a7bbd634f4916ab0cc4a112c358f1f1bb39e5ab1aad470bf46fca09f9967a5",
+      "before": [
+        "88ab64e4e985b8d23f61f2074024d8e0bf6c51b2df6184fc0d2c9bfd28ae00ca"
+      ]
+    },
+    "paper/inspection.py": {
+      "after": "4678292aa5f4309336dd37b42ad1e99e74b95f9ae3c14660adc7eb319dd8d945",
+      "before": [
+        "4fedc6f8b0231c61ac2aebdabf7be62735ff246055e2874bfe3b86f0cf24c374"
+      ]
+    },
+    "paper/preparation.py": {
+      "after": "47a3a9a9d3d37e1e42d190c4fbcf53e4f9c31d73c009bde9dfb0fda4f172e002",
+      "before": [
+        "586287a6f6947df302d2336376b128580f3c731034b5dc5d1204aa960ac43f1e"
+      ]
+    },
+    "paper/reconciliation_evidence.py": {
+      "after": "f94b92d80692bfeaeb440618916c5744cf19e021e7e6cf7949ef1ed5dd02a81b",
+      "before": [
+        "ee61ad7e625fdf1dfb86cc0c6d77d9c6a941fc91ed594da68f5af7c9ac13b967"
+      ]
+    },
+    "paper/recovery.py": {
+      "after": "99d57d5f932661da7f5fd61a23c561a8a91e4ac5eb1b3d0abd3284400a646939",
+      "before": [
+        "2853903cbc13aecc72ad894c77609750eb7c351ea93a207cbb40f3280b5a2011",
+        "6a3d7b05b366e82b393128d1e9f33bf2f3d3bcfad2e5b2a745c1076bc24416fa"
+      ]
+    },
+    "paper/validation.py": {
+      "after": "40202c5142664a04ee68dbc0e4e912f1897475245ba7e98d32b1ac05c71e9565",
+      "before": [
+        "5a1284301dff77ce2da4b147b38167561c5d93ec279cfef855f623c342afd5b5"
+      ]
+    }
+  },
+  "module_sha256": "79e0fbc98f13c4d9912a0c39fa3c850298c3faf0ffde11cf7e39ce5d8418e655",
+  "schema": "sentinel.paper-composition-upgrade/1"
+}
