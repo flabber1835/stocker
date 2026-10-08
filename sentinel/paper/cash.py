@@ -212,7 +212,7 @@ def _cash_authority_or_refuse(
         account: BrokerAccountSnapshot, observation: BrokerObservation,
         activity_state: broker_cash.CashActivityState | None = None,
         permit_new_activity: bool = False,
-        endpoint_lag_observed_at: datetime | None = None) -> None:
+        endpoint_lag_observed_at: datetime | None = None) -> bool:
     """Reconcile immutable plan cash to fills plus durable broker activities.
 
     The account balance is never its own explanation.  Native Account Activity
@@ -299,3 +299,4 @@ def _cash_authority_or_refuse(
             "event set is durably explained, but this immutable plan will not "
             "be re-sized or netted in place; prepare the next closed decision "
             "session")
+    return activity_delta != 0 or activity_identity_changed

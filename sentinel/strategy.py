@@ -8,7 +8,8 @@ def production_strategy():
     from sentinel.core.window_policy import POLICY, FORMATION
     controller = owned()
     return controller, {**runtime_strategy_identity(controller), 'market_input_policy': POLICY,
-                        'startup_policy': FORMATION}
+                        'startup_policy': FORMATION,
+                        'cash_distribution_policy': 'FORWARD_CASH_DISTRIBUTIONS_V1'}
 
 
 def owned_impairment_strategy():

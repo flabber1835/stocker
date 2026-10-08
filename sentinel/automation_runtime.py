@@ -1063,6 +1063,12 @@ class ProductionAutomation:
                     str(result.observation_id) if result.clean else None),
                 "transport_reconciliation_id": str(result.observation_id),
             }
+            if getattr(result, 'cash_plan_superseded', False):
+                return ExecuteResult(
+                    disposition=ExecuteDisposition.SUPERSEDED, **evidence,
+                    failure_code='POST_PLAN_CASH_ACTIVITY_RECONCILED',
+                    failure_detail='native cash activity changed; await the next ordinary decision',
+                    diagnostic=result.to_dict())
             if (self._dual_run_enabled and
                     str(cycle.decision_session) < str(feed_inputs.frontier(conn))):
                 return ExecuteResult(

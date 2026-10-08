@@ -344,10 +344,10 @@ def test_offsetting_cash_activity_identity_blocks_immutable_plan(monkeypatch):
 
     # Preparation may observe the changed set only to build a successor plan;
     # it never rewrites the current plan's immutable cash economics.
-    paper_cash._cash_authority_or_refuse(  # noqa: SLF001
+    assert paper_cash._cash_authority_or_refuse(  # noqa: SLF001
         object(), plan=plan, deployment=DEPLOYMENT, account=account,
         observation=observation, activity_state=activity,
-        permit_new_activity=True)
+        permit_new_activity=True) is True
 
 
 def test_authoritative_cash_baseline_refuses_downgraded_current_provenance(

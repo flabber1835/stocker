@@ -104,6 +104,8 @@ def decode(value):
             signal_basis_anchors={key: _row(VendorBar, row) for key, row in value.get('signal_basis_anchors', {}).items()},
             history_proof=value.get('rolling_continuity') or value.get('current_window_continuity'),
             window_features=value.get('window_features'),
+            cash_distributions=value.get('cash_distributions'),
+            strategy_transition=value.get('strategy_transition'),
             spinoff_distributions=[_row(SpinoffDistribution, row) for row in value.get('spinoff_distributions', [])])
         if shadow._published_input_value(published) != value:
             raise Refused('RETAINED_INPUT_ROUNDTRIP_CHANGED')
@@ -115,6 +117,7 @@ def decode(value):
 def prove(conn, *, held, observation_id, starting_cash):
     context = runtime_admission.current_context(observation_id=observation_id, starting_cash=starting_cash)
     process = dict(context['runtime'])
+    process_strategy = dict(context['strategy'])
     checkpoint, observer, retained, attested, _ = rolling_runtime._closure(conn, context)
     if checkpoint.publication != held.to_dict() or checkpoint.session != held.window_end:
         raise Refused('RETAINED_PROOF_PUBLICATION_CHANGED')
@@ -153,7 +156,7 @@ def prove(conn, *, held, observation_id, starting_cash):
     }
     if not all(checks.values()) or result.state_hash != checkpoint.state_sha256 or result.to_dict() != retained.state.to_dict():
         raise Refused('RETAINED_PROOF_CANONICAL_RESULT_CHANGED')
-    admission = runtime_admission.read(conn, {**context, 'runtime': process}, initial)
+    admission = runtime_admission.read(conn, {**context, 'runtime': process, 'strategy': process_strategy}, initial)
     feature = initial.warmup_input_identity.get('feature_warmup', initial.warmup_input_identity)
     binding = {'schema': SCHEMA, 'authority_effect': 'NONE', 'scope': SCOPE,
         'observation_id': observation_id, 'session': checkpoint.session,

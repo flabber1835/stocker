@@ -90,9 +90,8 @@ def advance_session(
             "running strategy/controller identity disagrees with configuration"
         )
     if env.strategy_identity != running_identity:
-        raise ValueError(
-            "persisted strategy/config/source identity differs from running identity"
-        )
+        from sentinel.economic_migration import require_transition
+        require_transition(env, running_identity, published.strategy_transition)
     median5 = median5_controller.enabled(running_identity)
     if median5:
         expected_wealth = median5_controller.wealth_config(running_identity)
@@ -149,6 +148,11 @@ def advance_session(
     state = PortfolioState.from_dict(env.wealth_core)
     pending = [PendingOrder.from_dict(item) for item in env.pending]
     ledger = Ledger.from_dict(env.ledger)
+    cash_audit = None
+    if published.cash_distributions is not None:
+        from sentinel.core.cash_distributions import apply
+        cash_audit = apply(published.cash_distributions, prior=env, published=published,
+                           state=state, ledger=ledger, lag=wealth.dividend_settlement_lag_sessions)
     from sentinel.core.spinoffs import apply_supported_entitlements
     spinoff_audit = apply_supported_entitlements(
         state, published.spinoff_distributions, bars=published.bars,
@@ -383,6 +387,7 @@ def advance_session(
             {"wealth_core": plan.to_dict()}
         )["wealth_core"],
         **({"spinoffs": list(spinoff_audit)} if spinoff_audit else {}),
+        **({'cash_distributions': cash_audit} if cash_audit is not None else {}),
         **concordance_evidence,
     }
     wealth_core = state.to_dict()
@@ -402,7 +407,7 @@ def advance_session(
         breadth_history=damaged[-6:],
         last_processed_session=published.session,
         data_version=published.data_version,
-        strategy_identity=dict(env.strategy_identity),
+        strategy_identity=running_identity,
         last_decision=decision,
         last_evidence=evidence,
         recent_leadership=recent_leadership_state,

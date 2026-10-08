@@ -1,5 +1,9 @@
 # Activation over a retained rolling book
 
+[Late cash distributions](late-cash-distributions.md) adds a separately pinned
+economic-policy migration. It is not administrative compatibility: new forward
+states carry the target identity while the original book and genesis remain.
+
 Software installation remains independent of market time, market data and paper
 authority. A separately authorized activation may encounter a book established
 by an earlier activation attempt. It must authenticate and continue that book;

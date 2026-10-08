@@ -356,6 +356,8 @@ def _published_input_value(
            if (published.history_proof or {}).get('schema') in (
                'sentinel.current-window-continuity/1', 'sentinel.current-window-formation-continuity/1') else {}),
         **({'window_features': dict(published.window_features)} if published.window_features is not None else {}),
+        **({'cash_distributions': dict(published.cash_distributions)} if published.cash_distributions is not None else {}),
+        **({'strategy_transition': dict(published.strategy_transition)} if published.strategy_transition is not None else {}),
         "meta": {
             str(key): row(value)
             for key, value in sorted(published.meta.items())
@@ -1765,7 +1767,7 @@ class ShadowObserver:
             raise ShadowObservationRefused(
                 f"shadow prior-state chain changed at {expected_session}")
         if (state.last_processed_session != expected_session
-                or state.strategy_identity != self.strategy_identity
+                or state.strategy_identity not in getattr(self, '_accepted_strategies', (self.strategy_identity,))
                 or state.controller.get("last_session") != expected_session
                 or not isinstance(state.last_decision, Mapping)
                 or state.last_decision.get("session") != expected_session
@@ -1837,7 +1839,7 @@ class ShadowObserver:
                     ("spec_sha256", self.spec_sha256),
                     ("starting_cash", self.starting_cash),
                     ("first_session", self.first_session),
-                    ("strategy_identity", self.strategy_identity),
+                    ("strategy_identity", self.spec['strategy_identity']),
                     ("runtime_identity", self.runtime_identity),
                     ("activation_timing", self.activation_timing),
                     ("execution_model", SHADOW_EXECUTION_MODEL),

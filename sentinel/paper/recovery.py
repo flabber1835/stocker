@@ -338,7 +338,6 @@ async def recover_automated_paper_cycle(
                 and result.observation is not None
                 and result.observation.is_complete
                 and result.observation_id is not None
-                and target_projection is not None
                 and _account_evidence_is_quiescent(
                     conn, deployment=binding.identity,
                     observation=result.observation)):
@@ -350,7 +349,7 @@ async def recover_automated_paper_cycle(
                     deployment=binding.identity,
                     initial_result=result, actions=actions,
                     dual_mode=dual_mode, clock=clock))
-            _cash_authority_or_refuse(
+            cash_changed = _cash_authority_or_refuse(
                 conn, plan=plan, deployment=binding.identity,
                 account=account,
                 observation=confirmed_result.observation,
@@ -361,6 +360,9 @@ async def recover_automated_paper_cycle(
                 # it would refuse a stale plan's new BUY authorization.
                 permit_new_activity=True,
                 endpoint_lag_observed_at=evidence_at)
+            result.cash_plan_superseded = bool(cash_changed)
+            if target_projection is None:
+                return result
             trial.record_account_evidence(
                 conn, session=plan.effective_session,
                 observation_id=confirmed_result.observation_id,

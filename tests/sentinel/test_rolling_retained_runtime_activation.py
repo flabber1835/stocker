@@ -18,7 +18,7 @@ from tests.sentinel.test_rolling_daily import refresh, OBS
 
 
 @pytest.fixture
-def executable(ready, monkeypatch):
+def executable(ready, monkeypatch, request):
     """Runtime attestation I/O is controlled; canonical book/DB/HMAC stay real."""
     root = Path(admission.__file__).parent
     actual = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -45,6 +45,8 @@ def executable(ready, monkeypatch):
         return {'observation_id': OBS, 'starting_cash': '50000', 'controller': controller, 'strategy': strategy, 'runtime': runtime_id}
     prior = context(old_env, '4'*40, 'sha256:'+'5'*64)
     current = context(env, '6'*40, 'sha256:'+'7'*64)
+    if getattr(request, 'param', None) == 'economic':
+        current['strategy'] = {**current['strategy'], 'data_semantics_source_sha256': '9'*64}
     monkeypatch.setattr(admission.identity, 'rehearsal_identity', lambda: {'environment': deepcopy(env)})
     monkeypatch.setattr(admission.identity, '_imported_package_root', lambda _: root)
     monkeypatch.setattr(shadow_runtime, '_validated_runtime_identity', lambda **kwargs: prior['runtime'])
@@ -53,6 +55,53 @@ def executable(ready, monkeypatch):
     monkeypatch.setenv('SENTINEL_SHADOW_STARTING_CASH', '50000')
     manifest = {'schema': 'sentinel.retained-source-manifest/1', 'revision': '4'*40, 'files': old}
     return prior, current, manifest
+
+
+@pytest.mark.parametrize('ready', [{'formed': True}], indirect=True)
+@pytest.mark.parametrize('executable', ['economic'], indirect=True)
+def test_economic_policy_transition_keeps_origin_and_restarts_exactly_once(
+        conn, ready, executable, operational_source, monkeypatch):
+    first = _start(conn, executable)
+    before = origin.read(conn).model_dump(by_alias=True)
+    conn.rollback()
+    _, current, manifest = executable
+    admitted = admission.admit(conn, context=current, manifest=manifest)
+    assert isinstance(admitted, admission.EconomicAdmission)
+    assert origin.read(conn).model_dump(by_alias=True) == before
+    conn.rollback()
+    monkeypatch.setattr(shadow_runtime, '_validated_runtime_identity', lambda **kw: current['runtime'])
+    monkeypatch.setattr(shadow_runtime, '_strategy', lambda: (current['controller'], current['strategy']))
+    monkeypatch.setattr(inputs, 'production_strategy', lambda: (current['controller'], current['strategy']))
+    from sentinel import strategy
+    monkeypatch.setattr(strategy, 'production_strategy', lambda: (current['controller'], current['strategy']))
+    monkeypatch.setattr(initial, 'initialize', lambda *a, **kw: pytest.fail('economic upgrade repeated formation'))
+    from sentinel.core.cash_distributions import entitlement
+    from stock_strategy_shared.wealth_core.ledger import Ledger
+    ex_date = '2026-09-11'
+    book = Ledger.from_dict(first.state.ledger)
+    owned = [(row['permaticker'], row['ticker']) for row in operational_source['TICKERS']
+             if entitlement(book, security_id=row['permaticker'], ex_date=ex_date)]
+    assert owned, 'formed fixture must contain historical dividend ownership'
+    sid, ticker = owned[0]
+    operational_source['ACTIONS'].append(dict(ticker=ticker, date=ex_date,
+        action='dividend', value='.125', name='late captured cash', contraticker=None, contraname=None))
+    refresh(conn, operational_source, monkeypatch)
+    second = runtime.advance(conn, through='2026-09-15', observation_id=OBS, starting_cash=50000)
+    assert second.state.strategy_identity == current['strategy']
+    assert second.state.ledger['events'][:len(first.state.ledger['events'])] == first.state.ledger['events']
+    assert origin.read(conn).model_dump(by_alias=True) == before
+    checkpoint = daily.read(conn)
+    assert checkpoint.input_value['strategy_transition']['prior_state_sha256'] == first.state.state_hash
+    assert any(row['security_id'] == sid and row['status'] == 'ACCRUED_FORWARD'
+               for row in second.state.last_evidence['cash_distributions']['observations'])
+    assert checkpoint.input_value['cash_distributions']['prior_state_sha256'] == first.state.state_hash
+    conn.rollback()
+    restarted = runtime.advance(conn, through='2026-09-15', observation_id=OBS, starting_cash=50000)
+    assert restarted.state.state_hash == second.state.state_hash
+    assert admission.admit(conn, context=current, manifest=manifest) == admitted
+    with inputs.pinned(conn) as held:
+        proof = retained_parity.prove(conn, held=held, observation_id=OBS, starting_cash=50000)
+    assert proof['state'].state_hash == second.state.state_hash
 
 
 def _start(conn, executable):

@@ -117,6 +117,7 @@ def restore_observer(conn, checkpoint, *, observation_id, starting_cash, control
     context = dict(observation_id=observation_id, starting_cash=starting_cash, controller=controller, strategy=strategy, runtime=runtime)
     bind_context(conn, context)
     runtime = context['runtime']
+    strategy = context['strategy']
     if (checkpoint.observation_id != observation_id or checkpoint.starting_cash != starting_cash
             or checkpoint.strategy_identity != strategy or checkpoint.runtime_identity != runtime):
         raise RollingColdStartRefused("CHECKPOINT_CONFIG_CHANGED")

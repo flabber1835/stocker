@@ -72,11 +72,18 @@ class SnapshotReferences:
         reference_schema = ("sentinel.rolling-alpaca-openfigi-references/1"
                             if self.manifest.provider == "ALPACA_OPENFIGI" else
                             "sentinel.rolling-sharadar-references/1")
-        if (set(reference) != {"schema", "tickers", "actions"}
-                or reference["schema"] != reference_schema
+        cash_schema = (self.manifest.provider == 'ALPACA_OPENFIGI'
+                       and reference.get('schema') == 'sentinel.rolling-alpaca-openfigi-references/2')
+        if (set(reference) != ({'schema', 'tickers', 'actions', 'cash_observations', 'pending_cash'}
+                              if cash_schema else {"schema", "tickers", "actions"})
+                or reference["schema"] != ('sentinel.rolling-alpaca-openfigi-references/2' if cash_schema else reference_schema)
                 or not isinstance(reference["tickers"], list)
                 or not isinstance(reference["actions"], list)):
             raise RollingInputsRefused("UNSUPPORTED_REFERENCE_BUNDLE")
+        self.cash_observations = reference.get('cash_observations', [])
+        self.pending_cash = reference.get('pending_cash', [])
+        if not isinstance(self.cash_observations, list) or not isinstance(self.pending_cash, list):
+            raise RollingInputsRefused('INVALID_CASH_OBSERVATIONS')
         with conn.cursor() as cur:
             cur.execute("SELECT validation_sha256 FROM sentinel_snapshot_validations "
                         "WHERE candidate_id=%s", (candidate_id,))

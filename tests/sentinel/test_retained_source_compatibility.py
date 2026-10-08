@@ -11,19 +11,20 @@ from sentinel.feed.rolling_contract import digest
 
 
 @pytest.mark.parametrize('module', list(basis.HOOKS) + ['sentinel.core.decision'])
-def test_administrative_hook_keeps_economic_identity_but_economic_mutation_does_not(module):
+def test_forward_policy_changes_economic_identity_and_never_masks_neighbor_mutation(module):
     import importlib
     path = Path(importlib.import_module(module).__file__)
     raw = path.read_bytes()
     expected = basis.basis()['seams'][module]['source_sha256']
-    assert basis.canonical_contribution(module, raw) == expected
+    assert basis.canonical_contribution(module, raw) == hashlib.sha256(raw).hexdigest()
+    assert basis.canonical_contribution(module, raw) != expected
     # Change a real neighboring guard/algorithm, not the hook being masked.
     needle = {'sentinel.core.decision': b'if negative:',
               'sentinel.rolling_checkpoint': b'if payload != checkpoint.model_dump',
               'sentinel.rolling_daily_checkpoint': b'if alien:'}[module]
     assert needle in raw
     broken = raw.replace(needle, b'if False:' if needle.endswith(b':') else b'if False and payload != checkpoint.model_dump', 1)
-    assert basis.canonical_contribution(module, broken) != expected
+    assert basis.canonical_contribution(module, broken) != basis.canonical_contribution(module, raw)
 
 
 @pytest.mark.parametrize('module', list(basis.HOOKS))

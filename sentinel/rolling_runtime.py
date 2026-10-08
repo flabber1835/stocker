@@ -157,6 +157,10 @@ def advance(conn, *, through, observation_id, starting_cash):
                 # Every path reaching here has a durable checkpoint. This clock
                 # sample happens strictly after that commit or restart read.
                 completed = initial._timing(conn, through)
+                # Loading a retained predecessor binds its book provenance.
+                # Re-read the process identity after a policy transition so the
+                # new checkpoint is authenticated under its admitted target.
+                context = initial._context(observation_id, starting_cash)
                 checkpoint, _, restored, attested, retained_previous = _closure(conn, context)
                 if attested is not None:
                     return _result(restored, attested)

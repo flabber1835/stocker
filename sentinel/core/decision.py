@@ -62,6 +62,8 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.core.decision",
     "sentinel.core.loader",
     "sentinel.core.kernel",
+    "sentinel.core.cash_distributions",
+    "sentinel.economic_migration",
     "sentinel.core.history",
     "sentinel.core.spinoffs",
     "sentinel.core.production",
