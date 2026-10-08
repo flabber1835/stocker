@@ -31,8 +31,11 @@ def _causal_adapter(obj, monkeypatch, tmp_path, verifier):
     monkeypatch.setattr(install.go, 'probe_active_wealth_parity',
         lambda *_a, **kw: (kw['subject_values'].update(data_publication='publication-v1')
             or SimpleNamespace(status=install.go.PASS, evidence_sha256='1' * 64)))
-    monkeypatch.setattr(install.go, 'probe_sharadar_readiness',
-        lambda *_a, **kw: SimpleNamespace(status=install.go.PASS, evidence_sha256='2' * 64))
+    def readiness(*_a, **kw):
+        assert kw.get('commit') == obj.reviewed_validation.git_commit
+        assert kw['runtime_ref'] == obj.reviewed_validation.runtime_image_digest
+        return SimpleNamespace(status=install.go.PASS, evidence_sha256='2' * 64)
+    monkeypatch.setattr(install.go, 'probe_sharadar_readiness', readiness)
     monkeypatch.setattr(install, '_ORIGINAL_VERIFY', verifier)
     monkeypatch.setattr(install.bootstrap, '_safe_update_dotenv', lambda *_: None)
     monkeypatch.setenv('SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256', 'prior-process-value')

@@ -519,7 +519,7 @@ def install(*, controller: Any, phase: Any) -> None:
                 now_text, evidence)
         return result
 
-    def readiness(runner, *, env, runtime_ref, now_text):
+    def readiness(runner, *, env, runtime_ref, now_text, commit=None):
         if phase._PHASE.get("prepared"):
             failure = ready(runner, env)
             if failure is not None:
@@ -527,7 +527,8 @@ def install(*, controller: Any, phase: Any) -> None:
                     "sharadar_readiness", go.NOT_PROVEN, now_text, failure)
         recording = RecordingRunner(runner)
         result = original_readiness(
-            recording, env=env, runtime_ref=runtime_ref, now_text=now_text)
+            recording, env=env, runtime_ref=runtime_ref, commit=commit,
+            now_text=now_text)
         child = recording.last_compose_run()
         report = (_marker_object(child.stdout or "", "SENTINEL_GO_READINESS=")
                   if child is not None else None)
@@ -545,7 +546,7 @@ def install(*, controller: Any, phase: Any) -> None:
 
     def database(runner, *, env, runtime_ref, now_text,
                  bounded_ingest_milliseconds,
-                 full_forward_decision_replay_milliseconds):
+                 full_forward_decision_replay_milliseconds, commit=None):
         if phase._PHASE.get("prepared"):
             failure = ready(runner, env)
             if failure is not None:
@@ -557,7 +558,7 @@ def install(*, controller: Any, phase: Any) -> None:
                     now_text, failure)
         recording = RecordingRunner(runner)
         summary, gate = original_database(
-            recording, env=env, runtime_ref=runtime_ref,
+            recording, env=env, runtime_ref=runtime_ref, commit=commit,
             now_text=now_text,
             bounded_ingest_milliseconds=bounded_ingest_milliseconds,
             full_forward_decision_replay_milliseconds=(

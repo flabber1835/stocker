@@ -312,6 +312,11 @@ def test_generated_installer_programs_refuse_legacy_provider_then_read_rolling(
 
     task = object.__new__(install.InstallAnytimeDeploy)
     task.runner, task.base_compose = LocalPython(), []
+    # The generated reader is invoked only after runtime selection in the
+    # actual installer; this focused fixture must model that boundary too.
+    task.commit = "f" * 40
+    task.runtime_digest = "sha256:" + "e" * 64
+    task.env = {}
     with pytest.raises(operational_snapshot.OperationalSnapshotRefused,
                        match="ALPACA_OPENFIGI_SOURCE_REQUIRED"):
         driver.AutonomousDeploy._readiness_verdict(task)

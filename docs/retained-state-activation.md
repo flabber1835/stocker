@@ -124,8 +124,18 @@ book or authority. All account, publication, effective-session, sizing,
 reconciliation, signed authority and backup checks remain mandatory.
 
 The host launcher explicitly injects the selected commit and immutable image
-digest into each read-only parity child; the ordinary CLI has no standing
-executable authority. The minimum Python 3.8 host validates the exact retained
+digest into every read-only engine child that authenticates retained state:
+parity, source readiness and financial database health, including post-wait
+readiness revalidation and the installer's structured readiness/`check-data`
+commands. Configured observation identity and starting capital accompany these
+readers so a non-default book cannot be mistaken for the default book. These
+nonsecret identities come from the independently
+verified Git/image pair for that invocation and replace stale ambient values;
+Compose must explicitly forward them into the disposable child. Missing or
+malformed selected identity refuses before launching a reader. This identity
+binding grants no feed-write or broker capability, and broker credentials remain
+excluded. The ordinary CLI has no standing executable authority. The minimum
+Python 3.8 host validates the exact retained
 wire shape and its report bindings using only the standard library. It must not
 import the Python 3.12 engine or its dependencies. The exact-image reader owns
 calendar, authenticated lineage and canonical transition verification. Duplicate
@@ -166,7 +176,63 @@ evidence remains a terminal refusal; `BackupHorizonExceeded` still reaches the
 separate, finitely bounded host renewal contract. Ordinary service scheduling
 and the fresh-state foreground acquisition driver remain unchanged.
 
+## Same-session authority renewal
+
+Software installation remains possible at any time and never rewrites the book.
+A later, separately authorized dual-paper activation can rotate the signed
+controller certificate before the next executable session. The old plan's
+rollout stamp is then stale: execution and read-only current-plan verification
+must continue to reject it. Ordinary preparation retries under identical
+rollout authority still return the exact original plan without resizing it.
+
+For a monotonic CONTROLLER certificate renewal only, dual preparation may replace
+an unsent same-session plan. Authenticate the old rollout stamp against immutable
+rollout history, check every state/publication/account/strategy binding and
+re-derive its exact immutable sizing proof. Its shadow-record identity must equal
+the currently verified record; only the executable runtime attestation may have
+changed. Refuse a mode change, a changed certificate at the same version, missing
+history, future stamps or any command for that plan that has left PLANNED. Check
+this before broker reads and again after reconciliation. Other unresolved
+commands and working broker orders remain blockers. A dispatched same-session
+plan waits for the next decision rather than gaining a second execution intent.
+
+An explicit certificate renewal is a new account-sizing decision, not an
+idempotent retry. Reuse the ordinary complete reconciliation, account identity,
+cash explanation and canonical dual sizing path under current authority. Commit
+the new plan, sizing proof, cash baseline and supersession atomically. Retain the
+old immutable plan/proof and command history; never edit Wealth Core state or its
+cursor. The new plan must independently pass current-authority verification,
+reconciliation and the coordinated restore before execution can resume. Admit
+this execution repair through a new exact source profile; earlier economic,
+execution and readiness profiles remain immutable.
+
 ## Qualification
+
+Qualify the complete retained-book activation sequence locally before spending
+another release iteration on a single downstream refusal. An isolated rehearsal
+restores an existing completed backup into a separate internal Docker network
+and preserves the restored immutable book and binding. Drive the actual host
+coordinator and engine handlers through candidate construction, test-only signed
+authority, shadow attestation, exact plan reconciliation, coordinated backup and
+kill release. Simulate external broker transport, software-publication responses,
+explicit session clocks and service-launch/HTTP-health responses only at their
+boundaries. Qualify real worker supervision, durable leader heartbeat and
+deadline behavior separately; a substituted service response proves none of
+those properties and must never be reported as an active deployment. Actual
+post-install verification still requires the installed workers and advancing
+heartbeat. No production signer,
+broker credentials, order transport or deployment admission may enter or leave
+the rehearsal. Test trust roots and simulated certification are fixture inputs,
+never release evidence. Record every substituted boundary and untested behavior;
+this rehearsal cannot replace protected certification or actual activation.
+
+Verify immutable-row/binding preservation and refusal/rollback at failed phases,
+then exercise the successful sequence and a repeated software upgrade over that
+same book. Reuse a completed backup as the starting point rather than asking the
+primary to create another one. Rehearsal backup and restore work uses its own
+internal-disk target and exclusive locks; the primary's approved backup/WAL set
+and sole maintenance owner remain intact. Actual backing-drive capacity must
+admit the complete planned disposable footprint before the rehearsal starts.
 
 Use real PostgreSQL for authenticated reuse, compatible executable admission,
 restart, lost acknowledgements, adjacent continuation, reconstruction and

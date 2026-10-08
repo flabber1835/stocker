@@ -1769,10 +1769,24 @@ class AutonomousDeploy:
             self.fail_close()
             raise
 
+    def _retained_reader_args(self) -> List[str]:
+        """Bind only nonsecret executable/book identity after image selection."""
+        if (not isinstance(self.commit, str) or _HEX40.fullmatch(self.commit) is None
+                or not isinstance(self.runtime_digest, str)
+                or _DIGEST.fullmatch(self.runtime_digest) is None):
+            raise DeployRefused("retained reader requires selected commit and immutable image")
+        values = {"SENTINEL_GIT_COMMIT": self.commit,
+                  "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest}
+        for key in ("SENTINEL_SHADOW_OBSERVATION_ID", "SENTINEL_SHADOW_STARTING_CASH"):
+            if key in self.env:
+                values[key] = self.env[key]
+        return [item for key, value in values.items() for item in ("--env", key + "=" + value)]
+
     def _base_cli(self, args: Sequence[str], *, capture: bool = False,
                   check: bool = True, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
+        reader_args = self._retained_reader_args() if args and args[0] == "check-data" else []
         return self.runner.run(self.base_compose + [
-            "--profile", "cli", "run", "--rm", "-T", "sentinel"]
+            "--profile", "cli", "run", "--rm", "-T", *reader_args, "sentinel"]
             + list(args), capture=capture, check=check, timeout=timeout)
 
     def _authorized_compose(self) -> List[str]:

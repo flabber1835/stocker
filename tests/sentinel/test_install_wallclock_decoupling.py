@@ -491,6 +491,7 @@ def test_installed_status_dispatch_preserves_runner_deadline(timeout):
 def test_installed_cli_timeout_retains_unchecked_failure():
     instance = object.__new__(install_deploy.InstallAnytimeDeploy)
     instance.base_compose = ["docker", "compose"]
+    instance.commit, instance.runtime_digest, instance.env = COMMIT, RUNTIME_DIGEST, {}
     calls = []
     def run(argv, **kwargs):
         calls.append(kwargs)

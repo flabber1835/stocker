@@ -1097,6 +1097,15 @@ single-writer advisory lock as preparation and execution, and those operations
 read the binding only after acquiring it. The full binding stamped into a plan
 or command therefore cannot change in the authority-to-side-effect gap.
 
+An explicitly authenticated, monotonic same-mode controller certificate renewal
+may also replace a wholly unsent dual-paper plan for the same decision session.
+This is a new account-sizing decision under renewed authority, distinct from an
+unchanged-authority retry. Historical rollout, exact sizing proof and current
+shadow-record identity must validate first; dispatched or recovered intent blocks
+this renewal. The complete guards and atomic replacement contract are in
+[retained-state activation](retained-state-activation.md#same-session-authority-renewal).
+Execution continues to reject the old rollout stamp.
+
 When a new session produces a new decision before the previous plan has
 completed, **history is not mutated**. A new plan is created and may supersede
 the old one's *unsent* commands. Commands already working at the broker must be

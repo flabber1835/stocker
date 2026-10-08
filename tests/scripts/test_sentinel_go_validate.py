@@ -496,18 +496,24 @@ def test_readiness_runs_exact_runtime_digest_and_requires_alpaca_authority():
             "ALPACA_SECRET_KEY": "private-secret",
             "SENTINEL_POSTGRES_PASSWORD": "private-password",
             "SENTINEL_BACKUP_DIR": "/private-backup",
-        }, runtime_ref=DIGEST_B, now_text=NOW_TEXT)
+            "SENTINEL_GIT_COMMIT": "f" * 40,
+            "SENTINEL_RUNTIME_IMAGE_DIGEST": DIGEST_A,
+        }, runtime_ref=DIGEST_B, commit=COMMIT, now_text=NOW_TEXT)
 
     assert gate.status == go.PASS
     probe_argv, probe_env = runner.calls[-1]
     assert "BEGIN TRANSACTION READ ONLY" in probe_argv[-1]
     assert probe_env["SENTINEL_RUNTIME_IMAGE_REF"] == DIGEST_B
+    assert probe_env["SENTINEL_GIT_COMMIT"] == COMMIT
+    assert probe_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] == DIGEST_B
+    assert [probe_argv[i + 1] for i, value in enumerate(probe_argv)
+            if value == "--env"] == ["SENTINEL_GIT_COMMIT", "SENTINEL_RUNTIME_IMAGE_DIGEST"]
     assert not go._BROKER_AUTH_ENV.intersection(probe_env)
 
     missing = go.probe_sharadar_readiness(
         ReadinessRunner(), env={
             "SENTINEL_POSTGRES_PASSWORD": "private-password",
-        }, runtime_ref=DIGEST_B, now_text=NOW_TEXT)
+        }, runtime_ref=DIGEST_B, commit=COMMIT, now_text=NOW_TEXT)
     assert missing.status == go.NOT_PROVEN
 
 
@@ -554,7 +560,9 @@ def test_database_health_probe_is_read_only_pinned_and_reports_exact_margin():
             "ALPACA_API_KEY": "must-not-enter-db-probe",
             "ALPACA_SECRET_KEY": "must-not-enter-db-probe",
             "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-db-probe",
-        }, runtime_ref=DIGEST_B, now_text=NOW_TEXT,
+            "SENTINEL_GIT_COMMIT": "f" * 40,
+            "SENTINEL_RUNTIME_IMAGE_DIGEST": DIGEST_A,
+        }, runtime_ref=DIGEST_B, commit=COMMIT, now_text=NOW_TEXT,
         bounded_ingest_milliseconds=1_000,
         full_forward_decision_replay_milliseconds=2_000)
 
@@ -570,6 +578,10 @@ def test_database_health_probe_is_read_only_pinned_and_reports_exact_margin():
         go.MIN_SOURCE_FINAL_TO_OPEN_MS - 6_000
     command, child_env = runner.calls[-1]
     assert child_env["SENTINEL_RUNTIME_IMAGE_REF"] == DIGEST_B
+    assert child_env["SENTINEL_GIT_COMMIT"] == COMMIT
+    assert child_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] == DIGEST_B
+    assert [command[i + 1] for i, value in enumerate(command)
+            if value == "--env"] == ["SENTINEL_GIT_COMMIT", "SENTINEL_RUNTIME_IMAGE_DIGEST"]
     assert not go._BROKER_AUTH_ENV.intersection(child_env)
     code = command[-1]
     assert "schema.require_runtime_schema(c)" in code
@@ -592,7 +604,7 @@ def test_current_window_database_health_requires_exact_feature_axis(sessions, re
         recent_xnys_sessions=sessions, warmup_revision_sessions=revision)
     summary, gate = go.probe_database_financial_health(_DatabaseHealthRunner(payload),
         env={'SENTINEL_POSTGRES_PASSWORD': 'fixture'},
-        runtime_ref=DIGEST_B, now_text=NOW_TEXT, bounded_ingest_milliseconds=1000,
+        runtime_ref=DIGEST_B, commit=COMMIT, now_text=NOW_TEXT, bounded_ingest_milliseconds=1000,
         full_forward_decision_replay_milliseconds=2000)
     assert summary.complete is expected
     assert (gate.status == go.PASS) is expected
@@ -603,7 +615,7 @@ def test_database_health_probe_fails_closed_on_timing_or_plan_margin():
     summary, gate = go.probe_database_financial_health(
         _DatabaseHealthRunner(),
         env={"SENTINEL_POSTGRES_PASSWORD": "private"},
-        runtime_ref=DIGEST_B, now_text=NOW_TEXT,
+        runtime_ref=DIGEST_B, commit=COMMIT, now_text=NOW_TEXT,
         bounded_ingest_milliseconds=slow,
         full_forward_decision_replay_milliseconds=2_000)
     assert summary.complete is False
@@ -614,10 +626,28 @@ def test_database_health_probe_fails_closed_on_timing_or_plan_margin():
     plan_bad, plan_gate = go.probe_database_financial_health(
         _DatabaseHealthRunner(payload),
         env={"SENTINEL_POSTGRES_PASSWORD": "private"},
-        runtime_ref=DIGEST_B, now_text=NOW_TEXT,
+        runtime_ref=DIGEST_B, commit=COMMIT, now_text=NOW_TEXT,
         bounded_ingest_milliseconds=1_000,
         full_forward_decision_replay_milliseconds=2_000)
     assert plan_bad.status == plan_gate.status == go.FAIL
+
+
+@pytest.mark.parametrize('commit', [None, '', 'bad', 'A' * 40, 1, 10 ** 39])
+@pytest.mark.parametrize('probe', ['readiness', 'database'])
+def test_read_only_probes_refuse_missing_or_malformed_selected_identity(commit, probe):
+    runner = _DatabaseHealthRunner()
+    env = {'SENTINEL_POSTGRES_PASSWORD': 'private',
+           'ALPACA_API_KEY': 'private-key', 'ALPACA_SECRET_KEY': 'private-secret',
+           'SENTINEL_GIT_COMMIT': COMMIT, 'SENTINEL_RUNTIME_IMAGE_DIGEST': DIGEST_B}
+    if probe == 'readiness':
+        gate = go.probe_sharadar_readiness(runner, env=env, runtime_ref=DIGEST_B,
+            commit=commit, now_text=NOW_TEXT)
+    else:
+        _, gate = go.probe_database_financial_health(runner, env=env, runtime_ref=DIGEST_B,
+            commit=commit, now_text=NOW_TEXT, bounded_ingest_milliseconds=1000,
+            full_forward_decision_replay_milliseconds=2000)
+    assert gate.status == go.NOT_PROVEN
+    assert runner.calls == [], 'ambient deployment values must not supply selected authority'
 
 
 class _Runner:

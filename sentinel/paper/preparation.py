@@ -29,6 +29,7 @@ from sentinel.authority import (
     AuthorityRefused,
     PAPER_OBSERVATION_ONLY,
     RolloutMode,
+    RolloutState,
     load_rollout_state,
     require_observation_safety_authority,
 )
@@ -72,6 +73,7 @@ from sentinel.core.production import (
 )
 
 from sentinel.execution import broker_cash, executor, journal
+from sentinel.execution.states import CommandState
 
 from sentinel.execution import preopen_authority
 
@@ -149,6 +151,39 @@ from .finalization import _finalize_due_succeeded_cycle_or_refuse
 SIMPLIFIED_LDRC_STRATEGY_ID = "sentinel-concordance-simplified-ldrc"
 
 SIMPLIFIED_LDRC_STRATEGY_VERSION = 3
+
+def _dual_renewal_rollout(conn, plan, rollout):
+    """Historical validation only; an old rollout never authorizes execution."""
+    if not (rollout.mode is RolloutMode.CONTROLLER
+            and plan.rollout_mode == rollout.mode.value
+            and plan.rollout_version < rollout.version
+            and plan.rollout_certificate_sha256
+            and plan.rollout_certificate_sha256 != rollout.certificate_sha256):
+        return None
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT to_mode,certificate_sha256 FROM sentinel_rollout_events"
+            " WHERE version=%s", (plan.rollout_version,))
+        row = cur.fetchone()
+    if row != (plan.rollout_mode, plan.rollout_certificate_sha256):
+        raise PaperActivationRefused("prior plan rollout history is missing or changed")
+    _require_unsent_renewal(conn, plan)
+    return RolloutState(rollout.mode, plan.rollout_version,
+                        plan.rollout_certificate_sha256)
+
+
+def _require_unsent_renewal(conn, plan):
+    from sentinel.execution.identity import DeploymentIdentity
+    deployment = DeploymentIdentity(plan.deployment_id, plan.broker,
+                                    plan.broker_account_id, plan.takeover_epoch)
+    if any(command.state is not CommandState.PLANNED
+           or command.filled_quantity != 0 or command.broker_order_id is not None
+           or command.recovered_key is not None for command in
+           journal.load_commands(conn, deployment, plan_id=plan.plan_id)):
+        raise PaperRetryableRefused(
+            "same-session authority renewal requires an unsent plan; "
+            "wait for the next decision after dispatched intent")
+
 
 def _default_paper_strategy():
     """Load the shared compact champion production profile."""
@@ -419,7 +454,34 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 # economics still derive its id before contacting the broker.
                 _assert_deterministic_plan_id(existing_plan)
 
+            renewal_rollout = None
             if (dual_mode and existing_plan is not None
+                    and existing_plan.decision_session == through_date):
+                renewal_rollout = _dual_renewal_rollout(
+                    conn, existing_plan, rollout)
+                if renewal_rollout is not None:
+                    # Authenticate the old intent without making it executable.
+                    # A new runtime attestation is expected after an upgrade;
+                    # the immutable shadow record and every economic binding
+                    # must still agree before ordinary replacement sizing.
+                    _assert_plan_authorities(
+                        conn, state=dual_state, plan=existing_plan, binding=binding,
+                        pinned=pinned, frontier=through_text,
+                        today=date.fromisoformat(calendar.next_session(through_text)),
+                        runtime_identity=identity, rollout=renewal_rollout,
+                        require_effective_today=False, retained_shadow=True)
+                    try:
+                        old_proof = dual_plan_authority.rederive_plan(
+                            conn, plan=existing_plan, binding=binding,
+                            rollout_state=renewal_rollout)
+                        if old_proof['shadow_record_sha256'] != dual_result.record_sha256:
+                            raise dual_plan_authority.DualPlanAuthorityRefused(
+                                "renewal shadow record differs from prior plan input")
+                    except dual_plan_authority.DualPlanAuthorityRefused as exc:
+                        raise PaperActivationRefused(
+                            f"dual sizing authority refused renewal: {exc}") from exc
+
+            if (dual_mode and renewal_rollout is None and existing_plan is not None
                     and existing_plan.decision_session == through_date):
                 state = dual_state
                 _assert_concordance_witness_authority(
@@ -611,6 +673,11 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     "initial plan adoption requires no working broker order; "
                     "settle or explicitly resolve the prior durable command "
                     "before establishing the account-cash baseline")
+            if renewal_rollout is not None:
+                _require_unsent_renewal(conn, existing_plan)
+                if journal.in_flight_commands(conn, binding.identity):
+                    raise PaperRetryableRefused(
+                        "authority renewal waits for unresolved durable commands")
 
             if dual_mode:
                 # The shadow record has already advanced the only strategy
