@@ -164,3 +164,35 @@ def test_current_book_scope_never_uses_truthy_coercion(conn, scope):
         asyncio.run(reconcile.reconcile(broker=b, conn=conn, binding=None,
             deployment=DEPLOY, informational_current_book=scope))
     assert http.paths == []
+
+
+@pytest.mark.parametrize('fault', ['account-flip', 'position-flip', 'foreign-position', 'foreign-order'])
+def test_current_book_retains_production_account_and_foreign_activity_fences(conn, fault):
+    from tests.sentinel.test_issue_183_alpaca_hardening import Httpx, Response, full_order
+    b, _http = broker(403)
+    account_reads = []
+    position_reads = []
+    def account(_params):
+        account_reads.append(1)
+        return {'id': 'other-uuid' if fault == 'account-flip' and len(account_reads) == 3 else 'audit-native-uuid',
+                'account_number': 'OTHER' if fault == 'account-flip' and len(account_reads) == 3 else ACCOUNT}
+    def positions(_params):
+        position_reads.append(1)
+        present = fault == 'foreign-position' or fault == 'position-flip' and len(position_reads) == 2
+        return [{'symbol': 'AAPL', 'asset_id': 'asset-aapl', 'qty': '2'}] if present else []
+    http = Httpx(routes={
+        '/v2/account': account, '/v2/positions': positions,
+        '/v2/orders': Response([full_order(client_order_id='foreign-human-order')]
+                               if fault == 'foreign-order' else []),
+    })
+    b._inner._http_provider = lambda: http
+    result = asyncio.run(reconcile.reconcile(
+        broker=b, conn=conn, binding=B.load(conn), deployment=DEPLOY,
+        informational_current_book=True))
+    assert result.runtime_state in {
+        RuntimeState.RECONCILING, RuntimeState.BROKER_DEGRADED, RuntimeState.FOREIGN_ACTIVITY}
+    if fault.startswith('foreign'):
+        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
+    assert all(call[0] == 'GET' for call in http.calls)
+    assert not journal.load_commands(conn, DEPLOY)
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_terminal_recovery_watermark').fetchone()[0] == 0
