@@ -76,6 +76,7 @@ finally:
 '''.strip()
         result = self.runner.run(self.base_compose + [
             "--profile", "cli", "run", "--rm", "-T",
+            *self._retained_reader_args(),
             "--entrypoint", "python", "sentinel", "-c", code],
             capture=True)
         verdict = core._json_output(result, label="data readiness")

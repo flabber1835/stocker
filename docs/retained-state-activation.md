@@ -126,7 +126,10 @@ reconciliation, signed authority and backup checks remain mandatory.
 The host launcher explicitly injects the selected commit and immutable image
 digest into every read-only engine child that authenticates retained state:
 parity, source readiness and financial database health, including post-wait
-readiness revalidation. These nonsecret identities come from the independently
+readiness revalidation and the installer's structured readiness/`check-data`
+commands. Configured observation identity and starting capital accompany these
+readers so a non-default book cannot be mistaken for the default book. These
+nonsecret identities come from the independently
 verified Git/image pair for that invocation and replace stale ambient values;
 Compose must explicitly forward them into the disposable child. Missing or
 malformed selected identity refuses before launching a reader. This identity

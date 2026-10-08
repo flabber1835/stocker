@@ -1518,6 +1518,8 @@ def probe_sharadar_readiness(runner: CommandRunner, *, env: Mapping[str, str],
         "docker", "compose", *compose_args, "--profile", "cli", "run",
         "--rm", "-T", "--no-deps",
         "--env", "SENTINEL_GIT_COMMIT", "--env", "SENTINEL_RUNTIME_IMAGE_DIGEST",
+        *[item for key in ("SENTINEL_SHADOW_OBSERVATION_ID", "SENTINEL_SHADOW_STARTING_CASH")
+          if key in run_env for item in ("--env", key)],
         "--entrypoint", "python", "sentinel",
         "-c", _READINESS_CODE,
     ]
@@ -1801,6 +1803,8 @@ def probe_database_financial_health(
         "docker", "compose", *compose_args, "--profile", "cli", "run",
         "--rm", "-T", "--no-deps",
         "--env", "SENTINEL_GIT_COMMIT", "--env", "SENTINEL_RUNTIME_IMAGE_DIGEST",
+        *[item for key in ("SENTINEL_SHADOW_OBSERVATION_ID", "SENTINEL_SHADOW_STARTING_CASH")
+          if key in run_env for item in ("--env", key)],
         "--entrypoint", "python", "sentinel",
         "-c", _DATABASE_HEALTH_CODE,
     ], env=run_env)
