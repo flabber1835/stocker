@@ -149,10 +149,22 @@ def test_renewal_revalidates_unsent_state_after_reconciliation(conn, gateway, mo
 def test_corrupt_prior_sizing_is_refused_before_broker_reads(conn, gateway, monkeypatch):
     _, _, broker = gateway
     old = prepare(conn, broker).plan
+    renew(conn, monkeypatch)
+    verified = dual_reconciliation.verified_shadow_intent
+    def foreign_record(*a, **k):
+        actual = verified(*a, **k)
+        return SimpleNamespace(state=actual.state, record_sha256='f'*64,
+            runtime_authority_sha256=actual.runtime_authority_sha256)
+    broker.calls.clear()
+    with monkeypatch.context() as local:
+        local.setattr(dual_reconciliation, 'verified_shadow_intent', foreign_record)
+        with pytest.raises(paper.PaperActivationRefused, match='renewal shadow record'):
+            prepare(conn, broker)
+    assert broker.calls == []
+    assert journal.latest_plan(conn).plan_id == old.plan_id
     conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{account_snapshot,cash}','\"0\"') WHERE cursor_name=%s",
                  (dual_plan_authority._cursor(old.plan_id),))
     conn.commit()
-    renew(conn, monkeypatch)
     broker.calls.clear()
     with pytest.raises(paper.PaperActivationRefused, match='refused renewal'):
         prepare(conn, broker)
