@@ -24,9 +24,15 @@
       "module": "validation"
     },
     "_assert_plan_authorities": {
-      "generated_ast_sha256": "847ba30906cd79db1f9539ad77b0df5907579aeb4c0f4ce52e17bf0a9f45b9be",
+      "generated_ast_sha256": "d1fa7e81a6a89e9246ab6d34d512997d39fd44dd847491fa2f46850713e53214",
       "historical_ast_sha256": "f4eb9043249fe20b6c5292439a6b1a07935d41807e5e7c05e679d0a39d85112b",
-      "module": "validation"
+      "module": "validation",
+      "retained_design": "docs/retained-state-activation.md",
+      "retained_acceptance": [
+        "tests/sentinel/test_retained_admission_chain.py",
+        "tests/sentinel/test_rolling_retained_runtime_activation.py"
+      ],
+      "reason": "PR #491: Preserve deterministic plan, state, strategy, transition, publication, effective-session and account guards while allowing only exact authenticated retained dual-shadow strategy admission."
     },
     "_cash_authority_or_refuse": {
       "acceptance": "audit/economic_399/cash_precision/README.md",
@@ -53,7 +59,7 @@
       "module": "reconciliation_evidence"
     },
     "_execute_current_paper_plan": {
-      "generated_ast_sha256": "4ac79b1bc7e8a7d95ec085d0c910418fc404f6c51a00b247fa15f58f31d12f50",
+      "generated_ast_sha256": "377a7a1117642848b8795426b4d1dd5d543adf086be9228cacc71ca6b7862695",
       "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
       "module": "execution",
       "composition_design": "docs/sentinel-execution-contract.md",
@@ -63,7 +69,12 @@
         "tests/sentinel/test_recovery_capability_boundary.py",
         "tests/sentinel/test_historical_recovery_process_death.py"
       ],
-      "reason": "Admit the sealed bare transport before composition and preserve reviewed informational current-book scope through execution preflight and settlement."
+      "reason": "Admit the sealed bare transport before composition and preserve reviewed informational current-book scope through execution preflight and settlement. PR #491: Pass independently verified dual scope to the exact retained-state plan guard; all existing sizing, reconciliation, opening-window and broker authority guards remain.",
+      "retained_design": "docs/retained-state-activation.md",
+      "retained_acceptance": [
+        "tests/sentinel/test_retained_admission_chain.py",
+        "tests/sentinel/test_rolling_retained_runtime_activation.py"
+      ]
     },
     "_fresh_warmed_state": {
       "generated_ast_sha256": "1afd2445d98e791c34d7040fcc345f334173cf9ab9cc44ef2c5426dd1be7202f",
@@ -175,9 +186,15 @@
       "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation."
     },
     "_validate_broker_grant": {
-      "generated_ast_sha256": "24d6afebf6f02a3d5086b3ce0fb57eccf3be5767fbe8d9868be37981ca055a5b",
+      "generated_ast_sha256": "d98be38c794ce535e1e43bc4d8e9089b4df423c81d417dfb0faada6c3c2769cf",
       "historical_ast_sha256": "a10cb381c28e916db84d14fe6fbc617043ac4e1beaaf165a2287250fdc4ce282",
-      "module": "validation"
+      "module": "validation",
+      "retained_design": "docs/retained-state-activation.md",
+      "retained_acceptance": [
+        "tests/sentinel/test_retained_admission_chain.py",
+        "tests/sentinel/test_rolling_retained_runtime_activation.py"
+      ],
+      "reason": "PR #491: Recheck exact authenticated retained dual-shadow checkpoint state during each fresh automation broker guard; standalone and manual paths remain strict."
     },
     "build_security_resolver": {
       "generated_ast_sha256": "a7d88b8f7c1340144c469ef5ba9193d8707793807cb81ac73076eb81a15c3968",
@@ -192,16 +209,21 @@
     "prepare_paper_plan": {
       "acceptance": "docs/unattended-operation-qualification.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "d503b1d1545bfe700dd42335b2a8cf6437ea4f43aa8cdc68d62335af4e1aea95",
+      "generated_ast_sha256": "9699d3d6f8b85627f9322e41cf0d11d25466f39991f19b12411c0299c83e4128",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "module": "preparation",
-      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart.",
+      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality.",
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "composition_acceptance": [
         "tests/sentinel/test_paper_composition_gateway.py",
         "tests/sentinel/test_recovery_capability_boundary.py",
         "tests/sentinel/test_historical_recovery_process_death.py"
+      ],
+      "retained_design": "docs/retained-state-activation.md",
+      "retained_acceptance": [
+        "tests/sentinel/test_retained_admission_chain.py",
+        "tests/sentinel/test_rolling_retained_runtime_activation.py"
       ]
     },
     "recover_automated_paper_cycle": {
@@ -232,6 +254,17 @@
         "tests/sentinel/test_historical_recovery_process_death.py"
       ],
       "reason": "Admit the sealed bare transport explicitly at the entry gateway; retain the separately sealed generation-fenced wrapper requirement for broker calls."
+    },
+    "_require_state_strategy": {
+      "module": "validation",
+      "historical_ast_sha256": null,
+      "generated_ast_sha256": "ef3a616fd7081aa33a76d624293f43684910f36e9723e2331945be8c1a85c7e4",
+      "retained_design": "docs/retained-state-activation.md",
+      "retained_acceptance": [
+        "tests/sentinel/test_retained_admission_chain.py",
+        "tests/sentinel/test_rolling_retained_runtime_activation.py"
+      ],
+      "reason": "PR #491: New exact retained-state strategy boundary: equal identities pass normally; mismatches require explicit dual scope and authenticated current/intermediate admissions matching the original runtime, checkpoint state and session."
     }
   },
   "design": "docs/production-compact-champion.md",
