@@ -6,9 +6,9 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = '3c63abbd33d11ef8a7cfe45252962ac368f9d7d9466046d991444aee057079e4'
+PROFILE_SHA256 = 'b81ffadf3900775034241c41107b3443d41e931f6d1029d99f9bcbd327a37d32'
 PROFILE = Path(__file__).with_name('operational-liveness-upgrade.json')
-SCOPE = frozenset({'automation/service.py', 'alert_health.py', 'alert_liveness.py'})
+SCOPE = frozenset({'automation/service.py', 'alert_health.py', 'alert_liveness.py', 'panel/render.py'})
 
 
 def profile():

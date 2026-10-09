@@ -1,6 +1,7 @@
 """Operational source admission preserves the book and refuses unknown bytes."""
 from copy import deepcopy
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,38 @@ def test_exact_transition_requires_authenticated_origin_and_environment(closure,
     except admission.Refused:
         pass
     assert proof == digest(admission.SourceManifest.model_validate(manifest).model_dump(by_alias=True))
+
+
+@pytest.mark.parametrize('revision,fixture_sha', [
+    ('368669bb', '9e8fcb27383f98e2991835d766dd83506a916f0cee1f617fc6f8a51d05345f66'),
+    ('bf4009dc', '835f2fd3d4f3024fc739df5e2734c3359f5dc03ad06f9fbcbde53827ba989a34'),
+])
+def test_complete_historical_source_manifest_is_admitted(closure, monkeypatch, revision, fixture_sha):
+    _, checkpoint, context, _, source_value = closure
+    raw = (Path(__file__).parent/'fixtures/retained-source-history'/(revision+'.json')).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == fixture_sha
+    manifest = json.loads(raw)
+    root = Path(upgrade.__file__).parent
+    actual = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+              for path in root.rglob('*.py') if '__pycache__' not in path.parts}
+    current_env = source_value['environment']
+    current_env['sentinel_source'].update(path=str(root), files=len(actual),
+        hash=admission.source_closure(actual))
+    previous_env = deepcopy(current_env)
+    previous_env['sentinel_source'].update(files=len(manifest['files']),
+        hash=admission.source_closure(manifest['files']))
+    old_sha = hashlib.sha256(json.dumps(previous_env, sort_keys=True).encode()).hexdigest()
+    checkpoint.runtime_identity.update(git_commit=manifest['revision'],
+        sentinel_source_sha256=previous_env['sentinel_source']['hash'], environment_identity_sha256=old_sha)
+    checkpoint.runtime_identity['reviewed_shadow_config']['validated_source_identity_sha256'] = old_sha
+    context['runtime']['sentinel_source_sha256'] = current_env['sentinel_source']['hash']
+    monkeypatch.setattr(admission.identity, '_imported_package_root', lambda _: root)
+    proof, refusal = None, None
+    try:
+        proof = admission.prove_compatibility(manifest, checkpoint, context, source=source_value)
+    except admission.Refused as error:
+        refusal = str(error)
+    assert proof == digest(admission.SourceManifest.model_validate(manifest).model_dump(by_alias=True)), refusal
 
 
 @pytest.mark.parametrize('name', sorted(upgrade.SCOPE))

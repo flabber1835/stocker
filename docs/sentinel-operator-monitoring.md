@@ -314,8 +314,10 @@ existing 30-second heartbeat / 330-second startup defaults remain unchanged.
 ### Retained-book admission for operational liveness repairs
 
 The callback-startup cleanup and finite alert-health budget repairs have an
-exact source upgrade profile for `automation/service.py`, `alert_health.py`
-and `alert_liveness.py`. The profile pins the previously deployed bytes and
+exact source upgrade profile for `automation/service.py`, `alert_health.py`,
+`alert_liveness.py` and `panel/render.py`. The renderer's reviewed freshness
+checks are operational presentation changes, with no financial authority.
+The profile pins the previously deployed bytes and
 their reviewed replacements, plus the profile reader itself. It is checked
 through the existing retained-runtime admission path; it grants no broker or
 installation authority. Unknown prior bytes, altered replacements and changes
@@ -325,8 +327,10 @@ The original source manifest, genesis, strategy state, account binding and
 financial journals remain immutable. Existing source-closure, dependency,
 Wealth Core, strategy, publication, backup and fence checks remain required.
 No fresh formation, source reacquisition or financial reset is needed merely
-to adopt these three operational repairs. Prior economic and execution upgrade
-profiles remain unchanged.
+to adopt these operational repairs. Qualification includes the complete source
+manifests of the original installed book and the verified main baseline, rather
+than constructing historical manifests from only the changed paths. Prior
+economic and execution upgrade profiles remain unchanged.
 
 ## 6. Validation and rollout
 

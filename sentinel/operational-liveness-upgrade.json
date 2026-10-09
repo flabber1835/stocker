@@ -17,8 +17,14 @@
       "before": [
         "d9af5e1e1fb111b376ec577a57a0cc8ea71fab085471663986aaa4dc08430b48"
       ]
+    },
+    "panel/render.py": {
+      "after": "f405dd2cad1d788f888a17e0a2fa7829dc350561307286b506815c06907cc94d",
+      "before": [
+        "f502d58f243d25a4ea5e327d566cf04fc4682ce878bb271d9a3eec3db9fb203a"
+      ]
     }
   },
-  "module_sha256": "7b10b16ba3a5910821ffdec8c03d22a1537b6c22ebdcfc1e7d9e8441e1d2e206",
+  "module_sha256": "90f31121ff3162626905fe436d6da7272cf9d60bfff4e6e75c060881fa080176",
   "schema": "sentinel.operational-liveness-upgrade/1"
 }
