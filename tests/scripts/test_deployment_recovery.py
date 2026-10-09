@@ -175,11 +175,17 @@ def test_health_wait_bounds_actual_status_subprocess(tmp_path, delay):
     obj.cfg = SimpleNamespace(health_timeout=.25)
     script = (f'import time; time.sleep({delay}); '
               'print(\'{"operational_ready":true,"policy_state":"LEADER_ACTIVE"}\')')
+    # This opaque mock imports no repository code. Instrumenting coverage's
+    # own child startup would consume the .25s deadline we are testing. Keep
+    # the real subprocess and unchanged parent-runner/timeout assertions.
+    fixture_env = {key: value for key, value in os.environ.items()
+                   if key != 'COVERAGE_PROCESS_CONFIG'}
     runner = deploy.Runner(os.environ, tmp_path/'commands.log')
     class StatusRunner:
         def run(self, argv, **kwargs):
             assert argv[-1] == 'automation-status'
-            return runner.run([sys.executable, '-c', script], **kwargs)
+            return runner.run([sys.executable, '-c', script],
+                              env=fixture_env, **kwargs)
     obj.runner = StatusRunner()
     obj.base_compose = ['local-fixture']
     started = time.monotonic()

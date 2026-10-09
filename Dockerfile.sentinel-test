@@ -21,6 +21,10 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
         --no-deps -r /tmp/test-req/requirements.lock \
  && pip check
 
+# The universal coverage wheel silently falls back to a much slower tracer
+# whose warnings pollute protocol stderr. Coverage belongs only to this lens.
+RUN python -c "from coverage.tracer import CTracer; print('native coverage tracer:', CTracer.__name__)"
+
 WORKDIR /work
 COPY pytest.ini /work/pytest.ini
 COPY tests/ /work/tests/

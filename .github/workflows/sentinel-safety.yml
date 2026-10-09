@@ -286,6 +286,7 @@ jobs:
             tests/sentinel/test_automation_p1_continuity.py \
             tests/sentinel/test_automation_safety_seams.py \
             tests/sentinel/test_automation_process_contracts.py \
+            tests/sentinel/test_automation_service_fault_paths.py \
             -q -ra --junitxml=/evidence/sentinel-automation.xml \
             2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
           docker run --rm --network none \

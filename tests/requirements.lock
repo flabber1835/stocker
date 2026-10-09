@@ -8,7 +8,9 @@
 # arm64 build architectures; pip check validates the combined closure.
 
 coverage==7.16.0 \
-    --hash=sha256:245f7de6d023a5bba375dbec9f2e0869bfa26ac0cc639bbb7b4c814884000b73
+    --hash=sha256:245f7de6d023a5bba375dbec9f2e0869bfa26ac0cc639bbb7b4c814884000b73 \
+    --hash=sha256:719a3feb6220dd32ed932d4c3676d17fb8739e2643b29c0e7c3af400ff80ac44 \
+    --hash=sha256:87771ecf986cff55e87413238cd5e4f54d949c2074bd6fc1657d26a56314ee24
 greenlet==3.5.5 \
     --hash=sha256:147b25a42e5ca5be3d42356e8f608b37af715a1c196e9bf9d1627f3341adfe1d \
     --hash=sha256:55272212cbc5f43d1d723725ab931f1939969b7e9523882ca58b55061769d053
