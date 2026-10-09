@@ -13,6 +13,7 @@ import gzip
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -150,14 +151,44 @@ def _marker_payload(*, phase: str, token: str, staging: Path,
 
 def _load_marker(path: Path, *, out: Path,
                  fingerprint_final: Path) -> dict:
+    def unique_object(pairs):
+        result = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError(f"duplicate promotion field {key}")
+            result[key] = item
+        return result
+
+    def finite_float(text):
+        number = float(text)
+        if not math.isfinite(number):
+            raise ValueError("nonfinite promotion number")
+        return number
+
+    def refuse_constant(text):
+        raise ValueError(f"nonfinite promotion constant {text}")
+
+    def resolve_path(text):
+        try:
+            return Path(text).resolve()
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise SystemExit(
+                f"REFUSED: unreadable SEP promotion path in {path}: {exc}") from exc
+
     try:
-        value = json.loads(path.read_text())
+        value = json.loads(path.read_text(encoding="utf-8"),
+                           object_pairs_hook=unique_object,
+                           parse_float=finite_float,
+                           parse_constant=refuse_constant)
     except Exception as exc:
         raise SystemExit(f"REFUSED: unreadable SEP promotion marker {path}: {exc}")
     if (not isinstance(value, dict)
+            or set(value) != {"schema", "phase", "token", "staging", "entries"}
             or value.get("schema") != PROMOTION_SCHEMA
+            or not isinstance(value.get("phase"), str)
             or value.get("phase") not in {"PREPARED", "BACKED_UP", "COMMITTED"}
             or not isinstance(value.get("entries"), list)
+            or not value["entries"]
             or not isinstance(value.get("staging"), str)
             or not isinstance(value.get("token"), str)
             or not re.fullmatch(r"[0-9a-f]{8,64}", value["token"])):
@@ -167,7 +198,7 @@ def _load_marker(path: Path, *, out: Path,
     fingerprint_final = fingerprint_final.resolve()
     staging = out / (".sentinel-sep-staging." + token)
     backup_dir = out / (".sentinel-sep-backup." + token)
-    if Path(value["staging"]).resolve() != staging:
+    if resolve_path(value["staging"]) != staging:
         raise SystemExit(f"REFUSED: SEP promotion marker escaped staging {path}")
     required = {
         "final", "staged", "backup", "had_original", "sha256",
@@ -189,9 +220,12 @@ def _load_marker(path: Path, *, out: Path,
             raise SystemExit(f"REFUSED: malformed SEP promotion entry in {path}")
         if not entry["had_original"] and backup_sha256 is not None:
             raise SystemExit(f"REFUSED: malformed SEP promotion entry in {path}")
-        final = Path(entry["final"]).resolve()
-        staged = Path(entry["staged"]).resolve()
-        backup = Path(entry["backup"]).resolve()
+        if any(not isinstance(entry[key], str) or not entry[key]
+               for key in ("final", "staged", "backup")):
+            raise SystemExit(f"REFUSED: malformed SEP promotion path in {path}")
+        final = resolve_path(entry["final"])
+        staged = resolve_path(entry["staged"])
+        backup = resolve_path(entry["backup"])
         if final in seen:
             raise SystemExit(f"REFUSED: duplicate SEP promotion entry in {path}")
         seen.add(final)
@@ -262,13 +296,22 @@ def _recover_promotion(out: Path, *, fingerprint_final: Path) -> None:
         touched_dirs.add(final.parent)
         if entry["had_original"]:
             if backup.exists():
-                if _sha256(backup) != entry["backup_sha256"]:
+                if not backup.is_file() or _sha256(backup) != entry["backup_sha256"]:
                     raise SystemExit(
                         "REFUSED: interrupted SEP promotion backup changed "
                         f"for {final}")
+                if final.exists():
+                    allowed = {entry["backup_sha256"]}
+                    if phase == "BACKED_UP":
+                        allowed.add(entry["sha256"])
+                    if not final.is_file() or _sha256(final) not in allowed:
+                        raise SystemExit(
+                            "REFUSED: interrupted SEP promotion found unowned bytes "
+                            f"for {final}")
                 os.replace(str(backup), str(final))
                 _fsync_dir(final.parent)
             elif (final.exists()
+                  and final.is_file()
                   and _sha256(final) == entry["backup_sha256"]):
                 # A prior rollback attempt already restored this member and
                 # consumed its backup. The per-member directory fsync above
@@ -282,7 +325,16 @@ def _recover_promotion(out: Path, *, fingerprint_final: Path) -> None:
                 raise SystemExit(
                     "REFUSED: interrupted SEP backup left neither original nor "
                     f"backup for {final}")
-        elif phase == "BACKED_UP" and final.exists():
+            else:
+                raise SystemExit(
+                    "REFUSED: interrupted SEP original changed without backup "
+                    f"for {final}")
+        elif final.exists():
+            if (phase == "PREPARED" or not final.is_file()
+                    or _sha256(final) != entry["sha256"]):
+                raise SystemExit(
+                    "REFUSED: interrupted SEP promotion found unowned bytes "
+                    f"for {final}")
             final.unlink()
             _fsync_dir(final.parent)
         _cleanup_path(Path(entry["staged"]))
@@ -434,7 +486,7 @@ def main() -> int:
                     if not line.strip():
                         continue
                     parts = line.rstrip("\n").split(",")
-                    if len(parts) <= max(i_date, i_ticker):
+                    if '"' in line or len(parts) <= max(i_date, i_ticker):
                         parts = next(csv.reader([line]))
                         if len(parts) <= max(i_date, i_ticker):
                             malformed += 1

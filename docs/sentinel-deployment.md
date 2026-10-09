@@ -986,6 +986,20 @@ repository consumer of the per-year files must refuse while the promotion
 marker exists, so the per-file rename interval cannot be observed as a valid
 mixed generation.
 
+The recovery marker is strict UTF-8 JSON with unique object keys, finite
+numbers, a closed root schema and typed, nonempty owned paths. Malformed or
+ambiguous records have no cleanup authority. During rollback, a remaining
+original must match its recorded old hash; a newly promoted file may be removed
+only when its bytes match the recorded new hash. Unrecognized current bytes
+refuse recovery and retain the marker and staging evidence. A completed member
+rollback remains resumable using its exact old hash after its backup has been
+consumed. These guards never infer ownership merely from a filename.
+
+Bulk row selection follows CSV quoting while retaining each accepted row's
+original serialized bytes for the per-year fingerprint. Unquoted rows retain
+the fast comma-separated path; rows containing quotes use the CSV parser so a
+comma inside a field cannot shift the date column or silently drop a row.
+
 **The whole dependency closure is fingerprinted and artifact-hash LOCKED.**
 `requirements.txt` pins the direct dependencies; pip resolves everything
 underneath them, so two builds can declare identical versions and install
