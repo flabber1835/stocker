@@ -311,6 +311,23 @@ the same rule for every caller. `NaN`, infinity, and numeric overflow must never
 disable stale-heartbeat or startup-expiry checks. Valid custom budgets and the
 existing 30-second heartbeat / 330-second startup defaults remain unchanged.
 
+### Retained-book admission for operational liveness repairs
+
+The callback-startup cleanup and finite alert-health budget repairs have an
+exact source upgrade profile for `automation/service.py`, `alert_health.py`
+and `alert_liveness.py`. The profile pins the previously deployed bytes and
+their reviewed replacements, plus the profile reader itself. It is checked
+through the existing retained-runtime admission path; it grants no broker or
+installation authority. Unknown prior bytes, altered replacements and changes
+to neighboring economic or execution code still refuse admission.
+
+The original source manifest, genesis, strategy state, account binding and
+financial journals remain immutable. Existing source-closure, dependency,
+Wealth Core, strategy, publication, backup and fence checks remain required.
+No fresh formation, source reacquisition or financial reset is needed merely
+to adopt these three operational repairs. Prior economic and execution upgrade
+profiles remain unchanged.
+
 ## 6. Validation and rollout
 
 Automated validation covers the pure recovery matrix, session-stale feed,

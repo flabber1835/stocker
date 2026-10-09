@@ -19,7 +19,8 @@ PREFIX = 'runtime-admission:v1:'
 Refused = origin.RollingColdStartRefused
 ADDITIONS = {'runtime_admission.py', 'semantic_source_basis.py', 'retained_go.py', 'retained_parity.py',
              'economic_migration.py', 'core/cash_distributions.py', 'execution_upgrade.py',
-             'retained_readiness_upgrade.py', 'dual_plan_renewal_upgrade.py'}
+             'retained_readiness_upgrade.py', 'dual_plan_renewal_upgrade.py',
+             'operational_liveness_upgrade.py'}
 ADMINISTRATIVE = {'shadow_supervisor.py', 'observation_authority.py', 'observation_startup.py'}
 SEAMS = {'core/decision.py': 'sentinel.core.decision',
          'rolling_checkpoint.py': 'sentinel.rolling_checkpoint',
@@ -258,6 +259,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     readiness_profile()
     from sentinel.dual_plan_renewal_upgrade import profile as renewal_profile
     renewal_profile()
+    from sentinel.operational_liveness_upgrade import profile as liveness_profile
+    liveness_profile()
     manifest = SourceManifest.model_validate(manifest)
     source = source or identity.rehearsal_identity()
     _require_context(checkpoint, context)
@@ -288,6 +291,9 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
             continue
         from sentinel.dual_plan_renewal_upgrade import source_allowed as renewal_source_allowed
         if renewal_source_allowed(name, previous, actual[name]):
+            continue
+        from sentinel.operational_liveness_upgrade import source_allowed as liveness_source_allowed
+        if liveness_source_allowed(name, previous, actual[name]):
             continue
         if module is None:
             raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)

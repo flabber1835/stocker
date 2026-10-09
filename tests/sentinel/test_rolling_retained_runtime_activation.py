@@ -28,6 +28,11 @@ def executable(ready, monkeypatch, request):
         from sentinel.execution_upgrade import profile
         for name, record in profile()['files'].items():
             old[name] = record['before'][0]
+    if getattr(request, 'param', None) == 'operational':
+        from sentinel.operational_liveness_upgrade import profile
+        old.pop('operational_liveness_upgrade.py', None)
+        for name, record in profile()['files'].items():
+            old[name] = record['before'][0]
     old['shadow_supervisor.py'] = hashlib.sha256(b'prior reviewed supervisor').hexdigest()
     env = {'compatible': True, 'sentinel_source': {'path': str(root), 'files': len(actual), 'hash': admission.source_closure(actual)},
            'wealth_core_source': {'hash': '2'*64}, 'dependencies': 'fixed'}
