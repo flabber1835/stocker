@@ -70,6 +70,7 @@ def test_quiesced_review_failure_precedes_mode_persistence_and_runtime_start(tmp
         "broker-integrity")
     obj.build_promote = lambda: events.append("build")
     obj._quiesce_database = lambda: events.append("quiesce") or True
+    obj.confirm_disabled_activation_fence = lambda: events.append("disabled-fence")
     obj.check_durable_deployment_integrity = lambda: events.append(
         "durable-integrity")
 
@@ -89,7 +90,7 @@ def test_quiesced_review_failure_precedes_mode_persistence_and_runtime_start(tmp
         obj.run_activation()
 
     assert events == [
-        "git", "initial-review", "broker-integrity", "build", "quiesce",
+        "git", "initial-review", "broker-integrity", "build", "quiesce", "disabled-fence",
         "durable-integrity", "quiesced-review", "fail-close"]
 
 

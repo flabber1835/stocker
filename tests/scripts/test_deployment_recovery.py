@@ -242,6 +242,9 @@ obj = object.__new__(cls)
 obj.cfg = SimpleNamespace(account_id='SIMULATED', deployment_id='local', actor='fixture')
 obj.reviewed_validation = SimpleNamespace(mode=sys.argv[1])
 obj.phase = lambda _: None
+obj.quiesce_activation_writers = lambda: None
+obj._require_activation_writers_stopped = lambda: None
+obj.start_activated_runtime = lambda *args: None  # Handoff has real-process tests.
 window = sys.argv[2]
 timing_checks = []
 def causal_timing():

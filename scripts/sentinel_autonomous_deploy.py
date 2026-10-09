@@ -1717,10 +1717,13 @@ class AutonomousDeploy:
         if ids:
             self.runner.run(["docker", "stop"] + ids)
 
-    def _direct_stop_shadow(self) -> None:
+    def _direct_stop_shadow(self, *, grace_seconds: Optional[int] = None) -> None:
         ids = self._running_shadow_containers()
         if ids:
-            self.runner.run(["docker", "stop"] + ids)
+            if grace_seconds is None:
+                grace_seconds = max(30, getattr(self.cfg, 'health_timeout', 30))
+            self.runner.run(["docker", "stop", "--time", str(grace_seconds)] + ids,
+                            timeout=grace_seconds + 5)
 
     def _try_emergency_kill(self) -> bool:
         result = self.runner.run([
@@ -2104,6 +2107,7 @@ class AutonomousDeploy:
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
         self.assert_activation_timing(decision_session)
+        self.quiesce_activation_writers()
         self.phase("plan: prepare one current durable paper plan")
         prepare_args = [
             "prepare-paper-plan", "--through", decision_session,
@@ -2124,7 +2128,7 @@ class AutonomousDeploy:
                 and self.reviewed_validation.mode == "dual"):
             self._verify_dual_plan_shadow_reconciliation()
 
-        self.phase("automation: activate behind kill, start pinned service, then release")
+        self.phase("automation: activate behind kill with financial services stopped")
         self._authorized_cli([
             "activate-paper-automation",
             "--confirm-paper-account", self.cfg.account_id,
@@ -2133,16 +2137,15 @@ class AutonomousDeploy:
             "--confirm-old-writer-fenced", "--actor", self.cfg.actor,
             "--reason", "autonomous deployment",
             "--confirm-enable-unattended-alpaca-paper-automation"])
-        self.runner.run(self._authorized_compose() + [
-            "--profile", "automation", "up", "-d", "sentinel-automation"])
         killed = self._automation_status()
         if (killed.get("enabled") is not True
                 or killed.get("kill_switch_engaged") is not True
                 or killed.get("certificate_sha256") != certificate_sha256):
-            raise DeployRefused("automation did not start behind the expected kill fence")
+            raise DeployRefused("automation control did not retain the expected kill fence")
         self.verify_operator_services()
         self.establish_activation_backup()
         self.assert_activation_timing(decision_session)
+        self._require_activation_writers_stopped()
         self._authorized_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,
@@ -2150,7 +2153,77 @@ class AutonomousDeploy:
             "--confirm-certificate-sha256", certificate_sha256,
             "--actor", self.cfg.actor, "--reason", "autonomous deployment verified",
             "--confirm-release-unattended-paper-kill-switch"])
+        self.start_activated_runtime(certificate_sha256, decision_session)
         return current
+
+    def _require_activation_writers_stopped(self) -> None:
+        if (self._running_automation_containers()
+                or self._running_shadow_containers()):
+            raise DeployRefused("activation writer handoff requires stopped financial services")
+
+    def quiesce_activation_writers(self) -> None:
+        """Hand the attested publisher's writer slot back to administrative CLI."""
+        self.phase("activation: quiesce attested publisher before plan/control writes")
+        before = self._automation_status()
+        if (before.get("enabled") is not False
+                or before.get("kill_switch_engaged") is not True):
+            raise DeployRefused("activation writer handoff requires disabled+killed automation")
+        self._direct_stop_automation()
+        # Allow child termination, durable acknowledgement and cleanup within
+        # the reviewed host health budget instead of Docker's ten-second default.
+        self._direct_stop_shadow(grace_seconds=max(30, getattr(self.cfg, 'health_timeout', 30)))
+        self._require_activation_writers_stopped()
+        after = self._automation_status()
+        if (after.get("enabled") is not False
+                or after.get("kill_switch_engaged") is not True):
+            raise DeployRefused("automation fence changed during activation writer handoff")
+
+    def confirm_disabled_activation_fence(self) -> None:
+        """A readiness retry may inherit enabled control behind its durable kill."""
+        self._require_activation_writers_stopped()
+        status = self._automation_status()
+        if status.get("kill_switch_engaged") is not True:
+            raise DeployRefused("activation retry has no durable kill fence")
+        if status.get("enabled") is True:
+            self._base_cli([
+                "deactivate-paper-automation", "--actor", self.cfg.actor,
+                "--reason", "separate activation disabled while re-earning readiness"])
+            status = self._automation_status()
+        if (status.get("enabled") is not False
+                or status.get("kill_switch_engaged") is not True):
+            raise DeployRefused("activation retry did not reach disabled+killed control")
+
+    def start_activated_runtime(self, certificate_sha256: str,
+                                decision_session: str) -> None:
+        """Prove the resumed shadow before allowing the dispatcher to start."""
+        self._require_activation_writers_stopped()
+        self._require_released_activation_control(certificate_sha256)
+        if (self.reviewed_validation is not None
+                and self.reviewed_validation.mode == "dual"):
+            self.phase("activation: resume and verify shadow before starting automation")
+            self.runner.run(self._authorized_compose() + [
+                "--profile", "shadow", "up", "-d", "sentinel-shadow"])
+            self.wait_shadow_process()
+            attested = self._wait_for_dual_shadow_session(decision_session)
+            if attested.get("session", "") > decision_session:
+                raise ActivationPending("resumed shadow advanced beyond the prepared decision; re-earn the current plan")
+            if attested.get("session") != decision_session:
+                raise DeployRefused("resumed shadow changed the prepared decision session")
+            self._verify_dual_plan_shadow_reconciliation()
+            self.wait_shadow_process()
+        self.assert_activation_timing(decision_session)
+        self._require_released_activation_control(certificate_sha256)
+        if self._running_automation_containers():
+            raise DeployRefused("automation appeared before resumed shadow verification")
+        self.runner.run(self._authorized_compose() + [
+            "--profile", "automation", "up", "-d", "sentinel-automation"])
+
+    def _require_released_activation_control(self, certificate_sha256: str) -> None:
+        control = self._automation_status()
+        if (control.get("enabled") is not True
+                or control.get("kill_switch_engaged") is not False
+                or control.get("certificate_sha256") != certificate_sha256):
+            raise DeployRefused("released automation control differs from activation authority")
 
     def establish_activation_backup(self) -> None:
         self.phase('durability: verify newly formed and authorized state while paper remains killed')
@@ -2221,13 +2294,20 @@ class AutonomousDeploy:
             if time.monotonic() >= deadline:
                 break
             if completed.returncode == 0:
-                try:
-                    last = json.loads(completed.stdout or "")
-                except json.JSONDecodeError:
-                    last = None
-                if (isinstance(last, dict)
-                        and isinstance(last.get('session'), str)
-                        and last['session'] >= decision_session
+                last = _json_output(completed, label="shadow attestation")
+                session = last.get('session')
+                if (session is None and last.get("shadow_verdict") == "SHADOW_GO"
+                        and last.get("verification") == "VERIFIED"):
+                    raise DeployRefused("verified shadow attestation has no decision session")
+                if session is not None:
+                    try:
+                        if (not isinstance(session, str)
+                                or re.fullmatch(r"\d{4}-\d{2}-\d{2}", session) is None):
+                            raise ValueError
+                        datetime.strptime(session, "%Y-%m-%d")
+                    except ValueError:
+                        raise DeployRefused("shadow attestation contains an invalid decision session")
+                if (session is not None and session >= decision_session
                         and last.get("shadow_verdict") == "SHADOW_GO"
                         and last.get("verification") == "VERIFIED"):
                     return last
@@ -2569,6 +2649,7 @@ class AutonomousDeploy:
         with self.activation_transition():
             if not self._quiesce_database():
                 raise DeployRefused('activation could not establish its durable fence')
+            self.confirm_disabled_activation_fence()
             self.check_durable_deployment_integrity()
             self.verify_reviewed_shadow_bindings_quiesced()
             self.configure_reviewed_mode_while_fenced()

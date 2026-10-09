@@ -102,22 +102,33 @@ def test_open_expiry_before_kill_release_leaves_paper_fenced(tmp_path):
     obj.verify_operator_services = lambda: None
     obj._verify_dual_plan_shadow_reconciliation = lambda: None
     obj._authorized_compose = lambda: ['docker', 'compose']
+    obj._running_automation_containers = lambda: []
+    obj._running_shadow_containers = lambda: []
     calls = []
+    control = dict(enabled=False, kill_switch_engaged=True,
+                   certificate_sha256='cert')
     obj.establish_activation_backup = lambda: calls.append('verified-recovery')
     plan = {'plan': {'plan_id': 'exact', 'decision_session': '2026-10-02'},
             'database_authorities_match': True}
     def cli(args, **kwargs):
         calls.append(args[0])
+        if args[0] == 'activate-paper-automation':
+            control['enabled'] = True
         return SimpleNamespace(stdout=json.dumps(plan), returncode=0)
     obj._authorized_cli = obj._base_cli = cli
-    obj.runner = SimpleNamespace(run=lambda *_a, **_k: None)
-    obj._automation_status = lambda: dict(enabled=True, kill_switch_engaged=True,
-                                          certificate_sha256='cert')
-    with pytest.raises(install.core.DeployRefused, match='following-open cutoff'):
-        obj.prepare_activate_start('cert', '2026-10-02')
-    assert 'activate-paper-automation' in calls
-    assert calls.index('activate-paper-automation') < calls.index('verified-recovery')
-    assert 'release-paper-automation-kill-switch' not in calls
+    obj.runner = SimpleNamespace(run=lambda *_a, **_k:
+        pytest.fail('expired activation started a financial service'))
+    obj._automation_status = lambda: dict(control)
+    try:
+        with pytest.raises(install.core.DeployRefused, match='following-open cutoff'):
+            obj.prepare_activate_start('cert', '2026-10-02')
+    finally:
+        assert 'release-paper-automation-kill-switch' not in calls
+        assert control['kill_switch_engaged'] is True
+    assert calls == ['prepare-paper-plan', 'current-paper-plan',
+                     'activate-paper-automation', 'verified-recovery']
+    assert control == dict(enabled=True, kill_switch_engaged=True,
+                           certificate_sha256='cert')
 
 
 def refresh_instance(monkeypatch, results):
