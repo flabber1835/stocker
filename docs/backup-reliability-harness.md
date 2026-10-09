@@ -84,6 +84,13 @@ Runtime authority also requires current archiver health through `backup_guard`.
 Disabled archiving, future-dated evidence, unresolved failures and failed active
 liveness probes cannot be masked by an intact retained chain.
 
+The standalone Python chain verifier also serves the deterministic command
+adapter. It must classify a parsed JSON scalar/list/null manifest and invalid
+segment geometry as `ChainRefused` before deriving a WAL name. Its CLI returns
+the existing `REFUSED`/exit-4 contract, rather than an incidental attribute or
+arithmetic exception. The production shell verifier remains independently
+qualified; this Python helper alone grants no deployed restore authority.
+
 ## Archive identity and integrity
 
 Each PostgreSQL cluster owns `wal/cluster-<system_identifier>`. A normal 24-hex WAL
