@@ -121,6 +121,7 @@ if True:
     (None, None, "publication"),
     ("schema-feed-permission", "BACKUP_DURABILITY", "connect"),
     ("schema-migration", "SCHEMA_MIGRATION", "backup"),
+    ("feed-schema-validation", "SCHEMA_MIGRATION", "feed-schema"),
     ("feed-catchup", "DAILY_CATCHUP", "feed-schema"),
     ("publication-check", "PUBLICATION_CHECK", "prepare"),
 ])
@@ -144,7 +145,14 @@ def test_real_preparation_payload_rolls_back_and_never_emits_success_after_fault
     monkeypatch.setattr(backup_guard, "require_writes_permitted",
                         lambda *_a, **_k: events.append("backup"))
     monkeypatch.setattr(schema, "ensure_schema", lambda _c: events.append("schema"))
-    monkeypatch.setattr(store, "migrate_schema", lambda _c: events.append("feed-schema"))
+    def require_feed_schema(_c):
+        events.append("feed-schema")
+        if fault == "feed-schema-validation":
+            raise RuntimeError("E2E_STAGE_FAULT:feed-schema-validation")
+
+    monkeypatch.setattr(store, "require_feed_schema", require_feed_schema)
+    monkeypatch.setattr(store, "migrate_schema", lambda _c:
+                        pytest.fail("installation preparation attempted feed DDL"))
     monkeypatch.setattr(calendar, "latest_closed_session", lambda _now: target)
     monkeypatch.setattr(calendar, "next_session", lambda _day: "2026-09-28")
     monkeypatch.setattr(calendar, "session_window", lambda _day: (
@@ -158,7 +166,8 @@ def test_real_preparation_payload_rolls_back_and_never_emits_success_after_fault
     monkeypatch.setattr(publication, "chain_gaps", lambda _c: [])
     code = preparation._PREPARATION_CODE
     if fault:
-        code = faults.docker_arguments(["compose", "run", "-c", code], fault)[-1]
+        if fault != "feed-schema-validation":
+            code = faults.docker_arguments(["compose", "run", "-c", code], fault)[-1]
         with pytest.raises(RuntimeError, match="E2E_STAGE_FAULT:" + fault):
             exec(compile(code, "<production-preparation>", "exec"), {})
         assert events[-3:] == [last_stage, "rollback", "close"]

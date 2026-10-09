@@ -786,12 +786,18 @@ def test_executor_time_boundary_refuses_or_recovers_without_new_transport(
 
 
 @pytest.mark.parametrize('initial', ['DISCOVERED', 'RETRY_WAIT', 'RECONCILING'])
+@pytest.mark.parametrize('clock', ['before_open', 'at_open', 'after_open'])
 @pytest.mark.parametrize('supersede', [False, True])
 @pytest.mark.parametrize('disposition', ['SUCCEEDED', 'SUPERSEDED', 'RETRY', 'BLOCKED'])
 def test_preflight_recovery_must_finish_before_publication_and_never_executes(
-        monkeypatch, initial, supersede, disposition):
+        monkeypatch, initial, clock, supersede, disposition):
     config = AutomationConfig()
     cycle, permit = scheduled_record(config, module.CycleState[initial])
+    now = {'before_open': cycle.execution_open_at - timedelta(microseconds=1),
+           'at_open': cycle.execution_open_at,
+           'after_open': cycle.execution_open_at + timedelta(minutes=90)}[clock]
+    permit = permit.model_copy(update={'acquired_at': now,
+        'expires_at': now + timedelta(seconds=config.lease_seconds)})
     if initial == 'RECONCILING':
         cycle = cycle.model_copy(update={'diagnostic': {'retry_phase': 'PREFLIGHT_RECOVER'}})
     observation = module.ExecuteResult(disposition=module.ExecuteDisposition[disposition],
@@ -824,18 +830,22 @@ def test_preflight_recovery_must_finish_before_publication_and_never_executes(
         return current
 
     monkeypatch.setattr(module.store, 'transition_cycle', transition)
-    result = asyncio.run(service._run_preflight_recover(connection, now=cycle.execute_at,
+    result = asyncio.run(service._run_preflight_recover(connection, now=now,
         cycle=cycle, permit=permit, supersede_on_success=supersede))
-    stale_clean = supersede and disposition in {'SUCCEEDED', 'SUPERSEDED'}
-    expected = ('SUPERSEDED' if stale_clean else 'REFRESHING_DATA' if disposition == 'SUCCEEDED'
+    clean_cutover = (supersede or clock != 'before_open') and disposition in {
+        'SUCCEEDED', 'SUPERSEDED'}
+    expected = ('SUPERSEDED' if clean_cutover else 'REFRESHING_DATA' if disposition == 'SUCCEEDED'
                 else 'BLOCKED' if disposition == 'BLOCKED' else 'RETRY_WAIT')
     assert result.cycle.state is module.CycleState[expected]
     assert events == ['read-only recovery']
     assert transitions[-1] is module.CycleState[expected]
     assert result.cycle.last_clean_reconciliation_id == observation.last_clean_reconciliation_id
-    if stale_clean:
+    if clean_cutover:
         assert result.action is module.TickAction.SUPERSEDED
-        assert result.cycle.failure_code == 'STALE_PREFLIGHT_RECOVERED'
+        assert result.cycle.failure_code == ('STALE_PREFLIGHT_RECOVERED' if supersede
+                                            else 'DISCOVERED_AFTER_SESSION_OPEN')
+        assert result.cycle.diagnostic['preflight_recovery_complete'] is True
+        assert result.cycle.next_wake_at is None
     elif disposition == 'SUCCEEDED':
         assert result.action is module.TickAction.RECOVERED
         assert result.cycle.diagnostic['preflight_recovery_complete'] is True
@@ -844,7 +854,7 @@ def test_preflight_recovery_must_finish_before_publication_and_never_executes(
     else:
         assert result.action is module.TickAction.RETRY_SCHEDULED
         assert result.cycle.diagnostic['retry_phase'] == 'PREFLIGHT_RECOVER'
-        assert result.cycle.next_wake_at > cycle.execute_at
+        assert result.cycle.next_wake_at > now
 
 
 def test_inherited_process_object_cannot_signal_or_join_foreign_parent(monkeypatch):

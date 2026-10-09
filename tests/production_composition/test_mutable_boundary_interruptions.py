@@ -83,20 +83,25 @@ def test_kill_after_backup_refresh_before_audit_cannot_enter_schema_or_ingest(mo
     assert mutations == []
 
 
-@pytest.mark.parametrize("code,prepare_call,publication_call", [
+@pytest.mark.parametrize("code,feed_boundary,prepare_call,publication_call", [
     (entry._RECOVERY_PREPARATION_CODE,
+     "store.migrate_schema(c)",
      "outage_recovery.catch_up_waiting(", "publication.current(c)"),
     (install_entry._PREPARATION_CODE,
+     "store.require_feed_schema(c)",
      "retained_go.prepare(c, target_session=target,", "rolling_go_inputs.current(c)"),
 ], ids=["validation", "installation"])
-def test_schema_migration_precedes_ingest_and_publication_observation_in_production_code(
-        code, prepare_call, publication_call):
+def test_schema_and_feed_boundary_precede_ingest_and_publication_in_production_code(
+        code, feed_boundary, prepare_call, publication_call):
     schema_at = code.index("schema.ensure_schema(c)")
-    migration_at = code.index("store.migrate_schema(c)")
+    feed_at = code.index(feed_boundary)
+    assert code.count(feed_boundary) == 1
+    if feed_boundary == "store.require_feed_schema(c)":
+        assert "store.migrate_schema(c)" not in code
     assert code.count(prepare_call) == 1
     ingest_at = code.index(prepare_call)
     publication_at = code.index(publication_call, ingest_at)
-    assert schema_at < migration_at < ingest_at < publication_at
+    assert schema_at < feed_at < ingest_at < publication_at
 
 
 @pytest.mark.parametrize("duplicate", [False, True])
