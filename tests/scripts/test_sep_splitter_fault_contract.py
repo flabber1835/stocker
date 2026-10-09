@@ -485,8 +485,6 @@ def test_promoted_member_hash_mismatch_cannot_be_committed(tmp_path, monkeypatch
     assert retained_files(tmp_path) == before
 
 
-@pytest.mark.skipif(os.environ.get('SENTINEL_SPLITTER_LARGE_ACCEPTANCE') != '1',
-                    reason='separate explicitly admitted five-million-row acceptance')
 def test_actual_five_million_rows_progress_and_exact_fingerprint(tmp_path, monkeypatch, capsys):
     line = b'SPY,1998-01-02,1\n'
     count = 5_000_000

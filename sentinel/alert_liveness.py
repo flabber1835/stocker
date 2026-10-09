@@ -21,6 +21,9 @@ def main() -> int:
             "SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS", "30"))
         startup_grace = float(os.environ.get(
             "SENTINEL_AUTOMATION_ALERT_STARTUP_GRACE_SECONDS", "330"))
+        alert_health.validate_health_intervals(
+            maximum_age_seconds=maximum_age,
+            startup_grace_seconds=startup_grace)
     except ValueError as exc:
         print(f"ALERT_DISPATCHER_UNHEALTHY: {exc}", file=sys.stderr)
         return 1

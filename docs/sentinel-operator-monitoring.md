@@ -304,6 +304,13 @@ visible evidence rather than a prerequisite that creates test noise. An actual
 delivery failure moves the dispatcher to bounded degraded/failed state and an
 idle loop cannot clear it—only a later real delivery success can.
 
+Dispatcher heartbeat and startup-grace budgets must both be finite and strictly
+positive. The command-line health check validates those budgets before opening
+a database connection, and the canonical database-clock health reader enforces
+the same rule for every caller. `NaN`, infinity, and numeric overflow must never
+disable stale-heartbeat or startup-expiry checks. Valid custom budgets and the
+existing 30-second heartbeat / 330-second startup defaults remain unchanged.
+
 ## 6. Validation and rollout
 
 Automated validation covers the pure recovery matrix, session-stale feed,
