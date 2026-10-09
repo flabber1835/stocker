@@ -45,6 +45,7 @@ COPY scripts/sentinel_go_suites.py /work/scripts/sentinel_go_suites.py
 COPY scripts/sentinel_go_feed_progress.py /work/scripts/sentinel_go_feed_progress.py
 COPY scripts/sentinel_reconcile_sep.py /work/scripts/sentinel_reconcile_sep.py
 COPY scripts/sentinel_ci_certification_verify.py /work/scripts/sentinel_ci_certification_verify.py
+COPY scripts/sentinel-backup-verify-chain.py /work/scripts/sentinel-backup-verify-chain.py
 COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
 COPY scripts/ /work/repo/scripts/
 COPY tools/ /work/repo/tools/

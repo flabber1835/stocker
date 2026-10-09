@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, Mapping, NoReturn, Optional, Sequence
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -55,7 +55,7 @@ class CertificationVerificationRefused(RuntimeError):
         self.detail = detail
 
 
-def _refuse(code, detail):
+def _refuse(code, detail) -> NoReturn:
     raise CertificationVerificationRefused(code, detail)
 
 
@@ -78,13 +78,21 @@ def _json_bytes(raw, code, label):
                 _refuse(code, "%s contains duplicate key" % label)
             result[key] = value
         return result
+    def constant(_value):
+        _refuse(code, "%s contains a non-finite JSON constant" % label)
     try:
-        value = json.loads(raw.decode("utf-8"), object_pairs_hook=pairs)
-    except (UnicodeError, json.JSONDecodeError) as exc:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=pairs,
+                           parse_constant=constant)
+    except (UnicodeError, json.JSONDecodeError):
         _refuse(code, "%s is not valid UTF-8 JSON" % label)
-        raise AssertionError from exc
     if not isinstance(value, dict):
         _refuse(code, "%s is not a JSON object" % label)
+    return value
+
+
+def _positive_int(value, code, label):
+    if type(value) is not int or value <= 0:
+        _refuse(code, "%s is not a positive JSON integer" % label)
     return value
 
 
@@ -142,9 +150,8 @@ class GitHubReadClient:
         try:
             response = self.opener(request, timeout=30)
             return response.read()
-        except (OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
+        except (OSError, urllib.error.URLError, urllib.error.HTTPError):
             _refuse("CERT_GITHUB_UNAVAILABLE", "GitHub read failed")
-            raise AssertionError from exc
 
     def json(self, path):
         return _json_bytes(
@@ -164,9 +171,11 @@ def _same_repo(run):
     head_repository = run.get("head_repository")
     return bool(
         isinstance(repository, dict)
+        and type(repository.get("id")) is int
         and repository.get("id") == REPOSITORY_ID
         and repository.get("full_name") == REPOSITORY
         and isinstance(head_repository, dict)
+        and type(head_repository.get("id")) is int
         and head_repository.get("id") == REPOSITORY_ID
         and head_repository.get("full_name") == REPOSITORY)
 
@@ -189,12 +198,13 @@ def _publication_run(client, commit):
     if not candidates:
         _refuse("CERT_NO_PUBLICATION", "no successful exact-SHA publication run exists")
     candidates.sort(key=lambda row: (
-        int(row.get("run_attempt") or 0), int(row.get("id") or 0)))
+        _positive_int(row.get("run_attempt"), "CERT_GITHUB_RESPONSE_INVALID", "publication attempt"),
+        _positive_int(row.get("id"), "CERT_GITHUB_RESPONSE_INVALID", "publication run")))
     return candidates[-1]
 
 
 def _publication_artifact(client, run, commit):
-    run_id = int(run.get("id") or 0)
+    run_id = _positive_int(run.get("id"), "CERT_ARTIFACT_BINDING_INVALID", "publication run")
     payload = client.json(
         "/repos/%s/actions/runs/%d/artifacts?per_page=100" % (REPOSITORY, run_id))
     rows = payload.get("artifacts")
@@ -210,9 +220,10 @@ def _publication_artifact(client, run, commit):
     workflow = artifact.get("workflow_run")
     if _DIGEST.fullmatch(digest) is None:
         _refuse("CERT_ARTIFACT_DIGEST_INVALID", "artifact has no SHA-256 digest")
-    if not isinstance(workflow, dict) or workflow.get("id") != run_id \
-            or workflow.get("repository_id") != REPOSITORY_ID \
-            or workflow.get("head_repository_id") != REPOSITORY_ID \
+    if not isinstance(workflow, dict) \
+            or type(workflow.get("id")) is not int or workflow.get("id") != run_id \
+            or type(workflow.get("repository_id")) is not int or workflow.get("repository_id") != REPOSITORY_ID \
+            or type(workflow.get("head_repository_id")) is not int or workflow.get("head_repository_id") != REPOSITORY_ID \
             or workflow.get("head_branch") != "main" \
             or workflow.get("head_sha") != commit:
         _refuse("CERT_ARTIFACT_BINDING_INVALID", "artifact workflow binding is invalid")
@@ -240,17 +251,15 @@ def _bundle_members(archive):
             if len(names) != len(expected) or set(names) != expected:
                 _refuse("CERT_BUNDLE_SCHEMA_INVALID", "bundle members are not exact")
             return {name: bundle.read(name) for name in names}
-    except zipfile.BadZipFile as exc:
+    except zipfile.BadZipFile:
         _refuse("CERT_BUNDLE_SCHEMA_INVALID", "certification artifact is not a ZIP")
-        raise AssertionError from exc
 
 
 def _verify_sums(members):
     try:
         lines = members["SHA256SUMS"].decode("ascii").splitlines()
-    except UnicodeError as exc:
+    except UnicodeError:
         _refuse("CERT_BUNDLE_INTEGRITY_INVALID", "checksum manifest is not ASCII")
-        raise AssertionError from exc
     expected = {"certification.json", "provenance.json", "attestation.sigstore.json"}
     found = set()
     for line in lines:
@@ -410,8 +419,10 @@ def _verify_manifest(manifest, commit, tree, publication_run):
             "publication_workflow_run", "publication_workflow_attempt"):
         if type(ci.get(field)) is not int or ci[field] <= 0:
             _refuse("CERT_SAFETY_BINDING_INVALID", "workflow identity is invalid")
-    if ci["publication_workflow_run"] != int(publication_run.get("id") or 0) \
-            or ci["publication_workflow_attempt"] != int(publication_run.get("run_attempt") or 0):
+    if ci["publication_workflow_run"] != _positive_int(
+            publication_run.get("id"), "CERT_PUBLICATION_BINDING_INVALID", "publication run") \
+            or ci["publication_workflow_attempt"] != _positive_int(
+                publication_run.get("run_attempt"), "CERT_PUBLICATION_BINDING_INVALID", "publication attempt"):
         _refuse("CERT_PUBLICATION_BINDING_INVALID", "publication workflow identity differs")
 
     if epochs != {"runtime_schema": RUNTIME_SCHEMA_EPOCH, "semantic": SEMANTIC_EPOCH}:
@@ -421,9 +432,8 @@ def _verify_manifest(manifest, commit, tree, publication_run):
         _refuse("CERT_CERTIFIED_AT_INVALID", "certification timestamp is malformed")
     try:
         parsed = datetime.fromisoformat(certified_at[:-1] + "+00:00")
-    except ValueError as exc:
+    except ValueError:
         _refuse("CERT_CERTIFIED_AT_INVALID", "certification timestamp is malformed")
-        raise AssertionError from exc
     if parsed.utcoffset() is None:
         _refuse("CERT_CERTIFIED_AT_INVALID", "certification timestamp has no timezone")
     return {"digest": digest, "ci": ci}
@@ -434,8 +444,10 @@ def _verify_provenance(provenance, members, commit, publication_run_id,
     if provenance.get("schema") != PROVENANCE_SCHEMA:
         _refuse("CERT_PROVENANCE_SCHEMA_INVALID", "provenance schema is unsupported")
     if provenance.get("commit") != commit \
-            or int(provenance.get("publication_workflow_run") or 0) != publication_run_id \
-            or int(provenance.get("test_workflow_run") or 0) != test_run_id:
+            or _positive_int(provenance.get("publication_workflow_run"),
+                             "CERT_PROVENANCE_BINDING_INVALID", "publication run") != publication_run_id \
+            or _positive_int(provenance.get("test_workflow_run"),
+                             "CERT_PROVENANCE_BINDING_INVALID", "test run") != test_run_id:
         _refuse("CERT_PROVENANCE_BINDING_INVALID", "provenance workflow binding differs")
     if provenance.get("subject_name") != EXPECTED_SUBJECT \
             or provenance.get("tested_image_digest") != digest \
@@ -450,10 +462,10 @@ def _verify_attestation(bundle, digest):
     if not isinstance(envelope, dict) or not envelope.get("signatures"):
         _refuse("CERT_ATTESTATION_BINDING_INVALID", "attestation envelope is incomplete")
     try:
-        statement = json.loads(base64.b64decode(envelope["payload"], validate=True))
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        statement = _json_bytes(base64.b64decode(envelope["payload"], validate=True),
+                                "CERT_ATTESTATION_BINDING_INVALID", "attestation payload")
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         _refuse("CERT_ATTESTATION_BINDING_INVALID", "attestation payload is malformed")
-        raise AssertionError from exc
     algorithm, separator, value = digest.partition(":")
     expected = [{"name": EXPECTED_SUBJECT, "digest": {algorithm: value}}]
     if separator != ":" or algorithm != "sha256" \
@@ -498,7 +510,7 @@ def verify_bundle(archive, commit, tree, publication_run):
 
 
 def _verify_safety_run(client, result):
-    run_id = int(result["test_workflow_run"])
+    run_id = _positive_int(result["test_workflow_run"], "CERT_SAFETY_BINDING_INVALID", "test run")
     run = client.json("/repos/%s/actions/runs/%d" % (REPOSITORY, run_id))
     if run.get("workflow_id") != SAFETY_WORKFLOW_ID \
             or _run_path(run) != SAFETY_WORKFLOW_PATH \
@@ -507,7 +519,7 @@ def _verify_safety_run(client, result):
             or run.get("event") != "push" \
             or run.get("status") != "completed" \
             or run.get("conclusion") != "success" \
-            or int(run.get("run_attempt") or 0) != int(result["test_workflow_attempt"]) \
+            or _positive_int(run.get("run_attempt"), "CERT_SAFETY_BINDING_INVALID", "test attempt") != result["test_workflow_attempt"] \
             or not _same_repo(run):
         _refuse("CERT_SAFETY_BINDING_INVALID", "safety workflow binding is invalid")
     jobs = client.json(

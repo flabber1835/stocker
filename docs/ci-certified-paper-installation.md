@@ -16,6 +16,21 @@ coordinator otherwise runs the canonical locked GO producer after installation.
 
 # Installing the CI-certified single runtime
 
+## Certification input identity
+
+The host verifier uses the same strict UTF-8 JSON object reader for the artifact
+documents, GitHub responses and decoded DSSE statement. Scalar/list/null roots,
+duplicate fields and non-finite JSON constants are typed certification refusals.
+Workflow run and attempt identities are positive JSON integers; booleans,
+strings and fractional numbers cannot become an identity through `int()`
+coercion. Repository and artifact workflow identity fields retain their exact
+integer types as well as their values. This tightens validation of the existing
+schemas and does not issue signatures, change trusted publishers, grant broker
+authority or create a trading-hours prerequisite for installation.
+The refusal helper is a terminal typed raise. Exception handlers retain that
+refusal and its original Python exception context; there is no second
+`AssertionError` path after a helper that cannot return.
+
 ## Installation work and recovery milestones
 
 Decision: 2026-10-07. Installation first checks the selected startup/issuer
