@@ -275,6 +275,12 @@ attestation, and prepare and reconcile the paper plan before releasing paper
 automation. Installing authority is not trading activation. Never solve this
 startup race by removing the lock or retrying an unknown certificate mutation.
 An enrollment/authority failure cannot start shadow or release automation.
+
+The subsequent plan/control writes require the explicit
+[activation writer handoff](installation-activation-separation.md#activation-writer-handoff).
+Quiesce the attested publisher before those writes. Keep automation stopped
+through release, then prove the resumed shadow and exact plan before starting
+the dispatcher; an immutable attestation alone does not establish an idle writer.
 ## Heartbeat observation availability during formation
 
 Decision: 2026-10-04. The real appliance repeated a one-second filesystem

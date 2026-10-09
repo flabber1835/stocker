@@ -377,6 +377,7 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(
         lambda: events.append("broker-integrity")
     obj.build_promote = lambda: events.append("build")
     obj._quiesce_database = lambda: events.append("quiesce") or True
+    obj.confirm_disabled_activation_fence = lambda: events.append("disabled-fence")
     obj.check_durable_deployment_integrity = \
         lambda: events.append("durable-integrity")
     obj.verify_reviewed_shadow_bindings_quiesced = \
@@ -419,7 +420,7 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(
     obj.run_activation()
 
     assert events == [
-        "git", "review", "broker-integrity", "build", "quiesce",
+        "git", "review", "broker-integrity", "build", "quiesce", "disabled-fence",
         "durable-integrity", "quiesced-review", "mode", "operator-services",
         "paper-read", "ownership", "authority", "shadow-start",
         "shadow-attested:" + attested_session, "paper-released:" + attested_session,

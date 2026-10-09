@@ -73,6 +73,57 @@ health/attestation remains mandatory for activation and stays red while waiting.
 The formed/authorized state's coordinated full semantic restore remains before
 kill release; installation storage proof and activation proof are distinct.
 
+### Activation writer handoff
+
+Decision: 2026-10-08. A verified immutable shadow decision does not mean that
+its continuous publisher has released the behavioral writer lock. After that
+attestation, the coordinator stops its Compose shadow and automation services
+and verifies both are absent. Automation must still be disabled and killed.
+Allow the shadow supervisor its reviewed host health budget (at least thirty
+seconds) to terminate its child, durably acknowledge it and finish cleanup.
+Use that same bounded grace for the initial coordinator quiesce and failure
+cleanup, so a readiness retry does not interrupt the acknowledgement it needs
+to resume. This extends owned-container shutdown grace only; worker, readiness
+and broker-operation deadlines remain unchanged.
+Only then may it prepare/re-read/reconcile the exact plan, enable automation
+behind the kill fence, and establish the coordinated semantic restore. Plan
+preparation, control activation and kill release each acquire the unchanged
+nonblocking database writer lock; a foreign writer still refuses the attempt.
+Never retry a generic CLI refusal, force an advisory unlock or discard a pending
+worker marker to make this handoff succeed.
+
+The automation process stays stopped through kill release. After the unchanged
+authority, restore and prospective-window checks allow release, resume the exact
+shadow service, require structural liveness and a verified attestation for the
+same decision session, and repeat exact plan/shadow reconciliation. Recheck the
+released control's exact certificate and that no automation process appeared,
+then start automation. Thus a released control cannot dispatch through this
+coordinator before the resumed shadow is verified. Any failed stop, changed
+or contradictory proof, restart failure or cancellation follows the existing
+durable emergency fence and stops both financial services; a typed readiness
+wait keeps the broker-free shadow available under that fence. Activation success
+still requires the real leader and advancing heartbeat. Software installation
+does not enter this sequence and gains no time-of-day dependency.
+
+If a legitimate newer shadow session appears during restart/restore, fence
+execution and yield a typed activation wait so the existing coordinator can
+prepare that actual newer decision on its next attempt. Never execute the old
+plan, rewind the book or treat ordinary daily continuation as corruption.
+After the next attempt establishes the durable kill and stops financial
+services, explicitly deactivate any still-enabled control and re-read the exact
+disabled/killed fence before changing reviewed configuration. Deactivation is
+the supported control mutation; it preserves the book, account binding,
+authority history and command journals. A missing kill fence, failed
+deactivation or contradictory re-read remains a permanent refusal.
+
+Qualification must use separate real processes holding the PostgreSQL advisory
+lock, including a publisher active at the initial attestation, all three writer
+boundaries, a foreign owner, unsuccessful stops and resumed-worker failure.
+Exercise the actual shadow supervisor's interrupted-worker acknowledgement and
+restart separately. A mocked service launch cannot establish lock handoff or
+worker reaping. Preserve the original book/binding and distinguish these local
+fixtures from protected certification and actual deployment admission.
+
 Installation, activation-request/status and activation-result records use distinct
 schemas and atomic writes. The installation receipt is never rewritten by
 activation. Source/configuration changes require a new request instead of silently

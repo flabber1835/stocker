@@ -570,6 +570,7 @@ def test_plan_reread_mismatch_refuses_before_automation_activation(tmp_path):
 
     obj._authorized_cli = authorized
     obj._base_cli = base
+    obj.quiesce_activation_writers = lambda: None  # Dedicated handoff tests own process checks.
 
     with pytest.raises(core.DeployRefused, match="exact plan"):
         obj.prepare_activate_start("c" * 64, "2026-08-14")
@@ -592,6 +593,9 @@ def test_public_dual_activation_reconciles_before_enabling_automation(
         events.append(args[0])
         return SimpleNamespace(stdout=json.dumps(plan), stderr="", returncode=0)
     obj._authorized_cli = obj._base_cli = cli
+    obj.quiesce_activation_writers = lambda: None
+    obj._require_activation_writers_stopped = lambda: None
+    obj.start_activated_runtime = lambda *a: events.append("resume-runtime")
     obj._authorized_compose = lambda: ["docker", "compose"]
     obj.runner.run = lambda *a, **k: events.append("start-service")
     obj._automation_status = lambda: {
@@ -612,8 +616,8 @@ def test_public_dual_activation_reconciles_before_enabling_automation(
     if reconciliation_passes and backup_ready:
         obj.prepare_activate_start("certificate", "2026-08-14")
         assert events == ["prepare-paper-plan", "current-paper-plan",
-            "reconcile-shadow", "activate-paper-automation", "start-service",
-            "verify-services", 'verify-recovery', "release-paper-automation-kill-switch"]
+            "reconcile-shadow", "activate-paper-automation",
+            "verify-services", 'verify-recovery', "release-paper-automation-kill-switch", "resume-runtime"]
     else:
         with pytest.raises(core.DeployRefused, match="shadow intent mismatch|restore qualification refused"):
             obj.prepare_activate_start("certificate", "2026-08-14")
@@ -621,7 +625,7 @@ def test_public_dual_activation_reconciles_before_enabling_automation(
             assert events == ["prepare-paper-plan", "current-paper-plan", "reconcile-shadow"]
         else:
             assert events == ['prepare-paper-plan', 'current-paper-plan', 'reconcile-shadow',
-                'activate-paper-automation', 'start-service', 'verify-services', 'verify-recovery']
+                'activate-paper-automation', 'verify-services', 'verify-recovery']
         assert 'release-paper-automation-kill-switch' not in events
 
 

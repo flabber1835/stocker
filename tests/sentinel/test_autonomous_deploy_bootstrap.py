@@ -305,6 +305,7 @@ def test_public_activation_rechecks_operator_services_before_kill_release(tmp_pa
         return SimpleNamespace(stdout=json.dumps(plan), stderr='', returncode=0)
     obj._authorized_cli = cli
     obj._base_cli = cli
+    obj.quiesce_activation_writers = lambda: None  # Separate tests own writer handoff.
     obj._verify_dual_plan_shadow_reconciliation = lambda: None
     obj._automation_status = lambda: {'enabled': True, 'kill_switch_engaged': True,
                                      'certificate_sha256': 'certificate'}
