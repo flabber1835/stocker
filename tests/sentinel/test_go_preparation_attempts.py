@@ -38,6 +38,8 @@ def test_partial_preparation_attempts_survive_failure(monkeypatch, code, failure
     monkeypatch.setattr(backup_guard, "require_writes_permitted", fail if failure == "backup" else noop)
     monkeypatch.setattr(schema, "ensure_schema", fail if failure == "schema" else noop)
     monkeypatch.setattr(store, "migrate_schema", noop)
+    monkeypatch.setattr(schema, "require_runtime_schema", fail if failure == "schema" else noop)
+    monkeypatch.setattr(store, "require_feed_schema", noop)
     monkeypatch.setattr(outage_recovery, "catch_up", fail)
     from sentinel.feed import rolling_go_inputs
     monkeypatch.setattr(rolling_go_inputs, "prepare", fail)
@@ -52,6 +54,8 @@ def test_partial_preparation_attempts_survive_failure(monkeypatch, code, failure
     with redirect_stdout(output), pytest.raises(RuntimeError, match="controlled"):
         exec(code, {})
     payload = json.loads(output.getvalue().split("SENTINEL_GO_PREPARATION_FAILURE=", 1)[1])
+    if code is not entry._RECOVERY_PREPARATION_CODE and "phase = 'SCHEMA_VALIDATION'" in code:
+        expected = (False, expected[1])
     assert (payload["schema_migration_attempted"], payload["bounded_sharadar_daily_attempted"]) == expected
 
     class Runner:

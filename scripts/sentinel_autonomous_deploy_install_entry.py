@@ -608,11 +608,20 @@ finally:
         if reviewed is None or reviewed.mode not in {"dual", "paper"}:
             return
         timing = self._causal_timing()
+        # Operational dual activation installs a running scheduler. Its durable
+        # cycle gate owns the next-open cutover; the host never retimes a plan.
+        eligible = (timing.get("target_source_final") is True
+                    if reviewed.mode == "dual"
+                    and getattr(self, "_operational_source_only", False)
+                    else self._timing_eligible(timing))
         if (timing["target"] != decision_session
                 or timing["frontier"] != decision_session
-                or not self._timing_eligible(timing)):
+                or not eligible):
             raise core.ActivationPending(
-                "paper activation lost its exact attested decision or following-open cutoff")
+                "paper activation lost its exact attested decision or following-open cutoff"
+                if not (reviewed.mode == "dual"
+                        and getattr(self, "_operational_source_only", False))
+                else "paper activation requires the exact current finalized decision and source")
 
     def verify_reviewed_shadow_bindings_quiesced(self) -> None:
         reviewed = self.reviewed_validation

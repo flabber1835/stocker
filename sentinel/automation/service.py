@@ -1219,7 +1219,9 @@ class AutomationService:
                 phase="PREFLIGHT_RECOVER", exc=exc,
                 recovery_transition=True)
 
-        if (supersede_on_success
+        cutover_after_open = (not supersede_on_success
+                              and now >= cycle.execution_open_at)
+        if ((supersede_on_success or cutover_after_open)
                 and result.disposition in {
                     ExecuteDisposition.SUCCEEDED,
                     ExecuteDisposition.SUPERSEDED,
@@ -1230,11 +1232,12 @@ class AutomationService:
                 next_wake_at=None,
                 last_clean_reconciliation_id=
                     result.last_clean_reconciliation_id,
-                failure_code="STALE_PREFLIGHT_RECOVERED",
+                failure_code=("DISCOVERED_AFTER_SESSION_OPEN" if cutover_after_open
+                              else "STALE_PREFLIGHT_RECOVERED"),
                 failure_detail=(
                     "the shared journal is clean, but this preflight cycle "
-                    "never prepared or executed a plan before a newer "
-                    "decision-session obligation became due"),
+                    "never prepared or executed a plan before its session "
+                    "open or a newer decision-session obligation became due"),
                 diagnostic={
                     **dict(result.diagnostic),
                     "preflight_recovery_complete": True,

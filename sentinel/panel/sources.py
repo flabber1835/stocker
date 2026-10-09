@@ -1573,6 +1573,11 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
     mirror_count = _informational_mirror_count(conn)
     cycle = _latest_automation_cycle(conn)
     cycle_state = str((cycle or {}).get("state") or "").upper()
+    if (cycle_state == "SUPERSEDED"
+            and cycle.get("failure_code") == "DISCOVERED_AFTER_SESSION_OPEN"):
+        return model.paper_reconciliation_row(
+            state="PENDING", cycle_state=cycle_state,
+            detail="activation waits for the next eligible session; no new order was sent")
     if cycle_state in {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
         return model.paper_reconciliation_row(
             state="MISMATCH", cycle_state=cycle_state,
@@ -2225,6 +2230,12 @@ def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 pass
 
 
+def _bounded_dual_authority_rows(database_url, *, now, include_paper=True):
+    del now
+    from sentinel.panel.authority_reader import reader
+    return reader.read(database_url, include_paper=include_paper)
+
+
 def build_panel(*, state_dir: Path, database_url: str,
                 now: Optional[datetime] = None) -> model.Panel:
     """Assemble the whole page.
@@ -2241,8 +2252,8 @@ def build_panel(*, state_dir: Path, database_url: str,
         "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "").strip().lower()
     if mode in {"dual", "shadow"}:
         financial_rows, trial_details, trial_history, financial_errs = (
-            _dual_authority_rows(database_url, now=now) if mode == "dual" else
-            _dual_authority_rows(database_url, now=now, include_paper=False))
+            _bounded_dual_authority_rows(database_url, now=now) if mode == "dual" else
+            _bounded_dual_authority_rows(database_url, now=now, include_paper=False))
     else:
         financial_rows, trial_details, trial_history, financial_errs = (
             _trial_rows(database_url, now=now))

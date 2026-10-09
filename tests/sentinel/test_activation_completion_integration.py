@@ -8,6 +8,7 @@ no software certification, GO, paper authority or production PITR proof.
 """
 import contextlib
 import dataclasses
+from datetime import datetime, timezone
 import hashlib
 import io
 import json
@@ -330,6 +331,43 @@ def test_remaining_sequence_actual_physical_restore_leader_and_receipt(conn,pg,t
         assert campaign.dotenv.stat().st_mode & 0o777 == 0o600
         assert campaign.events.index('restore') < campaign.events.index('release-paper-automation-kill-switch')
         assert campaign.events.index('start-shadow') < campaign.events.index('start-automation')
+        campaign.preserve()
+    finally:
+        campaign.stop('automation')
+
+
+@pytest.mark.parametrize('clock', [
+    '2026-08-11T22:00:00+00:00',  # just after the decision closed
+    '2026-08-12T01:00:00+00:00',  # overnight
+    '2026-08-12T13:00:00+00:00',  # before the next open
+    '2026-08-12T13:30:00+00:00',  # exactly at the open
+    '2026-08-12T18:00:00+00:00',  # already intraday
+])
+def test_actual_completion_with_anytime_host_guard(conn, pg, tmp_path, monkeypatch, clock):
+    from sentinel.feed import calendar
+    now = datetime.fromisoformat(clock)
+    target = calendar.latest_closed_session(now)
+    assert target == DECISION.isoformat(), 'fixture must represent the actual latest closed decision'
+    effective = calendar.next_session(target)
+    opening, _ = calendar.session_window(effective)
+    remaining = int((opening.astimezone(timezone.utc)-now).total_seconds()*1000)
+    campaign = Campaign(conn, pg, tmp_path, monkeypatch)
+    # Only provider/attestation observations are fixtures; admission itself is
+    # the production host method, joined to real control/restore/lease/receipt.
+    campaign.obj._operational_source_only = True
+    campaign.obj._causal_timing = lambda: dict(
+        target=target, frontier=target, target_source_final=True,
+        prospective=remaining > 0, remaining_ms=remaining)
+    campaign.obj.assert_activation_timing = install.InstallAnytimeDeploy.assert_activation_timing.__get__(campaign.obj)
+    try:
+        health = campaign.execute()
+        receipt = json.loads((tmp_path/'activation-receipt.json').read_text())
+        assert health['operational_ready'] is True
+        assert receipt['leader_holder'] == health['leader_holder']
+        assert receipt['control_generation'] == health['control_generation']
+        assert campaign.backups == 1
+        assert campaign.events.index('restore') < campaign.events.index('release-paper-automation-kill-switch')
+        assert store.load_control(conn).enabled and not store.load_control(conn).kill_switch_engaged
         campaign.preserve()
     finally:
         campaign.stop('automation')

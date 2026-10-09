@@ -1707,7 +1707,7 @@ class TestReviewedDualAuthority:
             session="2026-08-20")
         paper = model.paper_reconciliation_row(state="CLEAN")
         monkeypatch.setattr(
-            sources, "_dual_authority_rows",
+            sources, "_bounded_dual_authority_rows",
             lambda *_args, **_kwargs: ([shadow, paper], {}, [], []))
         monkeypatch.setattr(
             sources, "_trial_rows",

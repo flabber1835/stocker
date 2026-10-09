@@ -31,7 +31,7 @@ def _call(channel, function, args, parent_pid):
         channel.close()
 
 
-def run(function, *args, timeout=1.0):
+def run(function, *args, timeout=1.0, start_method='fork'):
     """Do not let a silent server socket disable the parent's kill deadline.
 
     Callers return small fixed-shape rows or None. The child finishes sending
@@ -46,7 +46,9 @@ def run(function, *args, timeout=1.0):
         prior.join(timeout=0)
         prior.close()
         _UNREAPED.remove(prior)
-    context = multiprocessing.get_context('fork')
+    # Threaded HTTP callers use spawn: inheriting another thread's locks or
+    # connection state through fork can deadlock the observer itself.
+    context = multiprocessing.get_context(start_method)
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(target=_call, args=(sender, function, args, os.getpid()))
     try:

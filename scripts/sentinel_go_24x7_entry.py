@@ -119,6 +119,7 @@ def reason_code(phase, exc):
         'DATABASE_CONNECT': 'PREPARATION_DATABASE_CONNECT_FAILURE',
         'BACKUP_DURABILITY': 'PREPARATION_BACKUP_DURABILITY_REFUSED',
         'SCHEMA_MIGRATION': 'PREPARATION_SCHEMA_MIGRATION_FAILED',
+        'SCHEMA_VALIDATION': 'PREPARATION_SCHEMA_VALIDATION_FAILED',
         'SOURCE_FINAL_FRONTIER': 'PREPARATION_SOURCE_FINAL_FRONTIER_FAILED',
         'DAILY_CATCHUP': 'PREPARATION_DAILY_CATCHUP_FAILED',
         'PUBLICATION_CHECK': 'PREPARATION_PUBLICATION_CHECK_FAILED',
@@ -168,14 +169,13 @@ try:
     phase = 'BACKUP_DURABILITY'
     progress.emit('backup_durability', 'started')
     backup_guard.require_writes_permitted(
-        c, operation='NAS validation schema migration')
-    phase = 'SCHEMA_MIGRATION'
-    progress.emit('schema_migration', 'started', reason='BEHAVIORAL_SCHEMA')
-    schema_attempted = True
-    schema.ensure_schema(c)
-    progress.emit('schema_migration', 'started', reason='FEED_SCHEMA')
-    store.migrate_schema(c)
-    progress.emit('schema_migration', 'completed')
+        c, operation='NAS financial preparation')
+    phase = 'SCHEMA_VALIDATION'
+    progress.emit('schema_validation', 'started', reason='BEHAVIORAL_SCHEMA')
+    schema.require_runtime_schema(c)
+    progress.emit('schema_validation', 'started', reason='FEED_SCHEMA')
+    store.require_feed_schema(c)
+    progress.emit('schema_validation', 'completed')
 
     phase = 'SOURCE_FINAL_FRONTIER'
     now = datetime.now(timezone.utc)

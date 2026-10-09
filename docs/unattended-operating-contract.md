@@ -1,5 +1,9 @@
 # Separate software completion
 
+The 2026-10-09 [anytime activation decision](anytime-paper-activation.md)
+supersedes prospective-open activation waits below for reviewed operational dual
+mode. The installed scheduler waits for an eligible session after activation.
+
 Decision: 2026-10-07. [Installation/activation separation](installation-activation-separation.md)
 supersedes references below to preparation inside the installation transaction.
 Software completion creates dormant financial containers and an immutable

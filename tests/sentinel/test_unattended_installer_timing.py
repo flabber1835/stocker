@@ -1,4 +1,4 @@
-"""Operational preparation may be late; paper activation must still be fresh."""
+"""Operational activation is anytime; fresh transport belongs to the scheduler."""
 from pathlib import Path
 import os
 import subprocess
@@ -18,15 +18,14 @@ def timing():
                 execution_open_at='2026-10-06T13:30:00+00:00')
 
 
-def test_late_data_preparation_is_eligible_but_cannot_activate():
+def test_late_data_preparation_and_dual_activation_are_eligible():
     instance = object.__new__(install.InstallAnytimeDeploy)
     instance._operational_source_only = True
     assert instance._data_timing_eligible(timing())
     assert not instance._timing_eligible(timing())
     instance._causal_timing = timing
     instance.reviewed_validation = SimpleNamespace(mode='dual')
-    with pytest.raises(install.core.DeployRefused, match='activation lost'):
-        instance.assert_activation_timing('2026-10-05')
+    instance.assert_activation_timing('2026-10-05')
     assert not instance._data_timing_eligible({**timing(), 'target_source_final':False})
 
 
