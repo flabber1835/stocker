@@ -75,6 +75,18 @@ kill release; installation storage proof and activation proof are distinct.
 
 ### Activation writer handoff
 
+The host accepts exactly one `SENTINEL_DUAL_RECONCILIATION` result from the
+selected runtime. Its JSON follows the same strict object contract as plan,
+control and shadow-status readers: duplicate keys, non-finite values and
+malformed records refuse activation. Multiple result markers are ambiguous,
+including a malformed record followed by a valid one; the host must not select
+the last record to recover a successful verdict. The adjacent credential-free
+publication binding and shadow-lineage preflight use that same strict parser;
+marked publication results also require one successful command and one record.
+The remaining activation qualification joins control mutations, restore
+validation, resumed shadow,
+leader heartbeat and immutable completion, with transport blocked throughout.
+
 Decision: 2026-10-08. A verified immutable shadow decision does not mean that
 its continuous publisher has released the behavioral writer lock. After that
 attestation, the coordinator stops its Compose shadow and automation services
@@ -123,6 +135,19 @@ Exercise the actual shadow supervisor's interrupted-worker acknowledgement and
 restart separately. A mocked service launch cannot establish lock handoff or
 worker reaping. Preserve the original book/binding and distinguish these local
 fixtures from protected certification and actual deployment admission.
+
+The completion campaign also joins the actual host coordinator, PostgreSQL
+plan/control mutations, an isolated restore's read-only semantic validation,
+real leader lease and advancing heartbeat, and immutable receipt/atomic dotenv
+persistence. Inject failures at each boundary and prove no success receipt or
+dispatcher survives them. Preserve fixture book/binding hashes and reuse the
+one recovery milestone during finalization. Plan economics, signed admission,
+shadow attestation/reconciliation and external service health remain explicit
+fixture boundaries in this campaign; their dedicated acceptance suites and
+the supported installation's actual full semantic restore remain required.
+Use no production credentials, database, authority or backup mounts, and block
+broker transport. This rehearsal establishes completion/failure sequencing,
+not a subsequent real daily cycle or production deployment admission.
 
 Installation, activation-request/status and activation-result records use distinct
 schemas and atomic writes. The installation receipt is never rewritten by
