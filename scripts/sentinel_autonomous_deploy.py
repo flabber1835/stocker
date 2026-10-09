@@ -1508,7 +1508,7 @@ class AutonomousDeploy:
             }, method="GET")
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                payload = _json_value(response.read(), label="Alpaca paper account")
         except urllib.error.HTTPError as exc:
             raise DeployRefused("Alpaca paper account read returned HTTP %d" % exc.code) from exc
         except (OSError, ValueError) as exc:
@@ -1550,7 +1550,7 @@ class AutonomousDeploy:
             }, method="GET")
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                payload = _json_value(response.read(), label="Alpaca paper account integrity")
         except urllib.error.HTTPError as exc:
             if exc.code in {401, 403, 408, 425, 429} or 500 <= exc.code <= 599:
                 self.broker_readiness = "BROKER_NOT_READY"

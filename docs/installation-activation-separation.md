@@ -83,6 +83,10 @@ including a malformed record followed by a valid one; the host must not select
 the last record to recover a successful verdict. The adjacent credential-free
 publication binding and shadow-lineage preflight use that same strict parser;
 marked publication results also require one successful command and one record.
+Read-only account identity/integrity probes reject ambiguous JSON by the same
+contract. A malformed or contradictory reply is distinct from an unavailable
+broker or a trading-blocked account; those readiness states remain independent
+of software installation.
 The remaining activation qualification joins control mutations, restore
 validation, resumed shadow,
 leader heartbeat and immutable completion, with transport blocked throughout.

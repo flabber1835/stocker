@@ -75,3 +75,37 @@ def test_adjacent_publication_reader_refuses_corrupt_result(corruption):
 def test_adjacent_lineage_reader_refuses_corrupt_result(raw):
  with pytest.raises(install.core.DeployRefused):
   install.core._reviewed_shadow_lineage_preflight(REVIEWED,env={},invoke=invoke_result(raw))
+
+
+@pytest.mark.parametrize('method', ['read_paper_account', 'check_paper_account_deployment_integrity'])
+@pytest.mark.parametrize('corruption', [None, 'duplicate-identity', 'nonfinite'])
+def test_account_get_reader_requires_unambiguous_identity(tmp_path, monkeypatch, method, corruption):
+    payload = dict(id='FIXTURE-PAPER', account_number='FIXTURE-PAPER', status='ACTIVE',
+                   trading_blocked=False, account_blocked=False, trade_suspended_by_user=False,
+                   multiplier='1', equity='50000', cash='50000', buying_power='50000')
+    raw = json.dumps(payload)
+    if corruption == 'duplicate-identity':
+        raw = raw.replace('"id": "FIXTURE-PAPER"', '"id":"FOREIGN","id":"FIXTURE-PAPER"')
+    elif corruption == 'nonfinite':
+        raw = raw[:-1] + ',"extra":NaN}'
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self): return raw.encode()
+
+    def get_only(request, **kwargs):
+        assert request.get_method() == 'GET'
+        assert request.full_url == install.core.PAPER_URL + '/v2/account'
+        return Response()
+
+    monkeypatch.setattr(install.core.urllib.request, 'urlopen', get_only)
+    cfg = SimpleNamespace(account_id='FIXTURE-PAPER')
+    obj = install.core.AutonomousDeploy(cfg, SimpleNamespace(env={
+        'ALPACA_API_KEY':'offline-key', 'ALPACA_SECRET_KEY':'offline-secret'}), tmp_path)
+    obj.phase = lambda *args: None
+    probe = getattr(obj, method)
+    if corruption:
+        with pytest.raises(install.core.DeployRefused): probe()
+    else:
+        probe()

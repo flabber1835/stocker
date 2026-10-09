@@ -295,7 +295,12 @@ try:
     assert obj.prepare_activate_start('local-certificate', '2026-09-14') == plan
 except entry.core.DeployRefused as exc:
     if reconciliation_refused:
-        assert 'did not exactly match certified shadow intent' in str(exc), str(exc)
+        expected_reason = {
+            'mismatch': 'PAPER plan did not exactly match certified shadow intent',
+            'malformed': 'PAPER reconciliation is not valid UTF-8 JSON',
+            'absent': 'PAPER reconciliation did not return one successful result',
+        }[sys.argv[3]]
+        assert expected_reason in str(exc), str(exc)
     else:
         assert window != 'valid'
         assert 'following-open cutoff' in str(exc), str(exc)
