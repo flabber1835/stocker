@@ -750,17 +750,10 @@ def _current_data_publication_subject(
         "--rm", "-T", "--no-deps", "--entrypoint", "python", "sentinel",
         "-c", _DATA_PUBLICATION_CODE,
     ], env=run_env)
-    marker = "SENTINEL_DEPLOY_DATA_BINDING="
-    payload = None
-    if completed.returncode == 0:
-        for line in (completed.stdout or "").splitlines():
-            if line.startswith(marker):
-                try:
-                    payload = json.loads(line[len(marker):])
-                except json.JSONDecodeError:
-                    payload = None
-    if (not isinstance(payload, dict)
-            or payload.get("transaction_read_only") is not True):
+    payload = _marked_json_output(
+        completed, marker="SENTINEL_DEPLOY_DATA_BINDING=",
+        label="current data publication")
+    if payload.get("transaction_read_only") is not True:
         raise DeployRefused(
             "current data publication could not be read without mutation")
     return data_publication_subject_value(payload.get("binding"))
@@ -833,11 +826,7 @@ def _reviewed_shadow_lineage_preflight(
     if completed.returncode != 0:
         raise DeployRefused(
             "configured shadow lineage is not safely resumable")
-    try:
-        payload = json.loads((completed.stdout or "").strip())
-    except json.JSONDecodeError as exc:
-        raise DeployRefused(
-            "configured shadow lineage preflight is malformed") from exc
+    payload = _json_output(completed, label="configured shadow lineage preflight")
     if (not isinstance(payload, dict)
             or payload.get("schema") != "sentinel.shadow-service-preflight/1"
             or payload.get("mode") != "BROKER_FREE_SHADOW"
@@ -1298,6 +1287,20 @@ def _json_output(completed: subprocess.CompletedProcess, *, label: str) -> Mappi
     return value
 
 
+def _marked_json_output(completed: subprocess.CompletedProcess, *,
+                        marker: str, label: str) -> Mapping:
+    """One successful command and one unambiguous strict object result."""
+    records = [line[len(marker):]
+               for line in (completed.stdout or "").splitlines()
+               if line.startswith(marker)]
+    if completed.returncode != 0 or len(records) != 1:
+        raise DeployRefused("%s did not return one successful result" % label)
+    value = _json_value(records[0].encode("utf-8"), label=label)
+    if not isinstance(value, dict):
+        raise DeployRefused("%s did not return a JSON object" % label)
+    return value
+
+
 def _repo_digest(value: str, expected_repository: str) -> Tuple[str, str]:
     value = value.strip()
     prefix = expected_repository + "@"
@@ -1505,7 +1508,7 @@ class AutonomousDeploy:
             }, method="GET")
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                payload = _json_value(response.read(), label="Alpaca paper account")
         except urllib.error.HTTPError as exc:
             raise DeployRefused("Alpaca paper account read returned HTTP %d" % exc.code) from exc
         except (OSError, ValueError) as exc:
@@ -1547,7 +1550,7 @@ class AutonomousDeploy:
             }, method="GET")
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+                payload = _json_value(response.read(), label="Alpaca paper account integrity")
         except urllib.error.HTTPError as exc:
             if exc.code in {401, 403, 408, 425, 429} or 500 <= exc.code <= 599:
                 self.broker_readiness = "BROKER_NOT_READY"
@@ -2253,14 +2256,9 @@ class AutonomousDeploy:
             "--profile", "authorized-cli", "run", "--rm", "-T",
             "--entrypoint", "python", "sentinel-authorized-cli",
             "-c", code], capture=True)
-        marker = "SENTINEL_DUAL_RECONCILIATION="
-        payload = None
-        for line in (completed.stdout or "").splitlines():
-            if line.startswith(marker):
-                try:
-                    payload = json.loads(line[len(marker):])
-                except json.JSONDecodeError:
-                    payload = None
+        payload = _marked_json_output(
+            completed, marker="SENTINEL_DUAL_RECONCILIATION=",
+            label="PAPER reconciliation")
         if (not isinstance(payload, dict)
                 or payload.get("schema")
                 != "sentinel.dual-plan-shadow-reconciliation/1"
