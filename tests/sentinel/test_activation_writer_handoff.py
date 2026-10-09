@@ -13,9 +13,11 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 core = importlib.import_module('sentinel_autonomous_deploy')
 driver = importlib.import_module('sentinel_autonomous_deploy_driver')
 bootstrap = importlib.import_module('sentinel_autonomous_deploy_bootstrap')
+install = importlib.import_module('sentinel_autonomous_deploy_install_entry')
 
 
-CLASSES = [core.AutonomousDeploy, driver.AutonomousDeploy, bootstrap.BootstrapDeploy]
+CLASSES = [core.AutonomousDeploy, driver.AutonomousDeploy,
+           bootstrap.BootstrapDeploy, install.InstallAnytimeDeploy]
 
 
 def appliance(tmp_path, cls, *, failure=None):
