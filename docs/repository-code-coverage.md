@@ -56,6 +56,12 @@ zero bytes or a readable database containing exclusively coverage tables and
 zero rows in every table. Its checksum and classification remain in the report.
 Unknown tables, any recorded row, a damaged nonempty SQLite file, or another
 filename cannot use this exception; the original parsing failure is preserved.
+The reporter classifies those proven-empty child files before calling the
+coverage loader, which may try to initialize an unfinished database. All other
+counters are loaded from a private disposable byte copy. The retained original
+is never opened for writing; a loader that changes its copy cannot contribute
+measurements. Read-only evidence and writable evidence have the same admission
+rules.
 
 Shell and embedded browser JavaScript require their own execution measurements;
 syntax checks, Python coverage of a shell launcher, and browser test counts do

@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import subprocess
+from tempfile import TemporaryDirectory
 from typing import Iterable
 
 
@@ -146,34 +147,39 @@ def report(root: Path, manifest: dict, data_paths: Iterable[Path],
     combined.add_arcs({str(root / name): [] for name in names if name.endswith('.py')})
     inputs, unmapped = [], set()
     for data_path in data_paths:
+        raw = data_path.read_bytes()
         receipt = {'file': str(data_path),
-                   'sha256': hashlib.sha256(data_path.read_bytes()).hexdigest()}
-        data = coverage.CoverageData(basename=str(data_path))
-        try:
-            data.read()
-        except coverage.exceptions.DataError:
-            if not _empty_unflushed_child(data_path):
-                raise
+                   'sha256': hashlib.sha256(raw).hexdigest()}
+        if _empty_unflushed_child(data_path):
             inputs.append({**receipt, 'status': 'UNFLUSHED_EMPTY_CHILD'})
             continue
-        measured_files = data.measured_files()
-        if not measured_files:
-            inputs.append({**receipt, 'status': 'EMPTY_NO_EXECUTED_PATHS'})
-            continue
-        if not data.has_arcs():
-            raise ValueError('branch coverage is required: ' + str(data_path))
-        inputs.append({**receipt, 'status': 'BRANCH_MEASUREMENTS'})
-        for measured in measured_files:
-            name = _canonical_measured(measured, root, mappings)
-            if name not in expected or not name.endswith('.py'):
-                unmapped.add(measured)
+        # Coverage can initialize or migrate its storage while reading it.
+        # Retained evidence, including malformed inputs, must stay immutable.
+        with TemporaryDirectory(prefix='sentinel-coverage-reader-') as directory:
+            private = Path(directory) / 'counter.coverage'
+            private.write_bytes(raw)
+            data = coverage.CoverageData(basename=str(private))
+            data.read()
+            if private.read_bytes() != raw:
+                raise ValueError('coverage reader changed serialized evidence: ' + str(data_path))
+            measured_files = data.measured_files()
+            if not measured_files:
+                inputs.append({**receipt, 'status': 'EMPTY_NO_EXECUTED_PATHS'})
                 continue
-            actual = Path(measured)
-            if not actual.is_file():
-                raise ValueError('measured source cannot be authenticated: ' + measured)
-            if hashlib.sha256(actual.read_bytes()).hexdigest() != expected[name]['sha256']:
-                raise ValueError('measured source hash mismatch: ' + measured)
-            combined.add_arcs({str(root / name): data.arcs(measured) or []})
+            if not data.has_arcs():
+                raise ValueError('branch coverage is required: ' + str(data_path))
+            inputs.append({**receipt, 'status': 'BRANCH_MEASUREMENTS'})
+            for measured in measured_files:
+                name = _canonical_measured(measured, root, mappings)
+                if name not in expected or not name.endswith('.py'):
+                    unmapped.add(measured)
+                    continue
+                actual = Path(measured)
+                if not actual.is_file():
+                    raise ValueError('measured source cannot be authenticated: ' + measured)
+                if hashlib.sha256(actual.read_bytes()).hexdigest() != expected[name]['sha256']:
+                    raise ValueError('measured source hash mismatch: ' + measured)
+                combined.add_arcs({str(root / name): data.arcs(measured) or []})
 
     files, domains = [], {}
     total = {'statements': 0, 'missing_statements': 0,

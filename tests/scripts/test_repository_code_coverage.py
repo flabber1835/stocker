@@ -390,8 +390,10 @@ def test_nonempty_or_unrecognized_child_data_failure_is_never_dropped(tmp_path, 
                           recorded_row=kind == 'recorded_row')
     if kind == 'damaged_bytes':
         path.write_bytes(b'not a SQLite coverage database')
+    before = path.read_bytes()
     with pytest.raises(coverage.exceptions.DataError):
         reporter.report(root, manifest, [path])
+    assert path.read_bytes() == before
 
 
 def test_empty_child_storage_requires_a_child_identity(tmp_path):
@@ -401,3 +403,49 @@ def test_empty_child_storage_requires_a_child_identity(tmp_path):
     foreign = tmp_path / 'arbitrary-data'
     foreign.touch()
     assert not reporter._empty_unflushed_child(foreign)
+
+
+@pytest.mark.parametrize('header', [False, True])
+def test_proven_empty_child_never_reaches_a_mutating_loader(tmp_path, monkeypatch, header):
+    coverage = pytest.importorskip('coverage')
+    root, manifest = source(tmp_path, untouched=True)
+    path = unflushed_child(tmp_path) if header else tmp_path / 'coverage.fixture.pid123.token'
+    if not header:
+        path.touch()
+    before = path.read_bytes()
+    actual = coverage.CoverageData
+
+    def empty_reader_is_forbidden(*args, **kwargs):
+        if kwargs.get('basename'):
+            pytest.fail('proven-empty counter reached the mutating coverage loader')
+        return actual(*args, **kwargs)
+
+    monkeypatch.setattr(coverage, 'CoverageData', empty_reader_is_forbidden)
+    result = reporter.report(root, manifest, [path])
+    assert result['inputs'][0]['status'] == 'UNFLUSHED_EMPTY_CHILD'
+    assert result['python']['combined_percent'] == 0
+    assert result['status'] == 'INCOMPLETE'
+    assert path.read_bytes() == before
+
+
+def test_loader_cannot_change_retained_evidence_or_credit_a_changed_copy(tmp_path, monkeypatch):
+    coverage = pytest.importorskip('coverage')
+    root, manifest = source(tmp_path)
+    path = evidence(tmp_path, root, both=True)
+    before = path.read_bytes()
+    original = coverage.CoverageData
+    targets = []
+
+    class MutatingReader(original):
+        def read(self):
+            target = Path(self.data_filename())
+            targets.append(target)
+            super().read()
+            target.write_bytes(target.read_bytes() + b'changed during load')
+
+    monkeypatch.setattr(coverage, 'CoverageData', MutatingReader)
+    with pytest.raises(ValueError, match='changed serialized evidence'):
+        reporter.report(root, manifest, [path])
+    assert len(targets) == 1 and targets[0] != path
+    assert not targets[0].exists()
+    assert path.read_bytes() == before

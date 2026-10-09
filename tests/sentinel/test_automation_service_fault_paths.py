@@ -607,6 +607,7 @@ def test_missing_activation_binding_cannot_construct_an_executable_cycle():
     ('READY_TO_EXECUTE', 'RECONCILING', True, False, 'SUPERSEDED', ['SUPERSEDED']),
     ('READY_TO_EXECUTE', 'RECONCILING', False, True, 'BLOCKED', ['BLOCKED']),
     ('SUPERSEDED', 'EXECUTING', False, False, 'SUPERSEDED', ['RECONCILING', 'SUPERSEDED']),
+    ('SUPERSEDED', 'EXECUTING', False, True, 'SUPERSEDED', ['SUPERSEDED']),
     ('SUCCEEDED', 'RETRY_WAIT', False, False, 'RECOVERED', ['RECONCILING', 'SUCCEEDED']),
     ('RETRY', 'RETRY_WAIT', False, False, 'RETRY_SCHEDULED', ['RECONCILING', 'RETRY_WAIT']),
     ('BLOCKED', 'RECONCILING', False, False, 'BLOCKED', ['BLOCKED']),
@@ -657,7 +658,7 @@ def test_clean_recovery_never_executes_an_old_or_expired_plan(
     assert [state.value for _, state in changes] == states
     assert all(kind == ('adopt' if new_generation else 'transition') for kind, _ in changes)
     assert calls == ['recover'] and result.cycle.cycle_id == original_identity
-    if new_generation:
+    if new_generation and disposition == 'READY_TO_EXECUTE':
         assert result.cycle.failure_code == 'OLD_GENERATION_EXECUTION_REFUSED'
     elif expired:
         assert result.cycle.failure_code == 'MAX_EXECUTION_LATENESS_EXCEEDED'
@@ -817,6 +818,8 @@ def test_preflight_recovery_must_finish_before_publication_and_never_executes(
         nonlocal current
         assert conn is connection and cycle_id == cycle.cycle_id
         transitions.append(to_state)
+        if fields.pop('increment_attempt', False):
+            fields['attempt_count'] = current.attempt_count + 1
         current = current.model_copy(update={'state': to_state, **fields})
         return current
 
@@ -1099,6 +1102,8 @@ def tick_route(monkeypatch, cycle, permit, now, *, prior=None, unresolved=None):
         nonlocal current
         assert conn is connection and cycle_id == cycle.cycle_id
         transitions.append(to_state)
+        if fields.pop('increment_attempt', False):
+            fields['attempt_count'] = current.attempt_count + 1
         current = current.model_copy(update={'state': to_state, **fields})
         return current
 
@@ -1120,6 +1125,7 @@ def tick_route(monkeypatch, cycle, permit, now, *, prior=None, unresolved=None):
     ('RETRY_WAIT', 'PREFLIGHT_RECOVER', 0, 'open', False, 'preflight_recover'),
     ('RETRY_WAIT', 'RECOVER', 0, 'open', False, 'recover'),
     ('RETRY_WAIT', 'EXECUTE', 1, 'before_open', False, None),
+    ('RETRY_WAIT', 'EXECUTE', 1, 'open', False, 'execute'),
     ('RETRY_WAIT', 'EXECUTE', 1, 'closed', False, 'recover'),
     ('RETRY_WAIT', 'PREPARE', 1, 'open', False, 'prepare'),
     ('RETRY_WAIT', 'REFRESH', 1, 'open', False, 'refresh'),
@@ -1128,6 +1134,7 @@ def tick_route(monkeypatch, cycle, permit, now, *, prior=None, unresolved=None):
     ('WAITING_OPEN', '', 1, 'late', False, None),
     ('EXECUTING', '', 0, 'open', False, 'recover'),
     ('EXECUTING', '', 1, 'closed', False, 'recover'),
+    ('EXECUTING', '', 1, 'late', False, 'recover'),
     ('EXECUTING', '', 1, 'before_open', False, 'refused'),
     ('RECONCILING', 'RECOVER', 1, 'open', False, 'recover'),
     ('SUCCEEDED', '', 1, 'open', False, None),
@@ -1157,7 +1164,7 @@ def test_tick_routes_recovery_and_wakes_before_any_fresh_transport(
         assert [entry[0] for entry in routes] == ([expected] if expected else [])
         assert all(entry[1] == cycle.cycle_id for entry in routes)
         assert result.cycle.cycle_id == cycle.cycle_id
-        if clock == 'late':
+        if clock == 'late' and state == 'WAITING_OPEN':
             assert result.action is module.TickAction.SUPERSEDED
             assert result.cycle.failure_code == 'MAX_EXECUTION_LATENESS_EXCEEDED'
             assert result.cycle.next_wake_at is None
@@ -1167,10 +1174,71 @@ def test_tick_routes_recovery_and_wakes_before_any_fresh_transport(
     if state == 'RETRY_WAIT' and expected in {'prepare', 'refresh'}:
         assert transitions == [module.CycleState.PREPARING if expected == 'prepare'
                                else module.CycleState.REFRESHING_DATA]
-    elif clock == 'late':
+    elif state == 'RETRY_WAIT' and expected == 'execute':
+        assert transitions == [module.CycleState.EXECUTING]
+        assert result.cycle.attempt_count == cycle.attempt_count + 1
+    elif clock == 'late' and state == 'WAITING_OPEN':
         assert transitions == [module.CycleState.SUPERSEDED]
     else:
         assert transitions == []
+
+
+@pytest.mark.parametrize('initial', ['RETRY_WAIT', 'RECONCILING'])
+@pytest.mark.parametrize('disposition', ['SUCCEEDED', 'RETRY', 'BLOCKED'])
+def test_new_generation_preflight_adopts_the_fence_without_rewriting_its_book(
+        monkeypatch, initial, disposition):
+    """A replacement worker may reconcile an old preflight, never trade it."""
+    config = AutomationConfig()
+    cycle, permit = scheduled_record(config, module.CycleState[initial])
+    cycle = cycle.model_copy(update={'last_fence_token': 0,
+        'state_fingerprint': 'retained-shadow-state',
+        'diagnostic': {'retry_phase': 'PREFLIGHT_RECOVER'}})
+    permit = permit.model_copy(update={'control_generation': 2})
+    current = cycle
+    events = []
+    connection = object()
+
+    def adopt(conn, *, cycle_id, permit, to_state=None, **changes):
+        nonlocal current
+        assert conn is connection and cycle_id == cycle.cycle_id
+        events.append(('adopt', to_state))
+        current = current.model_copy(update={
+            'last_fence_token': permit.fence_token,
+            'state': current.state if to_state is None else to_state, **changes})
+        return current
+
+    async def recover(context):
+        context.require_active()
+        assert context.cycle.last_fence_token == permit.fence_token
+        assert context.cycle.control_generation == cycle.control_generation
+        events.append(('read-only recovery', None))
+        return module.ExecuteResult(disposition=module.ExecuteDisposition[disposition],
+            last_clean_reconciliation_id='replacement-preflight-proof',
+            failure_code='JOURNAL_PENDING' if disposition != 'SUCCEEDED' else None)
+
+    async def forbidden(context):
+        pytest.fail('replacement preflight attempted publication or new transport')
+
+    monkeypatch.setattr(module.store, 'adopt_cycle', adopt)
+    monkeypatch.setattr(module.store, 'transition_cycle',
+        lambda *a, **k: pytest.fail('old generation used a same-generation transition'))
+    monkeypatch.setattr(module.store, 'require_leader', lambda conn, actual: actual)
+    service = module.AutomationService(config=config, holder_id='replacement-preflight-lab',
+        refresh=forbidden, prepare=forbidden, recover=recover, execute=forbidden)
+    result = asyncio.run(service._run_preflight_recover(connection,
+        now=cycle.execute_at, cycle=cycle, permit=permit, supersede_on_success=True))
+    expected = {'SUCCEEDED': module.CycleState.SUPERSEDED,
+        'RETRY': module.CycleState.RETRY_WAIT, 'BLOCKED': module.CycleState.BLOCKED}[disposition]
+    assert events[0] == ('adopt', None)
+    assert ('read-only recovery', None) in events
+    assert events[-1] == ('adopt', expected)
+    assert result.cycle.state is expected
+    assert result.cycle.cycle_id == cycle.cycle_id
+    assert result.cycle.control_generation == cycle.control_generation
+    assert result.cycle.state_fingerprint == cycle.state_fingerprint
+    assert result.cycle.last_clean_reconciliation_id == 'replacement-preflight-proof'
+    assert result.cycle.plan_id is None
+    assert (result.cycle.next_wake_at is None) is expected.terminal
 
 
 @pytest.mark.parametrize('query,phase', [
