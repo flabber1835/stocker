@@ -407,6 +407,13 @@ JavaScript has only negative authority: on `pageshow`, return to visible state,
 VERIFIED — NOT CURRENT` before requesting a full reload.  `offline` does the
 same without attempting to invent a cached verdict.  It never calculates a
 financial value or changes a not-verified page to verified.
+The browser requires finite generation time and a finite, positive presentation
+budget no greater than the renderer's reviewed maximum. It checks the initial
+document immediately and checks both time and budget again before replacing
+the DOM with a response marked `CURRENT`. Missing, nonnumeric, zero, infinite,
+or oversized budgets cannot extend freshness. A rejected response preserves the
+visible invalidated dashboard and the bounded single-request retry; only an
+admitted complete server document can replace it.
 
 ## 7. Owner projection
 

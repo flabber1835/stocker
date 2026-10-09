@@ -212,7 +212,8 @@ def main() -> int:
     # finding than the true one.
     sep_missing = [n for n in missing if n.startswith("SHARADAR_SEP_")]
     bulk_sep_present = "SHARADAR_SEP.zip" in report["files"]
-    unpackaged = bulk_sep_present and len(sep_missing) == len(missing)
+    unpackaged = (bulk_sep_present and bool(sep_missing)
+                  and len(sep_missing) == len(missing))
 
     report["summary"] = {
         "pinned_total": len(want),

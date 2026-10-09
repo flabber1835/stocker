@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import math
 from sentinel.notification_policy import CANCELLED_TEST_SQL
 
 
@@ -155,12 +156,22 @@ def load_all(conn) -> list[DispatcherHealth]:
     return [_record(row) for row in rows]
 
 
+def validate_health_intervals(
+        *, maximum_age_seconds: float, startup_grace_seconds: float) -> None:
+    """Invalid budgets cannot withdraw the dispatcher's freshness guards."""
+    if (not math.isfinite(maximum_age_seconds)
+            or not math.isfinite(startup_grace_seconds)
+            or maximum_age_seconds <= 0 or startup_grace_seconds <= 0):
+        raise ValueError("dispatcher health intervals must be finite and positive")
+
+
 def require_healthy(
         conn, *, dispatcher_id: str, maximum_age_seconds: float,
         startup_grace_seconds: float) -> DispatcherHealth:
     """Database-clock liveness used by Docker, independent of the webhook."""
-    if maximum_age_seconds <= 0 or startup_grace_seconds <= 0:
-        raise ValueError("dispatcher health intervals must be positive")
+    validate_health_intervals(
+        maximum_age_seconds=maximum_age_seconds,
+        startup_grace_seconds=startup_grace_seconds)
     identity = _identity(dispatcher_id)
     with conn.cursor() as cur:
         cur.execute(
@@ -198,5 +209,5 @@ def require_healthy(
 __all__ = [
     "AlertDispatcherUnhealthy", "DEGRADED", "DispatcherHealth", "FAILED",
     "HEALTHY", "STARTING", "heartbeat", "load", "load_all", "record_failure",
-    "record_success", "register", "require_healthy",
+    "record_success", "register", "require_healthy", "validate_health_intervals",
 ]

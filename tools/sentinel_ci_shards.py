@@ -17,6 +17,7 @@ AUTOMATION = frozenset({
     "test_automation_p1_continuity.py",
     "test_automation_safety_seams.py",
     "test_automation_process_contracts.py",
+    "test_automation_service_fault_paths.py",
 })
 SPECIAL = AUTOMATION | frozenset({
     "test_source_seed_warmup.py", "test_runtime_contention.py",

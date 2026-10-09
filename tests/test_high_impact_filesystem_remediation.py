@@ -165,7 +165,9 @@ def test_sep_interrupted_backed_up_promotion_restores_prior_generation(
     backup = backup_dir / final.name
     staged = staging / final.name
     fingerprint_final = tmp_path / "sep-fingerprint.json"
-    final.write_bytes(b"PARTIAL-NEW")
+    # A partially promoted generation contains exact staged member bytes:
+    # rename cannot produce a member with an unrelated content hash.
+    final.write_bytes(b"NEW-STAGED")
     backup.write_bytes(b"PRIOR-GENERATION")
     staged.write_bytes(b"NEW-STAGED")
 
@@ -181,7 +183,7 @@ def test_sep_interrupted_backed_up_promotion_restores_prior_generation(
             "backup": str(backup),
             "had_original": True,
             "backup_sha256": module._sha256(backup),
-            "sha256": "0" * 64,
+            "sha256": module._sha256(staged),
         }],
     }))
 
@@ -209,7 +211,7 @@ def test_sep_rollback_can_restart_after_consuming_one_backup(
         staged = staging / final.name
         backup = backup_dir / final.name
         final.write_bytes(f"new-{year}".encode())
-        staged.write_bytes(f"staged-{year}".encode())
+        staged.write_bytes(f"new-{year}".encode())
         backup.write_bytes(f"old-{year}".encode())
         entries.append({
             "final": str(final),

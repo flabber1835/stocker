@@ -5,6 +5,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -52,7 +53,7 @@ def _mapping(value: object, *, label: str,
     return value
 
 
-def _json_object(raw: bytes, *, label: str) -> Mapping[str, Any]:
+def _json_value(raw: bytes, *, label: str) -> Any:
     def pairs(items):
         result = {}
         for key, value in items:
@@ -63,11 +64,48 @@ def _json_object(raw: bytes, *, label: str) -> Mapping[str, Any]:
             result[key] = value
         return result
 
+    def invalid(_value):
+        raise CertificationStateRefused(label + " contains a non-finite number")
+
+    def number(raw_number):
+        value = float(raw_number)
+        if not math.isfinite(value):
+            invalid(raw_number)
+        return value
+
     try:
-        value = json.loads(raw, object_pairs_hook=pairs)
+        return json.loads(raw.decode('utf-8'), object_pairs_hook=pairs,
+                          parse_constant=invalid, parse_float=number)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise CertificationStateRefused(label + " is not valid UTF-8 JSON") from exc
-    return _mapping(value, label=label)
+
+
+def _json_object(raw: bytes, *, label: str) -> Mapping[str, Any]:
+    return _mapping(_json_value(raw, label=label), label=label)
+
+
+def _nonempty_string(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise CertificationStateRefused(label + " is not a nonempty string")
+    return value
+
+
+def _image_id(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", value) is None:
+        raise CertificationStateRefused(label + " is malformed")
+    return value
+
+
+def _immutable_ref(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", value) is None:
+        raise CertificationStateRefused(label + " is malformed")
+    return value
+
+
+def _repo_digests(value: object, *, label: str) -> list[str]:
+    if not isinstance(value, list):
+        raise CertificationStateRefused(label + " is malformed")
+    return [_immutable_ref(ref, label=label) for ref in value]
 
 
 def _fsync_directory(path: Path) -> None:
@@ -119,6 +157,7 @@ def write_no_clobber(value: Mapping[str, Any], output: Path) -> None:
 
 def _docker_inspect(ref: str, *, invoke: Callable[..., Any] = subprocess.run
                     ) -> Mapping[str, Any]:
+    _nonempty_string(ref, label="Docker image reference")
     try:
         completed = invoke(
             ["docker", "image", "inspect", ref],
@@ -128,23 +167,16 @@ def _docker_inspect(ref: str, *, invoke: Callable[..., Any] = subprocess.run
         raise CertificationStateRefused("Docker could not inspect " + ref) from exc
     if completed.returncode != 0:
         raise CertificationStateRefused("Docker could not inspect " + ref)
-    try:
-        decoded = json.loads(bytes(completed.stdout))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise CertificationStateRefused("Docker inspect was not JSON") from exc
+    decoded = _json_value(bytes(completed.stdout), label="Docker inspect")
     if not isinstance(decoded, list) or len(decoded) != 1:
         raise CertificationStateRefused("Docker inspect did not name one image")
     value = _mapping(decoded[0], label="Docker image identity")
-    image_id = value.get("Id")
-    if not isinstance(image_id, str) or not image_id.startswith("sha256:"):
-        raise CertificationStateRefused("Docker image id is malformed")
-    labels = (value.get("Config") or {}).get("Labels") or {}
-    if not isinstance(labels, dict):
-        raise CertificationStateRefused("Docker image labels are malformed")
-    revision = labels.get("org.opencontainers.image.revision")
-    repo_digests = value.get("RepoDigests") or []
-    if not isinstance(repo_digests, list):
-        raise CertificationStateRefused("Docker RepoDigests are malformed")
+    image_id = _image_id(value.get("Id"), label="Docker image id")
+    config = _mapping(value.get("Config"), label="Docker image configuration")
+    labels = _mapping(config.get("Labels"), label="Docker image labels")
+    revision = _digest(labels.get("org.opencontainers.image.revision"),
+                       label="Docker source revision", git=True)
+    repo_digests = _repo_digests(value.get("RepoDigests"), label="Docker RepoDigests")
     return {
         "ref": ref,
         "id": image_id,
@@ -216,9 +248,11 @@ def load_build(path: Path) -> Mapping[str, Any]:
         })
         if image.get("source_revision") != record["git_commit"]:
             raise CertificationStateRefused(field + " revision differs from build")
-        if not isinstance(image.get("id"), str) or not image["id"].startswith(
-                "sha256:"):
-            raise CertificationStateRefused(field + " id is malformed")
+        _image_id(image.get("id"), label=field + " id")
+        _nonempty_string(image.get("ref"), label=field + " reference")
+        _repo_digests(image.get("repo_digests"), label=field + " RepoDigests")
+    if record["runtime_image"]["id"] == record["test_image"]["id"]:
+        raise CertificationStateRefused("runtime and test image ids are identical")
     return record
 
 
@@ -272,7 +306,7 @@ def load_promotion(path: Path) -> Mapping[str, Any]:
     commit = _digest(record.get("git_commit"), label="promotion git_commit", git=True)
     build_binding = _mapping(record.get("build_record"), label="build binding",
                              fields={"path", "sha256"})
-    build_path = Path(build_binding.get("path", ""))
+    build_path = Path(_nonempty_string(build_binding.get("path"), label="build record path"))
     if (not build_path.is_file()
             or _sha256(build_path.read_bytes()) != build_binding.get("sha256")):
         raise CertificationStateRefused("frozen image build record moved")
@@ -285,10 +319,14 @@ def load_promotion(path: Path) -> Mapping[str, Any]:
         })
         if image.get("source_revision") != commit:
             raise CertificationStateRefused(field + " revision differs")
-        ref = image.get("repo_digest")
-        if not isinstance(ref, str) or "@sha256:" not in ref:
-            raise CertificationStateRefused(field + " RepoDigest is malformed")
-        _digest(ref.rsplit("@sha256:", 1)[1], label=field + " RepoDigest")
+        _nonempty_string(image.get("source_tag"), label=field + " source tag")
+        _image_id(image.get("id"), label=field + " id")
+        _immutable_ref(image.get("repo_digest"), label=field + " RepoDigest")
+        if image["id"] != build[field]["id"]:
+            raise CertificationStateRefused(field + " differs from the frozen build")
+    if (record["runtime_image"]["repo_digest"].rsplit("@", 1)[1]
+            == record["test_image"]["repo_digest"].rsplit("@", 1)[1]):
+        raise CertificationStateRefused("runtime and test RepoDigests are identical")
     return record
 
 

@@ -21,6 +21,10 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
         --no-deps -r /tmp/test-req/requirements.lock \
  && pip check
 
+# The universal coverage wheel silently falls back to a much slower tracer
+# whose warnings pollute protocol stderr. Coverage belongs only to this lens.
+RUN python -c "from coverage.tracer import CTracer; print('native coverage tracer:', CTracer.__name__)"
+
 WORKDIR /work
 COPY pytest.ini /work/pytest.ini
 COPY tests/ /work/tests/
@@ -29,6 +33,9 @@ COPY tools/ /work/tools/
 # Audit-only reporters used by economic falsifiers; never runtime code.
 COPY audit/economic_399/postgres_pressure/report.py /work/audit/economic_399/postgres_pressure/report.py
 COPY audit/economic_399/local_closeout/economic_oracle.py /work/audit/economic_399/local_closeout/economic_oracle.py
+# Exact archived audit source for repository-wide acceptance; never runtime.
+COPY audit/economic_399/local_closeout/resource_report.py /work/repo/audit/economic_399/local_closeout/resource_report.py
+COPY audit/economic_399/postgres_pressure/report.py /work/repo/audit/economic_399/postgres_pressure/report.py
 # CI authority plus the shared provider simulator used by feed integration tests.
 COPY .github/workflows/ /work/.github/workflows/
 COPY research/sharadar_replay/ /work/research/sharadar_replay/
@@ -41,6 +48,7 @@ COPY scripts/sentinel_go_suites.py /work/scripts/sentinel_go_suites.py
 COPY scripts/sentinel_go_feed_progress.py /work/scripts/sentinel_go_feed_progress.py
 COPY scripts/sentinel_reconcile_sep.py /work/scripts/sentinel_reconcile_sep.py
 COPY scripts/sentinel_ci_certification_verify.py /work/scripts/sentinel_ci_certification_verify.py
+COPY scripts/sentinel-backup-verify-chain.py /work/scripts/sentinel-backup-verify-chain.py
 COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
 COPY scripts/ /work/repo/scripts/
 COPY tools/ /work/repo/tools/

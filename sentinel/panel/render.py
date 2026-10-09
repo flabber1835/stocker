@@ -567,6 +567,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var heartbeat = document.getElementById("dashboard-heartbeat");
   var generated = Date.parse(document.body.dataset.generatedAt);
   var budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
+  var maximumBudget = {PRESENTATION_MAX_AGE_SECONDS * 1000};
   var hasBeenVisible = document.visibilityState === "visible";
   var wentToBackground = false;
   var wentOffline = !navigator.onLine;
@@ -574,6 +575,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var retryTimer = null;
   var ageTimer;
   var refreshTimer;
+  function validBudget(value){{
+    return Number.isFinite(value) && value > 0 && value <= maximumBudget;
+  }}
   async function refreshDocument(){{
     if (refreshing || retryTimer !== null || !navigator.onLine){{ return; }}
     refreshing = true;
@@ -587,10 +591,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       var html = await response.text();
       var next = new DOMParser().parseFromString(html, "text/html");
       var nextAge = Date.now() - Date.parse(next.body.dataset.generatedAt);
+      var nextBudget = Number(next.body.dataset.maxAgeSeconds) * 1000;
       if (!next.getElementById("operational-state") ||
           next.body.dataset.refreshPending !== "false" ||
-          !Number.isFinite(nextAge) || nextAge < -5000 ||
-          nextAge > Number(next.body.dataset.maxAgeSeconds) * 1000){{
+          !Number.isFinite(nextAge) || !validBudget(nextBudget) || nextAge < -5000 ||
+          nextAge > nextBudget){{
         throw new Error("Dashboard response is incomplete");
       }}
       clearInterval(ageTimer);
@@ -621,7 +626,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function checkAge(){{
     var age = Date.now() - generated;
-    if (!Number.isFinite(age) || age > budget || age < -5000){{
+    if (!Number.isFinite(age) || !validBudget(budget) || age > budget || age < -5000){{
       invalidate(true);
     }} else if (!invalidated){{
       heartbeat.textContent = "DASHBOARD HEARTBEAT · UPDATED " +
@@ -649,6 +654,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   if (wentOffline){{ invalidate(false); }}
   ageTimer = setInterval(checkAge, 1000);
   refreshTimer = setTimeout(function(){{ invalidate(true); }}, {refresh_seconds * 1000});
+  checkAge();
   if (document.body.dataset.refreshPending === "true"){{ invalidate(true); }}
 }})();
 </script>

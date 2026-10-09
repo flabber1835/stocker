@@ -144,7 +144,7 @@ def _reviewed_child_exception_type(
             candidate.__qualname__))
 
 
-def _json_default(value):  # pragma: no cover - runs in supervised child
+def _json_default(value):
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, Enum):
@@ -166,7 +166,7 @@ def _arm_parent_death_sigkill(expected_parent_pid: int) -> None:
         os.kill(os.getpid(), signal.SIGKILL)
 
 
-def _callback_child(  # pragma: no cover - measured by process fault tests
+def _callback_child(
         callback, context, channel, expected_parent_pid: int,
         process_group_ready) -> None:
     """Execute one production callback in a disposable OS process."""
@@ -264,23 +264,28 @@ def _kill_callback_process(process, *, join_seconds: float = 1.0) -> None:
     """Kill the callback's complete process group, including orphaned children."""
     if process is None:
         return
+    pid = process.pid
+    if pid is None:
+        # Process.start() can fail before any OS process exists. There is
+        # nothing to signal or join; the caller still closes its IPC channels.
+        return
     ready = getattr(process, "_sentinel_process_group_ready", None)
     try:
-        if ready is not None and ready.is_set() and process.pid is not None:
+        if ready is not None and ready.is_set():
             try:
-                os.killpg(process.pid, signal.SIGKILL)
+                os.killpg(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-        elif process.pid is not None and process.is_alive():
+        elif process.is_alive():
             process.kill()
     except AssertionError:  # constructed but never successfully started
         return
     process.join(timeout=join_seconds)
     deadline = time.monotonic() + join_seconds
-    while (ready is not None and ready.is_set() and process.pid is not None
+    while (ready is not None and ready.is_set()
            and time.monotonic() < deadline):
         try:
-            os.killpg(process.pid, 0)
+            os.killpg(pid, 0)
         except ProcessLookupError:
             break
         time.sleep(0.01)

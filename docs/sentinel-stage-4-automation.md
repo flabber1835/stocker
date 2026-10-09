@@ -17,6 +17,38 @@ portfolio, plan, reconciliation, or executor semantics.
 
 ## 1. Non-negotiable boundaries
 
+### Automation service qualification
+
+The wider source inventory and measurement rules are defined in
+[repository code coverage qualification](repository-code-coverage.md).
+
+The dedicated automation CI lane must cover every statement and branch in
+`sentinel/automation/service.py`, including callback serialization and child
+supervision. Child-only code is not excluded from the measurement. Direct,
+deterministic fault tests observe serialization and OS-boundary failures;
+existing real-process tests independently establish deadline, heartbeat,
+parent-death, and process-group behavior. A killed child cannot reliably flush
+a coverage file, so coverage of its protocol is measured in the deterministic
+tests rather than inferred from a killed process.
+
+Recovery tests assert the persisted transition sequence, retained account and
+cycle identity, retry timing, and absence of executor calls. Concurrent or
+corrupt dependency observations are injected explicitly and must preserve the
+same fencing boundary. Coverage is an executable-path requirement, not broker
+acceptance, provider finality, or proof of a completed deployment. Installation
+remains inert and paper activation requires its separate signed admission.
+
+No coverage exclusions, golden repinning, or relaxed production guards may be
+used to meet this requirement. Any genuinely unreachable duplicate dispatch
+must instead be explained and simplified without changing valid-state behavior.
+
+A callback process which never started has no PID and owns no OS child or
+process group. Cleanup must return without calling `join` or sending a signal
+for that object. A failed fork must retain its original failure, and the
+invocation's `finally` must still close both IPC endpoints. Once a PID exists,
+the exact process/group kill, bounded join and surviving-child refusal remain
+mandatory. Deterministic cleanup tests accompany the real-process fault suite.
+
 ```text
 Wealth Core / SessionState     existing canonical strategy state
 prepare_paper_plan             the only daily advance/adopt path

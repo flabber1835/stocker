@@ -195,7 +195,10 @@ def test_worker_wait_restart_source_healing_and_transport(assembly, monkeypatch,
                       fixture.paper_execution, fixture.paper_recovery):
             monkeypatch.setattr(owner, "datetime", Clock)
         cfg = assembly.create().automation_config.model_copy(update={
-            "lease_seconds": 3, "heartbeat_seconds": 1, "control_poll_seconds": 1,
+            # Exercise provider recovery under the assembly's normal lease.
+            # Short-lease failure and process reaping have independent real-
+            # process tests; full-source tracing is not a startup speed oracle.
+            "control_poll_seconds": 1,
             "retry_base_seconds": 1, "retry_max_seconds": 1,
             "refresh_max_attempts": 2, "maximum_clock_skew_seconds": 100_000_000})
         scfg = assembly.create().sentinel_config

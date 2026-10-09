@@ -1,0 +1,30 @@
+{
+  "files": {
+    "alert_health.py": {
+      "after": "ca49465fbc32979f0af8a4bd2726d299abe6eea85f69605763d6e9f24d0569e5",
+      "before": [
+        "c34bbd1d04ecfd353983922196f3f62851dd68799c62b4af759dd046e8387c3c"
+      ]
+    },
+    "alert_liveness.py": {
+      "after": "d354c4e89f3d0ab2d03d402dadcdeefc031f885eb0445ec0cd68bd32d6e88132",
+      "before": [
+        "9b71ed2ca5762aed9c88df8f823c84702be4506534e31d8564aa2aad4bf23c26"
+      ]
+    },
+    "automation/service.py": {
+      "after": "b4d0708fe1b38f966de8d5675fc12e6bb4321ba46582d4c266a1f56c16d79d1e",
+      "before": [
+        "d9af5e1e1fb111b376ec577a57a0cc8ea71fab085471663986aaa4dc08430b48"
+      ]
+    },
+    "panel/render.py": {
+      "after": "f405dd2cad1d788f888a17e0a2fa7829dc350561307286b506815c06907cc94d",
+      "before": [
+        "f502d58f243d25a4ea5e327d566cf04fc4682ce878bb271d9a3eec3db9fb203a"
+      ]
+    }
+  },
+  "module_sha256": "90f31121ff3162626905fe436d6da7272cf9d60bfff4e6e75c060881fa080176",
+  "schema": "sentinel.operational-liveness-upgrade/1"
+}

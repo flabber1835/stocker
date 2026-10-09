@@ -304,6 +304,34 @@ visible evidence rather than a prerequisite that creates test noise. An actual
 delivery failure moves the dispatcher to bounded degraded/failed state and an
 idle loop cannot clear it—only a later real delivery success can.
 
+Dispatcher heartbeat and startup-grace budgets must both be finite and strictly
+positive. The command-line health check validates those budgets before opening
+a database connection, and the canonical database-clock health reader enforces
+the same rule for every caller. `NaN`, infinity, and numeric overflow must never
+disable stale-heartbeat or startup-expiry checks. Valid custom budgets and the
+existing 30-second heartbeat / 330-second startup defaults remain unchanged.
+
+### Retained-book admission for operational liveness repairs
+
+The callback-startup cleanup and finite alert-health budget repairs have an
+exact source upgrade profile for `automation/service.py`, `alert_health.py`,
+`alert_liveness.py` and `panel/render.py`. The renderer's reviewed freshness
+checks are operational presentation changes, with no financial authority.
+The profile pins the previously deployed bytes and
+their reviewed replacements, plus the profile reader itself. It is checked
+through the existing retained-runtime admission path; it grants no broker or
+installation authority. Unknown prior bytes, altered replacements and changes
+to neighboring economic or execution code still refuse admission.
+
+The original source manifest, genesis, strategy state, account binding and
+financial journals remain immutable. Existing source-closure, dependency,
+Wealth Core, strategy, publication, backup and fence checks remain required.
+No fresh formation, source reacquisition or financial reset is needed merely
+to adopt these operational repairs. Qualification includes the complete source
+manifests of the original installed book and the verified main baseline, rather
+than constructing historical manifests from only the changed paths. Prior
+economic and execution upgrade profiles remain unchanged.
+
 ## 6. Validation and rollout
 
 Automated validation covers the pure recovery matrix, session-stale feed,

@@ -63,7 +63,15 @@ def _wal_index(name, segments_per_log):
     return timeline, log, segment
 
 
+def _validate_segment_size(segment_size):
+    if segment_size <= 0 or 0x100000000 % segment_size:
+        raise ChainRefused("unsupported WAL segment size %s" % segment_size)
+
+
 def _manifest_start(manifest, segment_size):
+    _validate_segment_size(segment_size)
+    if not isinstance(manifest, dict):
+        raise ChainRefused("base backup manifest is not a JSON object")
     ranges = manifest.get("WAL-Ranges")
     if not isinstance(ranges, list) or not ranges or not isinstance(ranges[-1], dict):
         raise ChainRefused("base backup manifest has no final WAL range")
@@ -86,8 +94,7 @@ def _manifest_start(manifest, segment_size):
 
 
 def _expected(start, end, segment_size):
-    if segment_size <= 0 or 0x100000000 % segment_size:
-        raise ChainRefused("unsupported WAL segment size %s" % segment_size)
+    _validate_segment_size(segment_size)
     segments_per_log = 0x100000000 // segment_size
     st, sl, ss = _wal_index(start, segments_per_log)
     et, el, es = _wal_index(end, segments_per_log)
