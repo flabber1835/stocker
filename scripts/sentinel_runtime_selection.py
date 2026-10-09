@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -31,6 +32,34 @@ _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
 class RuntimeSelectionRefused(RuntimeError):
     pass
+
+
+def _json_value(raw, *, label: str):
+    """Decode one finite, unambiguous host reply without coercing identities."""
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("duplicate JSON field")
+            result[key] = value
+        return result
+
+    def constant(_value):
+        raise ValueError("non-finite JSON number")
+
+    def number(value):
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ValueError("non-finite JSON number")
+        return parsed
+
+    try:
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        return json.loads(raw, object_pairs_hook=pairs,
+                          parse_constant=constant, parse_float=number)
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise RuntimeSelectionRefused(label + " was invalid JSON") from exc
 
 
 def _run(argv: Sequence[str], *, env: Mapping[str, str] = None) -> subprocess.CompletedProcess:
@@ -117,20 +146,17 @@ def _inspect(reference: str):
     if result.returncode != 0:
         raise RuntimeSelectionRefused(
             "selected Sentinel image is not locally inspectable")
-    try:
-        payload = json.loads(result.stdout or "")
-    except json.JSONDecodeError as exc:
-        raise RuntimeSelectionRefused("Docker image inspection was invalid JSON") from exc
+    payload = _json_value(result.stdout or "", label="Docker image inspection")
     if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
         raise RuntimeSelectionRefused("Docker image inspection was not one exact image")
     image = payload[0]
-    digest = str(image.get("Id") or "")
+    digest = image.get("Id")
     config = image.get("Config") if isinstance(image.get("Config"), dict) else {}
     labels = config.get("Labels") if isinstance(config.get("Labels"), dict) else {}
-    revision = str(labels.get("org.opencontainers.image.revision") or "")
-    if not _DIGEST.fullmatch(digest):
+    revision = labels.get("org.opencontainers.image.revision")
+    if not isinstance(digest, str) or not _DIGEST.fullmatch(digest):
         raise RuntimeSelectionRefused("selected Sentinel image has no immutable sha256 id")
-    if not _COMMIT.fullmatch(revision):
+    if not isinstance(revision, str) or not _COMMIT.fullmatch(revision):
         raise RuntimeSelectionRefused("selected Sentinel image has no exact source revision")
     return digest, revision
 
@@ -149,9 +175,9 @@ def _compose_selected_image(env: Mapping[str, str]) -> str:
     if result.returncode != 0:
         raise RuntimeSelectionRefused("Compose could not resolve the Sentinel image")
     try:
-        model = json.loads(result.stdout or "")
+        model = _json_value(result.stdout or "", label="Compose model")
         image = ((model.get("services") or {}).get("sentinel") or {}).get("image")
-    except (AttributeError, json.JSONDecodeError) as exc:
+    except AttributeError as exc:
         raise RuntimeSelectionRefused("Compose model was malformed") from exc
     if not isinstance(image, str) or not image.strip():
         raise RuntimeSelectionRefused("Compose model has no Sentinel image")
@@ -194,9 +220,12 @@ def _write_pointer(reference: str) -> None:
     POINTER.parent.mkdir(parents=True, exist_ok=True)
     payload = "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % reference
     fd, tmp_name = tempfile.mkstemp(prefix=".validated-runtime-", dir=str(POINTER.parent))
+    descriptor_owned = True
     try:
         os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="ascii", newline="\n") as handle:
+        handle = os.fdopen(fd, "w", encoding="ascii", newline="\n")
+        descriptor_owned = False
+        with handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
@@ -210,6 +239,8 @@ def _write_pointer(reference: str) -> None:
         except OSError:
             pass
     finally:
+        if descriptor_owned:
+            os.close(fd)
         if os.path.exists(tmp_name):
             os.unlink(tmp_name)
 

@@ -44,6 +44,18 @@ as well as its commit; the runtime and test repository digests remain distinct.
 Malformed path values receive the same typed refusal as other malformed fields.
 These checks validate existing record schemas and grant no deployment authority.
 
+The read-only runtime selector applies this strict JSON policy to Docker and
+Compose replies as well. Duplicate fields, non-finite numbers and a numeric
+revision label cannot produce a misleading `MATCH` or selected-image report.
+Docker source and image identities remain strings with their canonical formats.
+This preflight remains observational: an unavailable image is reported for the
+certified lifecycle to acquire, and generic promotion remains disabled. It does
+not issue a certificate, select a trading session or enable financial work.
+The supported selector writer retains ownership of its temporary descriptor
+until stream creation succeeds. Permission or stream-creation failures close
+that descriptor, remove the temporary file and preserve the previous selector.
+This cleanup does not weaken atomic replacement or enable generic promotion.
+
 ## Installation work and recovery milestones
 
 Decision: 2026-10-07. Installation first checks the selected startup/issuer
