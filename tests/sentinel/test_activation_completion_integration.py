@@ -7,6 +7,7 @@ restore copies use the unmodified read-only semantic validator. These tests gran
 no software certification, GO, paper authority or production PITR proof.
 """
 import contextlib
+import asyncio
 import dataclasses
 from datetime import datetime, timezone
 import hashlib
@@ -368,6 +369,62 @@ def test_actual_completion_with_anytime_host_guard(conn, pg, tmp_path, monkeypat
         assert campaign.backups == 1
         assert campaign.events.index('restore') < campaign.events.index('release-paper-automation-kill-switch')
         assert store.load_control(conn).enabled and not store.load_control(conn).kill_switch_engaged
+        campaign.preserve()
+    finally:
+        campaign.stop('automation')
+
+
+@pytest.mark.parametrize('crossed', ['2026-08-12T13:30:00+00:00', '2026-08-12T20:30:00+00:00'])
+def test_restore_crossing_open_or_close_has_the_right_activation_boundary(
+        conn, pg, tmp_path, monkeypatch, crossed):
+    from sentinel.feed import calendar
+    from sentinel.automation.model import LeaderPermit, TickAction
+    from tests.sentinel.test_automation_service import service_for, recovery_success
+    clock = [datetime.fromisoformat('2026-08-12T13:00:00+00:00')]
+    campaign = Campaign(conn, pg, tmp_path, monkeypatch)
+    campaign.obj._operational_source_only = True
+    def timing():
+        target = calendar.latest_closed_session(clock[0])
+        opening, _ = calendar.session_window(calendar.next_session(target))
+        remaining = int((opening.astimezone(timezone.utc)-clock[0]).total_seconds()*1000)
+        return dict(target=target, frontier=DECISION.isoformat(), target_source_final=True,
+                    prospective=remaining > 0, remaining_ms=remaining)
+    campaign.obj._causal_timing = timing
+    campaign.obj.assert_activation_timing = install.InstallAnytimeDeploy.assert_activation_timing.__get__(campaign.obj)
+    actual_run = campaign.run
+    def cross_after_actual_restore(args, **kwargs):
+        answer = actual_run(args, **kwargs)
+        if args[:2] == ['bash', 'scripts/sentinel-install-backup.sh']:
+            clock[0] = datetime.fromisoformat(crossed)
+        return answer
+    campaign.obj.runner.run = cross_after_actual_restore
+    try:
+        if calendar.latest_closed_session(datetime.fromisoformat(crossed)) != DECISION.isoformat():
+            with pytest.raises(core.ActivationPending, match='current finalized decision'):
+                campaign.execute()
+            assert store.load_control(conn).kill_switch_engaged
+            assert not (tmp_path/'activation-receipt.json').exists()
+        else:
+            assert campaign.execute()['operational_ready']
+            # End the actual lease-owning fixture process before handing that
+            # same isolated control to the production scheduler state machine.
+            campaign.stop('automation')
+            permit = LeaderPermit.model_validate_json((tmp_path/'leader-ready.json').read_text())
+            store.release_lease(conn, permit=permit)
+            callbacks = []
+            def recover(context):
+                callbacks.append('recover')
+                return recovery_success(context)
+            def forbidden(context):
+                callbacks.append('new-plan-or-transport')
+                raise AssertionError('restore crossing the open triggered a new same-open plan')
+            service = service_for(campaign.control_cfg, refresh=forbidden,
+                                  prepare=forbidden, execute=forbidden, recover=recover)
+            result = asyncio.run(service.tick(conn, now=clock[0]))
+            assert result.action is TickAction.SUPERSEDED
+            assert callbacks == ['recover']
+            assert result.cycle.failure_code == 'DISCOVERED_AFTER_SESSION_OPEN'
+        assert campaign.backups == 1
         campaign.preserve()
     finally:
         campaign.stop('automation')

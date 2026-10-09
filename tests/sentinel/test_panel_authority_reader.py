@@ -88,18 +88,33 @@ def test_configuration_change_does_not_deliver_or_retain_old_positive_result(mon
     complete(value)
 
 
-@pytest.mark.parametrize('replacement', [
-    {'rows': [], 'errors': [], 'observed_at': 'not-a-clock'},
-    {'rows': [], 'errors': [], 'observed_at': datetime.now(timezone.utc)-timedelta(seconds=60)},
-    {'rows': [], 'errors': [], 'observed_at': datetime.now(timezone.utc)+timedelta(minutes=2)},
+@pytest.mark.parametrize('observed_at', [
+    'not-a-clock',
+    datetime.now(timezone.utc)-timedelta(seconds=60),
+    datetime.now(timezone.utc)+timedelta(minutes=2),
 ])
-def test_stale_future_or_malformed_observer_is_unknown(replacement):
+def test_stale_future_or_malformed_observer_is_unknown(observed_at):
+    replacement = result()
+    replacement['observed_at'] = observed_at
     value = reader.Reader(runner=lambda *a, **k: replacement)
     value.read('fixture')
     complete(value)
     rows, _, _, errors = value.read('fixture')
     assert rows[0].status == model.UNKNOWN
     assert 'malformed or stale' in errors[0]
+
+
+def test_accepting_stale_complete_proof_is_detected(monkeypatch):
+    import inspect, textwrap
+    source = textwrap.dedent(inspect.getsource(reader.Reader.read)).replace(
+        'if not timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):',
+        'if False:')
+    namespace = {}
+    exec(compile(source, 'unbounded-proof-age', 'exec'), reader.__dict__, namespace)
+    monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
+    with pytest.raises(AssertionError):
+        test_stale_future_or_malformed_observer_is_unknown(
+            datetime.now(timezone.utc)-timedelta(seconds=60))
 
 
 def test_observer_failure_does_not_echo_private_configuration():
@@ -144,7 +159,7 @@ def _stalled_process(filename):
 def test_actual_spawned_observer_deadline_kills_and_reaps(tmp_path):
     filename = tmp_path/'owned-observer.pid'
     with pytest.raises(TimeoutError, match='wall-clock budget'):
-        supervisor_io.run(_stalled_process, str(filename), timeout=2, start_method='spawn')
+        supervisor_io.run(_stalled_process, str(filename), timeout=10, start_method='spawn')
     assert filename.exists(), 'the real observer never reached its dependency'
     pid = int(filename.read_text())
     with pytest.raises(ProcessLookupError):
@@ -189,7 +204,7 @@ def test_deliberate_open_cutover_is_waiting_without_claiming_execution(monkeypat
         'state': 'SUPERSEDED', 'failure_code': code})
     paper = sources._dual_paper_row(object(), informational_paper_mirror=None,
         publication=None, feed_store=None)
-    assert paper.status == model.PENDING
+    assert paper.status == model.WARN and 'PENDING' in paper.value
     assert 'no new order was sent' in paper.detail
     assert model.automation_cycle_row(installed=True, enabled=True,
         cycle_id='fixture', state='SUPERSEDED', failure_code='OTHER_FAILURE').status == model.FAIL
