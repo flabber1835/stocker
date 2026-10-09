@@ -71,9 +71,11 @@ CLI captures one UTC-second lifecycle reference before work and uses that same
 reference for both issued-at and not-before. Installer default delay is zero;
 explicit future delays and all signed activation boundaries remain enforced.
 
-An unchanged installed behavioral AND feed schema needs no migration and no
-fresh pre-migration base or replay. Its current backup chain must still pass
-status. A schema mismatch retains the fresh exact pre-migration base and physical
+An unchanged installed behavioral AND feed schema needs no migration, backup
+status, fresh pre-migration base or replay during software installation. Financial
+backup readiness belongs to the separate preparation/activation phase, as defined
+in [installation separation](installation-activation-separation.md). A schema
+mismatch retains the fresh exact pre-migration base and physical
 replay before explicit migration. Connection/transport errors are refusals, not
 evidence that a migration is needed. Newly formed/authorized state gets one fresh
 base and full semantic restore while paper remains killed, before kill release.

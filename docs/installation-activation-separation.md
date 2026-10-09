@@ -10,9 +10,15 @@ source-final installation waits in `ci-certified-paper-installation.md` and
 `unattended-operating-contract.md`. Software installation has no trading clock,
 broker-readiness, source-readiness or execution-authority prerequisite.
 
-Software receipt finalization rechecks the existing physical backup chain; it
-must not invoke the financial post-activation base/semantic-restore milestone.
-Required schema migration still proves its exact pre-migration physical replay.
+Decision: 2026-10-09. An unchanged behavioral and feed schema permits a software
+upgrade without consulting financial backup readiness. Both the pre-migration
+branch and software receipt finalization must avoid `sentinel-backup-status.sh`:
+its freshness and runtime replay-horizon checks belong to financial preparation,
+and an expired retained chain cannot invalidate an otherwise safe fenced software
+installation. No backup, restore, WAL pruning or maintenance identity transfer
+is performed for that unchanged-schema upgrade. Required schema migration still
+proves its fresh exact pre-migration physical replay before any DDL. A failed or
+ambiguous schema probe is a refusal, never permission to skip recovery or migrate.
 The formed/authorized state's full semantic restore remains exclusively an
 activation requirement. During a software-only upgrade, maintenance of retained
 financial state keeps its previously admitted runtime/configuration until the
@@ -32,6 +38,25 @@ After fencing and migration, independently verified software installation also
 atomically selects its signed immutable runtime through the canonical pointer
 writer. An old financial GO selector cannot override the newly installed image.
 Generic unsigned runtime promotion remains disabled.
+
+Discovery of an existing binding uses the same strict JSON contract as the later
+integrity probe. A successful command returning duplicate keys, non-finite values
+or a non-object cannot be treated as an absent database. Actual command failure
+may indicate unavailable prior state; the mandatory fenced integrity probe still
+has to establish the durable binding before software completion. A retained
+takeover epoch is a positive integer; JSON booleans cannot impersonate it.
+The adjacent Docker repository discovery also rejects malformed/non-finite JSON
+and non-string digest arrays. Docker's explicit null or empty digest list means
+that a local image supplies no immutable registry evidence; it cannot authorize
+software selection.
+
+Qualification must enter the public Python installer with its real inherited
+quiesce, schema, selector, operator-service and receipt methods. Only external Git,
+Docker, signed-CI and service-owner responses may be fixtures. Cover absent,
+expired, incompatible and malformed backup observations with an unchanged schema;
+required migrations must still refuse failed physical recovery. Exercise malformed
+schema JSON, service failure, fence loss and explicit separate activation handoff.
+Replacing whole phase methods with success stubs does not qualify these boundaries.
 
 Installation ends with a versioned immutable `installation-receipt.json`:
 `installation_state=INSTALLED`, `activation_state=FENCED`, exact source/runtime,

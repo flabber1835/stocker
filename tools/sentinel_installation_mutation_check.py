@@ -9,15 +9,47 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 TEST = 'tests/sentinel/test_installation_activation_separation.py'
+STORAGE_TEST = 'tests/sentinel/test_installation_storage_boundary.py'
 MUTANTS = (
     ('financial-restore-restored-to-software-finalizer', 'scripts/sentinel_autonomous_deploy.py',
-     "        self.runner.run(['bash', 'scripts/sentinel-backup-status.sh'])\n        post_backup = None\n",
+     '        post_backup = None\n',
      '        post_backup = self._post_deploy_backup()\n',
      TEST + '::test_public_install_success_is_committed_before_separate_handoff'),
-    ('software-backup-status-ignored', 'scripts/sentinel_autonomous_deploy.py',
-     "        self.runner.run(['bash', 'scripts/sentinel-backup-status.sh'])\n        post_backup = None\n",
+    ('financial-backup-status-restored-to-software-finalizer', 'scripts/sentinel_autonomous_deploy.py',
      '        post_backup = None\n',
-     TEST + '::test_software_finalizer_cannot_ignore_backup_chain_refusal'),
+     "        self.runner.run(['bash', 'scripts/sentinel-backup-status.sh'])\n        post_backup = None\n",
+     STORAGE_TEST + '::test_public_unchanged_schema_install_never_consults_financial_backup'),
+    ('financial-backup-status-restored-to-unchanged-schema', 'scripts/sentinel_autonomous_deploy_bootstrap.py',
+     "            self.phase('schema: unchanged; no migration, backup readiness check or replay')",
+     "            self.phase('schema: unchanged; no migration, backup readiness check or replay')\n            self.runner.run(['bash', 'scripts/sentinel-backup-status.sh'])",
+     STORAGE_TEST + '::test_public_unchanged_schema_install_never_consults_financial_backup'),
+    ('ambiguous-binding-discovery-accepted', 'scripts/sentinel_autonomous_deploy_bootstrap.py',
+     "return core._json_output(result, label='installed deployment discovery')",
+     'return json.loads(result.stdout)',
+     STORAGE_TEST + '::test_ambiguous_discovery_refuses_before_software_transition'),
+    ('required-physical-recovery-omitted', 'scripts/sentinel_autonomous_deploy_bootstrap.py',
+     '            self._create_backup(restore_drill=False)', '            pass',
+     STORAGE_TEST + '::test_required_migration_keeps_exact_physical_recovery_before_ddl'),
+    ('boolean-takeover-epoch-accepted', 'scripts/sentinel_autonomous_deploy.py',
+     'type(status.get("takeover_epoch")) is not int\n                or int(status["takeover_epoch"]) < 1):\n            raise DeployRefused(\n                "durable OWNED binding contradicts configured deployment/account")',
+     'not isinstance(status.get("takeover_epoch"), int)\n                or int(status["takeover_epoch"]) < 1):\n            raise DeployRefused(\n                "durable OWNED binding contradicts configured deployment/account")',
+     STORAGE_TEST + '::test_public_integrity_rejects_non_integer_or_invalid_takeover_epoch'),
+    ('final-operator-health-omitted', 'scripts/sentinel_autonomous_deploy.py',
+     '        post_backup = None\n        self.verify_operator_services()', '        post_backup = None',
+     STORAGE_TEST + '::test_public_adjacent_failure_preserves_installed_or_fenced_boundary'),
+    ('global-migration-fence-omitted', 'scripts/sentinel_autonomous_deploy.py',
+     'if proof.get("status") not in {"DURABLY_FENCED", "EMPTY_BEHAVIORAL_SCHEMA"}:', 'if False:',
+     STORAGE_TEST + '::test_global_fence_refusal_precedes_backup_ddl_selector_and_receipt'),
+    ('runtime-repository-array-type-omitted', 'scripts/sentinel_autonomous_deploy_bootstrap.py',
+     'if not isinstance(digests, list) or any(not isinstance(item, str) for item in digests):', 'if False:',
+     STORAGE_TEST + '::test_adjacent_runtime_repository_discovery_has_typed_strict_json'),
+    ('owned-takeover-type-weakened', 'scripts/sentinel_autonomous_deploy.py',
+     'type(status.get("takeover_epoch")) is not int\n                or int(status["takeover_epoch"]) < 1):\n            raise DeployRefused(\n                "durable OWNED binding does not match configured deployment/account")',
+     'not isinstance(status.get("takeover_epoch"), int)\n                or int(status["takeover_epoch"]) < 1):\n            raise DeployRefused(\n                "durable OWNED binding does not match configured deployment/account")',
+     STORAGE_TEST + '::test_adjacent_owned_and_shadow_integrity_keep_epoch_types'),
+    ('shadow-takeover-type-weakened', 'scripts/sentinel_autonomous_deploy_entry.py',
+     'type(status.get("takeover_epoch")) is not int', 'not isinstance(status.get("takeover_epoch"), int)',
+     STORAGE_TEST + '::test_adjacent_owned_and_shadow_integrity_keep_epoch_types'),
     ('financial-read-inside-install', 'scripts/sentinel_autonomous_deploy.py',
      '        self.reviewed_validation = None\n        self._installation_only = True\n        self.build_promote()',
      '        self.reviewed_validation = None\n        self._installation_only = True\n        self.read_paper_account()\n        self.build_promote()',
@@ -75,10 +107,11 @@ def execute(path, env, *, root=ROOT):
 
 def main():
     env = dict(os.environ)
-    baseline = execute(TEST, env)
-    if baseline.returncode:
-        print(baseline.stdout + baseline.stderr)
-        return 2
+    for test_module in (TEST, STORAGE_TEST):
+        baseline = execute(test_module, env)
+        if baseline.returncode:
+            print(baseline.stdout + baseline.stderr)
+            return 2
     evidence = []
     for name, relative, old, new, test in MUTANTS:
         with tempfile.TemporaryDirectory(prefix='sentinel-install-mutant-') as directory:
@@ -87,7 +120,7 @@ def main():
                 shutil.copytree(ROOT / package, mutant / package, ignore=shutil.ignore_patterns('__pycache__'))
             # Child conftest derives its import root from its own path. Copy the
             # narrow test lens too, so production imports cannot escape a mutant.
-            for relative_test in ('tests/conftest.py', 'tests/sentinel/conftest.py', TEST):
+            for relative_test in ('tests/conftest.py', 'tests/sentinel/conftest.py', TEST, STORAGE_TEST):
                 destination = mutant / relative_test
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(ROOT / relative_test, destination)

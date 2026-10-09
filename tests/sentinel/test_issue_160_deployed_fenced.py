@@ -148,7 +148,7 @@ def test_persisted_deployment_receipt_is_explicitly_fenced(tmp_path):
         "certificate_sha256": "c" * 64})
 
     receipt = json.loads((tmp_path / "installation-receipt.json").read_text())
-    backup_status.assert_called_once_with(['bash', 'scripts/sentinel-backup-status.sh'])
+    backup_status.assert_not_called()
     assert receipt['schema'] == 'sentinel.installation-receipt/1'
     assert receipt['installation_state'] == 'INSTALLED'
     assert receipt['activation_state'] == 'FENCED'

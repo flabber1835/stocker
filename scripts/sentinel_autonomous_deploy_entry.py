@@ -153,7 +153,7 @@ def _install_shadow_overlay() -> None:
                 if (status.get("broker") != "alpaca"
                         or not str(status.get("broker_account_id") or "").strip()
                         or not str(status.get("deployment_id") or "").strip()
-                        or not isinstance(status.get("takeover_epoch"), int)
+                        or type(status.get("takeover_epoch")) is not int
                         or int(status["takeover_epoch"]) < 1):
                     raise core.DeployRefused(
                         "durable OWNED binding is structurally malformed")

@@ -1320,7 +1320,7 @@ def validate_owned_status(status: Mapping, cfg: Config) -> str:
         if (status.get("broker") != "alpaca"
                 or status.get("broker_account_id") != cfg.account_id
                 or status.get("deployment_id") != cfg.deployment_id
-                or not isinstance(status.get("takeover_epoch"), int)
+                or type(status.get("takeover_epoch")) is not int
                 or int(status["takeover_epoch"]) < 1):
             raise DeployRefused(
                 "durable OWNED binding does not match configured deployment/account")
@@ -1340,7 +1340,7 @@ def validate_deployment_integrity_status(status: Mapping, cfg: Config) -> str:
         if (status.get("broker") != "alpaca"
                 or status.get("broker_account_id") != cfg.account_id
                 or status.get("deployment_id") != cfg.deployment_id
-                or not isinstance(status.get("takeover_epoch"), int)
+                or type(status.get("takeover_epoch")) is not int
                 or int(status["takeover_epoch"]) < 1):
             raise DeployRefused(
                 "durable OWNED binding contradicts configured deployment/account")
@@ -2449,9 +2449,9 @@ class AutonomousDeploy:
                 or status.get("kill_switch_engaged") is not True):
             raise DeployRefused(
                 "deployment receipt requires disabled+killed automation")
-        # Software completion rechecks storage continuity. The financial
-        # base/full-semantic-restore milestone belongs to persist_success.
-        self.runner.run(['bash', 'scripts/sentinel-backup-status.sh'])
+        # Schema changes already proved their exact physical recovery before
+        # DDL. Financial backup readiness and the full semantic restore belong
+        # to activation; receipt publication cannot reintroduce that coupling.
         post_backup = None
         self.verify_operator_services()
         managed = {

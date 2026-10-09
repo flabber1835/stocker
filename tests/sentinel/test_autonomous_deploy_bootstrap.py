@@ -195,9 +195,7 @@ def test_bootstrap_does_not_persist_discovered_facts_before_final_pass(tmp_path)
         test_repository="ghcr.io/example/sentinel-test",
     )
     def storage_status(argv, **kwargs):
-        assert argv == ['bash', 'scripts/sentinel-backup-status.sh']
-        calls.append('backup-status')
-        return SimpleNamespace(stdout='', stderr='', returncode=0)
+        pytest.fail('financial backup readiness inside software finalization: ' + repr(argv))
     obj = bootstrap.BootstrapDeploy(cfg, SimpleNamespace(env={}, run=storage_status), tmp_path)
     obj.commit = "a" * 40
     obj.runtime_digest = "sha256:" + "1" * 64
@@ -215,7 +213,7 @@ def test_bootstrap_does_not_persist_discovered_facts_before_final_pass(tmp_path)
         "policy_state": "INERT",
     })
 
-    assert calls == ["backup-status", "operator-verified", "persist"]
+    assert calls == ["operator-verified", "persist"]
 
 
 @pytest.mark.parametrize('mode', ['shadow', 'dual', 'paper', None])
@@ -251,8 +249,6 @@ def test_public_installation_cannot_succeed_when_operator_service_is_lost(
     def invoke(argv, **kwargs):
         nonlocal lost
         calls.append(argv)
-        if argv == ['bash', 'scripts/sentinel-backup-status.sh']:
-            lost = True
         if lost and 'exec' in argv and service in argv:
             raise core.DeployRefused(condition + ': ' + service)
         return SimpleNamespace(stdout='', stderr='', returncode=0)
@@ -262,6 +258,7 @@ def test_public_installation_cannot_succeed_when_operator_service_is_lost(
         env={'SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY': 'configured'}, run=invoke), tmp_path)
     obj.base_compose = ['docker', 'compose', '-f', 'canonical.yml']
     obj.start_operator_services()
+    lost = True
     obj._persist_deploy_facts = lambda *_: pytest.fail('wrote successful deployment facts')
     obj._post_deploy_backup = lambda: pytest.fail('financial restore inside installation')
     with pytest.raises(core.DeployRefused, match=condition):
