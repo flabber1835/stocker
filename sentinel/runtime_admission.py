@@ -20,7 +20,7 @@ Refused = origin.RollingColdStartRefused
 ADDITIONS = {'runtime_admission.py', 'semantic_source_basis.py', 'retained_go.py', 'retained_parity.py',
              'economic_migration.py', 'core/cash_distributions.py', 'execution_upgrade.py',
              'retained_readiness_upgrade.py', 'dual_plan_renewal_upgrade.py',
-             'operational_liveness_upgrade.py'}
+             'operational_liveness_upgrade.py', 'operational_runtime_upgrade.py'}
 ADMINISTRATIVE = {'shadow_supervisor.py', 'observation_authority.py', 'observation_startup.py'}
 SEAMS = {'core/decision.py': 'sentinel.core.decision',
          'rolling_checkpoint.py': 'sentinel.rolling_checkpoint',
@@ -261,6 +261,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     renewal_profile()
     from sentinel.operational_liveness_upgrade import profile as liveness_profile
     liveness_profile()
+    from sentinel import operational_runtime_upgrade as operational_upgrade
+    operational_profile = operational_upgrade.profile()
     manifest = SourceManifest.model_validate(manifest)
     source = source or identity.rehearsal_identity()
     _require_context(checkpoint, context)
@@ -272,9 +274,12 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     current = identity._imported_package_root('sentinel')
     actual = {p.relative_to(current).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
               for p in current.rglob('*.py') if '__pycache__' not in p.parts}
+    operational_additions = operational_upgrade.additions_allowed(actual)
     if (source_closure(actual) != context['runtime']['sentinel_source_sha256']
             or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']
-            or set(manifest.files) - set(actual) or set(actual) - set(manifest.files) - ADDITIONS):
+            or set(manifest.files) - set(actual)
+            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions
+            or (set(actual) & set(operational_profile['additions'])) - operational_additions):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     for name, previous in manifest.files.items():
         if actual[name] == previous or name in (ADMINISTRATIVE | ADDITIONS):
@@ -294,6 +299,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
             continue
         from sentinel.operational_liveness_upgrade import source_allowed as liveness_source_allowed
         if liveness_source_allowed(name, previous, actual[name]):
+            continue
+        if operational_upgrade.source_allowed(name, previous, actual[name]):
             continue
         if module is None:
             raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)

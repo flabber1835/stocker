@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Anytime paper activation](anytime-paper-activation.md) supersedes the remaining
+following-open wait for reviewed operational dual activation and records the
+owner-authorized focused qualification scope for its repair.
+
 [Retained-state activation](retained-state-activation.md) defines activation's
 explicit compatible-executable admission and reuse of an authenticated existing
 book. It supersedes the historical first-deployment-only GO restriction without

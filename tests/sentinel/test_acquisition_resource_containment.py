@@ -109,6 +109,7 @@ def test_go_refusal_reason_is_resource_not_provider_pending(monkeypatch, capsys,
     monkeypatch.setattr(backup_guard, "require_writes_permitted", noop)
     monkeypatch.setattr(schema, "ensure_schema", noop)
     monkeypatch.setattr(store, "migrate_schema", noop)
+    monkeypatch.setattr(store, "require_feed_schema", noop)
     def refuse(*a, **k):
         limits.check("ZIP_BYTES", limits.ZIP_BYTES + 1, limits.ZIP_BYTES)
     monkeypatch.setattr(retained_go, "prepare", refuse)

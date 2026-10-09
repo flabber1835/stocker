@@ -1,5 +1,10 @@
 # Installation, preparation and activation
 
+The 2026-10-09 [anytime activation decision](anytime-paper-activation.md)
+supersedes following-open waits below for reviewed operational dual activation.
+The scheduler's durable activation cutover prevents same-open transport while
+installation and activation can finish at any time.
+
 Decision: 2026-10-07. Supersedes the combined deployment-success boundary and
 source-final installation waits in `ci-certified-paper-installation.md` and
 `unattended-operating-contract.md`. Software installation has no trading clock,

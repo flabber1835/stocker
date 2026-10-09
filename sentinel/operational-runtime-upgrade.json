@@ -1,0 +1,40 @@
+{
+  "additions": {
+    "panel/authority_reader.py": "0f4f5283529fd15ca0aabf1602923138583f67029965d83c57c36085ef4dcfa6"
+  },
+  "files": {
+    "automation/service.py": {
+      "after": "36d52f91852f7dac249c94be567191bf86f4e9502c51bde452e15bf81f70d469",
+      "before": [
+        "b4d0708fe1b38f966de8d5675fc12e6bb4321ba46582d4c266a1f56c16d79d1e",
+        "d9af5e1e1fb111b376ec577a57a0cc8ea71fab085471663986aaa4dc08430b48"
+      ]
+    },
+    "panel/model.py": {
+      "after": "8725a25072fde7c10842fb1f8273d1ff49880aabb1280deafbe3467f7fc4a554",
+      "before": [
+        "7dcd668f75a27634f2520fdad6cf40d477f6989c8c9ed8f293bf64373e91b73c"
+      ]
+    },
+    "panel/sources.py": {
+      "after": "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
+      "before": [
+        "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17"
+      ]
+    },
+    "schema.py": {
+      "after": "63aa1e18bc4e40b63a0e0e7ed16eaf07311c20313cfabd0b1b041733fcbe547c",
+      "before": [
+        "1345dba552f0ce785885eb32fd60d39d389347d0db0469e7affc90b173367012"
+      ]
+    },
+    "supervisor_io.py": {
+      "after": "78fad1b887b0ffddeeda4962c0a71951c12250068a267d82fa58e074a8e1fc96",
+      "before": [
+        "4c72aa5ffd147f10ff9f5a55f0ea359da7a71b452002ff575c96185a29fb0c60"
+      ]
+    }
+  },
+  "module_sha256": "87162c384a8b84064d5e8a79683967cb3c22eebd4e315fd1d95dcc7aeab39a8f",
+  "schema": "sentinel.operational-runtime-upgrade/1"
+}

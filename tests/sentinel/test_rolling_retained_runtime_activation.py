@@ -33,7 +33,19 @@ def executable(ready, monkeypatch, request):
         old.pop('operational_liveness_upgrade.py', None)
         for name, record in profile()['files'].items():
             old[name] = record['before'][0]
-    old['shadow_supervisor.py'] = hashlib.sha256(b'prior reviewed supervisor').hexdigest()
+    if getattr(request, 'param', None) == 'operational_runtime':
+        from sentinel.operational_runtime_upgrade import profile
+        old.pop('operational_runtime_upgrade.py', None)
+        for name in profile()['additions']:
+            old.pop(name, None)
+        for name, record in profile()['files'].items():
+            old[name] = record['before'][0]
+    if getattr(request, 'param', None) == 'installed':
+        manifest = json.loads((Path(__file__).parent/
+            'fixtures/retained-source-history/241da1f7.json').read_bytes())
+        old = manifest['files']
+    if getattr(request, 'param', None) != 'installed':
+        old['shadow_supervisor.py'] = hashlib.sha256(b'prior reviewed supervisor').hexdigest()
     env = {'compatible': True, 'sentinel_source': {'path': str(root), 'files': len(actual), 'hash': admission.source_closure(actual)},
            'wealth_core_source': {'hash': '2'*64}, 'dependencies': 'fixed'}
     old_env = deepcopy(env)
@@ -52,7 +64,8 @@ def executable(ready, monkeypatch, request):
             'validated_source_identity_sha256': sha(environment), 'validated_shadow_config_sha256': digest(reviewed),
             'reviewed_shadow_config': reviewed, 'validated_data_publication_sha256': subject}
         return {'observation_id': OBS, 'starting_cash': '50000', 'controller': controller, 'strategy': strategy, 'runtime': runtime_id}
-    prior = context(old_env, '4'*40, 'sha256:'+'5'*64)
+    revision = manifest['revision'] if getattr(request, 'param', None) == 'installed' else '4'*40
+    prior = context(old_env, revision, 'sha256:'+'5'*64)
     current = context(env, '6'*40, 'sha256:'+'7'*64)
     if getattr(request, 'param', None) == 'economic':
         current['strategy'] = {**current['strategy'], 'data_semantics_source_sha256': '9'*64}
@@ -62,7 +75,8 @@ def executable(ready, monkeypatch, request):
     monkeypatch.setattr(admission, 'current_context', lambda **kw: deepcopy(current))
     monkeypatch.setenv('SENTINEL_SHADOW_OBSERVATION_ID', OBS)
     monkeypatch.setenv('SENTINEL_SHADOW_STARTING_CASH', '50000')
-    manifest = {'schema': 'sentinel.retained-source-manifest/1', 'revision': '4'*40, 'files': old}
+    if getattr(request, 'param', None) != 'installed':
+        manifest = {'schema': 'sentinel.retained-source-manifest/1', 'revision': revision, 'files': old}
     return prior, current, manifest
 
 

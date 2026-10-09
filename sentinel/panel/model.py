@@ -824,6 +824,10 @@ def automation_cycle_row(*, installed: Optional[bool],
             maximum_attempts=phase_max_attempts,
             next_attempt_at=next_wake_at,
             operator_required=bool(terminal_reason))
+    elif (normalized == "SUPERSEDED"
+          and failure_code == "DISCOVERED_AFTER_SESSION_OPEN"):
+        status = PENDING
+        detail += " · activation waits for the next eligible session; no new order was sent"
     elif failure_code or failure_detail:
         status = FAIL
     elif not normalized:

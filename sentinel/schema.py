@@ -2042,6 +2042,15 @@ def ensure_schema(conn) -> None:
 
             if _LEDGER_TABLE in relations:
                 _validate_ledgered(cur, catalog)
+                if _semantic_catalog_sha256(
+                        relations, columns, constraints, indexes, triggers,
+                        _STAGE4_TABLES) == _STAGE4_CATALOG_SHA256:
+                    _validate_stage4_runtime(cur, catalog)
+                    # Exact current shape and authority singletons proved.
+                    # Reissuing IF NOT EXISTS still takes exclusive table
+                    # locks; a no-op installer must not contend with readers.
+                    conn.commit()
+                    return
             else:
                 bootstrap_kind = _classify_markerless(
                     relations, columns, constraints, indexes, triggers)
