@@ -1050,6 +1050,15 @@ finally:
 '''.strip()
 
 
+def _preparation_json_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate preparation evidence key")
+        value[key] = item
+    return value
+
+
 def preparation_attempts(completed, *, schema_migrated, daily_completed):
     """Retain typed failed-child attempts without promoting a failure to PASS."""
     fallback = (schema_migrated is True, daily_completed is True)
@@ -1062,7 +1071,7 @@ def preparation_attempts(completed, *, schema_migrated, daily_completed):
     if len(lines) != 1:
         return fallback
     try:
-        payload = json.loads(lines[0])
+        payload = json.loads(lines[0], object_pairs_hook=_preparation_json_object)
     except (ValueError, TypeError):
         return fallback
     if not isinstance(payload, dict):

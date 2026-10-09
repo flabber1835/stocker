@@ -39,13 +39,20 @@ The deliberate `DISCOVERED_AFTER_SESSION_OPEN` cutover is displayed as waiting
 for the next session, never as failed reconciliation or successful execution.
 Other superseded, missed or blocked obligations keep their failure presentation.
 
-Operational financial GO is a consumer of the installed schema, not a second installer.
-Its preparation validates the exact behavioral and feed catalogs read-only.
-Explicit migration also recognizes a completely validated current catalog and
-returns without DDL, preserving the migration lock and singleton/corruption
-checks. Fresh or recognized additive upgrades still use the existing atomic
-migration transaction. This avoids acquiring AccessExclusive locks merely to
-add columns that already exist while status readers are running.
+Operational financial GO retains its explicit behavioral migration admission.
+That function recognizes a completely validated current catalog and returns
+without DDL, preserving the migration lock and singleton/corruption checks.
+Its existing JSON migration-attempt field truthfully records entering that
+function; no new or fictional DDL is implied by a successful no-op migration.
+GO validates the already installed feed catalog read-only, without rebuilding
+its derived projection. Fresh or recognized additive upgrades retain the
+existing atomic deployment migration transaction. This avoids acquiring
+AccessExclusive locks merely to add columns that already exist while status
+readers are running and preserves preparation/renewal JSON compatibility.
+Preparation success requires one unambiguous marker with exactly the five
+boolean facts. Duplicate JSON keys or repeated terminal markers cannot prove
+success or authorize a backup renewal. Failed preparation retains only typed
+attempts; it never promotes a failure into completed admission.
 
 Qualification joins host activation at pre-open, open, intraday, post-close and
 non-session clocks with the actual PostgreSQL scheduler. It proves no same-open

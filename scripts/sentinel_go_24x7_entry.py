@@ -119,7 +119,6 @@ def reason_code(phase, exc):
         'DATABASE_CONNECT': 'PREPARATION_DATABASE_CONNECT_FAILURE',
         'BACKUP_DURABILITY': 'PREPARATION_BACKUP_DURABILITY_REFUSED',
         'SCHEMA_MIGRATION': 'PREPARATION_SCHEMA_MIGRATION_FAILED',
-        'SCHEMA_VALIDATION': 'PREPARATION_SCHEMA_VALIDATION_FAILED',
         'SOURCE_FINAL_FRONTIER': 'PREPARATION_SOURCE_FINAL_FRONTIER_FAILED',
         'DAILY_CATCHUP': 'PREPARATION_DAILY_CATCHUP_FAILED',
         'PUBLICATION_CHECK': 'PREPARATION_PUBLICATION_CHECK_FAILED',
@@ -170,12 +169,13 @@ try:
     progress.emit('backup_durability', 'started')
     backup_guard.require_writes_permitted(
         c, operation='NAS financial preparation')
-    phase = 'SCHEMA_VALIDATION'
-    progress.emit('schema_validation', 'started', reason='BEHAVIORAL_SCHEMA')
-    schema.require_runtime_schema(c)
+    phase = 'SCHEMA_MIGRATION'
+    progress.emit('schema_migration', 'started', reason='BEHAVIORAL_SCHEMA')
+    schema_attempted = True
+    schema.ensure_schema(c)
     progress.emit('schema_validation', 'started', reason='FEED_SCHEMA')
     store.require_feed_schema(c)
-    progress.emit('schema_validation', 'completed')
+    progress.emit('schema_migration', 'completed')
 
     phase = 'SOURCE_FINAL_FRONTIER'
     now = datetime.now(timezone.utc)
@@ -246,7 +246,7 @@ def _strict_object(pairs):
     value = {}
     for key, item in pairs:
         if key in value:
-            raise ValueError('duplicate retained revision key')
+            raise ValueError('duplicate evidence key')
         value[key] = item
     return value
 
@@ -328,18 +328,20 @@ def _deployment_preparation_probe(
 
     marker = 'SENTINEL_GO_PREPARATION='
     payload = None
-    if completed.returncode == 0:
-        for line in (completed.stdout or '').splitlines():
-            if line.startswith(marker):
-                try:
-                    payload = json.loads(line[len(marker):])
-                except json.JSONDecodeError:
-                    payload = None
+    lines = [line[len(marker):] for stream in
+             (completed.stdout or '', completed.stderr or '')
+             for line in stream.splitlines() if line.startswith(marker)]
+    if completed.returncode == 0 and len(lines) == 1:
+        try:
+            payload = json.loads(lines[0], object_pairs_hook=_strict_object)
+        except ValueError:
+            payload = None
     expected = {
         'schema_migrated', 'source_not_before_satisfied',
         'following_open_future', 'bounded_sharadar_daily',
         'publication_current'}
-    valid_shape = isinstance(payload, dict) and set(payload) == expected
+    valid_shape = (isinstance(payload, dict) and set(payload) == expected
+                   and all(type(value) is bool for value in payload.values()))
     passed = bool(
         valid_shape
         and payload.get('schema_migrated') is True

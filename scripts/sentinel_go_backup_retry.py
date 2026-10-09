@@ -11,6 +11,15 @@ RESUME_ENV = "SENTINEL_GO_RESUME_JOB_ID"
 MAX_RENEWALS = 2
 
 
+def _failure_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate preparation failure key")
+        value[key] = item
+    return value
+
+
 def failure_payload(completed):
     lines = [line[len(FAILURE):] for stream in
              (completed.stdout or "", completed.stderr or "")
@@ -18,7 +27,7 @@ def failure_payload(completed):
     if len(lines) != 1:
         return None
     try:
-        value = json.loads(lines[0])
+        value = json.loads(lines[0], object_pairs_hook=_failure_object)
     except ValueError:
         return None
     return value if isinstance(value, dict) else None
