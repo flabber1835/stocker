@@ -8,6 +8,7 @@ from datetime import datetime
 import hashlib
 import io
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -79,10 +80,15 @@ def _json_bytes(raw, code, label):
             result[key] = value
         return result
     def constant(_value):
-        _refuse(code, "%s contains a non-finite JSON constant" % label)
+        _refuse(code, "%s contains a non-finite JSON number" % label)
+    def number(raw_number):
+        value = float(raw_number)
+        if not math.isfinite(value):
+            constant(raw_number)
+        return value
     try:
         value = json.loads(raw.decode("utf-8"), object_pairs_hook=pairs,
-                           parse_constant=constant)
+                           parse_constant=constant, parse_float=number)
     except (UnicodeError, json.JSONDecodeError):
         _refuse(code, "%s is not valid UTF-8 JSON" % label)
     if not isinstance(value, dict):

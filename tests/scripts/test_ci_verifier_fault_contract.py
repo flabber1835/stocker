@@ -114,10 +114,16 @@ def test_default_read_client_uses_the_scoped_read_token_without_mutation_methods
 
 
 @pytest.mark.parametrize('raw', [b'\xff', b'{', b'[]', b'null', b'{"a":1,"a":2}',
-                               b'{"a":NaN}', b'{"a":Infinity}', b'{"a":-Infinity}'])
+                               b'{"a":NaN}', b'{"a":Infinity}', b'{"a":-Infinity}',
+                               b'{"nested":{"number":1e999}}'])
 def test_json_reader_refuses_invalid_encoding_type_and_duplicate_fields(raw):
     refused('CERT_GITHUB_RESPONSE_INVALID', lambda:
             verify._json_bytes(raw, 'CERT_GITHUB_RESPONSE_INVALID', 'fixture response'))
+
+
+def test_json_reader_preserves_finite_json_numbers():
+    assert verify._json_bytes(b'{"number":1.25}', 'CERT_GITHUB_RESPONSE_INVALID',
+                              'fixture response') == {'number': 1.25}
 
 
 @pytest.mark.parametrize('code', [0, 1])

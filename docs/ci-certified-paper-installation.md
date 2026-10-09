@@ -20,7 +20,8 @@ coordinator otherwise runs the canonical locked GO producer after installation.
 
 The host verifier uses the same strict UTF-8 JSON object reader for the artifact
 documents, GitHub responses and decoded DSSE statement. Scalar/list/null roots,
-duplicate fields and non-finite JSON constants are typed certification refusals.
+duplicate fields and non-finite JSON numbers (including overflowing numeric
+literals) are typed certification refusals.
 Workflow run and attempt identities are positive JSON integers; booleans,
 strings and fractional numbers cannot become an identity through `int()`
 coercion. Repository and artifact workflow identity fields retain their exact
@@ -30,6 +31,18 @@ authority or create a trading-hours prerequisite for installation.
 The refusal helper is a terminal typed raise. Exception handlers retain that
 refusal and its original Python exception context; there is no second
 `AssertionError` path after a helper that cannot return.
+
+Image-build, image-promotion and dependency-closure host records apply the same
+strict input policy. Docker inspection is JSON with exactly one image, an object
+configuration and labels, a canonical image SHA256, a canonical source commit,
+and a list of canonical repository digests. False, null, arrays or incomplete
+digest strings cannot become an empty configuration or a frozen image identity.
+Both explicit non-finite constants and overflowing JSON numbers are refusals.
+Loading a retained build rechecks distinct runtime/test image identities.
+Loading a promotion binds each role back to the original frozen build identity
+as well as its commit; the runtime and test repository digests remain distinct.
+Malformed path values receive the same typed refusal as other malformed fields.
+These checks validate existing record schemas and grant no deployment authority.
 
 ## Installation work and recovery milestones
 
