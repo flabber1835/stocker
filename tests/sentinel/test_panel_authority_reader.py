@@ -23,8 +23,8 @@ def result():
         'errors': [], 'observed_at': datetime.now(timezone.utc)}
 
 
-def complete(value):
-    limit = time.monotonic()+3
+def complete(value, timeout=3):
+    limit = time.monotonic()+timeout
     while value.pending is not None and time.monotonic() < limit:
         time.sleep(.01)
     assert value.pending is None, 'test observer did not complete'
@@ -164,6 +164,25 @@ def test_actual_spawned_observer_deadline_kills_and_reaps(tmp_path):
     pid = int(filename.read_text())
     with pytest.raises(ProcessLookupError):
         os.kill(pid, 0)
+
+
+def _threaded_fixture_runner(function, *args, **kwargs):
+    assert function is reader._observe
+    assert kwargs == dict(timeout=reader.DEADLINE_SECONDS, start_method='spawn')
+    # Real thread -> owned spawn -> bounded pipe -> parent validation. Only
+    # the financial observation content is a named fixture, never authority.
+    return supervisor_io.run(result, timeout=10, start_method=kwargs['start_method'])
+
+
+@pytest.mark.skipif(os.name != 'posix', reason='deployed observer uses Linux parent-death supervision')
+def test_actual_threaded_spawn_delivers_once_without_http_blocking():
+    value = reader.Reader(runner=_threaded_fixture_runner)
+    initial = value.read('credential-free-fixture')
+    assert initial[0][0].status == model.UNKNOWN
+    complete(value, timeout=15)
+    rows, _, _, errors = value.read('credential-free-fixture')
+    assert rows[0].status == model.OK and not errors
+    assert value.read('credential-free-fixture')[0][0].status == model.UNKNOWN
 
 
 def test_financial_observer_does_not_hide_current_control_rows(monkeypatch):
