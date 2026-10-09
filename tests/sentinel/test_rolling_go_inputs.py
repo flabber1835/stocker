@@ -223,6 +223,8 @@ def test_supported_go_preparation_and_readiness_payloads_use_rolling(conn, publi
     backup_calls = []
     monkeypatch.setattr(backup_guard, "require_writes_permitted",
                         lambda conn, **kwargs: backup_calls.append(kwargs["operation"]))
+    monkeypatch.setattr(store, 'migrate_schema', lambda *a, **k:
+                        pytest.fail('GO must validate the installed feed, not migrate it'))
     class Borrowed:
         def __getattr__(self, name):
             return getattr(conn, name)
@@ -236,7 +238,8 @@ def test_supported_go_preparation_and_readiness_payloads_use_rolling(conn, publi
     prepared = json.loads(next(line.split("=", 1)[1] for line in output.splitlines()
                                if line.startswith("SENTINEL_GO_PREPARATION=")))
     assert prepared["publication_current"] and prepared["bounded_sharadar_daily"]
-    assert "NAS validation schema migration" in backup_calls
+    assert backup_calls == ["NAS financial preparation"]
+    assert prepared['schema_migrated'] is True
     exec(entry.go._READINESS_CODE, {})
     output = capsys.readouterr().out
     ready = json.loads(next(line.split("=", 1)[1] for line in output.splitlines()

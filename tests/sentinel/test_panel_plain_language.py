@@ -66,7 +66,7 @@ def test_shadow_build_never_selects_legacy_trial_certificates(monkeypatch):
     def selected(*args, **kwargs):
         called.append(kwargs)
         raise RuntimeError('selection reached')
-    monkeypatch.setattr(sources, '_dual_authority_rows', selected)
+    monkeypatch.setattr(sources, '_bounded_dual_authority_rows', selected)
     monkeypatch.setattr(sources, '_trial_rows', lambda *a, **k:
         pytest.fail('obsolete paper trial selected in shadow mode'))
     with pytest.raises(RuntimeError, match='selection reached'):
@@ -87,7 +87,7 @@ def test_slow_status_read_dates_document_at_completion_without_redating_facts(mo
     def financial(*a, **k):
         clock[0] = NOW + timedelta(seconds=100)
         return [], {}, [], []
-    monkeypatch.setattr(sources, '_dual_authority_rows', financial)
+    monkeypatch.setattr(sources, '_bounded_dual_authority_rows', financial)
     monkeypatch.setattr(sources, '_ownership', lambda *a: model.Row('ownership', '', '', model.OK))
     monkeypatch.setattr(sources, '_feed_rows', lambda *a: ([stale], []))
     monkeypatch.setattr(sources, '_runtime_rows', lambda *a: ([], []))

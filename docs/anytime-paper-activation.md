@@ -87,6 +87,28 @@ Qualification must block a real observer, demonstrate that current panel facts
 still render, enforce deadline/reaping and one-observer ownership, and prove a
 completed positive result cannot be reused or survive configuration changes.
 
+## Retained executable admission
+
+The catalog, scheduler and bounded panel changes are an executable upgrade over
+the same immutable book. A separate authenticated operational-runtime source
+profile admits only the reviewed previous bytes and exact replacement bytes of
+these five existing modules. It also pins the exact bytes of the new read-only
+panel observer. Existing economic, execution, readiness, renewal and liveness
+profiles remain unchanged; their historical target bytes remain evidence, not
+the current executable. An unknown predecessor, neighboring edit, added module
+or altered profile/reader still refuses admission. The observer is not granted
+the generic administrative source exemption.
+
+Admission still authenticates the complete historical source/environment
+manifest, original origin, HMAC chain, strategy, Wealth Core and configuration,
+under the disabled/killed writer fence. It appends only the ordinary compatible
+runtime admission record with no financial authority. It never reforms or
+reacquires the book, resets the binding or rewrites historical records. Test the
+complete retained manifests, including the currently installed release, and an
+actual formed-book upgrade/restart alongside unknown-source and profile-tamper
+refusals. A successful compatibility proof does not replace protected software
+certification or the supported activation/recovery milestones.
+
 ## Qualification scope for this repair
 
 The owner authorized changing the qualification approach and stopping repeated

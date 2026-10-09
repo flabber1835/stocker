@@ -233,6 +233,10 @@ def test_150_runtime_validation_coexists_with_idle_reader(behavioral, pg):
 
 
 def test_150_explicit_schema_ddl_has_bounded_lock_wait(behavioral, pg):
+    # Current catalogs require no DDL. Exercise an actual supported additive
+    # migration instead, retaining the original lock-timeout assertion.
+    behavioral.execute('DROP TABLE sentinel_notification_policy')
+    behavioral.commit()
     blocker = feed_store.connect(pg.sync_dsn)
     migrator = feed_store.connect(pg.sync_dsn)
     try:

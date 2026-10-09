@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from sentinel import operational_liveness_upgrade as upgrade, runtime_admission as admission
+from sentinel import operational_runtime_upgrade as subsequent
 from sentinel import rolling_checkpoint as origin, rolling_initialization as initial
 from sentinel import rolling_runtime as runtime, shadow_runtime
 from sentinel.feed import rolling_go_inputs as inputs
@@ -21,8 +22,9 @@ from tests.sentinel.test_rolling_retained_runtime_activation import (
 def test_only_exact_operational_source_transitions_are_allowed(name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-    assert actual == record['after']
-    assert upgrade.source_allowed(name, record['before'][0], actual)
+    if actual != record['after']:
+        assert subsequent.source_allowed(name, record['after'], actual)
+    assert upgrade.source_allowed(name, record['before'][0], record['after'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
     assert not upgrade.source_allowed('core/kernel.py', record['before'][0], actual)
@@ -43,6 +45,7 @@ def test_exact_transition_requires_authenticated_origin_and_environment(closure,
 @pytest.mark.parametrize('revision,fixture_sha', [
     ('368669bb', '9e8fcb27383f98e2991835d766dd83506a916f0cee1f617fc6f8a51d05345f66'),
     ('bf4009dc', '835f2fd3d4f3024fc739df5e2734c3359f5dc03ad06f9fbcbde53827ba989a34'),
+    ('241da1f7', 'b03c7d3b02673034705b4bc7818d955639763896f29a3d47c96fa87b34c4671c'),
 ])
 def test_complete_historical_source_manifest_is_admitted(closure, monkeypatch, revision, fixture_sha):
     _, checkpoint, context, _, source_value = closure
@@ -103,7 +106,7 @@ def test_upgrade_profile_and_reader_tamper_refuse(tmp_path, monkeypatch, kind):
 
 
 @pytest.mark.parametrize('ready', [{'formed': True}], indirect=True)
-@pytest.mark.parametrize('executable', ['operational'], indirect=True)
+@pytest.mark.parametrize('executable', ['operational', 'operational_runtime', 'installed'], indirect=True)
 def test_actual_formed_book_upgrade_restarts_without_reformation_or_reacquisition(
         conn, ready, executable, operational_source, monkeypatch):
     first = _start(conn, executable)
@@ -140,6 +143,67 @@ def test_actual_formed_book_upgrade_restarts_without_reformation_or_reacquisitio
                        'hmac_sha256': admission._signature(admitted.model_dump(by_alias=True))}
     assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
     conn.rollback()
+
+
+@pytest.mark.parametrize('name', sorted(subsequent.SCOPE))
+def test_operational_runtime_transition_is_exact_and_authenticated(closure, name):
+    record = subsequent.profile()['files'][name]
+    actual = hashlib.sha256((Path(subsequent.__file__).parent/name).read_bytes()).hexdigest()
+    assert actual == record['after']
+    for previous in record['before']:
+        assert subsequent.source_allowed(name, previous, actual)
+        assert not subsequent.source_allowed(name, previous, 'f'*64)
+    assert not subsequent.source_allowed(name, 'f'*64, actual)
+    root, checkpoint, context, manifest, source_value = _execution_closure(
+        closure, name, source_profile=subsequent)
+    assert admission.prove_compatibility(manifest, checkpoint, context, source=source_value)
+    path = root/name
+    path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_NEIGHBOR = True\n')
+    _refresh_current(root, context, source_value)
+    with pytest.raises(admission.Refused, match='RETAINED_ECONOMIC_SOURCE_CHANGED'):
+        admission.prove_compatibility(manifest, checkpoint, context, source=source_value)
+
+
+@pytest.mark.parametrize('already_present', [False, True])
+def test_new_observer_requires_exact_pin_even_in_a_retained_manifest(closure, already_present):
+    root, checkpoint, context, manifest, source_value = closure
+    name = 'panel/authority_reader.py'
+    path = root/name
+    path.parent.mkdir()
+    path.write_bytes((Path(subsequent.__file__).parent/name).read_bytes())
+    _refresh_current(root, context, source_value)
+    assert admission.prove_compatibility(manifest, checkpoint, context, source=source_value)
+    path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_OBSERVER = True\n')
+    _refresh_current(root, context, source_value)
+    if already_present:
+        # An internally consistent manifest is still not a source waiver.
+        manifest['files'][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        old_env = deepcopy(source_value['environment'])
+        old_env['sentinel_source'].update(files=len(manifest['files']),
+            hash=admission.source_closure(manifest['files']))
+        old_hash = hashlib.sha256(json.dumps(old_env, sort_keys=True).encode()).hexdigest()
+        checkpoint.runtime_identity.update(sentinel_source_sha256=old_env['sentinel_source']['hash'],
+            environment_identity_sha256=old_hash)
+        checkpoint.runtime_identity['reviewed_shadow_config']['validated_source_identity_sha256'] = old_hash
+    with pytest.raises(admission.Refused, match='RETAINED_SOURCE_CLOSURE_CHANGED'):
+        admission.prove_compatibility(manifest, checkpoint, context, source=source_value)
+
+
+@pytest.mark.parametrize('kind', ['profile', 'module'])
+def test_operational_runtime_profile_and_reader_are_authenticated(tmp_path, monkeypatch, kind):
+    if kind == 'profile':
+        path = tmp_path/'profile.json'
+        path.write_bytes(subsequent.PROFILE.read_bytes()+b' ')
+        monkeypatch.setattr(subsequent, 'PROFILE', path)
+    else:
+        path = tmp_path/'reader.py'
+        original = Path(subsequent.__file__).read_bytes()
+        changed = original.replace(b'actual.get(name) == sha', b'actual.get(name) != sha')
+        assert changed != original
+        path.write_bytes(changed)
+        monkeypatch.setattr(subsequent, '__file__', str(path))
+    with pytest.raises(ValueError, match='PROFILE_CHANGED|MODULE_CHANGED'):
+        subsequent.profile()
 
 
 __all__ = ['closure', 'conn', 'pg', 'source', 'ready', 'operational_source', 'executable']
