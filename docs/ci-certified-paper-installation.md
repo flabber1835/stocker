@@ -293,6 +293,15 @@ an attested healthy book. A fresh database without a retained origin continues
 through the existing reconstruction/liveness checks. A worker projection write
 failure cannot change or acknowledge a financial result.
 
+Decision: 2026-10-10. The behavioral row-version inventory for this broker-free
+shadow hint includes only the canonical shadow-owned namespaces: `shadow-`,
+`rolling-`, `catchup`, `formation-` and `runtime-admission:`. Publication history
+remains included. PAPER sizing, reconciliation, broker cash and execution
+receipts share the storage table but belong to execution; their normal writes
+must not invalidate a verified shadow's health. Unknown or changed rows within
+a shadow namespace still invalidate the hint. This scopes a liveness hint to
+its owner; it does not remove any financial verifier's dependency checks.
+
 Use an atomic bounded file and publication-receipt HMAC. Do not cache verdicts
 across row-version/config/database changes or claim that a health projection is
 financial authority. Qualify tampering, changed rows/publication/config, causal

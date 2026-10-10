@@ -6,3 +6,10 @@ exact Git blob; the three economic seam blobs are retained in full. The complete
 fixture SHA256 is pinned by the compatibility test. Earlier fixtures remain
 unchanged. Current source, complete environment closure and the real formed-book
 upgrade must independently authenticate against these historical bytes.
+
+`f52301f2.json` adds the complete exact Python-source closure of the protected
+certified release `f52301f25f483e40ac860efa027f52acc4193482`, preceding the bounded
+callback repair. Every entry was read from that independently fetched Git
+commit; no earlier fixture or profile was regenerated. The new fixture's whole
+file hash is pinned in the callback admission tests. It proves a known source
+closure, not deployment admission, paper authority or historical fills.

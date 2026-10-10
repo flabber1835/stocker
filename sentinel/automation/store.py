@@ -366,7 +366,7 @@ def acquire_lease(
 
 def heartbeat_lease(
         conn, *, permit: LeaderPermit,
-        lease_seconds: int) -> LeaderPermit:
+        lease_seconds: int, callback: bool = False) -> LeaderPermit:
     """Renew only an unexpired, still-authorized lease; never resurrect one."""
     if lease_seconds < 1:
         raise ValueError("lease_seconds must be positive")
@@ -391,6 +391,18 @@ def heartbeat_lease(
         if row is None:
             raise StaleLeaderRefused(
                 "automation lease expired, was fenced, or authority changed")
+        if callback:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE sentinel_automation_service_instances SET"
+                    " heartbeat_at=clock_timestamp(),updated_at=clock_timestamp()"
+                    " WHERE instance_id=%s AND right(state,9)='_CALLBACK'"
+                    " AND callback_started_at <= clock_timestamp()"
+                    " AND callback_deadline_at > clock_timestamp()",
+                    (permit.holder_id,))
+                if cur.rowcount != 1:
+                    raise StaleLeaderRefused(
+                        "callback instance is missing, changed or expired")
         conn.commit()
         return permit.model_copy(update={"expires_at": row[1]})
     except BaseException:
@@ -1025,18 +1037,32 @@ def mark_historical_missed(
 def register_instance(
         conn, *, instance_id: str, state: str,
         next_wake_at: datetime | None = None,
-        last_error: str | None = None) -> None:
+        last_error: str | None = None,
+        callback_deadline_seconds: int | None = None) -> None:
     instance_id = _require_text(instance_id, "instance_id")
     state = _require_text(state, "state")
+    callback = state.endswith("_CALLBACK")
+    if callback and (type(callback_deadline_seconds) is not int
+                     or callback_deadline_seconds < 1):
+        raise ValueError("callback instance requires a positive bounded deadline")
+    if not callback and callback_deadline_seconds is not None:
+        raise ValueError("non-callback instance cannot carry a callback deadline")
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_automation_service_instances"
-            " (instance_id,state,next_wake_at,last_error) VALUES (%s,%s,%s,%s)"
+            " (instance_id,state,next_wake_at,last_error,callback_started_at,"
+            " callback_deadline_at) VALUES (%s,%s,%s,%s,"
+            " CASE WHEN %s THEN clock_timestamp() END,"
+            " CASE WHEN %s THEN clock_timestamp()+(%s * INTERVAL '1 second') END)"
             " ON CONFLICT (instance_id) DO UPDATE SET"
             " heartbeat_at=clock_timestamp(),state=EXCLUDED.state,"
             " next_wake_at=EXCLUDED.next_wake_at,"
-            " last_error=EXCLUDED.last_error,updated_at=clock_timestamp()",
-            (instance_id, state, next_wake_at, last_error))
+            " last_error=EXCLUDED.last_error,"
+            " callback_started_at=EXCLUDED.callback_started_at,"
+            " callback_deadline_at=EXCLUDED.callback_deadline_at,"
+            " updated_at=clock_timestamp()",
+            (instance_id, state, next_wake_at, last_error, callback, callback,
+             callback_deadline_seconds))
     conn.commit()
 
 

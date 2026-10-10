@@ -68,6 +68,20 @@ the next session acquires inputs under that strategy. A separate pinned upgrade
 profile permits this exact readiness repair and the three paper adapter call
 sites described below, without changing the existing cash or execution profiles.
 Neighboring source changes still refuse.
+The bounded callback liveness repair has its own immutable source-transition
+profile. It covers only `automation/health.py`, `automation/service.py`,
+`automation/store.py`, `automation_supervisor.py`, `schema.py` and
+`shadow_health_projection.py`. Its predecessor hashes come from the verified
+preceding release, the already authenticated historical manifests and the
+earlier reviewed operational profiles. Each destination is the exact reviewed
+file; unknown predecessor or destination bytes and neighboring changes refuse.
+The earlier profiles and historical fixtures remain unchanged. The two nullable
+callback timestamps require the explicit operational schema migration and do
+not change strategy state. Admission still authenticates the complete original
+book and computational environment, appends only its existing administrative
+receipt and grants no broker authority. Qualification includes the complete
+preceding release and historical source closures, same-session formed-book
+reuse with formation/acquisition forbidden, and mutations of every listed file.
 Substitute only that proven original source hash/count into the actual current
 environment record; its digest must reproduce the authenticated origin's
 environment digest. Dependency, calendar, interpreter or base-image changes

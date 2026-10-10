@@ -31,6 +31,16 @@ parent-death, and process-group behavior. A killed child cannot reliably flush
 a coverage file, so coverage of its protocol is measured in the deterministic
 tests rather than inferred from a killed process.
 
+The enforced lane threshold is 100 percent. Connection factories must supply
+an owned, non-null connection before registration or renewal proceeds.
+Acquisition failure owns no connection to close; after acquisition, every
+success, refusal and cancellation closes that exact connection. The heartbeat
+preserves its first failure even if closing also fails. An immutable prior cycle
+already proved nonterminal needs no second terminal predicate at its fallback
+block boundary. These ownership and immutable-snapshot rules remove impossible
+successful-cleanup branches without excluding them from measurement or changing
+valid cycle dispatch.
+
 Recovery tests assert the persisted transition sequence, retained account and
 cycle identity, retry timing, and absence of executor calls. Concurrent or
 corrupt dependency observations are injected explicitly and must preserve the
@@ -184,6 +194,29 @@ ordinary recovery returns `SUPERSEDED` from `EXECUTING`, the durable path is
 `EXECUTING -> RECONCILING -> SUPERSEDED`, matching the transition graph.
 
 ## 3. Leader lease and fencing
+
+Decision: 2026-10-10. Callback progress and worker liveness have different
+clocks. Starting each supervised callback records its database-time
+`callback_started_at` and `callback_deadline_at` on the service instance.
+Every successful callback lease renewal atomically renews that exact instance's
+heartbeat, under the same holder, fencing token and control generation. A
+missing instance, expired callback, expired lease or changed authority refuses
+the entire renewal. Renewal never changes either callback boundary.
+
+The independent process supervisor anchors its monotonic watchdog to the
+unchanging callback start, and also observes the persisted deadline. Frequent
+heartbeats cannot extend one invocation; a later invocation of the same phase
+gets its own boundary. Database loss retains the existing monotonic deadline.
+Health uses a fresh database-time sample after its reads. A current, bounded
+callback is work in progress, so its cycle's already-due scheduler wake is not
+an overdue sleep. An expired callback remains unhealthy even with a fresh lease.
+Standby heartbeats cannot prove leader liveness. Existing callback termination,
+group reaping, authority, broker and lease guards remain mandatory.
+
+The two nullable instance columns are additive operational schema witnesses.
+Explicit supported migration installs them; startup never migrates. Historical
+instance rows remain preserved. A callback without both boundaries cannot be
+reported operationally ready.
 
 One PostgreSQL singleton lease contains the holder instance id, monotonically
 increasing fencing token, control generation, acquisition/heartbeat/expiry

@@ -235,7 +235,7 @@ def test_main_push_runs_exact_sha_safety_and_branch_coverage():
     assert "coverage run --branch" in workflow
     assert "tests/sentinel/test_automation_safety_seams.py" in workflow
     assert "tests/sentinel/test_automation_process_contracts.py" in workflow
-    assert "coverage report --precision=2 --fail-under=80.00" in " ".join(
+    assert "coverage report --precision=2 --fail-under=100.00" in " ".join(
         workflow.replace("\\\n", " ").split())
     for evidence in (
             "source tree", "workflow run", "dependency locks",

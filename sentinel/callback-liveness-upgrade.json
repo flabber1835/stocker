@@ -1,0 +1,45 @@
+{
+  "files": {
+    "automation/health.py": {
+      "after": "d9258c571a803aaf2b61219d16b2976d8d02d67dc401bd68e4d044aed20d4bb7",
+      "before": [
+        "11eca78e2cca23b1f6f502d17cdf59b2d4e7487f1653badc1fb803331823da42"
+      ]
+    },
+    "automation/service.py": {
+      "after": "16177ffeb2b863b51081e981674d97a1fe58a20ede7c53b4a154baf61c0d3a49",
+      "before": [
+        "36d52f91852f7dac249c94be567191bf86f4e9502c51bde452e15bf81f70d469",
+        "b4d0708fe1b38f966de8d5675fc12e6bb4321ba46582d4c266a1f56c16d79d1e",
+        "d9af5e1e1fb111b376ec577a57a0cc8ea71fab085471663986aaa4dc08430b48"
+      ]
+    },
+    "automation/store.py": {
+      "after": "367bca885418536ca7ae8515b72de0723e850c1ff665a7494e1e7aeb042d0566",
+      "before": [
+        "92f66c071546d4d83fc8dff201f908908ae7b8d0ae6151b0fdfc18a74ed63ccb"
+      ]
+    },
+    "automation_supervisor.py": {
+      "after": "11d5989da2b2180a626404fa0b70983018279ae7c12815a28df660ae46427ec0",
+      "before": [
+        "a4f3371e7029668c738e82266bc5e9308df42d17bc113ff64e529abe0beb096b"
+      ]
+    },
+    "schema.py": {
+      "after": "5bc8919a2dd3837450596344f29e1c511866435032deab800e71746bfba22adc",
+      "before": [
+        "1345dba552f0ce785885eb32fd60d39d389347d0db0469e7affc90b173367012",
+        "63aa1e18bc4e40b63a0e0e7ed16eaf07311c20313cfabd0b1b041733fcbe547c"
+      ]
+    },
+    "shadow_health_projection.py": {
+      "after": "3e95ee0be32ff2020c5ba20fd72cd09aa0e7a755cb2ed8c426c4f8a9e02c8988",
+      "before": [
+        "cf777effdf0448a6281582d1d5758ad4df1ee0fce2d982372a4665cc685413ee"
+      ]
+    }
+  },
+  "module_sha256": "ec1540137b562b715ad9f6125cd180a0b8e297426beba6538fc5b2b58df312ac",
+  "schema": "sentinel.callback-liveness-upgrade/1"
+}

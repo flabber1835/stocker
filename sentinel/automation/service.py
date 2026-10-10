@@ -666,11 +666,17 @@ class AutomationService:
 
         def heartbeat() -> None:
             while not stopped.wait(self.config.heartbeat_seconds):
-                heartbeat_conn = None
                 try:
                     if stopped.is_set() or context.cancellation.cancelled:
                         return
                     heartbeat_conn = heartbeat_conn_factory()
+                    if heartbeat_conn is None:
+                        raise StaleLeaderRefused(
+                            "heartbeat factory supplied no owned connection")
+                except BaseException as exc:                    # noqa: BLE001
+                    signal_heartbeat_failure(exc)
+                    return
+                try:
                     if stopped.is_set() or context.cancellation.cancelled:
                         return
                     # The factory applies connection and statement bounds below
@@ -680,19 +686,18 @@ class AutomationService:
                         return
                     store.heartbeat_lease(
                         heartbeat_conn, permit=permit,
-                        lease_seconds=self.config.lease_seconds)
+                        lease_seconds=self.config.lease_seconds, callback=True)
                     if stopped.is_set() or context.cancellation.cancelled:
                         return
                 except BaseException as exc:                    # noqa: BLE001
                     signal_heartbeat_failure(exc)
                     return
                 finally:
-                    if heartbeat_conn is not None:
-                        try:
-                            heartbeat_conn.close()
-                        except BaseException as exc:              # noqa: BLE001
-                            signal_heartbeat_failure(exc)
-                            return
+                    try:
+                        heartbeat_conn.close()
+                    except BaseException as exc:                  # noqa: BLE001
+                        signal_heartbeat_failure(exc)
+                        return
 
         worker = None
         worker_started = False
@@ -739,25 +744,32 @@ class AutomationService:
 
         try:
             if heartbeat_conn_factory is not None:
-                start_conn = None
                 try:
                     start_conn = heartbeat_conn_factory()
+                    if start_conn is None:
+                        raise StaleLeaderRefused(
+                            "heartbeat factory supplied no owned startup connection")
+                except BaseException as exc:                  # noqa: BLE001
+                    raise StaleLeaderRefused(
+                        f"{phase} callback heartbeat failed before start: "
+                        f"{exc}") from exc
+                try:
                     context.require_active()
                     store.register_instance(
                         start_conn, instance_id=self.holder_id,
-                        state=f"{phase}_CALLBACK", next_wake_at=None)
+                        state=f"{phase}_CALLBACK", next_wake_at=None,
+                        callback_deadline_seconds=deadline_seconds)
                 except BaseException as exc:                  # noqa: BLE001
                     raise StaleLeaderRefused(
                         f"{phase} callback heartbeat failed before start: "
                         f"{exc}") from exc
                 finally:
-                    if start_conn is not None:
-                        try:
-                            start_conn.close()
-                        except BaseException as exc:            # noqa: BLE001
-                            raise StaleLeaderRefused(
-                                f"{phase} callback heartbeat failed before "
-                                f"start: {exc}") from exc
+                    try:
+                        start_conn.close()
+                    except BaseException as exc:                # noqa: BLE001
+                        raise StaleLeaderRefused(
+                            f"{phase} callback heartbeat failed before "
+                            f"start: {exc}") from exc
                 try:
                     process_context = multiprocessing.get_context("fork")
                 except ValueError as exc:
@@ -972,7 +984,7 @@ class AutomationService:
                     action=TickAction.SUPERSEDED, cycle=prior,
                     permit=permit,
                     reason="older plan missed its execution window")
-            elif not prior.state.terminal:
+            else:
                 return TickResult(
                     action=TickAction.BLOCKED, cycle=prior, permit=permit,
                     reason=(
