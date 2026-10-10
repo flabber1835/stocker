@@ -157,7 +157,7 @@ def test_schema_noop_skips_copy_but_migration_keeps_recovery_before_ddl(schema_c
     obj._create_backup = lambda **k: events.append('physical-recovery') or '/backups/base/base-20261007T060000Z'
     def run(argv, **k):
         if any(item.endswith('sentinel-backup-status.sh') for item in argv):
-            events.append('chain-status')
+            pytest.fail('financial backup readiness inside software schema transition')
         else:
             events.append('schema-proof')
         return SimpleNamespace(stdout=json.dumps({'schema_current':schema_current}))
@@ -167,4 +167,4 @@ def test_schema_noop_skips_copy_but_migration_keeps_recovery_before_ddl(schema_c
         assert events == ['fence', 'schema-proof']
     else:
         obj.quiesce_backup_and_migrate()
-        assert events == ['fence', 'schema-proof', *(['chain-status'] if schema_current else ['physical-recovery', 'migration']), 'confirmed']
+        assert events == ['fence', 'schema-proof', *([] if schema_current else ['physical-recovery', 'migration']), 'confirmed']
