@@ -675,6 +675,7 @@ def _require_alpaca_trigger_authority(workflow_text: str) -> dict:
 def _require_parallel_certification(sentinel: str) -> dict:
     from sentinel_ci_parallel_evidence import SUITE_LANES, REPLAY_SHARDS
 
+    sentinel = _promotion_pr_view(sentinel)
     carrier = _job_body(sentinel, "certification-and-durability")
     require(_job_scalar(carrier, ("needs",)) ==
             "[runtime-build, parallel-certification, sharadar-replay]",

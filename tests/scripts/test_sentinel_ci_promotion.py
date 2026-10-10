@@ -331,3 +331,14 @@ def test_pr_projection_cannot_hide_a_weakened_selector(change):
     elif change == "detached": text = text.replace("needs: [qualification-source, runtime-build, parallel-certification, sharadar-replay]", "needs: [runtime-build, parallel-certification, sharadar-replay]", 1)
     else: text = text.replace("  host-python-38-compatibility:", "      - run: echo mode=promote\n\n  host-python-38-compatibility:", 1)
     with pytest.raises(AssertionError): _promotion_pr_view(text)
+
+
+def test_raw_owner_execution_entrypoint_audits_the_same_full_pr_branch():
+    from tools import validate_test_responsibility as responsibility
+    from tools import verify_test_owner_execution as execution
+    root = Path(__file__).resolve().parents[2]
+    raw = (root / ".github/workflows/sentinel-safety.yml").read_text()
+    direct = responsibility._require_parallel_certification(raw)
+    projected = responsibility._require_parallel_certification(responsibility._promotion_pr_view(raw))
+    assert direct == projected
+    assert execution._require_global_authority(execution.load_authority())["owner_jobs_checked"] > 0
