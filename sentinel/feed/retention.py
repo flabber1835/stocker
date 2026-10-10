@@ -7,6 +7,17 @@ from sentinel.feed.rolling_contract import canonical_json
 log = logging.getLogger(__name__)
 BATCH_ROWS = rolling_store.BATCH_SIZE
 
+# An unordered EXISTS may choose a full-table scan to prove an emptied
+# candidate absent. Keep each probe on the candidate-prefixed primary key;
+# ordering also prevents a hash of the complete bulk relation.
+RETIRED_PAYLOAD_QUERY = (
+    "SELECT r.candidate_id FROM sentinel_snapshot_retirements r WHERE COALESCE("
+    "(SELECT TRUE FROM sentinel_snapshot_bars b WHERE b.candidate_id=r.candidate_id "
+    "ORDER BY b.session,b.security_id LIMIT 1),"
+    "(SELECT TRUE FROM sentinel_snapshot_benchmarks b WHERE b.candidate_id=r.candidate_id "
+    "ORDER BY b.session LIMIT 1),FALSE) "
+    "ORDER BY r.retired_at,r.candidate_id LIMIT 1")
+
 
 def _pass(conn, *, batch_rows):
     from sentinel import rolling_checkpoint, rolling_daily_checkpoint
@@ -41,10 +52,7 @@ def _pass(conn, *, batch_rows):
             conn.execute("INSERT INTO sentinel_snapshot_retirements(candidate_id) VALUES(%s) ON CONFLICT DO NOTHING", (cid,))
             retired_candidate = str(cid)
             break
-    row = conn.execute("SELECT r.candidate_id FROM sentinel_snapshot_retirements r WHERE "
-        "EXISTS(SELECT 1 FROM sentinel_snapshot_bars b WHERE b.candidate_id=r.candidate_id) "
-        "OR EXISTS(SELECT 1 FROM sentinel_snapshot_benchmarks b WHERE b.candidate_id=r.candidate_id) "
-        "ORDER BY retired_at,candidate_id LIMIT 1").fetchone()
+    row = conn.execute(RETIRED_PAYLOAD_QUERY).fetchone()
     deleted = 0
     candidate = str(row[0]) if row else None
     if candidate:

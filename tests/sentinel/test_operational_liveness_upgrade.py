@@ -50,6 +50,10 @@ def test_exact_transition_requires_authenticated_origin_and_environment(closure,
     ('368669bb', '9e8fcb27383f98e2991835d766dd83506a916f0cee1f617fc6f8a51d05345f66'),
     ('bf4009dc', '835f2fd3d4f3024fc739df5e2734c3359f5dc03ad06f9fbcbde53827ba989a34'),
     ('241da1f7', 'b03c7d3b02673034705b4bc7818d955639763896f29a3d47c96fa87b34c4671c'),
+    ('4c9f8769', '020ea190598072c53e7c806ad1da72fc54a0a58de7298467b3469e9c070dcca9'),
+    ('eb7b4d0c', '481cd8997974621f9204979e0d6f63a995460a5871d9952c2a4d8f1e4f85f0a7'),
+    ('f52301f2', 'a3607d47a07375793f771a118b502a2abde3bc2330acb63ff8cf09deb9a027d7'),
+    ('609f4a22', '49bc719a480bfe2e8e52f430fa0ce07b082adf9ea8069f47d97ef4a06ecde0c6'),
 ])
 def test_complete_historical_source_manifest_is_admitted(closure, monkeypatch, revision, fixture_sha):
     _, checkpoint, context, _, source_value = closure
@@ -110,7 +114,7 @@ def test_upgrade_profile_and_reader_tamper_refuse(tmp_path, monkeypatch, kind):
 
 
 @pytest.mark.parametrize('ready', [{'formed': True}], indirect=True)
-@pytest.mark.parametrize('executable', ['operational', 'operational_runtime', 'installed'], indirect=True)
+@pytest.mark.parametrize('executable', ['operational', 'operational_runtime', 'installed', 'recovery_preceding'], indirect=True)
 def test_actual_formed_book_upgrade_restarts_without_reformation_or_reacquisition(
         conn, ready, executable, operational_source, monkeypatch):
     first = _start(conn, executable)

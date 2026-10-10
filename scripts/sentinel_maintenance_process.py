@@ -16,6 +16,7 @@ import tempfile
 import time
 
 import sentinel_backup_lock as backup_lock
+from sentinel_backup_deadlines import INVOCATION_SECONDS
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_OUTPUT = 256 * 1024
@@ -58,7 +59,8 @@ def run_bounded(argv, *, env=None, timeout=900.0, private_group=True, stdin=None
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return Result(124, output.decode("utf-8", errors="replace") +
-                                  "\nMAINTENANCE_DEADLINE_EXCEEDED\n")
+                                  "\nMAINTENANCE_DEADLINE_EXCEEDED\n",
+                                  errors.decode("utf-8", errors="replace"))
                 for key, _ in selector.select(min(remaining, 0.2)):
                     chunk = os.read(key.fileobj.fileno(), 8192)
                     if not chunk:
@@ -70,7 +72,9 @@ def run_bounded(argv, *, env=None, timeout=900.0, private_group=True, stdin=None
             try:
                 code = process.wait(timeout=max(0.001, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
-                return Result(124, "MAINTENANCE_DEADLINE_EXCEEDED\n")
+                return Result(124, output.decode("utf-8", errors="replace") +
+                              "\nMAINTENANCE_DEADLINE_EXCEEDED\n",
+                              errors.decode("utf-8", errors="replace"))
         return Result(code, output.decode("utf-8", errors="replace"),
                       errors.decode("utf-8", errors="replace"))
     finally:
@@ -118,9 +122,9 @@ def _interrupt(signum, _frame):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--timeout-seconds', type=float, default=3600)
+    parser.add_argument('--timeout-seconds', type=float, default=INVOCATION_SECONDS)
     args, forwarded = parser.parse_known_args(argv)
-    if not math.isfinite(args.timeout_seconds) or not 1 <= args.timeout_seconds <= 3600:
+    if not math.isfinite(args.timeout_seconds) or not 1 <= args.timeout_seconds <= INVOCATION_SECONDS:
         parser.error('timeout must be finite and between 1 and 3600 seconds')
     previous = {sig: signal.signal(sig, _interrupt)
                 for sig in (signal.SIGTERM, signal.SIGINT)}

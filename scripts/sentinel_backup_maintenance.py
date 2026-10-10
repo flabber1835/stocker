@@ -13,6 +13,7 @@ import sys
 import time
 
 from sentinel_backup_lock import lock_is_held, _lock_path
+from sentinel_backup_deadlines import BASE_COMMAND_SECONDS, RESTORE_COMMAND_SECONDS
 from sentinel_maintenance_process import run_bounded
 
 
@@ -201,7 +202,8 @@ def tick(root, runner=run):
                                   "renewed": False, "base": selected["name"], **result}, sort_keys=True))
                 return result
     if renewed:
-        output = runner(["bash", "scripts/sentinel-base-backup.sh"], timeout=600)
+        output = runner(["bash", "scripts/sentinel-base-backup.sh"],
+                        timeout=BASE_COMMAND_SECONDS)
         paths = [line[len("verified_base_backup:"):] for line in output.splitlines()
                  if line.startswith("verified_base_backup:")]
         if len(paths) != 1 or not paths[0].startswith(root + "/base/"):
@@ -220,7 +222,8 @@ def tick(root, runner=run):
         env_before = os.environ.get("SENTINEL_RUNTIME_IMAGE_REF")
         os.environ["SENTINEL_RUNTIME_IMAGE_REF"] = image
         try:
-            runner(["bash", "scripts/sentinel-restore-drill.sh", "--backup", path], timeout=2100)
+            runner(["bash", "scripts/sentinel-restore-drill.sh", "--backup", path],
+                   timeout=RESTORE_COMMAND_SECONDS)
         finally:
             if env_before is None:
                 os.environ.pop("SENTINEL_RUNTIME_IMAGE_REF", None)

@@ -153,3 +153,25 @@ and releases ownership before the next pass; a retry stops draining until the
 next normal poll. This uses the existing wake cadence, without changing market
 acquisition frequency. One 5,000-row batch per default five-minute market poll
 alone would not keep up with a full large-universe generation each day.
+
+## Retired payload discovery at production scale
+
+Decision, 2026-10-10. Discovery of the oldest retirement that still owns prices
+uses scalar, primary-key-ordered, one-row probes into each bulk table. A
+correlated unordered `EXISTS` can choose a sequential scan when a candidate is
+expected to match many rows. Once that candidate is empty, proving absence then
+reads the entire multi-gigabyte table and exceeds the existing five-second
+maintenance statement limit. The whole pass rolls back and idle draining stops;
+repeating that query does not establish bounded retention.
+
+The price probe orders by session and security identity; the benchmark probe
+orders by session, using their existing candidate-prefixed primary keys.
+Neither probe sorts or reads every price row. Retirements retain their original
+oldest-first order, and a benchmark-only retirement remains eligible after its
+share rows are drained. The existing transaction, writer/corpus locks,
+authenticated checkpoint and database deletion guards remain authoritative.
+No new deletion permission, statement-timeout increase or retention-age policy
+is introduced. Qualify empty retired candidates ahead of a populated candidate,
+benchmark-only payloads, repeated bounded draining and index access with a
+large unrelated live generation. Actual read-only query plans are additional
+throughput evidence, not authorization to remove primary data.

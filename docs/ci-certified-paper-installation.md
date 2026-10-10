@@ -261,6 +261,35 @@ trading outside the execution contract's session window.
 
 ## Deployment backups and recurring maintenance
 
+### Composed recovery deadlines
+
+Decision: 2026-10-10. A physical producer's 600-second copy/verification
+worker must fit inside its host command, including preflight, the worker's
+30-second termination grace, marker/WAL publication and receipt output. The
+installation and recurring-maintenance owners therefore allow 900 seconds for
+the complete base command. The in-container copy budget remains 600 seconds.
+The former equal inner/outer budgets could kill a verified copy before it was
+published; partial copy progress was also lost when timeout output dropped
+stderr. A timeout retains both bounded diagnostic streams and refuses success.
+
+Installation recovery uses one 3,600-second monotonic deadline after acquiring
+the existing exclusive target lock. Base, chain verification (600 seconds) and
+full restore (2,100 seconds) each receive at most their phase cap and the
+remaining invocation time. A later phase never renews the deadline. The ordinary
+maintenance owner keeps its existing 3,600-second outer bound and uses the same
+base-command cap. Exhaustion cannot publish an installation recovery receipt,
+release the kill switch, authorize retention or leave a host child running.
+
+The isolated restore PostgreSQL worker remains alive for at most 2,160 seconds,
+plus its existing 30-second kill grace. This covers the host restore's
+2,100-second bound and cleanup, including the existing 600-second semantic
+validator. The previous 1,800-second worker lifetime could expire while semantic
+validation was still inside the host's valid budget. Worker expiry is a fallback
+for a lost host; successful drills still stop their disposable resources.
+No data, identity, media-lock, exact-base, full-semantic-proof or broker guard is
+relaxed. Qualify slow successful children, whole-deadline exhaustion, partial
+stdout/stderr, late descendant writes, both restore modes and recurring renewal.
+
 Decision: 2026-10-04. Pre-migration and final deployment base backups wait for
 the existing canonical target lock for at most 3,660 seconds. This covers the
 maintenance invocation's 3,600-second outer deadline and 60 seconds for process

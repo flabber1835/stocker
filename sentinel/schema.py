@@ -195,7 +195,13 @@ _TARGET_CATALOG_SHA256 = {
 # column/type/null/default, constraints, indexes and triggers while ignoring
 # deployment-local OIDs and column order.
 _STAGE4_CATALOG_SHA256 = (
+    "d11dc34bcab1ce9ff25605de38032d0d85db76c0c39e67e07e68c94913b49d19")
+_PRE_GENERATION_CATALOG_SHA256 = (
     "cbb48b11f28cd828a69b03f7cb8c8ed1fcdc23bbf9d40e40fc62c5f6254d31ae")
+_GENERATION_CYCLE_UNIQUE = "sentinel_automation_cycles_generation_key"
+_GENERATION_CYCLE_COLUMNS = (
+    "deployment_id,broker,broker_account_id,takeover_epoch,"
+    "decision_session,control_generation")
 
 # Corpus tables may legitimately be installed before behavioral schema (the
 # prepare CLI does exactly that).  They do not disqualify a database from being
@@ -1041,8 +1047,9 @@ DDL = (
         created_at                   TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
         updated_at                   TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
         completed_at                 TIMESTAMPTZ,
-        UNIQUE (deployment_id,broker,broker_account_id,takeover_epoch,
-                decision_session),
+        CONSTRAINT sentinel_automation_cycles_generation_key
+            UNIQUE (deployment_id,broker,broker_account_id,takeover_epoch,
+                    decision_session,control_generation),
         CHECK (decision_close_at <= prepare_at
                AND prepare_at < execution_open_at),
         CHECK (execution_open_at <= execute_at
@@ -1920,7 +1927,7 @@ def _validate_ledgered(cur, catalog) -> None:
     _validate_rollout_history(cur)
 
 
-def _validate_stage4_runtime(cur, catalog) -> None:
+def _validate_stage4_runtime(cur, catalog, *, expected_catalog=None) -> None:
     relations, columns, constraints, indexes, triggers = catalog
     missing = sorted(_STAGE4_TABLES - set(relations))
     if missing:
@@ -1943,7 +1950,7 @@ def _validate_stage4_runtime(cur, catalog) -> None:
                 f"{absent}; routine startup will not repair authority schema")
     catalog_sha = _semantic_catalog_sha256(
         relations, columns, constraints, indexes, triggers, _STAGE4_TABLES)
-    if catalog_sha != _STAGE4_CATALOG_SHA256:
+    if catalog_sha != (expected_catalog or _STAGE4_CATALOG_SHA256):
         raise _operator_refusal(
             "Stage-4 complete operational catalog fingerprint is incompatible "
             f"(observed {catalog_sha})")
@@ -1955,6 +1962,36 @@ def _validate_stage4_runtime(cur, catalog) -> None:
             raise _operator_refusal(
                 f"Stage-4 singleton {table} is missing; routine startup will "
                 "not guess or reseed authority-bearing state")
+
+
+def _migrate_generation_cycles(cur, catalog) -> None:
+    """One exact operational migration, fenced and preserving every row."""
+    from psycopg import sql
+
+    _validate_stage4_runtime(
+        cur, catalog, expected_catalog=_PRE_GENERATION_CATALOG_SHA256)
+    cur.execute(
+        "SELECT c.enabled,c.kill_switch_engaged,c.generation,"
+        " l.control_generation,l.holder_id,l.expires_at>clock_timestamp() "
+        "FROM sentinel_automation_control c JOIN sentinel_automation_lease l "
+        "ON l.id=c.id WHERE c.id=1 FOR UPDATE OF c,l")
+    enabled, killed, generation, lease_generation, holder, live = cur.fetchone()
+    if ((enabled and not killed)
+            or (holder is not None and live and lease_generation == generation)):
+        raise _operator_refusal(
+            "prospective-cycle migration requires fenced automation and no live current leader")
+    constraints = catalog[2]["sentinel_automation_cycles"]
+    old = [name for name, kind, definition, validated in constraints
+           if kind == "u" and validated and _normal_sql(definition) ==
+           _normal_sql("UNIQUE (deployment_id, broker, broker_account_id, "
+                       "takeover_epoch, decision_session)")]
+    if len(old) != 1:
+        raise _operator_refusal("prospective-cycle predecessor unique constraint is not exact")
+    cur.execute(sql.SQL("ALTER TABLE sentinel_automation_cycles DROP CONSTRAINT {}").format(
+        sql.Identifier(old[0])))
+    cur.execute(sql.SQL(
+        "ALTER TABLE sentinel_automation_cycles ADD CONSTRAINT {} UNIQUE ({})").format(
+        sql.Identifier(_GENERATION_CYCLE_UNIQUE), sql.SQL(_GENERATION_CYCLE_COLUMNS)))
 
 
 def _apply_v1(cur, bootstrap_kind: str) -> None:
@@ -2049,9 +2086,17 @@ def ensure_schema(conn) -> None:
 
             if _LEDGER_TABLE in relations:
                 _validate_ledgered(cur, catalog)
-                if _semantic_catalog_sha256(
+                stage4_sha = _semantic_catalog_sha256(
                         relations, columns, constraints, indexes, triggers,
-                        _STAGE4_TABLES) == _STAGE4_CATALOG_SHA256:
+                        _STAGE4_TABLES)
+                if stage4_sha == _PRE_GENERATION_CATALOG_SHA256:
+                    _migrate_generation_cycles(cur, catalog)
+                    final_catalog = _read_catalog(cur)
+                    _validate_ledgered(cur, final_catalog)
+                    _validate_stage4_runtime(cur, final_catalog)
+                    conn.commit()
+                    return
+                if stage4_sha == _STAGE4_CATALOG_SHA256:
                     _validate_stage4_runtime(cur, catalog)
                     # Exact current shape and authority singletons proved.
                     # Reissuing IF NOT EXISTS still takes exclusive table
@@ -2083,6 +2128,10 @@ def ensure_schema(conn) -> None:
             final_catalog = _read_catalog(cur)
             _validate_backup_infrastructure(*final_catalog)
             _validate_ledgered(cur, final_catalog)
+            if _semantic_catalog_sha256(
+                    *final_catalog, _STAGE4_TABLES) == _PRE_GENERATION_CATALOG_SHA256:
+                _migrate_generation_cycles(cur, final_catalog)
+                final_catalog = _read_catalog(cur)
             _validate_stage4_runtime(cur, final_catalog)
         conn.commit()
     except BaseException:

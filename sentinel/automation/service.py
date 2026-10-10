@@ -41,6 +41,7 @@ from sentinel.automation.model import (
     NonRetryableCallbackRefused,
     PermanentOperationalRefusal,
     PrepareResult,
+    ProspectiveReplacementRefused,
     RefreshResult,
     SoftwareDefect,
     SourceDataPending,
@@ -1026,15 +1027,26 @@ class AutomationService:
             integrity.validate_cycle_lineage(conn, latest)
         if (latest is not None and latest.state.terminal
                 and latest.control_generation != control.generation
-                and latest.decision_session == obligation.decision_session):
+                and latest.decision_session == obligation.decision_session
+                and store.prospective_predecessors(
+                    conn, spec=self._spec(control, obligation), now=now) is None):
             return TickResult(
                 action=TickAction.WAITING, cycle=latest, permit=permit,
                 reason=(
                     "this decision-session obligation was terminalized by a "
                     "generation boundary; no replacement old plan is created"))
 
-        cycle = store.create_cycle(
-            conn, permit=permit, spec=self._spec(control, obligation))
+        try:
+            cycle = store.create_cycle(
+                conn, permit=permit, spec=self._spec(control, obligation), now=now)
+        except store.CycleCreationBusy:
+            conn.rollback()
+            return TickResult(action=TickAction.WAITING, permit=permit,
+                              reason="canonical writer became busy before cycle creation")
+        except ProspectiveReplacementRefused as exc:
+            conn.rollback()
+            return TickResult(action=TickAction.WAITING, permit=permit,
+                              reason=str(exc))
         integrity.validate_cycle_lineage(conn, cycle)
         if cycle.state.terminal:
             return TickResult(

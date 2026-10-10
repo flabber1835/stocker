@@ -124,7 +124,7 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
     mutable fields explicitly carried by transition events. Adoption events are
     the only allowed exception to ordinary same-generation edges.
     """
-    expected_id = CycleSpec(
+    spec = CycleSpec(
         decision_session=cycle.decision_session,
         effective_session=cycle.effective_session,
         deployment_id=cycle.deployment_id,
@@ -142,8 +142,9 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
         execute_at=cycle.execute_at,
         execution_close_at=cycle.execution_close_at,
         historical_state_only=cycle.historical_state_only,
-    ).cycle_id
-    if cycle.cycle_id != expected_id:
+    )
+    replacement = cycle.cycle_id == spec.generation_cycle_id
+    if cycle.cycle_id not in {spec.cycle_id, spec.generation_cycle_id}:
         raise AutomationRefused(
             "automation cycle identity does not match its immutable schedule")
 
@@ -198,6 +199,38 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
             if generation != cycle.control_generation:
                 raise AutomationRefused(
                     "automation cycle genesis generation disagrees with row identity")
+            if replacement:
+                predecessors = detail.get("prospective_predecessors")
+                if (set(detail) != {"prospective_predecessors"}
+                        or not isinstance(predecessors, list) or not predecessors
+                        or any(not isinstance(item, str) or len(item) != 64
+                               or any(char not in '0123456789abcdef' for char in item)
+                               or item == cycle.cycle_id for item in predecessors)
+                        or predecessors != sorted(set(predecessors))):
+                    raise AutomationRefused("prospective cycle genesis has invalid predecessors")
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT cycle_id,state,failure_code,historical_state_only "
+                        "FROM sentinel_automation_cycles WHERE "
+                        "deployment_id=%s AND broker=%s AND broker_account_id=%s "
+                        "AND takeover_epoch=%s AND decision_session=%s AND control_generation<%s "
+                        "ORDER BY cycle_id",
+                        (cycle.deployment_id,cycle.broker,cycle.broker_account_id,
+                         cycle.takeover_epoch,cycle.decision_session,cycle.control_generation))
+                    rows = cur.fetchall()
+                    known = [str(row[0]) for row in rows]
+                    if any(row[1:] != ('SUPERSEDED', 'CONTROL_GENERATION_SUPERSEDED', False)
+                           for row in rows):
+                        raise AutomationRefused('prospective cycle predecessor is not an unsent retirement')
+                    cur.execute(
+                        "SELECT EXISTS(SELECT 1 FROM sentinel_automation_cycle_events "
+                        "WHERE cycle_id=ANY(%s::text[]) AND (from_state IN ('EXECUTING','RECONCILING') "
+                        "OR to_state IN ('EXECUTING','RECONCILING')))", (known,))
+                    if cur.fetchone()[0]:
+                        raise AutomationRefused('prospective cycle predecessor reached transport')
+                conn.rollback()
+                if known != predecessors:
+                    raise AutomationRefused("prospective cycle predecessor identity changed")
         else:
             if from_state is not previous:
                 raise AutomationRefused(

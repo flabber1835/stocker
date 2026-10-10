@@ -195,6 +195,69 @@ ordinary recovery returns `SUPERSEDED` from `EXECUTING`, the durable path is
 
 ## 3. Leader lease and fencing
 
+### Prospective obligations across software upgrades
+
+Decision: 2026-10-10. A generation change still terminalizes an old unsent
+cycle and can never execute its old plan. It must also permit a **fresh** plan
+for the same decision's future execution session when activation completes
+before that session opens. Otherwise an abandoned Friday obligation makes a
+Saturday software upgrade skip Monday even though the new signed authority,
+book and account are ready. Installation and activation retain their anytime
+contract; execution retains the next-eligible-open contract.
+
+Keep every existing v1 cycle id, immutable originating identity and event. A
+prospective replacement gets a deterministic v2 id binding the original daily
+scope and current control generation. The database uniqueness scope includes
+that generation; one generation cannot create two cycles for one daily scope.
+The explicit schema installer recognizes only the exact preceding Stage-4
+catalog, proves disabled or killed control and no current live leader, and
+atomically replaces that one unique constraint under its existing bounded
+migration lock. It preserves all rows and foreign keys. Runtime validation
+never performs DDL, and unknown or damaged catalogs still refuse.
+
+An older supported additive upgrade may first install the callback timestamps
+and thereby reach that exact preceding catalog. The explicit installer must
+then apply the same cycle-key migration in the same transaction, before final
+runtime validation. It re-reads and authenticates the complete intermediate
+catalog; it does not infer compatibility from missing columns or accept a new
+fingerprint. The existing disabled-or-killed control and no-live-leader checks
+still apply. Any incompatible intermediate shape, active authority, live leader
+or final validation failure rolls back both upgrades, preserving historical
+service instances and all financial and authority rows.
+
+Creation and its predecessor proof hold the canonical execution writer lock.
+Only contention while entering this scheduling-only ownership boundary is a
+bounded scheduler wait. It has a distinct typed result; a writer failure after
+ownership, or in a later financial path, still propagates and cannot be hidden
+as startup availability.
+The same deployment, paper broker/account, takeover epoch and decision session
+must match. Every prior scoped cycle must be terminal `SUPERSEDED` with
+`CONTROL_GENERATION_SUPERSEDED`, have no transport-capable state/event and no
+durable command for its plan or the scoped effective session. A successful,
+blocked, historical-only, ambiguously sent or otherwise terminalized obligation
+cannot acquire a replacement. Recover older uncertain work first. Both the
+verified scheduler time and PostgreSQL's current time must precede the new
+execution open, as must the activation's durable cutover. These checks are
+repeated inside creation; a preliminary service read is not authority.
+
+The fresh cycle records its predecessor ids in genesis, runs ordinary read-only
+preflight reconciliation, refresh and preparation under the new authority, and
+uses the usual execute window, quote/cash checks and command identities. It
+never loads the predecessor's plan. Repeated wakes and restarts reuse the one
+new cycle. Once an open is reached, no replacement is created for that open;
+the next closed decision advances normally. Qualify actual PostgreSQL upgrade,
+legacy-id preservation, repeated generations, pre-open/open/cutover boundaries,
+all-predecessor and command guards, concurrent creators, unknown catalog and
+transaction rollback, plus the actual runtime preparation/dispatch boundaries.
+
+The existing exact operational source profile admits only reviewed predecessor
+hashes and final replacement bytes for the changed scheduler identity/store,
+lineage verifier, schema and retention lookup. Previous reviewed targets remain
+recognized predecessor evidence. The full retained origin/source/environment
+and book chain still authenticate; unknown neighboring edits and profile
+tampering refuse. This grants no certificate, financial authority or broker
+permission and never reforms or resets a retained book.
+
 [Activation startup contention](activation-startup-contention.md) defines the
 bounded, non-authoritative wait when the canonical writer prevents initial
 lease acquisition and the distinction between blocked cycles and retained

@@ -1126,7 +1126,9 @@ def test_go_validation_refuses_instead_of_repairing_missing_schema(current_catal
 
 def test_reintroduced_noop_ddl_is_detected_by_the_real_lock_failure(current_catalog, pg, monkeypatch):
     source = textwrap.dedent(inspect.getsource(schema.ensure_schema))
-    source = source.replace('if _semantic_catalog_sha256(', 'if False and _semantic_catalog_sha256(')
+    needle = 'if stage4_sha == _STAGE4_CATALOG_SHA256:'
+    assert source.count(needle) == 1
+    source = source.replace(needle, 'if False and stage4_sha == _STAGE4_CATALOG_SHA256:')
     namespace = {}
     exec(compile(source, 'no-noop-fast-path', 'exec'), schema.__dict__, namespace)
     monkeypatch.setattr(schema, 'ensure_schema', namespace['ensure_schema'])

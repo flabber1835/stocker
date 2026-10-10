@@ -22,7 +22,8 @@ def test_callback_transition_is_exact_and_neighbor_change_refuses(closure, name)
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
     if actual != record['after']:
         from sentinel.startup_contention_upgrade import source_allowed
-        assert source_allowed(name, record['after'], actual)
+        from sentinel.operational_runtime_upgrade import source_allowed as subsequent
+        assert source_allowed(name, record['after'], actual) or subsequent(name, record['after'], actual)
     assert all(upgrade.source_allowed(name, previous, record['after']) for previous in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)

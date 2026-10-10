@@ -1,20 +1,21 @@
 """Initial writer contention and retained diagnostics grant no trading authority."""
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import multiprocessing
 from types import SimpleNamespace
 
 import pytest
 
 from sentinel.automation import store
-from sentinel.automation.model import AutomationRefused, MissingAutomationState, TickAction
+from sentinel.automation.model import AutomationRefused, CycleState, MissingAutomationState, TickAction
 from sentinel.execution.journal import WRITER_LOCK_KEY, WriterLockUnavailable
 from sentinel.automation.health import read_health
 from sentinel.automation_runtime import ProductionAutomation
 from sentinel.feed import store as feed_store
 from tests.sentinel.test_automation_service import (
-    conn, pg, config, enable, service_for, binding, AFTER_WEDNESDAY_CLOSE)
+    conn, pg, config, enable, service_for, binding, recovery_success, AFTER_WEDNESDAY_CLOSE)
 from tests.sentinel.test_autonomous_deploy import deploy, _cfg, _health
+from tests.sentinel.test_automation_generation import future_friday
 
 
 def _hold_writer(dsn, channel, release):
@@ -179,19 +180,22 @@ def test_historical_diagnostic_cannot_make_unready_worker_ready(tmp_path, monkey
 
 
 @pytest.mark.asyncio
-async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(conn, pg):
+@pytest.mark.parametrize('prospective', [False, True])
+async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(conn, pg, prospective):
     """Real terminal/notifier/control loop; signed authority is a fixture seam.
 
     No certificate or broker is constructed. Terminal trial storage, outbox,
     cycle takeover, lease and service-instance rows use actual PostgreSQL.
     """
-    cfg = config()
-    now = datetime.now(timezone.utc)
+    cfg = config().model_copy(update={'maximum_clock_skew_seconds': 2_000_000})
+    timing, preparation_time = future_friday(conn, cfg)
+    now = preparation_time if prospective else timing.execution_open_at + timedelta(seconds=1)
     enable(conn, cfg)
     old = service_for(cfg)
     for _ in range(3):
-        prepared = await old.tick(conn, now=now)
+        prepared = await old.tick(conn, now=preparation_time)
     prior = prepared.cycle
+    assert prior.state is CycleState.PLAN_READY
     store.engage_kill(conn, actor='fixture', reason='qualified software upgrade')
     store.deactivate(conn, actor='fixture', reason='preserve old cycle')
     enable(conn, cfg)
@@ -205,10 +209,18 @@ async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(c
             detail='explicit isolated signed-authority fixture boundary',
             holder_id=permit.holder_id, fence_token=permit.fence_token,
             control_generation=permit.control_generation, instance_id=runtime.holder_id)
-        return store.load_control(connection), None
+        # The cryptographic verifier is the explicit fixture boundary. Supply
+        # only its test identity; keep real cycle/control comparison below it.
+        return store.load_control(connection), SimpleNamespace(
+            certificate_sha256=binding(cfg).certificate_sha256)
 
     runtime._assert_control_authority = signed_fixture
-    service = service_for(cfg, holder=runtime.holder_id)
+    async def readonly_recovery(context):
+        # run() requires an asynchronous callback so lease renewal remains
+        # independently observable. This isolated result contacts no broker.
+        return recovery_success(context)
+
+    service = service_for(cfg, holder=runtime.holder_id, recover=readonly_recovery)
     service.terminal = runtime.certify_terminal_cycle
     service.notify = runtime.notify
     samples = []
@@ -224,7 +236,18 @@ async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(c
     assert await service.run(lambda: feed_store.connect(pg.sync_dsn), stop=asyncio.Event(),
         clock=lambda: now, sleep=sleep, control_wake=runtime.control_wake, max_ticks=2) == 2
     samples.append(read_health(conn).model_dump(mode='json'))
-    assert store.latest_cycle(conn).cycle_id == prior.cycle_id
+    preserved = store.load_cycle(conn, prior.cycle_id)
+    assert preserved.state is CycleState.SUPERSEDED
+    assert preserved.failure_code == 'CONTROL_GENERATION_SUPERSEDED'
+    assert preserved.plan_id == prior.plan_id
+    latest = store.latest_cycle(conn)
+    if prospective:
+        assert latest.cycle_id != prior.cycle_id
+        assert latest.control_generation == store.load_control(conn).generation
+        assert latest.plan_id is None
+        assert latest.state is CycleState.REFRESHING_DATA, (latest.failure_code, latest.failure_detail)
+    else:
+        assert latest.cycle_id == prior.cycle_id
     assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
     conn.rollback()
     # Isolate ONLY cryptographic lifecycle and externally enrolled identity.

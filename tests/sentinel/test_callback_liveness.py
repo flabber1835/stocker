@@ -202,25 +202,66 @@ def test_real_callback_remains_healthy_beyond_lease_without_extending_deadline(
     conn.rollback()
 
 
-def test_schema_upgrade_is_explicit_and_preserves_historical_instances(conn):
-    store.register_instance(conn, instance_id='historical', state='STOPPED')
-    before = conn.execute("SELECT instance_id,started_at,heartbeat_at,state FROM sentinel_automation_service_instances").fetchall()
+def historical_callback_catalog(conn):
     conn.execute('ALTER TABLE sentinel_automation_service_instances DROP COLUMN callback_started_at')
     conn.execute('ALTER TABLE sentinel_automation_service_instances DROP COLUMN callback_deadline_at')
+    conn.execute('ALTER TABLE sentinel_automation_cycles DROP CONSTRAINT sentinel_automation_cycles_generation_key')
+    conn.execute('ALTER TABLE sentinel_automation_cycles ADD UNIQUE '
+        '(deployment_id,broker,broker_account_id,takeover_epoch,decision_session)')
     conn.commit()
     # This is the independently pinned previous complete catalog, rather than
-    # an invented partial schema. No economic/authority columns are changed.
+    # an invented partial schema combining old callbacks and the new cycle key.
+    # No economic/authority columns are changed, and the historic pin stays fixed.
     with conn.cursor() as cur:
         catalog = schema._read_catalog(cur)
     assert schema._semantic_catalog_sha256(*catalog, schema._STAGE4_TABLES) == (
         '9d80e0801cf8c8e98b739e337eab3d883f3aac3495e47766b3214423ff90b7c1')
     conn.rollback()
+
+
+def test_schema_upgrade_is_explicit_and_preserves_historical_instances(conn):
+    store.register_instance(conn, instance_id='historical', state='STOPPED')
+    before = conn.execute("SELECT instance_id,started_at,heartbeat_at,state FROM sentinel_automation_service_instances").fetchall()
+    historical_callback_catalog(conn)
     with pytest.raises(Exception, match='callback'):
         schema.require_runtime_schema(conn)
     schema.ensure_schema(conn)
     assert conn.execute("SELECT instance_id,started_at,heartbeat_at,state FROM sentinel_automation_service_instances").fetchall() == before
     conn.rollback()
     schema.require_runtime_schema(conn)
+
+
+@pytest.mark.parametrize('damage', ['active', 'live_leader', 'unknown_catalog', 'late_failure'])
+def test_historical_callback_and_cycle_upgrade_refuses_and_rolls_back(conn, monkeypatch, damage):
+    store.register_instance(conn, instance_id='historical', state='STOPPED')
+    if damage == 'active':
+        enable(conn, AutomationConfig())
+    elif damage == 'live_leader':
+        conn.execute("UPDATE sentinel_automation_lease SET holder_id='live-historical',"
+            "control_generation=(SELECT generation FROM sentinel_automation_control WHERE id=1),"
+            "fence_token=1,acquired_at=clock_timestamp(),heartbeat_at=clock_timestamp(),"
+            "expires_at=clock_timestamp()+interval '1 hour' WHERE id=1")
+        conn.commit()
+    historical_callback_catalog(conn)
+    if damage == 'unknown_catalog':
+        conn.execute('ALTER TABLE sentinel_automation_cycles ADD COLUMN unreviewed_authority text')
+        conn.commit()
+    elif damage == 'late_failure':
+        monkeypatch.setattr(schema, '_STAGE4_CATALOG_SHA256', 'f'*64)
+    with conn.cursor() as cur:
+        before_catalog = schema._read_catalog(cur)
+    tables = ('sentinel_automation_service_instances', 'sentinel_automation_control',
+              'sentinel_automation_lease', 'sentinel_behavioral_schema_migrations')
+    before_rows = {table: conn.execute('SELECT to_jsonb(t) FROM '+table+' t ORDER BY to_jsonb(t)::text').fetchall()
+                   for table in tables}
+    conn.rollback()
+    with pytest.raises(schema.SchemaMigrationRefused):
+        schema.ensure_schema(conn)
+    with conn.cursor() as cur:
+        assert schema._read_catalog(cur) == before_catalog
+    assert {table: conn.execute('SELECT to_jsonb(t) FROM '+table+' t ORDER BY to_jsonb(t)::text').fetchall()
+            for table in tables} == before_rows
+    conn.rollback()
 
 
 @pytest.mark.parametrize('failure', ['deadline', 'lost_instance'])

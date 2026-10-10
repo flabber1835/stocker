@@ -30,7 +30,7 @@ for name in sentinel-base-backup.sh sentinel-backup-status.sh sentinel-backup-li
             sentinel-backup-archive-identity.sh sentinel-backup-media-lock.sh \
             sentinel-archive-wal.sh sentinel_host_python.py sentinel_backup_lock.py \
             sentinel_lock_ownership.py sentinel_storage_capacity.py \
-            sentinel_maintenance_process.py \
+            sentinel_maintenance_process.py sentinel_backup_deadlines.py \
             sentinel-env.sh sentinel_env.py; do
   cp "scripts/$name" "$repo/scripts/$name"
 done
