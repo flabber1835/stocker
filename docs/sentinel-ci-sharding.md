@@ -21,6 +21,18 @@ warmup, contention, status/memory, and rolling modules remain outside the
 ordinary plan. The planner must refuse an empty shard, duplicate or missing
 module, unexpected module path, or changed shard count.
 
+Decision: 2026-10-10. The automation worker selects its complete module list
+from the same `AUTOMATION` registry that excludes those modules from ordinary
+shards. The startup-contention module belongs to that coverage worker. A
+separate hard-coded workflow list must not diverge from the registry: this
+previously omitted coverage tests, then ran the repaired tests twice and
+prevented the final evidence union. Missing registered automation modules are
+refusals. Qualification executes the actual ordinary, rolling, contention,
+status, warmup and automation workflow commands together against a controlled
+module inventory, requiring every module exactly once and propagating failed
+workers. Duplicate/non-passing JUnit refusal and exact-attempt receipts remain
+unchanged.
+
 Every worker runs the production code from the single built test lens without
 rebuilding it. Its receipt binds the same source commit, tree, workflow run and
 attempt, runtime image ID, test-lens image ID, and exact JUnit bytes. The

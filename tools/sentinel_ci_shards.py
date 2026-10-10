@@ -10,6 +10,7 @@ import subprocess
 
 SHARDS = 4
 AUTOMATION = frozenset({
+    "test_activation_startup_contention.py",
     "test_automation_composition.py",
     "test_automation_worker_source_recovery.py",
     "test_automation_service.py",
@@ -80,12 +81,23 @@ def plan(modules: list[str]) -> dict[str, tuple[str, ...]]:
     return {lane: tuple(files) for lane, files in groups.items()}
 
 
+def automation_modules(modules: list[str]) -> tuple[str, ...]:
+    """Select the coverage owner from the same registry as shard exclusion."""
+    plan(modules)  # Refuse malformed or incomplete inventories before selection.
+    selected = tuple(sorted(name for name in modules if Path(name).name in AUTOMATION))
+    if {Path(name).name for name in selected} != AUTOMATION:
+        raise ValueError("missing registered automation test module")
+    return selected
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--lane", required=True)
     args = parser.parse_args()
-    selected = plan(tracked_modules(args.root)).get(args.lane)
+    modules = tracked_modules(args.root)
+    selected = (automation_modules(modules) if args.lane == "sentinel-automation"
+                else plan(modules).get(args.lane))
     if selected is None:
         parser.error("unknown Sentinel shard lane")
     print("\n".join(selected))

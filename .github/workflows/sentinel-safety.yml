@@ -274,20 +274,14 @@ jobs:
         if: ${{ matrix.lane == 'sentinel-automation' }}
         run: |
           set -euo pipefail
+          mapfile -t modules < <(python tools/sentinel_ci_shards.py --root . --lane sentinel-automation)
+          test "${#modules[@]}" -gt 0
           docker run --rm --network none \
             -v /tmp/sentinel-lane-evidence:/evidence \
             -e COVERAGE_FILE=/evidence/automation.coverage \
             --entrypoint python sentinel-test:ci -m coverage run --branch \
             --source=sentinel.automation.service -m pytest \
-            tests/sentinel/test_automation_service.py \
-            tests/sentinel/test_automation_composition.py \
-            tests/sentinel/test_automation_worker_source_recovery.py \
-            tests/sentinel/test_issue_201_automation_financial_grade.py \
-            tests/sentinel/test_automation_p1_continuity.py \
-            tests/sentinel/test_automation_safety_seams.py \
-            tests/sentinel/test_automation_process_contracts.py \
-            tests/sentinel/test_automation_service_fault_paths.py \
-            tests/sentinel/test_activation_startup_contention.py \
+            "${modules[@]}" \
             -q -ra --junitxml=/evidence/sentinel-automation.xml \
             2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
           docker run --rm --network none \
