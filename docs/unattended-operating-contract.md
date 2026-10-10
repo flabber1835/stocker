@@ -1,5 +1,27 @@
 # Separate software completion
 
+## Idle authority polling after lease loss
+
+Decision: 2026-10-10. The broker-free idle control poll can lose its lease
+between reading the holder and checking the live fence. That is loss of
+leadership, not an invalid certificate and not a worker crash. Roll back that
+poll and return to the bounded scheduler; the next tick must acquire a current
+lease through the existing exclusive writer lock and revalidate authority.
+Never renew an expired token or publish authority truth from a stale holder.
+This handling applies only to `StaleLeaderRefused` during idle validation.
+Actual certificate/integrity refusals still block the current cycle or latch
+the kill switch. Financial callbacks, unknown broker outcomes, corruption and
+unexpected exceptions retain their existing strict refusal paths.
+
+The existing exact startup-contention upgrade profile also pins the idle
+poll repair and read-only panel model/source replacements. It admits only
+the verified prior release bytes and already reviewed historical predecessors
+to these exact targets. Authenticate the complete PR500 source manifest and
+the retained origin, then use ordinary fenced runtime admission. Unknown
+predecessors, adjacent edits and profile/module tampering remain refusals.
+Qualification must restart an actual formed book through this admission with
+formation and source acquisition forbidden, preserving journals and binding.
+
 The 2026-10-09 [anytime activation decision](anytime-paper-activation.md)
 supersedes prospective-open activation waits below for reviewed operational dual
 mode. The installed scheduler waits for an eligible session after activation.

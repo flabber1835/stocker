@@ -134,6 +134,57 @@ def service_for(cfg, *, holder="worker-a", refresh=refresh_result,
         recover=recover, execute=execute)
 
 
+@pytest.mark.parametrize("loss", ["expired", "replaced", "killed"])
+@pytest.mark.asyncio
+async def test_real_idle_poll_fence_loss_never_crashes_or_uses_old_token(
+        conn, pg, monkeypatch, loss):
+    from sentinel.automation_runtime import ProductionAutomation
+    cfg = config()
+    enable(conn, cfg)
+    old = store.acquire_lease(conn, holder_id="worker-a", lease_seconds=30)
+    runtime = object.__new__(ProductionAutomation)
+    runtime.holder_id = "worker-a"
+    verified = []
+
+    def authority_check(connection, permit):
+        # Lose the token after control_wake reads it, using a separate actual
+        # transaction. No certificate or broker is manufactured by this test.
+        if not verified:
+            other = feed_store.connect(pg.sync_dsn)
+            try:
+                if loss == "killed":
+                    store.engage_kill(other, actor="test", reason="fence race")
+                else:
+                    other.execute("UPDATE sentinel_automation_lease SET expires_at=clock_timestamp()-INTERVAL '1 second' WHERE id=1")
+                    other.commit()
+                    if loss == "replaced":
+                        store.acquire_lease(other, holder_id="worker-b", lease_seconds=30)
+            finally:
+                other.close()
+        verified.append(permit)
+        store.require_leader(connection, permit)
+        return store.load_control(connection), None
+
+    monkeypatch.setattr(runtime, "_assert_control_authority", authority_check)
+    monkeypatch.setattr(runtime, "_assert_cycle_authority", lambda *_a, **_kw: pytest.fail("no cycle expected"))
+    monkeypatch.setattr(runtime, "_broker", lambda *_a, **_kw: pytest.fail("idle broker reached"))
+    monkeypatch.setattr(runtime, "notify", lambda *_a, **_kw: pytest.fail("stale poll must not notify"))
+    assert await runtime.control_wake(conn) is None
+    assert verified == [old]
+    with pytest.raises(StaleLeaderRefused):
+        store.require_leader(conn, old)
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_commands").fetchone()[0] == 0
+    conn.rollback()
+    if loss == "expired":
+        fresh = store.acquire_lease(conn, holder_id="worker-a", lease_seconds=30)
+        assert fresh.fence_token > old.fence_token
+        assert await runtime.control_wake(conn) is None
+        assert verified == [old, fresh]
+    else:
+        assert await runtime.control_wake(conn) is None
+        assert verified == [old]
+
+
 @pytest.mark.asyncio
 async def test_disabled_and_killed_ticks_make_zero_callback_calls(conn) -> None:
     calls = []

@@ -1,4 +1,4 @@
-"""Exact lease-acquisition wait repair over unchanged retained economics."""
+"""Exact lease wait and read-only progress repairs over retained economics."""
 from __future__ import annotations
 
 import hashlib
@@ -6,9 +6,10 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = '3c28b6926be839c3a516532b91bf593b8067da9b5609b395154886e72bdf1af2'
+PROFILE_SHA256 = '632f32d685fda0161fa1d4c6b97994ec0097686e4af4619005f9c2072433a91d'
 PROFILE = Path(__file__).with_name('startup-contention-upgrade.json')
-SCOPE = frozenset({'automation/service.py'})
+SCOPE = frozenset({'automation/service.py', 'automation_runtime.py',
+                   'panel/model.py', 'panel/sources.py'})
 
 
 def profile():

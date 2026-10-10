@@ -342,3 +342,23 @@ def test_raw_owner_execution_entrypoint_audits_the_same_full_pr_branch():
     projected = responsibility._require_parallel_certification(responsibility._promotion_pr_view(raw))
     assert direct == projected
     assert execution._require_global_authority(execution.load_authority())["owner_jobs_checked"] > 0
+
+
+def test_standalone_verifier_import_does_not_expose_inspection_runtime():
+    import subprocess
+    import sys
+    scripts = Path(verifier.__file__).resolve().parent
+    program = (
+        "import sys; from pathlib import Path; "
+        "scripts=Path(sys.argv[1]); repo=str(scripts.parent); "
+        "sys.path[:]=[str(scripts)]+[p for p in sys.path if p!=repo]; "
+        "before=list(sys.path); "
+        "import sentinel_ci_certification_verify as reader; "
+        "policy=reader._promotion_policy(); "
+        "assert policy.REPOSITORY=='flabber1835/stocker'; "
+        "assert sys.path==before; assert repo not in sys.path; "
+        "print('STANDALONE_POLICY_IMPORT_RUNTIME_BOUNDARY_PASS')")
+    done = subprocess.run([sys.executable, '-I', '-c', program, str(scripts)],
+                          text=True, capture_output=True)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'STANDALONE_POLICY_IMPORT_RUNTIME_BOUNDARY_PASS' in done.stdout

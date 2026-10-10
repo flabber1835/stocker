@@ -874,6 +874,148 @@ class TestRuntimeRowsAreDurableFacts:
 # ── 5. it cannot act ─────────────────────────────────────────────────────────
 
 class TestAutomationRowsAreDurableFacts:
+    def test_current_cycle_and_worker_reader_use_generation_and_lease_holder(self):
+        from sentinel.panel import sources
+        statements = []
+        class Reader:
+            def cursor(self):
+                return self
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                return False
+            def execute(self, sql, params=()):
+                statements.append((sql, params))
+            def fetchone(self):
+                return None
+        assert sources._latest_automation_cycle(Reader(), generation=11) is None
+        sql, params = statements[-1]
+        assert "WHERE c.control_generation=%s OR EXISTS (" in sql
+        assert "e.cycle_id=c.cycle_id AND e.control_generation=%s" in sql
+        assert params == (11, 11)
+        assert sources._latest_automation_instance(Reader(), holder="leader-current") is None
+        sql, params = statements[-1]
+        assert "WHERE instance_id=%s" in sql
+        assert params == ("leader-current",)
+
+    @pytest.mark.parametrize("fault", [None, "cycle", "expired", "foreign", "standby", "error", "stale", "wake", "deadline", "future_heartbeat"])
+    def test_discovery_wait_requires_bounded_current_leader_evidence(self, fault):
+        from sentinel.panel import sources
+        lease = {"holder": "leader-current", "active": True,
+                 "expires_at": NOW + timedelta(seconds=12)}
+        instance = {"instance_id": "leader-current", "state": "WAITING",
+                    "heartbeat_at": NOW, "next_wake_at": NOW + timedelta(seconds=2),
+                    "last_error": None}
+        cycle = None
+        if fault == "cycle":
+            cycle = {"cycle_id": "current-failed", "state": "BLOCKED"}
+        elif fault == "expired":
+            lease["active"] = False
+        elif fault == "foreign":
+            instance["instance_id"] = "standby-newer"
+        elif fault == "standby":
+            instance["state"] = "STANDBY"
+        elif fault == "error":
+            instance["last_error"] = "scheduler failed"
+        elif fault == "stale":
+            instance["heartbeat_at"] = NOW - timedelta(seconds=31)
+        elif fault == "wake":
+            instance["next_wake_at"] = NOW
+        elif fault == "deadline":
+            instance["next_wake_at"] = lease["expires_at"]
+        elif fault == "future_heartbeat":
+            instance["heartbeat_at"] = NOW + timedelta(seconds=1)
+        recovery = sources._discovery_poll_recovery(cycle, lease, instance, now=NOW)
+        if fault is not None:
+            assert recovery is None
+            return
+        rows = model.automation_step_rows(installed=True, enabled=True,
+                                          discovery_recovery=recovery)
+        assert rows[0].status is model.WARN
+        assert rows[0].value == "WAITING FOR CYCLE"
+        assert rows[0].recovery.next_attempt_at == instance["next_wake_at"]
+        assert rows[0].recovery.deadline == lease["expires_at"]
+        assert "no daily cycle is armed" in rows[0].detail
+        assert all(row.value == "NOT REACHED" for row in rows[1:])
+        failed = model.automation_step_rows(installed=True, enabled=True,
+            cycle={"cycle_id": "current-blocked", "state": "BLOCKED"},
+            discovery_recovery=recovery)
+        assert failed[-1].status is model.FAIL
+
+
+    @pytest.mark.parametrize("state", [
+        "RETRY_WAIT", "WAITING_OPEN", "SUCCEEDED", "BLOCKED", "SUPERSEDED"])
+    @pytest.mark.parametrize("has_plan", [False, True])
+    def test_complete_database_cycle_reaches_summary_and_detailed_steps(
+            self, monkeypatch, state, has_plan):
+        from sentinel.panel import sources
+
+        failure = "PUBLICATION_PENDING" if state == "RETRY_WAIT" else None
+        diagnostic = {
+            "phase_attempt_count": 2, "phase_max_attempts": 4,
+            "retry_phase": "EXECUTE", "first_failure_at": NOW.isoformat(),
+            "latest_failure_at": NOW.isoformat(), "exception_fingerprint": "f" * 64,
+            "failure_domain": "PROVIDER", "terminal_reason": None,
+        }
+        record = (
+            "cycle-real-shape", state, date(2026, 8, 12), date(2026, 8, 13),
+            "plan-current" if has_plan else None, "a" * 64 if has_plan else None,
+            NOW + timedelta(minutes=2), "clean-current" if state == "SUCCEEDED" else None,
+            failure, "waiting for publication" if failure else None, 3, diagnostic, NOW,
+            NOW - timedelta(minutes=5), NOW + timedelta(minutes=5),
+            NOW + timedelta(minutes=6), NOW + timedelta(hours=6),
+            NOW - timedelta(minutes=10), NOW if state == "SUCCEEDED" else None,
+        )
+
+        class CycleReader:
+            def cursor(self):
+                return self
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def execute(self, sql, parameters=()):
+                assert sql.startswith("SELECT cycle_id,state,")
+
+            def fetchone(self):
+                return record
+
+        cycle = sources._latest_automation_cycle(CycleReader())
+        assert cycle["plan_id"] == ("plan-current" if has_plan else None)
+        assert cycle["retry_phase"] == "EXECUTE"
+        sources, conn = self._install(monkeypatch,
+            control={"enabled": True, "generation": 9, "killed": False,
+                     "certificate_sha256": "a" * 64, "updated_at": NOW,
+                     "authority_verdict": "PASS", "authority_detail": "current",
+                     "authority_checked_at": NOW},
+            lease={"holder": "appliance-a", "fence": 41, "heartbeat_at": NOW,
+                   "expires_at": NOW + timedelta(seconds=30), "active": True},
+            cycle=cycle, alerts={"pending": 0, "dead_letter": 0,
+                                "unacknowledged": 0, "updated_at": NOW},
+            lifecycle={"authority_generation": 7, "certificate_sha256": "a" * 64,
+                       "expires_at": NOW + timedelta(days=2),
+                       "lifecycle_status": "ACTIVE", "lifecycle_current": True})
+
+        rows, errors = sources._automation_rows("postgresql://panel@db/sentinel")
+        by_key = {row.key: row for row in rows}
+        assert errors == []
+        assert by_key["automation"].value == "ENABLED · KILL RELEASED"
+        assert by_key["automation_leader"].value == "appliance-a · fence 41"
+        assert by_key["automation_cycle"].value == state
+        if state == "RETRY_WAIT":
+            assert by_key["automation_cycle"].recovery.attempt == 2
+            transport = by_key["automation_step_transport"]
+            assert transport.recovery.phase == "AUTOMATION_EXECUTE"
+            assert transport.recovery.maximum_attempts == 4
+        elif state in {"BLOCKED", "SUPERSEDED"}:
+            assert by_key["automation_cycle"].status == model.FAIL
+        elif state == "SUCCEEDED":
+            assert by_key["automation_cycle"].status == model.OK
+        assert len([row for row in rows if row.key.startswith("automation_step_")]) == 7
+        assert conn.closed
 
     @staticmethod
     def _connection():
@@ -924,7 +1066,7 @@ class TestAutomationRowsAreDurableFacts:
             sources, "_automation_lease",
             lambda _conn, _generation: lease)
         monkeypatch.setattr(
-            sources, "_latest_automation_cycle", lambda _conn: cycle)
+            sources, "_latest_automation_cycle", lambda _conn, **_kwargs: cycle)
         monkeypatch.setattr(
             sources, "_automation_cycle_events",
             lambda _conn, _cycle_id: list(cycle_events or []))
@@ -934,7 +1076,7 @@ class TestAutomationRowsAreDurableFacts:
             sources, "_alert_dispatchers",
             lambda _conn: [] if dispatchers is None else dispatchers)
         monkeypatch.setattr(
-            sources, "_latest_automation_instance", lambda _conn: instance)
+            sources, "_latest_automation_instance", lambda _conn, **_kwargs: instance)
         monkeypatch.setattr(
             sources, "_authority_lifecycle", lambda _conn: lifecycle)
         monkeypatch.setattr(

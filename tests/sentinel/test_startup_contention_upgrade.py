@@ -16,8 +16,8 @@ from tests.sentinel.test_operational_liveness_upgrade import (
     test_actual_formed_book_upgrade_restarts_without_reformation_or_reacquisition as _formed_upgrade)
 
 
-def test_only_exact_reviewed_service_upgrade_is_allowed(closure):
-    name = 'automation/service.py'
+@pytest.mark.parametrize('name', sorted(upgrade.SCOPE))
+def test_only_exact_reviewed_service_upgrade_is_allowed(closure, name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
     assert actual == record['after']
@@ -80,10 +80,20 @@ def test_profile_or_implementation_tampering_refuses(tmp_path, monkeypatch, kind
 
 
 @pytest.mark.parametrize('ready', [{'formed': True}], indirect=True)
-@pytest.mark.parametrize('executable', ['startup_preceding'], indirect=True)
+@pytest.mark.parametrize('executable', ['startup_preceding', 'idle_preceding'], indirect=True)
 def test_formed_book_startup_upgrade_does_not_reform_or_reacquire(
         conn, ready, executable, operational_source, monkeypatch):
     _formed_upgrade(conn, ready, executable, operational_source, monkeypatch)
+
+
+def test_complete_pr500_manifest_is_pinned_to_verified_release():
+    raw = (Path(__file__).parent/'fixtures/retained-source-history/eb7b4d0c.json').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == '481cd8997974621f9204979e0d6f63a995460a5871d9952c2a4d8f1e4f85f0a7'
+    value = json.loads(raw)
+    assert value['schema'] == 'sentinel.retained-source-manifest/1'
+    assert value['revision'] == 'eb7b4d0c2e8cd78da3e95b6b583e546a09821c86'
+    for name in ('automation_runtime.py', 'panel/model.py', 'panel/sources.py'):
+        assert value['files'][name] in upgrade.profile()['files'][name]['before']
 
 
 __all__ = ['closure', 'conn', 'pg', 'source', 'ready', 'operational_source', 'executable']

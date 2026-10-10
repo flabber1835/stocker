@@ -21,8 +21,6 @@ import urllib.request
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-if __package__ in (None, ""):
-    sys.path.insert(0, str(ROOT))
 REPOSITORY = "flabber1835/stocker"
 REPOSITORY_ID = 1233957439
 SAFETY_WORKFLOW_ID = 333697638
@@ -57,6 +55,15 @@ class CertificationVerificationRefused(RuntimeError):
         super().__init__(detail)
         self.code = code
         self.detail = detail
+
+
+def _promotion_policy():
+    """Resolve the sibling policy without making the inspection tree importable."""
+    if __package__ in (None, ""):
+        import sentinel_ci_promotion as policy
+    else:
+        from scripts import sentinel_ci_promotion as policy
+    return policy
 
 
 def _refuse(code, detail) -> NoReturn:
@@ -455,7 +462,7 @@ def _verify_manifest(manifest, commit, tree, publication_run):
     if parsed.utcoffset() is None:
         _refuse("CERT_CERTIFIED_AT_INVALID", "certification timestamp has no timezone")
     if version == 3:
-        from scripts import sentinel_ci_promotion as policy
+        policy = _promotion_policy()
         try:
             policy.manifest_reuse(manifest)
         except (policy.PromotionRefused, KeyError, TypeError) as exc:
@@ -576,7 +583,7 @@ def verify_current(root=ROOT, commit=None, client=None):
     publication = _publication_run(client, expected)
     artifact = _publication_artifact(client, publication, expected)
     def observe_reuse(reuse):
-        from scripts import sentinel_ci_promotion as policy
+        policy = _promotion_policy()
         try:
             policy.verify_plan(client, reuse["plan"])
         except (policy.PromotionRefused, KeyError, TypeError) as exc:

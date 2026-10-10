@@ -1557,6 +1557,11 @@ class ProductionAutomation:
                     conn, CycleContext(cycle=cycle, permit=permit),
                     operation_scope="RECOVER",
                     verified_control=verified_control)
+        except StaleLeaderRefused:
+            # Idle validation has no broker callback. Do not resurrect this
+            # fence or crash the scheduler; its next tick acquires a new permit.
+            conn.rollback()
+            return None
         except NonRetryableCallbackRefused as exc:
             # A WAITING_OPEN worker otherwise has no callback boundary at
             # which certificate expiry/revocation can latch.  The control poll
