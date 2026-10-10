@@ -110,7 +110,11 @@ def checkpoint_restore(c, directory, *, physical=False, corrupt=False):
             subprocess.run([_find_pg_bin('pg_restore'), '--exit-on-error', '--no-owner',
                 '--no-privileges', '--dbname', restored.sync_dsn, str(dump)],
                 check=True, capture_output=True, timeout=60)
-        with feed.connect(restored.sync_dsn) as copy:
+        # A physical cluster copy retains the source database name, including
+        # the per-test rolling databases. A logical dump targets the fresh DB.
+        restored_dsn = (restored.sync_dsn.rsplit('/', 1)[0] + '/' + c.info.dbname
+                        if physical else restored.sync_dsn)
+        with feed.connect(restored_dsn) as copy:
             assert binding.require(copy).to_dict() == before_binding
             copy.rollback()
             assert book_fingerprint(copy) == baseline

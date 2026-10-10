@@ -15,6 +15,23 @@ warms or replays a second strategy book. Inspection, execution and recovery
 revalidate that same authority; the publication's DATA_ONLY proof cannot stand
 in for shadow or broker authority.
 
+The host deployment adapter must carry the reviewed dual configuration through
+ordinary `current-paper-plan` inspection after authorized preparation. The base
+Compose service intentionally has no standing broker or signing credentials.
+Supply the complete selected commit/runtime/test-image identity and the reviewed shadow identity,
+capital, mode and validation fingerprints as per-invocation environment values.
+An unreviewed or ordinary PAPER inspection retains its legacy state/cursor
+contract; missing dual configuration must not create a second book or fall back
+to that contract. The inspection still re-derives the current shadow and sizing
+authorities, and grants no activation or broker transport authority.
+
+Qualification must join the actual host command envelope to the CLI's mode
+selection and immutable-plan reader. Replacing both host CLI methods with a
+phase fixture does not qualify that seam. Retained production inspection is
+read-only diagnostic evidence; a corrected adapter cannot certify a new release.
+The test-image digest is independently selected alongside the runtime; copying
+it from signed claims would defeat the existing artifact-binding verification.
+
 ## Explicit execution readers
 
 Add a version-dispatched execution input boundary. Legacy readers retain their

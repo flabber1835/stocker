@@ -352,6 +352,115 @@ def prepare(conn, broker, **overrides):
     return asyncio.run(paper.prepare_paper_plan(**values))
 
 
+def test_host_dual_plan_readback_joins_actual_cli_and_read_only_book(
+        conn, gateway, monkeypatch, tmp_path):
+    """Compose/authority are named fixtures; CLI, plan derivation and SQL are real."""
+    import contextlib
+    import io
+    import json
+    import os
+    from pathlib import Path
+    import subprocess
+    import sys
+    from sentinel.cli import paper as cli
+    from sentinel.feed import store, runtime_schema
+    from sentinel.config import SentinelConfig
+    from tests.sentinel.test_deploy_plan_reader import forwarded
+
+    sys.path.insert(0, str(Path(os.environ.get("SENTINEL_REPO_ROOT")
+        or Path(__file__).resolve().parents[2]) / "scripts"))
+    import sentinel_autonomous_deploy_install_entry as install
+
+    _shadow, bound, broker = gateway
+    # The legacy manifest is a named signing fixture, but its retained bytes
+    # and references must still pass the unmodified semantic restore reader.
+    import hashlib
+    certificate_sha = hashlib.sha256(b"{}").hexdigest()
+    conn.execute("UPDATE sentinel_system_certificates SET certificate_sha256=%s", (certificate_sha,))
+    conn.execute("UPDATE sentinel_rollout_state SET certificate_sha256=%s WHERE id=1", (certificate_sha,))
+    conn.execute("UPDATE sentinel_rollout_events SET certificate_sha256=%s WHERE version=2", (certificate_sha,))
+    conn.commit()
+    monkeypatch.setattr(preparation, "require_current_authority", lambda *_a, **_k:
+        SimpleNamespace(certificate_sha256=certificate_sha, authorization_mode="PAPER_OBSERVATION_ONLY"))
+    first = prepare(conn, broker)
+    before = first.plan.to_dict()
+    conn.rollback()
+    obj = install.InstallAnytimeDeploy(SimpleNamespace(), SimpleNamespace(env={
+        "SENTINEL_SHADOW_OBSERVATION_ENABLED": "1",
+        "SENTINEL_SHADOW_OBSERVATION_ID": OBS,
+        "SENTINEL_SHADOW_STARTING_CASH": "100000",
+    }), tmp_path, SimpleNamespace(mode="dual", source_identity_sha256="a" * 64,
+        shadow_configuration_sha256="b" * 64, data_publication_sha256="c" * 64,
+        bundle_sha256="d" * 64))
+    obj.commit, obj.runtime_digest = "e" * 40, "sha256:" + "f" * 64
+    obj.test_digest = "sha256:" + "9" * 64
+    obj.base_compose = ["EXPLICIT-OFFLINE-COMPOSE-FIXTURE"]
+    real_connect = store.connect
+    def read_only_connect(url):
+        reader = real_connect(url)
+        reader.execute("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
+        reader.commit()
+        return reader
+    monkeypatch.setattr(store, "connect", read_only_connect)
+    monkeypatch.setattr(store, "require_feed_schema", runtime_schema.require_feed_schema)
+    import sentinel.config as config_module
+    monkeypatch.setattr(config_module, "build_execution_broker",
+                        lambda *a, **k: pytest.fail("inspection constructed a broker"))
+
+    def run(argv, **kwargs):
+        assert argv[-2:] == ["sentinel", "current-paper-plan"]
+        values = forwarded(argv)
+        output, errors = io.StringIO(), io.StringIO()
+        with monkeypatch.context() as patch:
+            patch.delenv("SENTINEL_REVIEWED_DEPLOYMENT_MODE", raising=False)
+            patch.delenv("SENTINEL_SHADOW_OBSERVATION_ENABLED", raising=False)
+            for name, value in values.items():
+                patch.setenv(name, value)
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                code = asyncio.run(cli._current_paper_plan(SentinelConfig(
+                    database_url=conn.info.dsn, base_url=DEFAULT_BASE_URL,
+                    alpaca_key="", alpaca_secret="", state_dir=tmp_path,
+                    max_cycles=1, poll_seconds=0)))
+        assert code == 0, errors.getvalue()
+        return subprocess.CompletedProcess(argv, code, output.getvalue(), errors.getvalue())
+    obj.runner.run = run
+    current = json.loads(obj._base_cli(["current-paper-plan"], capture=True).stdout)
+    assert current["database_authorities_match"] is True
+    assert current["plan"]["plan_id"] == first.plan.plan_id
+    assert journal.latest_plan(conn).to_dict() == before
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_processed_sessions WHERE cursor_name='catchup'").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_commands").fetchone()[0] == 0
+    conn.rollback()
+
+    # Join the accepted rolling plan to the next durable control/restore
+    # boundary. Signing is the same explicit authority fixture as gateway;
+    # actual CLI mutation and physical PostgreSQL semantics remain exercised.
+    from sentinel.cli import automation as control_cli
+    from sentinel.automation import store as control_store
+    from tests.sentinel.test_activation_completion_integration import checkpoint_restore
+    monkeypatch.setattr(store, "connect", real_connect)
+    monkeypatch.setattr(control_cli, "require_authorized_runtime", lambda *_: None)
+    monkeypatch.setattr(control_cli, "_automation_authority", lambda c, cfg, ac:
+        (binding.require(c), load_rollout_state(c), SimpleNamespace(certificate_sha256=certificate_sha)))
+    args = SimpleNamespace(confirm_enable_unattended_alpaca_paper_automation=True,
+        confirm_old_writer_fenced=True, confirm_paper_account=bound.broker_account_id,
+        confirm_deployment_id=bound.deployment_id, confirm_certificate_sha256=certificate_sha,
+        actor="isolated-rolling-completion", reason="explicit offline authority fixture")
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert control_cli._activate_paper_automation.__wrapped__(SentinelConfig(
+            database_url=conn.info.dsn, base_url=DEFAULT_BASE_URL,
+            alpaca_key="", alpaca_secret="", state_dir=tmp_path,
+            max_cycles=1, poll_seconds=0), args) == 0
+    control = control_store.load_control(conn)
+    assert control.enabled and control.kill_switch_engaged
+    restored = checkpoint_restore(conn, tmp_path, physical=True)
+    assert restored["rolling"]["state_present"] is True
+    assert restored["rolling"]["attested"] is True
+    assert restored["rolling"]["session"] == DAY
+    assert journal.latest_plan(conn).to_dict() == before
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_commands").fetchone()[0] == 0
+
+
 @pytest.mark.parametrize("gateway", ["alpaca"], indirect=True)
 def test_production_alpaca_dual_preparation_uses_current_book_without_fill_history(
         conn, gateway, monkeypatch):

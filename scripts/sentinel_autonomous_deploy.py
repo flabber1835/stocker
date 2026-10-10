@@ -1790,10 +1790,35 @@ class AutonomousDeploy:
 
     def _base_cli(self, args: Sequence[str], *, capture: bool = False,
                   check: bool = True, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
-        reader_args = self._retained_reader_args() if args and args[0] == "check-data" else []
+        reader_args = []
+        if args and args[0] == "check-data":
+            reader_args = self._retained_reader_args()
+        elif args and args[0] == "current-paper-plan":
+            reader_args = self._current_plan_reader_args()
         return self.runner.run(self.base_compose + [
             "--profile", "cli", "run", "--rm", "-T", *reader_args, "sentinel"]
             + list(args), capture=capture, check=check, timeout=timeout)
+
+    def _current_plan_reader_args(self) -> List[str]:
+        """Inspect the reviewed book without granting the CLI broker authority."""
+        args = self._retained_reader_args()
+        if not isinstance(self.test_digest, str) or _DIGEST.fullmatch(self.test_digest) is None:
+            raise DeployRefused("plan reader requires selected immutable test image")
+        args += ["--env", "SENTINEL_TEST_IMAGE_DIGEST=" + self.test_digest]
+        reviewed = self.reviewed_validation
+        if reviewed is None or reviewed.mode != "dual":
+            return args
+        values = {
+            "SENTINEL_SHADOW_OBSERVATION_ENABLED": self.env.get(
+                "SENTINEL_SHADOW_OBSERVATION_ENABLED", "0"),
+            "SENTINEL_REVIEWED_DEPLOYMENT_MODE": reviewed.mode,
+            "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256": reviewed.source_identity_sha256,
+            "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256": reviewed.shadow_configuration_sha256 or "",
+            "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256": reviewed.data_publication_sha256 or "",
+            "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256": reviewed.bundle_sha256,
+        }
+        return args + [item for key, value in values.items()
+                       for item in ("--env", key + "=" + value)]
 
     def _authorized_compose(self) -> List[str]:
         return self.base_compose + ["-f", self.automation_overlay]
