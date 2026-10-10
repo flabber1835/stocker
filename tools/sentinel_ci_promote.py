@@ -18,7 +18,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import sentinel_ci_promotion as policy
-from scripts.sentinel_ci_certification_verify import GitHubReadClient, _json_bytes
+from scripts.sentinel_ci_certification_verify import CertificationVerificationRefused, GitHubReadClient, _json_bytes
 from tools import sentinel_ci_certification_manifest as cert
 
 
@@ -260,7 +260,7 @@ def main(argv=None):
             promote(root, client, read(args.plan), args.bundle.resolve(), args.output.resolve(),
                     int(os.environ["GITHUB_RUN_ID"]), int(os.environ["GITHUB_RUN_ATTEMPT"]))
         return 0
-    except (policy.PromotionRefused, cert.CertificationManifestRefused, OSError, ValueError,
+    except (policy.PromotionRefused, cert.CertificationManifestRefused, CertificationVerificationRefused, OSError, ValueError,
             KeyError, TypeError, subprocess.TimeoutExpired, zipfile.BadZipFile) as exc:
         print("REFUSED: promotion [%s]" % type(exc).__name__, file=sys.stderr)
         return 2

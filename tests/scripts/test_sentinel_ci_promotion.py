@@ -291,6 +291,15 @@ def test_strict_json_input(tmp_path, raw):
     with pytest.raises(cert.CertificationManifestRefused): cert._read_json(path, label="input")
 
 
+@pytest.mark.parametrize("raw", [b'{"x":1,"x":2}', b'{"x":NaN}', b'{"x":1e999}', b'[]', b'null'])
+def test_cli_preserves_typed_json_refusal_without_creating_a_receipt(tmp_path, capsys, raw):
+    path = tmp_path / "plan.json"; path.write_bytes(raw)
+    receipt = tmp_path / "receipt.json"
+    assert promote.main(["verify", "--plan", str(path), "--output", str(receipt)]) == 2
+    assert not receipt.exists()
+    assert capsys.readouterr().err == "REFUSED: promotion [CertificationVerificationRefused]\n"
+
+
 def test_workflow_keeps_pr_full_execution_and_single_guarded_publisher():
     import yaml
     root = Path(__file__).resolve().parents[2]
