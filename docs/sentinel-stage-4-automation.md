@@ -215,6 +215,16 @@ atomically replaces that one unique constraint under its existing bounded
 migration lock. It preserves all rows and foreign keys. Runtime validation
 never performs DDL, and unknown or damaged catalogs still refuse.
 
+An older supported additive upgrade may first install the callback timestamps
+and thereby reach that exact preceding catalog. The explicit installer must
+then apply the same cycle-key migration in the same transaction, before final
+runtime validation. It re-reads and authenticates the complete intermediate
+catalog; it does not infer compatibility from missing columns or accept a new
+fingerprint. The existing disabled-or-killed control and no-live-leader checks
+still apply. Any incompatible intermediate shape, active authority, live leader
+or final validation failure rolls back both upgrades, preserving historical
+service instances and all financial and authority rows.
+
 Creation and its predecessor proof hold the canonical execution writer lock.
 Only contention while entering this scheduling-only ownership boundary is a
 bounded scheduler wait. It has a distinct typed result; a writer failure after

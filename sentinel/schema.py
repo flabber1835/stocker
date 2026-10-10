@@ -2128,6 +2128,10 @@ def ensure_schema(conn) -> None:
             final_catalog = _read_catalog(cur)
             _validate_backup_infrastructure(*final_catalog)
             _validate_ledgered(cur, final_catalog)
+            if _semantic_catalog_sha256(
+                    *final_catalog, _STAGE4_TABLES) == _PRE_GENERATION_CATALOG_SHA256:
+                _migrate_generation_cycles(cur, final_catalog)
+                final_catalog = _read_catalog(cur)
             _validate_stage4_runtime(cur, final_catalog)
         conn.commit()
     except BaseException:
