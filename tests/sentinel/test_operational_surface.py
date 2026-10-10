@@ -11,6 +11,9 @@ import pytest
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
             or Path(__file__).resolve().parents[2])
 SUITE = Path(__file__).resolve().parents[2]
+FULL_EXACT_HEAD = (
+    "${{ needs.qualification-source.outputs.mode == 'full' && "
+    "(matrix.scope == 'exact-head') }}")
 
 
 def _read(name: str) -> str:
@@ -207,7 +210,7 @@ def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
     for step in _step_slices(carrier):
         run = _step_run(step) or ""
         if " load-bundle" in run or " assemble" in run or "--owner sentinel.complete" in run:
-            assert _field_from_step(step, "if") == "${{ matrix.scope == 'exact-head' }}"
+            assert _field_from_step(step, "if") == FULL_EXACT_HEAD
     assert '--expected-head "$EXPECTED_HEAD"' in workflow
     assert '--expected-base "$EXPECTED_BASE"' in workflow
     assert '--expected-event-sha "$GITHUB_SHA"' in workflow
@@ -224,6 +227,26 @@ def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
     assert '"tree_evidence_reused": True' in proof
     assert "name: sentinel-${{ matrix.scope }}" in workflow
     assert "name: host-python-38-${{ matrix.scope }}" in workflow
+
+
+@pytest.mark.parametrize("condition", [
+    "${{ matrix.scope == 'exact-head' }}",
+    "${{ needs.qualification-source.outputs.mode == 'full' }}",
+    "${{ needs.qualification-source.outputs.mode == 'full' || "
+    "(matrix.scope == 'exact-head') }}",
+    "${{ true }}",
+])
+def test_synthetic_merge_proof_rejects_missing_qualification_or_scope_guard(
+        monkeypatch, condition):
+    original_read = _read
+    workflow = original_read(".github/workflows/sentinel-safety.yml")
+    assert FULL_EXACT_HEAD in workflow
+    broken = workflow.replace(FULL_EXACT_HEAD, condition)
+    monkeypatch.setitem(globals(), "_read",
+        lambda name: broken if name == ".github/workflows/sentinel-safety.yml"
+        else original_read(name))
+    with pytest.raises(AssertionError):
+        test_pull_request_ci_proves_it_is_testing_the_synthetic_merge()
 
 
 def test_main_push_runs_exact_sha_safety_and_branch_coverage():

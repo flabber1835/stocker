@@ -125,6 +125,7 @@ jobs:
       - name: Re-observe publication authority and finalize certification
         shell: bash
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
           TEST_RUN_ID: ${{ github.event.workflow_run.id }}
           TEST_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}

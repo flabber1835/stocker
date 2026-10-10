@@ -8,8 +8,29 @@
         "b4d0708fe1b38f966de8d5675fc12e6bb4321ba46582d4c266a1f56c16d79d1e",
         "d9af5e1e1fb111b376ec577a57a0cc8ea71fab085471663986aaa4dc08430b48"
       ]
+    },
+    "automation_runtime.py": {
+      "after": "7a250ade04d19d581f6aed1b57ba729e88505819de610ef4e588bfbf79da6f4c",
+      "before": [
+        "3bf28bed17ad66e7bca97814b394abd4ad7f2256920c611c8ec9e5de228db9ca",
+        "eb098713f6cf4a364a00ae11265a1894cf097cb1b9d2c31ef07fc758fe8ee2a6"
+      ]
+    },
+    "panel/model.py": {
+      "after": "740ceb271fc971656ed0541433cfcb3cac6ee890d96436ae8816926a6216c776",
+      "before": [
+        "7dcd668f75a27634f2520fdad6cf40d477f6989c8c9ed8f293bf64373e91b73c",
+        "8725a25072fde7c10842fb1f8273d1ff49880aabb1280deafbe3467f7fc4a554"
+      ]
+    },
+    "panel/sources.py": {
+      "after": "4f9c279c08d326cfb8a6452545b74cd0632f1567d2c5f50fdb7a923995a37328",
+      "before": [
+        "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
+        "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17"
+      ]
     }
   },
-  "module_sha256": "64f91d702e8ec4bbd8877dab666894647f3083e1327039ddfa4fe14e6d51b766",
+  "module_sha256": "50e24dfb082a7d7f1ffea87d3e856fcdf7a9e6e873914fe5f3b4278c98f202a5",
   "schema": "sentinel.startup-contention-upgrade/1"
 }

@@ -44,6 +44,28 @@ cookie, bearer token, or parallel session authority. Panel, JSON, manifest,
 service-worker, subscription, and health responses use `Cache-Control:
 no-store`. A reverse proxy must not cache them.
 
+### Durable cycle projection
+
+Decision: 2026-10-10. The database cycle reader retains the complete plan,
+timing and retry metadata for detailed progress and reconciliation. The cycle
+summary receives only its explicitly named presentation fields. Do not expand
+the complete database record into the summary's keyword arguments: plan
+identity and phase metadata are not summary constructor parameters. Adding
+those records must not make automation, authority, alerts or leader evidence
+unavailable. Keep failures, retry limits, deadlines and missing evidence visible;
+this projection never changes a cycle or grants execution permission.
+
+The current automation summary selects cycles owned by the current control
+generation, including an older cycle explicitly adopted by that generation's
+durable events. Historical terminal cycles remain retained; they cannot stand
+in for the current generation's execution progress. Service progress comes from
+the current lease holder, not a newer standby heartbeat. Before a current cycle
+exists, only a live lease plus its fresh, error-free WAITING worker and future
+wake proves bounded discovery polling. Show that wait as pending automatic
+recovery, never as a completed cycle or an armed trading session. Missing,
+stale or failed worker evidence remains a failure; current blocked cycles and
+unacknowledged incidents remain visible.
+
 ## 2. One recoverability policy
 
 Every operational fact is classified by the same pure policy. The rendering

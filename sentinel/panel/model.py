@@ -892,6 +892,7 @@ _AUTOMATION_RETRY_STEP = {
 def automation_step_rows(
         *, installed: Optional[bool], enabled: Optional[bool] = None,
         cycle: Optional[Mapping] = None, events=(),
+        discovery_recovery: Optional[RecoveryEvidence] = None,
         error: Optional[str] = None) -> list[Row]:
     """Expand one durable cycle into explicit, non-authoritative progress.
 
@@ -918,6 +919,16 @@ def automation_step_rows(
         ]
     cycle = dict(cycle or {})
     if not cycle.get("cycle_id"):
+        if discovery_recovery is not None:
+            return [
+                Row(f"automation_step_{key}", label,
+                    "WAITING FOR CYCLE" if index == 0 else "NOT REACHED",
+                    WARN if index == 0 else PENDING,
+                    "current leader is polling; no daily cycle is armed",
+                    required_current=index == 0,
+                    recovery=discovery_recovery if index == 0 else None)
+                for index, (key, label) in enumerate(_AUTOMATION_STEP_DEFINITIONS)
+            ]
         return [
             Row(
                 f"automation_step_{key}", label,

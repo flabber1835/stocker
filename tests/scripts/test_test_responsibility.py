@@ -12,6 +12,7 @@ from tools.test_responsibility_lib import (
     validate_contract_instances, validate_contract_selectors,
 )
 from tools.validate_test_responsibility import (
+    _promotion_pr_view,
     _declared_test_roots, _global_test_modules, _job_body,
     _require_alpaca_trigger_authority, _require_execution_binding,
     _require_merge_authority, _require_protected_context_uniqueness,
@@ -258,7 +259,7 @@ def test_sharadar_pr_authority_is_bound_to_required_same_workflow_dependencies()
 
 
 def test_merge_authority_rejects_commented_disabled_and_masked_replay_evidence():
-    sentinel = (ROOT / ".github/workflows/sentinel-safety.yml").read_text()
+    sentinel = _promotion_pr_view((ROOT / ".github/workflows/sentinel-safety.yml").read_text())
     sharadar = (ROOT / ".github/workflows/sharadar-daily-replay.yml").read_text()
     marker = "python tools/verify_test_owner_execution.py --owner sharadar.daily-replay"
     assert marker in sentinel
@@ -289,7 +290,7 @@ def test_merge_authority_rejects_commented_disabled_and_masked_replay_evidence()
 
 
 def test_protected_contexts_require_unconditional_tree_equivalence_proof():
-    sentinel = (ROOT / ".github/workflows/sentinel-safety.yml").read_text()
+    sentinel = _promotion_pr_view((ROOT / ".github/workflows/sentinel-safety.yml").read_text())
     marker = "python tools/verify_ci_scope.py"
     assert sentinel.count(marker) == 3
     missing = sentinel.replace(marker, "python tools/missing_scope_proof.py", 1)
@@ -339,7 +340,7 @@ def test_protected_contexts_require_unconditional_tree_equivalence_proof():
     ("ref: ${{ github.event.pull_request.head.sha || github.sha }}", "ref: main"),
 ])
 def test_parallel_authority_rejects_weakened_dependencies_workers_or_evidence(before, after):
-    sentinel = (ROOT / ".github/workflows/sentinel-safety.yml").read_text()
+    sentinel = _promotion_pr_view((ROOT / ".github/workflows/sentinel-safety.yml").read_text())
     assert before in sentinel
     with pytest.raises(AssertionError, match="parallel certification"):
         _require_merge_authority(sentinel_text=sentinel.replace(before, after))
@@ -347,7 +348,7 @@ def test_parallel_authority_rejects_weakened_dependencies_workers_or_evidence(be
 
 def test_protected_context_names_are_unique_in_template_and_concrete_forms():
     sentinel_path = ".github/workflows/sentinel-safety.yml"
-    sentinel = (ROOT / sentinel_path).read_text()
+    sentinel = _promotion_pr_view((ROOT / sentinel_path).read_text())
     assert _require_protected_context_uniqueness({sentinel_path: sentinel})
 
     for concrete in ("sentinel-exact-head", "sentinel-synthetic-merge",
@@ -384,7 +385,7 @@ jobs:
 
 
 def test_dedicated_sharadar_workflow_cannot_become_second_pr_authority():
-    sentinel = (ROOT / ".github/workflows/sentinel-safety.yml").read_text()
+    sentinel = _promotion_pr_view((ROOT / ".github/workflows/sentinel-safety.yml").read_text())
     sharadar = (ROOT / ".github/workflows/sharadar-daily-replay.yml").read_text()
     assert _workflow_triggers(sharadar) == {"workflow_dispatch"}
     mutated = sharadar.replace("on:\n  workflow_dispatch:\n", "on:\n  pull_request:\n    branches: [main]\n  workflow_dispatch:\n")

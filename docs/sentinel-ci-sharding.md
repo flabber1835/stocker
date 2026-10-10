@@ -9,8 +9,10 @@ worker, one status/memory worker, the existing warmup, automation, champion,
 operator, Wealth Core, and mutation workers, and four Sharadar replay shards.
 The account-wide GitHub runner limit can queue workers; twenty is a useful
 maximum, not a requirement to keep every runner busy. The protected `main`
-run uses the same test partition as a pull request and remains the only source
-for image publication.
+run remains the only source for image publication. A protected main run can
+reuse completed PR qualification under the exact-tree promotion contract in
+[CI-certified installation](ci-certified-paper-installation.md#qualified-pr-image-promotion).
+Otherwise it executes the same full partition as a pull request.
 
 The ordinary and rolling shard planners enumerate tracked test modules from
 the exact checkout. Ordinary modules are partitioned by a stable path hash;
@@ -41,6 +43,17 @@ duplicate and non-pass refusal, and re-collects the protected test-owner union
 against the exact image. A missing new test, skipped test, or omitted worker
 cannot produce certification evidence. A PR failure remains a refusal, and
 protected publication still requires a successful exact-commit `main` run.
+Reused qualification records the original PR run and attempt explicitly; skipped
+main workers are never represented as newly executed tests.
+
+The test-owner validator checks the full PR execution branch of these workflows.
+It recognizes only the reviewed `qualification-source` selector and exact
+`full`/`promote` conditions, validates the selector's executable command, output
+binding and checkout, and projects that branch before applying the existing
+complete-owner and same-attempt receipt checks. Arbitrary conditions, masked
+commands, missing dependencies and cross-workflow PR evidence remain refusals.
+The separate promotion policy validates reuse at main publication and on the
+host; the PR projection itself grants no reuse or publication authority.
 
 The million-row cold-seed/warmup remains one worker with its shared fixture.
 Splitting it would duplicate expensive acquisition and change the scale claim.

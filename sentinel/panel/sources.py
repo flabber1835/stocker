@@ -54,6 +54,17 @@ STATEMENT_TIMEOUT_MS = 8_000
 #: verdict but never its frontier, its ingest row or its ownership row.
 READINESS_TIMEOUT_MS = 2_000
 
+# The full cycle also carries plan and phase metadata consumed by detailed
+# progress/reconciliation. Only these presentation facts belong to the summary.
+_AUTOMATION_CYCLE_ROW_FIELDS = frozenset({
+    "cycle_id", "state", "decision_session", "effective_session",
+    "next_wake_at", "clean_reconciliation_id", "failure_code", "failure_detail",
+    "attempt_count", "phase_attempt_count", "phase_max_attempts",
+    "first_failure_at", "exception_fingerprint", "terminal_reason",
+    "prepare_at", "execution_open_at", "execute_at", "execution_close_at",
+    "created_at", "completed_at", "updated_at",
+})
+
 # The panel probes these exact columns before issuing a runtime SELECT. This is
 # not a migration mechanism: old/partial schemas remain old/partial and render
 # UNKNOWN. The probe prevents a missing relation in one row from cascading into
@@ -90,13 +101,14 @@ _AUTOMATION_COLUMNS = {
         "heartbeat_at", "expires_at"},
     "sentinel_automation_cycles": {
         "cycle_id", "state", "decision_session", "effective_session",
+        "control_generation",
         "plan_id", "plan_fingerprint",
         "last_clean_reconciliation_id", "next_wake_at", "failure_code",
         "failure_detail", "attempt_count", "diagnostic", "updated_at",
         "created_at", "prepare_at", "execution_open_at", "execute_at",
         "execution_close_at", "completed_at"},
     "sentinel_automation_cycle_events": {
-        "cycle_id", "from_state", "to_state", "detail", "at"},
+        "cycle_id", "from_state", "to_state", "detail", "at", "control_generation"},
     "sentinel_alert_outbox": {
         "state", "ack_state", "severity", "attempt_count", "max_attempts",
         "next_attempt_at", "updated_at"},
@@ -702,7 +714,12 @@ def _automation_lease(conn, generation: int) -> dict:
     }
 
 
-def _latest_automation_cycle(conn) -> dict | None:
+def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | None:
+    where = (" WHERE c.control_generation=%s OR EXISTS ("
+             " SELECT 1 FROM sentinel_automation_cycle_events e"
+             " WHERE e.cycle_id=c.cycle_id AND e.control_generation=%s)"
+             if generation is not None else "")
+    parameters = (generation, generation) if generation is not None else ()
     with conn.cursor() as cur:
         cur.execute(
             "SELECT cycle_id,state,decision_session,effective_session,"
@@ -712,8 +729,9 @@ def _latest_automation_cycle(conn) -> dict | None:
             " failure_detail,attempt_count,diagnostic,updated_at"
             ",prepare_at,execution_open_at,execute_at,execution_close_at"
             ",created_at,completed_at"
-            " FROM sentinel_automation_cycles"
-            " ORDER BY decision_session DESC,created_at DESC LIMIT 1")
+            " FROM sentinel_automation_cycles c" + where +
+            " ORDER BY decision_session DESC,created_at DESC LIMIT 1",
+            parameters)
         row = cur.fetchone()
     if row is None:
         return None
@@ -920,12 +938,14 @@ def _observation_recovery(
     return None
 
 
-def _latest_automation_instance(conn) -> dict | None:
+def _latest_automation_instance(conn, *, holder: str | None = None) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT instance_id,state,heartbeat_at,next_wake_at,last_error"
             " FROM sentinel_automation_service_instances"
-            " ORDER BY heartbeat_at DESC LIMIT 1")
+            + (" WHERE instance_id=%s" if holder is not None else "")
+            + " ORDER BY heartbeat_at DESC LIMIT 1",
+            (holder,) if holder is not None else ())
         row = cur.fetchone()
     if row is None:
         return None
@@ -935,6 +955,28 @@ def _latest_automation_instance(conn) -> dict | None:
         "heartbeat_at": _utc(heartbeat), "next_wake_at": _utc(next_wake),
         "last_error": last_error,
     }
+
+
+def _discovery_poll_recovery(cycle, lease, instance, *, now=None):
+    """A bounded current-holder poll is not proof of a discovered daily cycle."""
+    now = now or datetime.now(timezone.utc)
+    if cycle and cycle.get("cycle_id"):
+        return None
+    if (not lease or not lease.get("active") or not instance
+            or not lease.get("holder")
+            or instance.get("instance_id") != lease["holder"]
+            or instance.get("state") != "WAITING" or instance.get("last_error")):
+        return None
+    heartbeat = instance.get("heartbeat_at")
+    wake = instance.get("next_wake_at")
+    deadline = lease.get("expires_at")
+    if (not all(isinstance(value, datetime) for value in (heartbeat, wake, deadline))
+            or not now - timedelta(seconds=30) <= heartbeat <= now
+            or not now < wake < deadline):
+        return None
+    return model.RecoveryEvidence(
+        phase="AUTOMATION_DISCOVERY", automatic=True,
+        next_attempt_at=wake, deadline=deadline)
 
 
 def _service_authority_verdict(
@@ -1310,7 +1352,8 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                         lambda c: _automation_lease(c, control["generation"]),
                         STATEMENT_TIMEOUT_MS, default=None)
                     cycle, cycle_error = _read(
-                        conn, _latest_automation_cycle,
+                        conn, lambda c: _latest_automation_cycle(
+                            c, generation=control["generation"]),
                         STATEMENT_TIMEOUT_MS, default=None)
                     cycle_events = []
                     cycle_events_error = None
@@ -1321,7 +1364,8 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                                 c, str(cycle["cycle_id"])),
                             STATEMENT_TIMEOUT_MS, default=[])
                     instance, instance_error = _read(
-                        conn, _latest_automation_instance,
+                        conn, lambda c: _latest_automation_instance(
+                            c, holder=(lease or {}).get("holder")),
                         STATEMENT_TIMEOUT_MS, default=None)
                     alerts, alerts_error = _read(
                         conn, _automation_alert_counts,
@@ -1370,10 +1414,14 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                             error=lease_error, **(lease or {})),
                         model.automation_cycle_row(
                             installed=True, enabled=control["enabled"],
-                            error=cycle_error or instance_error, **cycle_view),
+                            error=cycle_error or instance_error,
+                            **{key: value for key, value in cycle_view.items()
+                               if key in _AUTOMATION_CYCLE_ROW_FIELDS}),
                         *model.automation_step_rows(
                             installed=True, enabled=control["enabled"],
                             cycle=cycle_view, events=cycle_events,
+                            discovery_recovery=_discovery_poll_recovery(
+                                cycle, lease, instance),
                             error=cycle_error or cycle_events_error),
                         model.automation_alerts_row(
                             installed=True, error=alerts_error,

@@ -29,6 +29,7 @@ PUBLICATION_WORKFLOW_ID = 346316730
 PUBLICATION_WORKFLOW_PATH = ".github/workflows/sentinel-publish.yml"
 CERTIFICATION_SCHEMA = "sentinel.software-certification/1"
 CERTIFICATION_SCHEMA_V2 = "sentinel.software-certification/2"
+CERTIFICATION_SCHEMA_V3 = "sentinel.software-certification/3"
 PROVENANCE_SCHEMA = "sentinel.exact-sha-provenance/4"
 RUNTIME_SCHEMA_EPOCH = "sentinel.behavioral_schema/current"
 SEMANTIC_EPOCH = "sentinel.automation_cycle/1"
@@ -54,6 +55,15 @@ class CertificationVerificationRefused(RuntimeError):
         super().__init__(detail)
         self.code = code
         self.detail = detail
+
+
+def _promotion_policy():
+    """Resolve the sibling policy without making the inspection tree importable."""
+    if __package__ in (None, ""):
+        import sentinel_ci_promotion as policy
+    else:
+        from scripts import sentinel_ci_promotion as policy
+    return policy
 
 
 def _refuse(code, detail) -> NoReturn:
@@ -163,6 +173,13 @@ class GitHubReadClient:
         return _json_bytes(
             self._request(API_ROOT + path),
             "CERT_GITHUB_RESPONSE_INVALID", "GitHub response")
+
+    def array(self, path):
+        value = _json_bytes(b'{"items":' + self._request(API_ROOT + path) + b'}',
+                            "CERT_GITHUB_RESPONSE_INVALID", "GitHub array response")["items"]
+        if not isinstance(value, list):
+            _refuse("CERT_GITHUB_RESPONSE_INVALID", "GitHub response is not an array")
+        return value
 
     def bytes(self, url):
         return self._request(url)
@@ -340,7 +357,9 @@ def _verify_manifest(manifest, commit, tree, publication_run):
         "tests", "ci", "epochs", "certified_at", "manifest_sha256",
     }
     version = manifest.get("certification_version")
-    schemas = {1: CERTIFICATION_SCHEMA, 2: CERTIFICATION_SCHEMA_V2}
+    if type(version) is int and version == 3:
+        expected_top.add("qualification_reuse")
+    schemas = {1: CERTIFICATION_SCHEMA, 2: CERTIFICATION_SCHEMA_V2, 3: CERTIFICATION_SCHEMA_V3}
     if set(manifest) != expected_top or type(version) is not int or version not in schemas \
             or manifest.get("schema") != schemas[version]:
         _refuse("CERT_MANIFEST_SCHEMA_UNKNOWN", "certification schema is unsupported")
@@ -397,7 +416,7 @@ def _verify_manifest(manifest, commit, tree, publication_run):
         "manifest_sha256", "required_counts", "suite_counts",
         "required_job_conclusions", "adversarial_evidence", "mutation_evidence",
     }
-    if version == 2:
+    if version >= 2:
         expected_tests.add("expected_xfails")
     if set(tests) != expected_tests:
         _refuse("CERT_MANIFEST_SCHEMA_UNKNOWN", "test evidence schema is malformed")
@@ -406,7 +425,7 @@ def _verify_manifest(manifest, commit, tree, publication_run):
     if tests.get("required_job_conclusions") != {
             name: "success" for name in REQUIRED_JOBS}:
         _refuse("CERT_REQUIRED_JOB_FAILED", "manifest required-job conclusions differ")
-    _verify_counts(tests, version)
+    _verify_counts(tests, min(version, 2))
     for name in ("adversarial_evidence", "mutation_evidence"):
         evidence = tests.get(name)
         if not isinstance(evidence, dict) or set(evidence) != {"status", "sha256"} \
@@ -442,6 +461,12 @@ def _verify_manifest(manifest, commit, tree, publication_run):
         _refuse("CERT_CERTIFIED_AT_INVALID", "certification timestamp is malformed")
     if parsed.utcoffset() is None:
         _refuse("CERT_CERTIFIED_AT_INVALID", "certification timestamp has no timezone")
+    if version == 3:
+        policy = _promotion_policy()
+        try:
+            policy.manifest_reuse(manifest)
+        except (policy.PromotionRefused, KeyError, TypeError) as exc:
+            _refuse("CERT_PROMOTION_BINDING_INVALID", "signed qualification reuse differs")
     return {"digest": digest, "ci": ci}
 
 
@@ -481,7 +506,7 @@ def _verify_attestation(bundle, digest):
         _refuse("CERT_ATTESTATION_BINDING_INVALID", "attestation subject differs")
 
 
-def verify_bundle(archive, commit, tree, publication_run):
+def verify_bundle(archive, commit, tree, publication_run, *, reuse_observer=None):
     members = _bundle_members(archive)
     _verify_sums(members)
     manifest = _json_bytes(
@@ -498,6 +523,8 @@ def verify_bundle(archive, commit, tree, publication_run):
         members["attestation.sigstore.json"],
         "CERT_ATTESTATION_BINDING_INVALID", "attestation")
     _verify_attestation(attestation, str(binding["digest"]))
+    if manifest["certification_version"] == 3 and reuse_observer is not None:
+        reuse_observer(manifest["qualification_reuse"])
     ci = binding["ci"]
     return {
         "schema": manifest["schema"],
@@ -555,8 +582,15 @@ def verify_current(root=ROOT, commit=None, client=None):
         token=os.environ.get("SENTINEL_GITHUB_READ_TOKEN") or os.environ.get("GITHUB_TOKEN"))
     publication = _publication_run(client, expected)
     artifact = _publication_artifact(client, publication, expected)
+    def observe_reuse(reuse):
+        policy = _promotion_policy()
+        try:
+            policy.verify_plan(client, reuse["plan"])
+        except (policy.PromotionRefused, KeyError, TypeError) as exc:
+            _refuse("CERT_PROMOTION_AUTHORITY_INVALID", "original PR authority differs")
     result = verify_bundle(
-        _download_artifact(client, artifact), expected, identity["tree"], publication)
+        _download_artifact(client, artifact), expected, identity["tree"], publication,
+        reuse_observer=observe_reuse)
     _verify_safety_run(client, result)
     final_identity = current_identity(root)
     if final_identity != identity:

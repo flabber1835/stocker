@@ -36,6 +36,7 @@ from sentinel.automation.model import (
     ExecuteResult,
     LeaderPermit,
     NonRetryableCallbackRefused,
+    StaleLeaderRefused,
     TickAction,
     TickResult,
     TransientInfrastructureFailure,
@@ -1314,6 +1315,52 @@ def test_composition_requires_exact_signed_automation_authority(
         "automation_config_sha256": cfg.fingerprint,
     }]
     assert verdicts[-1]["verdict"] == "PASS"
+
+
+@pytest.mark.parametrize("boundary", ["control", "cycle"])
+@async_test
+async def test_idle_lease_loss_returns_to_scheduler_without_authority_or_broker(
+        monkeypatch, boundary):
+    cfg = config()
+    runtime = production(cfg)
+    conn = FakeConnection(lease_row=(
+        "worker-a", 17, 3, NOW, NOW + timedelta(seconds=30)))
+    monkeypatch.setattr(store, "load_control", lambda _c: control(cfg))
+    monkeypatch.setattr(store, "oldest_nonterminal_cycle", lambda _c: cycle(cfg))
+    calls = []
+
+    def check_control(_c, _permit):
+        calls.append("control")
+        if boundary == "control":
+            raise StaleLeaderRefused("lease expired before idle verification")
+        return control(cfg), SimpleNamespace(certificate_sha256=CERTIFICATE)
+
+    def check_cycle(*_args, **_kwargs):
+        calls.append("cycle")
+        raise StaleLeaderRefused("new generation won before cycle verification")
+
+    monkeypatch.setattr(runtime, "_assert_control_authority", check_control)
+    monkeypatch.setattr(runtime, "_assert_cycle_authority", check_cycle)
+    for name in ("transition_cycle", "adopt_cycle", "engage_kill", "record_authority_verdict"):
+        monkeypatch.setattr(store, name, lambda *_a, **_kw: pytest.fail("stale poll mutated authority"))
+    monkeypatch.setattr(runtime, "_broker", lambda *_a, **_kw: pytest.fail("idle broker reached"))
+    monkeypatch.setattr(runtime, "notify", lambda *_a, **_kw: pytest.fail("lease loss is not certificate failure"))
+    assert await runtime.control_wake(conn) is None
+    assert calls == (["control"] if boundary == "control" else ["control", "cycle"])
+    assert conn.rollbacks == 2
+
+
+@async_test
+async def test_idle_poll_does_not_swallow_unknown_defects(monkeypatch):
+    cfg = config()
+    runtime = production(cfg)
+    conn = FakeConnection(lease_row=("worker-a", 17, 3, NOW, NOW + timedelta(seconds=30)))
+    monkeypatch.setattr(store, "load_control", lambda _c: control(cfg))
+    def defect(*_a):
+        raise ValueError("unexpected authority reader defect")
+    monkeypatch.setattr(runtime, "_assert_control_authority", defect)
+    with pytest.raises(ValueError, match="unexpected authority reader defect"):
+        await runtime.control_wake(conn)
 
 
 @async_test

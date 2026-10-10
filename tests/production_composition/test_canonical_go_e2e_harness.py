@@ -24,6 +24,11 @@ assert SPEC is not None and SPEC.loader is not None
 harness = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(harness)
 
+FULL_QUALIFICATION = "${{ needs.qualification-source.outputs.mode == 'full' }}"
+MANUAL_FULL_GO = (
+    "${{ needs.qualification-source.outputs.mode == 'full' && "
+    "(github.event_name == 'workflow_dispatch') }}")
+
 
 def _require_manual_full_go(workflow):
     composition = workflow["jobs"]["composition"]
@@ -44,7 +49,23 @@ def _require_manual_full_go(workflow):
     evidence = next(step for step in steps
                     if step.get("name") == "Verify canonical GO evidence")
     for step in [*launchers, evidence]:
-        assert step.get("if") == "github.event_name == 'workflow_dispatch'"
+        assert step.get("if") == MANUAL_FULL_GO
+    assert composition["needs"] == ["qualification-source", "database-preflight"]
+    preflight = workflow["jobs"]["database-preflight"]
+    assert preflight["needs"] == "qualification-source"
+    checks = {
+        "Run authority matrix and real host-process regressions",
+        "Re-run adjacent GO authority regressions",
+        "Run physical restore and upgrade seam",
+        "Run real Docker/PostgreSQL composition gates",
+        "Verify live evidence",
+    }
+    automatic = [step for step in steps if step.get("name") in checks]
+    assert len(automatic) == len(checks)
+    assert all(step.get("if") == FULL_QUALIFICATION for step in automatic)
+    database_check = next(step for step in preflight["steps"]
+                          if step.get("name") == "Exercise real read-only cursors and predecessor plan")
+    assert database_check.get("if") == FULL_QUALIFICATION
     assert "if" not in workflow["jobs"]["database-preflight"]
     assert "if" not in composition
 
@@ -54,11 +75,40 @@ def test_full_go_is_manual_but_fast_checks_remain_automatic():
         (ROOT / ".github/workflows/production-composition-harness.yml").read_text())
     _require_manual_full_go(workflow)
     for step in workflow["jobs"]["composition"]["steps"]:
-        if step.get("if") == "github.event_name == 'workflow_dispatch'":
+        if step.get("if") == MANUAL_FULL_GO:
             guard = step.pop("if")
             with pytest.raises(AssertionError):
                 _require_manual_full_go(workflow)
             step["if"] = guard
+
+
+@pytest.mark.parametrize("replacement", [None, FULL_QUALIFICATION,
+    "github.event_name == 'workflow_dispatch'",
+    "${{ needs.qualification-source.outputs.mode == 'full' || "
+    "(github.event_name == 'workflow_dispatch') }}"])
+def test_full_go_rejects_loss_of_either_manual_or_qualification_guard(replacement):
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/production-composition-harness.yml").read_text())
+    for step in workflow["jobs"]["composition"]["steps"]:
+        if step.get("if") == MANUAL_FULL_GO:
+            step["if"] = replacement
+            with pytest.raises(AssertionError):
+                _require_manual_full_go(workflow)
+            step["if"] = MANUAL_FULL_GO
+
+
+@pytest.mark.parametrize("job,step_name", [
+    ("composition", "Run authority matrix and real host-process regressions"),
+    ("database-preflight", "Exercise real read-only cursors and predecessor plan"),
+])
+def test_fast_composition_checks_cannot_become_manual(job, step_name):
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/production-composition-harness.yml").read_text())
+    step = next(step for step in workflow["jobs"][job]["steps"]
+                if step.get("name") == step_name)
+    step["if"] = MANUAL_FULL_GO
+    with pytest.raises(AssertionError):
+        _require_manual_full_go(workflow)
 
 
 def test_script_process_can_load_production_session_calendar(tmp_path):
