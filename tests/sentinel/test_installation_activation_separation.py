@@ -287,9 +287,8 @@ def test_public_install_success_is_committed_before_separate_handoff(monkeypatch
     monkeypatch.setattr(install.bootstrap, '_run', lambda *args, **kwargs: completed(SHA))
     recovery_calls = []
     def recovery_status(_runner, argv, **kwargs):
-        assert argv == ['bash', 'scripts/sentinel-backup-status.sh'], 'financial recovery inside software finalization'
         recovery_calls.append(argv)
-        return completed('backup_ready:true')
+        pytest.fail('financial recovery inside software finalization: ' + repr(argv))
     monkeypatch.setattr(core.Runner, 'run', recovery_status)
     def software(obj):
         obj.commit = SHA
@@ -314,7 +313,7 @@ def test_public_install_success_is_committed_before_separate_handoff(monkeypatch
         return {'schema': 'sentinel.activation-handoff/1', 'activation_state': 'SUPERVISED'}
     monkeypatch.setattr(activate, 'handoff', handoff)
     assert install.main(['--mode', mode, '--activate-when-ready'] if mode else []) == 0
-    assert recovery_calls == [['bash', 'scripts/sentinel-backup-status.sh']]
+    assert recovery_calls == []
     receipts = list((tmp_path / 'authority').rglob('installation-receipt.json'))
     assert len(receipts) == 1
     receipt = records.read_document(receipts[0])
@@ -326,14 +325,13 @@ def test_public_install_success_is_committed_before_separate_handoff(monkeypatch
     assert 'SENTINEL_RUNTIME_IMAGE_REF=' + IMAGE in core.ENV_PATH.read_text()
 
 
-def test_software_finalizer_cannot_ignore_backup_chain_refusal(tmp_path):
-    def refused(argv, **kwargs):
-        assert argv == ['bash', 'scripts/sentinel-backup-status.sh']
-        raise core.DeployRefused('backup chain unavailable')
-    obj = install.InstallationDeploy(SimpleNamespace(), SimpleNamespace(env={}, run=refused), tmp_path)
-    obj._post_deploy_backup = lambda: pytest.fail('financial restore invoked')
-    with pytest.raises(core.DeployRefused, match='backup chain unavailable'):
-        obj.persist_deployed({'enabled': False, 'kill_switch_engaged': True})
+@pytest.mark.parametrize('status', [{'enabled': True, 'kill_switch_engaged': True},
+                                  {'enabled': False, 'kill_switch_engaged': False}])
+def test_software_finalizer_still_requires_execution_fence(tmp_path, status):
+    obj = install.InstallationDeploy(SimpleNamespace(), SimpleNamespace(env={}), tmp_path)
+    with pytest.raises(core.DeployRefused, match='disabled\\+killed'):
+        obj.persist_deployed(status)
+    assert not (tmp_path / 'installation-receipt.json').exists()
 
 
 @pytest.mark.parametrize('completion', ['success', 'pending-then-success', 'interrupt', 'integrity'])

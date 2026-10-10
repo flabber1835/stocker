@@ -63,17 +63,15 @@ def _compose_args(env: Mapping[str, str]):
 
 def _existing_status(env: Mapping[str, str]) -> Optional[Mapping]:
     """Read only the current canonical DB-backed status; absence is not guessed."""
-    try:
-        compose = _compose_args(env)
-        result = _run(compose + [
-            "--profile", "cli", "run", "--rm", "-T", "sentinel", "status"],
-            env=env, check=False)
-        if result.returncode != 0:
-            return None
-        value = json.loads(result.stdout)
-        return value if isinstance(value, dict) else None
-    except (core.DeployRefused, json.JSONDecodeError):
+    compose = _compose_args(env)
+    result = _run(compose + [
+        "--profile", "cli", "run", "--rm", "-T", "sentinel", "status"],
+        env=env, check=False)
+    if result.returncode != 0:
         return None
+    # A successful but ambiguous identity observation is corruption, not
+    # evidence of a fresh installation. Match the later integrity reader.
+    return core._json_output(result, label='installed deployment discovery')
 
 
 def _repository_from_image(reference: str) -> Optional[str]:
@@ -117,11 +115,13 @@ def _existing_runtime_repository(env: Mapping[str, str]) -> Optional[str]:
         "docker", "image", "inspect", "sentinel-authorized:latest",
         "--format", "{{json .RepoDigests}}"], env=env, check=False)
     if inspected.returncode == 0:
-        try:
-            digests = json.loads(inspected.stdout)
-        except json.JSONDecodeError:
-            digests = []
-        for item in digests or []:
+        digests = core._json_value(inspected.stdout.encode('utf-8'),
+                                  label='installed runtime repository discovery')
+        if digests is None:
+            return None  # Docker reports null for a local image without RepoDigests.
+        if not isinstance(digests, list) or any(not isinstance(item, str) for item in digests):
+            raise core.DeployRefused('installed runtime RepoDigests must be a string array')
+        for item in digests:
             repo = _repository_from_image(item)
             if repo:
                 return repo
@@ -397,8 +397,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         if type(proof.get('schema_current')) is not bool:
             raise core.DeployRefused('installed schema compatibility is malformed')
         if proof['schema_current']:
-            self.phase('schema: unchanged; reuse current backup chain, no migration or replay')
-            self.runner.run(['bash', 'scripts/sentinel-backup-status.sh'])
+            self.phase('schema: unchanged; no migration, backup readiness check or replay')
         else:
             self.phase("durability: fresh pre-migration backup and physical replay")
             self._create_backup(restore_drill=False)
