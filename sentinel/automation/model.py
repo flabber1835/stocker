@@ -78,6 +78,10 @@ class ImmutableCycleChanged(AutomationRefused):
     """One deterministic cycle id was presented with different identity."""
 
 
+class ProspectiveReplacementRefused(ImmutableCycleChanged):
+    """A new generation cannot safely replace this prospective obligation."""
+
+
 class ImmutableAlertChanged(AutomationRefused):
     """One alert idempotency key was presented with different content."""
 
@@ -306,6 +310,18 @@ class CycleSpec(_FrozenModel):
         encoded = json.dumps(
             identity, sort_keys=True, separators=(",", ":"),
             ensure_ascii=True).encode("ascii")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @property
+    def generation_cycle_id(self) -> str:
+        """A fresh prospective obligation; the original v1 id stays intact."""
+        identity = {
+            "schema": "sentinel.automation_cycle/2",
+            "daily_cycle_id": self.cycle_id,
+            "control_generation": self.control_generation,
+        }
+        encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"),
+                             ensure_ascii=True).encode("ascii")
         return hashlib.sha256(encoded).hexdigest()
 
 

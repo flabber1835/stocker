@@ -16,9 +16,14 @@ from sentinel.automation.model import (
     InvalidCycleTransition,
     LeaderPermit,
     MissingAutomationState,
+    ProspectiveReplacementRefused,
     StaleLeaderRefused,
 )
-from sentinel.execution.journal import writer_lock
+from sentinel.execution.journal import WriterLockUnavailable, writer_lock
+
+
+class CycleCreationBusy(WriterLockUnavailable):
+    """Only the scheduling writer's initial ownership attempt was busy."""
 
 
 _CONTROL_COLUMNS = (
@@ -616,8 +621,83 @@ def _immutable_cycle(record: CycleRecord) -> dict[str, Any]:
     }
 
 
+def _cycles_in_scope(conn, spec: CycleSpec) -> list[CycleRecord]:
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT {_CYCLE_COLUMNS} FROM sentinel_automation_cycles WHERE "
+            "deployment_id=%s AND broker=%s AND broker_account_id=%s "
+            "AND takeover_epoch=%s AND decision_session=%s ORDER BY control_generation,cycle_id",
+            (spec.deployment_id,spec.broker,spec.broker_account_id,
+             spec.takeover_epoch,spec.decision_session))
+        return [_cycle(row) for row in cur.fetchall()]
+
+
+def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None):
+    """Read-only eligibility; creation repeats it under the canonical owner."""
+    from sentinel.automation import integrity
+    try:
+        if (now is None or now.tzinfo is None or now.utcoffset() is None
+                or now >= spec.execution_open_at or spec.historical_state_only):
+            return None
+        control = load_control(conn)
+        if control.binding is None or control.generation != spec.control_generation:
+            return None
+        binding = control.binding.model_dump()
+        if any(getattr(spec, key) != item for key,item in binding.items()):
+            return None
+        with conn.cursor() as cur:
+            cur.execute("SELECT clock_timestamp(),enabled_at FROM sentinel_automation_control WHERE id=1")
+            clock, cutover = cur.fetchone()
+        if clock >= spec.execution_open_at or cutover is None or cutover >= spec.execution_open_at:
+            return None
+        prior = _cycles_in_scope(conn, spec)
+        if not prior:
+            return None
+        for cycle in prior:
+            integrity.validate_cycle_lineage(conn, cycle)
+            if (cycle.control_generation >= spec.control_generation
+                    or cycle.state is not CycleState.SUPERSEDED or cycle.historical_state_only
+                    or cycle.failure_code != 'CONTROL_GENERATION_SUPERSEDED'):
+                return None
+        ids = sorted(cycle.cycle_id for cycle in prior)
+        plans = [cycle.plan_id for cycle in prior if cycle.plan_id is not None]
+        with conn.cursor() as cur:
+            cur.execute("SELECT EXISTS(SELECT 1 FROM sentinel_automation_cycle_events "
+                        "WHERE cycle_id=ANY(%s::text[]) AND (from_state IN ('EXECUTING','RECONCILING') "
+                        "OR to_state IN ('EXECUTING','RECONCILING')))", (ids,))
+            if cur.fetchone()[0]:
+                return None
+            cur.execute("SELECT EXISTS(SELECT 1 FROM sentinel_commands c "
+                        "LEFT JOIN sentinel_execution_plans p USING(plan_id) "
+                        "WHERE c.plan_id=ANY(%s::text[]) OR (c.deployment_id=%s "
+                        "AND c.broker=%s AND c.broker_account_id=%s AND c.takeover_epoch=%s "
+                        "AND (p.plan_id IS NULL OR p.effective_session=%s)))",
+                        (plans,spec.deployment_id,spec.broker,spec.broker_account_id,
+                         spec.takeover_epoch,spec.effective_session))
+            if cur.fetchone()[0]:
+                return None
+        return ids
+    finally:
+        conn.rollback()
+
+
 def create_cycle(
-        conn, *, permit: LeaderPermit, spec: CycleSpec) -> CycleRecord:
+        conn, *, permit: LeaderPermit, spec: CycleSpec,
+        now: datetime | None = None) -> CycleRecord:
+    # This scheduling-only write cannot submit orders or bypass the independent
+    # backup authority on the ordinary plan/execution writer boundary.
+    owned = False
+    try:
+        with writer_lock(conn, recovery_only=True):
+            owned = True
+            return _create_cycle(conn, permit=permit, spec=spec, now=now)
+    except WriterLockUnavailable as exc:
+        if owned:
+            raise
+        raise CycleCreationBusy('canonical writer is busy before cycle creation') from exc
+
+
+def _create_cycle(conn, *, permit, spec, now):
     """Idempotently create one full-hash cycle under a live leader fence."""
     if spec.control_generation != permit.control_generation:
         raise StaleLeaderRefused(
@@ -625,6 +705,24 @@ def create_cycle(
     expected = spec.model_dump()
     try:
         require_leader(conn, permit)
+        prior = _cycles_in_scope(conn, spec)
+        current = next((cycle for cycle in prior if cycle.control_generation == spec.control_generation), None)
+        if current is not None:
+            if _immutable_cycle(current) != expected:
+                raise ImmutableCycleChanged('deterministic automation cycle identity was reused with different immutable fields')
+            conn.rollback()
+            return current
+        control = load_control(conn)
+        if control.binding is None or any(getattr(spec, key) != item
+                                         for key,item in control.binding.model_dump().items()):
+            raise AutomationRefused('cycle binding differs from current activation')
+        cycle_id, genesis = spec.cycle_id, {}
+        if prior:
+            predecessors = prospective_predecessors(conn, spec=spec, now=now)
+            if predecessors is None:
+                raise ProspectiveReplacementRefused('generation replacement is not a fresh unsent prospective obligation')
+            cycle_id = spec.generation_cycle_id
+            genesis = {'prospective_predecessors': predecessors}
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO sentinel_automation_cycles"
@@ -641,9 +739,10 @@ def create_cycle(
                 " WHERE c.id=1 AND c.enabled AND NOT c.kill_switch_engaged"
                 " AND c.generation=%s AND l.control_generation=c.generation"
                 " AND l.holder_id=%s AND l.fence_token=%s"
-                " AND l.expires_at > clock_timestamp())"
+                " AND l.expires_at > clock_timestamp()"
+                " AND (NOT %s OR (clock_timestamp()<%s AND c.enabled_at<%s)))"
                 " ON CONFLICT (cycle_id) DO NOTHING RETURNING cycle_id",
-                (spec.cycle_id, spec.decision_session, spec.effective_session,
+                (cycle_id, spec.decision_session, spec.effective_session,
                  spec.deployment_id, spec.broker, spec.broker_account_id,
                  spec.takeover_epoch, spec.control_generation,
                  spec.certificate_sha256, spec.rollout_mode,
@@ -653,20 +752,23 @@ def create_cycle(
                  spec.execution_close_at, spec.historical_state_only,
                  spec.prepare_at, permit.fence_token,
                  permit.control_generation, permit.holder_id,
-                 permit.fence_token))
+                 permit.fence_token, bool(prior), spec.execution_open_at,
+                 spec.execution_open_at))
             inserted = cur.fetchone() is not None
             if inserted:
                 cur.execute(
                     "INSERT INTO sentinel_automation_cycle_events"
                     " (cycle_id,from_state,to_state,control_generation,"
                     " fence_token,detail) VALUES (%s,NULL,'DISCOVERED',%s,%s,"
-                    " '{}'::jsonb)",
-                    (spec.cycle_id, permit.control_generation,
-                     permit.fence_token))
+                    " %s::jsonb)",
+                    (cycle_id, permit.control_generation,
+                     permit.fence_token, _json(genesis)))
         if not inserted:
             require_leader(conn, permit)
+            if prior:
+                raise ProspectiveReplacementRefused('prospective boundary changed before cycle creation')
         conn.commit()
-        stored = load_cycle(conn, spec.cycle_id)
+        stored = load_cycle(conn, cycle_id)
         actual = _immutable_cycle(stored)
         if actual != expected:
             raise ImmutableCycleChanged(

@@ -292,6 +292,20 @@ def test_production_tick_renews_verifies_restores_then_retains_and_restarts(boun
                    for call in boundary.calls)
 
 
+def test_recurring_renewal_allows_copy_cleanup_and_publication(boundary):
+    boundary.old = True
+    budgets = {}
+
+    def run(command, **kwargs):
+        if command[:1] == ['bash']:
+            budgets[command[1]] = kwargs['timeout']
+        return boundary(command, **kwargs)
+
+    assert coordinator.tick('/media', run)['retention_ready']
+    assert budgets['scripts/sentinel-base-backup.sh'] == 900
+    assert budgets['scripts/sentinel-restore-drill.sh'] == 2100
+
+
 @pytest.mark.parametrize("failure", ["scripts/sentinel-base-backup.sh", "scripts/sentinel-backup-status.sh",
                                      "scripts/sentinel-restore-drill.sh", "SELECT proof::text"])
 def test_failed_boundary_never_reaches_retention(boundary, failure):

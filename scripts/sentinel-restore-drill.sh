@@ -175,7 +175,7 @@ docker run -d --rm --name "$CONTAINER" --network "$NETWORK" \
   -v "$VOLUME:/var/lib/postgresql/data" -v "$WAL_SOURCE:/archive:ro" \
   --entrypoint timeout \
   postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
-  --kill-after=30s 1800 sh /restore-worker >/dev/null
+  --kill-after=30s "$("$PYTHON" scripts/sentinel_backup_deadlines.py restore-worker)" sh /restore-worker >/dev/null
 CONTAINER_STARTED=1
 
 for _ in $(seq 1 1200); do
