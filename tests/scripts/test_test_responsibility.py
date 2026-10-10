@@ -329,7 +329,7 @@ def test_protected_contexts_require_unconditional_tree_equivalence_proof():
     ("SHARADAR_REPLAY_SHARDS=4", "SHARADAR_REPLAY_SHARDS=1"),
     ("SHARADAR_REPLAY_SHARD=${{ matrix.shard }}", "SHARADAR_REPLAY_SHARD=0"),
     ("        if: ${{ matrix.lane == 'sentinel-warmup' }}", "        if: false"),
-    ("--fail-under=80.00", "--fail-under=0.00"),
+    ("--fail-under=100.00", "--fail-under=0.00"),
     ("set -euo pipefail", "set -eu"),
     ("sentinel-runtime-build\n", "sentinel-runtime-build\n    if: false\n"),
     ("          name: sentinel-ci-bundle-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}",

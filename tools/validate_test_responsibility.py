@@ -687,7 +687,7 @@ def _require_parallel_certification(sentinel: str) -> dict:
         "sentinel-status": [("sentinel-test:ci tests/sentinel/test_status_memory.py", "docker")],
         "sentinel-warmup": [("sentinel-test:ci tests/sentinel/test_source_seed_warmup.py", "docker")],
         "sentinel-automation": [("-m coverage run --branch", "docker"),
-                                ("--fail-under=80.00", "docker")],
+                                ("--fail-under=100.00", "docker")],
         "champion": [("tests/champion tests/median5 tests/v5", "docker"),
                      ("/work/tools/champion_mutation_check.py", "docker"),
                      ("/work/tools/v5_mutation_check.py", "docker")],

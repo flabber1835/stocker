@@ -31,6 +31,16 @@ parent-death, and process-group behavior. A killed child cannot reliably flush
 a coverage file, so coverage of its protocol is measured in the deterministic
 tests rather than inferred from a killed process.
 
+The enforced lane threshold is 100 percent. Connection factories must supply
+an owned, non-null connection before registration or renewal proceeds.
+Acquisition failure owns no connection to close; after acquisition, every
+success, refusal and cancellation closes that exact connection. The heartbeat
+preserves its first failure even if closing also fails. An immutable prior cycle
+already proved nonterminal needs no second terminal predicate at its fallback
+block boundary. These ownership and immutable-snapshot rules remove impossible
+successful-cleanup branches without excluding them from measurement or changing
+valid cycle dispatch.
+
 Recovery tests assert the persisted transition sequence, retained account and
 cycle identity, retry timing, and absence of executor calls. Concurrent or
 corrupt dependency observations are injected explicitly and must preserve the

@@ -919,8 +919,10 @@ def test_recovery_retry_restores_legal_state_without_resetting_the_book(
 
 
 @pytest.mark.parametrize('mode', [
-    'factory_failure', 'lease_failure', 'close_failure', 'cancel_before_factory',
+    'factory_failure', 'factory_none', 'lease_failure', 'close_failure',
+    'lease_and_close_failure', 'cancel_before_factory',
     'cancel_after_factory', 'cancel_before_renewal', 'cancel_after_renewal',
+    'one_successful_renewal',
 ])
 def test_heartbeat_failure_and_revocation_never_accept_completed_child_authority(
         monkeypatch, mode):
@@ -936,7 +938,8 @@ def test_heartbeat_failure_and_revocation_never_accept_completed_child_authority
     process = Process(ready=True)
     process.start = ready.set
     parent, child_channel = Channel(), Channel()
-    parent.poll = lambda: mode not in {'factory_failure', 'lease_failure'}
+    parent.poll = lambda: mode not in {'factory_failure', 'factory_none', 'lease_failure',
+                                     'lease_and_close_failure'}
     parent.recv_bytes = lambda: b'{"kind":"result","value":"child completed"}'
     factory_calls = []
 
@@ -944,8 +947,12 @@ def test_heartbeat_failure_and_revocation_never_accept_completed_child_authority
         def __init__(self):
             self.value = False
             self.checks = 0
+            self.waits = 0
 
         def wait(self, seconds):
+            self.waits += 1
+            if mode == 'one_successful_renewal' and self.waits > 1:
+                return True
             return self.value
 
         def is_set(self):
@@ -980,6 +987,8 @@ def test_heartbeat_failure_and_revocation_never_accept_completed_child_authority
         events.append('heartbeat closed')
         if mode == 'close_failure':
             raise failure
+        if mode == 'lease_and_close_failure':
+            raise OSError('secondary close failure must not replace lease refusal')
 
     def connect():
         factory_calls.append('connected')
@@ -987,12 +996,14 @@ def test_heartbeat_failure_and_revocation_never_accept_completed_child_authority
             return SimpleNamespace(close=lambda: events.append('startup closed'))
         if mode == 'factory_failure':
             raise failure
+        if mode == 'factory_none':
+            return None
         return SimpleNamespace(close=close_heartbeat)
 
     def heartbeat_lease(conn, **kwargs):
         assert kwargs == {'permit': None, 'lease_seconds': 30, 'callback': True}
         events.append('lease renewed')
-        if mode == 'lease_failure':
+        if mode in {'lease_failure', 'lease_and_close_failure'}:
             raise failure
 
     def killpg(pid, sig):
@@ -1018,18 +1029,26 @@ def test_heartbeat_failure_and_revocation_never_accept_completed_child_authority
     monkeypatch.setattr(module.os, 'killpg', killpg)
     service = module.AutomationService(config=AutomationConfig(lease_seconds=30, heartbeat_seconds=5), holder_id='heartbeat-fault-lab',
         refresh=callback, prepare=callback, recover=callback, execute=callback)
-    with pytest.raises(module.StaleLeaderRefused) as refusal:
-        asyncio.run(service._invoke(callback, context, permit=None,
-            phase='PREPARE', heartbeat_conn_factory=connect))
-    assert ('injected heartbeat' if mode.endswith('failure') else 'revoked') in str(refusal.value)
-    assert context.cancellation.cancelled
+    invocation = service._invoke(callback, context, permit=None,
+        phase='PREPARE', heartbeat_conn_factory=connect)
+    if mode == 'one_successful_renewal':
+        assert asyncio.run(invocation) == 'child completed'
+        assert not context.cancellation.cancelled
+    else:
+        with pytest.raises(module.StaleLeaderRefused) as refusal:
+            asyncio.run(invocation)
+        expected_reason = ('no owned connection' if mode == 'factory_none' else
+                           'injected heartbeat' if mode.endswith('failure') else 'revoked')
+        assert expected_reason in str(refusal.value)
+        assert context.cancellation.cancelled
     assert parent.closed and child_channel.closed
     assert process.joins and not process.is_alive()
     assert events[0] == 'startup closed' and events[-1] == 'heartbeat joined'
     assert factory_calls == ['connected'] * (1 if mode == 'cancel_before_factory' else 2)
-    expected_renewal = mode in {'lease_failure', 'close_failure', 'cancel_after_renewal'}
+    expected_renewal = mode in {'lease_failure', 'close_failure', 'cancel_after_renewal',
+                              'one_successful_renewal', 'lease_and_close_failure'}
     assert events.count('lease renewed') == int(expected_renewal)
-    expected_close = mode not in {'factory_failure', 'cancel_before_factory'}
+    expected_close = mode not in {'factory_failure', 'factory_none', 'cancel_before_factory'}
     assert events.count('heartbeat closed') == int(expected_close)
 
 
@@ -1309,6 +1328,118 @@ def test_before_source_finality_reuses_the_prior_obligation_without_a_future_pla
     assert not routes and not transitions
 
 
+def test_exhausted_recovery_result_cannot_publish_another_retry_wake(monkeypatch):
+    config = AutomationConfig()
+    cycle, permit = scheduled_record(config, module.CycleState.RETRY_WAIT)
+    cycle = cycle.model_copy(update={'plan_id': 'retained-plan',
+        'state_fingerprint': 'retained-book',
+        'diagnostic': {'retry_phase': 'RECOVER', 'phase_attempt_count': 999,
+                       'first_failure_at': '2026-10-08T00:00:00+00:00'}})
+    writes = []
+    def transition(conn, *, cycle_id, permit, to_state, **changes):
+        assert cycle_id == cycle.cycle_id
+        writes.append(to_state)
+        return cycle.model_copy(update={'state': to_state, **changes})
+    monkeypatch.setattr(module.store, 'transition_cycle', transition)
+    service = module.AutomationService(config=config, holder_id='exhausted-recovery',
+        refresh=None, prepare=None, recover=None, execute=None)
+    result = service._handle_retry_result(object(), now=cycle.execute_at,
+        cycle=cycle, permit=permit, phase='RECOVER', failure_code='STILL_PENDING',
+        failure_detail='independent recovery remains unresolved',
+        result_diagnostic={'retained_obligation': cycle.cycle_id}, recovery_transition=True)
+    assert result.action is module.TickAction.BLOCKED
+    assert writes == [module.CycleState.BLOCKED]
+    assert result.cycle.next_wake_at is None
+    assert result.cycle.diagnostic['terminal_reason'] == 'TRANSIENT_RETRY_EXHAUSTED'
+    assert 'notifier_action' not in result.cycle.diagnostic
+    assert result.cycle.plan_id == cycle.plan_id
+    assert result.cycle.state_fingerprint == cycle.state_fingerprint
+
+
+def test_future_obligation_cannot_displace_a_still_open_prior_cycle(monkeypatch):
+    config = AutomationConfig()
+    cycle, _ = scheduled_record(config, module.CycleState.DISCOVERED)
+    prior, permit = scheduled_record(config, module.CycleState.PLAN_READY,
+                                    decision_session=date(2026, 10, 7))
+    now = prior.execute_at
+    service, connection, routes, transitions, creates = tick_route(
+        monkeypatch, cycle, permit, now, prior=prior)
+    # Explicit fault observation: the calendar supplied a future obligation.
+    # It must not cause a second book/plan while the old immutable window lives.
+    monkeypatch.setattr(module.schedule, 'for_clock',
+        lambda *a: module.schedule.for_decision_session(cycle.decision_session, config))
+    result = asyncio.run(service.tick(connection, now=now))
+    assert result.action is module.TickAction.BLOCKED and result.cycle == prior
+    assert not routes and not transitions and not creates
+
+
+def test_nontransport_query_row_cannot_grant_old_executor_authority(monkeypatch):
+    config = AutomationConfig()
+    cycle, permit = scheduled_record(config, module.CycleState.DISCOVERED)
+    unrelated, _ = scheduled_record(config, module.CycleState.REFRESHING_DATA,
+                                   decision_session=date(2026, 10, 7))
+    service, connection, routes, transitions, creates = tick_route(
+        monkeypatch, cycle, permit, cycle.execute_at, unresolved=unrelated)
+    result = asyncio.run(service.tick(connection, now=cycle.execute_at))
+    assert result.cycle == cycle
+    assert [route[0] for route in routes] == ['preflight_recover']
+    assert all(route[1] == cycle.cycle_id for route in routes)
+    assert creates == [cycle.cycle_id] and not transitions
+
+
+def test_early_discovered_snapshot_waits_without_entering_a_callback(monkeypatch):
+    config = AutomationConfig()
+    cycle, permit = scheduled_record(config, module.CycleState.DISCOVERED)
+    now = cycle.prepare_at - timedelta(microseconds=1)
+    service, connection, routes, transitions, creates = tick_route(
+        monkeypatch, cycle, permit, now)
+    monkeypatch.setattr(module.schedule, 'for_clock',
+        lambda *a: module.schedule.for_decision_session(cycle.decision_session, config))
+    result = asyncio.run(service.tick(connection, now=now))
+    assert result.action is module.TickAction.WAITING and result.cycle == cycle
+    assert creates == [cycle.cycle_id] and not routes and not transitions
+
+
+def test_inconsistent_recovery_classifier_still_adopts_before_transport(monkeypatch):
+    config = AutomationConfig()
+    cycle, permit = scheduled_record(config, module.CycleState.EXECUTING)
+    cycle = cycle.model_copy(update={'last_fence_token': 0})
+    service, connection, routes, transitions, creates = tick_route(
+        monkeypatch, cycle, permit, cycle.execute_at)
+    # Deliberately inconsistent dependency classification must not let the late
+    # dispatch use another holder's fence for new transport.
+    monkeypatch.setattr(module.store, 'cycle_recovery_capable', lambda _: False)
+    adopted = []
+    def adopt(conn, *, cycle_id, permit):
+        assert cycle_id == cycle.cycle_id
+        adopted.append(cycle_id)
+        return cycle.model_copy(update={'last_fence_token': permit.fence_token})
+    monkeypatch.setattr(module.store, 'adopt_cycle', adopt)
+    result = asyncio.run(service.tick(connection, now=cycle.execute_at))
+    assert adopted == [cycle.cycle_id] and creates == [cycle.cycle_id]
+    assert [route[0] for route in routes] == ['recover']
+    assert result.cycle.last_fence_token == permit.fence_token and not transitions
+
+
+def test_unrecognized_dependency_phase_never_calls_the_executor(monkeypatch):
+    class UnknownPhase(Enum):
+        UNKNOWN = 'UNKNOWN'
+        @property
+        def terminal(self):
+            return False
+    config = AutomationConfig()
+    cycle, permit = scheduled_record(config, module.CycleState.DISCOVERED)
+    # Only the external snapshot double can supply this unmodelled phase. The
+    # real PostgreSQL/catalog/lineage guards independently reject such records.
+    cycle = cycle.model_copy(update={'state': UnknownPhase.UNKNOWN})
+    service, connection, routes, transitions, creates = tick_route(
+        monkeypatch, cycle, permit, cycle.execute_at)
+    result = asyncio.run(service.tick(connection, now=cycle.execute_at))
+    assert result.action is module.TickAction.WAITING and result.cycle == cycle
+    assert 'UNKNOWN' in result.reason
+    assert creates == [cycle.cycle_id] and not routes and not transitions
+
+
 def supervised_reader_double(monkeypatch, process, parent, child_channel, *, group_ready=True):
     ready = Ready()
     ready.wait = lambda **kwargs: ready.is_set()
@@ -1339,6 +1470,30 @@ def supervised_reader_double(monkeypatch, process, parent, child_channel, *, gro
     monkeypatch.setattr(module.store, 'register_instance', lambda *a, **k: None)
     monkeypatch.setattr(module.os, 'killpg', owned_group)
     return lambda: SimpleNamespace(close=lambda: None)
+
+
+def test_startup_without_owned_connection_refuses_before_child_or_registration(monkeypatch):
+    process = Process(alive=False)
+    parent, child_channel = Channel(), Channel()
+    parent.poll = lambda: True
+    parent.recv_bytes = lambda: b'{"kind":"result","value":"canonical packet"}'
+    supervised_reader_double(monkeypatch, process, parent, child_channel)
+    registrations = []
+    # The invalid factory owns no resource; it cannot register liveness, launch
+    # a child or accept the otherwise available canonical packet.
+    monkeypatch.setattr(module.store, 'register_instance',
+        lambda connection, **kwargs: registrations.append(connection))
+    async def callback(_context):
+        pytest.fail('parent executed the supervised child callback')
+    service = module.AutomationService(config=AutomationConfig(), holder_id='no-startup-resource',
+        refresh=callback, prepare=callback, recover=callback, execute=callback)
+    context = Context()
+    with pytest.raises(module.StaleLeaderRefused, match='no owned startup connection'):
+        asyncio.run(service._invoke(callback, context, permit=None, phase='PREPARE',
+            heartbeat_conn_factory=lambda: None))
+    assert registrations == [] and not context.cancellation.cancelled
+    assert not parent.closed and not child_channel.closed  # Never owned by invocation.
+    assert not process.joins and not process.is_alive()
 
 
 @pytest.mark.parametrize('mode', ['flushed_after_exit', 'empty_exit', 'read_eof'])
