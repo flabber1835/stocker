@@ -442,6 +442,71 @@ def _unconditional_command_present(job_text: str, marker: str) -> bool:
     return _safe_command_present(job_text, marker)
 
 
+def _promotion_pr_view(text: str) -> str:
+    """Validate the reviewed selector, then audit its always-full PR branch.
+
+    This is a static execution view, not proof authorizing promotion. Unknown
+    conditions remain intact so the existing conservative owner checks refuse.
+    """
+    jobs = _workflow_jobs(text)
+    if "qualification-source" not in jobs:
+        return text
+    selector = jobs["qualification-source"]
+    head = "${{ github.event.pull_request.head.sha || github.sha }}"
+    command = "python tools/sentinel_ci_promote.py select --output /tmp/promotion-plan.json"
+    require(_job_scalar(selector, ("if",)) is None and
+            _job_scalar(selector, ("continue-on-error",)) is None and
+            _job_scalar(selector, ("outputs", "mode")) == "${{ steps.select.outputs.mode }}",
+            "parallel certification: qualification selection binding differs")
+    checkout = [s for s in _step_slices(selector)
+                if (_field_from_step(s, "uses") or "").startswith("actions/checkout@")]
+    selection = [s for s in _step_slices(selector) if _field_from_step(s, "id") == "select"]
+    require(len(checkout) == 1 and _step_is_unconditional(checkout[0]) and
+            _step_scalar(checkout[0], ("with", "ref")) == head and
+            len(selection) == 1 and _field_from_step(selection[0], "continue-on-error") is None and
+            len(_step_slices(selector)) == 3 and
+            _safe_command_present(selector, command, command_start="python"),
+            "parallel certification: qualification selection is not executable")
+    full = "${{ needs.qualification-source.outputs.mode == 'full' }}"
+    promoted = "${{ needs.qualification-source.outputs.mode == 'promote' }}"
+    view = text
+    for job_id, body in jobs.items():
+        if job_id == "qualification-source":
+            continue
+        if "needs.qualification-source.outputs.mode" in body:
+            dependencies = _job_scalar(body, ("needs",)) or ""
+            tokens = dependencies.strip("[]").replace(",", " ").split()
+            require(tokens.count("qualification-source") == 1,
+                    "parallel certification: full PR branch is detached from selection")
+        changed = body
+        for step in _step_slices(body):
+            condition = _field_from_step(step, "if")
+            raw = "\n".join(step) + "\n"
+            replacement = raw
+            if condition == promoted:
+                replacement = ""
+            elif condition == full:
+                replacement = re.sub(r"^        if:.*\n", "", raw, flags=re.MULTILINE)
+            else:
+                replacements = {
+                    "${{ matrix.scope == 'exact-head' && needs.qualification-source.outputs.mode == 'full' }}": _EXACT_SCOPE_IF,
+                    "${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head') }}": _EXACT_SCOPE_IF,
+                    "${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head' && always()) }}":
+                        "${{ matrix.scope == 'exact-head' && always() }}",
+                    "${{ needs.qualification-source.outputs.mode == 'full' && (always()) }}": "always()",
+                    "${{ needs.qualification-source.outputs.mode == 'full' && (failure()) }}": "failure()",
+                }
+                if condition in replacements:
+                    replacement = raw.replace("if: " + condition, "if: " + replacements[condition], 1)
+            changed = changed.replace(raw.rstrip("\n"), replacement.rstrip("\n"), 1)
+        changed = changed.replace("    if: " + full + "\n", "")
+        changed = changed.replace("needs: [qualification-source, runtime-build, parallel-certification, sharadar-replay]",
+                                  "needs: [runtime-build, parallel-certification, sharadar-replay]")
+        changed = changed.replace("needs: [qualification-source, runtime-build]", "needs: [runtime-build]")
+        view = view.replace(body, changed, 1)
+    return view
+
+
 def _job_name(job_text: str) -> str | None:
     return _job_scalar(job_text, ("name",))
 
@@ -456,7 +521,7 @@ def _require_ci_job(owner_name: str, value: object) -> tuple[str, str, str]:
     path = ROOT / workflow
     require(path.is_file(), f"{owner_name}: ci_job workflow does not exist: {workflow}")
     try:
-        body = _job_body(path.read_text(), job)
+        body = _job_body(_promotion_pr_view(path.read_text()), job)
     except AssertionError as exc:
         raise AssertionError(f"{owner_name}: ci_job id not found in {workflow}: {job}") from exc
     return workflow, job, body
@@ -552,7 +617,7 @@ def _workflow_sources(overrides: dict[str, str] | None = None) -> dict[str, str]
         result[relative_posix(path)] = path.read_text()
     if overrides:
         result.update(overrides)
-    return result
+    return {name: _promotion_pr_view(text) for name, text in result.items()}
 
 
 def _expanded_protected_contexts(name: str | None) -> set[str]:

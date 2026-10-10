@@ -16,6 +16,44 @@ coordinator otherwise runs the canonical locked GO producer after installation.
 
 # Installing the CI-certified single runtime
 
+## Qualified PR image promotion
+
+Decision: 2026-10-10. Successful PR qualification is reusable after merge when
+the **complete Git tree** of the actual merged commit equals the tested PR
+tree. This includes workflows, tests, locks, build files and production code.
+The protected main safety workflow selects one merged, same-repository PR and
+one successful exact-head safety run/attempt, with successful applicable PR
+checks, composition and browser runs. Composition also supplies a retained
+proof of its actual checkout tree, including synthetic-merge execution.
+Missing/expired evidence or a changed tree selects full main qualification.
+Malformed, ambiguous or tampered evidence and unavailable authority are refusals.
+
+The PR retains its checksummed tested runtime and version-2 certification input.
+Main loads that exact image ID. A metadata-only Docker build changes only the
+OCI source revision label and `SENTINEL_IMAGE_SOURCE_REVISION` environment
+entry to the actual merged SHA. All filesystem layer digests, OS/architecture,
+entrypoint, user, commands and other configuration must remain identical.
+This is neither a production rebuild nor a new execution of the PR suites.
+A credential-free, network-disabled runtime identity probe verifies the new
+commit environment. Tests of promotion itself execute in the PR.
+
+Version-3 certification embeds the original version-2 input, merged PR identity,
+original successful run/attempt identities, artifact ID/digest and both image
+configuration/layer records. Counts, test inventory, locks, capability and
+adversarial/mutation evidence must exactly match that original input. The main
+qualification run retains its own identity separately from original execution.
+The existing protected workflow-run publisher re-observes the GitHub authority
+and loaded image before signing and registry publication. The independent host
+verifier checks both main publication and original PR authority; versions 1/2
+remain supported. Reuse never turns a skipped or failed original test into PASS.
+
+Composition and browser main runs use the same eligibility decision and retain
+a reuse receipt rather than rebuilding/repeating their PR suites. Full main
+fallback still runs those suites. Backup/internal harnesses already run before
+merge and have no main-push trigger. Applicable optional checks must also pass.
+No elapsed-time, trading-session, broker, book or installation admission rule is
+changed. Software certification remains separate from financial activation.
+
 ## Certification input identity
 
 The host verifier uses the same strict UTF-8 JSON object reader for the artifact

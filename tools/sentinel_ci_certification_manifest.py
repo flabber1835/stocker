@@ -6,6 +6,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import subprocess
@@ -23,6 +24,8 @@ INPUT_SCHEMA = "sentinel.software-certification-input/2"
 MANIFEST_SCHEMA = "sentinel.software-certification/2"
 LEGACY_INPUT_SCHEMA = "sentinel.software-certification-input/1"
 LEGACY_MANIFEST_SCHEMA = "sentinel.software-certification/1"
+PROMOTED_INPUT_SCHEMA = "sentinel.software-certification-input/3"
+PROMOTED_MANIFEST_SCHEMA = "sentinel.software-certification/3"
 REPOSITORY = "flabber1835/stocker"
 TEST_WORKFLOW_PATH = ".github/workflows/sentinel-safety.yml"
 REQUIRED_JOBS = ("host-python-38-exact-head", "sentinel-exact-head")
@@ -59,6 +62,13 @@ def sha256_file(path: Path) -> str:
 
 
 def _read_json(path: Path, *, label: str) -> Mapping[str, Any]:
+    def finite_float(raw):
+        number = float(raw)
+        if not math.isfinite(number):
+            raise CertificationManifestRefused("%s contains a non-finite number" % label)
+        return number
+    def no_constant(raw):
+        raise CertificationManifestRefused("%s contains a non-finite number" % label)
     def no_duplicates(items):
         result = {}
         for key, value in items:
@@ -69,7 +79,8 @@ def _read_json(path: Path, *, label: str) -> Mapping[str, Any]:
         return result
     try:
         value = json.loads(
-            Path(path).read_text(encoding="utf-8"), object_pairs_hook=no_duplicates)
+            Path(path).read_text(encoding="utf-8"), object_pairs_hook=no_duplicates,
+            parse_constant=no_constant, parse_float=finite_float)
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise CertificationManifestRefused(
             "%s is not valid UTF-8 JSON" % label) from exc
@@ -278,12 +289,18 @@ def _validate_input(value: Mapping[str, Any]) -> None:
         "test_manifest_sha256", "test_counts", "adversarial_evidence",
         "mutation_evidence", "runtime_schema_epoch", "semantic_epoch",
     }
-    if set(value) != fields or value.get("schema") not in (INPUT_SCHEMA, LEGACY_INPUT_SCHEMA):
+    promoted = value.get("schema") == PROMOTED_INPUT_SCHEMA
+    if promoted:
+        fields.add("qualification_reuse")
+    if set(value) != fields or value.get("schema") not in (INPUT_SCHEMA, LEGACY_INPUT_SCHEMA, PROMOTED_INPUT_SCHEMA):
         raise CertificationManifestRefused("software certification input schema is invalid")
     if value.get("repository") != REPOSITORY or value.get("test_workflow_path") != TEST_WORKFLOW_PATH:
         raise CertificationManifestRefused("software certification input authority is invalid")
     _require_git_object(value.get("source_commit"), label="source commit")
     _require_git_object(value.get("source_tree"), label="source tree")
+    for field in ("test_workflow_run", "test_workflow_attempt"):
+        if type(value.get(field)) is not int or value[field] <= 0:
+            raise CertificationManifestRefused("workflow identity is invalid")
     _require_image_digest(value.get("runtime_image_id"), label="runtime image id")
     _require_hex64(value.get("runtime_capability_sha256"), label="runtime capability hash")
     _require_hex64(value.get("test_manifest_sha256"), label="test manifest hash")
@@ -294,7 +311,7 @@ def _validate_input(value: Mapping[str, Any]) -> None:
     for digest in locks.values():
         _require_hex64(digest, label="dependency lock hash")
     _validate_counts(value.get("test_counts"),
-                     version=2 if value["schema"] == INPUT_SCHEMA else 1)
+                     version=1 if value["schema"] == LEGACY_INPUT_SCHEMA else 2)
     for name in ("adversarial_evidence", "mutation_evidence"):
         row = value.get(name)
         if not isinstance(row, dict) or set(row) != {"status", "sha256"} or row.get("status") != "PASS":
@@ -303,6 +320,13 @@ def _validate_input(value: Mapping[str, Any]) -> None:
     if value.get("runtime_schema_epoch") != RUNTIME_SCHEMA_EPOCH or \
             value.get("semantic_epoch") != SEMANTIC_EPOCH:
         raise CertificationManifestRefused("software certification epoch is unsupported")
+    if promoted:
+        from scripts import sentinel_ci_promotion as policy
+        try:
+            policy.verify_reuse(value["qualification_reuse"], value)
+            _validate_input(value["qualification_reuse"]["original_input"])
+        except (policy.PromotionRefused, KeyError, TypeError) as exc:
+            raise CertificationManifestRefused("qualification reuse binding is invalid") from exc
 
 
 def _required_jobs(payload: Mapping[str, Any]) -> dict[str, str]:
@@ -341,9 +365,9 @@ def finalize_manifest(*, input_evidence: Mapping[str, Any],
     if parsed.tzinfo is None:
         raise CertificationManifestRefused("certification timestamp has no timezone")
     counts = input_evidence["test_counts"]
-    version = 2 if input_evidence["schema"] == INPUT_SCHEMA else 1
+    version = 3 if input_evidence["schema"] == PROMOTED_INPUT_SCHEMA else 2 if input_evidence["schema"] == INPUT_SCHEMA else 1
     manifest = {
-        "schema": MANIFEST_SCHEMA if version == 2 else LEGACY_MANIFEST_SCHEMA,
+        "schema": PROMOTED_MANIFEST_SCHEMA if version == 3 else MANIFEST_SCHEMA if version == 2 else LEGACY_MANIFEST_SCHEMA,
         "certification_version": version,
         "source": {
             "repository": input_evidence["repository"],
@@ -383,8 +407,10 @@ def finalize_manifest(*, input_evidence: Mapping[str, Any],
         },
         "certified_at": parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
-    if version == 2:
+    if version >= 2:
         manifest["tests"]["expected_xfails"] = counts["expected_xfails"]
+    if version == 3:
+        manifest["qualification_reuse"] = input_evidence["qualification_reuse"]
     manifest["manifest_sha256"] = sha256_bytes(canonical_bytes(manifest))
     return manifest
 
@@ -395,6 +421,15 @@ def verify_manifest(value: Mapping[str, Any]) -> None:
         "tests", "ci", "epochs", "certified_at", "manifest_sha256",
     }
     version = value.get("certification_version")
+    if type(version) is int and version == 3:
+        from scripts.sentinel_ci_certification_verify import _verify_manifest
+        try:
+            _verify_manifest(value, value["source"]["commit"], value["source"]["tree"], {
+                "id": value["ci"]["publication_workflow_run"],
+                "run_attempt": value["ci"]["publication_workflow_attempt"]})
+        except (CertificationVerificationRefused, KeyError, TypeError) as exc:
+            raise CertificationManifestRefused("promoted certification manifest is invalid") from exc
+        return
     schemas = {1: LEGACY_MANIFEST_SCHEMA, 2: MANIFEST_SCHEMA}
     if set(value) != expected_top or type(version) is not int or version not in schemas \
             or value.get("schema") != schemas[version]:

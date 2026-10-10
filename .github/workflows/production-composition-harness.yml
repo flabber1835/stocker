@@ -15,13 +15,41 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  checks: read
 
 concurrency:
   group: production-composition-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  qualification-source:
+    name: composition-qualification-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      run: ${{ steps.select.outputs.run }}
+      artifact: ${{ steps.select.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Select full qualification or exact-tree PR reuse
+        id: select
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/sentinel_ci_promote.py select --output /tmp/promotion-plan.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualified-pr-promotion-plan
+          path: /tmp/promotion-plan.json
+          if-no-files-found: error
+          retention-days: 30
+
   database-preflight:
+    needs: qualification-source
     name: GO database preflight
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -29,10 +57,25 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}/shared
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Download protected promotion selection
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: qualified-pr-promotion-plan
+          path: /tmp/sentinel-promotion
+
+      - name: Re-observe original PR qualification without repeating suites
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/sentinel_ci_promote.py verify --plan /tmp/sentinel-promotion/promotion-plan.json --output /tmp/qualification-reuse.json
+
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         with:
           python-version: '3.12.13'
       - name: Install PostgreSQL and locked dependencies
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         timeout-minutes: 10
         run: |
           bash tools/ci_postgres.sh
@@ -40,10 +83,11 @@ jobs:
             -r sentinel/requirements.lock -r tests/requirements.lock
           python -m pip check
       - name: Exercise real read-only cursors and predecessor plan
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         run: python -m pytest tests/production_composition/test_go_database_preflight.py -q -ra
 
   composition:
-    needs: database-preflight
+    needs: [qualification-source, database-preflight]
     name: go-campaign-${{ matrix.scope }}-${{ matrix.campaign }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 180 }}
@@ -58,11 +102,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         with:
           fetch-depth: 2
           ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
 
       - name: Verify tested tree
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -83,6 +129,7 @@ jobs:
           printf '%s\n' "$tested" > artifacts/production-composition/tested-commit.txt
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         with:
           python-version: '3.12.13'
           cache: pip
@@ -91,6 +138,7 @@ jobs:
             tests/requirements.lock
 
       - name: Install PostgreSQL physical restore tools
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         timeout-minutes: 10
         run: |
           set -euo pipefail
@@ -99,6 +147,7 @@ jobs:
           test -n "$(find /usr/lib/postgresql -type f -name pg_verifybackup -print -quit)"
 
       - name: Install locked runtime and test dependencies
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         timeout-minutes: 10
         run: |
           set -euo pipefail
@@ -107,6 +156,7 @@ jobs:
           python -m pip check
 
       - name: Compile composition and authority surfaces
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         run: |
           python -m compileall -q -f \
             tests/production_composition \
@@ -118,6 +168,7 @@ jobs:
             scripts/sentinel_go_verified_entry.py
 
       - name: Run authority matrix and real host-process regressions
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -142,6 +193,7 @@ jobs:
           fi
 
       - name: Re-run adjacent GO authority regressions
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -170,6 +222,7 @@ jobs:
           fi
 
       - name: Run physical restore and upgrade seam
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash
         env:
           ALPACA_HARNESS_REQUIRE_POSTGRES: '1'
@@ -194,6 +247,7 @@ jobs:
           fi
 
       - name: Run real Docker/PostgreSQL composition gates
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -202,6 +256,7 @@ jobs:
             --output artifacts/production-composition/live.json
 
       - name: Verify live evidence
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         run: |
           python - <<'PY'
           import json
@@ -215,7 +270,7 @@ jobs:
           PY
 
       - name: Run canonical production GO end to end
-        if: github.event_name == 'workflow_dispatch'
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (github.event_name == 'workflow_dispatch') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -234,7 +289,7 @@ jobs:
             --output artifacts/production-composition/production-go-e2e.json
 
       - name: Verify canonical GO evidence
-        if: github.event_name == 'workflow_dispatch'
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (github.event_name == 'workflow_dispatch') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -298,13 +353,43 @@ jobs:
           PY
 
       - name: Retain composition evidence
-        if: always()
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (always()) }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: production-composition-${{ matrix.scope }}-${{ matrix.campaign }}-${{ github.sha }}
           path: |
             artifacts/production-composition
             artifacts/sentinel/go-validation
+          if-no-files-found: error
+          retention-days: 30
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download protected promotion selection
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: qualified-pr-promotion-plan
+          path: /tmp/sentinel-promotion
+
+      - name: Re-observe original PR qualification without repeating suites
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/sentinel_ci_promote.py verify --plan /tmp/sentinel-promotion/promotion-plan.json --output /tmp/qualification-reuse.json
+
+      - name: Record the actual harness checkout identity
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && matrix.campaign == 'smoke' }}
+        run: python tools/sentinel_ci_promote.py scope --role composition --output /tmp/ci-checkout-proof/proof.json
+      - name: Retain actual harness tree evidence
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && matrix.campaign == 'smoke' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-checkout-proof-composition-${{ github.run_attempt }}
+          path: /tmp/ci-checkout-proof/proof.json
           if-no-files-found: error
           retention-days: 30
 

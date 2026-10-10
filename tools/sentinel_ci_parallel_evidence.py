@@ -128,6 +128,11 @@ def complete_lane(root: Path, bundle: Path, evidence: Path, lane: str) -> dict:
 
 
 def require_dependencies(needs: dict) -> None:
+    if isinstance(needs, dict) and "qualification-source" in needs:
+        require(isinstance(needs["qualification-source"], dict) and
+                needs["qualification-source"].get("result") == "success",
+                "qualification selection did not succeed")
+        needs = {key: value for key, value in needs.items() if key != "qualification-source"}
     require(isinstance(needs, dict) and set(needs) == DEPENDENCIES,
             "mandatory certification dependency inventory differs")
     for name, result in needs.items():

@@ -52,6 +52,18 @@ def verify_binding(*, root: Path, evidence: Mapping[str, object],
         raise InputBindingRefused("dependency lock hashes differ from checkout")
     if evidence.get("test_manifest_sha256") != cert._test_manifest_hash(root):
         raise InputBindingRefused("test manifest hash differs from checkout")
+    if evidence["schema"] == cert.PROMOTED_INPUT_SCHEMA:
+        import os
+        from scripts import sentinel_ci_promotion as policy
+        from scripts.sentinel_ci_certification_verify import GitHubReadClient
+        from tools.sentinel_ci_promote import inspect
+        try:
+            reuse = evidence["qualification_reuse"]
+            policy.verify_plan(GitHubReadClient(token=os.environ.get("GITHUB_TOKEN")), reuse["plan"])
+            if inspect(root, image_ref) != reuse["promoted_image"]:
+                raise InputBindingRefused("loaded promoted configuration differs")
+        except (policy.PromotionRefused, KeyError, TypeError) as exc:
+            raise InputBindingRefused("original qualification authority differs") from exc
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -18,7 +18,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  qualification-source:
+    name: safety-qualification-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      run: ${{ steps.select.outputs.run }}
+      artifact: ${{ steps.select.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Select full qualification or exact-tree PR reuse
+        id: select
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/sentinel_ci_promote.py select --output /tmp/promotion-plan.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualified-pr-promotion-plan
+          path: /tmp/promotion-plan.json
+          if-no-files-found: error
+          retention-days: 30
+
   host-python-38-compatibility:
+    needs: qualification-source
     name: host-python-38-${{ matrix.scope }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -51,7 +77,7 @@ jobs:
             --output artifacts/host-python38/scope-proof.json
 
       - name: Exercise host certification helpers on Python 3.8
-        if: ${{ matrix.scope == 'exact-head' }}
+        if: ${{ matrix.scope == 'exact-head' && needs.qualification-source.outputs.mode == 'full' }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/host-python38
@@ -60,6 +86,19 @@ jobs:
           python tools/run_unittest_owner.py --owner host-python38.compatibility --output artifacts/host-python38/execution.json
           python tools/sentinel_env_mutation_check.py
           python -m compileall -q -f scripts
+
+      - name: Download protected promotion selection
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: qualified-pr-promotion-plan
+          path: /tmp/sentinel-promotion
+
+      - name: Re-observe original PR qualification without repeating suites
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/sentinel_ci_promote.py verify --plan /tmp/sentinel-promotion/promotion-plan.json --output /tmp/qualification-reuse.json
 
       - name: Retain host Python 3.8 execution evidence
         if: always()
@@ -71,6 +110,7 @@ jobs:
           retention-days: 30
 
   runtime-build:
+    needs: qualification-source
     name: sentinel-runtime-build
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -78,11 +118,13 @@ jobs:
       TESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         with:
           fetch-depth: 2
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Prove the exact build source
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           EXPECTED_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
@@ -95,6 +137,7 @@ jobs:
             --output /tmp/sentinel-build-scope.json
 
       - name: Build the single pinned Sentinel runtime and CI test lens
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         run: |
           set -euo pipefail
           docker build \
@@ -109,24 +152,28 @@ jobs:
                "$(docker image inspect sentinel:latest --format '{{.Id}}')"
 
       - name: Exercise the production non-root runtime boundary
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/test-pr301-runtime-boundaries.sh sentinel:ci
 
       - name: Falsify exact-XID PostgreSQL physical recovery
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/test-pr301-pitr-recovery.sh
 
       - name: Regress PR330 retirement boundaries on PostgreSQL 16
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/test-pr330-postgres-retirement.sh sentinel-test:ci
 
       - name: Record exact-SHA promotion evidence
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -155,6 +202,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Compile the executable Python and test surfaces
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         run: |
           docker run --rm --network none --entrypoint python \
             sentinel-test:ci -m compileall -q -f \
@@ -165,11 +213,13 @@ jobs:
             /work/tools /work/repo/scripts
 
       - name: Export checksummed exact runtime and test-lens bundle
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         run: |
           python tools/sentinel_ci_parallel_evidence.py build-bundle \
             --bundle /tmp/sentinel-ci-bundle
 
       - name: Retain the single built image bundle for every worker
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sentinel-ci-bundle-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
@@ -178,9 +228,44 @@ jobs:
           compression-level: 1
           retention-days: 1
 
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download protected promotion selection
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: qualified-pr-promotion-plan
+          path: /tmp/sentinel-promotion
+
+      - name: Download the original successful PR runtime
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.qualification-source.outputs.artifact }}
+          run-id: ${{ needs.qualification-source.outputs.run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/sentinel-original-runtime
+      - name: Promote source metadata while retaining every tested filesystem layer
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/sentinel_ci_promote.py promote --plan /tmp/sentinel-promotion/promotion-plan.json --bundle /tmp/sentinel-original-runtime --output /tmp/sentinel-tested-image
+      - name: Retain exact merged runtime and honest original qualification
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sentinel-promoted-runtime-${{ github.sha }}-${{ github.run_attempt }}
+          path: /tmp/sentinel-tested-image
+          if-no-files-found: error
+          retention-days: 1
+
   parallel-certification:
+    if: ${{ needs.qualification-source.outputs.mode == 'full' }}
     name: sentinel-suite-${{ matrix.lane }}
-    needs: [runtime-build]
+    needs: [qualification-source, runtime-build]
     runs-on: ubuntu-latest
     timeout-minutes: ${{ (matrix.lane == 'sentinel-warmup' || startsWith(matrix.lane, 'sentinel-rolling-')) && 60 || 45 }}
     strategy:
@@ -432,8 +517,9 @@ jobs:
           retention-days: 30
 
   sharadar-replay:
+    if: ${{ needs.qualification-source.outputs.mode == 'full' }}
     name: sentinel-replay-${{ matrix.shard }}
-    needs: [runtime-build]
+    needs: [qualification-source, runtime-build]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -522,7 +608,7 @@ jobs:
   certification-and-durability:
     name: sentinel-${{ matrix.scope }}
     runs-on: ubuntu-latest
-    needs: [runtime-build, parallel-certification, sharadar-replay]
+    needs: [qualification-source, runtime-build, parallel-certification, sharadar-replay]
     if: always()
     timeout-minutes: 30
     strategy:
@@ -562,26 +648,27 @@ jobs:
           retention-days: 30
 
       - name: Refuse every failed, cancelled, skipped or missing dependency
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: |
           python tools/sentinel_ci_parallel_evidence.py verify-needs
 
       - name: Download the single built runtime for exact-head evidence verification
-        if: ${{ matrix.scope == 'exact-head' }}
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head') }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: sentinel-ci-bundle-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
           path: /tmp/sentinel-ci-bundle
 
       - name: Load and re-observe the exact built runtime and test lens
-        if: ${{ matrix.scope == 'exact-head' }}
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head') }}
         run: |
           python tools/sentinel_ci_parallel_evidence.py load-bundle \
             --bundle /tmp/sentinel-ci-bundle
 
       - name: Download all declared lane and shard artifacts from this workflow attempt
-        if: ${{ matrix.scope == 'exact-head' }}
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head') }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: sentinel-ci-lane-*-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
@@ -589,7 +676,7 @@ jobs:
           merge-multiple: false
 
       - name: Verify all receipts and assemble complete disjoint test evidence
-        if: ${{ matrix.scope == 'exact-head' }}
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head') }}
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: |
@@ -599,7 +686,7 @@ jobs:
             --output /tmp
 
       - name: Re-collect and verify every protected test owner and full replay union
-        if: ${{ matrix.scope == 'exact-head' }}
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head') }}
         run: |
           set -euo pipefail
           python tools/verify_test_owner_execution.py --owner sentinel.complete \
@@ -625,7 +712,7 @@ jobs:
             /evidence --commit "${TESTED_SHA}" --shards 4
 
       - name: Build system adversarial evidence
-        if: ${{ matrix.scope == 'exact-head' && always() }}
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head' && always()) }}
         run: |
           python tools/sentinel_adversarial_evidence.py \
             --junit /tmp/sentinel-system-evidence/sentinel.xml \
@@ -634,7 +721,7 @@ jobs:
             --tested-sha "${TESTED_SHA}"
 
       - name: Retain system adversarial evidence
-        if: ${{ matrix.scope == 'exact-head' && always() }}
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head' && always()) }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sentinel-system-${{ matrix.scope }}-${{ env.TESTED_SHA }}
@@ -643,7 +730,7 @@ jobs:
           retention-days: 30
 
       - name: Retain mutation evidence
-        if: ${{ matrix.scope == 'exact-head' && always() }}
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head' && always()) }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sentinel-mutation-${{ matrix.scope }}-${{ env.TESTED_SHA }}
@@ -652,7 +739,7 @@ jobs:
           retention-days: 30
 
       - name: Assemble reusable software certification input
-        if: ${{ matrix.scope == 'exact-head' }}
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -672,7 +759,7 @@ jobs:
             --output /tmp/sentinel-tested-image/software-certification-input.json
 
       - name: Export the exact tested OCI runtime for protected publication
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (matrix.scope == 'exact-head') }}
         shell: bash
         run: |
           set -euo pipefail
@@ -685,11 +772,37 @@ jobs:
           sha256sum sentinel-runtime.tar COMMIT > SHA256SUMS
           sha256sum software-certification-input.json >> SHA256SUMS
 
+      - name: Download protected promotion selection
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: qualified-pr-promotion-plan
+          path: /tmp/sentinel-promotion
+
+      - name: Download the metadata-promoted runtime
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: sentinel-promoted-runtime-${{ github.sha }}-${{ github.run_attempt }}
+          path: /tmp/sentinel-tested-image
+      - name: Verify exact merged artifact and original authority
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python tools/sentinel_ci_promote.py verify --plan /tmp/sentinel-promotion/promotion-plan.json --output /tmp/qualification-reuse.json
+          cd /tmp/sentinel-tested-image
+          sha256sum --strict --check SHA256SUMS
+          docker load --input sentinel-runtime.tar
+          cd "$GITHUB_WORKSPACE"
+          python tools/sentinel_ci_certification_input_binding.py --input /tmp/sentinel-tested-image/software-certification-input.json --expected-commit "$GITHUB_SHA" --expected-workflow-run "$GITHUB_RUN_ID" --expected-workflow-attempt "$GITHUB_RUN_ATTEMPT" --image-ref sentinel:ci
+
       - name: Retain the exact tested runtime
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: ${{ matrix.scope == 'exact-head' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: sentinel-tested-image-${{ github.sha }}
+          name: sentinel-tested-image-${{ github.event.pull_request.head.sha || github.sha }}
           path: /tmp/sentinel-tested-image
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30

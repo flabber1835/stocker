@@ -10,13 +10,41 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  checks: read
 
 concurrency:
   group: sentinel-operator-browser-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  qualification-source:
+    name: browser-qualification-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      run: ${{ steps.select.outputs.run }}
+      artifact: ${{ steps.select.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Select full qualification or exact-tree PR reuse
+        id: select
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/sentinel_ci_promote.py select --output /tmp/promotion-plan.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: qualified-pr-promotion-plan
+          path: /tmp/promotion-plan.json
+          if-no-files-found: error
+          retention-days: 30
+
   browser:
+    needs: qualification-source
     name: iPhone WebKit and PWA
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -26,7 +54,21 @@ jobs:
           fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
+      - name: Download protected promotion selection
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: qualified-pr-promotion-plan
+          path: /tmp/sentinel-promotion
+
+      - name: Re-observe original PR qualification without repeating suites
+        if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/sentinel_ci_promote.py verify --plan /tmp/sentinel-promotion/promotion-plan.json --output /tmp/qualification-reuse.json
+
       - name: Install the locked browser test runtime
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         run: |
           set -euo pipefail
           node --version
@@ -35,6 +77,7 @@ jobs:
           npm run install-browsers --prefix tests/browser
 
       - name: Exercise the real operator page in WebKit and Chromium
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         run: |
           set -euo pipefail
           tested_sha="$(git rev-parse HEAD)"
@@ -67,7 +110,7 @@ jobs:
             npm test --prefix tests/browser
 
       - name: Retain browser failure evidence
-        if: failure()
+        if: ${{ needs.qualification-source.outputs.mode == 'full' && (failure()) }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sentinel-operator-browser-${{ github.run_id }}
@@ -76,3 +119,14 @@ jobs:
             tests/browser/test-results/
           if-no-files-found: warn
           retention-days: 14
+      - name: Record the actual harness checkout identity
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
+        run: python tools/sentinel_ci_promote.py scope --role browser --output /tmp/ci-checkout-proof/proof.json
+      - name: Retain actual harness tree evidence
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ci-checkout-proof-browser-${{ github.run_attempt }}
+          path: /tmp/ci-checkout-proof/proof.json
+          if-no-files-found: error
+          retention-days: 30
