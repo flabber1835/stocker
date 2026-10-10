@@ -185,6 +185,29 @@ ordinary recovery returns `SUPERSEDED` from `EXECUTING`, the durable path is
 
 ## 3. Leader lease and fencing
 
+Decision: 2026-10-10. Callback progress and worker liveness have different
+clocks. Starting each supervised callback records its database-time
+`callback_started_at` and `callback_deadline_at` on the service instance.
+Every successful callback lease renewal atomically renews that exact instance's
+heartbeat, under the same holder, fencing token and control generation. A
+missing instance, expired callback, expired lease or changed authority refuses
+the entire renewal. Renewal never changes either callback boundary.
+
+The independent process supervisor anchors its monotonic watchdog to the
+unchanging callback start, and also observes the persisted deadline. Frequent
+heartbeats cannot extend one invocation; a later invocation of the same phase
+gets its own boundary. Database loss retains the existing monotonic deadline.
+Health uses a fresh database-time sample after its reads. A current, bounded
+callback is work in progress, so its cycle's already-due scheduler wake is not
+an overdue sleep. An expired callback remains unhealthy even with a fresh lease.
+Standby heartbeats cannot prove leader liveness. Existing callback termination,
+group reaping, authority, broker and lease guards remain mandatory.
+
+The two nullable instance columns are additive operational schema witnesses.
+Explicit supported migration installs them; startup never migrates. Historical
+instance rows remain preserved. A callback without both boundaries cannot be
+reported operationally ready.
+
 One PostgreSQL singleton lease contains the holder instance id, monotonically
 increasing fencing token, control generation, acquisition/heartbeat/expiry
 timestamps, and PostgreSQL's timestamp as the clock authority.

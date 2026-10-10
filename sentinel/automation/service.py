@@ -680,7 +680,7 @@ class AutomationService:
                         return
                     store.heartbeat_lease(
                         heartbeat_conn, permit=permit,
-                        lease_seconds=self.config.lease_seconds)
+                        lease_seconds=self.config.lease_seconds, callback=True)
                     if stopped.is_set() or context.cancellation.cancelled:
                         return
                 except BaseException as exc:                    # noqa: BLE001
@@ -745,7 +745,8 @@ class AutomationService:
                     context.require_active()
                     store.register_instance(
                         start_conn, instance_id=self.holder_id,
-                        state=f"{phase}_CALLBACK", next_wake_at=None)
+                        state=f"{phase}_CALLBACK", next_wake_at=None,
+                        callback_deadline_seconds=deadline_seconds)
                 except BaseException as exc:                  # noqa: BLE001
                     raise StaleLeaderRefused(
                         f"{phase} callback heartbeat failed before start: "

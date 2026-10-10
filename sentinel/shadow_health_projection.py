@@ -56,7 +56,10 @@ def _inventory(conn):
     ).fetchone()
     rows = conn.execute(
         "SELECT cursor_name,session,tableoid::text,xmin::text,ctid::text "
-        "FROM sentinel_processed_sessions ORDER BY cursor_name LIMIT 10001"
+        "FROM sentinel_processed_sessions WHERE cursor_name LIKE ANY(%s) "
+        "ORDER BY cursor_name LIMIT 10001",
+        (['shadow-%', 'rolling-%', 'catchup%', 'formation-%',
+          'runtime-admission:%'],)
     ).fetchall()
     pubs = conn.execute(
         "SELECT version,tableoid::text,xmin::text,ctid::text "

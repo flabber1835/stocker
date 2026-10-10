@@ -195,7 +195,7 @@ _TARGET_CATALOG_SHA256 = {
 # column/type/null/default, constraints, indexes and triggers while ignoring
 # deployment-local OIDs and column order.
 _STAGE4_CATALOG_SHA256 = (
-    "9d80e0801cf8c8e98b739e337eab3d883f3aac3495e47766b3214423ff90b7c1")
+    "cbb48b11f28cd828a69b03f7cb8c8ed1fcdc23bbf9d40e40fc62c5f6254d31ae")
 
 # Corpus tables may legitimately be installed before behavioral schema (the
 # prepare CLI does exactly that).  They do not disqualify a database from being
@@ -279,7 +279,8 @@ _STAGE4_RUNTIME_REQUIRED_COLUMNS = {
         "authority_verdict", "authority_detail", "authority_checked_at"}),
     "sentinel_automation_cycles": frozenset({"historical_state_only"}),
     "sentinel_automation_service_instances": frozenset({
-        "authority_verdict", "authority_detail", "authority_checked_at"}),
+        "authority_verdict", "authority_detail", "authority_checked_at",
+        "callback_started_at", "callback_deadline_at"}),
     "sentinel_observation_provenance": frozenset({
         "positions", "canonical_payload_sha256"}),
     "sentinel_alert_dispatcher_health": frozenset({
@@ -1242,6 +1243,8 @@ DDL = (
             authority_verdict IS NULL OR authority_verdict IN ('PASS','FAIL')),
         authority_detail     TEXT,
         authority_checked_at TIMESTAMPTZ,
+        callback_started_at  TIMESTAMPTZ,
+        callback_deadline_at TIMESTAMPTZ,
         updated_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
     """ALTER TABLE sentinel_automation_service_instances
         ADD COLUMN IF NOT EXISTS authority_verdict TEXT CHECK (
@@ -1250,6 +1253,10 @@ DDL = (
         ADD COLUMN IF NOT EXISTS authority_detail TEXT""",
     """ALTER TABLE sentinel_automation_service_instances
         ADD COLUMN IF NOT EXISTS authority_checked_at TIMESTAMPTZ""",
+    """ALTER TABLE sentinel_automation_service_instances
+        ADD COLUMN IF NOT EXISTS callback_started_at TIMESTAMPTZ""",
+    """ALTER TABLE sentinel_automation_service_instances
+        ADD COLUMN IF NOT EXISTS callback_deadline_at TIMESTAMPTZ""",
 )
 
 

@@ -61,6 +61,8 @@ class AutomationHealth(BaseModel):
     last_instance_id: str | None = None
     last_instance_heartbeat_at: datetime | None = None
     service_heartbeat_fresh: bool = False
+    callback_started_at: datetime | None = None
+    callback_deadline_at: datetime | None = None
     scheduler_overdue: bool = False
     database_now: datetime | None = None
     host_database_clock_skew_seconds: float | None = None
@@ -164,7 +166,8 @@ def read_health(conn) -> AutomationHealth:
         # its own heartbeat; selecting the globally newest service row would let
         # that passive process either mask or falsely accuse the active leader.
         cur.execute(
-            "SELECT i.instance_id,i.heartbeat_at FROM"
+            "SELECT i.instance_id,i.heartbeat_at,i.state,"
+            " i.callback_started_at,i.callback_deadline_at FROM"
             " sentinel_automation_service_instances i"
             " JOIN sentinel_automation_lease l ON l.id=1"
             " WHERE i.instance_id=l.holder_id LIMIT 1")
@@ -188,9 +191,14 @@ def read_health(conn) -> AutomationHealth:
             "   ON kr.key_id=c.key_id WHERE a.id=1",
             (control.certificate_sha256,))
         authority_row = cur.fetchone()
+        # Sampling before the instance read can falsely classify a heartbeat
+        # committed during these reads as coming from the future.
+        cur.execute("SELECT clock_timestamp()")
+        database_now = cur.fetchone()[0]
     conn.rollback()
 
-    holder, token, heartbeat, expires, active, database_now = lease
+    holder, token, heartbeat, expires, active, _lease_sample_at = lease
+    active = bool(active and expires is not None and expires > database_now)
     authority_current = bool(
         authority_row is not None and authority_row[0] is not None
         and authority_row[1])
@@ -226,10 +234,15 @@ def read_health(conn) -> AutomationHealth:
         <= lease_window_seconds)
     terminal_states = {
         "SUCCEEDED", "MISSED_STATE_ONLY", "SUPERSEDED", "BLOCKED"}
+    callback = bool(instance is not None and instance[2].endswith("_CALLBACK"))
+    callback_current = bool(callback and instance[3] is not None
+                            and instance[4] is not None
+                            and instance[3] <= database_now < instance[4])
     scheduler_overdue = bool(
-        cycle is not None and cycle[1] not in terminal_states
-        and cycle[2] is not None
-        and (database_now - cycle[2]).total_seconds() > lease_window_seconds)
+        callback and not callback_current
+        or (not callback_current and cycle is not None
+            and cycle[1] not in terminal_states and cycle[2] is not None
+            and (database_now - cycle[2]).total_seconds() > lease_window_seconds))
     blocked = bool(cycle is not None and cycle[1] == "BLOCKED")
     host_database_clock_skew_seconds = abs(
         (datetime.now(timezone.utc) - database_now).total_seconds())
@@ -318,6 +331,8 @@ def read_health(conn) -> AutomationHealth:
         last_instance_id=instance[0] if instance else None,
         last_instance_heartbeat_at=instance[1] if instance else None,
         service_heartbeat_fresh=service_heartbeat_fresh,
+        callback_started_at=instance[3] if instance else None,
+        callback_deadline_at=instance[4] if instance else None,
         scheduler_overdue=scheduler_overdue,
         database_now=database_now,
         host_database_clock_skew_seconds=host_database_clock_skew_seconds,

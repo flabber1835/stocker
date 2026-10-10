@@ -990,7 +990,7 @@ def test_heartbeat_failure_and_revocation_never_accept_completed_child_authority
         return SimpleNamespace(close=close_heartbeat)
 
     def heartbeat_lease(conn, **kwargs):
-        assert kwargs == {'permit': None, 'lease_seconds': 30}
+        assert kwargs == {'permit': None, 'lease_seconds': 30, 'callback': True}
         events.append('lease renewed')
         if mode == 'lease_failure':
             raise failure

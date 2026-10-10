@@ -103,6 +103,28 @@ def test_causal_session_age_is_reobserved(projection, monkeypatch):
         health.health(projection,fallback=forbidden)
 
 
+@pytest.mark.parametrize('cursor', [
+    'broker-cash-activity:v1:alpaca:paper-account',
+    'broker-cash-plan:v1:paper-plan',
+    'dual-plan-sizing-authority:v1:paper-plan',
+    'dual-regenesis-broker-handover:v2:paper-observation:00000001',
+    'paper-informational-mirror:v1:paper-plan',
+])
+def test_execution_receipts_do_not_invalidate_broker_free_shadow_health(projection, conn, cursor):
+    before = health._inventory(conn)
+    conn.rollback()
+    conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
+                 "VALUES (%s,'2026-09-14','{}')", (cursor,))
+    conn.commit()
+    assert health._inventory(conn) == before
+    conn.rollback()
+    assert health.health(projection, fallback=forbidden)['service_health'] == 'HEALTHY_ATTESTED'
+    conn.execute("UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s",
+                 (json.dumps({'changed': True}), cursor))
+    conn.commit()
+    assert health.health(projection, fallback=forbidden)['service_health'] == 'HEALTHY_ATTESTED'
+
+
 def test_new_database_uses_existing_reconstruction_check(conn, tmp_path, monkeypatch):
     schema.ensure_schema(conn)
     monkeypatch.setenv('SENTINEL_STATE_DIR',str(tmp_path))

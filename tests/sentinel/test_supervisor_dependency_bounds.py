@@ -59,7 +59,8 @@ def test_full_logging_pipe_cannot_block_supervisor(monkeypatch):
 
 def test_real_snapshot_lock_is_bounded_then_recovers(conn):
     schema.ensure_schema(conn)
-    store.register_instance(conn, instance_id='bounded-observer', state='RECOVER_CALLBACK')
+    store.register_instance(conn, instance_id='bounded-observer', state='RECOVER_CALLBACK',
+                            callback_deadline_seconds=900)
     conn.execute('LOCK TABLE sentinel_automation_service_instances IN ACCESS EXCLUSIVE MODE')
     started = time.monotonic()
     with pytest.raises((TimeoutError, RuntimeError), match='budget|timeout'):
@@ -68,7 +69,8 @@ def test_real_snapshot_lock_is_bounded_then_recovers(conn):
     conn.rollback()
     first = supervisor._snapshot(conn.info.dsn, 'bounded-observer')
     assert first[0] == 'RECOVER_CALLBACK' and first[1] >= 0 and first[2].tzinfo
-    store.register_instance(conn, instance_id='bounded-observer', state='RECOVER_CALLBACK')
+    store.register_instance(conn, instance_id='bounded-observer', state='RECOVER_CALLBACK',
+                            callback_deadline_seconds=900)
     second = supervisor._snapshot(conn.info.dsn, 'bounded-observer')
     assert second[2] > first[2]
 

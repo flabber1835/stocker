@@ -18,6 +18,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from datetime import datetime
+from typing import NamedTuple
 
 from sentinel.automation_runtime import config_from_env
 from sentinel.config import SentinelConfig
@@ -32,6 +34,14 @@ class CallbackWatch:
     state: str | None = None
     observed_at: float | None = None
     invocation: object = None
+
+
+class InstanceSnapshot(NamedTuple):
+    state: str | None = None
+    heartbeat_age_seconds: float | None = None
+    invocation: datetime | None = None
+    callback_age_seconds: float | None = None
+    callback_remaining_seconds: float | None = None
 
 
 def _session_process_groups(session_id: int) -> set[int]:
@@ -123,17 +133,24 @@ def _read_snapshot(database_url: str, holder_id: str):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT state,heartbeat_at,clock_timestamp() "
+                "SELECT state,heartbeat_at,clock_timestamp(),"
+                " callback_started_at,callback_deadline_at "
                 "FROM sentinel_automation_service_instances "
                 "WHERE instance_id=%s", (holder_id,))
             row = cur.fetchone()
         conn.rollback()
         if row is None:
-            return None, None, None
-        state, heartbeat_at, database_now = row
+            return InstanceSnapshot()
+        state, heartbeat_at, database_now, callback_start, callback_end = row
         age = ((database_now - heartbeat_at).total_seconds()
                if heartbeat_at is not None else None)
-        return state, age, heartbeat_at
+        callback = state.endswith("_CALLBACK")
+        return InstanceSnapshot(
+            state, age, callback_start if callback else heartbeat_at,
+            (database_now - callback_start).total_seconds()
+            if callback_start is not None else None,
+            (callback_end - database_now).total_seconds()
+            if callback_end is not None else None)
     finally:
         conn.close()
 
@@ -205,7 +222,7 @@ def main() -> int:
                 break
             now_mono = time.monotonic()
             try:
-                state, heartbeat_age, invocation = _snapshot(
+                snapshot = _snapshot(
                     sentinel_config.database_url, holder_id)
                 now_mono = time.monotonic()
                 database_unreadable_since = None
@@ -231,10 +248,18 @@ def main() -> int:
                 time.sleep(poll_seconds)
                 continue
 
-            if _callback_deadline_expired(
+            state = snapshot.state
+            heartbeat_age = snapshot.heartbeat_age_seconds
+            invalid_callback = bool(state and state.endswith("_CALLBACK") and (
+                snapshot.callback_age_seconds is None
+                or snapshot.callback_age_seconds < 0
+                or snapshot.callback_remaining_seconds is None
+                or snapshot.callback_remaining_seconds <= 0))
+            if invalid_callback or _callback_deadline_expired(
                     watch, state=state, now_monotonic=now_mono,
                     deadline_seconds=automation_config.callback_deadline_seconds,
-                    state_age_seconds=heartbeat_age, invocation=invocation):
+                    state_age_seconds=snapshot.callback_age_seconds,
+                    invocation=snapshot.invocation):
                 supervisor_io.report(
                     f"automation supervisor terminating worker {holder_id}: "
                     f"{state} exceeded "
