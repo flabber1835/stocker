@@ -172,7 +172,8 @@ Decision: 2026-10-05. Every installation mode starts the private panel and waits
 for its database/schema readiness. If Web Push or the legacy alert webhook is
 configured, start the independent dispatcher using the same pinned runtime and
 wait for its health before releasing automation. Recheck both services before
-writing a successful installation receipt, including after the final backup.
+writing a successful installation receipt. Financial activation separately
+rechecks operator services after its required backup/restore milestone.
 An unavailable configured sender is an installation failure, not an optional
 omission. A deliberately unconfigured transport remains explicitly unavailable.
 Do not start broker automation to obtain notification delivery, stop the sender
