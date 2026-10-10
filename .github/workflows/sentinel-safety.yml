@@ -240,14 +240,11 @@ jobs:
           name: qualified-pr-promotion-plan
           path: /tmp/sentinel-promotion
 
-      - name: Download the original successful PR runtime
+      - name: Download and verify the original successful PR runtime digest
         if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: ${{ needs.qualification-source.outputs.artifact }}
-          run-id: ${{ needs.qualification-source.outputs.run }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: /tmp/sentinel-original-runtime
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/sentinel_ci_promote.py download --plan /tmp/sentinel-promotion/promotion-plan.json --output /tmp/sentinel-original-runtime
       - name: Promote source metadata while retaining every tested filesystem layer
         if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
         env:
@@ -805,4 +802,4 @@ jobs:
           name: sentinel-tested-image-${{ github.event.pull_request.head.sha || github.sha }}
           path: /tmp/sentinel-tested-image
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90

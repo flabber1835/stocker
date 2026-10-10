@@ -129,4 +129,4 @@ jobs:
           name: ci-checkout-proof-browser-${{ github.run_attempt }}
           path: /tmp/ci-checkout-proof/proof.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90

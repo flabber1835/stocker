@@ -8,6 +8,7 @@ import hashlib
 import io
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -139,6 +140,29 @@ def verify_archive(bundle, commit):
                    "runtime artifact source differs")
 
 
+def download_runtime(client, plan, output):
+    policy.verify_plan(client, plan)
+    item = plan["artifact"]
+    raw = client.bytes("https://api.github.com/repos/%s/actions/artifacts/%d/zip" %
+                       (policy.REPOSITORY, item["id"]))
+    policy.require(len(raw) <= 1024 ** 3 and
+                   "sha256:" + hashlib.sha256(raw).hexdigest() == item["digest"],
+                   "tested runtime artifact bytes differ")
+    expected = {"sentinel-runtime.tar", "COMMIT", "software-certification-input.json", "SHA256SUMS"}
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        entries = archive.infolist()
+        policy.require(len(entries) == len(expected) and {x.filename for x in entries} == expected
+                       and sum(x.file_size for x in entries) <= 2 * 1024 ** 3
+                       and all(not x.is_dir() and not (x.flag_bits & 1) and
+                               (x.external_attr >> 16) & 0o170000 != 0o120000 for x in entries),
+                       "tested runtime ZIP member inventory differs")
+        output.mkdir(parents=True, exist_ok=False)
+        for entry in entries:
+            with archive.open(entry) as source, (output / entry.filename).open("xb") as target:
+                shutil.copyfileobj(source, target)
+    verify_archive(output, plan["tested_commit"])
+
+
 def promote_metadata(root, tested_ref, promoted_ref, tested_commit, merged_commit):
     policy.git(tested_commit)
     policy.git(merged_commit)
@@ -195,7 +219,7 @@ def promote(root, client, plan, bundle, output, run_id, attempt):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("select", "verify", "promote", "scope"))
+    parser.add_argument("command", choices=("select", "verify", "download", "promote", "scope"))
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--plan", type=Path)
     parser.add_argument("--bundle", type=Path)
@@ -230,6 +254,8 @@ def main(argv=None):
                 needs = _json_bytes(os.environ["CI_NEEDS"].encode(), "CERT_PROMOTION_INPUT_INVALID", "main dependencies")
                 policy.verify_promotion_dependencies(needs)
             write(args.output, {"status": "REUSED", "plan": plan})
+        elif args.command == "download":
+            download_runtime(client, read(args.plan), args.output.resolve())
         else:
             promote(root, client, read(args.plan), args.bundle.resolve(), args.output.resolve(),
                     int(os.environ["GITHUB_RUN_ID"]), int(os.environ["GITHUB_RUN_ATTEMPT"]))

@@ -391,7 +391,7 @@ jobs:
           name: ci-checkout-proof-composition-${{ github.run_attempt }}
           path: /tmp/ci-checkout-proof/proof.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
   acceptance:
     name: composition-${{ matrix.scope }}

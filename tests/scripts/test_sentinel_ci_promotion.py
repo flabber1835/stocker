@@ -236,6 +236,41 @@ def test_runtime_archive_is_exact_and_checksums_are_enforced(tmp_path, change):
     with pytest.raises(policy.PromotionRefused): promote.verify_archive(tmp_path, TESTED)
 
 
+@pytest.mark.parametrize("change", [None, "digest", "extra", "duplicate", "path", "symlink", "inner-checksum"])
+def test_actual_runtime_zip_digest_and_members_are_bound_before_loading(authority, tmp_path, change):
+    plan, client, _, _, _, artifacts = authority
+    values = {"sentinel-runtime.tar": b"qualified image", "COMMIT": (TESTED + "\n").encode(),
+              "software-certification-input.json": b"{}"}
+    values["SHA256SUMS"] = "".join(hashlib.sha256(raw).hexdigest() + "  " + name + "\n"
+                                      for name, raw in sorted(values.items())).encode()
+    if change == "extra": values["extra"] = b"unreviewed"
+    elif change == "path": values["../COMMIT"] = values.pop("COMMIT")
+    elif change == "inner-checksum": values["sentinel-runtime.tar"] = b"changed image"
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        for name, raw in values.items():
+            entry = zipfile.ZipInfo(name)
+            if change == "symlink" and name == "COMMIT":
+                entry.create_system = 3
+                entry.external_attr = 0o120777 << 16
+            archive.writestr(entry, raw)
+        if change == "duplicate": archive.writestr("COMMIT", values["COMMIT"])
+    raw = stream.getvalue()
+    digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+    plan["artifact"]["digest"] = artifacts[200]["digest"] = digest
+    class DownloadClient:
+        json = client.json
+        def bytes(self, path):
+            return raw + (b"tamper" if change == "digest" else b"")
+    output = tmp_path / "retained-runtime"
+    if change is None:
+        promote.download_runtime(DownloadClient(), plan, output)
+        assert (output / "sentinel-runtime.tar").read_bytes() == b"qualified image"
+    else:
+        with pytest.raises(policy.PromotionRefused): promote.download_runtime(DownloadClient(), plan, output)
+        if change != "inner-checksum": assert not output.exists()
+
+
 @pytest.mark.parametrize("change", ["selection-failed", "runtime-cancelled", "worker-failed", "missing", "extra"])
 def test_main_dependency_receipt_never_calls_failed_work_reused(change):
     value = {key: {"result": result} for key, result in {"qualification-source": "success", "runtime-build": "success",

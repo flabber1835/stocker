@@ -28,8 +28,12 @@ proof of its actual checkout tree, including synthetic-merge execution.
 Missing/expired evidence or a changed tree selects full main qualification.
 Malformed, ambiguous or tampered evidence and unavailable authority are refusals.
 
-The PR retains its checksummed tested runtime and version-2 certification input.
-Main loads that exact image ID. A metadata-only Docker build changes only the
+The PR retains its checksummed tested runtime and version-2 certification input
+for 90 days, matching publication evidence retention. Harness checkout proofs
+use the same retention. Main verifies the original downloaded ZIP against its
+GitHub artifact digest before extracting its exact bounded member inventory;
+the internal checksums are checked independently. Main loads that exact image
+ID. A metadata-only Docker build changes only the
 OCI source revision label and `SENTINEL_IMAGE_SOURCE_REVISION` environment
 entry to the actual merged SHA. All filesystem layer digests, OS/architecture,
 entrypoint, user, commands and other configuration must remain identical.
