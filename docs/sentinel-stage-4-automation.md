@@ -195,6 +195,11 @@ ordinary recovery returns `SUPERSEDED` from `EXECUTING`, the durable path is
 
 ## 3. Leader lease and fencing
 
+[Activation startup contention](activation-startup-contention.md) defines the
+bounded, non-authoritative wait when the canonical writer prevents initial
+lease acquisition and the distinction between blocked cycles and retained
+supersession diagnostics during activation.
+
 Decision: 2026-10-10. Callback progress and worker liveness have different
 clocks. Starting each supervised callback records its database-time
 `callback_started_at` and `callback_deadline_at` on the service instance.

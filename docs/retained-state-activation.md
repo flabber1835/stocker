@@ -82,6 +82,10 @@ book and computational environment, appends only its existing administrative
 receipt and grants no broker authority. Qualification includes the complete
 preceding release and historical source closures, same-session formed-book
 reuse with formation/acquisition forbidden, and mutations of every listed file.
+The [startup contention repair](activation-startup-contention.md) has its own
+one-file `automation/service.py` transition profile, including the verified
+`4c9f8769` predecessor and unchanged earlier reviewed predecessor hashes. It
+does not rewrite the callback profile, migrate schema or add economic authority.
 Substitute only that proven original source hash/count into the actual current
 environment record; its digest must reproduce the authenticated origin's
 environment digest. Dependency, calendar, interpreter or base-image changes

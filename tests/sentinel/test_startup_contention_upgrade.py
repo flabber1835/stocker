@@ -1,4 +1,4 @@
-"""Closed source upgrades preserve the authenticated formed financial book."""
+"""Startup waiting admits only the pinned source repair and preserves the book."""
 from copy import deepcopy
 import hashlib
 import json
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from sentinel import callback_liveness_upgrade as upgrade, runtime_admission as admission
+from sentinel import startup_contention_upgrade as upgrade, runtime_admission as admission
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
@@ -16,40 +16,34 @@ from tests.sentinel.test_operational_liveness_upgrade import (
     test_actual_formed_book_upgrade_restarts_without_reformation_or_reacquisition as _formed_upgrade)
 
 
-@pytest.mark.parametrize('name', sorted(upgrade.SCOPE))
-def test_callback_transition_is_exact_and_neighbor_change_refuses(closure, name):
+def test_only_exact_reviewed_service_upgrade_is_allowed(closure):
+    name = 'automation/service.py'
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-    if actual != record['after']:
-        from sentinel.startup_contention_upgrade import source_allowed
-        assert source_allowed(name, record['after'], actual)
-    assert all(upgrade.source_allowed(name, previous, record['after']) for previous in record['before'])
+    assert actual == record['after']
+    assert all(upgrade.source_allowed(name, prior, actual) for prior in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
-    assert not upgrade.source_allowed('core/kernel.py', record['before'][0], actual)
+    assert not upgrade.source_allowed('automation/store.py', record['before'][0], actual)
     root, checkpoint, context, manifest, value = _execution_closure(closure, name, source_profile=upgrade)
-    proof, refusal = None, None
-    try:
-        proof = admission.prove_compatibility(manifest, checkpoint, context, source=value)
-    except admission.Refused as error:
-        refusal = str(error)
-    assert proof == digest(admission.SourceManifest.model_validate(manifest).model_dump(by_alias=True)), refusal
+    assert admission.prove_compatibility(manifest, checkpoint, context, source=value) == digest(
+        admission.SourceManifest.model_validate(manifest).model_dump(by_alias=True))
     path = root/name
-    path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_NEIGHBOR = True\n')
+    path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_CHANGE = True\n')
     _refresh_current(root, context, value)
     with pytest.raises(admission.Refused, match='RETAINED_ECONOMIC_SOURCE_CHANGED'):
         admission.prove_compatibility(manifest, checkpoint, context, source=value)
 
 
-def test_complete_preceding_release_source_is_authenticated(closure, monkeypatch):
+def test_complete_previous_release_is_bound_to_verified_git_manifest(closure, monkeypatch):
     _, checkpoint, context, _, value = closure
-    raw = (Path(__file__).parent/'fixtures/retained-source-history/f52301f2.json').read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == 'a3607d47a07375793f771a118b502a2abde3bc2330acb63ff8cf09deb9a027d7'
+    raw = (Path(__file__).parent/'fixtures/retained-source-history/4c9f8769.json').read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == '020ea190598072c53e7c806ad1da72fc54a0a58de7298467b3469e9c070dcca9'
     manifest = json.loads(raw)
-    assert manifest['revision'] == 'f52301f25f483e40ac860efa027f52acc4193482'
+    assert manifest['revision'] == '4c9f8769a53dc1dd924348f21a357616209e41c4'
     root = Path(upgrade.__file__).parent
-    actual = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-              for path in root.rglob('*.py') if '__pycache__' not in path.parts}
+    actual = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in root.rglob('*.py') if '__pycache__' not in p.parts}
     current_env = value['environment']
     current_env['sentinel_source'].update(path=str(root), files=len(actual), hash=admission.source_closure(actual))
     old_env = deepcopy(current_env)
@@ -62,17 +56,14 @@ def test_complete_preceding_release_source_is_authenticated(closure, monkeypatch
     monkeypatch.setattr(admission.identity, '_imported_package_root', lambda _: root)
     assert admission.prove_compatibility(manifest, checkpoint, context, source=value) == digest(
         admission.SourceManifest.model_validate(manifest).model_dump(by_alias=True))
-    foreign = deepcopy(manifest)
-    foreign['files']['automation/health.py'] = 'f'*64
+    changed = deepcopy(manifest)
+    changed['files']['automation/store.py'] = 'f'*64
     with pytest.raises(admission.Refused, match='RETAINED_SOURCE_MANIFEST_ORIGIN_MISMATCH'):
-        admission.prove_compatibility(foreign, checkpoint, context, source=value)
-    value['environment']['dependencies'] = 'changed'
-    with pytest.raises(admission.Refused, match='RETAINED_COMPUTATIONAL_ENVIRONMENT_CHANGED'):
-        admission.prove_compatibility(manifest, checkpoint, context, source=value)
+        admission.prove_compatibility(changed, checkpoint, context, source=value)
 
 
 @pytest.mark.parametrize('kind', ['profile', 'module'])
-def test_callback_profile_and_reader_are_authenticated(tmp_path, monkeypatch, kind):
+def test_profile_or_implementation_tampering_refuses(tmp_path, monkeypatch, kind):
     if kind == 'profile':
         path = tmp_path/'profile.json'
         path.write_bytes(upgrade.PROFILE.read_bytes()+b' ')
@@ -89,8 +80,8 @@ def test_callback_profile_and_reader_are_authenticated(tmp_path, monkeypatch, ki
 
 
 @pytest.mark.parametrize('ready', [{'formed': True}], indirect=True)
-@pytest.mark.parametrize('executable', ['callback_liveness', 'preceding_release'], indirect=True)
-def test_formed_book_callback_upgrade_does_not_reform_or_reacquire(
+@pytest.mark.parametrize('executable', ['startup_preceding'], indirect=True)
+def test_formed_book_startup_upgrade_does_not_reform_or_reacquire(
         conn, ready, executable, operational_source, monkeypatch):
     _formed_upgrade(conn, ready, executable, operational_source, monkeypatch)
 

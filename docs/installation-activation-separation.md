@@ -105,6 +105,10 @@ kill release; installation storage proof and activation proof are distinct.
 
 ### Activation writer handoff
 
+[Activation startup contention](activation-startup-contention.md) specifies
+same-worker lease acquisition after resumed-publisher contention and preserves
+historical cycle diagnostics without turning them into new activation failures.
+
 The host accepts exactly one `SENTINEL_DUAL_RECONCILIATION` result from the
 selected runtime. Its JSON follows the same strict object contract as plan,
 control and shadow-status readers: duplicate keys, non-finite values and
