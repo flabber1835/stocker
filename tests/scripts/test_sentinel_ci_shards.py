@@ -63,9 +63,11 @@ def test_tracked_inventory_rejects_untracked_and_symlinked_modules(tmp_path):
         shards.tracked_modules(tmp_path)
 
 
-def test_startup_contention_has_one_automation_coverage_owner():
+@pytest.mark.parametrize('module', [
+    'test_activation_startup_contention.py', 'test_automation_generation.py'])
+def test_new_automation_boundaries_have_one_coverage_owner(module):
     modules = _inventory()
-    startup = "tests/sentinel/test_activation_startup_contention.py"
+    startup = "tests/sentinel/" + module
     automation = shards.automation_modules(modules)
     ordinary = [module for lane in shards.plan(modules).values() for module in lane]
     assert automation.count(startup) == 1

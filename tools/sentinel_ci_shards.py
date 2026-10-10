@@ -11,6 +11,7 @@ import subprocess
 SHARDS = 4
 AUTOMATION = frozenset({
     "test_activation_startup_contention.py",
+    "test_automation_generation.py",
     "test_automation_composition.py",
     "test_automation_worker_source_recovery.py",
     "test_automation_service.py",

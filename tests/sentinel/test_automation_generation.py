@@ -246,6 +246,32 @@ async def test_actual_creation_entry_race_waits_then_resumes_without_a_financial
     assert resumed.cycle is not None and resumed.cycle.cycle_id != old.cycle_id
 
 
+@pytest.mark.asyncio
+async def test_cutover_crossing_after_eligibility_yields_a_wait_without_a_new_cycle(conn, monkeypatch):
+    _, old, spec, _, now = retained(conn)
+    def forbidden_callback(*args, **kwargs):
+        raise AssertionError('a refused scheduling obligation cannot reach finance')
+    service = service_for(config(), refresh=forbidden_callback, prepare=forbidden_callback,
+                          recover=forbidden_callback, execute=forbidden_callback)
+    create = store.create_cycle
+    entered = False
+    def crossing(conn, **kwargs):
+        nonlocal entered
+        entered = True
+        conn.execute('UPDATE sentinel_automation_control SET enabled_at=%s WHERE id=1',
+                     (spec.execution_open_at,))
+        conn.commit()
+        return create(conn, **kwargs)
+    monkeypatch.setattr(store, 'create_cycle', crossing)
+    result = await service.tick(conn, now=now)
+    assert entered and result.action is TickAction.WAITING and result.cycle is None
+    assert 'not a fresh unsent prospective obligation' in result.reason
+    assert conn.execute('SELECT count(*) FROM sentinel_automation_cycles').fetchone()[0] == 1
+    assert store.load_cycle(conn, old.cycle_id) == old
+    assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
+    conn.rollback()
+
+
 def old_catalog(conn):
     conn.execute('ALTER TABLE sentinel_automation_cycles DROP CONSTRAINT sentinel_automation_cycles_generation_key')
     conn.execute('ALTER TABLE sentinel_automation_cycles ADD UNIQUE '
