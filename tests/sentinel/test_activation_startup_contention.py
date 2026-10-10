@@ -15,7 +15,7 @@ from sentinel.feed import store as feed_store
 from tests.sentinel.test_automation_service import (
     conn, pg, config, enable, service_for, binding, recovery_success, AFTER_WEDNESDAY_CLOSE)
 from tests.sentinel.test_autonomous_deploy import deploy, _cfg, _health
-from tests.sentinel.test_prospective_generation import future_friday
+from tests.sentinel.test_automation_generation import future_friday
 
 
 def _hold_writer(dsn, channel, release):
