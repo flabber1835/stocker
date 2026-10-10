@@ -61,3 +61,21 @@ def test_tracked_inventory_rejects_untracked_and_symlinked_modules(tmp_path):
     (tests / "test_one.py").symlink_to("test_untracked.py")
     with pytest.raises(ValueError, match="invalid tracked"):
         shards.tracked_modules(tmp_path)
+
+
+def test_startup_contention_has_one_automation_coverage_owner():
+    modules = _inventory()
+    startup = "tests/sentinel/test_activation_startup_contention.py"
+    automation = shards.automation_modules(modules)
+    ordinary = [module for lane in shards.plan(modules).values() for module in lane]
+    assert automation.count(startup) == 1
+    assert startup not in ordinary
+    assert set(automation).isdisjoint(ordinary)
+    assert automation == shards.automation_modules(list(reversed(modules)))
+
+
+def test_missing_registered_automation_module_refuses_instead_of_running_a_subset():
+    modules = _inventory()
+    modules.remove("tests/sentinel/test_activation_startup_contention.py")
+    with pytest.raises(ValueError, match="missing registered automation"):
+        shards.automation_modules(modules)

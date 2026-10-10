@@ -233,8 +233,20 @@ def test_main_push_runs_exact_sha_safety_and_branch_coverage():
     assert "- 'fix/**'" not in workflow
     assert "- 'stabilization/**'" not in workflow
     assert "coverage run --branch" in workflow
-    assert "tests/sentinel/test_automation_safety_seams.py" in workflow
-    assert "tests/sentinel/test_automation_process_contracts.py" in workflow
+    from tools.sentinel_ci_shards import AUTOMATION
+    from tools.validate_test_responsibility import _job_body, _step_run, _step_slices
+    automation_runs = [
+        run for step in _step_slices(_job_body(workflow, "parallel-certification"))
+        if (run := _step_run(step)) and "sentinel-automation.xml" in run
+    ]
+    assert len(automation_runs) == 1
+    automation_run = automation_runs[0]
+    assert "python tools/sentinel_ci_shards.py --root . --lane sentinel-automation" \
+        in automation_run
+    assert '"${modules[@]}" -q -ra --junitxml=/evidence/sentinel-automation.xml' \
+        in " ".join(automation_run.replace("\\\n", " ").split())
+    assert {"test_automation_safety_seams.py",
+            "test_automation_process_contracts.py"} <= AUTOMATION
     assert "coverage report --precision=2 --fail-under=100.00" in " ".join(
         workflow.replace("\\\n", " ").split())
     for evidence in (
@@ -344,7 +356,8 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
             assert run.splitlines()[0] == "set -euo pipefail"
         if run and ("sentinel_ci_shards.py" in run or
                     "sentinel-contention.xml" in run or "sentinel-status.xml" in run):
-            assert "-vv -ra" in run
+            verbosity = "-q -ra" if "sentinel-automation.xml" in run else "-vv -ra"
+            assert verbosity in run
             assert "2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt" in run
             assert "set +e" not in run
     assert "--owner wealth-core.prospective" in workflow

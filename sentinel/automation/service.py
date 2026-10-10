@@ -25,6 +25,7 @@ from typing import Any, Awaitable, Callable, Mapping, TypeAlias
 from pydantic import ValidationError
 
 from sentinel.automation import integrity, schedule, store
+from sentinel.execution.journal import WriterLockUnavailable
 from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
@@ -912,9 +913,18 @@ class AutomationService:
             self._assert_clock_skew(
                 now=now, conn_factory=heartbeat_conn_factory)
 
-        permit = store.acquire_lease(
-            conn, holder_id=self.holder_id,
-            lease_seconds=self.config.lease_seconds)
+        try:
+            permit = store.acquire_lease(
+                conn, holder_id=self.holder_id,
+                lease_seconds=self.config.lease_seconds)
+        except WriterLockUnavailable:
+            # This acquisition failed before leadership or financial mutation.
+            # Keep the same worker and its bounded scheduler wake; never steal
+            # the writer lock or classify later mutation failures as this wait.
+            conn.rollback()
+            return TickResult(
+                action=TickAction.WAITING,
+                reason="canonical writer lock is busy; leadership was not acquired")
         control = store.load_control(conn)
         obligation = schedule.for_clock(now, self.config)
 

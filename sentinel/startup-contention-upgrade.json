@@ -1,0 +1,15 @@
+{
+  "files": {
+    "automation/service.py": {
+      "after": "9b9e7366505dd94ea4c75927cf1af9537ab3bcdde786e787de3f4df79957bfcb",
+      "before": [
+        "16177ffeb2b863b51081e981674d97a1fe58a20ede7c53b4a154baf61c0d3a49",
+        "36d52f91852f7dac249c94be567191bf86f4e9502c51bde452e15bf81f70d469",
+        "b4d0708fe1b38f966de8d5675fc12e6bb4321ba46582d4c266a1f56c16d79d1e",
+        "d9af5e1e1fb111b376ec577a57a0cc8ea71fab085471663986aaa4dc08430b48"
+      ]
+    }
+  },
+  "module_sha256": "64f91d702e8ec4bbd8877dab666894647f3083e1327039ddfa4fe14e6d51b766",
+  "schema": "sentinel.startup-contention-upgrade/1"
+}

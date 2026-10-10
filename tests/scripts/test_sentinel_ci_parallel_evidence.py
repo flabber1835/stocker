@@ -17,20 +17,26 @@ from tools import sentinel_ci_shards as shards
 
 
 @pytest.mark.parametrize("failed_lane", [None, "sentinel-general-0", "sentinel-rolling-2",
-                                          "sentinel-contention", "sentinel-status"])
-def test_main_workers_cover_each_module_once_and_propagate_failure(tmp_path, failed_lane):
+                                          "sentinel-contention", "sentinel-status",
+                                          "sentinel-automation", "sentinel-warmup"])
+def test_all_sentinel_workers_cover_each_module_once_and_propagate_failure(tmp_path, failed_lane):
     root = Path(__file__).resolve().parents[2]
     workflow = yaml.safe_load((root / ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
     steps = workflow["jobs"]["parallel-certification"]["steps"]
     modules = {p.name for p in (root / "tests/sentinel").glob("test_*.py")}
-    modules |= {"test_future_ordinary.py", "test_rolling_future.py"}
+    future_automation = "test_future_automation.py"
+    automation = shards.AUTOMATION | {future_automation}
+    modules |= {"test_future_ordinary.py", "test_rolling_future.py", future_automation}
     tests = tmp_path / "tests/sentinel"
     tests.mkdir(parents=True)
     for name in modules:
         (tests / name).touch()
     tools = tmp_path / "tools"
     tools.mkdir()
-    shutil.copyfile(root / "tools/sentinel_ci_shards.py", tools / "sentinel_ci_shards.py")
+    selector = (root / "tools/sentinel_ci_shards.py").read_text(encoding="utf-8")
+    selector = selector.replace("SPECIAL = AUTOMATION |",
+        f"AUTOMATION = AUTOMATION | frozenset({{{future_automation!r}}})\nSPECIAL = AUTOMATION |", 1)
+    (tools / "sentinel_ci_shards.py").write_text(selector, encoding="utf-8")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "tests/sentinel"], cwd=tmp_path, check=True)
     output = tmp_path / "evidence"
@@ -44,6 +50,8 @@ import xml.etree.ElementTree as ET
 args = sys.argv[1:]
 if os.environ.get('FAILED_LANE') == os.environ['CI_LANE']:
     raise SystemExit(7)
+if 'report' in args and 'coverage' in args:
+    raise SystemExit(0)
 selected = [Path(a) for a in args if a.startswith('tests/sentinel/test_')]
 suite = ET.Element('testsuite')
 for p in selected:
@@ -52,7 +60,7 @@ target = next(a.split('=', 1)[1] for a in args if a.startswith('--junitxml='))
 ET.ElementTree(suite).write(target)
 ''', encoding="utf-8")
     docker.chmod(0o755)
-    lanes = (*evidence.MAIN_LANES,)
+    lanes = evidence.SENTINEL_LANES
     for lane in lanes:
         condition = ("${{ startsWith(matrix.lane, 'sentinel-general-') }}"
                      if lane.startswith("sentinel-general-") else
@@ -69,16 +77,24 @@ ET.ElementTree(suite).write(target)
         assert result.returncode == (7 if lane == failed_lane else 0), result.stdout + result.stderr
     cases = [case for lane in lanes if lane != failed_lane
              for case in ET.parse(output / f"{lane}.xml").iter("testcase")]
-    expected = modules - shards.AUTOMATION - {"test_source_seed_warmup.py"}
+    expected = set(modules)
     if failed_lane:
         expected -= set(Path(path).name for path in
-                        shards.plan([f"tests/sentinel/{name}" for name in modules]).get(failed_lane, ()))
+                        shards.plan([f"tests/sentinel/{name}" for name in modules
+                                     if name != future_automation]).get(failed_lane, ()))
         if failed_lane == "sentinel-contention":
             expected.remove("test_runtime_contention.py")
         if failed_lane == "sentinel-status":
             expected.remove("test_status_memory.py")
+        if failed_lane == "sentinel-automation":
+            expected -= automation
+        if failed_lane == "sentinel-warmup":
+            expected.remove("test_source_seed_warmup.py")
     assert {case.get("classname") + ".py" for case in cases} == expected
     assert len(cases) == len(expected)
+    if failed_lane is None:
+        assert evidence.merge([output / f"{lane}.xml" for lane in lanes],
+                              output / "sentinel-complete.xml") == len(modules)
 
 
 def test_minimum_host_lane_reserves_checkout_margin_without_weakening_evidence():

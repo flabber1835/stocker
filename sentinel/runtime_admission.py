@@ -21,7 +21,7 @@ ADDITIONS = {'runtime_admission.py', 'semantic_source_basis.py', 'retained_go.py
              'economic_migration.py', 'core/cash_distributions.py', 'execution_upgrade.py',
              'retained_readiness_upgrade.py', 'dual_plan_renewal_upgrade.py',
              'operational_liveness_upgrade.py', 'operational_runtime_upgrade.py',
-             'callback_liveness_upgrade.py'}
+             'callback_liveness_upgrade.py', 'startup_contention_upgrade.py'}
 ADMINISTRATIVE = {'shadow_supervisor.py', 'observation_authority.py', 'observation_startup.py'}
 SEAMS = {'core/decision.py': 'sentinel.core.decision',
          'rolling_checkpoint.py': 'sentinel.rolling_checkpoint',
@@ -266,6 +266,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     operational_profile = operational_upgrade.profile()
     from sentinel import callback_liveness_upgrade as callback_upgrade
     callback_upgrade.profile()
+    from sentinel import startup_contention_upgrade as startup_upgrade
+    startup_upgrade.profile()
     manifest = SourceManifest.model_validate(manifest)
     source = source or identity.rehearsal_identity()
     _require_context(checkpoint, context)
@@ -306,6 +308,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
         if operational_upgrade.source_allowed(name, previous, actual[name]):
             continue
         if callback_upgrade.source_allowed(name, previous, actual[name]):
+            continue
+        if startup_upgrade.source_allowed(name, previous, actual[name]):
             continue
         if module is None:
             raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)

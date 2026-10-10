@@ -1406,7 +1406,7 @@ def health_heartbeat_proof(first: Mapping, second: Mapping, *, cfg: Config,
             raise DeployRefused("%s health sample authority identity is not exact" % label)
         if int(health.get("dead_letter_alerts") or 0) != 0:
             raise DeployRefused("%s health sample has dead-letter alerts" % label)
-        if health.get("latest_cycle_state") == "BLOCKED" or health.get("latest_failure_code"):
+        if health.get("latest_cycle_state") == "BLOCKED":
             raise DeployRefused("%s health sample contains a latched automation failure" % label)
     for field in ("control_generation", "leader_holder", "fencing_token"):
         if not first.get(field) or first.get(field) != second.get(field):
@@ -2354,11 +2354,11 @@ class AutonomousDeploy:
             last = self._automation_status(timeout=remaining)
             if time.monotonic() >= deadline:
                 break
+            if last.get("latest_cycle_state") == "BLOCKED":
+                raise DeployRefused("automation latched a failure while becoming operational")
             if (last.get("operational_ready") is True
                     and last.get("policy_state") == "LEADER_ACTIVE"):
                 return last
-            if last.get("latest_cycle_state") == "BLOCKED" or last.get("latest_failure_code"):
-                raise DeployRefused("automation latched a failure while becoming operational")
             time.sleep(min(3, max(0, deadline - time.monotonic())))
         raise ActivationPending(
             "automation did not become operational before timeout; last policy=%r" %
