@@ -1,6 +1,6 @@
 {
   "additions": {
-    "panel/authority_reader.py": "3d6a5afcd6e5e77013b594bd81b282fb247594186dc27087617d11fd0722f717"
+    "panel/authority_reader.py": "89831f5f8fb290fce930d33847d431a9229398fed752e2037667683d2b83c3d4"
   },
   "files": {
     "automation/integrity.py": {
@@ -40,10 +40,11 @@
       ]
     },
     "panel/authority_reader.py": {
-      "after": "3d6a5afcd6e5e77013b594bd81b282fb247594186dc27087617d11fd0722f717",
+      "after": "89831f5f8fb290fce930d33847d431a9229398fed752e2037667683d2b83c3d4",
       "before": [
         "0f4f5283529fd15ca0aabf1602923138583f67029965d83c57c36085ef4dcfa6",
-        "9c767cf45e5af6d8f27230ec79a3ddc5b62a94dc897ffd46949164a954e82dbe"
+        "9c767cf45e5af6d8f27230ec79a3ddc5b62a94dc897ffd46949164a954e82dbe",
+        "3d6a5afcd6e5e77013b594bd81b282fb247594186dc27087617d11fd0722f717"
       ]
     },
     "panel/model.py": {
@@ -62,12 +63,13 @@
       ]
     },
     "panel/sources.py": {
-      "after": "0d0efbb3e1a3c37fe69104bf6cb1af09111251afd1d6b5527d2f76d051689afd",
+      "after": "4a82d1296e12fcc507713762baaf22ca4d26edcf8f7580d5300f158dc1f34fc8",
       "before": [
         "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17",
         "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
         "4f9c279c08d326cfb8a6452545b74cd0632f1567d2c5f50fdb7a923995a37328",
-        "26da5ab10c8fe9790319030ee2edfee801015291ae7a6f78d86681f9e4c8b592"
+        "26da5ab10c8fe9790319030ee2edfee801015291ae7a6f78d86681f9e4c8b592",
+        "0d0efbb3e1a3c37fe69104bf6cb1af09111251afd1d6b5527d2f76d051689afd"
       ]
     },
     "schema.py": {

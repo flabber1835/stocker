@@ -969,10 +969,17 @@ def _discovery_poll_recovery(cycle, lease, instance, *, now=None):
         return None
     heartbeat = instance.get("heartbeat_at")
     wake = instance.get("next_wake_at")
-    deadline = lease.get("expires_at")
-    if (not all(isinstance(value, datetime) for value in (heartbeat, wake, deadline))
-            or not now - timedelta(seconds=30) <= heartbeat <= now
-            or not now < wake < deadline):
+    lease_expiry = lease.get("expires_at")
+    if not all(isinstance(value, datetime) and value.utcoffset() is not None
+               for value in (now, heartbeat, wake, lease_expiry)):
+        return None
+    interval = timedelta(seconds=30)
+    # The due wake remains the worker's original schedule. A reader must not
+    # turn normal polling red, or refresh a stalled instance with renewed leases.
+    deadline = min(lease_expiry, heartbeat + interval)
+    if (not now - interval <= heartbeat <= now
+            or not heartbeat - interval <= wake < deadline
+            or not now < deadline):
         return None
     return model.RecoveryEvidence(
         phase="AUTOMATION_DISCOVERY", automatic=True,

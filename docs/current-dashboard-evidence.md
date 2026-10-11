@@ -170,6 +170,35 @@ execution. Missing, expired, foreign-holder or failed discovery evidence remains
 red when automation is enabled. Historical blocked cycles and unacknowledged
 incidents remain visible; this repair does not replay them or acknowledge them.
 
+Decision: 2026-10-11. A scheduled poll becoming due is a normal transition, not
+evidence of a failed worker. The same current-holder `WAITING` observation may
+remain amber while that poll runs. Keep its original scheduled wake visible,
+including when it is in the past. Bound this observation by the earlier of the
+current lease expiry and 30 seconds after the durable instance heartbeat. A
+renewed lease cannot extend the instance deadline; only a new durable instance
+observation can establish a new interval. Reject wakes outside that heartbeat's
+30-second neighborhood, invalid clocks, holder changes, errors and actual daily
+cycles. Never replace the durable wake or heartbeat with the reader's clock.
+Qualification must cross the due instant, delayed result registration, repeated
+lease renewal without instance progress, and the exact exhaustion boundary in
+both JSON and HTML. The complete preceding certified source closure must remain
+admitted without reformation, source acquisition or changes to book records.
+
+Decision: 2026-10-11. A complete, well-formed observation can verify the shadow
+and book while separately reporting a PAPER reconciliation failure or unreadable
+PAPER result. That PAPER problem must remain red, but cannot classify the
+independent shadow check as failed. Only the producer's explicitly scoped PAPER
+source errors may accompany this mixed result; an unscoped error remains a
+failed observation. When the proof expires after an idle browser interval,
+the next finite verification shows the independent rows as CHECK IN PROGRESS;
+the known PAPER failure remains visible as LAST KNOWN with its original clock.
+No positive proof is extended past its original validity. A failed observer,
+malformed result, unscoped source error or failed shadow/book
+verification still withdraws current proof and stays red during retries. An
+evidence-key change discards retained values and failures. Qualification must
+exercise mixed shadow-success/PAPER-failure through idle expiry, slow refresh,
+successful replacement, failed replacement and finite timeout on JSON and HTML.
+
 Normal maintenance already verifies the selected base and its complete retained
 WAL chain. Publish that successful exact-base observation as append-only
 RUNTIME_CHAIN evidence before reporting a healthy tick. Its proof names the
