@@ -14,7 +14,7 @@ import pytest
 
 from sentinel import backup_retention as retention
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT", Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(ROOT / "scripts"))
 import sentinel_backup_maintenance as coordinator
 
