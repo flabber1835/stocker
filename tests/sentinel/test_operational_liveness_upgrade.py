@@ -54,6 +54,7 @@ def test_exact_transition_requires_authenticated_origin_and_environment(closure,
     ('eb7b4d0c', '481cd8997974621f9204979e0d6f63a995460a5871d9952c2a4d8f1e4f85f0a7'),
     ('f52301f2', 'a3607d47a07375793f771a118b502a2abde3bc2330acb63ff8cf09deb9a027d7'),
     ('609f4a22', '49bc719a480bfe2e8e52f430fa0ce07b082adf9ea8069f47d97ef4a06ecde0c6'),
+    ('35cc92a1', '21447566ea37fbe6ccf1bfb07fd881791830992d0695c68a712c2da26c4c6956'),
 ])
 def test_complete_historical_source_manifest_is_admitted(closure, monkeypatch, revision, fixture_sha):
     _, checkpoint, context, _, source_value = closure
@@ -114,7 +115,7 @@ def test_upgrade_profile_and_reader_tamper_refuse(tmp_path, monkeypatch, kind):
 
 
 @pytest.mark.parametrize('ready', [{'formed': True}], indirect=True)
-@pytest.mark.parametrize('executable', ['operational', 'operational_runtime', 'installed', 'recovery_preceding'], indirect=True)
+@pytest.mark.parametrize('executable', ['operational', 'operational_runtime', 'installed', 'recovery_preceding', 'dashboard_preceding'], indirect=True)
 def test_actual_formed_book_upgrade_restarts_without_reformation_or_reacquisition(
         conn, ready, executable, operational_source, monkeypatch):
     first = _start(conn, executable)
@@ -123,12 +124,12 @@ def test_actual_formed_book_upgrade_restarts_without_reformation_or_reacquisitio
     conn.rollback()
     _, current, manifest = executable
     retained_manifest = deepcopy(manifest)
-    admitted = None
+    admitted, refusal = None, None
     try:
         admitted = admission.admit(conn, context=current, manifest=manifest)
-    except admission.Refused:
-        pass
-    assert admitted is not None
+    except admission.Refused as exc:
+        refusal = str(exc)
+    assert admitted is not None, refusal
     assert admitted.authority_effect == 'NONE'
     assert manifest == retained_manifest
     assert origin.read(conn).model_dump(by_alias=True) == before
@@ -172,7 +173,11 @@ def test_operational_runtime_transition_is_exact_and_authenticated(closure, name
     path = root/name
     path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_NEIGHBOR = True\n')
     _refresh_current(root, context, source_value)
-    with pytest.raises(admission.Refused, match='RETAINED_ECONOMIC_SOURCE_CHANGED'):
+    # The observer is also an authenticated addition: its exact-pin closure
+    # guard rejects tampering before individual economic-source comparison.
+    expected = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in subsequent.ADDITIONS
+                else 'RETAINED_ECONOMIC_SOURCE_CHANGED')
+    with pytest.raises(admission.Refused, match=expected):
         admission.prove_compatibility(manifest, checkpoint, context, source=source_value)
 
 

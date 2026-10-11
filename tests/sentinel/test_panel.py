@@ -1445,6 +1445,24 @@ class TestItCannotAct:
 
 
 class TestReviewedDualAuthority:
+    @pytest.fixture(autouse=True)
+    def named_reviewed_plan_projection(self, monkeypatch):
+        from sentinel.panel import sources
+        # These fixtures own shadow/mirror presentation, not SQL plan loading.
+        # Dedicated current-dashboard tests join state/plan disagreement.
+        monkeypatch.setattr(sources, '_current_plan', lambda conn: None)
+        monkeypatch.setattr(sources, '_rollout_state', lambda conn: dict(
+            mode='PINNED_1_00', version=1, certificate_sha256=None))
+
+    @staticmethod
+    def _shadow_state():
+        from types import SimpleNamespace
+        from sentinel.core.session import ENVELOPE_VERSION
+        state = TestRuntimeRowsAreDurableFacts._state()
+        state['version'] = ENVELOPE_VERSION
+        state['last_processed_session'] = '2026-08-20'
+        state['last_decision']['session'] = '2026-08-20'
+        return SimpleNamespace(to_dict=lambda: state)
 
     def test_a_paper_mismatch_turns_the_header_red_without_erasing_shadow_go(self):
         panel = _panel(
@@ -1512,6 +1530,7 @@ class TestReviewedDualAuthority:
             lambda *_args, **_kwargs: SimpleNamespace(
                 shadow_verdict="SHADOW_GO", verification="VERIFIED",
                 session="2026-08-20", sessions_lag=0,
+                state=self._shadow_state(),
                 strategy_nav="101250", strategy_cumulative_return="0.0125"))
         monkeypatch.setattr(sources, "_informational_mirror_count", lambda _c: 1)
         monkeypatch.setattr(
@@ -1792,6 +1811,7 @@ class TestReviewedDualAuthority:
             lambda *_args, **_kwargs: SimpleNamespace(
                 shadow_verdict="SHADOW_GO", verification="VERIFIED",
                 session="2026-08-20", sessions_lag=0,
+                state=self._shadow_state(),
                 strategy_nav="101250", strategy_cumulative_return="0.0125"))
         monkeypatch.setattr(
             sources, "_informational_mirror_count",

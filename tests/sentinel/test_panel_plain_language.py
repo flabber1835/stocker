@@ -43,21 +43,31 @@ def test_decoration_is_inert_and_stale_portfolio_is_never_presented_as_current()
 def test_shadow_source_reads_the_verified_strategy_without_touching_paper(monkeypatch):
     from sentinel import shadow_runtime
     from sentinel.feed import store
+    from test_panel import TestRuntimeRowsAreDurableFacts
+    from sentinel.core.session import ENVELOPE_VERSION
+    state = TestRuntimeRowsAreDurableFacts._state()
+    state['version'] = ENVELOPE_VERSION
+    state['last_processed_session'] = '2026-10-02'
+    state['last_decision']['session'] = '2026-10-02'
     conn = SimpleNamespace(close=lambda: None)
     monkeypatch.setattr(store, 'connect', lambda _: conn)
     monkeypatch.setattr(sources, '_set_statement_timeout', lambda *_: None)
     monkeypatch.setattr(shadow_runtime, 'verified_shadow_status', lambda *a, **k:
         SimpleNamespace(shadow_verdict='SHADOW_GO', verification='VERIFIED',
             session='2026-10-02', sessions_lag=0, strategy_nav='50000',
-            strategy_cumulative_return='0'))
+            strategy_cumulative_return='0', state=SimpleNamespace(to_dict=lambda: state)))
+    monkeypatch.setattr(sources, '_current_plan', lambda _: None)
+    monkeypatch.setattr(sources, '_rollout_state', lambda _: dict(mode='PINNED_1_00', version=1))
     def forbidden(*args, **kwargs):
         raise AssertionError('shadow mode must not read paper reconciliation')
     monkeypatch.setattr(sources, '_dual_paper_row', forbidden)
     rows, details, history, errors = sources._dual_authority_rows(
         'postgresql://panel@db/sentinel', now=NOW, include_paper=False)
     assert not errors and not details and not history
-    assert [row.key for row in rows] == ['shadow_verification', 'shadow_nav', 'shadow_return']
-    assert all(row.status == model.OK for row in rows)
+    assert [row.key for row in rows] == ['shadow_verification', 'shadow_nav', 'shadow_return',
+                                        'exposure', 'book', 'terminals']
+    assert all(row.status == model.OK for row in rows[:3])
+    assert {row.key:row for row in rows}['book'].value.startswith('1/2 slots')
 
 
 def test_shadow_build_never_selects_legacy_trial_certificates(monkeypatch):

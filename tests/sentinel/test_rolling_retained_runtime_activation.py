@@ -42,7 +42,7 @@ def executable(ready, monkeypatch, request):
             old[name] = record['before'][0]
     historical = {'installed': '241da1f7', 'preceding_release': 'f52301f2',
                   'startup_preceding': '4c9f8769', 'idle_preceding': 'eb7b4d0c',
-                  'recovery_preceding': '609f4a22'}
+                  'recovery_preceding': '609f4a22', 'dashboard_preceding': '35cc92a1'}
     if getattr(request, 'param', None) in historical:
         revision = historical[request.param]
         manifest = json.loads((Path(__file__).parent/
