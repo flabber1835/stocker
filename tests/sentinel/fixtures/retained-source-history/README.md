@@ -13,3 +13,10 @@ callback repair. Every entry was read from that independently fetched Git
 commit; no earlier fixture or profile was regenerated. The new fixture's whole
 file hash is pinned in the callback admission tests. It proves a known source
 closure, not deployment admission, paper authority or historical fills.
+
+`85a1d270.json` retains the exact independently fetched source closure of the
+certified active release `85a1d2704a90a2e644890ac35d6546788c817612`. Its whole-file
+hash is pinned in the operational admission test. The due-poll presentation
+repair must admit this source over a real formed book without reformation,
+reacquisition, or replacing its immutable records. Earlier manifests remain
+unchanged.

@@ -57,6 +57,7 @@ def test_exact_transition_requires_authenticated_origin_and_environment(closure,
     ('35cc92a1', '3f85702f0265e52ea2460f45bc6d804ade6088d7f6e2b700752b121c05531286'),
     ('14776aff', 'bb431383713546db5e75691cdaefbf03aa879d193296afbc66b626fbc772653e'),
     ('36520537', 'e8769b62f13287f2733f7ec483bb4ff65677c220ac39c4200af2d463e1886545'),
+    ('85a1d270', '6bd183546c2d8626e5509d6ac043e5670899298c8fae4dcd3b306671588a8674'),
 ])
 def test_complete_historical_source_manifest_is_admitted(closure, monkeypatch, revision, fixture_sha):
     _, checkpoint, context, _, source_value = closure
@@ -117,7 +118,7 @@ def test_upgrade_profile_and_reader_tamper_refuse(tmp_path, monkeypatch, kind):
 
 
 @pytest.mark.parametrize('ready', [{'formed': True}], indirect=True)
-@pytest.mark.parametrize('executable', ['operational', 'operational_runtime', 'installed', 'recovery_preceding', 'dashboard_preceding', 'stable_dashboard_preceding', 'active_dashboard_preceding'], indirect=True)
+@pytest.mark.parametrize('executable', ['operational', 'operational_runtime', 'installed', 'recovery_preceding', 'dashboard_preceding', 'stable_dashboard_preceding', 'active_dashboard_preceding', 'due_poll_preceding'], indirect=True)
 def test_actual_formed_book_upgrade_restarts_without_reformation_or_reacquisition(
         conn, ready, executable, operational_source, monkeypatch):
     first = _start(conn, executable)

@@ -170,6 +170,20 @@ execution. Missing, expired, foreign-holder or failed discovery evidence remains
 red when automation is enabled. Historical blocked cycles and unacknowledged
 incidents remain visible; this repair does not replay them or acknowledge them.
 
+Decision: 2026-10-11. A scheduled poll becoming due is a normal transition, not
+evidence of a failed worker. The same current-holder `WAITING` observation may
+remain amber while that poll runs. Keep its original scheduled wake visible,
+including when it is in the past. Bound this observation by the earlier of the
+current lease expiry and 30 seconds after the durable instance heartbeat. A
+renewed lease cannot extend the instance deadline; only a new durable instance
+observation can establish a new interval. Reject wakes outside that heartbeat's
+30-second neighborhood, invalid clocks, holder changes, errors and actual daily
+cycles. Never replace the durable wake or heartbeat with the reader's clock.
+Qualification must cross the due instant, delayed result registration, repeated
+lease renewal without instance progress, and the exact exhaustion boundary in
+both JSON and HTML. The complete preceding certified source closure must remain
+admitted without reformation, source acquisition or changes to book records.
+
 Normal maintenance already verifies the selected base and its complete retained
 WAL chain. Publish that successful exact-base observation as append-only
 RUNTIME_CHAIN evidence before reporting a healthy tick. Its proof names the

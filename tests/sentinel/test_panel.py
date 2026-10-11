@@ -898,7 +898,7 @@ class TestAutomationRowsAreDurableFacts:
         assert "WHERE instance_id=%s" in sql
         assert params == ("leader-current",)
 
-    @pytest.mark.parametrize("fault", [None, "cycle", "expired", "foreign", "standby", "error", "stale", "wake", "deadline", "future_heartbeat"])
+    @pytest.mark.parametrize("fault", [None, "cycle", "expired", "foreign", "standby", "error", "stale", "old_wake", "deadline", "future_heartbeat"])
     def test_discovery_wait_requires_bounded_current_leader_evidence(self, fault):
         from sentinel.panel import sources
         lease = {"holder": "leader-current", "active": True,
@@ -919,8 +919,8 @@ class TestAutomationRowsAreDurableFacts:
             instance["last_error"] = "scheduler failed"
         elif fault == "stale":
             instance["heartbeat_at"] = NOW - timedelta(seconds=31)
-        elif fault == "wake":
-            instance["next_wake_at"] = NOW
+        elif fault == "old_wake":
+            instance["next_wake_at"] = NOW - timedelta(seconds=31)
         elif fault == "deadline":
             instance["next_wake_at"] = lease["expires_at"]
         elif fault == "future_heartbeat":
