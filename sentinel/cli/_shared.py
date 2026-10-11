@@ -41,6 +41,7 @@ AUTHORIZED_RUNTIME_COMMANDS = frozenset({
     "rotate-system-certificate",
     "set-paper-rollout-mode",
     "activate-paper-automation",
+    "authorize-unsent-paper-recovery",
     "release-paper-automation-kill-switch",
     "automation-run",
     "migrate-account",

@@ -8,6 +8,7 @@ import pytest
 
 from sentinel import operational_liveness_upgrade as upgrade, runtime_admission as admission
 from sentinel import operational_runtime_upgrade as subsequent
+from sentinel import unsent_recovery_upgrade as recovery_upgrade
 from sentinel import callback_liveness_upgrade as callback_upgrade
 from sentinel import startup_contention_upgrade as startup_upgrade
 from sentinel import rolling_checkpoint as origin, rolling_initialization as initial
@@ -27,7 +28,8 @@ def test_only_exact_operational_source_transitions_are_allowed(name):
     if actual != record['after']:
         assert (subsequent.source_allowed(name, record['after'], actual)
                 or callback_upgrade.source_allowed(name, record['after'], actual)
-                or startup_upgrade.source_allowed(name, record['after'], actual))
+                or startup_upgrade.source_allowed(name, record['after'], actual)
+                or recovery_upgrade.source_allowed(name, record['after'], actual))
     assert upgrade.source_allowed(name, record['before'][0], record['after'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
@@ -164,11 +166,13 @@ def test_operational_runtime_transition_is_exact_and_authenticated(closure, name
     actual = hashlib.sha256((Path(subsequent.__file__).parent/name).read_bytes()).hexdigest()
     if actual != record['after']:
         assert (callback_upgrade.source_allowed(name, record['after'], actual)
-                or startup_upgrade.source_allowed(name, record['after'], actual))
+                or startup_upgrade.source_allowed(name, record['after'], actual)
+                or recovery_upgrade.source_allowed(name, record['after'], actual))
     for previous in record['before']:
         assert (subsequent.source_allowed(name, previous, actual)
                 or callback_upgrade.source_allowed(name, previous, actual)
-                or startup_upgrade.source_allowed(name, previous, actual))
+                or startup_upgrade.source_allowed(name, previous, actual)
+                or recovery_upgrade.source_allowed(name, previous, actual))
         assert not subsequent.source_allowed(name, previous, 'f'*64)
     assert not subsequent.source_allowed(name, 'f'*64, actual)
     root, checkpoint, context, manifest, source_value = _execution_closure(

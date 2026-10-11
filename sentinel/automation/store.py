@@ -683,6 +683,17 @@ def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None):
         prior = _cycles_in_scope(conn, spec)
         if not prior:
             return None
+        if any(cycle.state is CycleState.BLOCKED for cycle in prior):
+            from sentinel.automation import unsent_recovery as recovery
+            try:
+                recovery.require_predecessors(conn, prior, generation=spec.control_generation)
+                recovery.validate_authorization(conn, spec=spec, cycles=prior,
+                    generation=recovery.authorization_generation(conn, spec))
+                recovery.require_unsent(conn, prior, binding=control.binding,
+                                        effective_session=spec.effective_session)
+            except AutomationRefused:
+                return None
+            return sorted(cycle.cycle_id for cycle in prior)
         for cycle in prior:
             integrity.validate_cycle_lineage(conn, cycle)
             if (cycle.control_generation >= spec.control_generation
@@ -753,6 +764,9 @@ def _create_cycle(conn, *, permit, spec, now):
                 raise ProspectiveReplacementRefused('generation replacement is not a fresh unsent prospective obligation')
             cycle_id = spec.generation_cycle_id
             genesis = {'prospective_predecessors': predecessors}
+            if any(cycle.state is CycleState.BLOCKED for cycle in prior):
+                from sentinel.automation.unsent_recovery import authorization_generation
+                genesis['recovery_authorization_generation'] = authorization_generation(conn, spec)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO sentinel_automation_cycles"
@@ -872,6 +886,9 @@ def transition_cycle(
     try:
         require_leader(conn, permit)
         current = load_cycle(conn, cycle_id, for_update=True)
+        if plan_id is not _UNSET and plan_id is not None:
+            from sentinel.automation.unsent_recovery import require_fresh_plan
+            require_fresh_plan(conn, current, plan_id)
         if (current.historical_state_only
                 and to_state not in {
                     CycleState.MISSED_STATE_ONLY, CycleState.BLOCKED}):

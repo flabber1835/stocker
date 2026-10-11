@@ -122,6 +122,51 @@ def _activate_paper_automation(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+@authorized_handler('authorize-unsent-paper-recovery')
+def _authorize_unsent_paper_recovery(config: SentinelConfig, args) -> int:
+    refusal = require_authorized_runtime('authorize-unsent-paper-recovery')
+    if refusal is not None:
+        return refusal
+    from datetime import datetime, timezone
+    from sentinel import schema
+    from sentinel.automation import unsent_recovery
+    from sentinel.automation_runtime import config_from_env
+    from sentinel.execution import journal
+    from sentinel.feed import store as feed_store
+    from sentinel.handover import assert_no_legacy_path
+
+    if (not args.confirm_old_writer_fenced
+            or not args.confirm_authorize_unsent_paper_recovery
+            or not config.database_url):
+        print('REFUSED: recovery requires explicit confirmations and a database', file=sys.stderr)
+        return EXIT_CONFIG
+    conn = feed_store.connect(config.database_url)
+    try:
+        schema.require_runtime_schema(conn)
+        automation_config = config_from_env()
+        with journal.writer_lock(conn):
+            assert_no_legacy_path(conn)
+            binding, rollout, certificate = _automation_authority(conn, config, automation_config)
+            if (binding.broker_account_id != args.confirm_paper_account
+                    or binding.deployment_id != args.confirm_deployment_id
+                    or certificate.certificate_sha256 != args.confirm_certificate_sha256):
+                from sentinel.automation.model import AutomationRefused
+                raise AutomationRefused('recovery confirmations do not match fresh signed authority')
+            generation, authorization = unsent_recovery.authorize(conn,
+                binding=_automation_control_binding(binding, rollout, certificate, automation_config),
+                decision_session=args.decision_session, blocked_cycle_id=args.blocked_cycle_id,
+                actor=args.actor, reason=args.reason, now=datetime.now(timezone.utc),
+                automation_config=automation_config)
+    except _paper_refusal_types() as exc:
+        return _paper_refused(exc)
+    finally:
+        conn.close()
+    print(json.dumps({'generation': generation, 'kill_switch_engaged': True,
+        'broker_contacted': False, 'operational_ready': False,
+        'authorization': authorization.model_dump(mode='json', by_alias=True)}, indent=2))
+    return EXIT_OK
+
+
 @authorized_handler("release-paper-automation-kill-switch")
 def _release_paper_automation_kill(config: SentinelConfig, args) -> int:
     refusal = require_authorized_runtime("release-paper-automation-kill-switch")

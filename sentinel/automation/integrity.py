@@ -201,7 +201,11 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                     "automation cycle genesis generation disagrees with row identity")
             if replacement:
                 predecessors = detail.get("prospective_predecessors")
-                if (set(detail) != {"prospective_predecessors"}
+                recovered = 'recovery_authorization_generation' in detail
+                fields = {'prospective_predecessors'}
+                if recovered:
+                    fields.add('recovery_authorization_generation')
+                if (set(detail) != fields
                         or not isinstance(predecessors, list) or not predecessors
                         or any(not isinstance(item, str) or len(item) != 64
                                or any(char not in '0123456789abcdef' for char in item)
@@ -219,7 +223,7 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                          cycle.takeover_epoch,cycle.decision_session,cycle.control_generation))
                     rows = cur.fetchall()
                     known = [str(row[0]) for row in rows]
-                    if any(row[1:] != ('SUPERSEDED', 'CONTROL_GENERATION_SUPERSEDED', False)
+                    if not recovered and any(row[1:] != ('SUPERSEDED', 'CONTROL_GENERATION_SUPERSEDED', False)
                            for row in rows):
                         raise AutomationRefused('prospective cycle predecessor is not an unsent retirement')
                     cur.execute(
@@ -231,6 +235,15 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                 conn.rollback()
                 if known != predecessors:
                     raise AutomationRefused("prospective cycle predecessor identity changed")
+                if recovered:
+                    from sentinel.automation import store, unsent_recovery as recovery
+                    generation = detail['recovery_authorization_generation']
+                    if type(generation) is not int or generation < 1:
+                        raise AutomationRefused('recovery genesis generation is malformed')
+                    prior = store._cycles_in_scope(conn, spec)
+                    prior = [c for c in prior if c.control_generation < spec.control_generation]
+                    recovery.require_predecessors(conn, prior, generation=spec.control_generation)
+                    recovery.validate_authorization(conn, spec=spec, cycles=prior, generation=generation)
         else:
             if from_state is not previous:
                 raise AutomationRefused(
