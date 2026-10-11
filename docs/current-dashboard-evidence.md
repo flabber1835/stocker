@@ -141,3 +141,21 @@ The worker serializes dataclass rows, including nested recovery evidence. The
 parent reconstructs and validates that evidence before either operator surface
 consumes it. Malformed clocks, flags or recovery bounds are a failed observation,
 never a page-rendering exception or an implicitly active recovery.
+
+The browser's ordinary 30-second refresh starts a background request without
+withdrawing a still-current document's original 45-second validity. It does not
+reset that timestamp, extend its lifetime, or restore a withdrawn positive state.
+A rejected, malformed, non-current or timed-out response withdraws current
+styling immediately and retains the visible values as LAST KNOWN. Original age
+expiry also withdraws styling while a request is pending. Only a complete fresh
+server document can replace it. Offline events, return from a background tab and
+restoration from the browser's page cache still withdraw styling immediately.
+The single request, 15-second timeout and five-second retry bound remain.
+
+Qualification executes the rendered JavaScript over successive healthy document
+replacements, slow responses, original expiry during a read, failed responses
+and overlapping browser wakeups. Restoring the old premature invalidation and
+removing failure or age withdrawal must fail the behavioral acceptance checks.
+The executable admission catalog pins the exact installed renderer and reviewed
+replacement, alongside historical renderer bytes independently retained in the
+source-history manifests. No other presentation change is implicitly admitted.

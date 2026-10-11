@@ -12,7 +12,7 @@ from sentinel.panel.model import Panel
 from sentinel.panel.render import PRESENTATION_MAX_AGE_SECONDS, PUSH_SCRIPT, render
 
 
-def run_refresh(failure, *, remove_guard=False, wake='timer'):
+def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None):
     node = shutil.which('node')
     if node is None:
         if os.environ.get('SENTINEL_IN_IMAGE') == '1':
@@ -23,6 +23,13 @@ def run_refresh(failure, *, remove_guard=False, wake='timer'):
     script = '// Negative authority only.' + html.split('// Negative authority only.', 1)[1].split('</script>', 1)[0]
     if remove_guard:
         script = script.replace('refreshing || retryTimer !== null || ', '')
+    if mutation == 'premature-invalidation':
+        script = script.replace('checkAge(); refreshDocument(); }, 30000',
+                                'invalidate(true); }, 30000')
+    elif mutation == 'failed-withdrawal':
+        script = script.replace('catch (_error) {\n      invalidate(false);', 'catch (_error) {')
+    elif mutation == 'age-withdrawal':
+        script = script.replace('age > budget', 'false')
     return subprocess.run([node, str(Path(__file__).with_name('panel_refresh_harness.cjs'))],
         input=json.dumps({'script':script,'generated':generated.isoformat(),'failure':failure,
                           'wake':wake,'budget':str(PRESENTATION_MAX_AGE_SECONDS)}),
@@ -40,6 +47,33 @@ def test_removed_browser_single_request_guard_is_detected():
     result = run_refresh('busy', remove_guard=True)
     assert result.returncode != 0
     assert 'overlapping wakeups' in result.stderr
+
+
+@pytest.mark.parametrize('wake', ['ordinary-healthy', 'ordinary-slow', 'ordinary-expiry'])
+def test_ordinary_refresh_preserves_only_original_unexpired_document(wake):
+    result = run_refresh('busy', wake=wake)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'PASS\n'
+
+
+@pytest.mark.parametrize('failure', ['busy', 'cached', 'timeout', 'stale', 'incomplete',
+    'pending', 'future', 'invalid-date', 'invalid-budget', 'zero-budget',
+    'infinite-budget', 'oversized-budget'])
+def test_failed_ordinary_refresh_withdraws_current_before_original_expiry(failure):
+    result = run_refresh(failure, wake='ordinary-failure')
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'PASS\n'
+
+
+@pytest.mark.parametrize('mutation,wake,expected', [
+    ('premature-invalidation', 'ordinary-healthy', 'unexpired document stays current'),
+    ('failed-withdrawal', 'ordinary-failure', 'failed refresh withdraws current'),
+    ('age-withdrawal', 'ordinary-expiry', 'original expiry withdraws current'),
+])
+def test_broken_ordinary_refresh_guards_are_detected(mutation, wake, expected):
+    result = run_refresh('busy', wake=wake, mutation=mutation)
+    assert result.returncode != 0
+    assert expected in result.stderr
 
 
 def test_missing_node_in_ci_lens_fails_instead_of_skipping(monkeypatch):

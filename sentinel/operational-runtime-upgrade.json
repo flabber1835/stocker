@@ -52,6 +52,13 @@
         "7dcd668f75a27634f2520fdad6cf40d477f6989c8c9ed8f293bf64373e91b73c"
       ]
     },
+    "panel/render.py": {
+      "after": "7d78424f1ea5a7ae91b09748ca93cd684c5b53aabce9c0778f7a0ced4e6d1e06",
+      "before": [
+        "f405dd2cad1d788f888a17e0a2fa7829dc350561307286b506815c06907cc94d",
+        "f502d58f243d25a4ea5e327d566cf04fc4682ce878bb271d9a3eec3db9fb203a"
+      ]
+    },
     "panel/sources.py": {
       "after": "26da5ab10c8fe9790319030ee2edfee801015291ae7a6f78d86681f9e4c8b592",
       "before": [
@@ -75,6 +82,6 @@
       ]
     }
   },
-  "module_sha256": "9b971e9b806856c2e462e22e9506f732fa257e3d448948223035cab3e7ae5e3c",
+  "module_sha256": "f14fd1dbb006b628dd0cbd7a3ddc869f2e538be06b09112dd599e95b45a8ea8a",
   "schema": "sentinel.operational-runtime-upgrade/1"
 }
