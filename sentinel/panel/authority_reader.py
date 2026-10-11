@@ -14,7 +14,8 @@ from sentinel.panel import model
 DEADLINE_SECONDS = 300
 RETRY_SECONDS = 30
 MAX_BYTES = 8 * 1024
-FRESH_SECONDS = 30
+FRESH_SECONDS = 600
+REFRESH_SECONDS = FRESH_SECONDS - DEADLINE_SECONDS
 
 
 def _evidence(database_url, include_paper):
@@ -100,10 +101,41 @@ def _unknown(include_paper, detail, retained=None, *, checking_until=None):
                     'exposure', 'book', 'terminals'}
         rows = [replace(row, value='CHECK IN PROGRESS', status=model.WARN,
                         detail=detail+'; no current verification is claimed',
-                        required_current=True, valid_until=checking_until)
-                if row.key in checking else row for row in rows]
+                        required_current=True, valid_until=checking_until,
+                        recovery=model.RecoveryEvidence(
+                            phase='FINANCIAL_VERIFICATION', automatic=True,
+                            deadline=checking_until))
+                if row.key in checking else replace(row, status=model.WARN,
+                    valid_until=checking_until) for row in rows]
         return rows, {}, [], []
     return rows, {}, [], ['financial verification: '+detail]
+
+
+def _row_from_observation(value):
+    """Materialize nested dataclass evidence before public projection."""
+    row = dict(value)
+    if type(row.get('required_current', False)) is not bool:
+        raise ValueError('observer current flag is malformed')
+    boundary = row.get('valid_until')
+    if boundary is not None and (not isinstance(boundary, datetime)
+                                 or boundary.utcoffset() is None):
+        raise ValueError('observer validity clock is malformed')
+    recovery = row.get('recovery')
+    if recovery is not None:
+        if not isinstance(recovery, dict):
+            raise ValueError('observer recovery is malformed')
+        recovery = model.RecoveryEvidence(**recovery)
+        if (not isinstance(recovery.phase, str) or len(recovery.phase) > 1000
+                or type(recovery.automatic) is not bool
+                or type(recovery.operator_required) is not bool
+                or any(bound is not None and type(bound) is not int
+                       for bound in (recovery.attempt, recovery.maximum_attempts))
+                or any(clock is not None and (not isinstance(clock, datetime)
+                                              or clock.utcoffset() is None)
+                       for clock in (recovery.next_attempt_at, recovery.deadline))):
+            raise ValueError('observer recovery fields are malformed')
+        row['recovery'] = recovery
+    return model.Row(**row)
 
 
 class Reader:
@@ -123,6 +155,7 @@ class Reader:
         self.last_attempt = float('-inf')
         self.pending_key = None
         self.pending_at = None
+        self.pending_clock = None
 
     def _work(self, key, database_url, include_paper):
         try:
@@ -159,6 +192,7 @@ class Reader:
                 self.answer = None  # Publish once; reads retain the original clock.
                 if completed_key == key:
                     if error is not None:
+                        self.completed = None
                         detail = 'financial observer failed: '+error
                         self.failure = detail
                     else:
@@ -190,9 +224,11 @@ class Reader:
                             age = self.wall_clock()-observed
                             if not timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):
                                 raise ValueError('observer result is not fresh')
-                            rows = [replace(model.Row(**row), as_of=observed,
+                            rows = [replace(_row_from_observation(row), as_of=observed,
                                 freshness=timedelta(seconds=FRESH_SECONDS),
-                                required_current=True) for row in value['rows']]
+                                required_current=(row.get('required_current', False)
+                                                  or row['status'] != model.WARN))
+                                for row in value['rows']]
                             if any(row.key == 'shadow_verification'
                                    and row.status == model.OK for row in rows):
                                 self.retained = rows
@@ -202,26 +238,39 @@ class Reader:
                                 if value['errors'] or any(row.status in {
                                     model.FAIL, model.UNKNOWN} for row in rows) else None)
                         except (KeyError, TypeError, ValueError):
+                            self.completed = None
                             detail = 'financial observer result is malformed or stale'
                             self.failure = detail
+            fresh = None
             if self.completed is not None:
                 rows, errors, observed = self.completed
                 age = self.wall_clock()-observed
                 if timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):
-                    return rows, {}, [], errors
-                self.completed = None
-            if self.pending is None and self.clock()-self.last_attempt >= RETRY_SECONDS:
+                    fresh = (rows, {}, [], errors)
+                else:
+                    self.completed = None
+            refresh_due = fresh is None or age >= timedelta(seconds=REFRESH_SECONDS)
+            if (refresh_due and self.pending is None
+                    and self.clock()-self.last_attempt >= RETRY_SECONDS):
                 self.last_attempt = self.clock()
+                self.pending_clock = self.last_attempt
                 self.pending_key = key
                 self.pending_at = self.wall_clock()
                 self.pending = Thread(target=self._work,
                     args=(key, database_url, include_paper), daemon=True,
                     name='sentinel-panel-financial-observer')
                 self.pending.start()
+            if fresh is not None:
+                return fresh
             if self.pending is not None:
                 detail = 'full retained financial verification is running'
-                if (self.pending_key == key and self.failure is None
-                        and 0 <= self.clock()-self.last_attempt < DEADLINE_SECONDS):
+                if (self.failure is None
+                        and 0 <= self.clock()-self.pending_clock < DEADLINE_SECONDS
+                        and self.pending_at <= self.wall_clock()
+                            < self.pending_at+timedelta(seconds=DEADLINE_SECONDS)):
+                    if self.pending_key != key:
+                        detail = ('current financial evidence changed; waiting for the previous '
+                                  'bounded check to finish before checking current evidence')
                     return _unknown(include_paper, detail, self.retained,
                                     checking_until=self.pending_at+timedelta(
                                         seconds=DEADLINE_SECONDS))

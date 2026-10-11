@@ -88,7 +88,8 @@ def test_deployed_panel_cannot_multiply_workers():
     command = service['command']
     assert '--workers' in command
     assert command[command.index('--workers') + 1] == '1'
-    assert service['mem_limit'] == '512m'
+    assert service['mem_limit'] == '1g'
+    assert service['cpus'] == 0.5
 
 
 @pytest.mark.parametrize('contender', ROUTES)

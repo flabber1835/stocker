@@ -1800,7 +1800,7 @@ what they are:
 sentinel-postgres   mem_limit 1g    cpus 1.5   shm_size 1gb
 sentinel            mem_limit 4g    cpus 2.0
 sentinel-automation mem_limit 2g    cpus 1.0   profile: automation
-sentinel-panel      mem_limit 512m  cpus 0.5
+sentinel-panel      mem_limit 1g    cpus 0.5
 ```
 
 The runtime's 4 GiB ceiling is the existing #235 Compose correction; the former

@@ -166,3 +166,97 @@ def test_public_shadow_wrappers_preserve_dependency_type_without_unwrapping_inte
         getattr(shadow_runtime, entry)(conn, **kwargs)
     conn.rollback()
     assert shadow_worker._availability_failure(caught.value) == (kind == 'database')
+
+
+@pytest.mark.asyncio
+async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(conn, monkeypatch):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from sentinel import authority, schema
+    from sentinel.automation import store as automation_store
+    from tests.sentinel.test_automation_service import config, enable, service_for
+    from tests.sentinel.test_automation_runtime import production
+    cfg = config()
+    schema.ensure_schema(conn)
+    enable(conn, cfg)
+    now = datetime(2026, 8, 13, 13, 29, tzinfo=timezone.utc)
+    service = service_for(cfg)
+    for _ in range(6):
+        await service.tick(conn, now=now)
+        if automation_store.oldest_nonterminal_cycle(conn).state.value == 'WAITING_OPEN':
+            break
+    before_control = automation_store.load_control(conn)
+    before_cycle = automation_store.oldest_nonterminal_cycle(conn)
+    assert before_cycle.state.value == 'WAITING_OPEN'
+    conn.rollback()
+    runtime = production(cfg)
+    def current(c):
+        # Real immutable-reader lock with named publication and signed-gate
+        # fixtures. Lease, durable control and cycle transitions remain real.
+        rolling_store._pin_reader(c)
+        return SimpleNamespace(version=1)
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'require_current', current)
+    monkeypatch.setattr(automation_runtime, 'load_rollout_state', lambda _: authority.RolloutState(
+        authority.RolloutMode.PINNED_1_00, 1, None))
+    monkeypatch.setattr(automation_runtime, 'production_strategy', lambda: (object(), {}))
+    monkeypatch.setattr(automation_runtime.system_identity, 'rehearsal_identity', lambda: {})
+    gates = []
+    def signed(*_args, **_kwargs):
+        gates.append(1)
+        return SimpleNamespace(certificate_sha256=before_control.certificate_sha256)
+    monkeypatch.setattr(automation_runtime, 'require_current_authority', signed)
+    monkeypatch.setattr(runtime, '_broker', lambda *a: pytest.fail('idle broker reached'))
+    monkeypatch.setattr(runtime, 'notify', lambda *a: pytest.fail('lock contention latched an incident'))
+    with _contended(conn, 'snapshot_reader'):
+        for _ in range(3):
+            wake = await runtime.control_wake(conn)
+            assert wake is not None
+            assert automation_store.load_control(conn) == before_control
+            assert automation_store.oldest_nonterminal_cycle(conn) == before_cycle
+            assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
+            conn.rollback()
+            assert not gates
+    assert await runtime.control_wake(conn) is None
+    after = automation_store.load_control(conn)
+    assert not after.kill_switch_engaged and after.generation == before_control.generation
+    assert after.authority_verdict == 'PASS' and gates
+    assert automation_store.oldest_nonterminal_cycle(conn) == before_cycle
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('kind', ['corpus', 'writer', 'database', 'integrity', 'ownership', 'lease', 'unknown'])
+def test_authority_adapter_classifies_only_explicit_temporary_dependencies(kind):
+    import psycopg
+    from sentinel.authority import AuthorityRefused
+    from sentinel.automation.model import NonRetryableCallbackRefused, StaleLeaderRefused
+    from tests.sentinel.test_automation_runtime import config, production
+    errors = {
+        'corpus': publication.CorpusLockUnavailable('reader busy'),
+        'writer': journal.WriterLockUnavailable('writer busy'),
+        'database': psycopg.errors.QueryCanceled('bounded query timeout'),
+        'integrity': AuthorityRefused('signature or lineage invalid'),
+        'ownership': publication.CorpusBusy('writer ownership missing'),
+        'lease': StaleLeaderRefused('fence superseded'),
+        'unknown': ValueError('unexpected schema defect'),
+    }
+    errors['integrity'].__cause__ = errors['corpus']
+    expected = (TransientInfrastructureFailure if kind in {'corpus', 'writer', 'database'}
+                else StaleLeaderRefused if kind == 'lease'
+                else ValueError if kind == 'unknown' else NonRetryableCallbackRefused)
+    with pytest.raises(expected):
+        production(config())._raise_authority_refusal(errors[kind])
+
+
+@pytest.mark.asyncio
+async def test_falsely_persisting_contention_as_negative_authority_is_detected(conn, monkeypatch):
+    import inspect, textwrap
+    body = textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation._assert_control_authority))
+    old = 'if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):'
+    assert old in body
+    namespace = {}
+    exec(compile(body.replace(old, 'if False:'), 'contention-authority-falsifier', 'exec'),
+         automation_runtime.__dict__, namespace)
+    monkeypatch.setattr(automation_runtime.ProductionAutomation, '_assert_control_authority',
+                        namespace['_assert_control_authority'])
+    with pytest.raises(AssertionError):
+        await test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(conn, monkeypatch)
