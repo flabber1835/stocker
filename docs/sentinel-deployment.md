@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[Current dashboard evidence and idle leadership](current-dashboard-evidence.md)
+defines canonical account/runtime projection and live-owner lease renewal
+independent of financial writer contention. Acquisition and financial mutations
+retain their existing exclusive ownership and execution fences.
+
 [Anytime paper activation](anytime-paper-activation.md) supersedes the remaining
 following-open wait for reviewed operational dual activation and records the
 owner-authorized focused qualification scope for its repair.

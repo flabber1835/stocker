@@ -66,6 +66,11 @@ release's supported activation remain required.
 
 ## Responsive operator reads
 
+[Current dashboard evidence](current-dashboard-evidence.md) supersedes the
+one-use presentation policy below with original-time bounded observation reuse,
+finite amber query progress, sticky failed checks and canonical shadow book
+projection. This does not change activation or trading admission.
+
 Full retained shadow verification must not occupy an HTTP request or hide
 current control, account, source and backup facts. The HTTP assembly schedules
 one owned, read-only financial observer in a spawned process. The existing

@@ -343,6 +343,91 @@ def test_lease_takeover_refuses_while_execution_writer_lock_is_held(
         manual_writer.close()
 
 
+def test_live_owner_renews_during_writer_contention_without_takeover(conn, pg):
+    """A real financial writer cannot starve the idle owner's heartbeat."""
+    import time
+
+    enable(conn, AutomationConfig())
+    first = store.acquire_lease(conn, holder_id="worker-a", lease_seconds=3)
+    writer = feed_store.connect(pg.sync_dsn)
+    try:
+        writer.execute("SELECT pg_advisory_lock(%s)", (WRITER_LOCK_KEY,))
+        writer.commit()
+        for _ in range(8):
+            renewed = store.acquire_lease(
+                conn, holder_id="worker-a", lease_seconds=3)
+            assert renewed.fence_token == first.fence_token
+            assert renewed.acquired_at == first.acquired_at
+            assert conn.execute(
+                "SELECT expires_at>clock_timestamp() "
+                "FROM sentinel_automation_lease WHERE id=1").fetchone() == (True,)
+            conn.rollback()
+            time.sleep(.5)
+        with pytest.raises(WriterLockUnavailable):
+            store.acquire_lease(conn, holder_id="competitor", lease_seconds=3)
+        conn.rollback()
+        conn.execute("UPDATE sentinel_automation_lease SET "
+                     "expires_at=clock_timestamp()-INTERVAL '1 second' WHERE id=1")
+        conn.commit()
+        with pytest.raises(WriterLockUnavailable):
+            store.acquire_lease(conn, holder_id="worker-a", lease_seconds=3)
+    finally:
+        writer.execute("SELECT pg_advisory_unlock(%s)", (WRITER_LOCK_KEY,))
+        writer.commit()
+        writer.close()
+    fresh = store.acquire_lease(conn, holder_id="worker-a", lease_seconds=3)
+    assert fresh.fence_token == first.fence_token + 1
+
+
+def test_restoring_writer_coupled_renewal_is_detected(conn, pg, monkeypatch):
+    import inspect
+    import textwrap
+    body = textwrap.dedent(inspect.getsource(store.acquire_lease))
+    broken = body.replace('if owned is not None:', 'if False:')
+    assert broken != body
+    namespace = {}
+    exec(compile(broken, 'writer-coupled-renewal-falsifier', 'exec'), store.__dict__, namespace)
+    monkeypatch.setattr(store, 'acquire_lease', namespace['acquire_lease'])
+    with pytest.raises(WriterLockUnavailable):
+        test_live_owner_renews_during_writer_contention_without_takeover(conn, pg)
+
+
+@pytest.mark.parametrize('race', ['kill', 'generation', 'expiry', 'takeover'])
+def test_live_renewal_race_cannot_bypass_exclusive_acquisition(conn, pg, monkeypatch, race):
+    enable(conn, AutomationConfig())
+    original = store.acquire_lease(conn, holder_id='worker-a', lease_seconds=30)
+    writer = feed_store.connect(pg.sync_dsn)
+    writer.execute('SELECT pg_advisory_lock(%s)', (WRITER_LOCK_KEY,))
+    writer.commit()
+    real_heartbeat = store.heartbeat_lease
+    def racing_heartbeat(connection, **kwargs):
+        if race == 'kill':
+            store.engage_kill(writer, actor='test', reason='renewal race')
+        elif race == 'generation':
+            store.engage_kill(writer, actor='test', reason='generation handoff')
+            store.release_kill(writer, expected_binding=identity(AutomationConfig()),
+                               actor='test', reason='reviewed new generation')
+        elif race == 'expiry':
+            writer.execute("UPDATE sentinel_automation_lease SET expires_at=clock_timestamp()-INTERVAL '1 second' WHERE id=1")
+            writer.commit()
+        else:
+            writer.execute("UPDATE sentinel_automation_lease SET holder_id='worker-b',fence_token=fence_token+1 WHERE id=1")
+            writer.commit()
+        return real_heartbeat(connection, **kwargs)
+    monkeypatch.setattr(store, 'heartbeat_lease', racing_heartbeat)
+    try:
+        with pytest.raises(WriterLockUnavailable):
+            store.acquire_lease(conn, holder_id='worker-a', lease_seconds=30)
+        with pytest.raises(StaleLeaderRefused):
+            store.require_leader(conn, original)
+        assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
+        conn.rollback()
+    finally:
+        writer.execute('SELECT pg_advisory_unlock(%s)', (WRITER_LOCK_KEY,))
+        writer.commit()
+        writer.close()
+
+
 def test_emergency_kill_succeeds_while_execution_writer_lock_is_held(
         conn, pg) -> None:
     config = AutomationConfig()

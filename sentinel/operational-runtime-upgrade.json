@@ -1,6 +1,6 @@
 {
   "additions": {
-    "panel/authority_reader.py": "0f4f5283529fd15ca0aabf1602923138583f67029965d83c57c36085ef4dcfa6"
+    "panel/authority_reader.py": "9c767cf45e5af6d8f27230ec79a3ddc5b62a94dc897ffd46949164a954e82dbe"
   },
   "files": {
     "automation/integrity.py": {
@@ -26,16 +26,23 @@
       ]
     },
     "automation/store.py": {
-      "after": "b004134a758a1d63a0fc7d718d8cd1c6e8371f45641f64f6793cacf40b5f76f4",
+      "after": "0987cfc82136cfceded68f63cd84118ea723b6e312119a32bd3cb232a64833c1",
       "before": [
         "367bca885418536ca7ae8515b72de0723e850c1ff665a7494e1e7aeb042d0566",
-        "92f66c071546d4d83fc8dff201f908908ae7b8d0ae6151b0fdfc18a74ed63ccb"
+        "92f66c071546d4d83fc8dff201f908908ae7b8d0ae6151b0fdfc18a74ed63ccb",
+        "b004134a758a1d63a0fc7d718d8cd1c6e8371f45641f64f6793cacf40b5f76f4"
       ]
     },
     "feed/retention.py": {
       "after": "55ee9ab3dc3e2b424b2fd61ce9cdabf06ad172ea480c94ff77bbca29d175fd0d",
       "before": [
         "7a7c1a032ab00148eebcd155d9bb85b789723c1a9a0e099855cc9938fbf1d8a9"
+      ]
+    },
+    "panel/authority_reader.py": {
+      "after": "9c767cf45e5af6d8f27230ec79a3ddc5b62a94dc897ffd46949164a954e82dbe",
+      "before": [
+        "0f4f5283529fd15ca0aabf1602923138583f67029965d83c57c36085ef4dcfa6"
       ]
     },
     "panel/model.py": {
@@ -45,9 +52,11 @@
       ]
     },
     "panel/sources.py": {
-      "after": "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
+      "after": "26da5ab10c8fe9790319030ee2edfee801015291ae7a6f78d86681f9e4c8b592",
       "before": [
-        "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17"
+        "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17",
+        "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
+        "4f9c279c08d326cfb8a6452545b74cd0632f1567d2c5f50fdb7a923995a37328"
       ]
     },
     "schema.py": {
@@ -65,6 +74,6 @@
       ]
     }
   },
-  "module_sha256": "277d8569eda1898e0ad6b42f1f5b5e7dc2f89cb770c2503374f9fedeea08de6f",
+  "module_sha256": "9b971e9b806856c2e462e22e9506f732fa257e3d448948223035cab3e7ae5e3c",
   "schema": "sentinel.operational-runtime-upgrade/1"
 }

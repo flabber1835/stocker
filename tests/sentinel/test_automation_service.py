@@ -134,6 +134,38 @@ def service_for(cfg, *, holder="worker-a", refresh=refresh_result,
         recover=recover, execute=execute)
 
 
+@pytest.mark.asyncio
+async def test_idle_ticks_keep_same_live_lease_during_financial_writer_wait(conn, pg):
+    import asyncio
+    from sentinel.execution.journal import WRITER_LOCK_KEY
+    cfg = config().model_copy(update={'lease_seconds': 3, 'heartbeat_seconds': 1})
+    enable(conn, cfg)
+    calls = []
+    service = service_for(cfg, refresh=lambda context: calls.append('refresh'),
+                          prepare=lambda context: calls.append('prepare'),
+                          execute=lambda context: calls.append('execute'))
+    original = store.acquire_lease(conn, holder_id=service.holder_id, lease_seconds=3)
+    writer = feed_store.connect(pg.sync_dsn)
+    try:
+        writer.execute('SELECT pg_advisory_lock(%s)', (WRITER_LOCK_KEY,))
+        writer.commit()
+        for _ in range(8):
+            await asyncio.sleep(.5)
+            result = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+            assert result.action is TickAction.WAITING
+            assert result.permit.fence_token == original.fence_token
+            assert 'writer' in result.reason
+            assert store.require_leader(conn, original).expires_at > original.expires_at
+        assert not calls
+        assert conn.execute('SELECT count(*) FROM sentinel_automation_cycles').fetchone()[0] == 0
+        assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
+        conn.rollback()
+    finally:
+        writer.execute('SELECT pg_advisory_unlock(%s)', (WRITER_LOCK_KEY,))
+        writer.commit()
+        writer.close()
+
+
 @pytest.mark.parametrize("loss", ["expired", "replaced", "killed"])
 @pytest.mark.asyncio
 async def test_real_idle_poll_fence_loss_never_crashes_or_uses_old_token(

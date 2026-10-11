@@ -12,6 +12,13 @@ from sentinel import supervisor_io
 from sentinel.panel import authority_reader as reader, model, sources
 
 
+@pytest.fixture(autouse=True)
+def named_observer_identity_fixture(monkeypatch):
+    # Unit and process-pipe tests have no database. Real SQL keys are qualified
+    # separately; this seam never replaces the complete observer in production.
+    monkeypatch.setattr(reader, '_evidence', lambda *args: 'f'*64)
+
+
 def result():
     return {'rows': [asdict(model.shadow_verification_row(
         verdict='SHADOW_GO', verification='VERIFIED', session='2026-10-08')),
@@ -19,7 +26,9 @@ def result():
                                      verified=True, detail='canonical proof')),
         asdict(model.shadow_metric_row('shadow_return', 'Return', '0.00%',
                                      verified=True, detail='canonical proof')),
-        asdict(model.paper_reconciliation_row(state='CLEAN'))],
+        asdict(model.paper_reconciliation_row(state='CLEAN')),
+        *[asdict(model.Row(key, key, 'verified fixture', model.OK))
+          for key in ('exposure', 'book', 'terminals')]],
         'errors': [], 'observed_at': datetime.now(timezone.utc)}
 
 
@@ -44,8 +53,8 @@ def test_blocked_financial_observer_is_one_owned_job_and_requests_answer():
         assert entered.wait(1)
         for _ in range(20):
             rows, _, _, errors = value.read('fixture-database')
-            assert rows[0].status == model.UNKNOWN
-            assert errors
+            assert rows[0].status == model.WARN
+            assert rows[0].value == 'CHECK IN PROGRESS' and not errors
         assert len(calls) == 1
         assert calls[0][2] == dict(timeout=reader.DEADLINE_SECONDS, start_method='spawn')
     finally:
@@ -53,7 +62,7 @@ def test_blocked_financial_observer_is_one_owned_job_and_requests_answer():
         complete(value)
 
 
-def test_positive_observation_is_delivered_once_with_its_real_time():
+def test_positive_observation_is_reused_only_within_original_validity():
     value = reader.Reader(runner=lambda *a, **k: result())
     value.read('fixture-database')
     complete(value)
@@ -61,12 +70,18 @@ def test_positive_observation_is_delivered_once_with_its_real_time():
     assert fresh[0].status == model.OK and not errors
     observed = fresh[0].as_of
     retained, _, _, errors = value.read('fixture-database')
-    assert retained[0].status == model.UNKNOWN
-    assert retained[1].status == model.WARN
+    assert retained[0].status == model.OK and not errors
+    assert retained[1].status == model.OK
     assert retained[1].value == '$50,000.00'
     assert retained[1].as_of == observed
-    assert 'LAST KNOWN' in retained[1].detail
-    assert model.Panel(rows=retained).operational == model.UNKNOWN
+    assert retained[0].as_of == observed
+    value.wall_clock = lambda: observed+timedelta(seconds=reader.FRESH_SECONDS+1)
+    value.clock = lambda: value.last_attempt+reader.RETRY_SECONDS+1
+    expired, _, _, _ = value.read('fixture-database')
+    assert expired[0].status != model.OK
+    assert expired[1].status == model.WARN
+    assert expired[1].as_of == observed and 'LAST KNOWN' in expired[1].detail
+    complete(value)
 
 
 def test_configuration_change_does_not_deliver_or_retain_old_positive_result(monkeypatch):
@@ -83,7 +98,7 @@ def test_configuration_change_does_not_deliver_or_retain_old_positive_result(mon
     release.set()
     complete(value)
     rows = value.read('fixture-database')[0]
-    assert rows[0].status == model.UNKNOWN
+    assert rows[0].status in {model.UNKNOWN, model.WARN}
     assert rows[1].value == 'UNAVAILABLE'
     complete(value)
 
@@ -147,7 +162,7 @@ def test_observer_has_a_small_allocation_boundary(monkeypatch):
     monkeypatch.setattr(sources, '_dual_authority_rows', lambda *a, **k: (
         [model.Row('shadow_nav', 'NAV', 'x'*(reader.MAX_BYTES+1))], {}, [], []))
     with pytest.raises(ValueError, match='bound'):
-        reader._observe('fixture', False)
+        reader._observe('fixture', False, reader._key('fixture', False, 'f'*64))
 
 
 def _stalled_process(filename):
@@ -175,14 +190,14 @@ def _threaded_fixture_runner(function, *args, **kwargs):
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='deployed observer uses Linux parent-death supervision')
-def test_actual_threaded_spawn_delivers_once_without_http_blocking():
+def test_actual_threaded_spawn_retains_original_clock_without_http_blocking():
     value = reader.Reader(runner=_threaded_fixture_runner)
     initial = value.read('credential-free-fixture')
-    assert initial[0][0].status == model.UNKNOWN
+    assert initial[0][0].status == model.WARN
     complete(value, timeout=15)
     rows, _, _, errors = value.read('credential-free-fixture')
     assert rows[0].status == model.OK and not errors
-    assert value.read('credential-free-fixture')[0][0].status == model.UNKNOWN
+    assert value.read('credential-free-fixture')[0][0].as_of == rows[0].as_of
 
 
 def test_financial_observer_does_not_hide_current_control_rows(monkeypatch):
@@ -200,16 +215,101 @@ def test_financial_observer_does_not_hide_current_control_rows(monkeypatch):
     assert page.row('shadow_verification').status == model.UNKNOWN
 
 
-def test_replaying_a_positive_observation_is_detected(monkeypatch):
+def test_replaying_a_positive_observation_past_expiry_is_detected(monkeypatch):
     import inspect, textwrap
     source = textwrap.dedent(inspect.getsource(reader.Reader.read)).replace(
-        'self.answer = None  # A positive observation is delivered once.',
-        'pass  # Broken replay of a positive observation.')
+        'if timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):',
+        'if True:')
     namespace = {}
     exec(compile(source, 'replayed-positive-health', 'exec'), reader.__dict__, namespace)
     monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
     with pytest.raises(AssertionError):
-        test_positive_observation_is_delivered_once_with_its_real_time()
+        test_positive_observation_is_reused_only_within_original_validity()
+
+
+def test_owned_check_cannot_extend_its_attempt_deadline():
+    entered, release = Event(), Event()
+    monotonic = [100.0]
+    def run(*args, **kwargs):
+        entered.set()
+        assert release.wait(3)
+        return result()
+    value = reader.Reader(runner=run, clock=lambda: monotonic[0])
+    try:
+        first = value.read('fixture')[0][0]
+        assert entered.wait(1)
+        assert first.status == model.WARN
+        monotonic[0] += reader.DEADLINE_SECONDS-1
+        again = value.read('fixture')[0][0]
+        assert again.valid_until == first.valid_until
+        monotonic[0] += 2
+        assert value.read('fixture')[0][0].status == model.UNKNOWN
+    finally:
+        release.set()
+        complete(value)
+
+
+def test_failed_verification_stays_red_during_a_new_attempt():
+    entered, release = Event(), Event()
+    calls = []
+    def run(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise TimeoutError('private-error')
+        entered.set()
+        assert release.wait(3)
+        return result()
+    clock = [0.0]
+    value = reader.Reader(runner=run, clock=lambda: clock[0])
+    value.read('fixture')
+    complete(value)
+    assert value.read('fixture')[0][0].status == model.UNKNOWN
+    clock[0] += reader.RETRY_SECONDS+1
+    try:
+        assert value.read('fixture')[0][0].status == model.UNKNOWN
+        assert entered.wait(1)
+        assert value.read('fixture')[0][0].status == model.UNKNOWN
+    finally:
+        release.set()
+        complete(value)
+    assert value.read('fixture')[0][0].status == model.OK
+
+
+def test_current_evidence_change_withdraws_even_a_fresh_completed_check():
+    identity = ['before']
+    value = reader.Reader(runner=lambda *a, **k: result(),
+                          evidence_reader=lambda *a: identity[0])
+    value.read('fixture')
+    complete(value)
+    assert value.read('fixture')[0][0].status == model.OK
+    identity[0] = 'new-publication-or-book'
+    changed = value.read('fixture')
+    assert changed[0][0].status != model.OK
+    assert changed[0][1].value == 'UNAVAILABLE'
+    complete(value)
+
+
+def test_full_observer_refuses_an_identity_change_during_verification(monkeypatch):
+    identity = ['before']
+    monkeypatch.setattr(reader, '_evidence', lambda *a: identity[0])
+    def rows(*args, **kwargs):
+        identity[0] = 'after'
+        return [model.Row('fixture', 'Fixture', 'fixture')], {}, [], []
+    monkeypatch.setattr(sources, '_dual_authority_rows', rows)
+    with pytest.raises(ValueError, match='changed during'):
+        reader._observe('fixture', True, reader._key('fixture', True, 'before'))
+
+
+def test_a_failed_check_cannot_be_restyled_as_an_owned_wait(monkeypatch):
+    import inspect, textwrap
+    source = textwrap.dedent(inspect.getsource(reader.Reader.read)).replace(
+        'self.pending_key == key and self.failure is None',
+        'self.pending_key == key and True')
+    namespace = {}
+    exec(compile(source, 'negative-observer-falsifier', 'exec'), reader.__dict__, namespace)
+    monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
+    with pytest.raises(AssertionError):
+        test_failed_verification_stays_red_during_a_new_attempt()
 
 
 def test_deliberate_open_cutover_is_waiting_without_claiming_execution(monkeypatch):

@@ -404,11 +404,11 @@ def _active_commands(conn):
     return {"counts": counts, "updated_at": updated_at}
 
 
-def _state_view(snapshot) -> dict:
+def _state_view(snapshot, *, expected_version=3) -> dict:
     state = snapshot["state"]
     session = snapshot["session"]
-    if int(state.get("version", 0)) != 3:
-        raise ValueError("persisted production state is not canonical version 3")
+    if int(state.get("version", 0)) != expected_version:
+        raise ValueError(f"persisted production state is not canonical version {expected_version}")
     if str(state.get("last_processed_session") or "") != session:
         raise ValueError("canonical state and processed-session cursor disagree")
     wealth = _json_mapping(state.get("wealth_core"), label="Wealth Core state")
@@ -1059,6 +1059,15 @@ def _authority_lifecycle(conn) -> dict:
         else None)
     if not isinstance(deployment_artifacts, Mapping):
         deployment_artifacts = {}
+    if claims.get("authorization_mode") == "PAPER_OBSERVATION_ONLY":
+        bindings = claims.get("bindings")
+        if not isinstance(bindings, Mapping):
+            raise ValueError("standing paper certificate bindings are unreadable")
+        for field in ("git_commit", "runtime_image_digest"):
+            if (field in deployment_artifacts
+                    and deployment_artifacts[field] != bindings.get(field)):
+                raise ValueError("signed runtime identity claims disagree")
+        deployment_artifacts = bindings
     return {
         "authority_generation": int(generation),
         "certificate_sha256": str(digest) if digest else None,
@@ -1101,10 +1110,12 @@ def _latest_account_evidence(conn) -> dict | None:
 
 
 def _bound_account_id(conn) -> str | None:
+    from sentinel.binding import SENTINEL_OWNED
+
     with conn.cursor() as cur:
         cur.execute(
             "SELECT broker_account_id FROM sentinel_account_binding"
-            " WHERE id=1 AND ownership_state='OWNED'")
+            " WHERE id=1 AND ownership_state=%s", (SENTINEL_OWNED,))
         rows = cur.fetchall()
     if len(rows) > 1:
         raise ValueError("account binding singleton is not unique")
@@ -1713,6 +1724,42 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             detail=f"integrity refusal: {_short(exc)}")
 
 
+def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
+    """Project the actual canonical shadow; never create a catchup book."""
+    if result is None or not verified:
+        detail = "current canonical shadow verification is unavailable"
+        return [
+            model.exposure_row(exposure=None, controller_active=None, error=detail),
+            model.book_row(available=None, error=detail),
+            model.terminals_row(error=detail),
+        ], []
+    try:
+        from sentinel.core.session import ENVELOPE_VERSION
+        state = result.state.to_dict()
+        view = _state_view(dict(session=result.session, state=state, updated_at=now),
+                           expected_version=ENVELOPE_VERSION)
+        plan, rollout = _current_plan(conn), _rollout_state(conn)
+        exposure = _exposure_row(
+            view, plan, rollout, state_error=None, plan_error=None, rollout_error=None)
+        book = model.book_row(
+            available=True, slots_used=view['slots_used'], slots_total=view['slots_total'],
+            nav=view['nav'], cash=view['cash'], blocked=view['blocked'],
+            unresolved_terminals=view['unresolved'], pending_actions=view['pending'],
+            unpriced_securities=len(plan['unpriced_securities']) if plan else None,
+            as_of=now)
+        terminals = model.terminals_row(
+            current_unresolved=view['unresolved'], current_pending=view['carried'],
+            as_of=now)
+        return [exposure, book, terminals], []
+    except Exception as exc:                                 # noqa: BLE001
+        detail = _short(exc)
+        return [
+            model.exposure_row(exposure=None, controller_active=None, error=detail),
+            model.book_row(available=None, error=detail),
+            model.terminals_row(error=detail),
+        ], [f"canonical shadow book: {detail}"]
+
+
 def _dual_authority_rows(
         database_url: str, *, now: datetime, include_paper: bool = True
         ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
@@ -1798,10 +1845,12 @@ def _dual_authority_rows(
                 verified=verified,
                 detail="cumulative return from the certified shadow ledger"),
         ]
+        book_rows, book_errors = _verified_shadow_book_rows(
+            conn, result, verified=verified, now=datetime.now(timezone.utc))
 
         if not include_paper:
-            return rows, {}, [], []
-        paper_errors: list[str] = []
+            return [*rows, *book_rows], {}, [], book_errors
+        paper_errors: list[str] = list(book_errors)
         try:
             paper = _dual_paper_row(
                 conn,
@@ -1815,6 +1864,7 @@ def _dual_authority_rows(
                 state="UNKNOWN", error=detail)
             paper_errors.append(f"PAPER mirror database: {detail}")
         rows.append(paper)
+        rows.extend(book_rows)
         return rows, {}, [], paper_errors
     except Exception as exc:                                 # noqa: BLE001
         detail = _short(exc)
@@ -1830,6 +1880,9 @@ def _dual_authority_rows(
                 verified=False, detail=detail),
             *([model.paper_reconciliation_row(state="UNKNOWN", error=detail)]
               if include_paper else []),
+            model.exposure_row(exposure=None, controller_active=None, error=detail),
+            model.book_row(available=None, error=detail),
+            model.terminals_row(error=detail),
         ], {}, [], [f"shadow authority database: {detail}"])
     finally:
         if conn is not None:
@@ -2078,6 +2131,12 @@ def _trial_rows(database_url: str, *, now: datetime
 
 
 def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
+    reviewed_shadow = os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'shadow', 'dual'}
+    rows, errors = _runtime_projection(database_url, include_book=not reviewed_shadow)
+    return ([row for row in rows if row.key == 'broker'] if reviewed_shadow else rows), errors
+
+
+def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[model.Row], list[str]]:
     """Canonical state, current plan and durable broker evidence.
 
     This is a PostgreSQL projection only. In particular, the newest
@@ -2111,22 +2170,22 @@ def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 model.broker_row(available=None, error=detail),
             ], [detail])
 
-        state_error = _schema_error(found, "sentinel_processed_sessions")
-        plan_error = _schema_error(found, "sentinel_execution_plans")
-        rollout_error = _schema_error(found, "sentinel_rollout_state")
+        state_error = _schema_error(found, "sentinel_processed_sessions") if include_book else None
+        plan_error = _schema_error(found, "sentinel_execution_plans") if include_book else None
+        rollout_error = _schema_error(found, "sentinel_rollout_state") if include_book else None
         observation_error = _schema_error(found, "sentinel_observations")
         command_error = _schema_error(found, "sentinel_commands")
 
         state_snapshot = None
-        if state_error is None:
+        if include_book and state_error is None:
             state_snapshot, state_error = _read(
                 conn, _canonical_state, STATEMENT_TIMEOUT_MS, default=None)
         plan = None
-        if plan_error is None:
+        if include_book and plan_error is None:
             plan, plan_error = _read(
                 conn, _current_plan, STATEMENT_TIMEOUT_MS, default=None)
         rollout = None
-        if rollout_error is None:
+        if include_book and rollout_error is None:
             rollout, rollout_error = _read(
                 conn, _rollout_state, STATEMENT_TIMEOUT_MS, default=None)
         observation = None

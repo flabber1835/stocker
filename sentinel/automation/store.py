@@ -314,11 +314,41 @@ def acquire_lease(
     """Acquire or renew leadership using only PostgreSQL's clock.
 
     The existing execution writer lock serializes takeover with manual command
-    handling.  A live lease owned by another instance is never stealable.
+    handling. Renewal of this owner's live lease uses the ordinary heartbeat
+    fence independently of that lock. A financial writer must not starve an
+    otherwise live idle scheduler. Expired or foreign leases still take the
+    exclusive acquisition path; renewal never resurrects a lost permit.
     """
     holder_id = _require_text(holder_id, "holder_id")
     if lease_seconds < 1:
         raise ValueError("lease_seconds must be positive")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT l.fence_token,l.control_generation,l.acquired_at,"
+                " l.expires_at FROM sentinel_automation_lease AS l"
+                " JOIN sentinel_automation_control AS c ON c.id=1"
+                " WHERE l.id=1 AND l.holder_id=%s AND c.enabled"
+                " AND NOT c.kill_switch_engaged"
+                " AND l.control_generation=c.generation"
+                " AND l.expires_at > clock_timestamp()", (holder_id,))
+            owned = cur.fetchone()
+        conn.rollback()
+        if owned is not None:
+            permit = LeaderPermit(
+                holder_id=holder_id, fence_token=owned[0],
+                control_generation=owned[1], acquired_at=owned[2],
+                expires_at=owned[3])
+            try:
+                return heartbeat_lease(
+                    conn, permit=permit, lease_seconds=lease_seconds)
+            except StaleLeaderRefused:
+                # A kill, takeover or expiry raced the read. Only exclusive
+                # acquisition may now establish a fresh permit.
+                conn.rollback()
+    except BaseException:
+        conn.rollback()
+        raise
     # Leadership is also required to observe/reconcile previously sent orders
     # during backup loss. New work is fenced at its own mutation boundaries.
     with writer_lock(conn, recovery_only=True):
