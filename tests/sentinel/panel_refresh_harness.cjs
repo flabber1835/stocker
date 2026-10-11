@@ -13,6 +13,7 @@ const reads = [];
 const writes = [];
 const badge = { className: 'state ok', textContent: 'current' };
 const heartbeat = { textContent: 'current' };
+const expandedDetail = {dataset: {detailKey: 'shadow-holdings'}, open: true};
 const document = {
   body: { dataset: { generatedAt: input.wake === 'invalid-date' ? 'invalid' :
       input.wake === 'future-date' ? new Date(stamp + 10000).toISOString() : input.generated,
@@ -22,9 +23,11 @@ const document = {
   visibilityState: input.wake === 'initial-hidden' ? 'hidden' : 'visible',
   getElementById: id => id === 'operational-state' ? badge : heartbeat,
   addEventListener: (name, fn) => { listeners[name] = fn; },
+  querySelectorAll: selector => selector.includes('[open]') ?
+    [expandedDetail].filter(item => item.open) : [expandedDetail],
   open() { writes.push('open'); },
   write(html) { writes.push(html); },
-  close() { writes.push('close'); },
+  close() { writes.push('close'); expandedDetail.open = false; },
 };
 class Clock extends Date { static now() { return now; } }
 class Parser {
@@ -190,6 +193,7 @@ function failRead(read) {
   reads[1].resolve({ok: true, headers: {get: () => 'CURRENT'}, text: async () => 'fresh'});
   await settled();
   assert.deepEqual(writes, ['open', 'fresh', 'close']);
+  assert.equal(expandedDetail.open, true, 'expanded holdings survive page replacement');
   assert.equal(timers.size, 0, 'old document timers must not survive replacement');
   process.stdout.write('PASS\n');
 })().catch(error => { console.error(error.message); process.exitCode = 1; });

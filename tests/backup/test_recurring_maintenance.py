@@ -329,7 +329,7 @@ def test_successful_restore_without_durable_receipt_refuses(boundary):
     real = boundary.__call__
     def lost_receipt(command, **kwargs):
         result = real(command, **kwargs)
-        return "" if "SELECT proof::text" in " ".join(command) else result
+        return "" if "WHERE kind='RESTORE_DRILL'" in " ".join(command) else result
     with pytest.raises(coordinator.Refused, match="without matching durable evidence"):
         coordinator.tick("/media", lost_receipt)
     assert not any("retain" in call for call in boundary.calls)
@@ -388,16 +388,25 @@ def test_maintenance_publishes_verified_current_chain_before_ready_or_retention(
     boundary.restored = not renewed
     boundary.old = renewed
     coordinator.tick("/media", boundary)
-    assert len(boundary.published) == 1
-    proof = boundary.published[0]
+    chains = [proof for proof in boundary.published if proof.get('wal_integrity')]
+    assert len(chains) == 1
+    proof = chains[0]
     assert proof["base_backup"] == boundary.name
     assert proof["system_identifier"] == SYSTEM
     assert proof["recoverable_from_wal"] == "00000001000000000000000B"
     assert proof["recoverable_through_wal"] == "00000001000000000000000D"
     assert proof["recovery_marker_wal"] == "00000001000000000000000C"
     assert proof["wal_segments"] == 3 and proof["integrity_read_passes"] == 1
+    progress = [proof for proof in boundary.published if proof.get('schema') == 'sentinel.backup-maintenance-progress/1']
+    if renewed:
+        assert [proof['phase'] for proof in progress] == ['BASE_BACKUP', 'VERIFY_RESTORE', 'VERIFY_CHAIN', 'COMPLETE']
+        assert len({proof['attempt'] for proof in progress}) == 1
+        assert len({(proof['started_at'],proof['deadline']) for proof in progress}) == 1
+        assert progress[0]['deadline']-progress[0]['started_at'] == 3600
+    else:
+        assert not progress
     calls = [" ".join(call) for call in boundary.calls]
-    publication = next(i for i, call in enumerate(calls) if "INSERT INTO sentinel_backup_evidence" in call)
+    publication = next(i for i, call in enumerate(calls) if "SELECT 'RUNTIME_CHAIN'" in call)
     retain = next(i for i, call in enumerate(calls) if "sentinel.backup_retention retain" in call)
     assert publication < retain
     assert '"maintenance_ready": true' in capsys.readouterr().out
@@ -718,5 +727,62 @@ def test_real_postgres_semantic_bootstrap_and_durable_receipt_query(media):
             observation = {"system_id": SYSTEM}
             assert coordinator.receipt_for(item, observation, IMAGE, database_boundary) == proof
             assert coordinator.receipt_for(item, observation, "sha256:" + "e" * 64, database_boundary) is None
+    finally:
+        server.stop()
+
+
+def test_progress_migration_and_database_guard_preserve_state_and_original_deadline():
+    import psycopg
+    from psycopg.types.json import Jsonb
+    from tests.support.postgres import _EphemeralPostgres
+    from sentinel import schema
+    server = _EphemeralPostgres()
+    try:
+        server.start()
+        with psycopg.connect(server.sync_dsn) as conn:
+            schema.ensure_schema(conn)
+            conn.execute('DROP TRIGGER sentinel_backup_progress_guard ON sentinel_backup_evidence')
+            conn.execute('ALTER TABLE sentinel_backup_evidence DROP CONSTRAINT sentinel_backup_evidence_kind_check')
+            conn.execute("ALTER TABLE sentinel_backup_evidence ADD CONSTRAINT sentinel_backup_evidence_kind_check CHECK (kind IN ('BASE_BACKUP','RUNTIME_CHAIN','RESTORE_DRILL'))")
+            conn.execute("INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof) VALUES ('BASE_BACKUP',%s,%s)", ('a'*64, Jsonb({'retained':'unchanged'})))
+            conn.commit()
+            old_control = conn.execute('SELECT * FROM sentinel_automation_control').fetchall()
+            old_proof = conn.execute('SELECT * FROM sentinel_backup_evidence').fetchall()
+            conn.rollback()
+            conn.execute("UPDATE sentinel_automation_control SET enabled=true,kill_switch_engaged=false,"
+                " deployment_id='diagnostic',broker='alpaca-paper',broker_account_id='diagnostic',"
+                " takeover_epoch=1,certificate_sha256=%s,rollout_mode='PINNED_1_00',rollout_version=1,config_sha256=%s"
+                " WHERE id=1", ('f'*64, 'c'*64))
+            with pytest.raises(schema.SchemaMigrationRefused, match='requires fenced'):
+                schema.ensure_schema(conn)
+            assert conn.execute('SELECT * FROM sentinel_automation_control').fetchall() == old_control
+            conn.rollback()
+            with pytest.raises(schema.SchemaMigrationRefused):
+                schema.require_runtime_schema(conn)
+            schema.ensure_schema(conn)
+            schema.require_runtime_schema(conn)
+            assert conn.execute('SELECT * FROM sentinel_automation_control').fetchall() == old_control
+            assert conn.execute('SELECT * FROM sentinel_backup_evidence').fetchall() == old_proof
+            proof = dict(schema='sentinel.backup-maintenance-progress/1', attempt='a'*32,
+                started_at=NOW, deadline=NOW+3600, image=IMAGE, system_identifier=SYSTEM,
+                predecessor_base='base-20260919T000000Z', base_backup='base-20260919T000000Z', phase='BASE_BACKUP')
+            def append(value):
+                conn.execute("INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof) VALUES ('MAINTENANCE_PROGRESS',%s,%s)", ('b'*64, Jsonb(value)))
+            append(proof)
+            conn.commit()
+            bad = dict(proof, phase='VERIFY_RESTORE', deadline=proof['deadline']+1)
+            with pytest.raises(psycopg.errors.RaiseException):
+                append(bad)
+            conn.rollback()
+            good = dict(proof, phase='VERIFY_RESTORE', base_backup='base-20260919T120000Z')
+            append(good)
+            conn.commit()
+            with pytest.raises(psycopg.errors.RaiseException):
+                conn.execute("DELETE FROM sentinel_backup_evidence WHERE kind='MAINTENANCE_PROGRESS'")
+            conn.rollback()
+            # Falsifier: removing the actual trigger admits the very same bad deadline.
+            conn.execute('DROP TRIGGER sentinel_backup_progress_guard ON sentinel_backup_evidence')
+            append(bad)
+            conn.rollback()
     finally:
         server.stop()

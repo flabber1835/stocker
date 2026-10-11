@@ -31,7 +31,67 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Mapping, Optional
+from typing import Literal, Mapping, Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def _bounded_display_decimal(value):
+    if value is not None and (value.as_tuple().exponent < -30 or value.adjusted() > 18):
+        raise ValueError('display number exceeds finite formatting bounds')
+    return value
+
+
+class ShadowHolding(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    security_id: str = Field(min_length=1, max_length=100)
+    ticker: str = Field(min_length=1, max_length=40)
+    quantity: Decimal = Field(gt=0, allow_inf_nan=False)
+    raw_close: Optional[Decimal] = Field(default=None, gt=0, allow_inf_nan=False)
+    value: Optional[Decimal] = Field(default=None, ge=0, allow_inf_nan=False)
+    weight: Optional[Decimal] = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+    _number_bound = field_validator('quantity', 'raw_close', 'value', 'weight')(_bounded_display_decimal)
+
+
+class ShadowBook(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    session: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
+    cash: Decimal = Field(ge=0, allow_inf_nan=False)
+    nav: Decimal = Field(gt=0, allow_inf_nan=False)
+    pending_operations: int = Field(ge=0, le=10000)
+    holdings: list[ShadowHolding] = Field(max_length=100)
+    _number_bound = field_validator('cash', 'nav')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def coherent_values(self):
+        identities = [item.security_id for item in self.holdings]
+        if len(identities) != len(set(identities)):
+            raise ValueError('duplicate canonical holding')
+        for item in self.holdings:
+            if item.raw_close is None:
+                if item.value is not None or item.weight is not None:
+                    raise ValueError('unpriced holding has a value or weight')
+            elif (item.value != item.quantity * item.raw_close
+                  or item.weight is None
+                  or abs(item.weight-item.value/self.nav) > Decimal('1e-25')):
+                raise ValueError('holding arithmetic is inconsistent')
+        if (all(item.value is not None for item in self.holdings)
+                and abs(self.cash+sum((item.value for item in self.holdings), Decimal(0))-self.nav)
+                    > Decimal('0.02')):
+            raise ValueError('canonical holdings and cash disagree with book value')
+        return self
+
+
+class BackupMaintenanceProgress(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, strict=True)
+    schema_version: Literal['sentinel.backup-maintenance-progress/1'] = Field(alias='schema')
+    attempt: str = Field(pattern=r'^[0-9a-f]{32}$')
+    started_at: int
+    deadline: int
+    system_identifier: str = Field(pattern=r'^[1-9][0-9]{0,19}$')
+    image: str = Field(pattern=r'^(?:[A-Za-z0-9][A-Za-z0-9._/:-]*@)?sha256:[0-9a-f]{64}$')
+    predecessor_base: str = Field(pattern=r'^base-\d{8}T\d{6}Z$')
+    base_backup: str = Field(pattern=r'^base-\d{8}T\d{6}Z$')
+    phase: Literal['BASE_BACKUP', 'VERIFY_RESTORE', 'VERIFY_CHAIN', 'COMPLETE', 'FAILED']
 
 from sentinel.operational_status import (
     FAIL,
@@ -97,6 +157,7 @@ class Row:
     #: Producer-derived validity boundary. This is preferred over an elapsed
     #: duration when the next durable cycle/session deadline is known.
     valid_until: Optional[datetime] = None
+    shadow_book: Optional[ShadowBook] = None
 
     def staleness(self, now: datetime) -> Optional[timedelta]:
         return None if self.as_of is None else now - self.as_of
@@ -253,6 +314,11 @@ def paper_reconciliation_row(
     normalized = str(state or "").upper()
     cycle = str(cycle_state or "").upper()
     suffix = f" · cycle {cycle}" if cycle else ""
+    if normalized == "CYCLE_FAILED":
+        return Row(
+            "paper_reconciliation", "Alpaca PAPER mirror",
+            "PAPER NOT VERIFIED · LATEST CYCLE FAILED", FAIL,
+            (detail or "the latest daily cycle did not complete") + suffix)
     if normalized == "MISMATCH":
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",
@@ -796,12 +862,12 @@ def automation_cycle_row(*, installed: Optional[bool],
         return Row("automation_cycle", "Automation cycle", "NOT INSTALLED",
                    PENDING, "no durable automation cycle schema exists")
     if not cycle_id:
-        detail = ("no daily cycle has been recorded · next wake "
+        detail = ("this automation generation has no cycle yet; waiting for the next eligible decision · next wake "
                   f"{next_wake_at.isoformat() if next_wake_at else 'none'}")
         if failure_code or failure_detail:
             detail += (f" · failure {failure_code or 'UNCLASSIFIED'}: "
                        f"{failure_detail or 'no detail'}")
-        return Row("automation_cycle", "Automation cycle", "NO CYCLES",
+        return Row("automation_cycle", "Automation cycle", "WAITING FOR NEXT DECISION",
                    FAIL if failure_code or failure_detail else (
                        WARN if enabled else PENDING), detail,
                    required_current=bool(enabled),
@@ -1273,6 +1339,9 @@ def backup_restore_row(
         base_proof: Optional[dict] = None,
         restore_proof: Optional[dict] = None,
         runtime_proof: Optional[dict] = None,
+        maintenance_proof: Optional[dict] = None,
+        maintenance_at: Optional[datetime] = None,
+        expected_image: Optional[str] = None,
         now: datetime, recovery: Optional[RecoveryEvidence] = None,
         runtime_valid_until: Optional[datetime] = None,
         error: Optional[str] = None) -> Row:
@@ -1348,6 +1417,41 @@ def backup_restore_row(
     if failures:
         detail += " · " + " · ".join(failures)
     recoverable = bool(lag_failures and not hard_failures and recovery is not None)
+    # Only the exact predecessor -> successor transition is an ordinary wait.
+    # A generic recent backup or phase label cannot excuse an integrity failure.
+    if maintenance_proof is not None:
+        try:
+            progress = BackupMaintenanceProgress.model_validate(maintenance_proof)
+            start = datetime.fromtimestamp(progress.started_at, timezone.utc)
+            end = datetime.fromtimestamp(progress.deadline, timezone.utc)
+            identity_matches = (
+                progress.system_identifier == system_id
+                and str(runtime_proof.get('system_identifier') or '') == system_id
+                and expected_image is not None
+                and expected_image.rsplit('sha256:', 1)[-1] == progress.image.rsplit('sha256:', 1)[-1]
+                and progress.base_backup == base_name_value
+                and progress.predecessor_base == str(runtime_proof.get('base_backup') or '')
+                and maintenance_at is not None and start <= maintenance_at <= now
+                and base_at <= maintenance_at and restore_at <= now
+                and 0 < progress.deadline-progress.started_at <= 3600
+                and start-timedelta(minutes=10) <= runtime_at <= now)
+            transition = hard_failures == ['runtime chain disagrees with base backup']
+            ordinary_lag = not hard_failures and lag_failures == ['runtime restore-chain proof is past its cadence']
+            if (identity_matches and start <= now < end
+                    and progress.phase in {'VERIFY_RESTORE', 'VERIFY_CHAIN'}
+                    and all(lag == 'runtime restore-chain proof is past its cadence' for lag in lag_failures)
+                    and (transition or ordinary_lag)):
+                return Row('backup_restore', 'Backup / Restore', 'BACKUP CHECK IN PROGRESS', WARN,
+                    detail + f' · verifying successor; {progress.phase}; deadline {end.isoformat()}',
+                    maintenance_at, required_current=True, valid_until=end,
+                    recovery=RecoveryEvidence(phase='BACKUP_MAINTENANCE', automatic=True, deadline=end))
+            if identity_matches and progress.phase == 'FAILED' and maintenance_at >= runtime_at:
+                failures.append('the latest backup maintenance attempt failed')
+                detail += ' · the latest backup maintenance attempt failed'
+                recoverable = False
+        except (ValueError, TypeError, OverflowError):
+            # Malformed progress is never permission to mask a real failure.
+            pass
     return Row(
         "backup_restore", "Backup / Restore", value,
         WARN if recoverable else (FAIL if failures else OK), detail, as_of,

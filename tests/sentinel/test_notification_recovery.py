@@ -489,6 +489,8 @@ def test_recipient_schema_migration_preserves_eligibility_and_pending_evidence(d
     old = _add_subscription(db, 'legacy-subscription')
     db.execute('ALTER TABLE sentinel_web_push_subscriptions DROP COLUMN eligible_from, DROP COLUMN successor_id')
     db.commit()
+    with db.cursor() as cur:
+        assert schema._semantic_catalog_sha256(*schema._read_catalog(cur), schema._STAGE4_TABLES) == schema._PRE_RECIPIENT_CATALOG_SHA256
     with pytest.raises(schema.SchemaMigrationRefused, match='missing migration columns'):
         schema.require_runtime_schema(db)
     db.rollback()
@@ -498,6 +500,28 @@ def test_recipient_schema_migration_preserves_eligibility_and_pending_evidence(d
     db.commit()
     schema.ensure_schema(db)
     assert db.execute('SELECT created_at,eligible_from,successor_id FROM sentinel_web_push_subscriptions WHERE endpoint=%s', (old,)).fetchone() == row
+
+
+@pytest.mark.parametrize('damage', ['unknown_catalog', 'late_failure'])
+def test_recipient_schema_migration_refuses_or_rolls_back_exactly(db, monkeypatch, damage):
+    from sentinel import schema
+    _add_subscription(db, 'retained-recipient')
+    db.execute('ALTER TABLE sentinel_web_push_subscriptions DROP COLUMN eligible_from, DROP COLUMN successor_id')
+    if damage == 'unknown_catalog':
+        db.execute('ALTER TABLE sentinel_web_push_subscriptions ADD COLUMN unknown_authority text')
+    else:
+        monkeypatch.setattr(schema, '_STAGE4_CATALOG_SHA256', 'f'*64)
+    db.commit()
+    with db.cursor() as cur:
+        before_catalog = schema._read_catalog(cur)
+    before_rows = db.execute('SELECT * FROM sentinel_web_push_subscriptions').fetchall()
+    db.rollback()
+    with pytest.raises(schema.SchemaMigrationRefused):
+        schema.ensure_schema(db)
+    with db.cursor() as cur:
+        assert schema._read_catalog(cur) == before_catalog
+    assert db.execute('SELECT * FROM sentinel_web_push_subscriptions').fetchall() == before_rows
+    db.rollback()
 
 
 def test_rotation_cannot_cross_delivery_result_transaction(db, issue369_pg, monkeypatch):

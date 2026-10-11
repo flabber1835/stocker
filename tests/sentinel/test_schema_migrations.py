@@ -1129,6 +1129,11 @@ def test_reintroduced_noop_ddl_is_detected_by_the_real_lock_failure(current_cata
     needle = 'if stage4_sha == _STAGE4_CATALOG_SHA256:'
     assert source.count(needle) == 1
     source = source.replace(needle, 'if False and stage4_sha == _STAGE4_CATALOG_SHA256:')
+    # Reintroducing DDL now also requires breaking the closed-catalog refusal.
+    # Remove both barriers so the mutant actually reaches the forbidden DDL.
+    refusal = "raise _operator_refusal('Stage-4 unrecognized operational catalog; explicit migration requires an exact reviewed predecessor')"
+    assert source.count(refusal) == 1
+    source = source.replace(refusal, 'pass')
     namespace = {}
     exec(compile(source, 'no-noop-fast-path', 'exec'), schema.__dict__, namespace)
     monkeypatch.setattr(schema, 'ensure_schema', namespace['ensure_schema'])

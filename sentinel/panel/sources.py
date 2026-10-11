@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -550,9 +551,8 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
         return ([model.feed_row(frontier=None, sessions_behind=None, ready=None,
                                 checks_passed=0, checks_total=0, as_of=None,
                                 error="SENTINEL_DATABASE_URL is unset"),
-                 model.ingest_row(kind=None, status=None, chunks_done=0,
-                                  chunks_total=0, rows_written=0,
-                                  current_chunk=None, updated_at=None)],
+                 model.Row('ingest', 'Ingest', 'STATUS UNREADABLE', model.UNKNOWN,
+                           'SENTINEL_DATABASE_URL is unset', required_current=True)],
                 ["SENTINEL_DATABASE_URL is unset"])
     conn = None
     try:
@@ -568,7 +568,9 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
         #
         # The order below is deliberately cheapest-first, so the most useful row
         # is already secured before anything expensive is attempted.
-        runs, run_err = _read(conn, lambda c: feed_store.run_status(c, limit=1),
+        operational = os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'shadow', 'dual'}
+        runs, run_err = _read(conn, _operational_acquisition if operational else
+                              lambda c: feed_store.run_status(c, limit=1),
                               STATEMENT_TIMEOUT_MS, default=[])
         # Bind the cached verdict and frontier to one authenticated generation.
         # A rolling page load verifies receipts, not the full price window.
@@ -614,6 +616,16 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 behind = None
 
         run = runs[0] if runs else {}
+        ingest = model.ingest_row(kind=run.get('kind'), status=run.get('status'),
+            chunks_done=int(run.get('chunks_done') or 0), chunks_total=int(run.get('chunks_total') or 0),
+            rows_written=int(run.get('rows_written') or 0), current_chunk=run.get('current_chunk'),
+            updated_at=_utc(run.get('updated_at')), error_message=run.get('error_message'))
+        if run_err:
+            ingest = model.Row('ingest', 'Ingest', 'STATUS UNREADABLE', model.UNKNOWN,
+                               run_err, required_current=True)
+        elif operational:
+            ingest = replace(ingest, value=('NO OPERATIONAL JOB YET' if not run else
+                             f"OPERATIONAL SNAPSHOT · {run['current_chunk']}"))
         rows = [
             # A frontier that TIMED OUT is not an unreadable database — the
             # connection is open and the ingest row right below was just read
@@ -632,13 +644,7 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                            ingest_running=(run.get("status") == "running"),
                            ingest_updated_at=_utc(run.get("updated_at")),
                            frontier_ahead=ahead),
-            model.ingest_row(kind=run.get("kind"), status=run.get("status"),
-                             chunks_done=int(run.get("chunks_done") or 0),
-                             chunks_total=int(run.get("chunks_total") or 0),
-                             rows_written=int(run.get("rows_written") or 0),
-                             current_chunk=run.get("current_chunk"),
-                             updated_at=_utc(run.get("updated_at")),
-                             error_message=run.get("error_message")),
+            ingest,
         ]
         # `source_errors` is the banner across the top of the page and it means
         # "the panel could not read the world". A single slow query does not
@@ -653,9 +659,8 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
         return ([model.feed_row(frontier=None, sessions_behind=None, ready=None,
                                 checks_passed=0, checks_total=0, as_of=None,
                                 error=msg),
-                 model.ingest_row(kind=None, status=None, chunks_done=0,
-                                  chunks_total=0, rows_written=0,
-                                  current_chunk=None, updated_at=None)],
+                 model.Row('ingest', 'Ingest', 'STATUS UNREADABLE', model.UNKNOWN,
+                           msg, required_current=True)],
                 [f"feed database: {msg}"])
     finally:
         if conn is not None:
@@ -1189,6 +1194,9 @@ def _operator_evidence_rows(
         runtime_backup, runtime_backup_error = _read(
             conn, lambda c: _latest_backup_evidence(c, "RUNTIME_CHAIN"),
             STATEMENT_TIMEOUT_MS, default=None)
+        maintenance, maintenance_error = _read(
+            conn, lambda c: _latest_backup_evidence(c, 'MAINTENANCE_PROGRESS'),
+            STATEMENT_TIMEOUT_MS, default=None)
         lifecycle, lifecycle_error = _read(
             conn, _authority_lifecycle, STATEMENT_TIMEOUT_MS, default=None)
         verdict, verdict_error = _read(
@@ -1213,7 +1221,7 @@ def _operator_evidence_rows(
                 recovery=account_recovery,
                 **(account or {})))
 
-        backup_error = base_error or restore_error or runtime_backup_error
+        backup_error = base_error or restore_error or runtime_backup_error or maintenance_error
         backup_row = model.backup_restore_row(
             base_at=(base or {}).get("observed_at"),
             restore_at=(restore or {}).get("observed_at"),
@@ -1221,6 +1229,9 @@ def _operator_evidence_rows(
             base_proof=(base or {}).get("proof"),
             restore_proof=(restore or {}).get("proof"),
             runtime_proof=(runtime_backup or {}).get("proof"),
+            maintenance_proof=(maintenance or {}).get('proof'),
+            maintenance_at=(maintenance or {}).get('observed_at'),
+            expected_image=os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST'),
             # PostgreSQL archive catch-up may self-heal while the automation's
             # typed backup retry remains bounded. Phase or error prose alone
             # can never lend that recovery budget to backup evidence.
@@ -1621,6 +1632,25 @@ def _latest_verified_chain(history: list[dict]) -> list[dict]:
             if row.get("verdict") == "VERIFIED"]
 
 
+def _operational_acquisition(conn):
+    """Current source jobs, never the empty legacy ingest ledger."""
+    record = conn.execute(
+        "SELECT j.state,j.reason,j.updated_at,j.rows_done,j.publication_version "
+        "FROM sentinel_snapshot_jobs j JOIN sentinel_operational_snapshot_jobs o USING(job_id) "
+        "ORDER BY j.created_at DESC,j.job_id DESC LIMIT 1").fetchone()
+    if record is None:
+        return []
+    state, reason, updated, count, version = record
+    if state == 'PUBLISHED' and version is None:
+        raise ValueError('published acquisition lacks publication identity')
+    status = ('success' if state == 'PUBLISHED' else 'failed' if state in {
+        'REFUSED', 'ABORTED'} else 'running')
+    return [dict(kind='OPERATIONAL SNAPSHOT', status=status, updated_at=updated,
+                 rows_written=count, chunks_done=0, chunks_total=0,
+                 current_chunk=f'{state} · publication {version}' if version is not None else state,
+                 error_message=reason if status == 'failed' else None)]
+
+
 def _informational_mirror_count(conn) -> int:
     from sentinel import informational_paper_mirror
 
@@ -1648,9 +1678,11 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             detail="activation waits for the next eligible session; no new order was sent")
     if cycle_state in {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
         return model.paper_reconciliation_row(
-            state="MISMATCH", cycle_state=cycle_state,
-            detail=(str((cycle or {}).get("failure_code") or
-                        "the latest PAPER cycle did not converge")))
+            state="CYCLE_FAILED", cycle_state=cycle_state,
+            detail=("latest recorded decision " + str(cycle.get('decision_session') or 'unknown')
+                    + "; no broker mismatch is established by this cycle status; "
+                    + str(cycle.get('failure_code') or 'cycle did not converge')
+                    + ": " + str(cycle.get('failure_detail') or 'no recorded detail')))
     if cycle is None and mirror_count == 0:
         return model.paper_reconciliation_row(
             state="NOT_STARTED", cycle_state=cycle_state)
@@ -1733,6 +1765,36 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             detail=f"integrity refusal: {_short(exc)}")
 
 
+def _shadow_holdings(state, session, nav):
+    """Small projection of the canonical book and its own exact-session marks."""
+    holdings = {}
+    series = state['feed']['series']
+    for episode in state['wealth_core']['episodes'].values():
+        security_id, ticker = episode['security_id'], episode['ticker']
+        quantity = Decimal(str(episode['current_shares']))
+        if not quantity.is_finite() or quantity <= 0:
+            raise ValueError('canonical held quantity is invalid')
+        if security_id in holdings:
+            if holdings[security_id]['ticker'] != ticker:
+                raise ValueError('canonical holding ticker is inconsistent')
+            holdings[security_id]['quantity'] += quantity
+            continue
+        mark = None
+        history = series.get(security_id, {})
+        sessions = history.get('sessions', [])
+        if sessions and sessions[-1] == session:
+            raw = history['raw_closes'][-1]
+            mark = Decimal(str(raw)) if raw is not None else None
+        holdings[security_id] = dict(security_id=security_id, ticker=ticker,
+                                     quantity=quantity, raw_close=mark)
+    for item in holdings.values():
+        value = item['quantity'] * item['raw_close'] if item['raw_close'] is not None else None
+        item.update(value=value, weight=value/nav if value is not None else None)
+    return model.ShadowBook(session=session, cash=state['wealth_core']['cash'],
+        nav=nav, pending_operations=len(state['pending']),
+        holdings=[holdings[key] for key in sorted(holdings)])
+
+
 def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
     """Project the actual canonical shadow; never create a catchup book."""
     if result is None or not verified:
@@ -1756,6 +1818,7 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
             unresolved_terminals=view['unresolved'], pending_actions=view['pending'],
             unpriced_securities=len(plan['unpriced_securities']) if plan else None,
             as_of=now)
+        book = replace(book, shadow_book=_shadow_holdings(state, result.session, Decimal(str(view['nav']))))
         terminals = model.terminals_row(
             current_unresolved=view['unresolved'], current_pending=view['carried'],
             as_of=now)

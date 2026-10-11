@@ -1,6 +1,6 @@
 {
   "additions": {
-    "panel/authority_reader.py": "89831f5f8fb290fce930d33847d431a9229398fed752e2037667683d2b83c3d4"
+    "panel/authority_reader.py": "6db870b265b5a0c5b57dd4343129c02af0834c16f6c461b610d8d47b96a59628"
   },
   "files": {
     "automation/integrity.py": {
@@ -39,45 +39,62 @@
         "7a7c1a032ab00148eebcd155d9bb85b789723c1a9a0e099855cc9938fbf1d8a9"
       ]
     },
+    "panel/app.py": {
+      "after": "a613f1507c51e3466db6fb15b2a9be766d4a39eba1b24cf7e81bfdc056c751b3",
+      "before": [
+        "d634a80af7f85749fe02ad325e460f2fb54f3fe7de60c8fa446e27f2c3573388"
+      ]
+    },
     "panel/authority_reader.py": {
-      "after": "89831f5f8fb290fce930d33847d431a9229398fed752e2037667683d2b83c3d4",
+      "after": "6db870b265b5a0c5b57dd4343129c02af0834c16f6c461b610d8d47b96a59628",
       "before": [
         "0f4f5283529fd15ca0aabf1602923138583f67029965d83c57c36085ef4dcfa6",
         "9c767cf45e5af6d8f27230ec79a3ddc5b62a94dc897ffd46949164a954e82dbe",
-        "3d6a5afcd6e5e77013b594bd81b282fb247594186dc27087617d11fd0722f717"
+        "3d6a5afcd6e5e77013b594bd81b282fb247594186dc27087617d11fd0722f717",
+        "89831f5f8fb290fce930d33847d431a9229398fed752e2037667683d2b83c3d4"
       ]
     },
     "panel/model.py": {
-      "after": "1f75c63bc5b4178c79d46c9fe8173cf60dd49c5d549a624fc0576738d16123ea",
+      "after": "c6742be2fc12294f840219123758804ddab3e949484aa9bce088450489a733fe",
       "before": [
         "7dcd668f75a27634f2520fdad6cf40d477f6989c8c9ed8f293bf64373e91b73c",
         "8725a25072fde7c10842fb1f8273d1ff49880aabb1280deafbe3467f7fc4a554",
-        "740ceb271fc971656ed0541433cfcb3cac6ee890d96436ae8816926a6216c776"
+        "740ceb271fc971656ed0541433cfcb3cac6ee890d96436ae8816926a6216c776",
+        "1f75c63bc5b4178c79d46c9fe8173cf60dd49c5d549a624fc0576738d16123ea"
+      ]
+    },
+    "panel/presentation.py": {
+      "after": "96bc717b2eae1f5cf3ca01acea5e8bd5369c469b872e5d06b745854a4345b59d",
+      "before": [
+        "f4acb54053c1c9c1ac00553f9190b18fc80ee02f7223389ed16d1dced2efa126"
       ]
     },
     "panel/render.py": {
-      "after": "7d78424f1ea5a7ae91b09748ca93cd684c5b53aabce9c0778f7a0ced4e6d1e06",
+      "after": "67506b518fa45b506ec2969930399097d6f31f9b43e7f9c4c53b72fe253a97c1",
       "before": [
         "f405dd2cad1d788f888a17e0a2fa7829dc350561307286b506815c06907cc94d",
-        "f502d58f243d25a4ea5e327d566cf04fc4682ce878bb271d9a3eec3db9fb203a"
+        "f502d58f243d25a4ea5e327d566cf04fc4682ce878bb271d9a3eec3db9fb203a",
+        "7d78424f1ea5a7ae91b09748ca93cd684c5b53aabce9c0778f7a0ced4e6d1e06"
       ]
     },
     "panel/sources.py": {
-      "after": "4a82d1296e12fcc507713762baaf22ca4d26edcf8f7580d5300f158dc1f34fc8",
+      "after": "2be282ce317ebf34f716643dd9dddb970c4cf0fb1aa9e8bfd8f91736f72e5956",
       "before": [
         "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17",
         "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
         "4f9c279c08d326cfb8a6452545b74cd0632f1567d2c5f50fdb7a923995a37328",
         "26da5ab10c8fe9790319030ee2edfee801015291ae7a6f78d86681f9e4c8b592",
-        "0d0efbb3e1a3c37fe69104bf6cb1af09111251afd1d6b5527d2f76d051689afd"
+        "0d0efbb3e1a3c37fe69104bf6cb1af09111251afd1d6b5527d2f76d051689afd",
+        "4a82d1296e12fcc507713762baaf22ca4d26edcf8f7580d5300f158dc1f34fc8"
       ]
     },
     "schema.py": {
-      "after": "9b2102f232fd33702b939366dbbda5f7fb53910e4cec4388b2b07b67627f2560",
+      "after": "0c4182749d9df0ae7d772bd6c1cc44bbfc95bf2d1c38a3fbd5a072513fa0132a",
       "before": [
         "1345dba552f0ce785885eb32fd60d39d389347d0db0469e7affc90b173367012",
         "5bc8919a2dd3837450596344f29e1c511866435032deab800e71746bfba22adc",
-        "63aa1e18bc4e40b63a0e0e7ed16eaf07311c20313cfabd0b1b041733fcbe547c"
+        "63aa1e18bc4e40b63a0e0e7ed16eaf07311c20313cfabd0b1b041733fcbe547c",
+        "9b2102f232fd33702b939366dbbda5f7fb53910e4cec4388b2b07b67627f2560"
       ]
     },
     "supervisor_io.py": {
@@ -87,6 +104,6 @@
       ]
     }
   },
-  "module_sha256": "f14fd1dbb006b628dd0cbd7a3ddc869f2e538be06b09112dd599e95b45a8ea8a",
+  "module_sha256": "b4257b9bc3a3fbb072f7c09af3849965342e0e5c2232fc0f49998d74b78756e2",
   "schema": "sentinel.operational-runtime-upgrade/1"
 }

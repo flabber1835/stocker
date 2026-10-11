@@ -58,6 +58,7 @@ def test_exact_transition_requires_authenticated_origin_and_environment(closure,
     ('14776aff', 'bb431383713546db5e75691cdaefbf03aa879d193296afbc66b626fbc772653e'),
     ('36520537', 'e8769b62f13287f2733f7ec483bb4ff65677c220ac39c4200af2d463e1886545'),
     ('85a1d270', '6bd183546c2d8626e5509d6ac043e5670899298c8fae4dcd3b306671588a8674'),
+    ('e9788eb7', 'b2275d003077e4e2b778477c5877145d4a9187ddba7880212f762561177429cb'),
 ])
 def test_complete_historical_source_manifest_is_admitted(closure, monkeypatch, revision, fixture_sha):
     _, checkpoint, context, _, source_value = closure

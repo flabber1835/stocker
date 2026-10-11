@@ -189,11 +189,11 @@ def test_schema_check_never_repairs_a_deleted_control_singleton(conn) -> None:
 
 def test_concurrent_first_schema_seeds_one_inert_control_and_lease(conn, pg) -> None:
     with conn.cursor() as cur:
-        cur.execute("DROP TABLE sentinel_automation_cycle_events")
-        cur.execute("DROP TABLE sentinel_automation_cycles")
-        cur.execute("DROP TABLE sentinel_automation_events")
-        cur.execute("DROP TABLE sentinel_automation_lease")
-        cur.execute("DROP TABLE sentinel_automation_control")
+        # First installation starts with no durable schema. Removing only
+        # automation tables from a ledgered catalog instead models corruption.
+        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+        for (table,) in cur.fetchall():
+            cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
     conn.commit()
     start = threading.Barrier(2)
 

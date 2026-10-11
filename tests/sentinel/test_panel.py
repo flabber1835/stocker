@@ -652,11 +652,12 @@ class TestRuntimeRowsAreDurableFacts:
             "last_processed_session": "2026-08-12",
             "wealth_core": {
                 "slots": {"0": {}, "1": {}},
-                "episodes": {"0": {}},
+                "episodes": {"0": {"security_id": "SEC-A", "ticker": "AAA", "current_shares": "10"}},
                 "cash": "350",
                 "unresolved_terminals": {},
                 "terminal_pending_terms": {},
             },
+            "feed": {"series": {}},
             "pending": [{"security_id": "SEC-B"}],
             "last_evidence": {
                 "wealth_core": {
@@ -1800,7 +1801,7 @@ class TestReviewedDualAuthority:
             publication=publication, feed_store=feed_store)
 
         assert row.status == model.FAIL
-        assert "MISMATCH" in row.value
+        assert "LATEST CYCLE FAILED" in row.value and "MISMATCH" not in row.value
 
     def test_completed_cycle_without_its_clean_reconciliation_is_red(
             self, monkeypatch):

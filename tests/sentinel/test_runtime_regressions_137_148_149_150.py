@@ -235,13 +235,16 @@ def test_150_runtime_validation_coexists_with_idle_reader(behavioral, pg):
 def test_150_explicit_schema_ddl_has_bounded_lock_wait(behavioral, pg):
     # Current catalogs require no DDL. Exercise an actual supported additive
     # migration instead, retaining the original lock-timeout assertion.
-    behavioral.execute('DROP TABLE sentinel_notification_policy')
+    behavioral.execute('DROP TRIGGER sentinel_backup_progress_guard ON sentinel_backup_evidence')
+    behavioral.execute('ALTER TABLE sentinel_backup_evidence DROP CONSTRAINT sentinel_backup_evidence_kind_check')
+    behavioral.execute("ALTER TABLE sentinel_backup_evidence ADD CONSTRAINT sentinel_backup_evidence_kind_check "
+        "CHECK (kind IN ('BASE_BACKUP','RUNTIME_CHAIN','RESTORE_DRILL'))")
     behavioral.commit()
     blocker = feed_store.connect(pg.sync_dsn)
     migrator = feed_store.connect(pg.sync_dsn)
     try:
         with blocker.cursor() as cur:
-            cur.execute("SELECT * FROM sentinel_automation_control WHERE id=1")
+            cur.execute("SELECT * FROM sentinel_backup_evidence")
             cur.fetchone()
         with pytest.raises(Exception, match="lock timeout"):
             schema.ensure_schema(migrator)
