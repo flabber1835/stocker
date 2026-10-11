@@ -756,6 +756,84 @@ def test_unchanged_backup_reobservation_appends_new_freshness_evidence(db) -> No
         assert cur.fetchall() == [(first, 2, 2)]
 
 
+@pytest.fixture
+def host_maintenance(monkeypatch):
+    import os
+    from pathlib import Path
+    root = Path(os.environ.get("SENTINEL_REPO_ROOT", Path(__file__).resolve().parents[2]))
+    host = root / "scripts" / "sentinel_backup_maintenance.py"
+    monkeypatch.syspath_prepend(str(host.parent))
+    spec = importlib.util.spec_from_file_location("maintenance_monitoring_test", host)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_maintenance_chain_publication_clears_only_matching_base_projection(db, issue369_pg, host_maintenance):
+    """Real SQL publication and current panel composition; no production media."""
+    maintenance = host_maintenance
+    system = "7691913275518591014"
+    name = "base-20261011T061831Z"
+    base = dict(base_backup=name, marker="sentinel-backup-fixture", marker_lsn="15/2080",
+                marker_wal="000000010000001500000000", system_identifier=system)
+    restore = dict(base_backup=name, system_identifier=system, physical_only=False,
+                   marker=base["marker"], target_lsn=base["marker_lsn"])
+    old_chain = dict(enabled=True, base_backup="base-20261011T030112Z",
+        system_identifier=system, wal_segments=5, wal_integrity="sha256-sidecar-v1",
+        recoverable_from_wal="0000000100000014000000CC",
+        recoverable_through_wal="0000000100000014000000D0")
+    for kind, proof in (("BASE_BACKUP", base), ("RESTORE_DRILL", restore),
+                        ("RUNTIME_CHAIN", old_chain)):
+        operational_evidence.record_backup_proof(db, kind=kind, proof=proof)
+    db.commit()
+    observed_at = sources._latest_backup_evidence(db, "BASE_BACKUP")["observed_at"]
+    kwargs = dict(base_at=observed_at, restore_at=observed_at, runtime_at=observed_at,
+        base_proof=base, restore_proof=restore, now=observed_at,
+        runtime_valid_until=observed_at + timedelta(minutes=10))
+    assert model.backup_restore_row(runtime_proof=old_chain, **kwargs).status == FAIL
+    selected = dict(name=name, ranges=[dict(timeline=1, end=0x14FF001388)],
+                    target_lsn="15/2080")
+    observation = dict(system_id=system, segment_size=16*1024*1024, timeline="00000001")
+    report = ("wal_chain_ready:true start_index=5375 end=000000010000001500000002 "
+              "segments=4 marker=000000010000001500000000 history=none\n"
+              "backup_ready:true base=/fixture/base/" + name +
+              " age_hours=0 wal_age_hours=0 system_id=" + system)
+    queries = []
+    def runner(command, **kwargs):
+        import subprocess
+        queries.append(command[-1])
+        # Use actual psql stdout, including command-tag behavior, rather than
+        # a cursor adapter that could hide a malformed host JSON protocol.
+        return subprocess.check_output(['psql', '--dbname', issue369_pg.sync_dsn,
+            '-v', 'ON_ERROR_STOP=1', '-Atc', command[-1]], text=True).strip()
+    proof = maintenance.publish_runtime_chain(report, selected, observation, "/fixture", runner)
+    current = sources._latest_backup_evidence(db, "RUNTIME_CHAIN")
+    assert current["proof"] == proof and current["observed_at"] >= observed_at
+    row = model.backup_restore_row(runtime_proof=current["proof"], **kwargs)
+    assert row.status == OK and row.effective_status(observed_at) == OK
+    assert len(queries) == 1
+    assert db.execute("SELECT count(*) FROM sentinel_backup_evidence WHERE kind='RUNTIME_CHAIN'").fetchone()[0] == 2
+    # A different current base and an expired observation cannot inherit green.
+    alien = {**proof, "base_backup": "base-20261011T051120Z"}
+    assert model.backup_restore_row(runtime_proof=alien, **kwargs).status == FAIL
+    kwargs["now"] = observed_at + timedelta(minutes=11)
+    assert model.backup_restore_row(runtime_proof=proof, **kwargs).status == FAIL
+
+
+def test_insert_command_tag_is_detected_by_actual_psql_acceptance(
+        db, issue369_pg, monkeypatch, host_maintenance):
+    maintenance = host_maintenance
+    original = maintenance.sql
+    def broken(query, runner):
+        query = query.replace("), recorded AS (", ") ", 1).replace(
+            "FROM evidence RETURNING proof) SELECT proof::text FROM recorded",
+            "FROM evidence RETURNING proof::text", 1)
+        return original(query, runner)
+    monkeypatch.setattr(maintenance, "sql", broken)
+    with pytest.raises(json.JSONDecodeError):
+        test_maintenance_chain_publication_clears_only_matching_base_projection(db, issue369_pg, host_maintenance)
+
+
 def test_push_enrollment_is_same_origin_narrow_and_durable(
         db, issue369_pg, monkeypatch) -> None:
     app_module = importlib.import_module("sentinel.panel.app")

@@ -1084,6 +1084,55 @@ class TestAutomationRowsAreDurableFacts:
             lambda _conn, _found: service_verdict)
         return sources, conn
 
+    @pytest.mark.parametrize("fault", [None, "expired", "foreign", "failed", "blocked"])
+    def test_idle_cycle_summary_uses_current_bounded_discovery_in_json_and_html(
+            self, monkeypatch, fault):
+        import json
+        from pathlib import Path
+        from sentinel.panel import app
+        lease = dict(holder="current", fence=7, active=True,
+            heartbeat_at=NOW, expires_at=NOW + timedelta(seconds=12))
+        instance = dict(instance_id="current", state="WAITING", heartbeat_at=NOW,
+            next_wake_at=NOW + timedelta(seconds=2), last_error=None)
+        cycle = None
+        if fault == "expired": lease["active"] = False
+        if fault == "foreign": instance["instance_id"] = "other"
+        if fault == "failed": instance["last_error"] = "discovery refused"
+        if fault == "blocked":
+            cycle = dict(cycle_id="current-blocked", state="BLOCKED",
+                         failure_code="PERMANENT_REFUSAL")
+        sources, _ = self._install(monkeypatch,
+            control=dict(enabled=True, generation=25, killed=False,
+                         certificate_sha256="a"*64, updated_at=NOW),
+            lease=lease, instance=instance, cycle=cycle)
+        original = sources._discovery_poll_recovery
+        monkeypatch.setattr(sources, "_discovery_poll_recovery",
+                            lambda *args: original(*args, now=NOW))
+        rows, _ = sources._automation_rows("postgresql://fixture")
+        row = next(row for row in rows if row.key == "automation_cycle")
+        panel = model.Panel(rows=[row], now=NOW)
+        monkeypatch.setattr(app, "_config", lambda: (Path('/fixture'), ''))
+        monkeypatch.setattr(app, "build_panel", lambda **kwargs: panel)
+        document = json.loads(app.panel_json().body)
+        status = model.WARN if fault is None else model.FAIL
+        assert document["rows"][0]["status"] == status
+        assert document["rows"][0]["color"] == ("amber" if fault is None else "red")
+        assert 'data-key="automation_cycle" data-status="' + status + '"' in render(panel)
+        assert row.effective_status(NOW + timedelta(seconds=13)) == model.FAIL
+        assert row.status != model.OK
+
+    def test_missing_cycle_recovery_is_detected_by_actual_source_acceptance(
+            self, monkeypatch):
+        from sentinel.panel import sources
+        original = model.automation_cycle_row
+        def broken(*args, **kwargs):
+            kwargs.pop("discovery_recovery", None)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(model, "automation_cycle_row", broken)
+        with pytest.raises(AssertionError):
+            self.test_idle_cycle_summary_uses_current_bounded_discovery_in_json_and_html(
+                monkeypatch, None)
+
     def test_projects_policy_lease_cycle_alerts_and_persisted_verdict(
             self, monkeypatch):
         sources, conn = self._install(

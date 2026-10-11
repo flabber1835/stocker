@@ -1425,6 +1425,8 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                             error=lease_error, **(lease or {})),
                         model.automation_cycle_row(
                             installed=True, enabled=control["enabled"],
+                            discovery_recovery=_discovery_poll_recovery(
+                                cycle, lease, instance),
                             error=cycle_error or instance_error,
                             **{key: value for key, value in cycle_view.items()
                                if key in _AUTOMATION_CYCLE_ROW_FIELDS}),
