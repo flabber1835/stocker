@@ -273,6 +273,13 @@ async def test_cutover_crossing_after_eligibility_yields_a_wait_without_a_new_cy
 
 
 def old_catalog(conn):
+    # Recreate the complete pre-generation predecessor, including the backup
+    # catalog that existed before maintenance progress was introduced.
+    conn.execute('DROP TRIGGER sentinel_backup_progress_guard ON sentinel_backup_evidence')
+    conn.execute('DROP FUNCTION sentinel_backup_progress_guard()')
+    conn.execute('ALTER TABLE sentinel_backup_evidence DROP CONSTRAINT sentinel_backup_evidence_kind_check')
+    conn.execute("ALTER TABLE sentinel_backup_evidence ADD CONSTRAINT sentinel_backup_evidence_kind_check "
+        "CHECK (kind IN ('BASE_BACKUP','RUNTIME_CHAIN','RESTORE_DRILL'))")
     conn.execute('ALTER TABLE sentinel_automation_cycles DROP CONSTRAINT sentinel_automation_cycles_generation_key')
     conn.execute('ALTER TABLE sentinel_automation_cycles ADD UNIQUE '
         '(deployment_id,broker,broker_account_id,takeover_epoch,decision_session)')
