@@ -107,7 +107,16 @@ def _unknown(include_paper, detail, retained=None, *, checking_until=None):
                             deadline=checking_until))
                 if row.key in checking else replace(row, status=model.WARN,
                     valid_until=checking_until) for row in rows]
-        return rows, {}, [], []
+        paper = values.get('paper_reconciliation')
+        if paper is not None and paper.status in {model.FAIL, model.UNKNOWN}:
+            # A known independent PAPER failure remains visible while the
+            # expired shadow proof is being checked; it cannot erase that wait.
+            rows = [replace(paper, detail='LAST KNOWN · '+paper.detail,
+                            required_current=True, recovery=None)
+                    if row.key == 'paper_reconciliation' else row for row in rows]
+        errors = (['PAPER verification: LAST KNOWN · '+paper.detail]
+                  if paper is not None and paper.status == model.UNKNOWN else [])
+        return rows, {}, [], errors
     return rows, {}, [], ['financial verification: '+detail]
 
 
@@ -233,10 +242,18 @@ class Reader:
                                    and row.status == model.OK for row in rows):
                                 self.retained = rows
                             self.completed = (rows, value['errors'], observed)
+                            negative = [row for row in rows if row.status in {
+                                model.FAIL, model.UNKNOWN}]
+                            independent_paper_failure = (
+                                all(error.startswith('PAPER mirror database: ')
+                                    for error in value['errors']) and len(negative) == 1
+                                and negative[0].key == 'paper_reconciliation'
+                                and any(row.key == 'shadow_verification'
+                                        and row.status == model.OK for row in rows))
                             self.failure = (
                                 'the last completed financial check failed'
-                                if value['errors'] or any(row.status in {
-                                    model.FAIL, model.UNKNOWN} for row in rows) else None)
+                                if (value['errors'] or negative)
+                                    and not independent_paper_failure else None)
                         except (KeyError, TypeError, ValueError):
                             self.completed = None
                             detail = 'financial observer result is malformed or stale'

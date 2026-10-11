@@ -487,7 +487,175 @@ def test_completed_paper_state_keeps_producer_classification_on_public_surfaces(
     by_key = {row['key']: row for row in actual['rows']}
     assert by_key['shadow_verification']['status'] == model.OK
     assert by_key['paper_reconciliation']['status'] == paper.status
-    assert value.failure is None if state != 'MISMATCH' else value.failure is not None
+    assert value.failure is None  # A known PAPER failure is independent of shadow verification.
+
+
+@pytest.mark.parametrize('replacement', ['blocked', 'clean', 'exception', 'malformed', 'negative'])
+def test_independent_paper_failure_survives_idle_expiry_without_erasing_shadow_wait(
+        monkeypatch, replacement):
+    entered, release = Event(), Event()
+    clock = [0.0]
+    origin = datetime(2026, 10, 11, tzinfo=timezone.utc)
+    calls = []
+    def run(*args, **kwargs):
+        calls.append(1)
+        if len(calls) > 1:
+            entered.set()
+            assert release.wait(3)
+            if replacement == 'exception': raise TimeoutError('not disclosed')
+        answer = result()
+        answer['observed_at'] = origin + timedelta(seconds=clock[0])
+        if len(calls) == 1 or replacement != 'clean':
+            answer['rows'][3] = asdict(model.paper_reconciliation_row(
+                state='MISMATCH', cycle_state='BLOCKED', detail='NonRetryableCallbackRefused'))
+        if len(calls) > 1:
+            if replacement == 'malformed': answer['rows'][0]['value'] = None
+            if replacement == 'negative': answer['rows'][0]['status'] = model.FAIL
+        return answer
+    value = reader.Reader(runner=run, clock=lambda: clock[0],
+                          wall_clock=lambda: origin + timedelta(seconds=clock[0]))
+    value.read('fixture'); complete(value)
+    first, _ = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+    assert first['rows'][0]['status'] == model.OK
+    assert first['rows'][3]['status'] == model.FAIL
+    assert value.failure is None
+    clock[0] = reader.FRESH_SECONDS + 1
+    try:
+        pending = value.read('fixture')
+        assert entered.wait(1)
+        for _ in range(3):
+            actual, html = surfaces(monkeypatch, pending, value.wall_clock())
+            by_key = {row['key']: row for row in actual['rows']}
+            assert by_key['shadow_verification']['status'] == model.WARN
+            assert by_key['shadow_verification']['color'] == 'amber'
+            assert 'EVIDENCE UNREADABLE' not in html and not actual['source_errors']
+            assert by_key['paper_reconciliation']['status'] == model.FAIL
+            assert by_key['paper_reconciliation']['color'] == 'red'
+            assert by_key['paper_reconciliation']['as_of'] == origin.isoformat()
+            assert 'LAST KNOWN' in by_key['paper_reconciliation']['detail']
+            assert by_key['shadow_nav']['as_of'] == origin.isoformat()
+            assert by_key['shadow_nav']['status'] == model.WARN
+            deadline = by_key['shadow_verification']['valid_until']
+            assert deadline == (origin + timedelta(seconds=601+reader.DEADLINE_SECONDS)).isoformat()
+            clock[0] += 1
+            pending = value.read('fixture')
+        assert len(calls) == 2
+    finally:
+        release.set(); complete(value)
+    refreshed, _ = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+    rows = {row['key']: row for row in refreshed['rows']}
+    if replacement in {'exception', 'malformed', 'negative'}:
+        assert rows['shadow_verification']['status'] in {model.FAIL, model.UNKNOWN}
+        assert value.failure is not None
+    else:
+        assert rows['shadow_verification']['status'] == model.OK
+        assert rows['shadow_verification']['as_of'] != origin.isoformat()
+        assert rows['paper_reconciliation']['status'] == (
+            model.OK if replacement == 'clean' else model.FAIL)
+
+
+def test_independent_paper_failure_does_not_extend_a_pending_check_deadline(monkeypatch):
+    entered, release = Event(), Event()
+    clock = [0.0]
+    origin = datetime(2026, 10, 11, tzinfo=timezone.utc)
+    calls = []
+    def run(*args, **kwargs):
+        calls.append(1)
+        if len(calls) > 1:
+            entered.set()
+            assert release.wait(3)
+        answer = result()
+        answer['observed_at'] = origin + timedelta(seconds=clock[0])
+        answer['rows'][3] = asdict(model.paper_reconciliation_row(state='MISMATCH'))
+        return answer
+    value = reader.Reader(runner=run, clock=lambda: clock[0],
+                          wall_clock=lambda: origin + timedelta(seconds=clock[0]))
+    value.read('fixture'); complete(value); value.read('fixture')
+    clock[0] = reader.FRESH_SECONDS + 1
+    try:
+        first = value.read('fixture')[0][0]
+        assert entered.wait(1) and first.status == model.WARN
+        clock[0] += reader.DEADLINE_SECONDS
+        expired, _ = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+        assert expired['rows'][0]['status'] == model.UNKNOWN
+        assert expired['rows'][0]['color'] == 'red' and expired['source_errors']
+        assert len(calls) == 2
+    finally:
+        release.set(); complete(value)
+
+
+@pytest.mark.parametrize('defect', ['couple', 'hide_failure', 'ignore_source_scope', 'ignore_book_failure'])
+def test_paper_coupling_and_hidden_failure_are_detected_on_json_html(monkeypatch, defect):
+    import inspect, textwrap
+    if defect != 'hide_failure':
+        body = textwrap.dedent(inspect.getsource(reader.Reader.read))
+        if defect == 'couple':
+            old, new = 'and not independent_paper_failure', 'and True'
+        elif defect == 'ignore_source_scope':
+            old, new = "error.startswith('PAPER mirror database: ')", 'True'
+        else:
+            old, new = 'len(negative) == 1', 'len(negative) >= 1'
+        namespace = {}
+        assert body.count(old) == 1
+        exec(compile(body.replace(old, new), '<paper coupling mutation>', 'exec'), reader.__dict__, namespace)
+        monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
+    else:
+        body = textwrap.dedent(inspect.getsource(reader._unknown))
+        old, new = 'paper.status in {model.FAIL, model.UNKNOWN}', 'False'
+        namespace = {}
+        assert body.count(old) == 1
+        exec(compile(body.replace(old, new), '<hidden paper failure mutation>', 'exec'), reader.__dict__, namespace)
+        monkeypatch.setattr(reader, '_unknown', namespace['_unknown'])
+    with pytest.raises(AssertionError):
+        if defect in {'ignore_source_scope', 'ignore_book_failure'}:
+            test_only_explicit_paper_read_failures_are_independent(
+                monkeypatch, 'unscoped_error' if defect == 'ignore_source_scope' else 'book_unknown')
+        else:
+            test_independent_paper_failure_survives_idle_expiry_without_erasing_shadow_wait(
+                monkeypatch, 'blocked')
+
+
+@pytest.mark.parametrize('fault', ['paper_unknown', 'unscoped_error', 'book_unknown'])
+def test_only_explicit_paper_read_failures_are_independent(monkeypatch, fault):
+    entered, release = Event(), Event()
+    clock = [0.0]
+    origin = datetime(2026, 10, 11, tzinfo=timezone.utc)
+    calls = []
+    def run(*args, **kwargs):
+        calls.append(1)
+        if len(calls) > 1:
+            entered.set(); assert release.wait(3)
+        answer = result()
+        answer['observed_at'] = origin + timedelta(seconds=clock[0])
+        answer['rows'][3] = asdict(model.paper_reconciliation_row(
+            state='UNKNOWN', error='PAPER status unreadable'))
+        answer['errors'] = ['PAPER mirror database: PAPER status unreadable']
+        if fault == 'unscoped_error': answer['errors'] = ['unscoped source failure']
+        if fault == 'book_unknown': answer['rows'][5]['status'] = model.UNKNOWN
+        return answer
+    value = reader.Reader(runner=run, clock=lambda: clock[0],
+                          wall_clock=lambda: origin + timedelta(seconds=clock[0]))
+    value.read('fixture'); complete(value); value.read('fixture')
+    assert (value.failure is None) == (fault == 'paper_unknown')
+    clock[0] = reader.FRESH_SECONDS + 1
+    try:
+        pending = value.read('fixture')
+        assert entered.wait(1)
+        actual, html = surfaces(monkeypatch, pending, value.wall_clock())
+        rows = {row['key']: row for row in actual['rows']}
+        if fault == 'paper_unknown':
+            assert rows['shadow_verification']['status'] == model.WARN
+            assert rows['paper_reconciliation']['status'] == model.UNKNOWN
+            assert rows['paper_reconciliation']['as_of'] == origin.isoformat()
+            assert 'LAST KNOWN' in rows['paper_reconciliation']['detail']
+            assert actual['source_errors'][0].startswith('PAPER verification: LAST KNOWN')
+            assert 'data-key="shadow_verification" data-status="warn"' in html
+            assert 'data-key="paper_reconciliation" data-status="unknown"' in html
+        else:
+            assert rows['shadow_verification']['status'] == model.UNKNOWN
+            assert actual['source_errors']
+    finally:
+        release.set(); complete(value)
 
 
 def test_delayed_http_consumption_keeps_original_completion_time(monkeypatch):

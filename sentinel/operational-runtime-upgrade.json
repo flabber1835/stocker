@@ -1,6 +1,6 @@
 {
   "additions": {
-    "panel/authority_reader.py": "3d6a5afcd6e5e77013b594bd81b282fb247594186dc27087617d11fd0722f717"
+    "panel/authority_reader.py": "89831f5f8fb290fce930d33847d431a9229398fed752e2037667683d2b83c3d4"
   },
   "files": {
     "automation/integrity.py": {
@@ -40,10 +40,11 @@
       ]
     },
     "panel/authority_reader.py": {
-      "after": "3d6a5afcd6e5e77013b594bd81b282fb247594186dc27087617d11fd0722f717",
+      "after": "89831f5f8fb290fce930d33847d431a9229398fed752e2037667683d2b83c3d4",
       "before": [
         "0f4f5283529fd15ca0aabf1602923138583f67029965d83c57c36085ef4dcfa6",
-        "9c767cf45e5af6d8f27230ec79a3ddc5b62a94dc897ffd46949164a954e82dbe"
+        "9c767cf45e5af6d8f27230ec79a3ddc5b62a94dc897ffd46949164a954e82dbe",
+        "3d6a5afcd6e5e77013b594bd81b282fb247594186dc27087617d11fd0722f717"
       ]
     },
     "panel/model.py": {
