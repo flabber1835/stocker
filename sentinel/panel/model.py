@@ -765,6 +765,7 @@ def automation_leader_row(*, installed: Optional[bool],
 
 def automation_cycle_row(*, installed: Optional[bool],
                          enabled: Optional[bool] = None,
+                         discovery_recovery: Optional[RecoveryEvidence] = None,
                          cycle_id: Optional[str] = None,
                          state: Optional[str] = None,
                          decision_session: Optional[str] = None,
@@ -803,7 +804,9 @@ def automation_cycle_row(*, installed: Optional[bool],
         return Row("automation_cycle", "Automation cycle", "NO CYCLES",
                    FAIL if failure_code or failure_detail else (
                        WARN if enabled else PENDING), detail,
-                   required_current=bool(enabled))
+                   required_current=bool(enabled),
+                   recovery=(discovery_recovery
+                             if not failure_code and not failure_detail else None))
     normalized = str(state or "").upper()
     detail = (
         f"cycle {cycle_id} · decision {decision_session or 'unknown'} · "

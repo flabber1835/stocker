@@ -79,6 +79,13 @@ binding the generation's metadata digest and immutable runtime image; old
 unbound or physical-only evidence cannot authorize retention. A restart before
 that row exists repeats the restore. A restart after it exists can reuse the
 identity-bound proof, but must freshly validate the selected runtime chain.
+After that exact-path verification succeeds, append its compact RUNTIME_CHAIN
+observation to the operational evidence table before reporting maintenance
+ready. The read-only status command supplies the verified interval, checksum
+scrub, marker and cluster identity; maintenance validates their agreement with
+its selected generation and primary geometry. A failed or malformed report,
+identity disagreement or evidence write refuses the tick. This observation is
+independent of trading callbacks and creates no additional backup or restore.
 Unresolved preflight media, identity, clock, producer, restore or evidence
 failures stop that tick without deletion. Failures during deletion preserve the
 journal for guarded recovery. Scheduled retries do not silently repair corruption.

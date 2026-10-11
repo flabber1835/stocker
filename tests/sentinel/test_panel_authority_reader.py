@@ -108,13 +108,18 @@ def test_configuration_change_does_not_deliver_or_retain_old_positive_result(mon
 
 @pytest.mark.parametrize('observed_at', [
     'not-a-clock',
-    datetime.now(timezone.utc)-timedelta(seconds=reader.FRESH_SECONDS+1),
-    datetime.now(timezone.utc)+timedelta(minutes=2),
+    timedelta(seconds=-reader.FRESH_SECONDS-1),
+    timedelta(minutes=2),
 ])
 def test_stale_future_or_malformed_observer_is_unknown(observed_at):
+    # Collection and execution can be minutes apart in a full CI shard. Both
+    # sides of the age comparison share a fixed clock; invalid proof must never
+    # become valid merely because unrelated tests ran first.
+    now = datetime(2026, 10, 8, tzinfo=timezone.utc)
     replacement = result()
-    replacement['observed_at'] = observed_at
-    value = reader.Reader(runner=lambda *a, **k: replacement)
+    replacement['observed_at'] = (now+observed_at
+        if isinstance(observed_at, timedelta) else observed_at)
+    value = reader.Reader(runner=lambda *a, **k: replacement, wall_clock=lambda: now)
     value.read('fixture')
     complete(value)
     rows, _, _, errors = value.read('fixture')
@@ -122,7 +127,10 @@ def test_stale_future_or_malformed_observer_is_unknown(observed_at):
     assert 'malformed or stale' in errors[0]
 
 
-def test_accepting_stale_complete_proof_is_detected(monkeypatch):
+@pytest.mark.parametrize('observed_at', [
+    timedelta(seconds=-reader.FRESH_SECONDS-1), timedelta(minutes=2),
+])
+def test_accepting_stale_complete_proof_is_detected(monkeypatch, observed_at):
     import inspect, textwrap
     source = textwrap.dedent(inspect.getsource(reader.Reader.read)).replace(
         'if not timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):',
@@ -131,8 +139,7 @@ def test_accepting_stale_complete_proof_is_detected(monkeypatch):
     exec(compile(source, 'unbounded-proof-age', 'exec'), reader.__dict__, namespace)
     monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
     with pytest.raises(AssertionError):
-        test_stale_future_or_malformed_observer_is_unknown(
-            datetime.now(timezone.utc)-timedelta(seconds=reader.FRESH_SECONDS+1))
+        test_stale_future_or_malformed_observer_is_unknown(observed_at)
 
 
 def test_observer_failure_does_not_echo_private_configuration():

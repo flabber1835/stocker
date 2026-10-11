@@ -14,7 +14,7 @@ import pytest
 
 from sentinel import backup_retention as retention
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT", Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(ROOT / "scripts"))
 import sentinel_backup_maintenance as coordinator
 
@@ -226,6 +226,7 @@ class Boundary:
         self.fail = None
         self.old = False
         self.selected_override = None
+        self.published = []
 
     def selected(self):
         return {"name": self.selected_override or self.name, "metadata_sha256": "a" * 64,
@@ -249,6 +250,11 @@ class Boundary:
         if "json_build_object" in joined:
             return json.dumps({"system_id": SYSTEM, "now": NOW, "timeline": "00000001",
                                "lsn": "0/D000000", "segment_size": SEGMENT})
+        if "INSERT INTO sentinel_backup_evidence" in joined:
+            value = json.loads(command[-1].split("WITH evidence AS (SELECT '", 1)[1]
+                               .split("'::jsonb AS proof)", 1)[0])
+            self.published.append(value)
+            return json.dumps(value)
         if "SELECT proof::text" in joined:
             return json.dumps(receipt(self.selected())) if self.restored else ""
         if "sentinel.backup_retention" in command:
@@ -266,7 +272,10 @@ class Boundary:
             return "full restore succeeded"
         if command[:2] == ["bash", "scripts/sentinel-backup-status.sh"]:
             assert command[-1] == "/media/base/" + self.name
-            return "backup_ready:true"
+            return ("wal_chain_ready:true start_index=11 end=00000001000000000000000D "
+                    "segments=3 marker=00000001000000000000000C history=none\n"
+                    "backup_ready:true base=/media/base/" + self.name
+                    + " age_hours=0 wal_age_hours=0 system_id=" + SYSTEM)
         raise AssertionError("unmodeled command: " + repr(command))
 
 
@@ -371,6 +380,108 @@ def test_healthy_tick_reclaims_only_after_exact_existing_restore_proof(boundary)
     assert sum("scripts/sentinel-backup-status.sh" in call for call in calls) == 1
     assert not any("scripts/sentinel-base-backup.sh" in call or "scripts/sentinel-restore-drill.sh" in call
                    for call in calls)
+
+
+@pytest.mark.parametrize("renewed", [False, True])
+def test_maintenance_publishes_verified_current_chain_before_ready_or_retention(
+        boundary, renewed, capsys):
+    boundary.restored = not renewed
+    boundary.old = renewed
+    coordinator.tick("/media", boundary)
+    assert len(boundary.published) == 1
+    proof = boundary.published[0]
+    assert proof["base_backup"] == boundary.name
+    assert proof["system_identifier"] == SYSTEM
+    assert proof["recoverable_from_wal"] == "00000001000000000000000B"
+    assert proof["recoverable_through_wal"] == "00000001000000000000000D"
+    assert proof["recovery_marker_wal"] == "00000001000000000000000C"
+    assert proof["wal_segments"] == 3 and proof["integrity_read_passes"] == 1
+    calls = [" ".join(call) for call in boundary.calls]
+    publication = next(i for i, call in enumerate(calls) if "INSERT INTO sentinel_backup_evidence" in call)
+    retain = next(i for i, call in enumerate(calls) if "sentinel.backup_retention retain" in call)
+    assert publication < retain
+    assert '"maintenance_ready": true' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("fault", ["missing", "duplicate", "base", "cluster", "count",
+    "start", "marker", "history", "unverified", "write", "readback"])
+@pytest.mark.parametrize("renewed", [False, True])
+def test_missing_or_contradictory_chain_never_reports_healthy_or_retains(
+        boundary, fault, renewed, capsys):
+    boundary.restored = not renewed
+    boundary.old = renewed
+    def runner(command, **kwargs):
+        if "INSERT INTO sentinel_backup_evidence" in " ".join(command):
+            if fault == "write":
+                raise coordinator.Refused("evidence write failed")
+            if fault == "readback":
+                return '{}'
+        result = boundary(command, **kwargs)
+        if command[:2] == ["bash", "scripts/sentinel-backup-status.sh"]:
+            if fault == "missing": return "backup_ready:true"
+            if fault == "duplicate": return result + '\n' + result
+            if fault == "base": return result.replace(boundary.name, "base-20260919T000000Z")
+            if fault == "cluster": return result.replace(SYSTEM, "123")
+            if fault == "count": return result.replace("segments=3", "segments=2")
+            if fault == "start": return result.replace("start_index=11", "start_index=10")
+            if fault == "marker": return result.replace("marker=00000001000000000000000C", "marker=00000001000000000000000E")
+            if fault == "history": return result.replace("history=none", "history=00000001.history")
+            if fault == "unverified": return result.replace("wal_chain_ready:true", "wal_chain_ready:false")
+        return result
+    with pytest.raises(coordinator.Refused):
+        coordinator.tick("/media", runner)
+    assert not any("retain" in call for call in boundary.calls)
+    assert "maintenance_ready" not in capsys.readouterr().out
+
+
+def test_removed_chain_publication_is_detected_by_actual_tick_acceptance(
+        boundary, capsys, monkeypatch):
+    monkeypatch.setattr(coordinator, "publish_runtime_chain", lambda *args: None)
+    with pytest.raises(AssertionError):
+        test_maintenance_publishes_verified_current_chain_before_ready_or_retention(
+            boundary, False, capsys)
+
+
+def test_removed_interval_guard_is_detected_by_actual_refusal_acceptance(
+        boundary, capsys, monkeypatch):
+    import inspect
+    source = inspect.getsource(coordinator.publish_runtime_chain)
+    assert "or count != last-start+1" in source
+    broken = source.replace("or count != last-start+1", "or False", 1)
+    namespace = {}
+    exec(compile(broken, 'runtime-chain-guard-falsifier', 'exec'), coordinator.__dict__, namespace)
+    monkeypatch.setattr(coordinator, 'publish_runtime_chain', namespace['publish_runtime_chain'])
+    with pytest.raises(pytest.fail.Exception):
+        test_missing_or_contradictory_chain_never_reports_healthy_or_retains(
+            boundary, 'count', False, capsys)
+
+
+@pytest.mark.parametrize("size,start,first,end,marker,target,count", [
+    (1024*1024, 4095, "0000000000000FFF", "0000000100000001",
+     "0000000100000000", "1/1", 3),
+    (16*1024*1024, 255, "00000000000000FF", "0000000100000001",
+     "00000000000000FF", "1/0", 3),
+    (1024**3, 4, "0000000100000000", "0000000100000000",
+     "0000000100000000", "1/1", 1),
+])
+@pytest.mark.parametrize("timeline", [1, 2])
+def test_chain_geometry_log_rollover_boundary_marker_and_timeline_history(
+        boundary, size, start, first, end, marker, target, count, timeline):
+    selected = boundary.selected()
+    selected.update(target_lsn=target,
+                    ranges=[dict(timeline=timeline, start=0, end=start*size)])
+    observation = dict(system_id=SYSTEM, segment_size=size,
+                       timeline=f"{timeline:08X}")
+    history = "none" if timeline == 1 else "00000002.history"
+    report = (f"wal_chain_ready:true start_index={start} end={timeline:08X}{end} "
+              f"segments={count} marker={timeline:08X}{marker} history={history}\n"
+              f"backup_ready:true base=/media/base/{boundary.name} "
+              f"age_hours=0 wal_age_hours=0 system_id={SYSTEM}")
+    proof = coordinator.publish_runtime_chain(report, selected, observation, "/media", boundary)
+    assert proof["recoverable_from_wal"] == f"{timeline:08X}{first}"
+    assert proof["wal_segments"] == count
+    assert proof["timeline_history"] == (None if timeline == 1 else history)
+    assert proof["integrity_objects_hashed"] == count + (timeline == 2)
 
 
 def test_expired_proven_base_is_replaced_before_any_chain_or_retention_check(boundary):

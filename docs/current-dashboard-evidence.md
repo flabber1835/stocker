@@ -159,3 +159,30 @@ removing failure or age withdrawal must fail the behavioral acceptance checks.
 The executable admission catalog pins the exact installed renderer and reviewed
 replacement, alongside historical renderer bytes independently retained in the
 source-history manifests. No other presentation change is implicitly admitted.
+
+## Idle discovery and maintenance observations
+
+Decision: 2026-10-11. A newly activated control generation can legitimately
+have no daily cycle while its current leader waits for a new eligible decision.
+The cycle summary must carry the same bounded current-holder discovery evidence
+as its individual steps. It remains amber, never green or a claim of completed
+execution. Missing, expired, foreign-holder or failed discovery evidence remains
+red when automation is enabled. Historical blocked cycles and unacknowledged
+incidents remain visible; this repair does not replay them or acknowledge them.
+
+Normal maintenance already verifies the selected base and its complete retained
+WAL chain. Publish that successful exact-base observation as append-only
+RUNTIME_CHAIN evidence before reporting a healthy tick. Its proof names the
+selected cluster, base, interval, marker and actual checksum scrub. A malformed
+or contradictory report or failed evidence write refuses the tick. This makes
+backup visibility independent of whether an execution callback happens to run.
+The status verifier itself remains read-only; the existing maintenance owner
+publishes the compact observation. No extra base, restore, order or financial
+control mutation is introduced. Each successful tick appends at most one small
+operational row; the original observation time is never rewritten.
+
+Qualification must compose idle discovery through actual JSON and HTML, prove
+deadline and owner withdrawal, and exercise both maintenance paths (reuse and
+renewal) through proof publication. An installed-base fixture must reproduce the
+old missing-chain projection and verify the new exact proof with the same panel
+row policy. Failed verification/publication must never be reported healthy.

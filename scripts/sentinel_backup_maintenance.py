@@ -140,6 +140,75 @@ def receipt_for(selected, observation, image, runner=run):
     return result
 
 
+def publish_runtime_chain(output, selected, observation, root, runner=run):
+    """Publish only the exact successful private-media status observation."""
+    if not isinstance(output, str) or len(output) > 65536:
+        raise Refused("invalid runtime chain report")
+    chain_re = re.compile(
+        r"wal_chain_ready:true start_index=([0-9]+) end=([0-9A-F]{24}) "
+        r"segments=([0-9]+) marker=([0-9A-F]{24}) "
+        r"history=(none|[0-9A-F]{8}\.history)\Z")
+    ready_re = re.compile(
+        r"backup_ready:true base=(.+) age_hours=[0-9]+ "
+        r"wal_age_hours=[0-9]+ system_id=([1-9][0-9]{0,19})\Z")
+    chains = [chain_re.fullmatch(line) for line in output.splitlines()
+              if line.startswith("wal_chain_ready:")]
+    ready = [ready_re.fullmatch(line) for line in output.splitlines()
+             if line.startswith("backup_ready:")]
+    if (len(chains) != 1 or chains[0] is None
+            or len(ready) != 1 or ready[0] is None):
+        raise Refused("runtime chain report is malformed or ambiguous")
+    start_text, end, count_text, marker, history = chains[0].groups()
+    path, system_id = ready[0].groups()
+    name = selected["name"]
+    if (not BASE_RE.fullmatch(name) or path != root + "/base/" + name
+            or system_id != observation["system_id"]):
+        raise Refused("runtime chain report differs from selected backup")
+    size = observation["segment_size"]
+    per_log = 2**32 // size
+    start, count = int(start_text), int(count_text)
+    timeline, log, segment = (int(end[i:i+8], 16) for i in (0, 8, 16))
+    last = log * per_log + segment
+    marker_timeline, marker_log, marker_segment = (
+        int(marker[i:i+8], 16) for i in (0, 8, 16))
+    marker_index = marker_log * per_log + marker_segment
+    high, low = selected["target_lsn"].split("/")
+    # pg_walfile_name assigns an exact segment boundary to its preceding WAL.
+    marker_lsn = int(high, 16)*2**32 + int(low, 16)
+    marker_lsn_index = (marker_lsn-1) // size
+    ranges = selected["ranges"]
+    expected_start = max(item["end"] for item in ranges) // size
+    expected_history = "none" if timeline == 1 else "%08X.history" % timeline
+    if (timeline < 1 or "%08X" % timeline != observation["timeline"]
+            or any(item["timeline"] != timeline for item in ranges)
+            or start != expected_start or segment >= per_log
+            or marker_segment >= per_log or marker_timeline != timeline
+            or marker_index != marker_lsn_index or not start <= marker_index <= last
+            or count != last-start+1 or not 1 <= count <= 1024
+            or count*size > 1024**3 or history != expected_history):
+        raise Refused("runtime chain interval contradicts selected metadata")
+    first_log, first_segment = divmod(start, per_log)
+    proof = dict(enabled=True, system_identifier=system_id, base_backup=name,
+        recoverable_from_wal="%08X%08X%08X" % (timeline, first_log, first_segment),
+        recovery_marker_wal=marker, recoverable_through_wal=end,
+        wal_segments=count, timeline_history=None if history == "none" else history,
+        wal_integrity="sha256-sidecar-v1", integrity_full_scrub=True,
+        integrity_objects_hashed=count + (history != "none"), integrity_read_passes=1)
+    # The existing host producers publish operational evidence through psql.
+    # Every variable field above is a validated machine identity; no operator
+    # text or credentials enter SQL. The database supplies the observation time.
+    payload = json.dumps(proof, sort_keys=True, separators=(",", ":"))
+    # An outer SELECT avoids psql's INSERT command tag in the JSON protocol.
+    query = ("WITH evidence AS (SELECT '" + payload + "'::jsonb AS proof), recorded AS ("
+        "INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof) "
+        "SELECT 'RUNTIME_CHAIN',encode(sha256(convert_to(proof::text,'UTF8')),'hex'),proof "
+        "FROM evidence RETURNING proof) SELECT proof::text FROM recorded")
+    observed = json.loads(sql(query, runner))
+    if observed != proof:
+        raise Refused("runtime chain evidence was not persisted exactly")
+    return proof
+
+
 def reap_restore_resources(now, runner=run):
     """Remove only expired, labeled and unreferenced disposable resources."""
     removed = 0
@@ -189,11 +258,12 @@ def tick(root, runner=run):
     if not renewed:
         existing_receipt = receipt_for(selected, observation, image, runner)
         if existing_receipt is not None:
-            runner(["bash", "scripts/sentinel-backup-status.sh", "--backup",
-                    root + "/base/" + selected["name"]], timeout=600)
+            status = runner(["bash", "scripts/sentinel-backup-status.sh", "--backup",
+                             root + "/base/" + selected["name"]], timeout=600)
             observation = observe_primary(runner)
             renewed = renewal_due(selected, observation)
             if not renewed:
+                publish_runtime_chain(status, selected, observation, root, runner)
                 result = worker("retain", image, root, observation, runner, {
                     "receipt": existing_receipt, "image": image, "now": observation["now"],
                     "segment_size": observation["segment_size"],
@@ -234,7 +304,8 @@ def tick(root, runner=run):
             raise Refused("full restore returned without matching durable evidence")
     # The full drill may take time: obtain fresh clocks and a fresh chain proof.
     observation = observe_primary(runner)
-    runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
+    status = runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
+    publish_runtime_chain(status, selected, observation, root, runner)
     result = worker("retain", image, root, observation, runner, {
         "receipt": receipt, "image": image, "now": observation["now"],
         "segment_size": observation["segment_size"],
