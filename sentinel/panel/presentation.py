@@ -56,6 +56,10 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
         copy = _STEPS.get(key.removeprefix('automation_step_'))
     label, explanation = copy or (row.label, row.detail)
     value = row.value
+    if row.recovery is not None and row.recovery.phase == 'FINANCIAL_VERIFICATION' and status == 'warn':
+        explanation += ' A fresh verification is running. This can happen after the dashboard has been idle; last-known numbers keep their original timestamp.'
+    if key == 'backup_restore' and value == 'BACKUP CHECK IN PROGRESS':
+        explanation += ' A replacement backup is being restored and checked. It is not yet confirmed recoverable.'
     if copy:
         value = (value.replace('TRIAL NOT VERIFIED', 'Paper account not verified')
                  .replace('TRIAL VERIFIED THROUGH', 'Paper account checked through')

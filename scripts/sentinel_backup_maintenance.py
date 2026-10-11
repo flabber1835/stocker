@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import fcntl
 from datetime import datetime, timezone
 import os
@@ -11,9 +12,10 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 
 from sentinel_backup_lock import lock_is_held, _lock_path
-from sentinel_backup_deadlines import BASE_COMMAND_SECONDS, RESTORE_COMMAND_SECONDS
+from sentinel_backup_deadlines import BASE_COMMAND_SECONDS, RESTORE_COMMAND_SECONDS, INVOCATION_SECONDS
 from sentinel_maintenance_process import run_bounded
 
 
@@ -247,7 +249,36 @@ def reap_restore_resources(now, runner=run):
     return removed
 
 
+def publish_progress(progress, runner=run):
+    """Presentation evidence only; never lends authority to a recovery gate."""
+    payload = json.dumps(progress, sort_keys=True, separators=(',', ':'))
+    # Machine identities are validated before interpolation; JSON strings can
+    # still contain apostrophes (e.g. an image tag), so escape the SQL literal.
+    payload = payload.replace("'", "''")
+    query = ("WITH evidence AS (SELECT '" + payload + "'::jsonb AS proof), recorded AS ("
+        "INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof) "
+        "SELECT 'MAINTENANCE_PROGRESS',encode(sha256(convert_to(proof::text,'UTF8')),'hex'),proof "
+        "FROM evidence RETURNING proof) SELECT proof::text FROM recorded")
+    if json.loads(sql(query, runner)) != progress:
+        raise Refused('maintenance progress was not persisted exactly')
+
+
 def tick(root, runner=run):
+    progress = {}
+    started = time.monotonic()
+    try:
+        return _tick(root, runner, progress, started)
+    except Exception:
+        if progress:
+            progress['phase'] = 'FAILED'
+            try:
+                publish_progress(progress, runner)
+            except Exception as exc:
+                print('maintenance failure progress unreadable: ' + type(exc).__name__, file=sys.stderr)
+        raise
+
+
+def _tick(root, runner, progress, started):
     image = runtime_image(runner)
     observation = observe_primary(runner)
     reap_restore_resources(observation["now"], runner)
@@ -271,6 +302,16 @@ def tick(root, runner=run):
                 print(json.dumps({"maintenance_ready": True, "observed_at": observation["now"],
                                   "renewed": False, "base": selected["name"], **result}, sort_keys=True))
                 return result
+    # Prerequisite work is inside the invocation's original budget. The
+    # primary observation may itself be older, so this boundary is conservative.
+    first_second = observation['now'] - math.ceil(time.monotonic()-started)
+    progress.update(schema='sentinel.backup-maintenance-progress/1',
+        attempt=uuid.uuid4().hex, started_at=first_second,
+        deadline=first_second + INVOCATION_SECONDS,
+        system_identifier=observation['system_id'], image=image,
+        predecessor_base=selected['name'], base_backup=selected['name'],
+        phase='BASE_BACKUP' if renewed else 'VERIFY_RESTORE')
+    publish_progress(progress, runner)
     if renewed:
         output = runner(["bash", "scripts/sentinel-base-backup.sh"],
                         timeout=BASE_COMMAND_SECONDS)
@@ -284,6 +325,8 @@ def tick(root, runner=run):
         observation = observe_primary(runner)
         if renewal_due(selected, observation):
             raise Refused("successor already exhausts maintenance headroom")
+        progress.update(base_backup=selected['name'], phase='VERIFY_RESTORE')
+        publish_progress(progress, runner)
     path = root + "/base/" + selected["name"]
     runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
     receipt = receipt_for(selected, observation, image, runner)
@@ -304,12 +347,16 @@ def tick(root, runner=run):
             raise Refused("full restore returned without matching durable evidence")
     # The full drill may take time: obtain fresh clocks and a fresh chain proof.
     observation = observe_primary(runner)
+    progress['phase'] = 'VERIFY_CHAIN'
+    publish_progress(progress, runner)
     status = runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
     publish_runtime_chain(status, selected, observation, root, runner)
     result = worker("retain", image, root, observation, runner, {
         "receipt": receipt, "image": image, "now": observation["now"],
         "segment_size": observation["segment_size"],
     })
+    progress['phase'] = 'COMPLETE'
+    publish_progress(progress, runner)
     print(json.dumps({"maintenance_ready": True, "observed_at": observation["now"], "renewed": renewed,
                       "base": selected["name"], **result}, sort_keys=True))
     return result

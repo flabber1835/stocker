@@ -195,6 +195,8 @@ _TARGET_CATALOG_SHA256 = {
 # column/type/null/default, constraints, indexes and triggers while ignoring
 # deployment-local OIDs and column order.
 _STAGE4_CATALOG_SHA256 = (
+    "2a2e4c82afd8fb8a20d28ece3a170ed91774c56455d553ba29270587dc971758")
+_PRE_BACKUP_PROGRESS_CATALOG_SHA256 = (
     "d11dc34bcab1ce9ff25605de38032d0d85db76c0c39e67e07e68c94913b49d19")
 _PRE_GENERATION_CATALOG_SHA256 = (
     "cbb48b11f28cd828a69b03f7cb8c8ed1fcdc23bbf9d40e40fc62c5f6254d31ae")
@@ -400,6 +402,44 @@ _INITIAL_AUTOMATION_CONTROL = """INSERT INTO sentinel_automation_control
 
 _INITIAL_AUTOMATION_LEASE = """INSERT INTO sentinel_automation_lease
     (id,fence_token) VALUES (1,0) ON CONFLICT (id) DO NOTHING"""
+
+_BACKUP_PROGRESS_DDL = (
+    "ALTER TABLE sentinel_backup_evidence DROP CONSTRAINT IF EXISTS sentinel_backup_evidence_kind_check",
+    """ALTER TABLE sentinel_backup_evidence ADD CONSTRAINT sentinel_backup_evidence_kind_check
+        CHECK (kind IN ('BASE_BACKUP','RUNTIME_CHAIN','RESTORE_DRILL','MAINTENANCE_PROGRESS'))""",
+    """CREATE OR REPLACE FUNCTION sentinel_backup_progress_guard() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        DECLARE previous jsonb;
+        BEGIN
+            IF TG_OP<>'INSERT' AND (OLD.kind='MAINTENANCE_PROGRESS' OR NEW.kind='MAINTENANCE_PROGRESS') THEN
+                RAISE EXCEPTION 'backup maintenance progress is append-only';
+            END IF;
+            IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+            IF NEW.kind<>'MAINTENANCE_PROGRESS' THEN RETURN NEW; END IF;
+            SELECT proof INTO previous FROM sentinel_backup_evidence
+                WHERE kind='MAINTENANCE_PROGRESS' AND proof->>'attempt'=NEW.proof->>'attempt'
+                ORDER BY seq DESC LIMIT 1;
+            IF previous IS NULL THEN
+                IF NEW.proof->>'phase' NOT IN ('BASE_BACKUP','VERIFY_RESTORE') THEN
+                    RAISE EXCEPTION 'backup maintenance must start before work';
+                END IF;
+            ELSIF (previous - 'phase' - 'base_backup') IS DISTINCT FROM
+                    (NEW.proof - 'phase' - 'base_backup')
+                OR previous->>'phase' IN ('COMPLETE','FAILED')
+                OR (previous->>'base_backup' IS DISTINCT FROM NEW.proof->>'base_backup'
+                    AND NOT (previous->>'phase'='BASE_BACKUP' AND NEW.proof->>'phase'='VERIFY_RESTORE'))
+                OR NOT (NEW.proof->>'phase'='FAILED'
+                    OR (previous->>'phase'='BASE_BACKUP' AND NEW.proof->>'phase'='VERIFY_RESTORE')
+                    OR (previous->>'phase'='VERIFY_RESTORE' AND NEW.proof->>'phase'='VERIFY_CHAIN')
+                    OR (previous->>'phase'='VERIFY_CHAIN' AND NEW.proof->>'phase'='COMPLETE')) THEN
+                RAISE EXCEPTION 'backup maintenance identity, deadline or phase changed';
+            END IF;
+            RETURN NEW;
+        END $$""",
+    "DROP TRIGGER IF EXISTS sentinel_backup_progress_guard ON sentinel_backup_evidence",
+    """CREATE TRIGGER sentinel_backup_progress_guard BEFORE INSERT OR UPDATE OR DELETE
+        ON sentinel_backup_evidence FOR EACH ROW EXECUTE FUNCTION sentinel_backup_progress_guard()""",
+)
 
 DDL = (
     # ------------------------------------------------------------------
@@ -1205,7 +1245,7 @@ DDL = (
     """CREATE TABLE IF NOT EXISTS sentinel_backup_evidence (
         seq                 BIGSERIAL PRIMARY KEY,
         kind                TEXT        NOT NULL CHECK (kind IN (
-            'BASE_BACKUP','RUNTIME_CHAIN','RESTORE_DRILL')),
+            'BASE_BACKUP','RUNTIME_CHAIN','RESTORE_DRILL','MAINTENANCE_PROGRESS')),
         evidence_sha256     TEXT        NOT NULL CHECK (
             evidence_sha256 ~ '^[0-9a-f]{64}$'),
         proof               JSONB       NOT NULL,
@@ -1214,6 +1254,7 @@ DDL = (
     # valid proof must advance freshness through a new append-only row.
     """ALTER TABLE sentinel_backup_evidence DROP CONSTRAINT IF EXISTS
         sentinel_backup_evidence_evidence_sha256_key""",
+    *_BACKUP_PROGRESS_DDL,
     """CREATE INDEX IF NOT EXISTS idx_sentinel_backup_evidence_latest
         ON sentinel_backup_evidence (kind,observed_at DESC,seq DESC)""",
 
@@ -1994,6 +2035,17 @@ def _migrate_generation_cycles(cur, catalog) -> None:
         sql.Identifier(_GENERATION_CYCLE_UNIQUE), sql.SQL(_GENERATION_CYCLE_COLUMNS)))
 
 
+def _migrate_backup_progress(cur, catalog) -> None:
+    """Exact operational-only migration; no financial row is rewritten."""
+    _validate_stage4_runtime(cur, catalog, expected_catalog=_PRE_BACKUP_PROGRESS_CATALOG_SHA256)
+    cur.execute('SELECT enabled,kill_switch_engaged FROM sentinel_automation_control WHERE id=1 FOR UPDATE')
+    enabled, killed = cur.fetchone()
+    if enabled and not killed:
+        raise _operator_refusal('backup progress migration requires fenced automation')
+    for statement in _BACKUP_PROGRESS_DDL:
+        cur.execute(statement)
+
+
 def _apply_v1(cur, bootstrap_kind: str) -> None:
     if bootstrap_kind in {"NEW", "LEGACY"}:
         for statement in DDL:
@@ -2091,9 +2143,15 @@ def ensure_schema(conn) -> None:
                         _STAGE4_TABLES)
                 if stage4_sha == _PRE_GENERATION_CATALOG_SHA256:
                     _migrate_generation_cycles(cur, catalog)
+                    _migrate_backup_progress(cur, _read_catalog(cur))
                     final_catalog = _read_catalog(cur)
                     _validate_ledgered(cur, final_catalog)
                     _validate_stage4_runtime(cur, final_catalog)
+                    conn.commit()
+                    return
+                if stage4_sha == _PRE_BACKUP_PROGRESS_CATALOG_SHA256:
+                    _migrate_backup_progress(cur, catalog)
+                    _validate_stage4_runtime(cur, _read_catalog(cur))
                     conn.commit()
                     return
                 if stage4_sha == _STAGE4_CATALOG_SHA256:
@@ -2103,6 +2161,7 @@ def ensure_schema(conn) -> None:
                     # locks; a no-op installer must not contend with readers.
                     conn.commit()
                     return
+                raise _operator_refusal('Stage-4 unrecognized operational catalog; explicit migration requires an exact reviewed predecessor')
             else:
                 bootstrap_kind = _classify_markerless(
                     relations, columns, constraints, indexes, triggers)
@@ -2131,6 +2190,7 @@ def ensure_schema(conn) -> None:
             if _semantic_catalog_sha256(
                     *final_catalog, _STAGE4_TABLES) == _PRE_GENERATION_CATALOG_SHA256:
                 _migrate_generation_cycles(cur, final_catalog)
+                _migrate_backup_progress(cur, _read_catalog(cur))
                 final_catalog = _read_catalog(cur)
             _validate_stage4_runtime(cur, final_catalog)
         conn.commit()

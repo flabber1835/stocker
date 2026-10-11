@@ -40,6 +40,34 @@ def complete(value, timeout=3):
     assert value.pending is None, 'test observer did not complete'
 
 
+def test_answer_expiring_while_ui_idle_is_a_bounded_refresh_not_unreadable():
+    now = datetime.now(timezone.utc)
+    answer = result()
+    answer['observed_at'] = now
+    entered, release = Event(), Event()
+    calls = []
+    def run(*args, **kwargs):
+        calls.append(True)
+        if len(calls) > 1:
+            entered.set()
+            assert release.wait(3)
+        return answer
+    value = reader.Reader(runner=run, wall_clock=lambda: now)
+    value.read('fixture')
+    complete(value)
+    value.wall_clock = lambda: now+timedelta(seconds=reader.FRESH_SECONDS+1)
+    value.clock = lambda: value.last_attempt+reader.RETRY_SECONDS+1
+    try:
+        rows, _, _, errors = value.read('fixture')
+        assert entered.wait(1)
+        assert rows[0].status == model.WARN and rows[0].value == 'CHECK IN PROGRESS'
+        assert rows[1].as_of == now and 'LAST KNOWN' in rows[1].detail
+        assert not errors and value.failure is None
+    finally:
+        release.set()
+        complete(value)
+
+
 def test_blocked_financial_observer_is_one_owned_job_and_requests_answer():
     entered, release = Event(), Event()
     calls = []

@@ -13,7 +13,7 @@ from sentinel.panel import model
 
 DEADLINE_SECONDS = 300
 RETRY_SECONDS = 30
-MAX_BYTES = 8 * 1024
+MAX_BYTES = 32 * 1024
 FRESH_SECONDS = 600
 REFRESH_SECONDS = FRESH_SECONDS - DEADLINE_SECONDS
 
@@ -65,6 +65,8 @@ def _observe(database_url, include_paper, expected_key):
         raise ValueError('unexpected financial observer shape')
     value = {'rows': [asdict(row) for row in rows], 'errors': errors,
              'observed_at': datetime.now(timezone.utc)}
+    for raw, row in zip(value['rows'], rows):
+        raw['shadow_book'] = row.shadow_book.model_dump(mode='json') if row.shadow_book else None
     if _key(database_url, include_paper, _evidence(database_url, include_paper)) != expected_key:
         raise ValueError('financial evidence changed during observation')
     if (len(json.dumps(value, default=str, allow_nan=False).encode()) > MAX_BYTES
@@ -123,6 +125,10 @@ def _unknown(include_paper, detail, retained=None, *, checking_until=None):
 def _row_from_observation(value):
     """Materialize nested dataclass evidence before public projection."""
     row = dict(value)
+    if row.get('shadow_book') is not None:
+        if row.get('key') != 'book':
+            raise ValueError('holdings are only permitted on the canonical book')
+        row['shadow_book'] = model.ShadowBook.model_validate(row['shadow_book'])
     if type(row.get('required_current', False)) is not bool:
         raise ValueError('observer current flag is malformed')
     boundary = row.get('valid_until')
@@ -170,11 +176,11 @@ class Reader:
         try:
             value = self.runner(_observe, database_url, include_paper, key,
                 timeout=DEADLINE_SECONDS, start_method='spawn')
-            answer = (key, value, None)
+            answer = (key, value, None, self.wall_clock())
         except Exception as exc:
             # No dependency exception (which might include private config) is
             # echoed. Its classified type is enough for the operator.
-            answer = (key, None, type(exc).__name__)
+            answer = (key, None, type(exc).__name__, self.wall_clock())
         with self.lock:
             self.answer = answer
             self.pending = None
@@ -197,7 +203,7 @@ class Reader:
                 self.last_attempt = float('-inf')
             detail = 'full retained financial verification awaits its next bounded check'
             if self.answer is not None:
-                completed_key, value, error = self.answer
+                completed_key, value, error, completed_at = self.answer
                 self.answer = None  # Publish once; reads retain the original clock.
                 if completed_key == key:
                     if error is not None:
@@ -230,7 +236,9 @@ class Reader:
                                                for field in ('label', 'value', 'detail'))):
                                     raise ValueError('observer row is malformed')
                             observed = value['observed_at']
-                            age = self.wall_clock()-observed
+                            # Validate arrival separately from later UI consumption.
+                            # An idle page cannot make an originally valid answer malformed.
+                            age = completed_at-observed
                             if not timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):
                                 raise ValueError('observer result is not fresh')
                             rows = [replace(_row_from_observation(row), as_of=observed,

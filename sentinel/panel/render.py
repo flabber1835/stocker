@@ -305,10 +305,33 @@ def _row_html(r: Row, now: datetime) -> str:
         f'<div class="label">{_esc(label)}</div>'
         f'<div class="value">{_esc(value)}</div>'
         f'<div class="detail">{_esc(explanation)}{age_html}</div>'
-        f'<details class="technical"><summary>Technical details</summary>'
+        + _holdings_html(r, now) +
+        f'<details class="technical" data-detail-key="{_esc(r.key)}"><summary>Technical details</summary>'
         f'<div class="detail-body">{_esc(r.label)} · {_esc(r.value)}<br>{_esc(r.detail)}</div></details>'
         f"</div>"
     )
+
+
+def _holdings_html(row: Row, now: datetime) -> str:
+    book = row.shadow_book
+    if book is None or row.effective_status(now) != 'ok':
+        return ''
+    def number(value, money=False):
+        if value is None:
+            return 'Unavailable'
+        return f'${value:,.2f}' if money else format(value, 'f')
+    rows = [(holding.ticker, number(holding.quantity), number(holding.raw_close, True),
+             number(holding.value, True), f'{holding.weight*100:.2f}%' if holding.weight is not None else 'Unavailable')
+            for holding in book.holdings]
+    rows.append(('Cash', '', '', number(book.cash, True), f'{book.cash/book.nav*100:.2f}%'))
+    return ('<details class="technical" data-detail-key="shadow-holdings"><summary>View shadow holdings</summary>'
+            '<div class="detail-body"><p>Wealth Core stock-selection book as of ' + _esc(book.session)
+            + '. These simulated shares are separate from Alpaca holdings. Book value: '
+            + number(book.nav, True) + '. The simulated strategy value includes the controller’s '
+            'stock allocation, Treasury-bill sleeve and transaction costs, so the two totals can differ.</p>'
+            + f'<p>{book.pending_operations} pending operations; these are not filled holdings. '
+            'Unavailable prices are not treated as zero.</p><div style="overflow-x:auto">'
+            + _table(('Ticker', 'Quantity', 'Close', 'Value', 'Book weight'), rows) + '</div></div></details>')
 
 
 def _esc(s) -> str:
@@ -602,9 +625,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       clearTimeout(refreshTimer);
       clearTimeout(deadline);
       var scroll = window.scrollY;
+      var expanded = Array.from(document.querySelectorAll('details[data-detail-key][open]'))
+        .map(function(item){{ return item.dataset.detailKey; }});
       document.open();
       document.write(html);
       document.close();
+      document.querySelectorAll('details[data-detail-key]').forEach(function(item){{
+        item.open = expanded.includes(item.dataset.detailKey);
+      }});
       window.scrollTo(0, scroll);
     }} catch (_error) {{
       invalidate(false);

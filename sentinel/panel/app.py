@@ -266,6 +266,8 @@ def panel_json() -> JSONResponse:
                  "stale": r.is_stale(p.now),
                  "future": r.is_future(p.now),
                  "required_current": r.required_current,
+                 "shadow_book": (r.shadow_book.model_dump(mode='json')
+                                 if r.shadow_book and r.effective_status(p.now) == model.OK else None),
                  "valid_until": (
                      r.valid_until.isoformat() if r.valid_until else None),
                  "recovery": (

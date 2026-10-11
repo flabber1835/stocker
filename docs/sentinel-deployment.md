@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[Operator dashboard refresh and inspection](operator-dashboard-refresh.md)
+defines bounded idle refresh, exact backup-renewal progress, current acquisition
+status, canonical holdings, and cycle-failure wording. Its operational schema
+migration is explicit and preserves the installed financial state.
+
 [Current dashboard evidence and idle leadership](current-dashboard-evidence.md)
 defines canonical account/runtime projection and live-owner lease renewal
 independent of financial writer contention. Acquisition and financial mutations
