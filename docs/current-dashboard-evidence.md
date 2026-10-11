@@ -92,3 +92,70 @@ remain amber and cannot claim order transport or a completed daily cycle. No
 notification acknowledgement, financial reset or runtime workaround is part of
 this repair. The exact new software must pass protected certification and the
 supported book-preserving upgrade before it is installed.
+
+## Stable refresh and explicit checking states
+
+Decision: 2026-10-11. The installed full verification takes longer than the
+former 30-second presentation lifetime. A successful check now has a maximum
+ten-minute lifetime measured from its original completion. After five minutes,
+one finite background check starts while the previous successful observation
+remains valid. This leaves the original five-minute worker budget within the
+remaining proof lifetime. Reads never move either deadline. Every HTTP request
+still reads the exact compact evidence key; any changed or unreadable key
+withdraws the old result immediately. Control, leadership, signed authority and
+other current operational rows continue to be read independently on each request.
+This lifetime is display evidence only and cannot authorize an order.
+
+If evidence changes while a previous-key check is running, the panel reports
+CHECK IN PROGRESS with an explicit explanation that it is waiting for the old
+check to finish before checking the new evidence. It retains no old verified
+numbers for the new key, starts no overlapping worker, and uses the old worker's
+original deadline. A bounded active observer supplies explicit recovery evidence
+to the shared color policy, so both HTML and JSON report amber before that
+deadline. A completed error, negative verification, malformed output, unreadable
+identity or exhausted worker remains red; a refresh error immediately withdraws
+an otherwise unexpired positive result. Only a complete successful new check can
+clear a known failure. Clock rollback and future-dated results cannot renew proof.
+While this bounded check is active, absent metrics say UNAVAILABLE in amber;
+retained metrics say LAST KNOWN in amber. Neither claims a verified number.
+A fully observed ordinary PAPER wait keeps the producer's amber classification
+instead of being reclassified as a failed required dependency. Positive completed
+rows remain required-current; original expiry and changed-key withdrawal apply
+to the whole completed observation.
+
+The full retained-data observer exceeded the old panel's 512 MiB ceiling in an
+isolated exact-reader measurement. The reviewed panel budget is 1 GiB with the
+same half CPU and single HTTP worker. Its single finite financial observer and
+request admission remain bounded; qualification measures peak memory with the
+actual retained data and complete Reader/JSON/HTML composition at this ceiling.
+This is a deployment resource correction, not permission to grow without limit.
+
+Qualification must compose the actual Reader, Panel, JSON and HTML projections;
+checking only the raw row's WARN status missed the installed false-red defect.
+Exercise repeated refreshes over several complete lifetimes, slow verification,
+key changes during work, observer failures, original expiry and bounded ownership.
+The source-admission catalog pins the exact changed presentation adapter and its
+installed predecessor; upgrade qualification must preserve the canonical book.
+
+The worker serializes dataclass rows, including nested recovery evidence. The
+parent reconstructs and validates that evidence before either operator surface
+consumes it. Malformed clocks, flags or recovery bounds are a failed observation,
+never a page-rendering exception or an implicitly active recovery.
+
+The browser's ordinary 30-second refresh starts a background request without
+withdrawing a still-current document's original 45-second validity. It does not
+reset that timestamp, extend its lifetime, or restore a withdrawn positive state.
+A rejected, malformed, non-current or timed-out response withdraws current
+styling immediately and retains the visible values as LAST KNOWN. Original age
+expiry also withdraws styling while a request is pending. Only a complete fresh
+server document can replace it. Offline events, return from a background tab and
+restoration from the browser's page cache still withdraw styling immediately.
+The single request, 15-second timeout and five-second retry bound remain.
+
+Qualification executes the rendered JavaScript over successive healthy document
+replacements, slow responses, original expiry during a read, failed responses
+and overlapping browser wakeups. Restoring the old premature invalidation and
+removing failure or age withdrawal must fail the behavioral acceptance checks.
+The executable admission catalog pins the exact installed renderer and reviewed
+replacement, alongside historical renderer bytes independently retained in the
+source-history manifests. No other presentation change is implicitly admitted.

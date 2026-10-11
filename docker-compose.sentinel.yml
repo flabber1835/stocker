@@ -177,10 +177,10 @@ services:
     # the convenience alias.
     image: ${SENTINEL_RUNTIME_IMAGE_REF:-sentinel:latest}
     restart: unless-stopped
-    # A read-only page has no business growing. Small on purpose: a phone
-    # refreshing every 30s must not be able to compete with the trading process
-    # for the host's memory.
-    mem_limit: 512m
+    # One finite full retained-data observer shares this bound with one HTTP
+    # worker. Measured verification exceeded 512 MiB; it remains capped and
+    # cannot multiply workers or repeat heavy reads on every phone refresh.
+    mem_limit: 1g
     cpus: 0.5
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]

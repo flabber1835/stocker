@@ -57,11 +57,70 @@ function fireDelay(delay) {
   entry[1].fn();
 }
 async function settled() { for (let i = 0; i < 8; i++) await Promise.resolve(); }
+function failRead(read) {
+  if (input.failure === 'timeout') { fireDelay(15000); return; }
+  read.resolve({ok: input.failure !== 'busy',
+    headers: {get: () => input.failure === 'cached' ? 'LAST_KNOWN' : 'CURRENT'},
+    text: async () => input.failure});
+}
 (async () => {
   const sourceHash = crypto.createHash('sha256').update(input.script).digest('hex');
   vm.runInNewContext(input.script, context, {
     filename: 'sentinel-panel-refresh://' + sourceHash
   });
+  if (input.wake.startsWith('ordinary-')) {
+    const cycles = input.wake === 'ordinary-healthy' ? 3 : 1;
+    for (let cycle = 0; cycle < cycles; cycle++) {
+      const original = Date.parse(document.body.dataset.generatedAt);
+      const first = reads.length;
+      now = original + 30000;
+      fireDelay(30000);
+      await settled();
+      assert.equal(reads.length, first + 1, 'ordinary refresh starts one read');
+      assert.equal(badge.className, 'state ok', 'unexpired document stays current');
+      assert.equal(Date.parse(document.body.dataset.generatedAt), original,
+        'a request must not renew the original document timestamp');
+      assert.equal(writes.length, 0);
+      if (input.wake === 'ordinary-failure') {
+        failRead(reads[first]);
+        await settled();
+        assert.equal(badge.className, 'state fail', 'failed refresh withdraws current');
+        assert(heartbeat.textContent.includes('last known'));
+        assert.equal(writes.length, 0);
+        now = original + 31000; fireDelay(1000);
+        assert.equal(badge.className, 'state fail', 'unexpired age cannot clear a known failure');
+        listeners.pageshow({persisted: true});
+        assert.equal(reads.length, first + 1, 'retry backoff prevents overlapping reads');
+        fireDelay(5000);
+        assert.equal(reads.length, first + 2);
+      } else if (input.wake === 'ordinary-slow') {
+        now = original + 44000; fireDelay(1000);
+        assert.equal(badge.className, 'state ok', 'slow read retains only unexpired proof');
+        assert(heartbeat.textContent.includes('UPDATED 44s'));
+        assert.equal(reads.length, first + 1);
+      } else if (input.wake === 'ordinary-expiry') {
+        now = original + Number(input.budget) * 1000 + 1; fireDelay(1000);
+        assert.equal(badge.className, 'state fail', 'original expiry withdraws current');
+        assert.equal(reads.length, first + 1, 'expiry cannot overlap the pending read');
+        now = original + 32000; fireDelay(1000);
+        assert.equal(badge.className, 'state fail', 'clock rollback cannot restore green');
+      }
+      const pending = reads.at(-1);
+      pending.resolve({ok: true, headers: {get: () => 'CURRENT'}, text: async () => 'fresh'});
+      await settled();
+      assert.deepEqual(writes, ['open', 'fresh', 'close']);
+      assert.equal(timers.size, 0, 'replacement removes every old document timer');
+      if (cycle + 1 < cycles) {
+        // Install the next server document and execute its actual controller.
+        document.body.dataset.generatedAt = new Date(now).toISOString();
+        badge.className = 'state ok'; badge.textContent = 'current';
+        writes.length = 0;
+        vm.runInNewContext(input.script, context);
+      }
+    }
+    process.stdout.write('PASS\n');
+    return;
+  }
   if (input.wake === 'fresh-age') {
     listeners.pageshow({persisted: false});
     assert.equal(reads.length, 0);

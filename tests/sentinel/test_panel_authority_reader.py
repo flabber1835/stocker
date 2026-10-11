@@ -2,6 +2,7 @@
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 import os
+import json
 from pathlib import Path
 from threading import Event
 import time
@@ -94,7 +95,9 @@ def test_configuration_change_does_not_deliver_or_retain_old_positive_result(mon
     value.read('fixture-database')
     assert entered.wait(1)
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'changed-fixture')
-    assert value.read('fixture-database')[0][0].status == model.UNKNOWN
+    changed = value.read('fixture-database')
+    assert changed[0][0].status == model.WARN
+    assert 'previous bounded check' in changed[0][0].detail and not changed[3]
     release.set()
     complete(value)
     rows = value.read('fixture-database')[0]
@@ -105,7 +108,7 @@ def test_configuration_change_does_not_deliver_or_retain_old_positive_result(mon
 
 @pytest.mark.parametrize('observed_at', [
     'not-a-clock',
-    datetime.now(timezone.utc)-timedelta(seconds=60),
+    datetime.now(timezone.utc)-timedelta(seconds=reader.FRESH_SECONDS+1),
     datetime.now(timezone.utc)+timedelta(minutes=2),
 ])
 def test_stale_future_or_malformed_observer_is_unknown(observed_at):
@@ -129,7 +132,7 @@ def test_accepting_stale_complete_proof_is_detected(monkeypatch):
     monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
     with pytest.raises(AssertionError):
         test_stale_future_or_malformed_observer_is_unknown(
-            datetime.now(timezone.utc)-timedelta(seconds=60))
+            datetime.now(timezone.utc)-timedelta(seconds=reader.FRESH_SECONDS+1))
 
 
 def test_observer_failure_does_not_echo_private_configuration():
@@ -303,8 +306,7 @@ def test_full_observer_refuses_an_identity_change_during_verification(monkeypatc
 def test_a_failed_check_cannot_be_restyled_as_an_owned_wait(monkeypatch):
     import inspect, textwrap
     source = textwrap.dedent(inspect.getsource(reader.Reader.read)).replace(
-        'self.pending_key == key and self.failure is None',
-        'self.pending_key == key and True')
+        'self.failure is None', 'True')
     namespace = {}
     exec(compile(source, 'negative-observer-falsifier', 'exec'), reader.__dict__, namespace)
     monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
@@ -327,3 +329,245 @@ def test_deliberate_open_cutover_is_waiting_without_claiming_execution(monkeypat
     assert 'no new order was sent' in paper.detail
     assert model.automation_cycle_row(installed=True, enabled=True,
         cycle_id='fixture', state='SUPERSEDED', failure_code='OTHER_FAILURE').status == model.FAIL
+
+
+def surfaces(monkeypatch, output, now):
+    """Compose the real API and renderer; raw WARN alone is insufficient."""
+    from sentinel.panel import app
+    from sentinel.panel.render import render
+    rows, _, _, errors = output
+    page = model.Panel(rows=rows, source_errors=errors, now=now)
+    monkeypatch.setattr(app, '_config', lambda: (Path('/fixture'), ''))
+    monkeypatch.setattr(app, 'build_panel', lambda **kwargs: page)
+    actual = json.loads(app.panel_json().body)
+    html = render(page)
+    for row in actual['rows']:
+        assert f'data-key="{row["key"]}" data-status="{row["status"]}"' in html
+    return actual, html
+
+
+def test_bounded_check_is_amber_in_actual_json_and_html_until_original_deadline(monkeypatch):
+    now = datetime.now(timezone.utc)
+    deadline = now+timedelta(seconds=reader.DEADLINE_SECONDS)
+    output = reader._unknown(True, 'full verification running', checking_until=deadline)
+    actual, html = surfaces(monkeypatch, output, now)
+    assert actual['operational'] == model.WARN and actual['overall'] == model.WARN
+    assert all(row['color'] == 'amber' for row in actual['rows'])
+    assert 'OPERATIONAL RED — OPERATOR ACTION REQUIRED' not in html.split('<script', 1)[0]
+    for row in actual['rows']:
+        if row['value'] == 'CHECK IN PROGRESS':
+            assert row['status'] == model.WARN and row['color'] == 'amber'
+            assert row['recovery']['active'] and row['valid_until'] == deadline.isoformat()
+    assert not actual['source_errors'] and 'EVIDENCE UNREADABLE' not in html
+    expired, _ = surfaces(monkeypatch, output, deadline+timedelta(microseconds=1))
+    assert expired['rows'][0]['status'] == model.FAIL
+    assert not expired['rows'][0]['recovery']['active']
+
+
+def test_removing_bounded_progress_evidence_is_detected_by_public_surfaces(monkeypatch):
+    import inspect, textwrap
+    body = textwrap.dedent(inspect.getsource(reader._unknown))
+    old = "recovery=model.RecoveryEvidence(\n                            phase='FINANCIAL_VERIFICATION', automatic=True,\n                            deadline=checking_until)"
+    assert old in body
+    namespace = {}
+    exec(compile(body.replace(old, 'recovery=None'), 'red-running-check-falsifier', 'exec'), reader.__dict__, namespace)
+    monkeypatch.setattr(reader, '_unknown', namespace['_unknown'])
+    with pytest.raises(AssertionError):
+        test_bounded_check_is_amber_in_actual_json_and_html_until_original_deadline(monkeypatch)
+
+
+def test_successful_background_refresh_keeps_original_proof_and_one_worker(monkeypatch):
+    clock = [0.0]
+    origin = datetime.now(timezone.utc)
+    entered, release = Event(), Event()
+    calls = []
+    def run(*a, **k):
+        calls.append(clock[0])
+        if len(calls) > 1:
+            entered.set()
+            assert release.wait(3)
+        value = result()
+        value['observed_at'] = origin+timedelta(seconds=clock[0])
+        return value
+    value = reader.Reader(runner=run, clock=lambda: clock[0],
+                          wall_clock=lambda: origin+timedelta(seconds=clock[0]))
+    value.read('fixture'); complete(value)
+    first = value.read('fixture')[0][0].as_of
+    # Several full lifetimes, each with a slow but bounded proactive refresh.
+    for iteration in range(4):
+        clock[0] += reader.REFRESH_SECONDS
+        release.clear(); entered.clear()
+        fresh = value.read('fixture')
+        assert entered.wait(1)
+        try:
+            for _ in range(20):
+                actual, _ = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+                assert all(r['status'] == model.OK for r in actual['rows'])
+                assert actual['rows'][0]['as_of'] == first.isoformat()
+            assert len(calls) == iteration+2
+            clock[0] += reader.DEADLINE_SECONDS-1
+            assert value.read('fixture')[0][0].as_of == first
+        finally:
+            release.set(); complete(value)
+        first = value.read('fixture')[0][0].as_of
+        assert first == value.wall_clock()
+
+
+@pytest.mark.parametrize('defect', ['exception', 'shape', 'negative'])
+def test_failed_refresh_immediately_withdraws_unexpired_positive_proof(monkeypatch, defect):
+    clock = [0.0]
+    origin = datetime.now(timezone.utc)
+    calls = []
+    def run(*a, **k):
+        calls.append(1)
+        value = result()
+        value['observed_at'] = origin+timedelta(seconds=clock[0])
+        if len(calls) > 1:
+            if defect == 'exception': raise TimeoutError('not disclosed')
+            if defect == 'shape': value['rows'][0]['value'] = None
+            if defect == 'negative': value['rows'][0]['status'] = model.FAIL
+        return value
+    value = reader.Reader(runner=run, clock=lambda: clock[0],
+                          wall_clock=lambda: origin+timedelta(seconds=clock[0]))
+    value.read('fixture'); complete(value)
+    assert value.read('fixture')[0][0].status == model.OK
+    clock[0] = reader.REFRESH_SECONDS
+    value.read('fixture'); complete(value)
+    actual, _ = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+    assert actual['rows'][0]['status'] in {model.FAIL, model.UNKNOWN}
+    assert value.failure is not None
+
+
+def test_changed_key_waits_without_unreadable_label_or_renewing_old_deadline(monkeypatch):
+    entered, release = Event(), Event()
+    clock = [100.0]
+    origin = datetime.now(timezone.utc)
+    identity = ['before']
+    calls = []
+    def run(*a, **k):
+        calls.append(1); entered.set()
+        assert release.wait(3)
+        return result()
+    value = reader.Reader(runner=run, clock=lambda: clock[0],
+        wall_clock=lambda: origin+timedelta(seconds=clock[0]-100),
+        evidence_reader=lambda *a: identity[0])
+    try:
+        first = value.read('fixture')[0][0]
+        assert entered.wait(1)
+        for change in ('publication', 'plan', 'control', 'book'):
+            identity[0] = change
+            clock[0] += 10
+            actual, html = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+            assert actual['rows'][0]['status'] == model.WARN
+            assert actual['rows'][0]['valid_until'] == first.valid_until.isoformat()
+            assert actual['rows'][1]['value'] == 'UNAVAILABLE'
+            assert not actual['source_errors'] and 'EVIDENCE UNREADABLE' not in html
+        assert len(calls) == 1
+        clock[0] = 100+reader.DEADLINE_SECONDS
+        assert value.read('fixture')[0][0].status == model.UNKNOWN
+    finally:
+        release.set(); complete(value)
+
+
+@pytest.mark.parametrize('state', ['NOT_STARTED', 'PENDING', 'CLEAN', 'MISMATCH'])
+def test_completed_paper_state_keeps_producer_classification_on_public_surfaces(monkeypatch, state):
+    actual_result = result()
+    paper = model.paper_reconciliation_row(state=state, cycle_state='WAITING_OPEN')
+    actual_result['rows'][3] = asdict(paper)
+    value = reader.Reader(runner=lambda *a, **k: actual_result)
+    value.read('fixture'); complete(value)
+    actual, _ = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+    by_key = {row['key']: row for row in actual['rows']}
+    assert by_key['shadow_verification']['status'] == model.OK
+    assert by_key['paper_reconciliation']['status'] == paper.status
+    assert value.failure is None if state != 'MISMATCH' else value.failure is not None
+
+
+def test_delayed_http_consumption_keeps_original_completion_time(monkeypatch):
+    completed_at = datetime.now(timezone.utc)-timedelta(seconds=45)
+    actual_result = result()
+    actual_result['observed_at'] = completed_at
+    value = reader.Reader(runner=lambda *a, **k: actual_result)
+    value.read('fixture'); complete(value)
+    actual, _ = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+    assert actual['rows'][0]['status'] == model.OK
+    assert actual['rows'][0]['as_of'] == completed_at.isoformat()
+    value.wall_clock = lambda: completed_at+timedelta(seconds=reader.FRESH_SECONDS+1)
+    expired = value.read('fixture')
+    assert expired[0][0].status != model.OK
+    complete(value)
+
+
+def test_clock_rollback_never_delivers_a_future_completed_proof():
+    actual_result = result()
+    value = reader.Reader(runner=lambda *a, **k: actual_result)
+    value.read('fixture'); complete(value)
+    assert value.read('fixture')[0][0].status == model.OK
+    value.wall_clock = lambda: actual_result['observed_at']-timedelta(seconds=1)
+    assert value.read('fixture')[0][0].status != model.OK
+    complete(value)
+
+
+def test_completed_nested_recovery_is_materialized_on_both_surfaces(monkeypatch):
+    actual_result = result()
+    deadline = actual_result['observed_at']+timedelta(seconds=90)
+    actual_result['rows'][3] = asdict(model.Row(
+        'paper_reconciliation', 'Paper reconciliation', 'CHECK IN PROGRESS',
+        model.WARN, required_current=True, valid_until=deadline,
+        recovery=model.RecoveryEvidence(phase='RECONCILING', automatic=True,
+                                       deadline=deadline)))
+    value = reader.Reader(runner=lambda *a, **k: actual_result)
+    value.read('fixture'); complete(value)
+    actual, _ = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+    paper = next(row for row in actual['rows'] if row['key'] == 'paper_reconciliation')
+    assert paper['status'] == model.WARN and paper['recovery']['active']
+    value.wall_clock = lambda: deadline+timedelta(seconds=1)
+    expired, _ = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+    assert next(row for row in expired['rows']
+                if row['key'] == 'paper_reconciliation')['status'] == model.FAIL
+
+
+@pytest.mark.parametrize('field,invalid', [
+    ('recovery', {'phase': 'WAIT', 'automatic': 'false'}),
+    ('recovery', {'phase': 'WAIT', 'automatic': True, 'deadline': 'later'}),
+    ('recovery', {'phase': 'WAIT', 'automatic': True, 'maximum_attempts': True}),
+    ('valid_until', 'later'), ('required_current', 'false'),
+])
+def test_malformed_nested_observer_fields_fail_before_public_projection(monkeypatch, field, invalid):
+    actual_result = result()
+    actual_result['rows'][3][field] = invalid
+    value = reader.Reader(runner=lambda *a, **k: actual_result)
+    value.read('fixture'); complete(value)
+    actual, _ = surfaces(monkeypatch, value.read('fixture'), value.wall_clock())
+    assert actual['rows'][0]['status'] == model.UNKNOWN
+    assert actual['source_errors'] and value.completed is None
+
+
+def test_disabling_proactive_refresh_is_detected(monkeypatch):
+    import inspect, textwrap
+    body = textwrap.dedent(inspect.getsource(reader.Reader.read))
+    old = 'age >= timedelta(seconds=REFRESH_SECONDS)'
+    assert old in body
+    namespace = {}
+    exec(compile(body.replace(old, 'False'), 'refresh-falsifier', 'exec'), reader.__dict__, namespace)
+    monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
+    with pytest.raises(AssertionError):
+        test_successful_background_refresh_keeps_original_proof_and_one_worker(monkeypatch)
+
+
+def test_replaying_green_after_failed_refresh_is_detected(monkeypatch):
+    import inspect, textwrap
+    body = textwrap.dedent(inspect.getsource(reader.Reader.read))
+    old = "if error is not None:\n                    self.completed = None"
+    assert old in body
+    namespace = {}
+    exec(compile(body.replace(old, 'if error is not None:\n                    pass'), 'failed-refresh-falsifier', 'exec'), reader.__dict__, namespace)
+    monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
+    with pytest.raises(AssertionError):
+        test_failed_refresh_immediately_withdraws_unexpired_positive_proof(monkeypatch, 'exception')
+
+
+def test_skipping_nested_recovery_materialization_is_detected(monkeypatch):
+    monkeypatch.setattr(reader, '_row_from_observation', lambda row: model.Row(**row))
+    with pytest.raises(AttributeError, match='active'):
+        test_completed_nested_recovery_is_materialized_on_both_surfaces(monkeypatch)

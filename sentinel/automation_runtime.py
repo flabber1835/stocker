@@ -567,6 +567,9 @@ class ProductionAutomation:
     def _raise_authority_refusal(self, exc):
         if isinstance(exc, StaleLeaderRefused):
             raise exc
+        temporary = classify_dependency_failure(exc)
+        if isinstance(temporary, TransientInfrastructureFailure):
+            raise temporary from exc
         if isinstance(exc, (AuthorityRefused, RuntimeError)):
             raise NonRetryableCallbackRefused(
                 f"automation authority/integrity refusal: "
@@ -602,9 +605,12 @@ class ProductionAutomation:
                 raise RuntimeError(
                     "current automation binding and signed authority differ")
         except Exception as exc:                              # noqa: BLE001
-            self._record_authority_verdict(
-                conn, permit, verdict="FAIL",
-                detail=f"{type(exc).__name__}: {exc}")
+            if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
+                conn.rollback()
+            else:
+                self._record_authority_verdict(
+                    conn, permit, verdict="FAIL",
+                    detail=f"{type(exc).__name__}: {exc}")
             self._raise_authority_refusal(exc)
         self._record_authority_verdict(
             conn, permit, verdict="PASS",
@@ -639,9 +645,12 @@ class ProductionAutomation:
                     "old-generation cycle lacks current fenced read-only "
                     "recovery adoption")
         except Exception as exc:                              # noqa: BLE001
-            self._record_authority_verdict(
-                conn, context.permit, verdict="FAIL",
-                detail=f"{type(exc).__name__}: {exc}")
+            if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
+                conn.rollback()
+            else:
+                self._record_authority_verdict(
+                    conn, context.permit, verdict="FAIL",
+                    detail=f"{type(exc).__name__}: {exc}")
             self._raise_authority_refusal(exc)
         self._record_authority_verdict(
             conn, context.permit, verdict="PASS",
@@ -1562,6 +1571,12 @@ class ProductionAutomation:
             # fence or crash the scheduler; its next tick acquires a new permit.
             conn.rollback()
             return None
+        except TransientInfrastructureFailure:
+            # No authority verdict was obtained. Retain the original cycle and
+            # proof clock; the next finite poll must run the full gate again.
+            conn.rollback()
+            return _now_utc()+timedelta(
+                seconds=self.automation_config.control_poll_seconds)
         except NonRetryableCallbackRefused as exc:
             # A WAITING_OPEN worker otherwise has no callback boundary at
             # which certificate expiry/revocation can latch.  The control poll

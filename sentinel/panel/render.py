@@ -607,6 +607,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       document.close();
       window.scrollTo(0, scroll);
     }} catch (_error) {{
+      invalidate(false);
       heartbeat.textContent = "Refreshing status · showing last known values";
       retryTimer = setTimeout(function(){{ retryTimer = null; refreshDocument(); }}, 5000);
     }} finally {{
@@ -653,7 +654,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }});
   if (wentOffline){{ invalidate(false); }}
   ageTimer = setInterval(checkAge, 1000);
-  refreshTimer = setTimeout(function(){{ invalidate(true); }}, {refresh_seconds * 1000});
+  refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, {refresh_seconds * 1000});
   checkAge();
   if (document.body.dataset.refreshPending === "true"){{ invalidate(true); }}
 }})();
