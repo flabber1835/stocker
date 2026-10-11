@@ -37,6 +37,12 @@ catalog while automation is fenced. Routine runtime validation performs no
 DDL. The migration preserves all rows and control generations. A database
 trigger makes progress records append-only and keeps each attempt's original
 identity and deadline immutable across its ordered phases.
+The explicit installer also retains the previously supported callback-liveness
+and subscription-recipient upgrades. Each is admitted only from its complete
+reviewed catalog, with narrow additive statements and final exact validation;
+unrecognized catalogs remain refused. Callback installation precedes the
+existing fenced cycle-key migration, then the fenced backup-progress migration,
+in one transaction. Recipient eligibility keeps its original creation time.
 Installation must create a fresh base and complete its semantic restore with
 the new image after the catalog migration, before restarting recurring
 maintenance or releasing paper automation. An older physical backup still

@@ -200,6 +200,10 @@ _PRE_BACKUP_PROGRESS_CATALOG_SHA256 = (
     "d11dc34bcab1ce9ff25605de38032d0d85db76c0c39e67e07e68c94913b49d19")
 _PRE_GENERATION_CATALOG_SHA256 = (
     "cbb48b11f28cd828a69b03f7cb8c8ed1fcdc23bbf9d40e40fc62c5f6254d31ae")
+_PRE_CALLBACK_CATALOG_SHA256 = (
+    "9d80e0801cf8c8e98b739e337eab3d883f3aac3495e47766b3214423ff90b7c1")
+_PRE_RECIPIENT_CATALOG_SHA256 = (
+    "ea2efedcd676a0a1e88922e19409fc0b4da6b160dc46039a88909dafed366ebb")
 _GENERATION_CYCLE_UNIQUE = "sentinel_automation_cycles_generation_key"
 _GENERATION_CYCLE_COLUMNS = (
     "deployment_id,broker,broker_account_id,takeover_epoch,"
@@ -2141,6 +2145,23 @@ def ensure_schema(conn) -> None:
                 stage4_sha = _semantic_catalog_sha256(
                         relations, columns, constraints, indexes, triggers,
                         _STAGE4_TABLES)
+                if stage4_sha == _PRE_CALLBACK_CATALOG_SHA256:
+                    for statement in DDL:
+                        if statement.startswith('ALTER TABLE sentinel_automation_service_instances'):
+                            cur.execute(statement)
+                    _migrate_generation_cycles(cur, _read_catalog(cur))
+                    _migrate_backup_progress(cur, _read_catalog(cur))
+                    _validate_stage4_runtime(cur, _read_catalog(cur))
+                    conn.commit()
+                    return
+                if stage4_sha == _PRE_RECIPIENT_CATALOG_SHA256:
+                    for statement in DDL:
+                        if (statement.startswith('ALTER TABLE sentinel_web_push_subscriptions')
+                                or statement.startswith('UPDATE sentinel_web_push_subscriptions')):
+                            cur.execute(statement)
+                    _validate_stage4_runtime(cur, _read_catalog(cur))
+                    conn.commit()
+                    return
                 if stage4_sha == _PRE_GENERATION_CATALOG_SHA256:
                     _migrate_generation_cycles(cur, catalog)
                     _migrate_backup_progress(cur, _read_catalog(cur))
@@ -2161,6 +2182,8 @@ def ensure_schema(conn) -> None:
                     # locks; a no-op installer must not contend with readers.
                     conn.commit()
                     return
+                if 'sentinel_alert_health_cursor' not in relations:
+                    raise _operator_refusal('Stage-4 alert health cursor is missing; routine startup will not reseed occurrence history')
                 raise _operator_refusal('Stage-4 unrecognized operational catalog; explicit migration requires an exact reviewed predecessor')
             else:
                 bootstrap_kind = _classify_markerless(
