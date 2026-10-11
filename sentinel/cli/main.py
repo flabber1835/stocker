@@ -378,6 +378,14 @@ def build_parser() -> argparse.ArgumentParser:
     activate_automation.add_argument(
         "--confirm-enable-unattended-alpaca-paper-automation",
         action="store_true", required=True)
+    recovery = sub.add_parser('authorize-unsent-paper-recovery',
+        help='authorize a fresh unsent prospective cycle; leaves kill engaged')
+    for flag in ('confirm-paper-account', 'confirm-deployment-id',
+                 'confirm-certificate-sha256', 'decision-session',
+                 'blocked-cycle-id', 'actor', 'reason'):
+        recovery.add_argument('--' + flag, required=True)
+    recovery.add_argument('--confirm-old-writer-fenced', action='store_true', required=True)
+    recovery.add_argument('--confirm-authorize-unsent-paper-recovery', action='store_true', required=True)
     release_automation = sub.add_parser(
         "release-paper-automation-kill-switch",
         help="separately release the enabled paper automation kill switch")

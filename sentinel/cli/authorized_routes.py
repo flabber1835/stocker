@@ -26,6 +26,7 @@ ROUTES = {
     "rotate-system-certificate": authority._activate_system_certificate,
     "set-paper-rollout-mode": authority._set_paper_rollout_mode,
     "activate-paper-automation": automation._activate_paper_automation,
+    "authorize-unsent-paper-recovery": automation._authorize_unsent_paper_recovery,
     "release-paper-automation-kill-switch": (
         automation._release_paper_automation_kill),
     "automation-run": automation._automation_run,

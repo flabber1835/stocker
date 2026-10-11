@@ -83,10 +83,20 @@ def validate_control_lineage(
                     "kill-release binding disagrees with activation authority")
             kill_engaged = False
         elif action == "KILL_ENGAGED":
-            if not enabled or kill_engaged:
-                raise AutomationRefused(
-                    "automation control history contains an invalid kill engagement")
-            kill_engaged = True
+            if detail.get('schema') == 'sentinel.unsent-recovery/1':
+                from sentinel.automation.unsent_recovery import decode_authorization
+                try:
+                    authorization = decode_authorization(detail)
+                except (ValueError, TypeError) as exc:
+                    raise AutomationRefused('malformed unsent recovery control event') from exc
+                if (not enabled or not kill_engaged or binding is None
+                        or authorization.binding != binding):
+                    raise AutomationRefused('unsent recovery lacks fenced activation authority')
+            else:
+                if not enabled or kill_engaged:
+                    raise AutomationRefused(
+                        "automation control history contains an invalid kill engagement")
+                kill_engaged = True
         else:
             raise AutomationRefused(
                 f"automation control history contains unknown action {action!r}")

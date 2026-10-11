@@ -197,6 +197,10 @@ ordinary recovery returns `SUPERSEDED` from `EXECUTING`, the durable path is
 
 ### Prospective obligations across software upgrades
 
+[Explicit unsent recovery](unsent-cycle-recovery.md) adds the sole reviewed
+exception for an operator-authorized temporary-contention block. The ordinary
+replacement policy below and all transport, identity and window guards remain.
+
 Decision: 2026-10-10. A generation change still terminalizes an old unsent
 cycle and can never execute its old plan. It must also permit a **fresh** plan
 for the same decision's future execution session when activation completes

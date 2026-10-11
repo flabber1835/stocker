@@ -1,0 +1,55 @@
+{
+  "additions": {
+    "automation/unsent_recovery.py": "43a4dc5a902168e625b7725d45661d619851cfdfb136b8f0be34aff2216c20c0"
+  },
+  "files": {
+    "automation/control_integrity.py": {
+      "after": "35e40a241e0cd60b5320defd4e30a549442717401c8c705b5eb74fd6c1c928b7",
+      "before": [
+        "f46463b9a831133eeb1b7f1ef9264b0c946b52b37a841c4f2fc3a5a81cdee2cb"
+      ]
+    },
+    "automation/integrity.py": {
+      "after": "9c8f5658fde7cefd216fdb4398f1d0ef425c7ba4b73cac6d1766a2bdf76d5bc3",
+      "before": [
+        "1ba3283723137298392de7dff8a5e9f351c8705176d3250239441085010303d4",
+        "9a2997a9fddd7d5276678b092ae9c1573e81fb3d6c0d25c83e51cad43bef1627"
+      ]
+    },
+    "automation/store.py": {
+      "after": "c8c10c4297a00db63b61af3860aa76a2fe0e374f5470b552552895ae504d5c7b",
+      "before": [
+        "0987cfc82136cfceded68f63cd84118ea723b6e312119a32bd3cb232a64833c1",
+        "367bca885418536ca7ae8515b72de0723e850c1ff665a7494e1e7aeb042d0566",
+        "92f66c071546d4d83fc8dff201f908908ae7b8d0ae6151b0fdfc18a74ed63ccb",
+        "b004134a758a1d63a0fc7d718d8cd1c6e8371f45641f64f6793cacf40b5f76f4"
+      ]
+    },
+    "cli/_shared.py": {
+      "after": "c6614c74ae647b072c4eac8fcd9b47dc260c77ed600ddb1e927c42691057ac7d",
+      "before": [
+        "cdac66dc56d17dbcef4c0d55a3bb806317a139d4ba435e5b63231eaf62215cf7"
+      ]
+    },
+    "cli/authorized_routes.py": {
+      "after": "f64d983212959708b97e3d27f9cdfedec42434cf47978c52d02284ac16d9cf3e",
+      "before": [
+        "c55473d20c3947cc0a51773e18ada6a733f9732499b81df73288db59815f9624"
+      ]
+    },
+    "cli/automation.py": {
+      "after": "a7c2071baf7016edad0dff6152cc3b35fe55c0f60da4f604ae0dc816a40ac836",
+      "before": [
+        "47fc4f96f4e4208ab842453a695bb630b520754153c9a9d78d9aec05c923dbd8"
+      ]
+    },
+    "cli/main.py": {
+      "after": "d7a823af93b4738e2c4e20a030da79420e184d29f26d800f31dd2e57c409aba8",
+      "before": [
+        "ebc5014f1b9c6ace9374e8743c912a34fbf911b59bd7c194ab1bc32ba2baa253"
+      ]
+    }
+  },
+  "module_sha256": "215359195856ec237429926c203de26f8589d7eab3d5574e46750ba1be12d901",
+  "schema": "sentinel.unsent-recovery-upgrade/1"
+}

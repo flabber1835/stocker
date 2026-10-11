@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Unsent cycle recovery](unsent-cycle-recovery.md) defines explicit operator
+authorization for a fresh prospective cycle after a reviewed temporary-lock
+misclassification, retaining the failed cycle and all execution fences.
+
 [Operator dashboard refresh and inspection](operator-dashboard-refresh.md)
 defines bounded idle refresh, exact backup-renewal progress, current acquisition
 status, canonical holdings, and cycle-failure wording. Its operational schema

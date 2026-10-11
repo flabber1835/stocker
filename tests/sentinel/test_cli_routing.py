@@ -50,6 +50,7 @@ EXPECTED_OWNERS = {
     "automation-status": "sentinel.cli.automation",
     "automation-health": "sentinel.cli.automation",
     "activate-paper-automation": "sentinel.cli.automation",
+    "authorize-unsent-paper-recovery": "sentinel.cli.automation",
     "release-paper-automation-kill-switch": "sentinel.cli.automation",
     "engage-paper-automation-kill-switch": "sentinel.cli.automation",
     "deactivate-paper-automation": "sentinel.cli.automation",
@@ -81,7 +82,7 @@ def test_cli_has_one_parser_construction_and_one_parse_call():
 def test_every_command_has_one_static_direct_owner():
     combined = {**cli_main.ROUTES, **AUTHORIZED_ROUTES}
     assert set(combined) == set(EXPECTED_OWNERS)
-    assert len(combined) == 42
+    assert len(combined) == 43
     assert not (set(cli_main.ROUTES) & set(AUTHORIZED_ROUTES))
     for command, owner in EXPECTED_OWNERS.items():
         assert combined[command].__module__ == owner, command
