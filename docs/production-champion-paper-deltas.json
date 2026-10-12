@@ -77,10 +77,16 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "377a7a1117642848b8795426b4d1dd5d543adf086be9228cacc71ca6b7862695",
+      "generated_ast_sha256": "71daedf243da22fdcb3e3c8f6f4838c6c601b32621199cf78651a7f9427c72b8",
       "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
       "module": "execution",
-      "reason": "Admit the sealed bare transport before composition and preserve reviewed informational current-book scope through execution preflight and settlement. PR #491: Pass independently verified dual scope to the exact retained-state plan guard; all existing sizing, reconciliation, opening-window and broker authority guards remain.",
+      "open_time_acceptance": [
+        "tests/sentinel/test_open_time_verification.py::test_gateway_guarded_reads_reuse_first_canonical_proof",
+        "tests/sentinel/test_open_time_verification.py::test_gateway_rejects_real_retained_tamper_before_broker_interaction",
+        "tools/sentinel_open_time_falsifiers.py"
+      ],
+      "open_time_design": "docs/open-time-verification-and-alerts.md",
+      "reason": "Admit the sealed bare transport before composition and preserve reviewed informational current-book scope through execution preflight and settlement. PR #491: Pass independently verified dual scope to the exact retained-state plan guard; all existing sizing, reconciliation, opening-window and broker authority guards remain. PR #511: Warm the immutable proof scope inside the existing writer and publication pin before the gateway verifies the retained book; do not extend its locks, callback deadline or opening-increase window.",
       "retained_acceptance": [
         "tests/sentinel/test_retained_admission_chain.py",
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
@@ -100,10 +106,16 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "eb6e72c7fd3e4661d25ad02d3c26e83f5fa44275bce0bed687f0f7fd8bd8dd0d",
+      "generated_ast_sha256": "f832dc1d6b28d18fb6c418484b0c3aa396a68db3f586b3ec29ca961cb0eb033e",
       "historical_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
       "module": "validation",
-      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation."
+      "open_time_acceptance": [
+        "tests/sentinel/test_open_time_verification.py::test_gateway_guarded_reads_reuse_first_canonical_proof",
+        "tests/sentinel/test_open_time_verification.py::test_gateway_rejects_real_retained_tamper_before_broker_interaction",
+        "tools/sentinel_open_time_falsifiers.py"
+      ],
+      "open_time_design": "docs/open-time-verification-and-alerts.md",
+      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation. PR #511: Reuse only the exact live gateway owner scope; retain fresh signed authority, grant, lease, plan, time and mutation checks around every broker operation."
     },
     "_informational_active_symbols": {
       "generated_ast_sha256": "40752dd7a661317132596995792cf2ca3445eafcf83e1ea52de614f2f61272f0",
