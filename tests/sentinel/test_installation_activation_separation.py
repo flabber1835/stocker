@@ -202,6 +202,50 @@ def test_owned_configuration_checkpoint_allows_only_canonical_updates(monkeypatc
     assert activate.digest(phase_request.parent / 'installation-receipt.json') == original
 
 
+@pytest.mark.parametrize('defect', [None, 'confirmation', 'date', 'extra', 'shadow'])
+def test_optional_unsent_recovery_request_is_strict_and_keeps_old_requests_valid(phase_request, defect):
+    old, _ = activate.validate_request(phase_request)
+    assert old['schema'] == 'sentinel.activation-request/1' and 'unsent_recovery' not in old
+    value = {'blocked_cycle_id': 'b'*64, 'decision_session': '2026-10-12',
+             'actor': 'owner', 'reason': 'reviewed unsent failure', 'confirmed': True}
+    if defect == 'confirmation': value['confirmed'] = False
+    if defect == 'date': value['decision_session'] = '2026-02-31'
+    if defect == 'extra': value['bypass'] = True
+    old.update(schema='sentinel.activation-request/2', unsent_recovery=value)
+    if defect == 'shadow': old['mode'] = 'shadow'
+    records.write_document(phase_request, old)
+    if defect:
+        with pytest.raises(core.DeployRefused): activate.validate_request(phase_request)
+    else:
+        assert activate.validate_request(phase_request)[0]['unsent_recovery'] == value
+
+
+def test_queue_recovery_requires_separate_explicit_confirmation(tmp_path):
+    with pytest.raises(SystemExit):
+        activate.main(['--queue-from-installation', str(tmp_path/'missing'), '--mode', 'dual',
+            '--unsent-blocked-cycle-id', 'b'*64, '--unsent-decision-session', '2026-10-12',
+            '--unsent-recovery-actor', 'owner', '--unsent-recovery-reason', 'reviewed incident'])
+
+
+def test_actual_queue_seals_explicit_recovery_in_the_immutable_request(monkeypatch, phase_request):
+    observed = []
+    def handoff(path):
+        value, _ = activate.validate_request(path)
+        observed.append((path, value))
+        return {'activation_state': 'SUPERVISED'}
+    monkeypatch.setattr(activate, 'handoff', handoff)
+    assert activate.main(['--queue-from-installation', str(phase_request.parent/'installation-receipt.json'),
+        '--mode', 'dual', '--unsent-blocked-cycle-id', 'b'*64,
+        '--unsent-decision-session', '2026-10-12', '--unsent-recovery-actor', 'owner',
+        '--unsent-recovery-reason', 'reviewed incident', '--confirm-authorize-unsent-recovery']) == 0
+    assert len(observed) == 1
+    path, value = observed[0]
+    assert value['schema'] == 'sentinel.activation-request/2'
+    assert value['unsent_recovery']['confirmed'] is True
+    assert value['unsent_recovery']['blocked_cycle_id'] == 'b'*64
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
 @pytest.mark.parametrize('available,ack', [(False, False), (True, False), (True, True),
                                          (True, 'dead'), (True, 'wrong-pid')])
 def test_handoff_requires_exact_independent_systemd_owner(monkeypatch, phase_request, available, ack):

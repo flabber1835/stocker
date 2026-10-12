@@ -68,6 +68,19 @@ confirmations. Then release the kill through its existing contract and verify a
 fresh Tuesday plan reaches `WAITING_OPEN` before opening. Use the existing
 certified operator CLI and writer-handoff proofs; never start a blocked dispatcher
 as an intermediate activation test or bypass an authority check.
+
+Expose this insertion as an explicit, reusable activation request, not a custom
+driver override. Normal requests retain schema version 1 and never recover
+cycles. Version 2 seals a confirmed unsent-recovery payload (blocked cycle,
+decision session, actor and reason) in the same immutable request. Queue creation
+requires the separate explicit recovery confirmation; shadow-only requests
+refuse it. Both canonical paper activation implementations call the existing
+authorized recovery CLI after backup verification and stopped-writer proofs,
+while control is enabled and killed, immediately before ordinary kill release.
+Require the CLI receipt to match the requested cycle/session and newly activated
+certificate, retain it in the activation evidence, and refuse release on any
+failed or ambiguous recovery. All financial eligibility remains owned by the
+certified generic recovery CLI. Completed activation requests remain one-shot.
 An authorization or a healthy process alone does not establish trading readiness.
 
 The shadow incident is a third boundary error: a worker that began against the

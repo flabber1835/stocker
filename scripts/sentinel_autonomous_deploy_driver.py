@@ -678,6 +678,8 @@ c.rollback(); c.close()
         self.establish_activation_backup()
         self.assert_activation_timing(decision_session)
         self._require_activation_writers_stopped()
+        from sentinel_activation_recovery import authorize_requested
+        authorize_requested(self, certificate_sha256, decision_session)
         self._authorized_cli([
             "release-paper-automation-kill-switch",
             "--confirm-paper-account", self.cfg.account_id,
