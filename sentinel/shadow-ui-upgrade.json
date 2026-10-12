@@ -1,0 +1,44 @@
+{
+  "additions": {
+    "shadow_service_status.py": "575a34da2c7b9f83dd32471bd40516d2c73fa43d23e619338a43678dc53e3a7e"
+  },
+  "files": {
+    "panel/presentation.py": {
+      "after": "e28d3f4ecdc0202ed97e67a2994d89d246e0397d4675fcf47cd3968f59adebbe",
+      "before": [
+        "96bc717b2eae1f5cf3ca01acea5e8bd5369c469b872e5d06b745854a4345b59d",
+        "f4acb54053c1c9c1ac00553f9190b18fc80ee02f7223389ed16d1dced2efa126"
+      ]
+    },
+    "panel/render.py": {
+      "after": "3043d88be9c596f24062929939aeef49731d07b8c084b12bdd05b9925b611aaa",
+      "before": [
+        "67506b518fa45b506ec2969930399097d6f31f9b43e7f9c4c53b72fe253a97c1",
+        "7d78424f1ea5a7ae91b09748ca93cd684c5b53aabce9c0778f7a0ced4e6d1e06",
+        "f405dd2cad1d788f888a17e0a2fa7829dc350561307286b506815c06907cc94d",
+        "f502d58f243d25a4ea5e327d566cf04fc4682ce878bb271d9a3eec3db9fb203a"
+      ]
+    },
+    "panel/sources.py": {
+      "after": "30c1cbc1bb18d8f6b0f6d037dfee7da178998ff51de3407b370f1875550a9360",
+      "before": [
+        "0d0efbb3e1a3c37fe69104bf6cb1af09111251afd1d6b5527d2f76d051689afd",
+        "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
+        "26da5ab10c8fe9790319030ee2edfee801015291ae7a6f78d86681f9e4c8b592",
+        "2be282ce317ebf34f716643dd9dddb970c4cf0fb1aa9e8bfd8f91736f72e5956",
+        "4a82d1296e12fcc507713762baaf22ca4d26edcf8f7580d5300f158dc1f34fc8",
+        "4f9c279c08d326cfb8a6452545b74cd0632f1567d2c5f50fdb7a923995a37328",
+        "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17"
+      ]
+    },
+    "shadow_supervisor.py": {
+      "after": "5abbf4d33ffc3686131ae8bc8ea2b3f7567e5d7e3a29b84b45420e71b08cd004",
+      "before": [
+        "dfda2df42978b2d257ea3d4982a86f672ba7719cb9a82da958b50c76891db0d3",
+        "f197100adf5682a1b5435e44a332d611bc7602093674243ecdd9b57223437c89"
+      ]
+    }
+  },
+  "module_sha256": "e919357af3df42a7e5ad8a33c320b5d42a63879881b368a8f5cd69a83a06dcdf",
+  "schema": "sentinel.shadow-ui-upgrade/1"
+}

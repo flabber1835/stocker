@@ -46,7 +46,8 @@ def executable(ready, monkeypatch, request):
                   'stable_dashboard_preceding': '14776aff',
                   'active_dashboard_preceding': '36520537',
                   'due_poll_preceding': '85a1d270',
-                  'unsent_recovery_preceding': '13a54fd6'}
+                  'unsent_recovery_preceding': '13a54fd6',
+                  'shadow_ui_preceding': '00f3ef09'}
     if getattr(request, 'param', None) in historical:
         revision = historical[request.param]
         manifest = json.loads((Path(__file__).parent/
@@ -58,7 +59,8 @@ def executable(ready, monkeypatch, request):
         for name, record in profile()['files'].items():
             old[name] = record['before'][0]
     if getattr(request, 'param', None) not in historical:
-        old['shadow_supervisor.py'] = hashlib.sha256(b'prior reviewed supervisor').hexdigest()
+        from sentinel.shadow_ui_upgrade import profile as worker_profile
+        old['shadow_supervisor.py'] = worker_profile()['files']['shadow_supervisor.py']['before'][0]
     env = {'compatible': True, 'sentinel_source': {'path': str(root), 'files': len(actual), 'hash': admission.source_closure(actual)},
            'wealth_core_source': {'hash': '2'*64}, 'dependencies': 'fixed'}
     old_env = deepcopy(env)

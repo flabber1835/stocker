@@ -61,9 +61,12 @@ def test_baseline_file_is_pinned(monkeypatch, tmp_path):
 def closure(tmp_path, monkeypatch):
     root = tmp_path/'sentinel'
     root.mkdir()
-    original = {'strategy.py': b'# exact economic source\n', 'shadow_supervisor.py': b'# original supervision\n'}
+    from sentinel import shadow_ui_upgrade as worker_upgrade
+    reviewed_supervisor = (Path(worker_upgrade.__file__).parent/'shadow_supervisor.py').read_bytes()
+    original = {'strategy.py': b'# exact economic source\n', 'shadow_supervisor.py': reviewed_supervisor}
     old_files = {name: hashlib.sha256(raw).hexdigest() for name, raw in original.items()}
-    current = {**original, 'shadow_supervisor.py': b'# reviewed supervision fix\n',
+    old_files['shadow_supervisor.py'] = worker_upgrade.profile()['files']['shadow_supervisor.py']['before'][0]
+    current = {**original,
                'runtime_admission.py': b'# reviewed admission module\n'}
     for name, raw in current.items():
         (root/name).write_bytes(raw)

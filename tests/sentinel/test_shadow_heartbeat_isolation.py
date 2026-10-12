@@ -17,6 +17,9 @@ from types import SimpleNamespace
 from sentinel import shadow_supervisor as shadow
 
 root, mode = Path(sys.argv[1]), sys.argv[2]
+os.environ.update(SENTINEL_GIT_COMMIT='1'*40, SENTINEL_RUNTIME_IMAGE_DIGEST='sha256:'+'2'*64,
+                  SENTINEL_DATABASE_URL='postgresql://qualification/sentinel',
+                  SENTINEL_PUBLICATION_RECEIPT_KEY='qualification-receipt-key-00000000000000')
 shadow.ShadowServiceConfig.from_env = lambda: SimpleNamespace(poll_seconds=.01)
 shadow.LATCH_FILE = root / 'absent-latch'
 shadow.shadow_worker_liveness.ACTIVE_FILE = root / 'active-worker.json'

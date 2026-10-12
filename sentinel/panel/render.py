@@ -300,7 +300,7 @@ def _row_html(r: Row, now: datetime) -> str:
         suffix = " · STALE" if stale else ""
         age_html = f'<div class="{cls}">{_esc(age)}{suffix}</div>'
     return (
-        f'<div class="row {st}" data-key="{_esc(r.key)}" data-status="{st}">'
+        f'<div class="row {st}" id="status-{_esc(r.key)}" data-key="{_esc(r.key)}" data-status="{st}">'
         f'<div class="dot {st}">{_DOT.get(st, "?")}</div>'
         f'<div class="label">{_esc(label)}</div>'
         f'<div class="value">{_esc(value)}</div>'
@@ -457,6 +457,11 @@ def _detail_sections(panel: Panel) -> str:
 def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
            refresh_pending: bool = False) -> str:
     now = panel.now
+    document_age = PRESENTATION_MAX_AGE_SECONDS
+    worker = panel.row('shadow_worker')
+    if worker is not None and worker.effective_status(now) == OK and worker.valid_until is not None:
+        document_age = min(document_age, max(0, (worker.valid_until-now).total_seconds()))
+        refresh_seconds = min(refresh_seconds, max(1, int(document_age)-15))
     overall = panel.overall
     operational = panel.operational
     if operational == OK:
@@ -530,6 +535,16 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         rendered_rows = [replace(row, status=UNKNOWN,
             detail='LAST KNOWN · not current · ' + row.detail) for row in rendered_rows]
     rows = "".join(_row_html(r, now) for r in rendered_rows)
+    reasons = []
+    for row in rendered_rows:
+        status = row.effective_status(now)
+        if status in {FAIL, UNKNOWN}:
+            label, value, _ = describe(row, status)
+            reasons.append(f'<li><a href="#status-{_esc(row.key)}">'
+                           f'{_esc(label)}: {_esc(value)}</a></li>')
+    reason_html = ('<section class="status-reasons" aria-label="Checks needing attention">'
+                   '<strong>Needs attention</strong><ul>'+''.join(reasons)+'</ul></section>'
+                   if reasons else '')
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
     return f"""<!doctype html>
@@ -548,13 +563,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 <style>{CSS}{CASINO_CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
-             data-max-age-seconds="{PRESENTATION_MAX_AGE_SECONDS}">
+             data-max-age-seconds="{document_age}">
 {CASINO_STAGE}
 <div class="wrap">
 <header>
   <div class="brand"><img src="/static/caesars-palace-192.png" alt="">
     <h1>{_esc(page_heading)}</h1></div>
   <span id="operational-state" class="state {headline_status}">{_esc(operational_headline)}</span>
+  {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
         aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO'}</span>
   {CASINO_ACCENT}

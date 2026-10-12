@@ -24,8 +24,9 @@ def test_callback_transition_is_exact_and_neighbor_change_refuses(closure, name)
         from sentinel.startup_contention_upgrade import source_allowed
         from sentinel.operational_runtime_upgrade import source_allowed as subsequent
         from sentinel.unsent_recovery_upgrade import source_allowed as recovery
+        from sentinel.shadow_ui_upgrade import source_allowed as monitoring
         assert (source_allowed(name, record['after'], actual) or subsequent(name, record['after'], actual)
-                or recovery(name, record['after'], actual))
+                or recovery(name, record['after'], actual) or monitoring(name, record['after'], actual))
     assert all(upgrade.source_allowed(name, previous, record['after']) for previous in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)

@@ -4,6 +4,7 @@ from __future__ import annotations
 from sentinel.panel.model import Row, FINANCIAL_AUTHORITY_ROW_KEYS
 
 _COPY = {
+    'shadow_worker': ('Strategy worker', 'Checks that the worker updating the simulated portfolio is running. A verified saved portfolio can still be displayed while its worker is halted.'),
     'shadow_verification': ('Simulated portfolio check', 'Checks that the strategy portfolio was built correctly from the available market data. This is separate from your Alpaca account.'),
     'shadow_nav': ('Simulated portfolio value', 'The value of the strategy’s simulated shares and cash. This is not the balance in your Alpaca paper account.'),
     'shadow_return': ('Strategy gain or loss', 'The simulated strategy’s gain or loss since its starting book, excluding money added to a broker account.'),
@@ -56,6 +57,8 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
         copy = _STEPS.get(key.removeprefix('automation_step_'))
     label, explanation = copy or (row.label, row.detail)
     value = row.value
+    if key == 'shadow_worker' and row.status == 'ok' and status != 'ok':
+        value = 'WORKER STATUS NOT CURRENT'
     if row.recovery is not None and row.recovery.phase == 'FINANCIAL_VERIFICATION' and status == 'warn':
         explanation += ' A fresh verification is running. This can happen after the dashboard has been idle; last-known numbers keep their original timestamp.'
     if key == 'backup_restore' and value == 'BACKUP CHECK IN PROGRESS':
@@ -77,6 +80,8 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
             explanation += ' This part has not started or is not enabled.'
     if key in FINANCIAL_AUTHORITY_ROW_KEYS and status != 'ok':
         explanation += ' This result is unverified; do not treat it as confirmed performance.'
+    if status != 'ok' and row.detail.startswith(('LAST KNOWN · ', 'NOT CURRENT · LAST KNOWN · ')):
+        value = 'LAST KNOWN · '+value.removeprefix('LAST KNOWN · ')
     return label, value, explanation
 
 
@@ -117,6 +122,8 @@ body{background:radial-gradient(ellipse at 12% 0%,#59345388,transparent 45%),
 .wrap{position:relative;z-index:1;max-width:620px}
 header{padding:20px 18px;border:1px solid #a7844655;border-radius:22px;
  background:linear-gradient(125deg,#292039ef,#141723ef);box-shadow:0 8px 40px #0005}
+.status-reasons{margin-top:12px;font-size:13px;line-height:1.5}
+.status-reasons ul{margin:6px 0;padding-left:20px}.status-reasons a{color:var(--fail)}
 h1{font-size:20px;letter-spacing:.16em;color:#f7d78c;font-family:Georgia,serif}
 .brand img{border:1px solid #bd9355;width:48px;height:48px}
 .row,.push-card,details{background:linear-gradient(135deg,#222333f5,#171926f5);border-color:#494338}
