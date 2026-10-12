@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from sentinel import open_time_upgrade
 
 from sentinel import callback_liveness_upgrade as upgrade, runtime_admission as admission
 from sentinel.feed.rolling_contract import digest
@@ -28,7 +29,8 @@ def test_callback_transition_is_exact_and_neighbor_change_refuses(closure, name)
         from sentinel.dashboard_monitor_upgrade import source_allowed as dashboard
         assert (source_allowed(name, record['after'], actual) or subsequent(name, record['after'], actual)
                 or recovery(name, record['after'], actual) or monitoring(name, record['after'], actual)
-                or dashboard(name, record['after'], actual))
+                or dashboard(name, record['after'], actual)
+                or open_time_upgrade.source_allowed(name, record['after'], actual))
     assert all(upgrade.source_allowed(name, previous, record['after']) for previous in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)

@@ -55,7 +55,7 @@ def test_actual_lock_contention_is_availability_at_both_worker_boundaries(conn, 
         conn.rollback()
         assert isinstance(automation_runtime.classify_dependency_failure(caught.value),
                           TransientInfrastructureFailure)
-        assert shadow_worker.main() == shadow_worker.EXIT_AVAILABILITY
+        assert shadow_worker.main() == shadow_worker.EXIT_DEPENDENCY_UNAVAILABLE
     # Lock release, not a changed authority or reset, restores ordinary access.
     with journal.writer_lock(conn), store.corpus_write_lock(conn):
         assert conn.execute('SELECT 42').fetchone()[0] == 42
@@ -129,7 +129,7 @@ def test_real_rolling_worker_recovers_without_reset_or_duplicate_state(
                         lambda cfg: shadow_recovery.advance_once(cfg, now=NOW))
     before = conn.execute('SELECT cursor_name,session,state FROM sentinel_processed_sessions ORDER BY cursor_name,session').fetchall()
     with _contended(conn, boundary):
-        assert shadow_worker.main() == shadow_worker.EXIT_AVAILABILITY
+        assert shadow_worker.main() == shadow_worker.EXIT_DEPENDENCY_UNAVAILABLE
         assert conn.execute('SELECT cursor_name,session,state FROM sentinel_processed_sessions ORDER BY cursor_name,session').fetchall() == before
         conn.rollback()
     assert shadow_worker.main() == 0

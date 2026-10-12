@@ -20,6 +20,7 @@ EXIT_REFUSED = 2
 EXIT_WAITING = 10
 EXIT_RETRY = 11
 EXIT_AVAILABILITY = 12
+EXIT_DEPENDENCY_UNAVAILABLE = 13
 
 
 def _sharadar_availability(exc: BaseException) -> bool:
@@ -71,6 +72,19 @@ def _availability_failure(exc: BaseException) -> bool:
     return False
 
 
+def _availability_exit(exc: BaseException) -> int:
+    """Keep typed local/DB/backup deferrals separate from missing source."""
+    current: BaseException | None = exc
+    seen = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if (database_unavailable(current) or local_contention(current)
+                or _backup_availability(current)):
+            return EXIT_DEPENDENCY_UNAVAILABLE
+        current = current.__cause__ if isinstance(current, ShadowServiceRetry) else None
+    return EXIT_AVAILABILITY
+
+
 def main() -> int:
     try:
         config = ShadowServiceConfig.from_env()
@@ -86,11 +100,11 @@ def main() -> int:
     except backup_guard.BackupWriteFenced as exc:
         # BackupUnavailable and legacy generic BackupWriteFenced are transient.
         print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
-        return EXIT_AVAILABILITY
+        return EXIT_DEPENDENCY_UNAVAILABLE
     except ShadowServiceRetry as exc:
         if _availability_failure(exc):
             print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
-            return EXIT_AVAILABILITY
+            return _availability_exit(exc)
         print(f"RETRY: {exc}", file=sys.stderr, flush=True)
         return EXIT_RETRY
     except (ShadowServiceRefused, shadow_runtime.ShadowRuntimeRefused) as exc:
@@ -100,7 +114,7 @@ def main() -> int:
         if not _availability_failure(exc):
             raise
         print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
-        return EXIT_AVAILABILITY
+        return _availability_exit(exc)
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -1,0 +1,89 @@
+{
+  "additions": {
+    "retained_input_namespaces.py": "5a5bc3dd39123f258e492eb310201488349e10cf53373899d0d538bd086db852"
+  },
+  "files": {
+    "automation_runtime.py": {
+      "after": "ec97acbca88207b251d2131cf96397ccc6ba1054aed5008c749aad3652b40dcb",
+      "before": [
+        "310287f990f4989582bab2c7b884eabc909d30f2278f131d06f8cb95f32604ba",
+        "3bf28bed17ad66e7bca97814b394abd4ad7f2256920c611c8ec9e5de228db9ca",
+        "7a250ade04d19d581f6aed1b57ba729e88505819de610ef4e588bfbf79da6f4c",
+        "eb098713f6cf4a364a00ae11265a1894cf097cb1b9d2c31ef07fc758fe8ee2a6"
+      ]
+    },
+    "panel/authority_reader.py": {
+      "after": "9db4267d1260d2efe396f1eb98858bb4b647ac705f42e45e61176273f0d0882c",
+      "before": [
+        "0f4f5283529fd15ca0aabf1602923138583f67029965d83c57c36085ef4dcfa6",
+        "3d6a5afcd6e5e77013b594bd81b282fb247594186dc27087617d11fd0722f717",
+        "6db870b265b5a0c5b57dd4343129c02af0834c16f6c461b610d8d47b96a59628",
+        "751ca45f89970be68254a58fce980027797b546559cb82325e4064048ff11958",
+        "89831f5f8fb290fce930d33847d431a9229398fed752e2037667683d2b83c3d4",
+        "9c767cf45e5af6d8f27230ec79a3ddc5b62a94dc897ffd46949164a954e82dbe"
+      ]
+    },
+    "panel/model.py": {
+      "after": "e461dacf76fa452f6480d657a3bc457bff0adbff018b8272a9383cf9f5fc150b",
+      "before": [
+        "1f75c63bc5b4178c79d46c9fe8173cf60dd49c5d549a624fc0576738d16123ea",
+        "740ceb271fc971656ed0541433cfcb3cac6ee890d96436ae8816926a6216c776",
+        "7dcd668f75a27634f2520fdad6cf40d477f6989c8c9ed8f293bf64373e91b73c",
+        "8725a25072fde7c10842fb1f8273d1ff49880aabb1280deafbe3467f7fc4a554",
+        "c6742be2fc12294f840219123758804ddab3e949484aa9bce088450489a733fe"
+      ]
+    },
+    "panel/sources.py": {
+      "after": "e8ac8a78aa2d1cd453b85519551927bda43ab87750bb9dc745e1278647db2a7e",
+      "before": [
+        "0d0efbb3e1a3c37fe69104bf6cb1af09111251afd1d6b5527d2f76d051689afd",
+        "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
+        "26da5ab10c8fe9790319030ee2edfee801015291ae7a6f78d86681f9e4c8b592",
+        "2be282ce317ebf34f716643dd9dddb970c4cf0fb1aa9e8bfd8f91736f72e5956",
+        "30c1cbc1bb18d8f6b0f6d037dfee7da178998ff51de3407b370f1875550a9360",
+        "4a82d1296e12fcc507713762baaf22ca4d26edcf8f7580d5300f158dc1f34fc8",
+        "4f9c279c08d326cfb8a6452545b74cd0632f1567d2c5f50fdb7a923995a37328",
+        "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17",
+        "fcad027cac68e1373f461a7191d6b3c1423fe2be4f18bb26ea56c12dcf58fdf4"
+      ]
+    },
+    "paper/execution.py": {
+      "after": "63a6571d7c1cfcdfcd2ccaf9e5e66fe13e1bfe918bfbbe064a74f7d3c5c5814e",
+      "before": [
+        "30a7bbd634f4916ab0cc4a112c358f1f1bb39e5ab1aad470bf46fca09f9967a5",
+        "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
+        "88ab64e4e985b8d23f61f2074024d8e0bf6c51b2df6184fc0d2c9bfd28ae00ca"
+      ]
+    },
+    "paper/validation.py": {
+      "after": "adc7be4e82d185dabfff32c8e6f7bd2de0380a09f4d9a35abf64d7cd43deac92",
+      "before": [
+        "40202c5142664a04ee68dbc0e4e912f1897475245ba7e98d32b1ac05c71e9565",
+        "5a1284301dff77ce2da4b147b38167561c5d93ec279cfef855f623c342afd5b5",
+        "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a"
+      ]
+    },
+    "shadow_supervisor.py": {
+      "after": "6d6f44d4363d41ff8d20274a8318f5a0a5079fcd34e770621e2eb80a800a0fc8",
+      "before": [
+        "5abbf4d33ffc3686131ae8bc8ea2b3f7567e5d7e3a29b84b45420e71b08cd004",
+        "dfda2df42978b2d257ea3d4982a86f672ba7719cb9a82da958b50c76891db0d3",
+        "f197100adf5682a1b5435e44a332d611bc7602093674243ecdd9b57223437c89"
+      ]
+    },
+    "shadow_worker.py": {
+      "after": "09f6ad851e5373c17591e93c5406be41131e94121922b50bece119004c26e9f0",
+      "before": [
+        "c46d2cb1c6ec635deb836173f6a8b72fe2cb8cbf684694276c9596f5cc726ee8"
+      ]
+    },
+    "structural_verification.py": {
+      "after": "cf04409818079b566a9781c419872ee3f623b069f78eef6405bd8b71c27a985e",
+      "before": [
+        "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
+      ]
+    }
+  },
+  "module_sha256": "06556b501b586a1878e184ed7b1c1abda06a457b51088267ecba9a67c04b889c",
+  "schema": "sentinel.open-time-upgrade/1"
+}

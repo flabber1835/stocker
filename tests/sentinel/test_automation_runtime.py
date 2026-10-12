@@ -762,7 +762,7 @@ async def test_scoped_recovery_retries_and_expires_without_operator_latch(monkey
 
 
 @async_test
-async def test_dual_run_refuses_before_broker_construction_when_shadow_differs(
+async def test_dual_run_propagates_gateway_shadow_refusal_without_repeat_verification(
         monkeypatch) -> None:
     cfg = config()
     current_plan = plan()
@@ -786,16 +786,23 @@ async def test_dual_run_refuses_before_broker_construction_when_shadow_differs(
         runtime, "_broker",
         lambda *_args, **_kwargs: broker_builds.append(True))
 
-    def mismatch(*_args, **_kwargs):
-        raise NonRetryableCallbackRefused(
+    monkeypatch.setattr(runtime, "_require_dual_plan_shadow_match",
+                        lambda *_a, **_k: pytest.fail("adapter repeated gateway proof"))
+
+    async def gateway_refusal(**kwargs):
+        assert kwargs["conn"] is conn
+        assert kwargs["grant"].operation_scope == "EXECUTE"
+        assert kwargs["automation_config_sha256"] == cfg.fingerprint
+        assert kwargs["dual_shadow_observation_id"] == runtime._shadow_observation_id
+        raise automation_runtime.paper.PaperActivationRefused(
             "dual-run plan/shadow reconciliation refused")
 
-    monkeypatch.setattr(runtime, "_require_dual_plan_shadow_match", mismatch)
+    monkeypatch.setattr(automation_runtime.paper, "execute_automated_paper_plan", gateway_refusal)
 
     with pytest.raises(
             NonRetryableCallbackRefused, match="plan/shadow"):
         await runtime.execute(ctx)
-    assert broker_builds == []
+    assert broker_builds == [True]
 
 
 @async_test

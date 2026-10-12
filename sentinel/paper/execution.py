@@ -235,7 +235,8 @@ async def _execute_current_paper_plan(
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
         _controller_config, strategy_identity = _default_paper_strategy()
-        with feed_inputs.pinned(conn, commit=False) as pinned:
+        from sentinel import structural_verification
+        with feed_inputs.pinned(conn, commit=False) as pinned, structural_verification.callback(conn):
             feed_inputs.require_shadow_mode(pinned, dual_mode)
             _readiness_or_refuse(conn, now_et=now_et)
             frontier = feed_inputs.frontier(conn)

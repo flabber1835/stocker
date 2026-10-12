@@ -371,7 +371,8 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
                   dual_shadow_starting_cash: Decimal | str | None = None
                   ) -> GuardedExecutionBroker:
     from sentinel.structural_verification import Scope
-    structural = Scope(conn)
+    from sentinel.structural_verification import owned
+    structural = owned(conn) or Scope(conn)
 
     def validate(fresh, current_grant, operation, result):
         with structural.guard(fresh):
