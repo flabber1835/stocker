@@ -2411,15 +2411,20 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
 
 def _bounded_dual_authority_rows(database_url, *, now, include_paper=True):
     del now
+    from sentinel.panel.verification_monitor import monitor
+    monitored = monitor.read(database_url, include_paper=include_paper)
+    if monitored is not None:
+        return monitored
     from sentinel.panel.authority_reader import reader
     return reader.read(database_url, include_paper=include_paper)
 
 
 def _shadow_worker_row(state_dir, database_url):
-    from sentinel import shadow_service_status as status, supervisor_io
+    from sentinel import shadow_service_status as status, shadow_service_probe as probe, supervisor_io
     try:
-        value = supervisor_io.run(status.read, Path(state_dir), database_url,
-                                  timeout=2, start_method='spawn')
+        snapshot = supervisor_io.run(probe.observe, Path(state_dir),
+                                     timeout=2, start_method='spawn')
+        value = status.decode_probe(snapshot, database_url)
         reason = value['reason']
         running = value['state'] == 'RUNNING'
         labels = {'IDLE': 'RUNNING · WAITING FOR NEXT CHECK',

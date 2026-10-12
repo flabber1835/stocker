@@ -10,6 +10,7 @@ from sentinel import startup_contention_upgrade as upgrade, runtime_admission as
 from sentinel import operational_runtime_upgrade as subsequent
 from sentinel import unsent_recovery_upgrade as recovery_upgrade
 from sentinel import shadow_ui_upgrade as monitoring_upgrade
+from sentinel import dashboard_monitor_upgrade as dashboard_upgrade
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
@@ -26,7 +27,8 @@ def test_only_exact_reviewed_service_upgrade_is_allowed(closure, name):
     if actual != record['after']:
         assert (subsequent.source_allowed(name, record['after'], actual)
                 or recovery_upgrade.source_allowed(name, record['after'], actual)
-                or monitoring_upgrade.source_allowed(name, record['after'], actual))
+                or monitoring_upgrade.source_allowed(name, record['after'], actual)
+                or dashboard_upgrade.source_allowed(name, record['after'], actual))
     assert all(upgrade.source_allowed(name, prior, record['after']) for prior in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)

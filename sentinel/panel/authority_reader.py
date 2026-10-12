@@ -24,20 +24,24 @@ def _evidence(database_url, include_paper):
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
         conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        facts = [conn.execute(query).fetchall() for query in (
+        # This namespace is execution's informational broker mirror, never an
+        # input to the immutable book. All other retained cursors remain bound.
+        facts = [conn.execute(
             "SELECT cursor_name,session,xmin::text,ctid::text FROM sentinel_processed_sessions "
-            "ORDER BY cursor_name",
+            "WHERE %s OR cursor_name NOT LIKE 'informational-paper-mirror:v1:%%' ORDER BY cursor_name",
+            (include_paper,)).fetchall()]
+        facts.extend(conn.execute(query).fetchall() for query in (
             "SELECT version,xmin::text,ctid::text FROM sentinel_corpus_publications "
             "ORDER BY version DESC LIMIT 1",
             "SELECT md5(to_jsonb(r)::text) FROM sentinel_rollout_state r WHERE id=1",
-        )]
+            "SELECT plan_id,md5(to_jsonb(p)::text) FROM sentinel_execution_plans p "
+            "WHERE superseded_by IS NULL ORDER BY plan_id",
+        ))
         if include_paper:
             facts.extend(conn.execute(query).fetchall() for query in (
                 "SELECT enabled,generation,kill_switch_engaged,certificate_sha256 "
                 "FROM sentinel_automation_control WHERE id=1",
                 "SELECT md5(to_jsonb(b)::text) FROM sentinel_account_binding b WHERE id=1",
-                "SELECT plan_id,md5(to_jsonb(p)::text) FROM sentinel_execution_plans p "
-                "WHERE superseded_by IS NULL ORDER BY plan_id",
                 "SELECT cycle_id,state,plan_id,plan_fingerprint,last_clean_reconciliation_id "
                 "FROM sentinel_automation_cycles ORDER BY decision_session DESC,created_at DESC LIMIT 1",
                 "SELECT seq FROM sentinel_observations ORDER BY seq DESC LIMIT 1",
@@ -155,11 +159,17 @@ def _row_from_observation(value):
 
 class Reader:
     def __init__(self, *, runner=None, clock=time.monotonic, wall_clock=None,
-                 evidence_reader=None):
+                 evidence_reader=None, observer=None, expected_keys=None,
+                 unknown_factory=None, execution_slot=None, scope_label=None):
         self.runner = runner or supervisor_io.run
         self.clock = clock
         self.wall_clock = wall_clock or (lambda: datetime.now(timezone.utc))
         self.evidence_reader = evidence_reader or _evidence
+        self.observer = observer or _observe
+        self.expected_keys = expected_keys
+        self.unknown = unknown_factory or _unknown
+        self.execution_slot = execution_slot
+        self.scope_label = scope_label or 'full retained financial verification'
         self.lock = Lock()
         self.pending = None
         self.answer = None
@@ -171,21 +181,35 @@ class Reader:
         self.pending_key = None
         self.pending_at = None
         self.pending_clock = None
+        self.work_started = None
+        self.work_clock = None
 
     def _work(self, key, database_url, include_paper):
+        acquired = False
         try:
-            value = self.runner(_observe, database_url, include_paper, key,
+            if self.execution_slot is not None:
+                acquired = self.execution_slot.acquire(timeout=DEADLINE_SECONDS)
+                if not acquired:
+                    raise TimeoutError('financial verification slot wait expired')
+                with self.lock:
+                    self.work_started = self.wall_clock()
+                    self.work_clock = self.clock()
+            value = self.runner(self.observer, database_url, include_paper, key,
                 timeout=DEADLINE_SECONDS, start_method='spawn')
             answer = (key, value, None, self.wall_clock())
         except Exception as exc:
             # No dependency exception (which might include private config) is
             # echoed. Its classified type is enough for the operator.
             answer = (key, None, type(exc).__name__, self.wall_clock())
+        finally:
+            if acquired:
+                self.execution_slot.release()
         with self.lock:
             self.answer = answer
             self.pending = None
 
-    def read(self, database_url, *, include_paper=True):
+    def read(self, database_url, *, include_paper=True, allow_start=True,
+             awaiting_until=None, awaiting_since=None):
         try:
             key = _key(database_url, include_paper,
                        self.evidence_reader(database_url, include_paper))
@@ -193,7 +217,7 @@ class Reader:
             with self.lock:
                 self.completed = None
                 self.retained = None
-            return _unknown(include_paper, 'current financial identity unreadable: '+type(exc).__name__)
+            return self.unknown(include_paper, 'current financial identity unreadable: '+type(exc).__name__)
         with self.lock:
             if key != self.configuration:
                 self.configuration = key
@@ -216,6 +240,8 @@ class Reader:
                                         'exposure', 'book', 'terminals'}
                             if include_paper:
                                 expected.add('paper_reconciliation')
+                            if self.expected_keys is not None:
+                                expected = self.expected_keys
                             if (not isinstance(value, dict)
                                     or set(value) != {'rows', 'errors', 'observed_at'}
                                     or not isinstance(value['rows'], list)
@@ -246,8 +272,9 @@ class Reader:
                                 required_current=(row.get('required_current', False)
                                                   or row['status'] != model.WARN))
                                 for row in value['rows']]
-                            if any(row.key == 'shadow_verification'
-                                   and row.status == model.OK for row in rows):
+                            if (any(row.key == 'shadow_verification'
+                                   and row.status == model.OK for row in rows)
+                                    or self.expected_keys == frozenset({'paper_reconciliation'})):
                                 self.retained = rows
                             self.completed = (rows, value['errors'], observed)
                             negative = [row for row in rows if row.status in {
@@ -275,31 +302,56 @@ class Reader:
                 else:
                     self.completed = None
             refresh_due = fresh is None or age >= timedelta(seconds=REFRESH_SECONDS)
-            if (refresh_due and self.pending is None
+            if (allow_start and refresh_due and self.pending is None
                     and self.clock()-self.last_attempt >= RETRY_SECONDS):
                 self.last_attempt = self.clock()
                 self.pending_clock = self.last_attempt
                 self.pending_key = key
                 self.pending_at = self.wall_clock()
+                self.work_started = None
+                self.work_clock = None
                 self.pending = Thread(target=self._work,
                     args=(key, database_url, include_paper), daemon=True,
                     name='sentinel-panel-financial-observer')
                 self.pending.start()
             if fresh is not None:
+                if self.pending is not None and self.pending_key == key:
+                    rows, details, history, errors = fresh
+                    rows = [replace(row, detail=row.detail+' · background refresh running; last verified '+observed.isoformat())
+                            if row.status == model.OK else row for row in rows]
+                    return rows, details, history, errors
                 return fresh
             if self.pending is not None:
                 detail = 'full retained financial verification is running'
+                deadline_clock = self.pending_clock + DEADLINE_SECONDS
+                deadline = self.pending_at+timedelta(seconds=DEADLINE_SECONDS)
+                if self.execution_slot is not None:
+                    if self.work_started is None:
+                        detail = self.scope_label+' is queued behind the current bounded check'
+                    else:
+                        deadline_clock = min(self.work_clock+DEADLINE_SECONDS,
+                                             self.pending_clock+2*DEADLINE_SECONDS)
+                        deadline = min(self.work_started+timedelta(seconds=DEADLINE_SECONDS),
+                                       self.pending_at+timedelta(seconds=2*DEADLINE_SECONDS))
+                        detail = self.scope_label+' is running'
+                    detail += (' · elapsed '+str(max(0, int(self.clock()-self.pending_clock)))
+                               +'s · deadline '+deadline.isoformat())
                 if (self.failure is None
-                        and 0 <= self.clock()-self.pending_clock < DEADLINE_SECONDS
+                        and self.pending_clock <= self.clock() < deadline_clock
                         and self.pending_at <= self.wall_clock()
-                            < self.pending_at+timedelta(seconds=DEADLINE_SECONDS)):
+                            < deadline):
                     if self.pending_key != key:
                         detail = ('current financial evidence changed; waiting for the previous '
                                   'bounded check to finish before checking current evidence')
-                    return _unknown(include_paper, detail, self.retained,
-                                    checking_until=self.pending_at+timedelta(
-                                        seconds=DEADLINE_SECONDS))
-            return _unknown(include_paper, self.failure or detail, self.retained)
+                    return self.unknown(include_paper, detail, self.retained,
+                                        checking_until=deadline)
+            if (self.pending is None and self.failure is None and not allow_start
+                    and awaiting_until is not None and awaiting_since is not None
+                    and timedelta(0) < awaiting_until-awaiting_since <= timedelta(seconds=60)
+                    and awaiting_since <= self.wall_clock() < awaiting_until):
+                return self.unknown(include_paper, self.scope_label+' awaits the next monitor check',
+                                    self.retained, checking_until=awaiting_until)
+            return self.unknown(include_paper, self.failure or detail, self.retained)
 
 
 reader = Reader()

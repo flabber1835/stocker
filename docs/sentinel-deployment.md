@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Dashboard verification monitor](dashboard-verification-monitor.md) separates
+independent shadow and PAPER display proofs, refreshes them without an open
+browser, and preserves finite observers, original validity and failure visibility.
+
 [Unsent cycle recovery](unsent-cycle-recovery.md) defines explicit operator
 authorization for a fresh prospective cycle after a reviewed temporary-lock
 misclassification, retaining the failed cycle and all execution fences.

@@ -18,6 +18,7 @@ no broker and has no mutation authority.
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from functools import wraps
 from pathlib import Path
 from threading import BoundedSemaphore
@@ -33,7 +34,21 @@ from sentinel.panel.render import REFRESH_SECONDS, render
 from sentinel.panel.push_enrollment import router as push_enrollment_router
 from sentinel.panel.sources import build_panel
 
-app = FastAPI(title="Caesar's Palace", docs_url=None, redoc_url=None)
+@asynccontextmanager
+async def _verification_lifespan(_app):
+    from sentinel.panel.verification_monitor import monitor
+    _state, database_url = _config()
+    mode = os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE', '').strip().lower()
+    if database_url and mode in {'dual', 'shadow'}:
+        monitor.start(database_url, include_paper=mode == 'dual')
+    try:
+        yield
+    finally:
+        monitor.stop()
+
+
+app = FastAPI(title="Caesar's Palace", docs_url=None, redoc_url=None,
+              lifespan=_verification_lifespan)
 app.include_router(push_enrollment_router)
 _STATIC_DIR = Path(__file__).with_name("static")
 _PANEL_BUILD_SLOT = BoundedSemaphore(1)
