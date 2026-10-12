@@ -2415,6 +2415,34 @@ def _bounded_dual_authority_rows(database_url, *, now, include_paper=True):
     return reader.read(database_url, include_paper=include_paper)
 
 
+def _shadow_worker_row(state_dir, database_url):
+    from sentinel import shadow_service_status as status, supervisor_io
+    try:
+        value = supervisor_io.run(status.read, Path(state_dir), database_url,
+                                  timeout=2, start_method='spawn')
+        reason = value['reason']
+        running = value['state'] == 'RUNNING'
+        labels = {'IDLE': 'RUNNING · WAITING FOR NEXT CHECK',
+                  'ACTIVE_WORKER': 'RUNNING · CHECKING STRATEGY',
+                  'CRITICAL_LATCH': 'HALTED · INTEGRITY FENCE',
+                  'UNACKNOWLEDGED_WORKER': 'HALTED · INTERRUPTED WORK',
+                  'STOPPED': 'STOPPED'}
+        return model.Row('shadow_worker', 'Strategy worker', labels[reason],
+            model.OK if running else model.FAIL,
+            ('The publisher is running. Portfolio verification is a separate check.' if running else
+             'The publisher is halted; retained-state verification and operator recovery are required.'),
+            as_of=value.get('observed_at'), freshness=timedelta(seconds=status.MAX_AGE_SECONDS),
+            required_current=True, valid_until=(min(value['observed_at']+timedelta(
+                seconds=status.MAX_AGE_SECONDS), value['worker_deadline'])
+                if value.get('worker_deadline') is not None else
+                value['observed_at']+timedelta(seconds=status.MAX_AGE_SECONDS)
+                if value.get('observed_at') is not None else None))
+    except Exception as exc:
+        return model.Row('shadow_worker', 'Strategy worker', 'WORKER STATUS UNREADABLE',
+            model.UNKNOWN, 'No current worker-liveness proof: '+type(exc).__name__,
+            required_current=True)
+
+
 def build_panel(*, state_dir: Path, database_url: str,
                 now: Optional[datetime] = None) -> model.Panel:
     """Assemble the whole page.
@@ -2455,6 +2483,7 @@ def build_panel(*, state_dir: Path, database_url: str,
 
     rows = [
         *financial_rows,
+        *([_shadow_worker_row(state_dir, database_url)] if mode in {'dual', 'shadow'} else []),
         own,
         automation_rows[0],
         *operator_rows,

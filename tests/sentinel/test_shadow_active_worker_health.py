@@ -98,6 +98,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from sentinel import shadow_supervisor as s, shadow_worker_liveness as l
 root = Path(sys.argv[1])
+os.environ.update(SENTINEL_GIT_COMMIT='1'*40, SENTINEL_RUNTIME_IMAGE_DIGEST='sha256:'+'2'*64,
+                  SENTINEL_DATABASE_URL='postgresql://qualification/sentinel',
+                  SENTINEL_PUBLICATION_RECEIPT_KEY='qualification-receipt-key-00000000000000')
 s.LATCH_FILE, s.HEARTBEAT_FILE = root/'critical.json', root/'heartbeat'
 l.ACTIVE_FILE = root/'active.json'
 s.ShadowServiceConfig.from_env = lambda: SimpleNamespace(poll_seconds=300)

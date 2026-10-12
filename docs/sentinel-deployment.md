@@ -35,6 +35,10 @@ combined flow and must not be used to make installation wait for trading.
 
 # Sentinel — operational deployment ground truth
 
+[Shadow worker monitoring](shadow-worker-monitoring.md) separates publisher
+liveness from verified saved portfolio state, projects retained interruption
+alerts, and makes failed checks and last-known values visible in the panel.
+
 [Installation recovery milestones](ci-certified-paper-installation.md#installation-work-and-recovery-milestones)
 supersede unconditional pre-migration copies for an unchanged schema and
 post-release backup repetition. Trading remains killed until newly formed and

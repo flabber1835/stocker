@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sentinel.feed import calendar
-from sentinel import supervisor_io, shadow_budget, shadow_worker_liveness
+from sentinel import supervisor_io, shadow_budget, shadow_worker_liveness, shadow_service_status
 from sentinel.shadow_recovery import ShadowServiceConfig, ShadowServiceWaiting, service_health
 from sentinel.shadow_worker import (
     EXIT_AVAILABILITY, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
@@ -31,6 +31,7 @@ from sentinel.shadow_worker import (
 
 HEARTBEAT_FILE = Path("/tmp/sentinel-shadow-supervisor-heartbeat")
 LATCH_FILE = Path(os.environ.get("SENTINEL_STATE_DIR", "/var/lib/sentinel")) / "shadow-supervisor-critical.json"
+_STATUS_INCARNATION = uuid.uuid4().hex
 
 
 def _touch() -> None:
@@ -60,6 +61,7 @@ class _Heartbeat:
 
 def _write_heartbeat():
     HEARTBEAT_FILE.touch(exist_ok=True)
+    shadow_service_status.publish(LATCH_FILE, _STATUS_INCARNATION)
 
 
 def _latch_exists():
@@ -231,6 +233,9 @@ def _report_latch(reason, *, failures=None):
     # projection gives the independent dispatcher one durable critical event
     # when PostgreSQL is still available; inability to report never clears or
     # softens the latch.
+    if _report_retained_interruption():
+        supervisor_io.report('CRITICAL: shadow supervisor latched unhealthy: '+str(reason))
+        return
     try:
         incident = hashlib.sha256(
             json.dumps(
@@ -251,11 +256,45 @@ def _report_latch(reason, *, failures=None):
         file=sys.stderr, flush=True)
 
 
+def _retained_interruption():
+    marker = LATCH_FILE if LATCH_FILE.exists() else _pending_file()
+    raw = shadow_service_status._raw(marker)
+    incident = hashlib.sha256(marker.name.encode()+b'\0'+raw).hexdigest()
+    try:
+        attempt = (shadow_service_status.pending(marker)
+                   if marker == _pending_file() else None)
+    except ValueError:
+        attempt = None
+    return {
+        'incident_sha256': incident,
+        'reason': ('UNACKNOWLEDGED_WORKER' if attempt is not None else
+                   'UNREADABLE_PENDING_MARKER' if marker == _pending_file() else 'CRITICAL_LATCH'),
+        'attempt_id': attempt['attempt_id'] if attempt is not None else None,
+    }
+
+
+def _report_retained_interruption() -> bool:
+    try:
+        incident = supervisor_io.run(_retained_interruption)
+        _enqueue_alert(idempotency_key='shadow-retained-interruption:'+incident['incident_sha256'],
+            event_type='SHADOW_SUPERVISOR_LATCHED', severity='CRITICAL', payload=incident)
+        return True
+    except Exception as exc:
+        supervisor_io.report('CRITICAL: retained shadow interruption notification unavailable: '
+                             + type(exc).__name__)
+        return False
+
+
 def _latched_wait(stopping, pending=None) -> int:
     heartbeat = _Heartbeat()
+    notified = False
+    next_notice = float('-inf')
     while not stopping():
         if pending is not None:
             pending = _try_persist_latch(pending)
+        if not notified and time.monotonic() >= next_notice:
+            notified = _report_retained_interruption()
+            next_notice = time.monotonic()+30
         heartbeat()
         time.sleep(1.0)
     return 0
@@ -284,7 +323,12 @@ def _health_snapshot(max_age_seconds, config, *, financial=True):
         return 1
     pending = _pending_file().exists()
     active = pending and shadow_worker_liveness.matches(_pending_file())
-    if LATCH_FILE.exists() or (pending and not active):
+    if pending and not active and not LATCH_FILE.exists():
+        supervisor_io.report('REFUSED: shadow supervisor has an unacknowledged worker outcome; '
+                             'retained-state verification and operator recovery are required',
+                             file=sys.stderr)
+        return 1
+    if LATCH_FILE.exists():
         try:
             with LATCH_FILE.open(encoding="utf-8") as stream:
                 detail = stream.read(4096)
@@ -318,6 +362,8 @@ def _health_snapshot(max_age_seconds, config, *, financial=True):
 
 
 def run() -> int:
+    global _STATUS_INCARNATION
+    _STATUS_INCARNATION = uuid.uuid4().hex
     config = ShadowServiceConfig.from_env()
     try:
         deadline_seconds = shadow_budget.seconds()
@@ -354,6 +400,7 @@ def run() -> int:
             supervisor_io.report(f"REFUSED: shadow latch state unavailable: {type(exc).__name__}")
             return EXIT_REFUSED
         if latched:
+            _report_retained_interruption()
             return _latched_wait(lambda: stopping)
         while not stopping:
             try:
@@ -456,6 +503,7 @@ def run() -> int:
 
 def _remove_heartbeat():
     HEARTBEAT_FILE.unlink(missing_ok=True)
+    shadow_service_status.publish(LATCH_FILE, _STATUS_INCARNATION, stopped=True)
 
 
 def main(argv=None) -> int:

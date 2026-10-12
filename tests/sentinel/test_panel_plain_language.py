@@ -104,6 +104,7 @@ def test_slow_status_read_dates_document_at_completion_without_redating_facts(mo
     monkeypatch.setattr(sources, '_automation_rows', lambda *a:
         ([model.Row('automation', '', '', model.PENDING), model.Row('worker', '', '', model.PENDING)], []))
     monkeypatch.setattr(sources, '_operator_evidence_rows', lambda *a, **k: ([], []))
+    monkeypatch.setattr(sources, '_shadow_worker_row', lambda *a: model.Row('shadow_worker', '', '', model.OK))
     panel = sources.build_panel(state_dir='/unused', database_url='database')
     assert panel.now == NOW + timedelta(seconds=100)
     assert panel.row('feed').as_of == NOW
