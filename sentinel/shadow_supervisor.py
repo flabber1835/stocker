@@ -197,7 +197,7 @@ def _dependency_retry_alert(*, now: datetime | None = None) -> None:
             idempotency_key=f'shadow-dependency:{target}:unavailable',
             event_type='SHADOW_DEPENDENCY_UNAVAILABLE', severity='WARN',
             payload={'decision_session': target, 'state': 'DEPENDENCY_RETRY_PENDING',
-                     'detail': 'A local lock, database or backup dependency is unavailable; '
+                     'detail': 'A local lock, database, backup or worker budget is unavailable; '
                                'the supervised worker will retry. See current portfolio evidence.'})
     except Exception as exc:
         supervisor_io.report('WARNING: shadow dependency notification unavailable: '

@@ -57,7 +57,7 @@ def test_new_recovery_module_is_admitted_only_at_exact_reviewed_bytes(closure):
 
 def test_removing_exact_supervisor_admission_is_detected(closure, monkeypatch):
     source = textwrap.dedent(inspect.getsource(admission.prove_compatibility))
-    needle = '((ADMINISTRATIVE-ui_upgrade.SCOPE) | ADDITIONS)'
+    needle = '((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE) | ADDITIONS)'
     assert needle in source
     namespace = {}; exec(compile(source.replace(needle, '(ADMINISTRATIVE | ADDITIONS)'),
         'supervisor-source-falsifier', 'exec'), admission.__dict__, namespace)

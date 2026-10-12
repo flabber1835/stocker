@@ -87,6 +87,14 @@ def test_dependency_alert_never_claims_source_deadline_even_after_open(monkeypat
     assert 'recovery_deadline_at' not in alerts[0]['payload']
 
 
+def test_local_worker_deadline_is_not_a_source_coverage_failure():
+    from sentinel import shadow_worker
+    from sentinel.feed.rolling_jobs import JobDeadlineExceeded
+    failure = JobDeadlineExceeded('local worker execution budget exhausted')
+    assert shadow_worker._availability_failure(failure)
+    assert shadow_worker._availability_exit(failure) == shadow_worker.EXIT_DEPENDENCY_UNAVAILABLE
+
+
 def test_gateway_warms_scope_before_constructing_guarded_broker(conn, gateway, monkeypatch):
     import asyncio
     from types import SimpleNamespace

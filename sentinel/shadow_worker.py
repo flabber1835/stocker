@@ -74,11 +74,13 @@ def _availability_failure(exc: BaseException) -> bool:
 
 def _availability_exit(exc: BaseException) -> int:
     """Keep typed local/DB/backup deferrals separate from missing source."""
+    from sentinel.feed.rolling_jobs import JobDeadlineExceeded
     current: BaseException | None = exc
     seen = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
         if (database_unavailable(current) or local_contention(current)
+                or isinstance(current, JobDeadlineExceeded)
                 or _backup_availability(current)):
             return EXIT_DEPENDENCY_UNAVAILABLE
         current = current.__cause__ if isinstance(current, ShadowServiceRetry) else None

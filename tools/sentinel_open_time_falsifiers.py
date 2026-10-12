@@ -2,6 +2,10 @@
 from tools.sentinel_rolling_storage_falsifiers import main
 
 MUTANTS = {
+    'worker_budget_is_not_source': (
+        'sentinel.shadow_worker',
+        'or isinstance(current, JobDeadlineExceeded)', 'or False',
+        'test_local_worker_deadline_is_not_a_source_coverage_failure'),
     'gateway_proof_scope': (
         'sentinel.paper.execution',
         'with feed_inputs.pinned(conn, commit=False) as pinned, structural_verification.callback(conn):',

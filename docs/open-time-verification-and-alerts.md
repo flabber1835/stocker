@@ -46,7 +46,10 @@ and grant no independent freshness or transport permission.
 
 ## Typed availability outcomes
 
-Add a distinct worker exit for local/database/backup dependency availability.
+Add a distinct worker exit for local/database/backup dependency availability and
+exhaustion of the worker's own bounded execution budget. A local budget expiry
+does not prove that provider/source coverage is missing. Preserve its original
+cutoff, refusal before work and bounded supervised restart; do not extend it.
 These outcomes retain bounded supervised retry and report a coalesced dependency
 warning. They cannot claim a provider/source decision missed the next open.
 Actual source coverage/provider waits retain their source recovery and deadline
