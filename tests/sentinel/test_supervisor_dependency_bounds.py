@@ -227,15 +227,16 @@ def test_worker_arming_timeout_never_launches(tmp_path, monkeypatch):
     assert shadow.run() == shadow.EXIT_REFUSED
 
 
-@pytest.mark.parametrize('first_code', [0, 10, 11, 12])
+@pytest.mark.parametrize('first_code', [0, 10, 11, 12, 13])
 def test_recoverable_worker_outcome_clears_guard_before_next_attempt(tmp_path, monkeypatch, first_code):
     from sentinel import shadow_supervisor as shadow
-    assert first_code in {0, shadow.EXIT_RETRY, shadow.EXIT_WAITING, shadow.EXIT_AVAILABILITY}
+    assert first_code in {0, shadow.EXIT_RETRY, shadow.EXIT_WAITING, shadow.EXIT_AVAILABILITY,
+                          shadow.EXIT_DEPENDENCY_UNAVAILABLE}
     monkeypatch.setattr(shadow, 'LATCH_FILE', tmp_path / 'critical.json')
     monkeypatch.setattr(shadow.ShadowServiceConfig, 'from_env',
                         lambda: SimpleNamespace(poll_seconds=0))
     monkeypatch.setattr(shadow.signal, 'signal', lambda *a: None)
-    for name in ('_touch', '_source_recovery_alert', '_semantic_retry_alert', '_report_latch'):
+    for name in ('_touch', '_source_recovery_alert', '_dependency_retry_alert', '_semantic_retry_alert', '_report_latch'):
         monkeypatch.setattr(shadow, name, lambda *a, **k: None)
     monkeypatch.setattr(shadow, '_latched_wait', lambda *a: 91)
     starts = []

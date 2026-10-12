@@ -1024,7 +1024,14 @@ def automation_step_rows(
         normalized_events.append(dict(event))
     observed_indices = []
     step_times: dict[int, datetime] = {}
+    interrupted_transport = None
     for event in normalized_events:
+        if (str(event.get("from_state") or "").upper() == "EXECUTING"
+                and str(event.get("to_state") or "").upper() == "RECONCILING"):
+            detail = event.get("detail")
+            interrupted_transport = (
+                dict(detail) if isinstance(detail, Mapping)
+                and (detail.get("failure_code") or detail.get("failure_detail")) else None)
         for field in ("from_state", "to_state"):
             event_state = str(event.get(field) or "").upper()
             if event_state in _AUTOMATION_STATE_STEP:
@@ -1068,6 +1075,16 @@ def automation_step_rows(
     rows: list[Row] = []
     for index, (key, label) in enumerate(_AUTOMATION_STEP_DEFINITIONS):
         row_key = f"automation_step_{key}"
+        if (index == 4 and interrupted_transport
+                and (state in {"RECONCILING", "SUPERSEDED", "BLOCKED", "MISSED_STATE_ONLY"}
+                     or (state == "RETRY_WAIT" and retry_phase != "EXECUTE")
+                     or (state == "SUCCEEDED" and not cycle.get("clean_reconciliation_id")))):
+            rows.append(Row(
+                row_key, label, "INTERRUPTED · OUTCOME UNVERIFIED", FAIL,
+                f"{interrupted_transport.get('failure_code') or 'EXECUTION_INTERRUPTED'}: "
+                f"{interrupted_transport.get('failure_detail') or 'broker outcome requires reconciliation'}",
+                step_times.get(index) or cycle.get("updated_at"), required_current=True))
+            continue
         if index == 6 and terminal:
             success = (
                 state == "SUCCEEDED"

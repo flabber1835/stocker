@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Market-open verification and availability reporting](open-time-verification-and-alerts.md)
+defines one owned structural proof scope per execution gateway, typed local
+availability notifications and finite active broker-observation display evidence.
+
 [Dashboard verification monitor](dashboard-verification-monitor.md) separates
 independent shadow and PAPER display proofs, refreshes them without an open
 browser, and preserves finite observers, original validity and failure visibility.

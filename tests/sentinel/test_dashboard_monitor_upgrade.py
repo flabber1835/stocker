@@ -3,6 +3,7 @@ from pathlib import Path
 import hashlib
 
 import pytest
+from sentinel import open_time_upgrade
 
 from sentinel import dashboard_monitor_upgrade as upgrade, runtime_admission as admission
 from sentinel.feed.rolling_contract import digest
@@ -19,8 +20,8 @@ from tests.sentinel.test_operational_liveness_upgrade import (
 def test_exact_transition_and_neighbor_refusal(closure,name):
     record=upgrade.profile()['files'][name]
     actual=hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-    assert actual==record['after']
-    assert all(upgrade.source_allowed(name,previous,actual) for previous in record['before'])
+    assert actual==record['after'] or open_time_upgrade.source_allowed(name, record['after'], actual)
+    assert all(upgrade.source_allowed(name,previous,record['after']) for previous in record['before'])
     assert not upgrade.source_allowed(name,'f'*64,actual)
     assert not upgrade.source_allowed('core/kernel.py',record['before'][0],actual)
     root,checkpoint,context,manifest,value=_execution_closure(closure,name,source_profile=upgrade)

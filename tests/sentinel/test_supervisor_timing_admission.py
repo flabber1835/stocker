@@ -97,10 +97,10 @@ def test_shadow_cutoff_cannot_extend_supervised_budget(monkeypatch):
         assert shadow_budget.cutoff() == instant + timedelta(seconds=expected)
 
 
-def test_expired_shadow_worker_exits_availability_without_work(monkeypatch):
+def test_expired_shadow_worker_exits_dependency_without_work(monkeypatch):
     instant = datetime(2026, 9, 29, tzinfo=timezone.utc)
     monkeypatch.setattr(shadow_budget, 'now', lambda: instant)
     monkeypatch.setenv(shadow_budget.DEADLINE_ENV, instant.isoformat())
     monkeypatch.setattr(shadow_worker.ShadowServiceConfig, 'from_env', lambda: object())
     monkeypatch.setattr(shadow_worker, 'advance_once', lambda _: shadow_budget.cutoff())
-    assert shadow_worker.main() == shadow_worker.EXIT_AVAILABILITY
+    assert shadow_worker.main() == shadow_worker.EXIT_DEPENDENCY_UNAVAILABLE

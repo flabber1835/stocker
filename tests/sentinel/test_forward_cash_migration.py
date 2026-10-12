@@ -43,7 +43,7 @@ def test_controller_and_wealth_model_cannot_migrate_as_cash_policy(field):
 
 
 def test_reviewed_source_profile_accepts_only_its_exact_bytes():
-    from sentinel import execution_upgrade, startup_contention_upgrade
+    from sentinel import execution_upgrade, startup_contention_upgrade, open_time_upgrade
     root = Path(migration.__file__).parent
     profile = migration.profile()
     for name, item in profile['files'].items():
@@ -51,7 +51,8 @@ def test_reviewed_source_profile_accepts_only_its_exact_bytes():
         if actual != item['after']:
             assert (execution_upgrade.source_allowed(name, item['after'], actual)
                     or startup_contention_upgrade.source_allowed(
-                        name, item['after'], actual)), name
+                            name, item['after'], actual)
+                        or open_time_upgrade.source_allowed(name, item['after'], actual)), name
             assert not migration.source_allowed(name, item['before'][0], actual)
         assert migration.source_allowed(name, item['before'][0], item['after'])
         assert not migration.source_allowed(name, 'f'*64, actual)

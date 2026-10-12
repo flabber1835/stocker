@@ -10,6 +10,7 @@ import time
 
 from sentinel import supervisor_io
 from sentinel.panel import model
+from sentinel.retained_input_namespaces import PAPER_CURSOR_NAMES, PAPER_CURSOR_PREFIXES
 
 DEADLINE_SECONDS = 300
 RETRY_SECONDS = 30
@@ -18,15 +19,6 @@ FRESH_SECONDS = 600
 REFRESH_SECONDS = FRESH_SECONDS - DEADLINE_SECONDS
 # Canonical execution/trial namespaces sharing the processed-session table.
 # No broker import or observation can become a dependency of shadow proof.
-PAPER_CURSOR_PREFIXES = (
-    'informational-paper-mirror:v1:', 'broker-observation:v4:',
-    'terminal-recovery-witness:v3:', 'broker-cash-activity:v1:',
-    'broker-cash-plan:v1:', 'preopen-share-unit-authority:v1:',
-    'plan-target-projection:v2:', 'dual-regenesis-broker-handover:v2:',
-    'trial-account:v2:', 'trial-verification:v3:', 'trial-fill-interval:v1:',
-    'trial-close-nav:v1:', 'paper-performance-invalid:v1:',
-)
-PAPER_CURSOR_NAMES = ('broker-recovery-db-incarnation:v1',)
 
 
 def _evidence(database_url, include_paper):

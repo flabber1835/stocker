@@ -749,7 +749,7 @@ def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | N
             diagnostic = json.loads(diagnostic or "{}")
         except (TypeError, json.JSONDecodeError):
             diagnostic = {}
-    return {
+    value = {
         "cycle_id": str(cycle_id), "state": str(state),
         "decision_session": str(decision_session),
         "effective_session": str(effective_session),
@@ -776,6 +776,35 @@ def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | N
         "created_at": _utc(created_at),
         "completed_at": _utc(completed_at),
     }
+    if str(state) in {"EXECUTING", "RECONCILING"}:
+        value["observation_callback"] = _broker_callback(conn, str(cycle_id), str(state))
+    return value
+
+
+def _broker_callback(conn, cycle_id: str, state: str) -> dict | None:
+    """Read one original invocation deadline from its live current fence."""
+    expected = {"EXECUTING": "EXECUTE_CALLBACK", "RECONCILING": "RECOVER_CALLBACK"}.get(state)
+    if expected is None:
+        return None
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT s.callback_started_at,s.callback_deadline_at FROM "
+            "sentinel_automation_service_instances s "
+            "JOIN sentinel_automation_lease l ON l.id=1 AND l.holder_id=s.instance_id "
+            "JOIN sentinel_automation_control a ON a.id=1 AND a.generation=l.control_generation "
+            "JOIN sentinel_automation_cycles c ON c.cycle_id=%s "
+            " AND c.control_generation=a.generation AND c.last_fence_token=l.fence_token "
+            " AND c.certificate_sha256=a.certificate_sha256 AND c.config_sha256=a.config_sha256 "
+            "WHERE a.enabled AND NOT a.kill_switch_engaged AND a.authority_verdict='PASS' "
+            " AND c.state=%s AND s.state=%s AND l.expires_at>clock_timestamp() "
+            " AND s.heartbeat_at<=clock_timestamp() "
+            " AND s.heartbeat_at>clock_timestamp()-INTERVAL '30 seconds' "
+            " AND s.callback_started_at>=c.updated_at AND s.callback_started_at<=clock_timestamp() "
+            " AND s.callback_deadline_at>s.callback_started_at "
+            " AND s.callback_deadline_at>clock_timestamp()",
+            (cycle_id, state, expected))
+        row = cur.fetchone()
+    return ({"started_at": _utc(row[0]), "deadline": _utc(row[1])} if row else None)
 
 
 def _automation_cycle_events(conn, cycle_id: str) -> list[dict]:
@@ -931,14 +960,16 @@ def _observation_recovery(
         cycle, phases=("PREFLIGHT_RECOVER", "RECOVER", "EXECUTE"))
     if retry is not None:
         return retry
+    callback = (cycle or {}).get("observation_callback")
     if (cycle and str(cycle.get("state") or "").upper()
-            == "RECONCILING"):
-        updated = cycle.get("updated_at")
-        deadline = (
-            updated + timedelta(minutes=10)
-            if isinstance(updated, datetime) else None)
+            in {"EXECUTING", "RECONCILING"} and isinstance(callback, Mapping)):
+        deadline = callback.get("deadline")
+        started = callback.get("started_at")
+        if (not isinstance(started, datetime) or not isinstance(deadline, datetime)
+                or started >= deadline):
+            return None
         return model.RecoveryEvidence(
-            phase="BROKER_REOBSERVATION", automatic=True,
+            phase="BROKER_CALLBACK_REFRESH", automatic=True,
             deadline=deadline)
     return None
 
@@ -1206,8 +1237,7 @@ def _operator_evidence_rows(
             STATEMENT_TIMEOUT_MS, default=None)
 
         account_detail = account_error or binding_error
-        account_recovery = _cycle_recovery(
-            cycle, phases=("PREFLIGHT_RECOVER", "RECOVER", "EXECUTE"))
+        account_recovery = _observation_recovery(cycle)
         account_row = (
             model.alpaca_account_row(
                 available=None, error=account_detail,

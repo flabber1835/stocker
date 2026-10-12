@@ -1224,8 +1224,6 @@ class ProductionAutomation:
                     raise NonRetryableCallbackRefused(
                         "automation execution cycle does not name the durable "
                         "current PAPER plan")
-                self._require_dual_plan_shadow_match(
-                    conn, current_plan, pending_is_retryable=False)
             broker = self._broker(conn, cycle.effective_session.isoformat())
             try:
                 context.require_active()

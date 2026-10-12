@@ -26,7 +26,7 @@ from sentinel.feed import calendar
 from sentinel import supervisor_io, shadow_budget, shadow_worker_liveness, shadow_service_status
 from sentinel.shadow_recovery import ShadowServiceConfig, ShadowServiceWaiting, service_health
 from sentinel.shadow_worker import (
-    EXIT_AVAILABILITY, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
+    EXIT_AVAILABILITY, EXIT_DEPENDENCY_UNAVAILABLE, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
 )
 
 HEARTBEAT_FILE = Path("/tmp/sentinel-shadow-supervisor-heartbeat")
@@ -186,6 +186,22 @@ def _semantic_retry_alert(*, now: datetime | None = None) -> None:
         supervisor_io.report(
             "WARNING: shadow semantic-retry notification unavailable: "
             f"{type(exc).__name__}", file=sys.stderr, flush=True)
+
+
+def _dependency_retry_alert(*, now: datetime | None = None) -> None:
+    """A dependency deferral is not proof that a decision missed its open."""
+    instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    try:
+        target = calendar.latest_closed_session(instant)
+        _enqueue_alert(
+            idempotency_key=f'shadow-dependency:{target}:unavailable',
+            event_type='SHADOW_DEPENDENCY_UNAVAILABLE', severity='WARN',
+            payload={'decision_session': target, 'state': 'DEPENDENCY_RETRY_PENDING',
+                     'detail': 'A local lock, database, backup or worker budget is unavailable; '
+                               'the supervised worker will retry. See current portfolio evidence.'})
+    except Exception as exc:
+        supervisor_io.report('WARNING: shadow dependency notification unavailable: '
+                             + type(exc).__name__, file=sys.stderr)
 
 
 def _terminate(child: subprocess.Popen, *, grace_seconds: float = 5.0) -> None:
@@ -451,7 +467,8 @@ def run() -> int:
                 pending = _latch("shadow worker reported terminal integrity refusal")
                 return _latched_wait(lambda: stopping, pending)
             if code not in {
-                    0, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY, 124}:
+                    0, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY,
+                    EXIT_DEPENDENCY_UNAVAILABLE, 124}:
                 pending = _latch(f"shadow worker exited unexpectedly with {code}")
                 return _latched_wait(lambda: stopping, pending)
 
@@ -470,6 +487,9 @@ def run() -> int:
                 _semantic_retry_alert()
             elif code in {EXIT_WAITING, EXIT_AVAILABILITY}:
                 _source_recovery_alert()
+                consecutive_failures = 0
+            elif code == EXIT_DEPENDENCY_UNAVAILABLE:
+                _dependency_retry_alert()
                 consecutive_failures = 0
             else:
                 # Successful work and supervised deadlines remain restartable.

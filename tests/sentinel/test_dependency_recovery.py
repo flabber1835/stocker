@@ -21,7 +21,7 @@ def test_shadow_preflight_database_outage_is_retryable(monkeypatch, error):
     def unavailable(_):
         raise error('temporary local database condition')
     monkeypatch.setattr(shadow_worker, 'advance_once', unavailable)
-    assert shadow_worker.main() == shadow_worker.EXIT_AVAILABILITY
+    assert shadow_worker.main() == shadow_worker.EXIT_DEPENDENCY_UNAVAILABLE
     assert isinstance(automation_runtime.classify_dependency_failure(error()),
                       TransientInfrastructureFailure)
 

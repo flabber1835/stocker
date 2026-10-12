@@ -10,6 +10,7 @@ import pickle
 
 from sentinel.execution.journal import WRITER_LOCK_KEY
 from sentinel.feed import readiness_scope
+from sentinel.retained_input_namespaces import PAPER_CURSOR_NAMES, PAPER_CURSOR_PREFIXES
 
 
 class VerificationScopeRefused(ValueError):
@@ -24,7 +25,7 @@ def active():
     return _current.get() is not None
 
 
-def _inventory(conn):
+def _inventory(conn, slot):
     # Do not detoast multi-megabyte state just to discover whether it changed.
     relation = conn.execute(
         "SELECT 'sentinel_processed_sessions'::regclass::oid, "
@@ -33,7 +34,11 @@ def _inventory(conn):
     ).fetchone()
     rows = conn.execute(
         "SELECT cursor_name,session,tableoid,xmin::text,ctid::text "
-        "FROM sentinel_processed_sessions ORDER BY cursor_name"
+        "FROM sentinel_processed_sessions "
+        "WHERE %s OR (cursor_name <> ALL(%s) AND NOT (cursor_name LIKE ANY(%s))) "
+        "ORDER BY cursor_name",
+        (slot != 'rolling-checkpoint', list(PAPER_CURSOR_NAMES),
+         [prefix + '%' for prefix in PAPER_CURSOR_PREFIXES]),
     ).fetchall()
     return relation, rows
 
@@ -68,17 +73,34 @@ class Scope:
             _current.reset(token)
 
 
+@contextmanager
+def callback(owner):
+    """Warm one proof scope inside the existing writer and publication pin."""
+    scope = Scope(owner)
+    with scope.guard(owner):
+        yield scope
+
+
+def owned(owner):
+    """Reuse only the exact callback owner; never borrow another connection."""
+    scope = _current.get()
+    if scope is not None and scope.owner is owner:
+        scope.require(owner)
+        return scope
+    return None
+
+
 def material(conn, *, slot, key, load):
     scope = _current.get()
     if scope is None:
         return load()
     scope.require(conn)
-    before = _inventory(conn)
+    before = _inventory(conn, slot)
     retained = scope.values.get(slot)
     if retained is None or retained[:2] != (key, before):
         value = load()
         scope.require(conn)
-        if _inventory(conn) != before:
+        if _inventory(conn, slot) != before:
             raise VerificationScopeRefused('STRUCTURAL_INPUTS_CHANGED_DURING_VERIFICATION')
         # This byte string is produced only from the just-authenticated private
         # value. It never crosses a process or storage boundary. Restoring it
