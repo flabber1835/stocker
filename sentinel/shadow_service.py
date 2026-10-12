@@ -354,6 +354,9 @@ def advance_once(config: ShadowServiceConfig, *,
             from sentinel.rolling_reconstruction_evidence import InputsUnavailable
             from sentinel.feed.rolling_jobs import JobDeadlineExceeded
             from sentinel.feed.source_wait import SourceCoveragePending
+            from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
+            if isinstance(exc, RollingSourceFrontierPending):
+                raise ShadowServiceWaiting(str(exc)) from exc
             if isinstance(exc, SourceCoveragePending):
                 raise ShadowServiceWaiting(str(exc)) from exc
             if isinstance(exc, InputsUnavailable):

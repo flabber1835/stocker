@@ -4,6 +4,34 @@
 # (NAS backup dataset, mounted backup share, or equivalent), never the repository
 # or Docker's sentinel_pgdata volume. See docs/sentinel-deployment.md.
 services:
+  # Run-only physical client. A timeout must never run inside the primary PID
+  # namespace: its process-group cancellation can terminate a server backend.
+  sentinel-backup-client:
+    image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+    profiles: ["backup-client"]
+    entrypoint: ["timeout"]
+    command: ["--help"]
+    network_mode: "service:sentinel-postgres"
+    init: true
+    restart: "no"
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      POSTGRES_PASSWORD: ${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}
+    volumes:
+      - type: bind
+        source: ./scripts
+        target: /usr/local/libexec
+        read_only: true
+      - type: bind
+        source: ${SENTINEL_BACKUP_DIR:?set SENTINEL_BACKUP_DIR to a second durable target}/base
+        target: /sentinel-backup/base
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   sentinel-postgres:
     command:
       - postgres

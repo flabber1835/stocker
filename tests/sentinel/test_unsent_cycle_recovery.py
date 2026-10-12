@@ -49,6 +49,73 @@ def release(conn):
     return store.acquire_lease(conn, holder_id='worker-a', lease_seconds=30)
 
 
+def preflight_blocked(conn, monkeypatch):
+    cfg = config()
+    enable(conn, cfg)
+    service = service_for(cfg)
+    timing, now = future_friday(conn, cfg)
+    monkeypatch.setattr(recovery.calendar, 'latest_closed_session', lambda _: str(timing.decision_session))
+    permit = store.acquire_lease(conn, holder_id='worker-a', lease_seconds=30)
+    cycle = store.create_cycle(conn, permit=permit, spec=service._spec(store.load_control(conn), timing))
+    cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id,
+        to_state=CycleState.BLOCKED, failure_code='SoftwareDefect',
+        failure_detail=recovery.PREFLIGHT_FAILURE,
+        diagnostic={'retry_phase': 'PREFLIGHT_RECOVER', 'callback_failure': 'SOFTWARE_DEFECT',
+                    'terminal_reason': 'SOFTWARE_DEFECT',
+                    'exception_type': 'sentinel.automation.model.SoftwareDefect'})
+    store.engage_kill(conn, actor='test', reason='reviewed preflight incident')
+    return cfg, service, timing, now, cycle
+
+
+@pytest.mark.asyncio
+async def test_preflight_unsent_recovery_preserves_failed_history_and_reaches_waiting_open(conn, monkeypatch):
+    cfg, service, timing, now, old = preflight_blocked(conn, monkeypatch)
+    events = conn.execute('SELECT * FROM sentinel_automation_cycle_events ORDER BY seq').fetchall()
+    conn.rollback()
+    generation, auth = authorize(conn, cfg, timing, now, old)
+    assert auth.kind == recovery.PREFLIGHT_KIND
+    assert authorize(conn, cfg, timing, now, old) == (generation, auth)
+    release(conn)
+    for _ in range(12):
+        result = await service.tick(conn, now=now)
+        if result.cycle and result.cycle.state is CycleState.WAITING_OPEN: break
+    assert result.cycle.state is CycleState.WAITING_OPEN
+    assert result.cycle.cycle_id != old.cycle_id and result.cycle.plan_id is not None
+    assert store.load_cycle(conn, old.cycle_id) == old
+    assert conn.execute('SELECT * FROM sentinel_automation_cycle_events WHERE cycle_id=%s ORDER BY seq',
+                        (old.cycle_id,)).fetchall() == events
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('defect', ['detail', 'phase', 'type', 'plan', 'command', 'kind'])
+def test_preflight_recovery_requires_exact_untransported_failure_and_receipt(conn, monkeypatch, defect):
+    cfg, service, timing, now, old = preflight_blocked(conn, monkeypatch)
+    if defect == 'kind':
+        generation, _ = authorize(conn, cfg, timing, now, old)
+        conn.execute("UPDATE sentinel_automation_events SET detail=jsonb_set(detail,'{kind}',%s::jsonb) WHERE generation=%s",
+                     (json.dumps(recovery.KIND), generation)); conn.commit()
+        permit = release(conn)
+        with pytest.raises(AutomationRefused):
+            store.create_cycle(conn, permit=permit, spec=service._spec(store.load_control(conn), timing), now=now)
+        return
+    if defect == 'command':
+        conn.execute("INSERT INTO sentinel_commands (client_key,plan_id,security_id,deployment_id,broker,"
+            "broker_account_id,takeover_epoch,symbol,side,quantity,state) VALUES ('unknown','unbound','s',"
+            "'sentinel-a','alpaca-paper','paper-account-1',1,'TEST','BUY',1,'UNKNOWN')")
+    elif defect == 'plan':
+        conn.execute("UPDATE sentinel_automation_cycles SET plan_id='old-plan' WHERE cycle_id=%s", (old.cycle_id,))
+    elif defect == 'detail':
+        conn.execute("UPDATE sentinel_automation_cycles SET failure_detail=failure_detail || ' extra' WHERE cycle_id=%s", (old.cycle_id,))
+    else:
+        key, value = ('retry_phase', 'REFRESH') if defect == 'phase' else ('exception_type', 'other.SoftwareDefect')
+        conn.execute('UPDATE sentinel_automation_cycles SET diagnostic=jsonb_set(diagnostic,%s,%s::jsonb) WHERE cycle_id=%s',
+                     ([key], json.dumps(value), old.cycle_id))
+    conn.commit()
+    before = store.load_control(conn)
+    with pytest.raises(AutomationRefused): authorize(conn, cfg, timing, now, old)
+    assert store.load_control(conn) == before
+
+
 @pytest.mark.asyncio
 async def test_explicit_recovery_replans_and_survives_restart_without_rewriting_failure(conn, monkeypatch):
     cfg, service, timing, now, old = blocked(conn, monkeypatch)
@@ -173,7 +240,8 @@ def test_concurrent_creation_converges_on_one_authorized_cycle(conn, pg, monkeyp
 @pytest.mark.parametrize('guard', ['eligibility', 'commands'])
 def test_guard_falsifier_kills_the_corresponding_negative_test(conn, monkeypatch, guard):
     if guard == 'eligibility':
-        monkeypatch.setattr(recovery, 'eligible_block', lambda c: c.state is CycleState.BLOCKED)
+        monkeypatch.setattr(recovery, 'eligible_kind',
+                            lambda c: recovery.KIND if c.state is CycleState.BLOCKED else None)
         defect = 'signature'
     else:
         monkeypatch.setattr(recovery, 'require_unsent', lambda *a, **kw: None)

@@ -108,7 +108,9 @@ PITR_EPOCH_BEFORE="$(xid_epoch "$PITR_XID8_BEFORE")"
 
 "$PYTHON" scripts/sentinel_storage_capacity.py base --backup-root "$BACKUP_ROOT"
 STAGING_CREATED=1
-${COMPOSE[@]} exec -T sentinel-postgres timeout --kill-after=30s 600 sh -ceu '
+BASE_WORKER_SECONDS="$("$PYTHON" scripts/sentinel_backup_deadlines.py base-worker)"
+${COMPOSE[@]} run --rm -T --no-deps --entrypoint timeout sentinel-backup-client \
+  --kill-after=30s "$BASE_WORKER_SECONDS" sh -ceu '
   staging="$1" final="$2"
   . /usr/local/libexec/sentinel-backup-media-lock.sh
   sentinel_media_lock /sentinel-backup/base exclusive

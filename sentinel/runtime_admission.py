@@ -23,7 +23,7 @@ ADDITIONS = {'runtime_admission.py', 'semantic_source_basis.py', 'retained_go.py
              'operational_liveness_upgrade.py', 'operational_runtime_upgrade.py',
              'callback_liveness_upgrade.py', 'startup_contention_upgrade.py',
              'unsent_recovery_upgrade.py', 'shadow_ui_upgrade.py', 'dashboard_monitor_upgrade.py',
-             'open_time_upgrade.py'}
+             'open_time_upgrade.py', 'close_cycle_upgrade.py'}
 ADMINISTRATIVE = {'shadow_supervisor.py', 'observation_authority.py', 'observation_startup.py'}
 SEAMS = {'core/decision.py': 'sentinel.core.decision',
          'rolling_checkpoint.py': 'sentinel.rolling_checkpoint',
@@ -278,6 +278,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     monitor_profile = monitor_upgrade.profile()
     from sentinel import open_time_upgrade
     open_time_profile = open_time_upgrade.profile()
+    from sentinel import close_cycle_upgrade
+    close_cycle_upgrade.profile()
     manifest = SourceManifest.model_validate(manifest)
     source = source or identity.rehearsal_identity()
     _require_context(checkpoint, context)
@@ -299,10 +301,12 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     for previous_profile, allowed in ((operational_profile, operational_additions),
                                      (recovery_profile, recovery_additions),
                                      (ui_profile, ui_additions),
-                                     (monitor_profile, monitor_additions)):
+                                     (monitor_profile, monitor_additions),
+                                     (open_time_profile, open_time_additions)):
         allowed.update(name for name, previous in previous_profile['additions'].items()
                        if monitor_upgrade.source_allowed(name, previous, actual.get(name))
-                       or open_time_upgrade.source_allowed(name, previous, actual.get(name)))
+                       or open_time_upgrade.source_allowed(name, previous, actual.get(name))
+                       or close_cycle_upgrade.source_allowed(name, previous, actual.get(name)))
     if (source_closure(actual) != context['runtime']['sentinel_source_sha256']
             or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']
             or set(manifest.files) - set(actual)
@@ -314,7 +318,7 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
             or (set(actual) & set(open_time_profile['additions'])) - open_time_additions):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     for name, previous in manifest.files.items():
-        if actual[name] == previous or name in ((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE) | ADDITIONS):
+        if actual[name] == previous or name in ((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE-close_cycle_upgrade.SCOPE) | ADDITIONS):
             continue
         module = SEAMS.get(name)
         from sentinel.economic_migration import source_allowed
@@ -345,6 +349,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
         if monitor_upgrade.source_allowed(name, previous, actual[name]):
             continue
         if open_time_upgrade.source_allowed(name, previous, actual[name]):
+            continue
+        if close_cycle_upgrade.source_allowed(name, previous, actual[name]):
             continue
         if module is None:
             raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)

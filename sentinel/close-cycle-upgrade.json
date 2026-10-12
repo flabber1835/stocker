@@ -1,0 +1,36 @@
+{
+  "additions": {},
+  "files": {
+    "automation/unsent_recovery.py": {
+      "after": "883ef4cf2b17ca67cd7fa017842e00cb4729123e333177f2d67646e0c8f50a78",
+      "before": [
+        "43a4dc5a902168e625b7725d45661d619851cfdfb136b8f0be34aff2216c20c0"
+      ]
+    },
+    "automation_runtime.py": {
+      "after": "35ebc276815342d68bdbf18adc3d00fd55708c20ec3ccec5416be01713952d83",
+      "before": [
+        "310287f990f4989582bab2c7b884eabc909d30f2278f131d06f8cb95f32604ba",
+        "3bf28bed17ad66e7bca97814b394abd4ad7f2256920c611c8ec9e5de228db9ca",
+        "7a250ade04d19d581f6aed1b57ba729e88505819de610ef4e588bfbf79da6f4c",
+        "eb098713f6cf4a364a00ae11265a1894cf097cb1b9d2c31ef07fc758fe8ee2a6",
+        "ec97acbca88207b251d2131cf96397ccc6ba1054aed5008c749aad3652b40dcb"
+      ]
+    },
+    "feed/rolling_go_inputs.py": {
+      "after": "e42dc1c5ab4f120f572e2c16d4834b9369886ce33234f8f206fe94ce12458bce",
+      "before": [
+        "39634c6fba04fec3a804749dc309852705a6a0d5c94d5a3daf3e3bed2ae29c37",
+        "e7165edf81c491c2423133df204a95b70a800ca75c976ffea547e185a3d7a874"
+      ]
+    },
+    "shadow_service.py": {
+      "after": "00de4b122378fecfd265c5860f0ecfa0d2de2d5470fb5cb21571047de822df4d",
+      "before": [
+        "10702a61561dc63f1580448794fcda55fa899b506afe1bc7ec0556ab866c5954"
+      ]
+    }
+  },
+  "module_sha256": "8921fee4b3d6d2959d3c22c30b8359c9bed85739b1cee020ec696a172fbd6b80",
+  "schema": "sentinel.close-cycle-upgrade/1"
+}

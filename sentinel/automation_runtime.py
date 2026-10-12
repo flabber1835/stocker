@@ -667,6 +667,18 @@ class ProductionAutomation:
         return build_execution_broker(
             self.sentinel_config, resolve_security_id=resolver)
 
+    def _recovery_identity_session(self, cycle):
+        """Observe the present session before refresh; never project two ahead."""
+        preflight = (cycle.plan_id is None and (
+            cycle.state.value == "DISCOVERED"
+            or store.cycle_preflight_recovery_pending(cycle)))
+        if not preflight:
+            return cycle.effective_session.isoformat(), False
+        observed_day = _now_utc().astimezone(
+            ZoneInfo(calendar.EXCHANGE_TZ)).date()
+        observed_session = calendar.session_on_or_after(observed_day)
+        return min(observed_session, cycle.effective_session.isoformat()), True
+
     def _require_operational_inputs(self, conn):
         """Recheck source authority when a persisted cycle skips refresh."""
         if not getattr(self, "_operational_source_only", False):
@@ -978,7 +990,14 @@ class ProductionAutomation:
             require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="RECOVER")
-            broker = self._broker(conn, cycle.effective_session.isoformat())
+            identity_session, preflight = self._recovery_identity_session(cycle)
+            try:
+                broker = self._broker(conn, identity_session)
+            except feed_inputs.ExecutionInputsRefused as exc:
+                if preflight and str(exc) == "ROLLING_IDENTITY_BEYOND_NEXT_SESSION":
+                    raise SourceDataPending(
+                        "preflight broker observation awaits current-session identity inputs") from exc
+                raise
             try:
                 context.require_active()
                 result = await paper.recover_automated_paper_cycle(

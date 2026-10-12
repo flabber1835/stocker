@@ -40,6 +40,7 @@ from sentinel.automation.model import (
     TickAction,
     TickResult,
     TransientInfrastructureFailure,
+    SourceDataPending,
 )
 from sentinel.automation.service import AutomationService
 from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
@@ -476,6 +477,84 @@ def install_durable_projection(monkeypatch, current_plan, *, multiplier="1"):
         lambda _conn, *, plan_id: (
             projection if plan_id == current_plan.plan_id else None))
     return projection
+
+
+@async_test
+@pytest.mark.parametrize('pending', [False, True])
+async def test_close_preflight_observes_monday_with_friday_identity_frontier(monkeypatch, pending):
+    from sentinel.feed import source_aliases
+    cfg = config()
+    ctx = context(cfg, state=CycleState.REFRESHING_DATA if pending else CycleState.DISCOVERED)
+    ctx = CycleContext(cycle=ctx.cycle.model_copy(update={
+        'decision_session': date(2026, 10, 12),
+        'effective_session': date(2026, 10, 13)}), permit=ctx.permit)
+    conn = FakeConnection()
+    conn.execute = lambda *a: SimpleNamespace(fetchone=lambda: ('v'*64,))
+    runtime = production(cfg)
+    broker = SimulatedBroker()
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    monkeypatch.setattr(automation_runtime, '_now_utc',
+                        lambda: datetime(2026, 10, 12, 20, 1, tzinfo=UTC))
+    monkeypatch.setattr(store, 'cycle_preflight_recovery_pending', lambda c: pending)
+    refs = SimpleNamespace(manifest=SimpleNamespace(window=SimpleNamespace(end='2026-10-09')),
+                           tickers=[], actions=[], candidate_id='c')
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'references', lambda *a: refs)
+    monkeypatch.setattr(automation_runtime.feed_inputs.rolling_store, 'load_evidence',
+                        lambda *a: {'alias_rejections': source_aliases.evidence()})
+    sessions = []
+    def build(_conn, session):
+        sessions.append(session)
+        automation_runtime.feed_inputs._snapshot_identity_authorities(conn, None, session=session)
+        return broker
+    monkeypatch.setattr(runtime, '_broker', build)
+    async def clean(**kwargs):
+        return reconciliation(await kwargs['broker'].observe())
+    monkeypatch.setattr(paper, 'recover_automated_paper_cycle', clean)
+    monkeypatch.setattr(journal, 'in_flight_commands', lambda *a: ())
+    with pytest.raises(automation_runtime.feed_inputs.ExecutionInputsRefused,
+                       match='ROLLING_IDENTITY_BEYOND_NEXT_SESSION'):
+        automation_runtime.feed_inputs._snapshot_identity_authorities(conn, None, session='2026-10-13')
+    result = await runtime.recover(ctx)
+    assert sessions == ['2026-10-12']
+    assert result.disposition is ExecuteDisposition.SUCCEEDED
+    assert not any(call.startswith(('submit:', 'cancel:')) for call in broker.calls)
+
+
+@async_test
+@pytest.mark.parametrize('preflight,cause', [
+    (True, 'ROLLING_IDENTITY_BEYOND_NEXT_SESSION'),
+    (True, 'ROLLING_IDENTITY_HISTORY_CHANGED'),
+    (False, 'ROLLING_IDENTITY_BEYOND_NEXT_SESSION')])
+async def test_only_preflight_identity_horizon_is_typed_availability(monkeypatch, preflight, cause):
+    cfg = config()
+    ctx = context(cfg, state=CycleState.DISCOVERED if preflight else CycleState.RECONCILING,
+                  plan=None if preflight else plan())
+    runtime = production(cfg)
+    conn = FakeConnection()
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, SimulatedBroker())
+    monkeypatch.setattr(automation_runtime, '_now_utc', lambda: NOW)
+    monkeypatch.setattr(store, 'cycle_preflight_recovery_pending', lambda c: False)
+    sessions = []
+    def refused(_conn, session):
+        sessions.append(session)
+        raise automation_runtime.feed_inputs.ExecutionInputsRefused(cause)
+    monkeypatch.setattr(runtime, '_broker', refused)
+    expected = SourceDataPending if preflight and cause == 'ROLLING_IDENTITY_BEYOND_NEXT_SESSION' else automation_runtime.feed_inputs.ExecutionInputsRefused
+    with pytest.raises(expected):
+        await runtime.recover(ctx)
+    assert sessions == [str(EFFECTIVE)]
+    assert conn.closed == 1
+
+
+def test_removing_preflight_date_guard_is_detected(monkeypatch):
+    runtime = production(config())
+    ctx = context(config(), state=CycleState.DISCOVERED)
+    monkeypatch.setattr(automation_runtime, '_now_utc',
+                        lambda: datetime(2026, 8, 12, 20, 1, tzinfo=UTC))
+    assert runtime._recovery_identity_session(ctx.cycle) == ('2026-08-12', True)
+    monkeypatch.setattr(runtime, '_recovery_identity_session', lambda c: (str(c.effective_session), True))
+    with pytest.raises(AssertionError):
+        assert runtime._recovery_identity_session(ctx.cycle) == ('2026-08-12', True)
 
 
 @async_test

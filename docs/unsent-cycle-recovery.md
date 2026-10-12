@@ -14,6 +14,12 @@ configuration and unknown failures remain ineligible. Additional recovery kinds
 require a reviewed design and independent qualification; arbitrary operator
 text never changes eligibility.
 
+The independently qualified `PREFLIGHT_IDENTITY_BEYOND_FRONTIER` subtype is
+specified in [close-cycle recovery](close-cycle-recovery-and-backup-cancellation.md).
+It admits only the exact unreviewed identity-boundary exception in a planless,
+unsent preflight block. Its receipt kind must match the confirmed predecessor;
+all negative transport, lineage, authority, time and writer-fencing proofs remain.
+
 `authorize-unsent-paper-recovery` runs only in the certified authorized CLI. It
 requires exact deployment/account/certificate, decision session and originating
 blocked-cycle confirmations, actor/reason, explicit old-writer fencing and an
