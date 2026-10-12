@@ -74,9 +74,16 @@ def _raw(path: Path) -> bytes:
 
 def pending(path: Path) -> dict | None:
     try:
-        value = json.loads(_raw(path))
+        raw = _raw(path)
     except FileNotFoundError:
         return None
+    return _decode_pending(raw)
+
+
+def _decode_pending(raw):
+    if raw is None:
+        return None
+    value = json.loads(raw)
     import math
     import re
     if (not isinstance(value, dict)
@@ -91,12 +98,16 @@ def pending(path: Path) -> dict | None:
 
 
 def _signature(payload):
-    from sentinel.feed.publication import _receipt_hmac
-    return _receipt_hmac({'purpose': SCHEMA, 'status': payload})
+    from sentinel.receipt_authentication import sign
+    return sign({'purpose': SCHEMA, 'status': payload})
 
 
 def _load(target: Path) -> Status:
-    wrapped = json.loads(_raw(target))
+    return _decode_status(_raw(target))
+
+
+def _decode_status(raw) -> Status:
+    wrapped = json.loads(raw)
     if (not isinstance(wrapped, dict) or set(wrapped) != {'status', 'hmac_sha256'}
             or not isinstance(wrapped['status'], dict)
             or not isinstance(wrapped['hmac_sha256'], str)
@@ -165,14 +176,23 @@ def publish(critical: Path, incarnation: str, *, stopped=False, now=None):
 
 def read(state_dir: Path, database_url: str) -> dict:
     """Bounded, read-only projection; persistent negative markers always win."""
-    critical = state_dir/CRITICAL_NAME
-    if critical.exists():
+    from sentinel.shadow_service_probe import observe
+    return decode_probe(observe(state_dir), database_url)
+
+
+def decode_probe(snapshot, database_url):
+    """Validate the finite snapshot with the unchanged producer contract."""
+    if (not isinstance(snapshot, dict)
+            or set(snapshot) != {'critical', 'pending', 'status', 'latest_pending'}
+            or type(snapshot['critical']) is not bool
+            or any(value is not None and (not isinstance(value, bytes) or len(value) > MAX_BYTES)
+                   for key, value in snapshot.items() if key != 'critical')):
+        raise ValueError('worker snapshot is malformed')
+    if snapshot['critical']:
         return {'state': 'FENCED', 'reason': 'CRITICAL_LATCH'}
-    attempt = pending(state_dir/PENDING_NAME)
-    value = _load(state_dir/NAME)
-    if critical.exists():
-        return {'state': 'FENCED', 'reason': 'CRITICAL_LATCH'}
-    latest = pending(state_dir/PENDING_NAME)
+    attempt = _decode_pending(snapshot['pending'])
+    value = _decode_status(snapshot['status'])
+    latest = _decode_pending(snapshot['latest_pending'])
     if latest is not None and latest != attempt:
         raise ValueError('durable worker attempt changed during observation')
     if value.binding_sha256 != binding(database_url):

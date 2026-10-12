@@ -72,14 +72,11 @@ def _receipt_digest(payload: Mapping[str, object]) -> str:
 
 
 def _receipt_hmac(payload: Mapping[str, object]) -> str:
-    secret = os.environ.get(RECEIPT_KEY_ENV, "").strip().encode("utf-8")
-    if len(secret) < 32:
-        raise _core.CorpusIncoherent(
-            f"{RECEIPT_KEY_ENV} must contain at least 32 bytes")
-    encoded = json.dumps(
-        dict(payload), sort_keys=True, separators=(",", ":"), default=str
-    ).encode("utf-8")
-    return hmac.new(secret, encoded, hashlib.sha256).hexdigest()
+    from sentinel.receipt_authentication import ReceiptKeyUnavailable, sign
+    try:
+        return sign(payload)
+    except ReceiptKeyUnavailable as exc:
+        raise _core.CorpusIncoherent(str(exc)) from None
 
 
 def _publication_recovery_target(conn) -> dict[str, object]:

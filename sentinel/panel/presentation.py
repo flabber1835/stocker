@@ -60,7 +60,9 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
     if key == 'shadow_worker' and row.status == 'ok' and status != 'ok':
         value = 'WORKER STATUS NOT CURRENT'
     if row.recovery is not None and row.recovery.phase == 'FINANCIAL_VERIFICATION' and status == 'warn':
-        explanation += ' A fresh verification is running. This can happen after the dashboard has been idle; last-known numbers keep their original timestamp.'
+        explanation += ' A fresh verification is running; last-known numbers keep their original timestamp. '+row.detail
+    elif status == 'ok' and 'background refresh running; last verified ' in row.detail:
+        explanation += ' The last successful check is still current. '+row.detail
     if key == 'backup_restore' and value == 'BACKUP CHECK IN PROGRESS':
         explanation += ' A replacement backup is being restored and checked. It is not yet confirmed recoverable.'
     if copy:

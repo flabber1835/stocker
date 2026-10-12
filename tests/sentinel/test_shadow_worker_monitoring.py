@@ -149,14 +149,16 @@ def test_worker_failure_does_not_relabel_verified_saved_portfolio(state, monkeyp
 @pytest.mark.parametrize('change', ['critical', 'attempt', 'ack'])
 def test_changed_negative_marker_during_read_withdraws_positive_observation(state, monkeypatch, change):
     active(state, monkeypatch)
-    original = status._load
+    from sentinel import shadow_service_probe as probe
+    original = probe.raw
     def changed(path):
         value = original(path)
-        if change == 'critical': (state/status.CRITICAL_NAME).write_text('terminal refusal')
-        elif change == 'attempt': arm(state, B)
-        else: (state/status.PENDING_NAME).unlink()
+        if path.name == status.NAME:
+            if change == 'critical': (state/status.CRITICAL_NAME).write_text('terminal refusal')
+            elif change == 'attempt': arm(state, B)
+            else: (state/status.PENDING_NAME).unlink()
         return value
-    monkeypatch.setattr(status, '_load', changed)
+    monkeypatch.setattr(probe, 'raw', changed)
     worker = row(state, monkeypatch)
     if change == 'ack':
         assert worker.effective_status(NOW) == model.OK and worker.as_of == NOW
@@ -248,14 +250,20 @@ def test_notification_retry_remains_bounded_and_never_clears_the_fence(state, mo
 def test_removed_monitoring_guards_are_detected(state, monkeypatch, guard):
     if guard == 'signature':
         monkeypatch.setattr(status.hmac, 'compare_digest', lambda *a: True)
-    elif guard in {'runtime', 'attempt', 'critical'}:
-        source = textwrap.dedent(inspect.getsource(status.read))
+    elif guard == 'critical':
+        from sentinel import shadow_service_probe as probe
+        source = textwrap.dedent(inspect.getsource(probe.observe))
+        assert source.count('if critical.exists():') == 2
+        namespace = {}; exec(compile(source.replace('if critical.exists():', 'if False:'),
+            'worker-critical-probe-falsifier', 'exec'), probe.__dict__, namespace)
+        monkeypatch.setattr(probe, 'observe', namespace['observe'])
+    elif guard in {'runtime', 'attempt'}:
+        source = textwrap.dedent(inspect.getsource(status.decode_probe))
         line = {'runtime': 'if value.binding_sha256 != binding(database_url):',
-                'attempt': "if value.state == 'RUNNING' and attempt is not None and value.attempt_id != attempt['attempt_id']:",
-                'critical': 'if critical.exists():'}[guard]
+                'attempt': "if value.state == 'RUNNING' and attempt is not None and value.attempt_id != attempt['attempt_id']:"}[guard]
         assert line in source
         namespace = {}; exec(compile(source.replace(line, 'if False:'), 'worker-monitoring-falsifier', 'exec'), status.__dict__, namespace)
-        monkeypatch.setattr(status, 'read', namespace['read'])
+        monkeypatch.setattr(status, 'decode_probe', namespace['decode_probe'])
     elif guard == 'incarnation':
         source = textwrap.dedent(inspect.getsource(status.publish))
         namespace = {}; exec(compile(source.replace('prior.incarnation == incarnation', 'True'), 'worker-incarnation-falsifier', 'exec'), status.__dict__, namespace)

@@ -1,0 +1,61 @@
+{
+  "additions": {
+    "panel/verification_monitor.py": "4ca19af40390fcb0fcf4fbb85fcf1e399d8771cff1d81cc8b54c517f8008794c",
+    "receipt_authentication.py": "b7e9aa39858f8b0b7be98f797eda404764f6de1078855f613e947479306dd27c",
+    "shadow_service_probe.py": "cf9a56cd7d3d1c44be8943a9f478c61831e77863c90815697f1956d6518683b1"
+  },
+  "files": {
+    "feed/publication.py": {
+      "after": "b15c69929c8d7160d3ae7feee9b8dfa02a049f3a6fc436e24f04d423f3a5d35c",
+      "before": [
+        "fe61e2c0cd4648ceb1a67e88ecf9dc5b85e7c32c6a034c556dd5bedf85389a78"
+      ]
+    },
+    "panel/app.py": {
+      "after": "5a491414a6b4e26c8bf12a58722ba4480f586367774013f0f0efdb5d6bb0e042",
+      "before": [
+        "a613f1507c51e3466db6fb15b2a9be766d4a39eba1b24cf7e81bfdc056c751b3",
+        "d634a80af7f85749fe02ad325e460f2fb54f3fe7de60c8fa446e27f2c3573388"
+      ]
+    },
+    "panel/authority_reader.py": {
+      "after": "751ca45f89970be68254a58fce980027797b546559cb82325e4064048ff11958",
+      "before": [
+        "0f4f5283529fd15ca0aabf1602923138583f67029965d83c57c36085ef4dcfa6",
+        "3d6a5afcd6e5e77013b594bd81b282fb247594186dc27087617d11fd0722f717",
+        "6db870b265b5a0c5b57dd4343129c02af0834c16f6c461b610d8d47b96a59628",
+        "89831f5f8fb290fce930d33847d431a9229398fed752e2037667683d2b83c3d4",
+        "9c767cf45e5af6d8f27230ec79a3ddc5b62a94dc897ffd46949164a954e82dbe"
+      ]
+    },
+    "panel/presentation.py": {
+      "after": "ed49c3c949f8d6461824aafc91ce65c84fffea70fd03245a775af6278079f030",
+      "before": [
+        "96bc717b2eae1f5cf3ca01acea5e8bd5369c469b872e5d06b745854a4345b59d",
+        "e28d3f4ecdc0202ed97e67a2994d89d246e0397d4675fcf47cd3968f59adebbe",
+        "f4acb54053c1c9c1ac00553f9190b18fc80ee02f7223389ed16d1dced2efa126"
+      ]
+    },
+    "panel/sources.py": {
+      "after": "fcad027cac68e1373f461a7191d6b3c1423fe2be4f18bb26ea56c12dcf58fdf4",
+      "before": [
+        "0d0efbb3e1a3c37fe69104bf6cb1af09111251afd1d6b5527d2f76d051689afd",
+        "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
+        "26da5ab10c8fe9790319030ee2edfee801015291ae7a6f78d86681f9e4c8b592",
+        "2be282ce317ebf34f716643dd9dddb970c4cf0fb1aa9e8bfd8f91736f72e5956",
+        "30c1cbc1bb18d8f6b0f6d037dfee7da178998ff51de3407b370f1875550a9360",
+        "4a82d1296e12fcc507713762baaf22ca4d26edcf8f7580d5300f158dc1f34fc8",
+        "4f9c279c08d326cfb8a6452545b74cd0632f1567d2c5f50fdb7a923995a37328",
+        "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17"
+      ]
+    },
+    "shadow_service_status.py": {
+      "after": "f843073631df229d9d52ab68ca36547db55795119b2aee863800c2ed1f444b64",
+      "before": [
+        "575a34da2c7b9f83dd32471bd40516d2c73fa43d23e619338a43678dc53e3a7e"
+      ]
+    }
+  },
+  "module_sha256": "c6f36004215f56c251155c96efafe9a956fbbd827945bcd462019eec2deb38a9",
+  "schema": "sentinel.dashboard-monitor-upgrade/1"
+}
