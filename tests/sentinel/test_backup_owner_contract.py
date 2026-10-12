@@ -82,9 +82,10 @@ def test_shared_pid_namespace_falsifier_is_rejected(pid):
 
 
 def test_base_worker_grace_fits_host_deadline():
-    from scripts import sentinel_backup_deadlines as deadlines
+    import runpy
+    deadlines = runpy.run_path(str(ROOT/'scripts/sentinel_backup_deadlines.py'))
     value = subprocess.check_output([sys.executable, str(ROOT/'scripts/sentinel_backup_deadlines.py'),
                                      'base-worker'], text=True).strip()
-    assert int(value) == deadlines.BASE_WORKER_SECONDS
-    assert 600 < deadlines.BASE_WORKER_SECONDS < deadlines.BASE_COMMAND_SECONDS
-    assert deadlines.BASE_WORKER_SECONDS + 30 < deadlines.BASE_COMMAND_SECONDS
+    assert int(value) == deadlines['BASE_WORKER_SECONDS']
+    assert 600 < deadlines['BASE_WORKER_SECONDS'] < deadlines['BASE_COMMAND_SECONDS']
+    assert deadlines['BASE_WORKER_SECONDS'] + 30 < deadlines['BASE_COMMAND_SECONDS']
