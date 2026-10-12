@@ -82,6 +82,20 @@ class ShellLab:
                 (self.root / "events.jsonl").read_text().splitlines()]
 
 
+def test_base_backup_shell_uses_only_the_bounded_isolated_client(tmp_path):
+    lab = ShellLab(tmp_path)
+    result = lab.run()
+    assert result.returncode == 0, (result.stdout, result.stderr)
+    events = [json.loads(line) for line in (lab.root/'events.jsonl').read_text().splitlines()]
+    clients = [event['argv'] for event in events if 'sentinel-backup-client' in event['argv']]
+    assert len(clients) == 1
+    argv = clients[0]
+    assert argv[argv.index('run'):argv.index('sentinel-backup-client')] == [
+        'run', '--rm', '-T', '--no-deps', '--entrypoint', 'timeout']
+    assert 'sentinel-postgres' not in argv and '--kill-after=30s' in argv
+    assert lab.events().index('base-copy') < lab.events().index('base-verify')
+
+
 def test_base_backup_shell_waits_without_entering_another_owner(tmp_path):
     from tests.production_composition.test_go_backup_lock_concurrency import (
         _backup_holder, _release_holder,
