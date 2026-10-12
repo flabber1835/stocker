@@ -142,7 +142,17 @@ def _ensure_ready(path: Path, project: str, *, timeout_seconds: int, label: str)
         compose_args=_compose_args(path, project),
     )
     if failure is not None:
-        raise HarnessFailure(f"{label}: unexpected refusal {failure}")
+        diagnostics = {}
+        prefix = ['docker', 'compose', *_compose_args(path, project)]
+        for field, args in (
+                ('state', ['ps', '--all', '--format', 'json']),
+                ('logs', ['logs', '--no-color', '--tail', '30', 'sentinel-postgres'])):
+            try:
+                result = _run(prefix+args, timeout=10)
+                diagnostics[field] = probe_contract._safe_tail(result.stdout, result.stderr)
+            except Exception as exc:
+                diagnostics[field] = type(exc).__name__
+        raise HarnessFailure(f"{label}: unexpected refusal {failure}; diagnostics={diagnostics}")
     _verify_sql(
         path,
         project,
@@ -295,6 +305,17 @@ def _scenario_count():
     return len(scenarios()) + len(EXTENDED_CASES)
 
 
+def _wait_for_crashed_container(container_id: str, *, label: str):
+    """An exec client's death cannot prove Docker finished the container exit."""
+    if (len(container_id) != 64
+            or any(character not in '0123456789abcdef' for character in container_id)):
+        raise HarnessFailure(f'{label}: crash fixture container identity unavailable')
+    result = _run(['docker', 'wait', container_id], timeout=15)
+    code = (result.stdout or '').strip()
+    if result.returncode != 0 or not code.isdigit() or int(code) == 0:
+        raise HarnessFailure(f'{label}: crash fixture exit was not confirmed')
+
+
 def _crash_transaction_case(tmp: Path):
     """Real database process death: durable commit, rollback, bounded retry."""
     name = "postgres-crash-rollback-and-retry"
@@ -308,6 +329,8 @@ def _crash_transaction_case(tmp: Path):
     worker = None
     try:
         _ensure_ready(path, project, timeout_seconds=45, label=name)
+        container_id = _require(prefix+['ps', '-q', 'sentinel-postgres'],
+                                label=name).stdout.strip()
         _require(sql + ["CREATE TABLE recovery_marker (id integer PRIMARY KEY); "
                         "INSERT INTO recovery_marker VALUES (1)"], label=name)
         writer = prefix + ["exec", "-T", "-e", "PGAPPNAME=composition-open-tx",
@@ -332,6 +355,7 @@ def _crash_transaction_case(tmp: Path):
         worker.communicate(timeout=15)
         if worker.returncode == 0:
             raise HarnessFailure(f"{name}: interrupted writer reported success")
+        _wait_for_crashed_container(container_id, label=name)
         _ensure_ready(path, project, timeout_seconds=45, label=name)
         recovered = _require(sql + [
             "SELECT string_agg(id::text, ',' ORDER BY id) FROM recovery_marker"

@@ -126,6 +126,17 @@ TCP server starts. The initialized service must also survive stop/recovery.
 This fixture tests the startup boundary without changing production readiness
 policy or treating an unhealthy service as ready.
 
+The crash/rollback fixture captures its healthy container ID before SIGKILL and
+uses a bounded `docker wait` to confirm that exact container exited before
+retrying startup. Killing the SQL client's connection alone is not the fixture's
+stop proof. A missing ID, unsuccessful wait, timeout or zero exit is a refusal.
+This restores explicit sequencing in the qualification fixture; production
+startup/health deadlines and failure classifications are unchanged. Docker's
+[wait contract](https://docs.docker.com/reference/cli/docker/container/wait/)
+provides the exit boundary. A readiness refusal also captures bounded state and
+log diagnostics from the disposable Compose project, without masking the
+original refusal if diagnostic collection fails.
+
 Existing backup and internal-state physical PostgreSQL campaigns remain required;
 this harness does not duplicate their economic, WAL or broker oracles.
 
