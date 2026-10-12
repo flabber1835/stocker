@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = '51c1c8afd98800724c6c2a83a3222e093efe8e2ce6f6d4ae1084ef67615b52fe'
+PROFILE_SHA256 = '02453c63e30523c5995d1f364d3af19ac22b3112e5e4f2197e426c90e8963735'
 PROFILE = Path(__file__).with_name('dashboard-monitor-upgrade.json')
 SCOPE = frozenset({'feed/publication.py', 'panel/app.py', 'panel/authority_reader.py',
                    'panel/sources.py', 'panel/presentation.py', 'shadow_service_status.py'})

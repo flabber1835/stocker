@@ -16,6 +16,17 @@ RETRY_SECONDS = 30
 MAX_BYTES = 32 * 1024
 FRESH_SECONDS = 600
 REFRESH_SECONDS = FRESH_SECONDS - DEADLINE_SECONDS
+# Canonical execution/trial namespaces sharing the processed-session table.
+# No broker import or observation can become a dependency of shadow proof.
+PAPER_CURSOR_PREFIXES = (
+    'informational-paper-mirror:v1:', 'broker-observation:v4:',
+    'terminal-recovery-witness:v3:', 'broker-cash-activity:v1:',
+    'broker-cash-plan:v1:', 'preopen-share-unit-authority:v1:',
+    'plan-target-projection:v2:', 'dual-regenesis-broker-handover:v2:',
+    'trial-account:v2:', 'trial-verification:v3:', 'trial-fill-interval:v1:',
+    'trial-close-nav:v1:', 'paper-performance-invalid:v1:',
+)
+PAPER_CURSOR_NAMES = ('broker-recovery-db-incarnation:v1',)
 
 
 def _evidence(database_url, include_paper):
@@ -24,12 +35,14 @@ def _evidence(database_url, include_paper):
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
         conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        # This namespace is execution's informational broker mirror, never an
-        # input to the immutable book. All other retained cursors remain bound.
+        # Specific broker-owned records are never inputs to the immutable book.
+        # Every other retained cursor, including unknown namespaces, stays bound.
         facts = [conn.execute(
             "SELECT cursor_name,session,xmin::text,ctid::text FROM sentinel_processed_sessions "
-            "WHERE %s OR cursor_name NOT LIKE 'informational-paper-mirror:v1:%%' ORDER BY cursor_name",
-            (include_paper,)).fetchall()]
+            "WHERE %s OR (cursor_name <> ALL(%s) AND NOT (cursor_name LIKE ANY(%s))) "
+            "ORDER BY cursor_name",
+            (include_paper, list(PAPER_CURSOR_NAMES),
+             [prefix+'%' for prefix in PAPER_CURSOR_PREFIXES])).fetchall()]
         facts.extend(conn.execute(query).fetchall() for query in (
             "SELECT version,xmin::text,ctid::text FROM sentinel_corpus_publications "
             "ORDER BY version DESC LIMIT 1",

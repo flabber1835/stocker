@@ -95,6 +95,48 @@ def test_reintroducing_combined_key_fails_independence(conn,monkeypatch):
         test_shadow_identity_excludes_control_polling_on_actual_postgres(conn,monkeypatch)
 
 
+@pytest.mark.parametrize('owner,constant,exact',[
+    ('sentinel.informational_paper_mirror','CURSOR_PREFIX',False),
+    ('sentinel.execution.alpaca','_OBSERVATION_PREFIX',False),
+    ('sentinel.execution.alpaca','_WITNESS_PREFIX',False),
+    ('sentinel.execution.alpaca','_DB_INCARCERATION_CURSOR',True),
+    ('sentinel.execution.broker_cash','ACTIVITY_CURSOR_PREFIX',False),
+    ('sentinel.execution.broker_cash','PLAN_BASELINE_PREFIX',False),
+    ('sentinel.execution.preopen_authority','CURSOR_PREFIX',False),
+    ('sentinel.execution.target_reprojection','CURSOR_PREFIX',False),
+    ('sentinel.dual_reconciliation','REGENESIS_HANDOVER_PREFIX',False),
+    ('sentinel.trial','ACCOUNT_PREFIX',False),
+    ('sentinel.trial','VERIFICATION_PREFIX',False),
+    ('sentinel.trial_fills','FILL_INTERVAL_PREFIX',False),
+    ('sentinel.trial_close','TRIAL_CLOSE_NAV_PREFIX',False),
+    ('sentinel.paper_performance','PREFIX',False),
+])
+def test_actual_broker_owned_cursors_never_reset_shadow_proof(conn,owner,constant,exact):
+    import importlib
+    from sentinel import schema
+    from sentinel.feed import store
+    namespace=getattr(importlib.import_module(owner),constant)
+    assert namespace in (reader.PAPER_CURSOR_NAMES if exact else reader.PAPER_CURSOR_PREFIXES)
+    schema.ensure_schema(conn);store.migrate_schema(conn)
+    dsn=conn.info.dsn;before=monitoring.shadow_evidence(dsn);paper=reader._evidence(dsn,True)
+    cursor=namespace if exact else namespace+'qualification'
+    for state in ('{}','{"updated":true}'):
+        conn.execute('INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES (%s,%s,%s::jsonb) '
+            'ON CONFLICT(cursor_name) DO UPDATE SET state=EXCLUDED.state',
+            (cursor,'2026-10-09',state));conn.commit()
+        assert monitoring.shadow_evidence(dsn)==before
+        latest=reader._evidence(dsn,True);assert latest!=paper;paper=latest
+    conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES ('unrecognized-economic-cursor','2026-10-09','{}')");conn.commit()
+    assert monitoring.shadow_evidence(dsn)!=before
+
+
+def test_removing_broker_namespace_partition_fails_independence(conn,monkeypatch):
+    monkeypatch.setattr(monitoring,'shadow_evidence',lambda d,*a:reader._evidence(d,True))
+    with pytest.raises(AssertionError):
+        test_actual_broker_owned_cursors_never_reset_shadow_proof(
+            conn,'sentinel.execution.alpaca','_OBSERVATION_PREFIX',False)
+
+
 def test_queued_work_is_finite_and_cannot_extend_proof(monkeypatch):
     monkeypatch.setattr(reader,'_evidence',lambda *a:'f'*64)
     origin=datetime.now(timezone.utc); clock=[0.0]; slot=BoundedSemaphore(1);slot.acquire()

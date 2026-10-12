@@ -23,6 +23,16 @@ its exposure and book annotations. A changed economic input or annotation
 withdraws the affected current proof immediately. Neither scope can promote
 the other's failure into a financial failure or conceal a current failure.
 
+The shared processed-session table also contains execution and trial records.
+Exclude its specific canonical broker observation/witness, cash activity/plan,
+pre-open unit/target projection, broker handover, trial account/verification/
+fill/close/performance-quarantine and informational-mirror namespaces from the
+shadow identity, plus the exact physical broker-incarnation anchor. Unknown
+namespaces remain invalidating. Book, input, admission, segment and dual-plan
+sizing records remain bound. Compare classification constants to their owning
+modules in PostgreSQL tests without importing broker modules in the panel's
+identity reader. These exclusions change display invalidation only.
+
 The panel owns one background monitor for its fixed configured database. It
 starts at HTTP application startup and checks both identities independently
 while no browser is connected. The HTTP path still reads current compact
