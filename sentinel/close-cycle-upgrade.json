@@ -71,6 +71,12 @@
         "e569924d2a0e29228c112449c2248c078bb2bafd682e894a079928fdf9dca498"
       ]
     },
+    "rolling_reconstruction_evidence.py": {
+      "after": "6d474dc4b65d88020489d2abb9b533322fe1c9679326341bdabe7341038a3943",
+      "before": [
+        "bd80899aa9d847ad0109c93d672c5c5d79c532d1a2df875c655a38932cc4e0c2"
+      ]
+    },
     "shadow_service.py": {
       "after": "00de4b122378fecfd265c5860f0ecfa0d2de2d5470fb5cb21571047de822df4d",
       "before": [
@@ -79,6 +85,6 @@
       ]
     }
   },
-  "module_sha256": "142af5b1397d5bb81fe9b789821288f89ae751b7c753f09bc5bbbc92e9bae9c8",
+  "module_sha256": "c8f3eb5267091bca8acf3dea4b38fc3f1ac6b14282abad69cd54bc0031f5f570",
   "schema": "sentinel.close-cycle-upgrade/1"
 }
