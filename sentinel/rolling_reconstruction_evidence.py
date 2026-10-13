@@ -103,12 +103,19 @@ def require_inputs(conn, pub):
 
 
 def select(conn, *, session, previous_version):
+    from sentinel.feed.rolling_contract import digest
+    from sentinel.strategy import production_strategy
     opened, _ = calendar.session_window(calendar.next_session(session))
     rows = conn.execute(
-        "SELECT version,previous_version,run_id,window_start,window_end,evidence "
-        "FROM sentinel_corpus_publications WHERE window_end=%s AND version>%s "
-        "AND published_at >= %s AND published_at < %s ORDER BY version LIMIT 2",
-        (session, previous_version, shadow_runtime.publication_not_before(session), opened)).fetchall()
+        "SELECT p.version,p.previous_version,p.run_id,p.window_start,p.window_end,p.evidence "
+        "FROM sentinel_corpus_publications p "
+        "JOIN sentinel_operational_snapshots s ON s.publication_version=p.version "
+        "JOIN sentinel_snapshot_jobs j ON j.job_id=s.job_id "
+        "WHERE p.window_end=%s AND p.version>%s "
+        "AND p.published_at >= %s AND p.published_at < %s "
+        "AND j.request->>'strategy_sha256'=%s ORDER BY p.version LIMIT 2",
+        (session, previous_version, shadow_runtime.publication_not_before(session), opened,
+         digest(production_strategy()[1]))).fetchall()
     if len(rows) != 1:
         reason = "MISSING" if not rows else "AMBIGUOUS"
         raise InputsUnavailable(f"{reason}_DATED_PUBLICATION:{session}")

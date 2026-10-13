@@ -155,3 +155,42 @@ def test_missing_publisher_day_is_acquired_now_without_reset_or_broker_authority
     assert not rolling_runtime.advance(conn, through=fresh, observation_id=OBS, starting_cash=50_000).appended
     assert rolling_checkpoint.read(conn).genesis_sha256 == genesis
     assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
+
+
+def test_stale_dated_strategy_reacquires_current_information_and_preserves_book(conn, provider, monkeypatch):
+    from sentinel.feed.rolling_contract import digest
+    from sentinel import rolling_reconstruction_evidence as evidence
+    prices, publish = provider
+    publish()
+    first_day = str(prices.window.end)
+    first = rolling_runtime.advance(conn, through=first_day, observation_id=OBS, starting_cash=50_000)
+    genesis = rolling_checkpoint.read(conn).genesis_sha256
+    conn.rollback()
+    missing = calendar.next_session(first_day)
+    prices.window = PriceWindow.through(missing)
+    opened, _ = calendar.session_window(calendar.next_session(missing))
+    # Publish genuine data-only inputs under a different acquisition identity;
+    # never edit a receipt or request after it was sealed.
+    job = snapshots.enqueue(conn, strategy_sha256='f'*64,
+                            dependencies_sha256=digest('stale dated strategy'))
+    conn.commit()
+    stale = snapshots.prepare(conn, job)
+    monkeypatch.setattr(initial, '_now', lambda connection:opened+timedelta(minutes=20))
+    with pytest.raises(evidence.InputsUnavailable, match='MISSING_DATED_PUBLICATION'):
+        evidence.select(conn, session=missing, previous_version=first.state.data_version)
+    conn.rollback()
+    result = rolling_recovery.advance_one(conn, through=missing, observation_id=OBS, starting_cash=50_000)
+    assert result.session == missing and result.verification_scope == 'ROLLING_RECONSTRUCTION_ONLY'
+    assert rolling_checkpoint.read(conn).genesis_sha256 == genesis
+    conn.rollback()
+    with snapshots.pinned(conn) as (pub, binding):
+        assert pub.version > stale['data_version']
+        assert pub.evidence['operational_recovery']['historical_availability_claim'] is False
+        assert pub.evidence['operational_recovery']['broker_authority'] is False
+        from sentinel.feed import rolling_jobs
+        request = rolling_jobs.status(conn, binding['job_id'])['request']
+        assert request['strategy_sha256'] == digest(production_strategy()[1])
+    repeated = rolling_recovery.advance_one(conn, through=missing, observation_id=OBS, starting_cash=50_000)
+    assert repeated.state.state_hash == result.state.state_hash
+    assert repeated.runtime_authority_sha256 == result.runtime_authority_sha256
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0

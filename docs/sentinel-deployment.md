@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Dated recovery source selection](dated-recovery-source-selection.md) filters new
+historical reconstruction inputs by the selected strategy and preserves the
+strict readiness guard, original book, bounded requests and missed-open policy.
+
 [Alpaca tradability boundary](alpaca-tradability-boundary.md) separates active
 listed market-data membership from broker trading permission under source `/3`.
 Execution retains its fresh permission checks; historical input and book bytes
