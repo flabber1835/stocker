@@ -11,7 +11,7 @@ from sentinel.feed import operational_snapshot, rolling_store
 from sentinel.feed.rolling_contract import canonical_json, digest
 
 
-@pytest.fixture(params=['1','2'])
+@pytest.fixture(params=['1','2','3'])
 def published(monkeypatch,request):
     # Exact split component shape emitted by AlpacaSource._part, including
     # OpenFIGI metadata reuse. The real producer is exercised separately below.

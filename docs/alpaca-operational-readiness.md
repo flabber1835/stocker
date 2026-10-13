@@ -7,8 +7,10 @@ $50,000 genesis, retained ownership and execution membrane are unchanged.
 
 ## Instrument classification
 
-Alpaca's active listed tradable asset inventory supplies discovery and stable
-asset UUIDs. OpenFIGI mapping replaces Nasdaq name parsing as instrument-type
+Alpaca's active listed asset inventory supplies discovery and stable asset UUIDs.
+Source `/3` excludes broker tradability from market-data membership; see
+[the tradability boundary](alpaca-tradability-boundary.md). OpenFIGI mapping
+replaces Nasdaq name parsing as instrument-type
 authority. Retain common stock, ordinary-equity ADR/GDR, New York registered
 shares, REIT common shares, royalty trusts and partnership shares. Preserve the
 previous broad policy's closed-end common fund shares (including BDCs);

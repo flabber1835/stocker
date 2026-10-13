@@ -1,5 +1,9 @@
 # Alpaca-led cold-start GO without Sharadar
 
+The current [source `/3` tradability boundary](alpaca-tradability-boundary.md)
+supersedes the historical `tradable` inventory criterion below. Active listing
+identity supplies market data; broker trading permission remains in execution.
+
 Decision: 2026-10-02. Scope: first deployment, broker-free formation, and a
 read-only GO verdict. This design supersedes the Sharadar production-source
 choice in older deployment and current-window documents. It does not turn an

@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[Alpaca tradability boundary](alpaca-tradability-boundary.md) separates active
+listed market-data membership from broker trading permission under source `/3`.
+Execution retains its fresh permission checks; historical input and book bytes
+remain unchanged.
+
 [Alpaca name-change continuity](alpaca-name-change-continuity.md) defines
 source-bound canonical identity preservation when a same-symbol CUSIP name
 change recreates the provider asset object, and source-only unit-split resets.
