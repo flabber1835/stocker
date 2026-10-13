@@ -102,7 +102,8 @@ def _rolling_metadata_snapshot_identity(conn, pub) -> Mapping:
     source = rolling_store.load_evidence(conn, refs.manifest.source_evidence_sha256)
     if refs.manifest.provider == "ALPACA_OPENFIGI":
         if source.get("schema") not in ("sentinel.alpaca-openfigi-operational-source/1",
-                                        "sentinel.alpaca-openfigi-operational-source/2"):
+                                        "sentinel.alpaca-openfigi-operational-source/2",
+                                        "sentinel.alpaca-openfigi-operational-source/3"):
             raise AuthorityRefused("Alpaca metadata source identity is missing")
         components = [item for item in source.get("components", [])
                       if item.get("component") == "TICKERS"]

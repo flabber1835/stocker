@@ -19,7 +19,7 @@ from sentinel.feed.alpaca_transport import (
 from sentinel.feed.operational_source import _months
 from sentinel.feed.rolling_contract import digest
 
-SOURCE = "sentinel.alpaca-openfigi-operational-source/2"
+SOURCE = "sentinel.alpaca-openfigi-operational-source/3"
 _NY = ZoneInfo("America/New_York")
 
 

@@ -177,7 +177,8 @@ def test_unproven_controller_identity_replacement_retains_original_book(conn,pro
     assert restored.state.state_hash==before.state.state_hash
 
 
-def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypatch):
+@pytest.mark.parametrize('legacy_policy',['1','2'])
+def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypatch,legacy_policy):
     from sentinel import rolling_initialization as initial
     from sentinel.feed import alpaca_source,rolling_go_inputs
     prices,publish=provider
@@ -187,9 +188,11 @@ def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypa
     original=alpaca_source.AlpacaSource.reference_payload
     def legacy_reference(self):
         value=original(self)
-        value.pop('identity_bindings')
-        return value | dict(schema='sentinel.rolling-alpaca-openfigi-references/2')
-    monkeypatch.setattr(alpaca_source,'SOURCE','sentinel.alpaca-openfigi-operational-source/1')
+        if legacy_policy=='1':
+            value.pop('identity_bindings')
+            return value | dict(schema='sentinel.rolling-alpaca-openfigi-references/2')
+        return value
+    monkeypatch.setattr(alpaca_source,'SOURCE','sentinel.alpaca-openfigi-operational-source/'+legacy_policy)
     monkeypatch.setattr(alpaca_source.AlpacaSource,'reference_payload',legacy_reference)
     publish()
     monkeypatch.setattr(alpaca_source,'SOURCE',current)
@@ -201,7 +204,8 @@ def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypa
         rolling_go_inputs._prepare(conn,target_session=str(prices.window.end))
 
 
-@pytest.mark.parametrize('mismatch',['old_source_new_reference','new_source_old_reference','binding_digest'])
+@pytest.mark.parametrize('mismatch',['old_source_new_reference','new_source_old_reference','binding_digest',
+                                  'unknown_source_old_reference'])
 def test_source_and_identity_reference_must_agree(conn,alpaca_path,monkeypatch,mismatch):
     from sentinel.feed import operational_snapshot as op,rolling_store
     from sentinel.core.rolling_inputs import SnapshotReferences,RollingInputsRefused
@@ -213,10 +217,12 @@ def test_source_and_identity_reference_must_agree(conn,alpaca_path,monkeypatch,m
     def mixed(c,sha):
         value=original(c,sha)
         if sha==manifest.source_evidence_sha256:
+            if mismatch=='unknown_source_old_reference':
+                return value | dict(schema='sentinel.alpaca-openfigi-operational-source/unknown')
             if mismatch=='old_source_new_reference':
                 return value | dict(schema='sentinel.alpaca-openfigi-operational-source/1')
             if mismatch=='binding_digest':return value | dict(identity_bindings_sha256='f'*64)
-        if sha==manifest.reference_sha256 and mismatch=='new_source_old_reference':
+        if sha==manifest.reference_sha256 and mismatch in ('new_source_old_reference','unknown_source_old_reference'):
             return {key:item for key,item in value.items() if key!='identity_bindings'} | dict(
                 schema='sentinel.rolling-alpaca-openfigi-references/2')
         return value

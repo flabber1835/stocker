@@ -32,8 +32,9 @@ def inventory(assets):
             raise AlpacaTransportRefused('Alpaca asset identity is duplicate or missing')
         ids.add(sid)
         symbols.add(symbol)
+        # Broker permission belongs to execution, not listed-data membership.
         if (asset.get('class') == 'us_equity' and asset.get('status') == 'active'
-                and asset.get('tradable') is True and asset.get('exchange') != 'OTC'):
+                and asset.get('exchange') != 'OTC'):
             result.append({'asset_id': sid, 'ticker': symbol, 'name': asset.get('name') or '',
                            'exchange': asset.get('exchange')})
     return sorted(result, key=lambda item: item['ticker'])

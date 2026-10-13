@@ -87,7 +87,13 @@ class SnapshotReferences:
             raise RollingInputsRefused("UNSUPPORTED_REFERENCE_BUNDLE")
         if self.manifest.provider == 'ALPACA_OPENFIGI':
             source = rolling_store.load_evidence(conn, self.manifest.source_evidence_sha256)
-            if (source.get('schema') == 'sentinel.alpaca-openfigi-operational-source/2') != identity_schema:
+            if (source.get('schema') not in (
+                    'sentinel.alpaca-openfigi-operational-source/1',
+                    'sentinel.alpaca-openfigi-operational-source/2',
+                    'sentinel.alpaca-openfigi-operational-source/3')
+                    or (source.get('schema') in (
+                        'sentinel.alpaca-openfigi-operational-source/2',
+                        'sentinel.alpaca-openfigi-operational-source/3')) != identity_schema):
                 raise RollingInputsRefused('UNBOUND_ALPACA_IDENTITY_SOURCE')
         if identity_schema:
             from sentinel.feed.alpaca_identity import bindings
