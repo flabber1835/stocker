@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Recovery context isolation](recovery-context-isolation.md) preserves the admitted
+target identity across retained-checkpoint preflight and keeps strict acquisition
+identity validation during the canonical reconstruction transition.
+
 [Dated recovery source selection](dated-recovery-source-selection.md) filters new
 historical reconstruction inputs by the selected strategy and preserves the
 strict readiness guard, original book, bounded requests and missed-open policy.

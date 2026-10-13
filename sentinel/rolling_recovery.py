@@ -83,6 +83,8 @@ def _prepare_missing(conn, *, context, through):
     from sentinel.feed import preparation_wait
     if not window_policy.enabled(context['strategy']):
         return
+    # Retained admission binds reader provenance; preserve the caller's target.
+    context = dict(context)
     with snapshots.pinned(conn, commit=False):
         checkpoint, _, prior, attested, _ = runtime._closure(conn, context)
         if attested is None:
