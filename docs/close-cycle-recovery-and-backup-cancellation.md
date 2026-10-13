@@ -94,3 +94,14 @@ the next scheduled attempt acquires the new close. Future frontiers, combined
 failures, population/domain failures, and immutable identity failures remain
 terminal refusals. No stale publication earns trading authority. The new
 exact retained-source profile also pins this reader and service adapter.
+
+The supervised GO check exposed a host-to-image permission defect: its private
+umask produced a mode-0600 retained-source manifest owned by the host UID, while
+the certified image runs as a different non-root UID. This manifest contains
+only untrusted Git source evidence and hashes, never credentials. Publish the
+completed temporary file with explicit mode 0444 before its existing single-file
+read-only bind mount. Keep the host temporary directory private and retain its
+bounded lifetime and cleanup. Do not alter secret-file permissions, image users,
+broker authority, manifest contents, or image-side authentication. Qualify a
+restrictive host umask, omission of the permission step, and a real non-root
+image reading the mounted evidence.

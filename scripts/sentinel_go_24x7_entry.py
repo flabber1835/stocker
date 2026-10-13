@@ -274,6 +274,8 @@ def _retained_manifest(runner, *, compose_args, env):
     with tempfile.TemporaryDirectory(prefix='sentinel-retained-') as folder:
         path = Path(folder)/'source.json'
         path.write_text(json.dumps(manifest, sort_keys=True), encoding='utf-8')
+        # The image UID differs from the host; this public evidence is read-only.
+        path.chmod(0o444)
         yield ['--volume', str(path.resolve()) + ':/retained/source.json:ro',
                '--env', 'SENTINEL_RETAINED_SOURCE_MANIFEST=/retained/source.json']
 
