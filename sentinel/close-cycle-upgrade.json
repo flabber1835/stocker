@@ -1,6 +1,6 @@
 {
   "additions": {
-    "feed/alpaca_identity.py": "4960b0a39f5cb163abcc1beccab5d05f12bdfa190a9e757952526a4b60e06ad6"
+    "feed/alpaca_identity.py": "b2ee30f43da8633c3c2b77aa8fa9e2f90cea379f36e3192f24ca1566b3b2aab6"
   },
   "files": {
     "automation/unsent_recovery.py": {
@@ -24,14 +24,16 @@
     "core/rolling_inputs.py": {
       "after": "24d2e47bd18a1d84b76fdcb78831e3450bad99629b0eb5ad728ffadf4f2f6196",
       "before": [
+        "24d2e47bd18a1d84b76fdcb78831e3450bad99629b0eb5ad728ffadf4f2f6196",
         "25dd7a37af196ab603eebe39b11cf27392f4829945889902aed9daa5be341f93",
         "a09da51b3f2d31d54ac81185b9b9d6457bea04803aca409b3e99b6663154819c",
         "fb469e12e1023c5ccc66decf6b66bb5d24c497bc58541bcff743be67df54f478"
       ]
     },
     "feed/alpaca_source.py": {
-      "after": "83418808af95709edc753c26ba05c4c1502bb0eb2f141553303e0c116424f305",
+      "after": "c41ebe28834f24dbdf824c6d4db830966384c2261d060df16f15052c0c4514b2",
       "before": [
+        "83418808af95709edc753c26ba05c4c1502bb0eb2f141553303e0c116424f305",
         "93a32e831894d8e50b5f61eb3d1940e711e822ed65b5d9e0ac8bed1206a0c178",
         "ddeb2d88859423b283c99a2f785c939fd712a47c17c1a5836999ff6586256a26",
         "ff3955ab33c0002bd5c175d7c35084a54860787f455ed2b4ddcf2632ae29e4a6"
@@ -40,6 +42,7 @@
     "feed/openfigi.py": {
       "after": "1cb1f7a0413e4c3a0a051e335178f626867a796d397b1951c99b6711971cc3f5",
       "before": [
+        "1cb1f7a0413e4c3a0a051e335178f626867a796d397b1951c99b6711971cc3f5",
         "60ff3c60fdd74dfb49f786e293155a03b0a31915a2087492bf8a31c2dcd81cf2"
       ]
     },
@@ -64,6 +67,7 @@
       "before": [
         "789e6d9bc764637a379d509eb64f29c8dc0724a59e6630107492b0e9f185cd46",
         "b884b8b72241630ddef7049442ea59e4cf63cc3b0fc900098452861d085a5147",
+        "c79bf0d8dc0e17d8b3feea9a7c992353184d13b4f023091f9305428154ca8fb8",
         "e569924d2a0e29228c112449c2248c078bb2bafd682e894a079928fdf9dca498"
       ]
     },
