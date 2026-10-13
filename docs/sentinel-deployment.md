@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Certification read availability](certification-read-availability.md) bounds
+transient GET retries within the existing software-verification read budget.
+Complete signed evidence and all activation guards remain mandatory.
+
 [Recovery context isolation](recovery-context-isolation.md) preserves the admitted
 target identity across retained-checkpoint preflight and keeps strict acquisition
 identity validation during the canonical reconstruction transition.

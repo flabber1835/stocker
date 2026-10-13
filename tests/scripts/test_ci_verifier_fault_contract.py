@@ -161,7 +161,7 @@ def test_read_client_sends_get_headers_and_validates_response(token):
     client = verify.GitHubReadClient(token=token, opener=opener)
     assert client.json('/fixture') == {'observed': 'fixture'}
     assert client.bytes(verify.API_ROOT+'/fixture') == b'{"observed":"fixture"}'
-    assert all(r.get_method() == 'GET' and timeout == 30 for r,timeout in calls)
+    assert all(r.get_method() == 'GET' and timeout == 10 for r,timeout in calls)
     assert calls[0][0].get_header('Authorization') == ('Bearer '+token if token else None)
 
 
