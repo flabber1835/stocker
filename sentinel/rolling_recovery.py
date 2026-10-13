@@ -80,9 +80,12 @@ def _prepare_missing(conn, *, context, through):
     """Release the read pin before acquisition; freeze against the retained cursor."""
     from sentinel import rolling_runtime as runtime, shadow_budget
     from sentinel.core import window_policy
-    from sentinel.feed import preparation_wait
+    from sentinel.feed import preparation_wait, rolling_jobs
     if not window_policy.enabled(context['strategy']):
         return
+    # Retained admission binds reader provenance; preserve the caller's target.
+    context = dict(context)
+    selected_strategy = digest(context['strategy'])
     with snapshots.pinned(conn, commit=False):
         checkpoint, _, prior, attested, _ = runtime._closure(conn, context)
         if attested is None:
@@ -101,9 +104,12 @@ def _prepare_missing(conn, *, context, through):
                 raise
         current = snapshots._current(conn)
         if current.window_end == session and current.evidence.get('operational_recovery'):
-            evidence.require_inputs(conn, current)
-            conn.rollback()
-            return
+            binding = snapshots._bound(conn, current)
+            request = rolling_jobs.status(conn, binding['job_id'])['request']
+            if request['strategy_sha256'] == selected_strategy:
+                evidence.require_inputs(conn, current)
+                conn.rollback()
+                return
     conn.rollback()
     job = snapshots.enqueue_reconstruction(conn, session=session, cursor=checkpoint.session,
         strategy_sha256=digest(initial._context(context['observation_id'], context['starting_cash'])['strategy']),
