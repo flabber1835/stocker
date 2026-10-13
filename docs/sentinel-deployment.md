@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[Backup runtime transitions](backup-runtime-transition.md) renew a selected base
+once when its full semantic receipt belongs to a previous immutable runtime.
+The successor still requires the new image's full restore before retention or
+paper activation.
+
 [Certification read availability](certification-read-availability.md) bounds
 transient GET retries within the existing software-verification read budget.
 Complete signed evidence and all activation guards remain mandatory.

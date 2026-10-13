@@ -301,6 +301,87 @@ def test_production_tick_renews_verifies_restores_then_retains_and_restarts(boun
                    for call in boundary.calls)
 
 
+class RuntimeTransition:
+    """A predecessor marker lacks the replacement executable admission."""
+    def __init__(self, boundary, fault=None):
+        self.boundary = boundary
+        self.predecessor = boundary.name
+        self.old_proof = {**receipt(boundary.selected()), "runtime_image": "sha256:" + "e" * 64}
+        if fault is not None:
+            self.old_proof[fault[0]] = fault[1]
+        self.fail_successor_restore = False
+
+    def __call__(self, command, **kwargs):
+        joined = " ".join(command)
+        if "WHERE kind='RESTORE_DRILL'" in joined and self.boundary.name == self.predecessor:
+            self.boundary.calls.append(command)
+            return json.dumps(self.old_proof)
+        if command[:2] == ["bash", "scripts/sentinel-base-backup.sh"]:
+            self.boundary.calls.append(command)
+            self.boundary.name = "base-20260919T120100Z"
+            self.boundary.restored = False
+            return "verified_base_backup:/media/base/" + self.boundary.name
+        if command[:2] == ["bash", "scripts/sentinel-restore-drill.sh"]:
+            if self.boundary.name == self.predecessor or self.fail_successor_restore:
+                self.boundary.calls.append(command)
+                raise coordinator.Refused("RETAINED_RUNTIME_ADMISSION_REQUIRED")
+        return self.boundary(command, **kwargs)
+
+
+def test_runtime_transition_renews_young_marker_before_restore_and_retention(boundary):
+    runtime = RuntimeTransition(boundary)
+    assert coordinator.tick("/media", runtime)["retention_ready"]
+    calls = [" ".join(call) for call in boundary.calls]
+    create = next(i for i, call in enumerate(calls) if "scripts/sentinel-base-backup.sh" in call)
+    restore = next(i for i, call in enumerate(calls) if "scripts/sentinel-restore-drill.sh" in call)
+    retain = next(i for i, call in enumerate(calls) if "sentinel.backup_retention retain" in call)
+    assert create < restore < retain
+    assert boundary.name != runtime.predecessor
+    assert all(runtime.predecessor not in call for call in calls if "restore-drill.sh" in call)
+    assert runtime.old_proof["runtime_image"] != IMAGE
+    boundary.calls.clear()
+    assert coordinator.tick("/media", runtime)["retention_ready"]
+    assert not any("scripts/sentinel-base-backup.sh" in call or "scripts/sentinel-restore-drill.sh" in call
+                   for call in boundary.calls)
+
+
+def test_runtime_successor_failed_restore_retries_without_repeated_allocation(boundary):
+    runtime = RuntimeTransition(boundary)
+    runtime.fail_successor_restore = True
+    with pytest.raises(coordinator.Refused, match="ADMISSION_REQUIRED"):
+        coordinator.tick("/media", runtime)
+    assert sum("scripts/sentinel-base-backup.sh" in call for call in boundary.calls) == 1
+    assert not any("retain" in call for call in boundary.calls)
+    boundary.calls.clear()
+    with pytest.raises(coordinator.Refused, match="ADMISSION_REQUIRED"):
+        coordinator.tick("/media", runtime)
+    assert not any("scripts/sentinel-base-backup.sh" in call or "retain" in call for call in boundary.calls)
+    runtime.fail_successor_restore = False
+    boundary.calls.clear()
+    assert coordinator.tick("/media", runtime)["retention_ready"]
+    assert not any("scripts/sentinel-base-backup.sh" in call for call in boundary.calls)
+
+
+def test_runtime_transition_accepts_digest_qualified_registry_predecessor(boundary):
+    runtime = RuntimeTransition(boundary)
+    runtime.old_proof["runtime_image"] = "ghcr.io/example/sentinel@sha256:" + "e" * 64
+    assert coordinator.tick("/media", runtime)["retention_ready"]
+    assert sum("scripts/sentinel-base-backup.sh" in call for call in boundary.calls) == 1
+
+
+@pytest.mark.parametrize("field,value", [
+    ("physical_only", True), ("physical_only", 0), ("metadata_sha256", "b" * 64),
+    ("base_backup", "base-20260919T000000Z"), ("marker", "foreign-marker"),
+    ("target_lsn", "0/1"), ("system_identifier", "123"),
+    ("runtime_image", ""), ("runtime_image", "sentinel:latest"), ("runtime_image", 123),
+])
+def test_runtime_renewal_requires_exact_bound_full_receipt(boundary, field, value):
+    runtime = RuntimeTransition(boundary, (field, value))
+    with pytest.raises(coordinator.Refused, match="ADMISSION_REQUIRED"):
+        coordinator.tick("/media", runtime)
+    assert not any("scripts/sentinel-base-backup.sh" in call or "retain" in call for call in boundary.calls)
+
+
 def test_recurring_renewal_allows_copy_cleanup_and_publication(boundary):
     boundary.old = True
     budgets = {}

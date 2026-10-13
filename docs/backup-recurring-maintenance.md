@@ -73,6 +73,14 @@ the primary's current WAL position, including unarchived activity. These are
 early triggers, not a guarantee against arbitrarily fast WAL production.
 The existing 1 GiB/1024-object runtime refusal remains authoritative.
 
+A selected base with an exactly bound full semantic receipt for a different
+immutable runtime also requires renewal, as specified in
+[backup runtime transitions](backup-runtime-transition.md). Its old recovery
+marker can predate the new executable's financial admission. Historical proof
+permits only the successor allocation; current-image restore and retention
+guards remain unchanged. A successor without a receipt retries its restore
+without allocating another base merely because proof is absent.
+
 After renewal, verify the exact returned path and re-read the selection. A
 full restore must succeed before deletion. Persist a restore evidence row
 binding the generation's metadata digest and immutable runtime image; old
