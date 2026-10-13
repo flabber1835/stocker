@@ -297,13 +297,10 @@ class AlpacaSource:
         manifest = rolling_store.manifest(self.conn, binding['candidate_id'])
         if manifest.provider != self.provider:
             raise AlpacaTransportRefused('previous Alpaca identity provider mismatch')
-        part = self.conn.execute('SELECT part_id FROM sentinel_acquisition_bindings '
-            "WHERE job_id=%s AND component='TICKERS'", (binding['job_id'],)).fetchone()
-        retained = self.parts._manifest(part[0]) if part else None
-        if retained is None or retained[0]['generation'].get('provider') != self.provider:
-            raise AlpacaTransportRefused('previous Alpaca identity inventory unavailable')
+        from sentinel.feed.alpaca_identity import published_assets
         reference = rolling_store.load_evidence(self.conn, manifest.reference_sha256)
-        self.previous_identity = dict(previous_selected=retained[1]['selected'],
+        source = rolling_store.load_evidence(self.conn, manifest.source_evidence_sha256)
+        self.previous_identity = dict(previous_selected=published_assets(reference, source),
             previous_bindings=reference.get('identity_bindings', []),
             previous_session=pub.window_end, previous_snapshot_id=manifest.snapshot_id)
         return self.previous_identity

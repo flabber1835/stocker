@@ -5,7 +5,7 @@ from pydantic import Field
 
 from sentinel.feed.alpaca_observation import action_participants
 from sentinel.feed.alpaca_transport import AlpacaTransportRefused
-from sentinel.feed.rolling_contract import Contract, Digest
+from sentinel.feed.rolling_contract import Contract, Digest, digest
 
 
 class NameChange(Contract):
@@ -41,6 +41,50 @@ def bindings(raw):
                 or value.provider_asset_id == value.prior_provider_asset_id):
             raise AlpacaTransportRefused('unproven Alpaca same-symbol identity binding')
     return values
+
+
+def published_assets(reference, source):
+    """Project prior provider IDs from authenticated, durable published identity."""
+    version = source.get('schema')
+    modern = reference.get('schema') == 'sentinel.rolling-alpaca-openfigi-references/3'
+    if (source.get('provider') != 'ALPACA_OPENFIGI'
+            or version not in ('sentinel.alpaca-openfigi-operational-source/1',
+                               'sentinel.alpaca-openfigi-operational-source/2',
+                               'sentinel.alpaca-openfigi-operational-source/3')
+            or reference.get('schema') not in ('sentinel.rolling-alpaca-openfigi-references/2',
+                                              'sentinel.rolling-alpaca-openfigi-references/3')
+            or (version != 'sentinel.alpaca-openfigi-operational-source/1') != modern):
+        raise AlpacaTransportRefused('unbound published Alpaca identity source')
+    raw = reference.get('identity_bindings', [])
+    if (modern and digest(raw) != source.get('identity_bindings_sha256')) or (not modern and raw):
+        raise AlpacaTransportRefused('published Alpaca identity binding digest mismatch')
+    inherited = {value.ticker: value for value in bindings(raw)}
+    tickers = reference.get('tickers')
+    if not isinstance(tickers, list) or not tickers:
+        raise AlpacaTransportRefused('published Alpaca identity references unavailable')
+    result, canonical, seen = [], set(), set()
+    for row in tickers:
+        if not isinstance(row, dict):
+            raise AlpacaTransportRefused('published Alpaca identity references invalid')
+        ticker, sid = row.get('ticker'), row.get('permaticker')
+        if (row.get('table') != 'SEP' or not isinstance(ticker, str) or not 1 <= len(ticker) <= 32
+                or not isinstance(sid, str) or not 1 <= len(sid) <= 128
+                or ticker in seen or sid in canonical):
+            raise AlpacaTransportRefused('published Alpaca identity references ambiguous')
+        value = inherited.get(ticker)
+        if value is not None and value.security_id != sid:
+            raise AlpacaTransportRefused('published Alpaca canonical identity mismatch')
+        result.append(dict(ticker=ticker, asset_id=value.provider_asset_id if value else sid))
+        seen.add(ticker);canonical.add(sid)
+    for ticker, value in inherited.items():
+        if ticker not in seen:
+            if value.security_id in canonical:
+                raise AlpacaTransportRefused('published Alpaca canonical identity collision')
+            result.append(dict(ticker=ticker, asset_id=value.provider_asset_id))
+            canonical.add(value.security_id)
+    if len({row['asset_id'] for row in result}) != len(result):
+        raise AlpacaTransportRefused('published Alpaca provider identity collision')
+    return sorted(result, key=lambda row: row['ticker'])
 
 
 def action_sources(kind, record):

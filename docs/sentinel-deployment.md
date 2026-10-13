@@ -56,6 +56,10 @@ combined flow and must not be used to make installation wait for trading.
 
 # Sentinel — operational deployment ground truth
 
+[Published identity recovery](published-identity-recovery.md) reads authenticated
+sealed references after predecessor acquisition scratch is retired. It preserves
+dated continuity proofs and the original book without widening cache retention.
+
 [Shadow worker monitoring](shadow-worker-monitoring.md) separates publisher
 liveness from verified saved portfolio state, projects retained interruption
 alerts, and makes failed checks and last-known values visible in the panel.
