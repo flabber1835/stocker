@@ -232,7 +232,8 @@ def build_alpaca(conn, lease, request, source):
     from sentinel.feed.alpaca_observation import admissible_history
 
     pulse = lambda: jobs.heartbeat(conn, lease, lease_seconds=600)
-    selected = {row["ticker"]: row for row in source.selected}
+    from sentinel.feed.alpaca_identity import canonical_assets
+    selected = {row["ticker"]: row for row in canonical_assets(source.selected, source.identity_bindings)}
     axis = [str(day) for day in request.window.sessions]
     dividend_dates = {}
     for event in source.dividends:

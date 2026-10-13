@@ -11,11 +11,11 @@ from sentinel.feed import operational_snapshot, rolling_store
 from sentinel.feed.rolling_contract import canonical_json, digest
 
 
-@pytest.fixture
-def published(monkeypatch):
+@pytest.fixture(params=['1','2'])
+def published(monkeypatch,request):
     # Exact split component shape emitted by AlpacaSource._part, including
     # OpenFIGI metadata reuse. The real producer is exercised separately below.
-    source = {"schema": "sentinel.alpaca-openfigi-operational-source/1",
+    source = {"schema": "sentinel.alpaca-openfigi-operational-source/"+request.param,
               "components": [
                   {"component": "TICKERS.ASSETS", "evidence": {
                       "observed_at": "2026-10-03T17:13:07.551210+00:00"}},

@@ -44,6 +44,13 @@ def test_profile_and_module_authentication(tmp_path, monkeypatch, kind):
     with pytest.raises(ValueError, match='PROFILE_CHANGED|MODULE_CHANGED'): upgrade.profile()
 
 
+def test_identity_addition_is_exactly_pinned():
+    actual=hashlib.sha256((Path(upgrade.__file__).parent/'feed/alpaca_identity.py').read_bytes()).hexdigest()
+    assert upgrade.additions_allowed({'feed/alpaca_identity.py':actual})=={'feed/alpaca_identity.py'}
+    assert upgrade.additions_allowed({'feed/alpaca_identity.py':'f'*64})==set()
+    assert upgrade.additions_allowed({'feed/unreviewed_identity.py':actual})==set()
+
+
 def test_complete_verified_installed_main_is_admitted(closure, monkeypatch):
     _historical(closure, monkeypatch, '0a5e5e51', '68b0a58c77cd0c7b0e49a62ae4b306a679c2c6b3b9938ab4e2fe7e9013a3542d')
 
