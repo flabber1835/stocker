@@ -144,8 +144,35 @@ def test_readiness_reads_snapshot_without_legacy_tables(conn, published, monkeyp
 def test_readiness_refuses_stale_frontier(conn, published, monkeypatch):
     monkeypatch.setattr(inputs.calendar, "latest_closed_session", lambda now=None: "2026-09-15")
     _read_only(conn)
-    with pytest.raises(inputs.RollingGoRefused, match="source-final"):
+    with pytest.raises(inputs.RollingSourceFrontierPending, match="source-final"):
         inputs.readiness(conn, now=datetime(2026, 9, 16, 4, tzinfo=timezone.utc))
+
+
+@pytest.mark.parametrize('available,failures', [
+    ('2026-09-16', ['rolling source-final frontier']),
+    ('2026-09-14', ['rolling source-final frontier', 'rolling current BIL domains']),
+    ('2026-09-14', ['rolling frontier population'])])
+def test_frontier_wait_never_softens_future_or_integrity_failures(available, failures):
+    report = inputs.Readiness()
+    for name in failures: report.add(name, inputs.FAIL, 'refused')
+    with pytest.raises(inputs.RollingGoRefused) as caught:
+        inputs._require_ready(report, available_session=available, target='2026-09-15')
+    assert not isinstance(caught.value, inputs.RollingSourceFrontierPending)
+
+
+def test_removing_frontier_only_guard_is_detected(monkeypatch):
+    import inspect
+    import textwrap
+    original = textwrap.dedent(inspect.getsource(inputs._require_ready))
+    guarded = "([c.name for c in report.failures] == ['rolling source-final frontier']\n            and str(available_session) < str(target))"
+    assert guarded in original
+    namespace = {}
+    exec(compile(original.replace(guarded, 'True'), 'frontier-wait-falsifier', 'exec'),
+         inputs.__dict__, namespace)
+    monkeypatch.setattr(inputs, '_require_ready', namespace['_require_ready'])
+    with pytest.raises(AssertionError):
+        test_frontier_wait_never_softens_future_or_integrity_failures(
+            '2026-09-14', ['rolling source-final frontier', 'rolling current BIL domains'])
 
 
 @pytest.mark.parametrize("defect", ["domain", "warmup", "population", "issuer", "bil"])

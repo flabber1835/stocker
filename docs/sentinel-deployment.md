@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Close-cycle recovery and backup cancellation](close-cycle-recovery-and-backup-cancellation.md)
+defines observation-session preflight identities, exact unsent failure recovery,
+and isolated, bounded physical backup cancellation.
+
 [Market-open verification and availability reporting](open-time-verification-and-alerts.md)
 defines one owned structural proof scope per execution gateway, typed local
 availability notifications and finite active broker-observation display evidence.

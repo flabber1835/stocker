@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from sentinel import open_time_upgrade
+from sentinel import open_time_upgrade, close_cycle_upgrade
 
 from sentinel import execution_upgrade as upgrade, runtime_admission as admission
 from sentinel.feed.rolling_contract import digest
@@ -20,7 +20,8 @@ def test_exact_execution_upgrade_sources_are_pinned(name):
         from sentinel import dual_plan_renewal_upgrade as renewal
         assert (subsequent.source_allowed(name, record['after'], actual)
                 or renewal.source_allowed(name, record['after'], actual)
-                or open_time_upgrade.source_allowed(name, record['after'], actual))
+                or open_time_upgrade.source_allowed(name, record['after'], actual)
+                or close_cycle_upgrade.source_allowed(name, record['after'], actual))
     reviewed = record['after']
     for previous in record['before']:
         assert upgrade.source_allowed(name, previous, reviewed)

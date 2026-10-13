@@ -50,6 +50,8 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/test-backup-physical.sh 2>&1 | tee evidence/physical.txt
+      - name: Prove client timeout cannot restart the primary database
+        run: python tools/sentinel_backup_cancellation_harness.py --output evidence/client-cancellation.json
       - name: Prove maintenance worker recovery and media lock ownership on PostgreSQL 16
         run: |
           set -euo pipefail

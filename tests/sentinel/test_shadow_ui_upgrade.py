@@ -7,7 +7,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
-from sentinel import open_time_upgrade
+from sentinel import open_time_upgrade, close_cycle_upgrade
 
 from sentinel import shadow_ui_upgrade as upgrade, runtime_admission as admission
 from sentinel import dashboard_monitor_upgrade as subsequent
@@ -27,7 +27,8 @@ def test_shadow_ui_upgrade_pins_exact_predecessor_and_target_and_rejects_neighbo
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
     assert (actual == record['after']
             or subsequent.source_allowed(name, record['after'], actual)
-            or open_time_upgrade.source_allowed(name, record['after'], actual))
+            or open_time_upgrade.source_allowed(name, record['after'], actual)
+                or close_cycle_upgrade.source_allowed(name, record['after'], actual))
     assert all(upgrade.source_allowed(name, before, record['after']) for before in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
@@ -57,7 +58,7 @@ def test_new_recovery_module_is_admitted_only_at_exact_reviewed_bytes(closure):
 
 def test_removing_exact_supervisor_admission_is_detected(closure, monkeypatch):
     source = textwrap.dedent(inspect.getsource(admission.prove_compatibility))
-    needle = '((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE) | ADDITIONS)'
+    needle = '((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE-close_cycle_upgrade.SCOPE) | ADDITIONS)'
     assert needle in source
     namespace = {}; exec(compile(source.replace(needle, '(ADMINISTRATIVE | ADDITIONS)'),
         'supervisor-source-falsifier', 'exec'), admission.__dict__, namespace)

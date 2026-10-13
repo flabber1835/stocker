@@ -29,12 +29,20 @@ def digest(path):
 def validate_request(path):
     """No financial work before exact immutable software/configuration binding."""
     request = read_document(path)
-    if (set(request) != REQUEST_KEYS or request['schema'] != 'sentinel.activation-request/1'
+    recovery = request.get('schema') == 'sentinel.activation-request/2'
+    expected = REQUEST_KEYS | {'unsent_recovery'} if recovery else REQUEST_KEYS
+    if (set(request) != expected or request['schema'] not in {
+            'sentinel.activation-request/1', 'sentinel.activation-request/2'}
             or not isinstance(request['mode'], str)
             or request['mode'] not in {'shadow', 'dual', 'paper'}
             or not isinstance(request['source_commit'], str)
             or re.fullmatch('[0-9a-f]{40}', request['source_commit']) is None):
         raise core.DeployRefused('activation request schema is malformed')
+    if recovery:
+        from sentinel_activation_recovery import validate
+        if request['mode'] not in {'dual', 'paper'}:
+            raise core.DeployRefused('unsent recovery requires PAPER activation')
+        validate(request['unsent_recovery'])
     for key in ('installation_sha256', 'env_sha256'):
         if not isinstance(request[key], str) or re.fullmatch('[0-9a-f]{64}', request[key]) is None:
             raise core.DeployRefused('activation request digest is malformed')
@@ -204,6 +212,7 @@ def attempt(path, request, receipt):
         raise
     directory = core._attempt_dir(cfg, request['source_commit'])
     obj = bootstrap.BootstrapDeploy(cfg, core.Runner(env, directory / 'commands.log'), directory)
+    obj.requested_unsent_recovery = request.get('unsent_recovery')
     obj.git_preflight()
     if obj.commit != request['source_commit']:
         raise core.DeployRefused('activation checkout changed from installed software')
@@ -279,7 +288,21 @@ def main(argv=None):
     parser.add_argument('--mode', choices=('shadow', 'dual', 'paper'))
     parser.add_argument('--validation-bundle', type=Path)
     parser.add_argument('--confirm-reviewed-go')
+    parser.add_argument('--unsent-blocked-cycle-id')
+    parser.add_argument('--unsent-decision-session')
+    parser.add_argument('--unsent-recovery-actor')
+    parser.add_argument('--unsent-recovery-reason')
+    parser.add_argument('--confirm-authorize-unsent-recovery', action='store_true')
     args = parser.parse_args(argv)
+    recovery_args = (args.unsent_blocked_cycle_id, args.unsent_decision_session,
+                     args.unsent_recovery_actor, args.unsent_recovery_reason)
+    recovery = None
+    if any(v is not None for v in recovery_args) or args.confirm_authorize_unsent_recovery:
+        if (args.queue_from_installation is None or not all(recovery_args)
+                or not args.confirm_authorize_unsent_recovery):
+            parser.error('unsent recovery requires queue mode, all scope fields and explicit confirmation')
+        recovery = dict(zip(('blocked_cycle_id', 'decision_session', 'actor', 'reason'), recovery_args))
+        recovery['confirmed'] = True
     if args.queue_from_installation is not None:
         if args.mode is None:
             parser.error('--queue-from-installation requires --mode')
@@ -289,8 +312,9 @@ def main(argv=None):
             receipt = read_document(args.queue_from_installation)
             installation = SimpleNamespace(installation_receipt=args.queue_from_installation,
                                            commit=receipt.get('git_commit'))
+            options = {'unsent_recovery': recovery} if recovery is not None else {}
             request_activation(installation, args.mode, bundle=args.validation_bundle,
-                               confirmation=args.confirm_reviewed_go)
+                               confirmation=args.confirm_reviewed_go, **options)
             return 0
         except (core.DeployRefused, OSError, ValueError) as exc:
             print('ACTIVATION REQUEST REFUSED: ' + type(exc).__name__, file=sys.stderr)

@@ -184,7 +184,7 @@ def test_shadow_service_requires_reviewed_shadow_capable_mode(mode):
             _env(SENTINEL_REVIEWED_DEPLOYMENT_MODE=mode))
 
 
-@pytest.mark.parametrize("transient", [True, False, "deadline", "source_wait"])
+@pytest.mark.parametrize("transient", [True, False, "deadline", "source_wait", "frontier_wait"])
 def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monkeypatch, transient):
     from sentinel import rolling_runtime
     from sentinel.feed import sharadar
@@ -199,6 +199,9 @@ def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monk
             pass
     monkeypatch.setattr(shadow_service.feed_store, "connect", lambda _: Connection())
     def unavailable(*_a, **_k):
+        if transient == 'frontier_wait':
+            from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
+            raise RollingSourceFrontierPending('ROLLING_INPUTS_NOT_READY: rolling source-final frontier')
         if transient == "source_wait":
             from sentinel.feed.source_wait import SourceCoveragePending
             raise SourceCoveragePending({"session": "2026-09-15"})
@@ -210,7 +213,7 @@ def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monk
         raise rolling_runtime.Refused("CHECKPOINT_CHANGED")
     monkeypatch.setattr(rolling_runtime, "service_advance", unavailable)
     expected = shadow_service.ShadowServiceRetry if transient else shadow_service.ShadowServiceRefused
-    if transient == "source_wait":
+    if transient in {"source_wait", "frontier_wait"}:
         expected = shadow_service.ShadowServiceWaiting
     with pytest.raises(expected) as caught:
         shadow_service.advance_once(cfg)

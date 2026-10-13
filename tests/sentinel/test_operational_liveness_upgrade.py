@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
-from sentinel import open_time_upgrade
+from sentinel import open_time_upgrade, close_cycle_upgrade
 
 from sentinel import operational_liveness_upgrade as upgrade, runtime_admission as admission
 from sentinel import operational_runtime_upgrade as subsequent
@@ -35,7 +35,8 @@ def test_only_exact_operational_source_transitions_are_allowed(name):
                 or recovery_upgrade.source_allowed(name, record['after'], actual)
                 or monitoring_upgrade.source_allowed(name, record['after'], actual)
                 or dashboard_upgrade.source_allowed(name, record['after'], actual)
-                or open_time_upgrade.source_allowed(name, record['after'], actual))
+                or open_time_upgrade.source_allowed(name, record['after'], actual)
+                or close_cycle_upgrade.source_allowed(name, record['after'], actual))
     assert upgrade.source_allowed(name, record['before'][0], record['after'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
@@ -176,7 +177,8 @@ def test_operational_runtime_transition_is_exact_and_authenticated(closure, name
                 or recovery_upgrade.source_allowed(name, record['after'], actual)
                 or monitoring_upgrade.source_allowed(name, record['after'], actual)
                 or dashboard_upgrade.source_allowed(name, record['after'], actual)
-                or open_time_upgrade.source_allowed(name, record['after'], actual))
+                or open_time_upgrade.source_allowed(name, record['after'], actual)
+                or close_cycle_upgrade.source_allowed(name, record['after'], actual))
     for previous in record['before']:
         assert (subsequent.source_allowed(name, previous, actual)
                 or callback_upgrade.source_allowed(name, previous, actual)
@@ -184,7 +186,8 @@ def test_operational_runtime_transition_is_exact_and_authenticated(closure, name
                 or recovery_upgrade.source_allowed(name, previous, actual)
                 or monitoring_upgrade.source_allowed(name, previous, actual)
                 or dashboard_upgrade.source_allowed(name, previous, actual)
-                or open_time_upgrade.source_allowed(name, previous, actual))
+                or open_time_upgrade.source_allowed(name, previous, actual)
+                or close_cycle_upgrade.source_allowed(name, previous, actual))
         assert not subsequent.source_allowed(name, previous, 'f'*64)
     assert not subsequent.source_allowed(name, 'f'*64, actual)
     root, checkpoint, context, manifest, source_value = _execution_closure(

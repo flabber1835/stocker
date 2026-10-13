@@ -21,6 +21,20 @@ class RollingGoRefused(RuntimeError):
     pass
 
 
+class RollingSourceFrontierPending(RollingGoRefused):
+    """Authenticated inputs trail only the current source-final close."""
+
+
+def _require_ready(report, *, available_session, target):
+    if report.ready:
+        return
+    detail = "ROLLING_INPUTS_NOT_READY: " + ", ".join(c.name for c in report.failures)
+    if ([c.name for c in report.failures] == ['rolling source-final frontier']
+            and str(available_session) < str(target)):
+        raise RollingSourceFrontierPending(detail)
+    raise RollingGoRefused(detail)
+
+
 def current(conn):
     """Explicit version-dispatched inspection; legacy readers stay unchanged."""
     return snapshots._current(conn)
@@ -59,10 +73,9 @@ def validate(conn, pub, *, now=None):
 def validate_status(conn, pub, *, now=None):
     """Same readiness contract, with counts instead of retained strategy bars."""
     instant = now or snapshots._now()
-    binding, _summary, report = _assess(conn, pub,
-        target=snapshots.source_final_session(instant), summary_only=True)
-    if not report.ready:
-        raise RollingGoRefused("ROLLING_INPUTS_NOT_READY: " + ", ".join(c.name for c in report.failures))
+    target = snapshots.source_final_session(instant)
+    binding, summary, report = _assess(conn, pub, target=target, summary_only=True)
+    _require_ready(report, available_session=summary.session, target=target)
     return binding, report
 
 
@@ -75,8 +88,7 @@ def validate_reconstruction(conn, pub, *, summary_only=False):
 
 def _validate(conn, pub, *, target, summary_only=False):
     binding, material, report = _assess(conn, pub, target=target, summary_only=summary_only)
-    if not report.ready:
-        raise RollingGoRefused("ROLLING_INPUTS_NOT_READY: " + ", ".join(c.name for c in report.failures))
+    _require_ready(report, available_session=material.session, target=target)
     return binding, material, report
 
 

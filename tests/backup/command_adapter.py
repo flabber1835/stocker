@@ -169,8 +169,16 @@ def docker():
         if ("run" in args and "sentinel.backup_runtime_probe" in args
                 and "sentinel-postgres" not in args):
             return event("runtime-backup-probe", runtime_backup_probe)
-        index = args.index("sentinel-postgres")
-        command = args[index + 1:]
+        if 'sentinel-backup-client' in args:
+            index = args.index('sentinel-backup-client')
+            assert args[args.index('run'):index] == [
+                'run', '--rm', '-T', '--no-deps', '--entrypoint', 'timeout']
+            command = ['timeout', *args[index + 1:]]
+            assert command[1] == '--kill-after=30s' and command[2].isdigit()
+            assert len(command) == 9 and command[3:5] == ['sh', '-ceu']
+        else:
+            index = args.index("sentinel-postgres")
+            command = args[index + 1:]
         if command == ["sha256sum", "/usr/local/libexec/sentinel-archive-wal.sh"]:
             source = ROOT / "repo/scripts/sentinel-archive-wal.sh"
             digest = hashlib.sha256(source.read_bytes()).hexdigest()

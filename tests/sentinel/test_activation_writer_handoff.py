@@ -20,6 +20,51 @@ CLASSES = [core.AutonomousDeploy, driver.AutonomousDeploy,
            bootstrap.BootstrapDeploy, install.InstallAnytimeDeploy]
 
 
+@pytest.mark.parametrize('cls', CLASSES)
+@pytest.mark.parametrize('failure', [None, 'refused', 'receipt', 'generation', 'decision'])
+def test_explicit_unsent_recovery_runs_after_restore_and_before_release(tmp_path, cls, failure):
+    obj, events, control, running = appliance(tmp_path, cls)
+    requested = {'blocked_cycle_id': 'b'*64, 'decision_session': '2026-10-08',
+                 'actor': 'owner', 'reason': 'reviewed unsent failure', 'confirmed': True}
+    obj.requested_unsent_recovery = dict(requested)
+    control['control_generation'] = 7
+    if failure == 'decision': obj.requested_unsent_recovery['decision_session'] = '2026-10-07'
+    original = obj._authorized_cli
+    def cli(args, **kwargs):
+        if args[0] != 'authorize-unsent-paper-recovery': return original(args, **kwargs)
+        assert events[-1] == 'restore'
+        assert control['enabled'] and control['kill_switch_engaged'] and not any(running.values())
+        events.append(args[0])
+        if failure == 'refused': raise core.DeployRefused('unsent proof refused')
+        control['control_generation'] = 8
+        response = {'generation': 9 if failure == 'generation' else 8, 'broker_contacted': False,
+            'authorization': {'schema': 'sentinel.unsent-recovery/1',
+                'blocked_cycle_id': 'f'*64 if failure == 'receipt' else 'b'*64,
+                'decision_session': '2026-10-08',
+                'binding': {'certificate_sha256': 'certificate',
+                            'deployment_id': 'fixture', 'broker_account_id': 'SIMULATED'}}}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(response), stderr='')
+    obj._authorized_cli = cli
+    if failure:
+        with pytest.raises(core.DeployRefused):
+            with obj.activation_transition(): obj.prepare_activate_start('certificate', '2026-10-08')
+        assert 'release-paper-automation-kill-switch' not in events and not running['automation']
+        assert control['kill_switch_engaged']
+    else:
+        with obj.activation_transition(): obj.prepare_activate_start('certificate', '2026-10-08')
+        assert events.index('restore') < events.index('authorize-unsent-paper-recovery') < events.index('release-paper-automation-kill-switch')
+        assert (tmp_path/'unsent-recovery-authorization.json').is_file()
+        assert control['enabled'] and not control['kill_switch_engaged'] and running['automation']
+
+
+def test_omitting_requested_recovery_before_release_is_detected(tmp_path, monkeypatch):
+    import sentinel_activation_recovery
+    monkeypatch.setattr(sentinel_activation_recovery, 'authorize_requested', lambda *args: None)
+    with pytest.raises(ValueError, match='is not in list'):
+        test_explicit_unsent_recovery_runs_after_restore_and_before_release(
+            tmp_path, bootstrap.BootstrapDeploy, None)
+
+
 def appliance(tmp_path, cls, *, failure=None):
     events, running = [], {'shadow': True, 'automation': False}
     control = {'enabled': False, 'kill_switch_engaged': True,

@@ -114,7 +114,8 @@ class InstallationDeploy(bootstrap.BootstrapDeploy):
         return after
 
 
-def request_activation(installation, mode, *, bundle=None, confirmation=None):
+def request_activation(installation, mode, *, bundle=None, confirmation=None,
+                       unsent_recovery=None):
     """Seal a separate request after software success; never import financial admission."""
     from sentinel_activation_coordinator import handoff
     from sentinel_phase_records import write_document
@@ -128,6 +129,12 @@ def request_activation(installation, mode, *, bundle=None, confirmation=None):
         'bundle': str(Path(bundle).resolve()) if bundle is not None else None,
         'bundle_sha256': confirmation,
     }
+    if unsent_recovery is not None:
+        from sentinel_activation_recovery import validate
+        if mode not in {'dual', 'paper'}:
+            raise core.DeployRefused('unsent recovery requires PAPER activation')
+        request.update(schema='sentinel.activation-request/2',
+                       unsent_recovery=validate(unsent_recovery))
     requests = receipt.parent / 'activation-requests'
     requests.mkdir(mode=0o700, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix='request-', dir=str(requests)))

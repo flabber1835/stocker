@@ -13,12 +13,17 @@ from sentinel.feed.rolling_contract import Contract, Digest, digest
 
 ACTION = 'KILL_ENGAGED'
 KIND = 'LOCAL_CONTENTION_MISCLASSIFIED'
+PREFLIGHT_KIND = 'PREFLIGHT_IDENTITY_BEYOND_FRONTIER'
+PREFLIGHT_FAILURE = ('unreviewed callback exception '
+    'sentinel.execution.feed_inputs.ExecutionInputsRefused: '
+    'ROLLING_IDENTITY_BEYOND_NEXT_SESSION')
 
 
 class Authorization(Contract):
     schema_id: Literal['sentinel.unsent-recovery/1'] = Field(
         default='sentinel.unsent-recovery/1', alias='schema')
-    kind: Literal['LOCAL_CONTENTION_MISCLASSIFIED'] = KIND
+    kind: Literal['LOCAL_CONTENTION_MISCLASSIFIED',
+                  'PREFLIGHT_IDENTITY_BEYOND_FRONTIER'] = KIND
     binding: ControlBinding
     decision_session: date
     effective_session: date
@@ -33,15 +38,29 @@ class Authorization(Contract):
         return value
 
 
-def eligible_block(cycle) -> bool:
+def eligible_kind(cycle):
     """Recognize typed historical adapter failures, never operator free text."""
-    return (cycle.state is CycleState.BLOCKED
-            and not cycle.historical_state_only
-            and cycle.failure_code == 'NonRetryableCallbackRefused'
+    if cycle.state is not CycleState.BLOCKED or cycle.historical_state_only:
+        return None
+    if (cycle.failure_code == 'NonRetryableCallbackRefused'
             and cycle.diagnostic.get('control_poll_failure') == 'NONRETRYABLE'
             and any((cycle.failure_detail or '').startswith(
                 'automation authority/integrity refusal: ' + name + ': ')
-                for name in ('CorpusLockUnavailable', 'WriterLockUnavailable')))
+                for name in ('CorpusLockUnavailable', 'WriterLockUnavailable'))):
+        return KIND
+    if (cycle.plan_id is None and cycle.failure_code == 'SoftwareDefect'
+            and cycle.failure_detail == PREFLIGHT_FAILURE
+            and cycle.diagnostic.get('retry_phase') == 'PREFLIGHT_RECOVER'
+            and cycle.diagnostic.get('callback_failure') == 'SOFTWARE_DEFECT'
+            and cycle.diagnostic.get('terminal_reason') == 'SOFTWARE_DEFECT'
+            and cycle.diagnostic.get('exception_type')
+                == 'sentinel.automation.model.SoftwareDefect'):
+        return PREFLIGHT_KIND
+    return None
+
+
+def eligible_block(cycle) -> bool:
+    return eligible_kind(cycle) is not None
 
 
 def fingerprints(cycles):
@@ -82,7 +101,7 @@ def require_unsent(conn, cycles, *, binding, effective_session):
 def require_predecessors(conn, cycles, *, generation):
     from sentinel.automation.integrity import validate_cycle_lineage
     if not cycles or not any(eligible_block(c) for c in cycles):
-        raise AutomationRefused('recovery has no eligible temporary-contention block')
+        raise AutomationRefused('recovery has no eligible reviewed unsent block')
     for cycle in cycles:
         validate_cycle_lineage(conn, cycle)
         superseded = (cycle.state is CycleState.SUPERSEDED
@@ -146,6 +165,8 @@ def validate_authorization(conn, *, spec, cycles, generation):
             or auth.effective_session != spec.effective_session
             or auth.predecessor_fingerprints != fingerprints(cycles)
             or auth.blocked_cycle_id not in {c.cycle_id for c in cycles if eligible_block(c)}
+            or auth.kind != next((eligible_kind(c) for c in cycles
+                                   if c.cycle_id == auth.blocked_cycle_id), None)
             or authorized_at >= spec.execution_open_at):
         raise AutomationRefused('recovery authorization does not match this exact obligation')
     return auth
@@ -209,7 +230,8 @@ def authorize(conn, *, binding, decision_session, blocked_cycle_id,
             if blocked_cycle_id not in {c.cycle_id for c in cycles if eligible_block(c)}:
                 raise AutomationRefused('blocked-cycle confirmation does not match eligible scope')
             require_unsent(conn, cycles, binding=binding, effective_session=timing.effective_session)
-            auth = Authorization(binding=binding, decision_session=decision,
+            kind = next(eligible_kind(c) for c in cycles if c.cycle_id == blocked_cycle_id)
+            auth = Authorization(kind=kind, binding=binding, decision_session=decision,
                 effective_session=timing.effective_session, blocked_cycle_id=blocked_cycle_id,
                 predecessor_fingerprints=fingerprints(cycles))
             conn.rollback()
