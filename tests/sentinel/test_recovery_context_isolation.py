@@ -20,13 +20,25 @@ def ready(provider):
 
 
 @pytest.mark.parametrize('executable',['economic'],indirect=True)
-@pytest.mark.parametrize('dated_input',[False,True])
+@pytest.mark.parametrize('input_state',['missing','dated','stale_recovery'])
 def test_admitted_target_survives_preflight_and_restart(
-        conn,ready,executable,provider,monkeypatch,dated_input):
+        conn,ready,executable,provider,monkeypatch,input_state):
     first=_start(conn,executable)
     original=origin.read(conn).model_dump(by_alias=True)
     records=dict(conn.execute('SELECT cursor_name,state FROM sentinel_processed_sessions').fetchall())
     conn.rollback()
+    missing=calendar.next_session(first.session)
+    prices,publish=provider
+    prices.window=PriceWindow.through(missing)
+    stale_job=None
+    if input_state=='stale_recovery':
+        from sentinel.feed import rolling_jobs
+        stale_job=snapshots.enqueue_reconstruction(conn,session=missing,cursor=first.session,
+            strategy_sha256=digest(original['strategy_identity']),dependencies_sha256=digest('preceding recovery fixture'))
+        conn.commit()
+        stale=snapshots.prepare(conn,stale_job)
+        stale_request=rolling_jobs.status(conn,stale_job)
+        conn.rollback()
     _,current,manifest=executable
     admitted=admission.admit(conn,context=current,manifest=manifest)
     assert isinstance(admitted,admission.EconomicAdmission) and admitted.authority_effect=='NONE'
@@ -38,10 +50,7 @@ def test_admitted_target_survives_preflight_and_restart(
     monkeypatch.setattr(strategy,'production_strategy',lambda:(current['controller'],current['strategy']))
     from tests.sentinel import test_alpaca_daily_formation as provider_fixture
     monkeypatch.setattr(provider_fixture,'production_strategy',lambda:(current['controller'],current['strategy']))
-    missing=calendar.next_session(first.session)
-    prices,publish=provider
-    prices.window=PriceWindow.through(missing)
-    if dated_input:
+    if input_state=='dated':
         publish()
         monkeypatch.setattr(shadow_runtime,'_validated_runtime_identity',lambda **kw:current['runtime'])
     opened,_=calendar.session_window(calendar.next_session(missing))
@@ -59,9 +68,14 @@ def test_admitted_target_survives_preflight_and_restart(
     with snapshots.pinned(conn) as (pub,binding):
         from sentinel.feed import rolling_jobs
         assert rolling_jobs.status(conn,binding['job_id'])['request']['strategy_sha256']==digest(current['strategy'])
-        if not dated_input:
+        if input_state!='dated':
             assert pub.evidence['operational_recovery']['historical_availability_claim'] is False
             assert pub.evidence['operational_recovery']['broker_authority'] is False
+        if stale_job:
+            assert pub.version>stale['data_version'] and binding['job_id']!=stale_job
+            retained=rolling_jobs.status(conn,stale_job)
+            assert retained['request']==stale_request['request'] and retained['deadline']==stale_request['deadline']
+            assert retained['state']=='PUBLISHED'
     monkeypatch.setattr(initial,'initialize',lambda *a,**kw:pytest.fail('book reformed'))
     with psycopg.connect(conn.info.dsn) as restarted:
         repeated=recovery.advance_one(restarted,through=missing,observation_id=OBS,starting_cash=50000)
