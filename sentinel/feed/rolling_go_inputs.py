@@ -207,10 +207,13 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
             from sentinel.feed.rolling_contract import FormationWindow
             from sentinel.core import window_policy
             from sentinel.feed.rolling_builder import ALPACA_NORMALIZATION
+            from sentinel.feed.alpaca_source import SOURCE as ALPACA_SOURCE
             request = rolling_jobs.status(conn, binding['job_id'])['request']
             if (manifest.provider == 'ALPACA_NASDAQ'
                     or (manifest.provider == 'ALPACA_OPENFIGI'
-                        and manifest.normalization_version != ALPACA_NORMALIZATION)
+                        and (manifest.normalization_version != ALPACA_NORMALIZATION
+                             or rolling_store.load_evidence(conn, manifest.source_evidence_sha256).get('schema')
+                                != ALPACA_SOURCE))
                     or request['strategy_sha256'] != digest(strategy)
                     or (actual != expected and (window_policy.enabled(strategy)
                                                 or isinstance(expected, FormationWindow)))):

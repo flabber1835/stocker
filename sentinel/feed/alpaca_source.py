@@ -19,7 +19,7 @@ from sentinel.feed.alpaca_transport import (
 from sentinel.feed.operational_source import _months
 from sentinel.feed.rolling_contract import digest
 
-SOURCE = "sentinel.alpaca-openfigi-operational-source/1"
+SOURCE = "sentinel.alpaca-openfigi-operational-source/2"
 _NY = ZoneInfo("America/New_York")
 
 
@@ -76,6 +76,8 @@ class AlpacaSource:
         self.actions = []
         self.splits = []
         self.months = []
+        self.identity_bindings = []
+        self.previous_identity = None
 
     def preflight(self):
         if str(self.window.end) > calendar.latest_closed_session():
@@ -187,6 +189,7 @@ class AlpacaSource:
                 'batch_size':self.classifier.batch_size}, None, {'policy':openfigi.POLICY}, len(self.assets)
 
     def _action_rows(self):
+        from sentinel.feed import alpaca_identity
         start = (self.window.start - timedelta(days=365)).isoformat()
         end = str(self.window.end)
         params = {"start": start, "end": end, "limit": 1000,
@@ -198,6 +201,7 @@ class AlpacaSource:
         pending_cash = []
         splits = {}
         by_type = Counter()
+        structural, resets = [], []
         selected = {row["ticker"] for row in self.selected} | {'BIL'}
         axis = {str(day) for day in self.window.sessions}
         for page, proof in self.client.pages(ACTION_URL, params, key="corporate_actions"):
@@ -225,6 +229,8 @@ class AlpacaSource:
                             if event is not None:
                                 dividends.append(event)
                         else:
+                            structural.append((kind, record))
+                            involved = alpaca_identity.action_sources(kind, record) & selected
                             economic_date = structural_action_date(kind, record)
                             if economic_date is None or economic_date > str(self.window.end):
                                 affected.update(involved)
@@ -242,8 +248,14 @@ class AlpacaSource:
                                         # No split inference: reset only an unowned candidate.
                                         pass
                                 for symbol in involved:
-                                    reset_after[symbol] = max(
-                                        economic_date, reset_after.get(symbol, ""))
+                                    resets.append((symbol, economic_date, record['id']))
+        previous = self._previous_identity()
+        identity_bindings = alpaca_identity.bind(selected=self.selected, records=structural,
+            target_session=str(self.window.end), **previous) if previous is not None else []
+        exemptions = {item['event']['id'] for item in identity_bindings}
+        for symbol, day, event_id in resets:
+            if event_id not in exemptions:
+                reset_after[symbol] = max(day, reset_after.get(symbol, ''))
         dividends = sorted((item for item in dividends
                             if item["ticker"] not in affected),
                            key=lambda item: (item["date"], item["ticker"], item["id"]))
@@ -252,11 +264,49 @@ class AlpacaSource:
                    "post_event_reset_symbols": len(reset_after),
                    "cash_dividend_rows": len(dividends)}
         return {"affected": sorted(affected), "reset_after": reset_after,
+                'identity_bindings': identity_bindings,
                 "dividends": dividends,
                 'pending_cash': sorted(pending_cash, key=lambda item: item['id']),
                 "splits": sorted(splits.values(), key=lambda item:(item['date'],item['ticker'])),
                 "summary": summary}, None, \
             {"pages": proofs}, len(seen)
+
+    def _previous_identity(self):
+        """Use the preceding dated publication, including after a failed same-day GO."""
+        if self.previous_identity is not None:
+            return self.previous_identity
+        from sentinel.feed import publication, operational_snapshot, rolling_store
+        row = self.conn.execute('SELECT version,previous_version,run_id,window_start,window_end,evidence '
+            'FROM sentinel_corpus_publications WHERE window_end <= %s '
+            'ORDER BY window_end DESC,version DESC LIMIT 1', (str(self.window.end),)).fetchone()
+        if row is None:
+            return None
+        if str(row[4]) == str(self.window.end):
+            current_manifest = rolling_store.manifest(self.conn, row[5]['rolling_snapshot']['candidate_id'])
+            current_reference = rolling_store.load_evidence(self.conn, current_manifest.reference_sha256)
+            if current_reference.get('schema') != 'sentinel.rolling-alpaca-openfigi-references/3':
+                row = self.conn.execute('SELECT version,previous_version,run_id,window_start,window_end,evidence '
+                    'FROM sentinel_corpus_publications WHERE window_end < %s '
+                    'ORDER BY window_end DESC,version DESC LIMIT 1', (str(self.window.end),)).fetchone()
+                if row is None:
+                    return None
+        pub = publication.Publication(int(row[0]), row[1], str(row[2]) if row[2] else None,
+            str(row[3]), str(row[4]), row[5])
+        publication._validate_publication(self.conn, pub, allow_snapshot=True)
+        binding = operational_snapshot._bound(self.conn, pub)
+        manifest = rolling_store.manifest(self.conn, binding['candidate_id'])
+        if manifest.provider != self.provider:
+            raise AlpacaTransportRefused('previous Alpaca identity provider mismatch')
+        part = self.conn.execute('SELECT part_id FROM sentinel_acquisition_bindings '
+            "WHERE job_id=%s AND component='TICKERS'", (binding['job_id'],)).fetchone()
+        retained = self.parts._manifest(part[0]) if part else None
+        if retained is None or retained[0]['generation'].get('provider') != self.provider:
+            raise AlpacaTransportRefused('previous Alpaca identity inventory unavailable')
+        reference = rolling_store.load_evidence(self.conn, manifest.reference_sha256)
+        self.previous_identity = dict(previous_selected=retained[1]['selected'],
+            previous_bindings=reference.get('identity_bindings', []),
+            previous_session=pub.window_end, previous_snapshot_id=manifest.snapshot_id)
+        return self.previous_identity
 
     def _bars(self, symbols, first, last, adjustment):
         start, end = _bounds(first, last)
@@ -301,10 +351,11 @@ class AlpacaSource:
         return rows, None, {"raw": raw_proofs, "all": adjusted_proofs, 'bil_split':split_proofs}, len(rows)
 
     def references(self, checkpoint):
-        base = {"provider": self.provider, "target": str(self.window.end)}
+        base = {"provider": self.provider, "target": str(self.window.end), 'source_policy': SOURCE}
         refs = self._classified_references(base, checkpoint)
         self.selected = refs["selected"]
         actions = self._part("ACTIONS", {**base, "component": "actions",
+                                          'prior_identity_sha256': digest(self._previous_identity()),
                                           "start": (self.window.start - timedelta(days=365)).isoformat()},
                              self._action_rows, checkpoint)
         self.action_affected = frozenset(actions["affected"])
@@ -313,6 +364,7 @@ class AlpacaSource:
         self.dividends = actions["dividends"]
         self.pending_cash = actions.get('pending_cash', [])
         self.splits = actions["splits"]
+        self.identity_bindings = actions['identity_bindings']
         self.sfp = self._part("SFP", {**base, "component": "benchmarks",
                                       "window": self.window.model_dump(mode="json")},
                               self._benchmark_rows, checkpoint)
@@ -327,7 +379,8 @@ class AlpacaSource:
                           "selection_sha256": digest(self.selected),
                           "actions_sha256": digest({"affected": sorted(self.action_affected),
                                                     "reset_after": self.reset_after,
-                                                    "splits": self.splits}),
+                                                    "splits": self.splits,
+                                                    'identity_bindings': self.identity_bindings}),
                           "asof": str(self.window.end)}
             def acquire():
                 raw, raw_proofs = self._bars(safe_symbols, lo, hi, "raw")
@@ -363,6 +416,8 @@ class AlpacaSource:
                       "splits": self.splits}
             after = {key: actions[key] for key in before}
             raise SourceRevision("ACTIONS", digest(before), digest(after))
+        if actions['identity_bindings'] != self.identity_bindings:
+            raise SourceRevision('ACTIONS', digest(self.identity_bindings), digest(actions['identity_bindings']))
 
     def reference_payload(self):
         admitted = {row["ticker"]: row["firstpricedate"] for row in self.tickers}
@@ -376,7 +431,8 @@ class AlpacaSource:
             'name':None, 'value':event['ratio'], 'contraticker':None, 'contraname':None}
             for event in self.splits if event['ticker'] in admitted
             and event['date'] >= admitted[event['ticker']])
-        return {"schema": "sentinel.rolling-alpaca-openfigi-references/2",
+        return {"schema": "sentinel.rolling-alpaca-openfigi-references/3",
+                'identity_bindings': self.identity_bindings,
                 "tickers": self.tickers, "actions": actions,
                 'cash_observations': self.dividends,
                 'pending_cash': self.pending_cash}
@@ -399,5 +455,6 @@ class AlpacaSource:
                 "components": self.evidence, "sfp_sha256": digest(self.sfp),
                 "selection_sha256": digest(self.selected),
                 "action_quarantine": self.action_evidence,
+                'identity_bindings_sha256': digest(self.identity_bindings),
                 "post_event_reset_sha256": digest(self.reset_after),
                 "dividends_sha256": digest(self.dividends)}

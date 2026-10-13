@@ -279,7 +279,7 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     from sentinel import open_time_upgrade
     open_time_profile = open_time_upgrade.profile()
     from sentinel import close_cycle_upgrade
-    close_cycle_upgrade.profile()
+    close_cycle_profile = close_cycle_upgrade.profile()
     manifest = SourceManifest.model_validate(manifest)
     source = source or identity.rehearsal_identity()
     _require_context(checkpoint, context)
@@ -296,13 +296,15 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     ui_additions = ui_upgrade.additions_allowed(actual)
     monitor_additions = monitor_upgrade.additions_allowed(actual)
     open_time_additions = open_time_upgrade.additions_allowed(actual)
+    close_cycle_additions = close_cycle_upgrade.additions_allowed(actual)
     # An earlier pinned addition can later receive only its exact reviewed
     # transition; an unpinned neighboring edit still fails the closure gate.
     for previous_profile, allowed in ((operational_profile, operational_additions),
                                      (recovery_profile, recovery_additions),
                                      (ui_profile, ui_additions),
                                      (monitor_profile, monitor_additions),
-                                     (open_time_profile, open_time_additions)):
+                                     (open_time_profile, open_time_additions),
+                                     (close_cycle_profile, close_cycle_additions)):
         allowed.update(name for name, previous in previous_profile['additions'].items()
                        if monitor_upgrade.source_allowed(name, previous, actual.get(name))
                        or open_time_upgrade.source_allowed(name, previous, actual.get(name))
@@ -310,12 +312,13 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     if (source_closure(actual) != context['runtime']['sentinel_source_sha256']
             or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']
             or set(manifest.files) - set(actual)
-            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions - recovery_additions - ui_additions - monitor_additions - open_time_additions
+            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions - recovery_additions - ui_additions - monitor_additions - open_time_additions - close_cycle_additions
             or (set(actual) & set(operational_profile['additions'])) - operational_additions
             or (set(actual) & set(recovery_profile['additions'])) - recovery_additions
             or (set(actual) & set(ui_profile['additions'])) - ui_additions
             or (set(actual) & set(monitor_profile['additions'])) - monitor_additions
-            or (set(actual) & set(open_time_profile['additions'])) - open_time_additions):
+            or (set(actual) & set(open_time_profile['additions'])) - open_time_additions
+            or (set(actual) & set(close_cycle_profile['additions'])) - close_cycle_additions):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     for name, previous in manifest.files.items():
         if actual[name] == previous or name in ((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE-close_cycle_upgrade.SCOPE) | ADDITIONS):

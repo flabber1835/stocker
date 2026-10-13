@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Alpaca name-change continuity](alpaca-name-change-continuity.md) defines
+source-bound canonical identity preservation when a same-symbol CUSIP name
+change recreates the provider asset object, and source-only unit-split resets.
+
 [Close-cycle recovery and backup cancellation](close-cycle-recovery-and-backup-cancellation.md)
 defines observation-session preflight identities, exact unsent failure recovery,
 and isolated, bounded physical backup cancellation.

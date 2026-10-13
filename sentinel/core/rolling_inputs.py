@@ -14,7 +14,7 @@ from sentinel.feed import (
     action_source, calendar, rolling_store, source_aliases, symbol_identity, tickers_authority,
 )
 from sentinel.feed.rolling_builder import ALPACA_NORMALIZATION, NORMALIZATION_VERSION
-from sentinel.feed.rolling_contract import CanonicalBenchmark
+from sentinel.feed.rolling_contract import CanonicalBenchmark, digest
 from sentinel.feed.requirements import PREFERRED_SESSIONS
 from sentinel.feed.universe import listings_from_rows, parse_related_tickers
 
@@ -72,14 +72,36 @@ class SnapshotReferences:
         reference_schema = ("sentinel.rolling-alpaca-openfigi-references/1"
                             if self.manifest.provider == "ALPACA_OPENFIGI" else
                             "sentinel.rolling-sharadar-references/1")
+        identity_schema = (self.manifest.provider == 'ALPACA_OPENFIGI'
+                           and reference.get('schema') == 'sentinel.rolling-alpaca-openfigi-references/3')
         cash_schema = (self.manifest.provider == 'ALPACA_OPENFIGI'
-                       and reference.get('schema') == 'sentinel.rolling-alpaca-openfigi-references/2')
-        if (set(reference) != ({'schema', 'tickers', 'actions', 'cash_observations', 'pending_cash'}
+                       and reference.get('schema') in ('sentinel.rolling-alpaca-openfigi-references/2',
+                                                     'sentinel.rolling-alpaca-openfigi-references/3'))
+        keys = {'identity_bindings'} if identity_schema else set()
+        if (set(reference) != (keys | {'schema', 'tickers', 'actions', 'cash_observations', 'pending_cash'}
                               if cash_schema else {"schema", "tickers", "actions"})
-                or reference["schema"] != ('sentinel.rolling-alpaca-openfigi-references/2' if cash_schema else reference_schema)
+                or reference["schema"] != ('sentinel.rolling-alpaca-openfigi-references/3' if identity_schema else
+                                          'sentinel.rolling-alpaca-openfigi-references/2' if cash_schema else reference_schema)
                 or not isinstance(reference["tickers"], list)
                 or not isinstance(reference["actions"], list)):
             raise RollingInputsRefused("UNSUPPORTED_REFERENCE_BUNDLE")
+        if self.manifest.provider == 'ALPACA_OPENFIGI':
+            source = rolling_store.load_evidence(conn, self.manifest.source_evidence_sha256)
+            if (source.get('schema') == 'sentinel.alpaca-openfigi-operational-source/2') != identity_schema:
+                raise RollingInputsRefused('UNBOUND_ALPACA_IDENTITY_SOURCE')
+        if identity_schema:
+            from sentinel.feed.alpaca_identity import bindings
+            if source.get('identity_bindings_sha256') != digest(reference['identity_bindings']):
+                raise RollingInputsRefused('UNBOUND_ALPACA_IDENTITY_DIGEST')
+            values = bindings(reference['identity_bindings'])
+            for value in values:
+                matches = [row for row in reference['tickers'] if row['permaticker'] == value.security_id
+                           and row['ticker'] == value.ticker]
+                # An unadmitted candidate can retain source identity evidence;
+                # any admitted matching row must keep its canonical identity.
+                if any(row['permaticker'] != value.security_id for row in reference['tickers']
+                       if row['ticker'] == value.ticker) or len(matches) > 1:
+                    raise RollingInputsRefused('UNBOUND_ALPACA_IDENTITY_REFERENCE')
         self.cash_observations = reference.get('cash_observations', [])
         self.pending_cash = reference.get('pending_cash', [])
         if not isinstance(self.cash_observations, list) or not isinstance(self.pending_cash, list):
