@@ -155,7 +155,7 @@ def test_github_partial_http_failures_are_fail_closed_and_secret_free(status):
     token = "github_pat_secret_fixture_value"
 
     def opener(request, timeout=30):
-        assert timeout == 30
+        assert 0 < timeout <= 10
         assert request.get_method() == "GET"
         raise urllib.error.HTTPError(
             request.full_url, status, "fixture", hdrs=None, fp=None)
