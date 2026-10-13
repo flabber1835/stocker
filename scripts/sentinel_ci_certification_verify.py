@@ -6,6 +6,7 @@ import argparse
 import base64
 from datetime import datetime
 import hashlib
+import http.client
 import io
 import json
 import math
@@ -14,6 +15,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 from typing import Any, Callable, Mapping, NoReturn, Optional, Sequence
 import urllib.error
 import urllib.parse
@@ -150,9 +152,12 @@ def _safe_urlopen(request, timeout=30):
 class GitHubReadClient:
     """GET-only GitHub client. This class exposes no mutation method."""
 
-    def __init__(self, token=None, opener=_safe_urlopen):
+    def __init__(self, token=None, opener=_safe_urlopen, *,
+                 monotonic=time.monotonic, sleep=time.sleep):
         self.token = token
         self.opener = opener
+        self.monotonic = monotonic
+        self.sleep = sleep
 
     def _request(self, url):
         headers = {
@@ -163,11 +168,35 @@ class GitHubReadClient:
         if self.token:
             headers["Authorization"] = "Bearer " + self.token
         request = urllib.request.Request(url, headers=headers, method="GET")
-        try:
-            response = self.opener(request, timeout=30)
-            return response.read()
-        except (OSError, urllib.error.URLError, urllib.error.HTTPError):
-            _refuse("CERT_GITHUB_UNAVAILABLE", "GitHub read failed")
+        deadline = self.monotonic() + 30
+        for attempt in range(3):
+            remaining = deadline - self.monotonic()
+            if remaining <= 0:
+                break
+            response = None
+            try:
+                response = self.opener(request, timeout=min(10, remaining))
+                body = response.read()
+            except urllib.error.HTTPError as exc:
+                exc.close()
+                if exc.code not in {408, 425, 429, 500, 502, 503, 504}:
+                    _refuse("CERT_GITHUB_UNAVAILABLE", "GitHub read failed")
+            except (OSError, urllib.error.URLError, http.client.IncompleteRead):
+                pass
+            else:
+                if self.monotonic() < deadline:
+                    return body
+                break
+            finally:
+                if response is not None:
+                    response.close()
+            if attempt == 2:
+                break
+            delay = attempt + 1
+            if deadline - self.monotonic() <= delay:
+                break
+            self.sleep(delay)
+        _refuse("CERT_GITHUB_UNAVAILABLE", "GitHub read failed")
 
     def json(self, path):
         return _json_bytes(
