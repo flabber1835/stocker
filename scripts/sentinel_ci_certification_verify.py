@@ -159,6 +159,16 @@ class GitHubReadClient:
         self.monotonic = monotonic
         self.sleep = sleep
 
+    def _retry_read(self, attempt, deadline):
+        # Called inside the transport exception handler so terminal refusal
+        # retains its original Python exception context for private diagnostics.
+        if attempt == 2:
+            _refuse("CERT_GITHUB_UNAVAILABLE", "GitHub read failed")
+        delay = attempt + 1
+        if deadline - self.monotonic() <= delay:
+            _refuse("CERT_GITHUB_UNAVAILABLE", "GitHub read failed")
+        self.sleep(delay)
+
     def _request(self, url):
         headers = {
             "Accept": "application/vnd.github+json",
@@ -175,27 +185,23 @@ class GitHubReadClient:
                 break
             response = None
             try:
-                response = self.opener(request, timeout=min(10, remaining))
-                body = response.read()
+                try:
+                    response = self.opener(request, timeout=min(10, remaining))
+                    body = response.read()
+                finally:
+                    if response is not None:
+                        response.close()
             except urllib.error.HTTPError as exc:
                 exc.close()
                 if exc.code not in {408, 425, 429, 500, 502, 503, 504}:
                     _refuse("CERT_GITHUB_UNAVAILABLE", "GitHub read failed")
+                self._retry_read(attempt, deadline)
             except (OSError, urllib.error.URLError, http.client.IncompleteRead):
-                pass
+                self._retry_read(attempt, deadline)
             else:
                 if self.monotonic() < deadline:
                     return body
                 break
-            finally:
-                if response is not None:
-                    response.close()
-            if attempt == 2:
-                break
-            delay = attempt + 1
-            if deadline - self.monotonic() <= delay:
-                break
-            self.sleep(delay)
         _refuse("CERT_GITHUB_UNAVAILABLE", "GitHub read failed")
 
     def json(self, path):

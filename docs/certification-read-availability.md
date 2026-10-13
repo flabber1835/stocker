@@ -18,7 +18,8 @@ interruption of a continuously streaming body.
 Other HTTP failures refuse immediately. A successfully fetched malformed or
 contradictory document still reaches the unchanged strict parser and refuses;
 it is never retried into different evidence. Exhaustion keeps
-`CERT_GITHUB_UNAVAILABLE`. Responses are closed on every attempt, including body
+`CERT_GITHUB_UNAVAILABLE`, retaining the original transport exception's private
+Python context. Responses are closed on every attempt, including body
 read failures. Requests remain GET-only, with the same original URL, credentials,
 TLS checks and authorization-stripping redirect handler. No cached certificate,
 local receipt, earlier positive verdict or alternate authority substitutes for
