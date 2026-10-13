@@ -93,6 +93,9 @@ def test_cash_rate_must_fit_canonical_shadow_domains(rate):
 @pytest.mark.parametrize('rate', [None, '1e500', 'NaN', '-0.2'])
 def test_unresolved_cash_does_not_quarantine_valid_price_history(rate):
     source = object.__new__(AlpacaSource)
+    # This parser fixture has no database or preceding publication. Complete
+    # its explicitly isolated source context without weakening runtime lookup.
+    source._previous_identity = lambda: None
     source.window = SimpleNamespace(start=date.fromisoformat(AXIS[0]), end=date.fromisoformat(AXIS[-1]),
                                     sessions=list(map(date.fromisoformat, AXIS)))
     source.selected = [{'ticker': 'RENAMED'}]
@@ -258,6 +261,7 @@ def test_rounding_cannot_hide_material_unknown_split_in_low_price_history():
 
 def test_bil_split_price_domains_and_action_record_reach_execution():
     source = object.__new__(AlpacaSource)
+    source.identity_bindings = []
     source.window = SimpleNamespace(start=date.fromisoformat(AXIS[0]),end=date.fromisoformat(AXIS[-1]),
         sessions=list(map(date.fromisoformat,AXIS)))
     source.action_affected,source.reset_after,source.tickers = frozenset(),{},[]
