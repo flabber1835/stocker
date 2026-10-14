@@ -2256,7 +2256,7 @@ class AutonomousDeploy:
             raise DeployRefused("released automation control differs from activation authority")
 
     def establish_activation_backup(self) -> None:
-        self.phase('durability: verify newly formed and authorized state while paper remains killed')
+        self.phase('durability: archive saved plan and authority using proven recovery while paper remains killed')
         self._activation_backup = self._post_deploy_backup()
 
     def _verify_dual_plan_shadow_reconciliation(self) -> Mapping:

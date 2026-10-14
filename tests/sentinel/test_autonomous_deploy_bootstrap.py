@@ -273,14 +273,14 @@ def test_activation_recovery_keeps_full_restore_or_reuses_exact_milestone(tmp_pa
     exact = '/backups/base/base-20261007T060000Z'
     def run(argv, **kwargs):
         calls.append(argv)
-        assert argv == ['bash', 'scripts/sentinel-install-backup.sh', '--restore', 'full']
+        assert argv == ['bash', 'scripts/sentinel-install-backup.sh', '--restore', 'full', '--reuse-current-proof']
         assert kwargs['capture'] is True and kwargs['stream'] is True
         return SimpleNamespace(stdout='verified_installation_backup:' + exact + '\n')
     obj = bootstrap.BootstrapDeploy(SimpleNamespace(), SimpleNamespace(env={}, run=run), tmp_path)
     obj._activation_backup = verified
     assert obj._post_deploy_backup() == exact
     assert calls == ([] if verified else [
-        ['bash', 'scripts/sentinel-install-backup.sh', '--restore', 'full']])
+        ['bash', 'scripts/sentinel-install-backup.sh', '--restore', 'full', '--reuse-current-proof']])
 
 
 @pytest.mark.parametrize('mode', ['dual', 'paper'])

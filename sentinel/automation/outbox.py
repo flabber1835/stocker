@@ -421,6 +421,25 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
                  alert["idempotency_key"], alert["event_type"],
                  alert["severity"], _json(alert["payload"])))
 
+        from sentinel import paper_plan_preview
+        try:
+            preview = paper_plan_preview.read(conn, unnotified=True)
+        except (ValueError, TypeError, ArithmeticError):
+            # Optional presentation corruption cannot strand critical delivery.
+            # SQL/schema failures still fail the dispatcher through its owner.
+            preview = None
+        if preview is not None and preview.trades and all(leg.action != 'UNAVAILABLE' for leg in preview.legs):
+            key = 'next-open-plan:' + preview.cycle_id + ':' + preview.plan_id
+            payload = dict(plan_id=preview.plan_id,cycle_id=preview.cycle_id,
+                effective_session=preview.effective_session.isoformat(),execute_at=preview.execute_at.isoformat(),
+                buys=preview.buys,sells=preview.sells,proposed_only=True,
+                observation_at=preview.observation_at.isoformat(),
+                reason=f'Paper plan for {preview.effective_session}: {preview.buys} proposed buys, {preview.sells} proposed sells. Final quantities are sized at open.')
+            cur.execute("INSERT INTO sentinel_alert_outbox "
+                "(alert_id,idempotency_key,schema_version,event_type,severity,payload,state,max_attempts,next_attempt_at) "
+                "VALUES (%s,%s,1,'PAPER_PLAN_READY','INFO',%s::jsonb,'PENDING',8,clock_timestamp()) "
+                "ON CONFLICT (idempotency_key) DO NOTHING",(_alert_id(key),key,_json(payload)))
+
 
 def claim_next(
         conn, *, holder_id: str, claim_seconds: int = 60) -> AlertRecord | None:

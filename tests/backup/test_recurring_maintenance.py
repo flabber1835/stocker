@@ -535,12 +535,12 @@ def test_removed_chain_publication_is_detected_by_actual_tick_acceptance(
 def test_removed_interval_guard_is_detected_by_actual_refusal_acceptance(
         boundary, capsys, monkeypatch):
     import inspect
-    source = inspect.getsource(coordinator.publish_runtime_chain)
+    source = inspect.getsource(coordinator.runtime_chain_proof)
     assert "or count != last-start+1" in source
     broken = source.replace("or count != last-start+1", "or False", 1)
     namespace = {}
     exec(compile(broken, 'runtime-chain-guard-falsifier', 'exec'), coordinator.__dict__, namespace)
-    monkeypatch.setattr(coordinator, 'publish_runtime_chain', namespace['publish_runtime_chain'])
+    monkeypatch.setattr(coordinator, 'runtime_chain_proof', namespace['runtime_chain_proof'])
     with pytest.raises(pytest.fail.Exception):
         test_missing_or_contradictory_chain_never_reports_healthy_or_retains(
             boundary, 'count', False, capsys)

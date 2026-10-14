@@ -42,9 +42,9 @@ def test_shadow_ui_upgrade_pins_exact_predecessor_and_target_and_rejects_neighbo
         admission.prove_compatibility(manifest, checkpoint, context, source=source)
 
 
-def test_new_recovery_module_is_admitted_only_at_exact_reviewed_bytes(closure):
+@pytest.mark.parametrize('name', sorted(upgrade.ADDITIONS))
+def test_new_recovery_module_is_admitted_only_at_exact_reviewed_bytes(closure, name):
     root, checkpoint, context, manifest, source = closure
-    name = 'shadow_service_status.py'
     path = root/name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes((Path(upgrade.__file__).parent/name).read_bytes())

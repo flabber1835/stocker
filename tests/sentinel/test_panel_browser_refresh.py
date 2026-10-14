@@ -27,9 +27,11 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None):
         script = script.replace('checkAge(); refreshDocument(); }, 30000',
                                 'invalidate(true); }, 30000')
     elif mutation == 'failed-withdrawal':
-        script = script.replace('catch (_error) {\n      invalidate(false);', 'catch (_error) {')
+        script = script.replace('invalidate(false);\n        heartbeat.textContent', 'heartbeat.textContent')
     elif mutation == 'age-withdrawal':
         script = script.replace('age > budget', 'false')
+    elif mutation == 'known-negative':
+        script = script.replace('if (!knownFailure)', 'if (true)')
     return subprocess.run([node, str(Path(__file__).with_name('panel_refresh_harness.cjs'))],
         input=json.dumps({'script':script,'generated':generated.isoformat(),'failure':failure,
                           'wake':wake,'budget':str(PRESENTATION_MAX_AGE_SECONDS)}),
@@ -59,7 +61,7 @@ def test_ordinary_refresh_preserves_only_original_unexpired_document(wake):
 @pytest.mark.parametrize('failure', ['busy', 'cached', 'timeout', 'stale', 'incomplete',
     'pending', 'future', 'invalid-date', 'invalid-budget', 'zero-budget',
     'infinite-budget', 'oversized-budget'])
-def test_failed_ordinary_refresh_withdraws_current_before_original_expiry(failure):
+def test_ordinary_refresh_distinguishes_transport_delay_from_invalid_evidence(failure):
     result = run_refresh(failure, wake='ordinary-failure')
     assert result.returncode == 0, result.stderr
     assert result.stdout == 'PASS\n'
@@ -67,11 +69,11 @@ def test_failed_ordinary_refresh_withdraws_current_before_original_expiry(failur
 
 @pytest.mark.parametrize('mutation,wake,expected', [
     ('premature-invalidation', 'ordinary-healthy', 'unexpired document stays current'),
-    ('failed-withdrawal', 'ordinary-failure', 'failed refresh withdraws current'),
+    ('failed-withdrawal', 'ordinary-failure', 'refresh preserves only bounded transport delays'),
     ('age-withdrawal', 'ordinary-expiry', 'original expiry withdraws current'),
 ])
 def test_broken_ordinary_refresh_guards_are_detected(mutation, wake, expected):
-    result = run_refresh('busy', wake=wake, mutation=mutation)
+    result = run_refresh('incomplete' if mutation == 'failed-withdrawal' else 'busy', wake=wake, mutation=mutation)
     assert result.returncode != 0
     assert expected in result.stderr
 
@@ -81,6 +83,12 @@ def test_missing_node_in_ci_lens_fails_instead_of_skipping(monkeypatch):
     monkeypatch.setattr(shutil, 'which', lambda _: None)
     with pytest.raises(pytest.fail.Exception, match='qualification cannot skip'):
         run_refresh('busy')
+
+
+def test_busy_refresh_never_hides_a_known_negative_verdict():
+    assert run_refresh('busy',wake='known-failure').returncode == 0
+    broken=run_refresh('busy',wake='known-failure',mutation='known-negative')
+    assert broken.returncode != 0 and 'known negative verdict' in broken.stderr
 
 
 @pytest.mark.parametrize('wake', ['fresh-age', 'invalid-date', 'future-date',

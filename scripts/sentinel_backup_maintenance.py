@@ -150,8 +150,8 @@ def receipt_for(selected, observation, image, runner=run):
     return result if result is not None and result["runtime_image"] == image else None
 
 
-def publish_runtime_chain(output, selected, observation, root, runner=run):
-    """Publish only the exact successful private-media status observation."""
+def runtime_chain_proof(output, selected, observation, root):
+    """Validate one exact successful private-media status observation."""
     if not isinstance(output, str) or len(output) > 65536:
         raise Refused("invalid runtime chain report")
     chain_re = re.compile(
@@ -204,6 +204,12 @@ def publish_runtime_chain(output, selected, observation, root, runner=run):
         wal_segments=count, timeline_history=None if history == "none" else history,
         wal_integrity="sha256-sidecar-v1", integrity_full_scrub=True,
         integrity_objects_hashed=count + (history != "none"), integrity_read_passes=1)
+    return proof
+
+
+def publish_runtime_chain(output, selected, observation, root, runner=run):
+    """Publish only the exact successful private-media status observation."""
+    proof = runtime_chain_proof(output, selected, observation, root)
     # The existing host producers publish operational evidence through psql.
     # Every variable field above is a validated machine identity; no operator
     # text or credentials enter SQL. The database supplies the observation time.

@@ -366,7 +366,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         self.env["SENTINEL_RUNTIME_IMAGE_REF"] = self.runtime_repo_digest
         self.runner.env["SENTINEL_RUNTIME_IMAGE_REF"] = self.runtime_repo_digest
 
-    def _create_backup(self, *, restore_drill: bool, deadline=None) -> str:
+    def _create_backup(self, *, restore_drill: bool, deadline=None, reuse_current=False) -> str:
         def run(argv, **kwargs):
             if deadline is not None:
                 remaining = deadline - time.monotonic()
@@ -375,10 +375,16 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
                 kwargs["timeout"] = remaining
             return self.runner.run(argv, **kwargs)
 
-        created = run(
-            ['bash', 'scripts/sentinel-install-backup.sh', '--restore',
-             'full' if restore_drill else 'physical'], capture=True, stream=True)
+        argv = ['bash', 'scripts/sentinel-install-backup.sh', '--restore',
+                'full' if restore_drill else 'physical']
+        if reuse_current:
+            argv.append('--reuse-current-proof')
+        created = run(argv, capture=True, stream=True)
         backup = _backup_path(created)
+        if 'activation_recovery_checkpoint:' in created.stdout:
+            self._activation_recovery_checkpoint = core._marked_json_output(
+                created, marker='activation_recovery_checkpoint:',
+                label='activation recovery checkpoint')
         return backup
 
     def quiesce_backup_and_migrate(self) -> None:
@@ -440,7 +446,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
     def _post_deploy_backup(self) -> str:
         if getattr(self, '_activation_backup', None):
             return self._activation_backup
-        return self._create_backup(restore_drill=True)
+        return self._create_backup(restore_drill=True, reuse_current=True)
 
     def persist_success(self, health: Mapping) -> None:
         """Persist the exact reviewed activation mode after operational PASS."""
@@ -471,6 +477,8 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
                 "BROKER_FREE_SHADOW_LEDGER" if dual else "PAPER_TRIAL"),
             "paper_accounting_authoritative": not dual,
             "post_deploy_backup": post_backup,
+            "activation_recovery_checkpoint": getattr(
+                self, '_activation_recovery_checkpoint', None),
         }
         managed = {
             "SENTINEL_GIT_COMMIT": self.commit,

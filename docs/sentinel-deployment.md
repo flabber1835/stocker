@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[Readiness workflow](readiness-workflow.md) reuses an exact current-image full
+restore proof with a newly archived activation-state checkpoint, keeps daily
+close work independent of physical maintenance, and bounds dashboard refresh
+presentation without extending evidence lifetimes.
+
 [Backup runtime transitions](backup-runtime-transition.md) renew a selected base
 once when its full semantic receipt belongs to a previous immutable runtime.
 The successor still requires the new image's full restore before retention or

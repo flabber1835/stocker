@@ -33,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Literal, Mapping, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sentinel.paper_plan_preview import PlanPreview
 
 
 def _bounded_display_decimal(value):
@@ -158,6 +159,7 @@ class Row:
     #: duration when the next durable cycle/session deadline is known.
     valid_until: Optional[datetime] = None
     shadow_book: Optional[ShadowBook] = None
+    paper_plan: Optional[PlanPreview] = None
 
     def staleness(self, now: datetime) -> Optional[timedelta]:
         return None if self.as_of is None else now - self.as_of

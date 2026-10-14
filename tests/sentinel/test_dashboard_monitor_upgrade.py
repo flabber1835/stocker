@@ -20,8 +20,10 @@ from tests.sentinel.test_operational_liveness_upgrade import (
 def test_exact_transition_and_neighbor_refusal(closure,name):
     record=upgrade.profile()['files'][name]
     actual=hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
+    from sentinel import shadow_ui_upgrade
     assert (actual==record['after'] or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual))
+                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
+                or shadow_ui_upgrade.source_allowed(name,record['after'],actual))
     assert all(upgrade.source_allowed(name,previous,record['after']) for previous in record['before'])
     assert not upgrade.source_allowed(name,'f'*64,actual)
     assert not upgrade.source_allowed('core/kernel.py',record['before'][0],actual)

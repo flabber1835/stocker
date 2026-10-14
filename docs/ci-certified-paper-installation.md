@@ -100,6 +100,11 @@ This cleanup does not weaken atomic replacement or enable generic promotion.
 
 ## Installation work and recovery milestones
 
+[Readiness workflow](readiness-workflow.md) supersedes the fresh physical copy
+and full restore on every activation below. An exact current-image selected-base
+proof can be reused with a newly committed, authenticated archive checkpoint.
+Absent/ineligible proof still requires the ordinary full milestone once.
+
 Decision: 2026-10-07. Installation first checks the selected startup/issuer
 contract in the exact promoted runtime, before financial transitions. Candidate,
 offline issuer and runtime share the required feature-session count; formed
