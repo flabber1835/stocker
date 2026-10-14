@@ -274,10 +274,18 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "1b60943790b0fa5cd719c7491aee979b34771334d608460bf5b8c5e8ca47fdae",
+      "generated_ast_sha256": "e58b347bd8f6a095177670b5834b09debfcddf4245c1c39833119853f59e45fa",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "module": "preparation",
-      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality. PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards.",
+      "initial_paper_recovery_acceptance": [
+        "tests/sentinel/test_initial_paper_recovery.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_production_alpaca_dual_preparation_uses_current_book_without_fill_history",
+        "tests/sentinel/test_activation_writer_handoff.py",
+        "tests/sentinel/test_installation_activation_separation.py"
+      ],
+      "initial_paper_recovery_design": "docs/sentinel-execution-contract.md",
+      "initial_paper_recovery_qualification": "docs/readiness-workflow-qualification.md",
+      "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality. PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards. PR #521: Add only the explicitly requested, attended initial paper anchor repair under the existing writer/publication scope and read-only preparation grant. Preserve current paper keys, binding/epoch, shadow book and cycles; zero commands/fills and two fresh complete stable flat observations are mandatory. Ordinary and daily preparation never infer permission; restored/UNKNOWN and execution-window guards remain unchanged.",
       "renewal_acceptance": [
         "tests/sentinel/test_dual_plan_renewal.py",
         "tests/sentinel/test_dual_plan_renewal_upgrade.py"

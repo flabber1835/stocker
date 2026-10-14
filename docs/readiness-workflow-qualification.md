@@ -273,6 +273,24 @@ tests/sentinel/test_retained_source_compatibility.py
 69 passed in 285.88s
 ```
 
+The corrected protected run's general-2 shard passed 1,573 cases and found
+that the current reviewed paper delta registry still described
+`prepare_paper_plan` before its documented initial-recovery hook. Registered
+that intentional change, its existing design and completed acceptance paths
+in `production-champion-paper-deltas.json`. The frozen historical equivalence
+manifest and historical AST hash remain unchanged. The current normalized
+definition is `e58b347bd8f6a095177670b5834b09debfcddf4245c1c39833119853f59e45fa`.
+A deliberately wrong preparation fingerprint still fails the exact registry
+check. No product code or source closure changed in this correction.
+
+```text
+tests/sentinel/test_paper_package_architecture.py
+tests/sentinel/test_initial_paper_recovery.py
+tests/sentinel/test_cli_routing.py
+tests/sentinel/test_installation_cli_boundaries.py
+80 passed in 37.26s
+```
+
 Windows System events record planned update restarts at 23:29 and 23:32 Pacific.
 Docker/WSL resumed at 05:35. The installed publisher's legacy interrupted marker
 was preserved under `operator-incidents` after authenticated current-book
