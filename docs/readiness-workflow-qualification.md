@@ -258,6 +258,21 @@ authenticated original genesis passed offline with candidate closure
 `28232fe41bac4e716ce5ce1840a214b7c39178ef078bccf9539cc568509acd0a`.
 This diagnostic still grants no admission, certificate or production authority.
 
+The final protected general-0 shard passed 2,105 cases and rejected an
+unreviewed edit to `shadow_service_status.py` correctly, but its older assertion
+expected the later economic-source refusal. Since that file is also an exactly
+pinned addition, the closure guard rejects it first. Corrected only the test
+to require the literal closure refusal for additions and the exact economic
+refusal plus filename for other successors; no product guard, profile, source
+closure or golden fixture changed. Targeted final validation:
+
+```text
+tests/sentinel/test_shadow_ui_upgrade.py
+tests/sentinel/test_close_cycle_upgrade.py
+tests/sentinel/test_retained_source_compatibility.py
+69 passed in 285.88s
+```
+
 Windows System events record planned update restarts at 23:29 and 23:32 Pacific.
 Docker/WSL resumed at 05:35. The installed publisher's legacy interrupted marker
 was preserved under `operator-incidents` after authenticated current-book
