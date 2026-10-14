@@ -214,6 +214,14 @@ tests/scripts/test_sentinel_ci_shards.py
 tests/sentinel/test_automation_runtime.py
 -k 'operational_execute_pins or removed_operational_execution_pin'
 3 passed, 60 deselected in 1.17s
+
+tests/sentinel/test_supervisor_timing_admission.py
+tests/sentinel/test_activation_writer_processes.py
+tests/sentinel/test_shadow_heartbeat_isolation.py
+51 passed in 72.87s
+
+tests/sentinel/test_shadow_heartbeat_isolation.py
+7 passed in 22.45s after forwarding the real inherited owner descriptor
 ```
 
 The completed passes include eight restart guard removals, four snapshot reuse

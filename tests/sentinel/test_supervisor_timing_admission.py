@@ -15,6 +15,9 @@ class StartupReached(Exception):
 
 @pytest.fixture
 def startup(monkeypatch, tmp_path):
+    monkeypatch.setenv('SENTINEL_GIT_COMMIT', '1'*40)
+    monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', 'sha256:'+'2'*64)
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'postgresql://qualification/sentinel')
     # Substitute configuration/dependencies only; exercise the real entrypoints
     # and their environment parsing before any worker or database can start.
     monkeypatch.setattr(automation.SentinelConfig, 'from_env',
