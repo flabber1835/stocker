@@ -67,6 +67,64 @@ def preflight_blocked(conn, monkeypatch):
     return cfg, service, timing, now, cycle
 
 
+def frontier_blocked(conn, monkeypatch):
+    cfg = config()
+    enable(conn, cfg)
+    service = service_for(cfg)
+    timing, now = future_friday(conn, cfg)
+    monkeypatch.setattr(recovery.calendar, 'latest_closed_session', lambda _: str(timing.decision_session))
+    permit = store.acquire_lease(conn, holder_id='worker-a', lease_seconds=30)
+    cycle = store.create_cycle(conn, permit=permit, spec=service._spec(store.load_control(conn), timing))
+    cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id,
+                                  to_state=CycleState.REFRESHING_DATA)
+    cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id,
+        to_state=CycleState.BLOCKED, failure_code='NonRetryableCallbackRefused',
+        failure_detail=recovery.SOURCE_FRONTIER_FAILURE,
+        diagnostic={'retry_phase': 'REFRESH', 'callback_failure': 'PERMANENT_OPERATIONAL_REFUSAL',
+                    'terminal_reason': 'PERMANENT_OPERATIONAL_REFUSAL',
+                    'exception_type': 'sentinel.automation.model.NonRetryableCallbackRefused'})
+    store.engage_kill(conn, actor='test', reason='reviewed source frontier incident')
+    return cfg, service, timing, now, cycle
+
+
+@pytest.mark.asyncio
+async def test_frontier_recovery_preserves_history_and_creates_fresh_waiting_plan(conn, monkeypatch):
+    cfg, service, timing, now, old = frontier_blocked(conn, monkeypatch)
+    events = conn.execute('SELECT * FROM sentinel_automation_cycle_events ORDER BY seq').fetchall()
+    conn.rollback()
+    generation, auth = authorize(conn, cfg, timing, now, old)
+    assert auth.kind == recovery.SOURCE_FRONTIER_KIND
+    assert authorize(conn, cfg, timing, now, old) == (generation, auth)
+    release(conn)
+    for _ in range(12):
+        result = await service.tick(conn, now=now)
+        if result.cycle and result.cycle.state is CycleState.WAITING_OPEN:
+            break
+    assert result.cycle.state is CycleState.WAITING_OPEN
+    assert result.cycle.cycle_id != old.cycle_id and result.cycle.plan_id is not None
+    assert store.load_cycle(conn, old.cycle_id) == old
+    assert conn.execute('SELECT * FROM sentinel_automation_cycle_events WHERE cycle_id=%s ORDER BY seq',
+                        (old.cycle_id,)).fetchall() == events
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
+    assert (await service_for(cfg, holder='worker-a').tick(conn, now=now)).cycle.cycle_id == result.cycle.cycle_id
+
+
+@pytest.mark.parametrize('field,value', [
+    ('state', CycleState.RETRY_WAIT), ('historical_state_only', True), ('plan_id', 'old-plan'),
+    ('failure_code', 'SoftwareDefect'), ('failure_detail', recovery.SOURCE_FRONTIER_FAILURE + ' extra'),
+    ('retry_phase', 'PREPARE'), ('callback_failure', 'SOFTWARE_DEFECT'),
+    ('terminal_reason', 'SOFTWARE_DEFECT'), ('exception_type', 'other.NonRetryableCallbackRefused'),
+])
+def test_frontier_recovery_recognizes_only_exact_reviewed_unprepared_case(conn, monkeypatch, field, value):
+    _, _, _, _, old = frontier_blocked(conn, monkeypatch)
+    assert recovery.eligible_kind(old) == recovery.SOURCE_FRONTIER_KIND
+    if field in old.diagnostic:
+        changed = old.model_copy(update={'diagnostic': dict(old.diagnostic, **{field: value})})
+    else:
+        changed = old.model_copy(update={field: value})
+    assert recovery.eligible_kind(changed) is None
+
+
 @pytest.mark.asyncio
 async def test_preflight_unsent_recovery_preserves_failed_history_and_reaches_waiting_open(conn, monkeypatch):
     cfg, service, timing, now, old = preflight_blocked(conn, monkeypatch)
@@ -85,6 +143,22 @@ async def test_preflight_unsent_recovery_preserves_failed_history_and_reaches_wa
     assert conn.execute('SELECT * FROM sentinel_automation_cycle_events WHERE cycle_id=%s ORDER BY seq',
                         (old.cycle_id,)).fetchall() == events
     assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('command_state', ['UNKNOWN', 'REJECTED'])
+def test_frontier_recovery_refuses_durable_commands_in_its_account_scope(conn, monkeypatch, command_state):
+    cfg, _, timing, now, old = frontier_blocked(conn, monkeypatch)
+    assert recovery.eligible_kind(old) == recovery.SOURCE_FRONTIER_KIND
+    binding = store.load_control(conn).binding
+    conn.execute("INSERT INTO sentinel_commands (client_key,plan_id,security_id,deployment_id,broker,"
+        "broker_account_id,takeover_epoch,symbol,side,quantity,state) "
+        "VALUES ('frontier-command','unbound','s',%s,%s,%s,%s,'TEST','BUY',1,%s)",
+        (binding.deployment_id,binding.broker,binding.broker_account_id,binding.takeover_epoch,command_state))
+    conn.commit()
+    before = store.load_control(conn)
+    with pytest.raises(AutomationRefused):
+        authorize(conn, cfg, timing, now, old)
+    assert store.load_control(conn) == before
 
 
 @pytest.mark.parametrize('defect', ['detail', 'phase', 'type', 'plan', 'command', 'kind'])

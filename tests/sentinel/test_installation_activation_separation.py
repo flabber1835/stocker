@@ -292,6 +292,38 @@ def test_actual_queue_seals_explicit_recovery_in_the_immutable_request(monkeypat
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.parametrize('missing', [None, 'unsent', 'initial', 'retention'])
+def test_version_three_queue_seals_both_explicit_recoveries_or_refuses_before_handoff(monkeypatch, phase_request, missing):
+    observed = []
+    def handoff(path):
+        value, _ = activate.validate_request(path)
+        observed.append(value)
+        return {'activation_state': 'SUPERVISED'}
+    monkeypatch.setattr(activate, 'handoff', handoff)
+    args = ['--queue-from-installation', str(phase_request.parent/'installation-receipt.json'),
+        '--mode', 'dual', '--initial-paper-recovery-system-identifier', '7691913275518591014',
+        '--initial-paper-recovery-actor', 'owner', '--initial-paper-recovery-reason', 'same laptop',
+        '--unsent-blocked-cycle-id', 'b'*64, '--unsent-decision-session', '2026-10-12',
+        '--unsent-recovery-actor', 'owner', '--unsent-recovery-reason', 'reviewed source frontier defect']
+    for name, flag in [('unsent', '--confirm-authorize-unsent-recovery'),
+                       ('initial', '--confirm-initial-paper-recovery'),
+                       ('retention', '--confirm-retain-current-paper-credentials')]:
+        if missing != name:
+            args.append(flag)
+    if missing is not None:
+        with pytest.raises(SystemExit):
+            activate.main(args)
+        assert observed == []
+        return
+    assert activate.main(args) == 0 and len(observed) == 1
+    value = observed[0]
+    assert value['schema'] == 'sentinel.activation-request/3'
+    assert value['initial_paper_recovery']['retain_current_paper_credentials'] is True
+    assert value['initial_paper_recovery']['same_host_confirmed'] is True
+    assert value['unsent_recovery']['confirmed'] is True
+    assert value['unsent_recovery']['blocked_cycle_id'] == 'b'*64
+
+
 @pytest.mark.parametrize('available,ack', [(False, False), (True, False), (True, True),
                                          (True, 'dead'), (True, 'wrong-pid')])
 def test_handoff_requires_exact_independent_systemd_owner(monkeypatch, phase_request, available, ack):

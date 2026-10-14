@@ -5,7 +5,7 @@
   },
   "files": {
     "automation/unsent_recovery.py": {
-      "after": "883ef4cf2b17ca67cd7fa017842e00cb4729123e333177f2d67646e0c8f50a78",
+      "after": "20df5cbfc1baa25fba81a7d4392e6db16af1886a7adbb7b81969525aa641ebfb",
       "before": [
         "43a4dc5a902168e625b7725d45661d619851cfdfb136b8f0be34aff2216c20c0",
         "883ef4cf2b17ca67cd7fa017842e00cb4729123e333177f2d67646e0c8f50a78"
@@ -26,6 +26,7 @@
     "cli/main.py": {
       "after": "961769d01fb6ea55e3bd1a44796c6956646bf6a2511a94db9a93a7d1cbfb71c2",
       "before": [
+        "961769d01fb6ea55e3bd1a44796c6956646bf6a2511a94db9a93a7d1cbfb71c2",
         "d7a823af93b4738e2c4e20a030da79420e184d29f26d800f31dd2e57c409aba8",
         "ebc5014f1b9c6ace9374e8743c912a34fbf911b59bd7c194ab1bc32ba2baa253"
       ]
@@ -33,6 +34,7 @@
     "cli/paper.py": {
       "after": "2f4c143adda925b4afeac860b59b3dbaabc2bbc50a8c5a1d2d0d86c734d4e675",
       "before": [
+        "2f4c143adda925b4afeac860b59b3dbaabc2bbc50a8c5a1d2d0d86c734d4e675",
         "50abf5de644d9b2d7b62bdedd23887fb1506267052b8dafbf8d176265142a210"
       ]
     },
@@ -43,6 +45,12 @@
         "25dd7a37af196ab603eebe39b11cf27392f4829945889902aed9daa5be341f93",
         "a09da51b3f2d31d54ac81185b9b9d6457bea04803aca409b3e99b6663154819c",
         "fb469e12e1023c5ccc66decf6b66bb5d24c497bc58541bcff743be67df54f478"
+      ]
+    },
+    "dual_reconciliation.py": {
+      "after": "0aa64dada36e16e8aa6bdec70bde78d89c2aec6b20208893ba3309c54e107f06",
+      "before": [
+        "e17764d35c0d8150495a4479e13e986f3a3d7fbc41c653543208eb788a50d223"
       ]
     },
     "feed/alpaca_source.py": {
@@ -107,7 +115,8 @@
         "2e228c6a35d25c58a0415fa068646e85e3db13694eee24c913b408310dc11925",
         "47a3a9a9d3d37e1e42d190c4fbcf53e4f9c31d73c009bde9dfb0fda4f172e002",
         "586287a6f6947df302d2336376b128580f3c731034b5dc5d1204aa960ac43f1e",
-        "9205bdaedb898fc02f38c97f7bd3636cddc3db7cd108bf422db5eb4115ebe9ba"
+        "9205bdaedb898fc02f38c97f7bd3636cddc3db7cd108bf422db5eb4115ebe9ba",
+        "cfe7c1c470abcd9beda64c1172e6d618cd19763b02a10760e436877258c42c05"
       ]
     },
     "rolling_reconstruction_evidence.py": {
@@ -133,6 +142,6 @@
       ]
     }
   },
-  "module_sha256": "2737927c02db2887a833a5896758e04298be7b9c4f95d0539fc169ec5b836285",
+  "module_sha256": "9df096b7ac2292291c8711512c926794a9389c5e4be4a34c29778b3a2157abe4",
   "schema": "sentinel.close-cycle-upgrade/1"
 }

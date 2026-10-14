@@ -601,6 +601,41 @@ def test_removing_preflight_date_guard_is_detected(monkeypatch):
 
 
 @async_test
+async def test_native_close_frontier_wait_reaches_source_retry_without_broker_or_publisher(monkeypatch):
+    from sentinel import rolling_runtime
+    from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
+
+    cfg = config()
+    ctx = context(cfg, state=CycleState.REFRESHING_DATA)
+    conn = FakeConnection()
+    runtime = production(cfg)
+    runtime._dual_run_enabled = True
+    runtime._shadow_observation_id = 'primary'
+    runtime._shadow_starting_cash = Decimal('50000')
+    monkeypatch.setattr(runtime, 'connect', lambda: conn)
+    monkeypatch.setattr(runtime, '_assert_cycle_authority',
+                        lambda *args, **kwargs: (ctx.cycle, control(cfg)))
+    monkeypatch.setattr(automation_runtime.schema, 'require_runtime_schema', lambda _: None)
+    monkeypatch.setattr(automation_runtime.feed_store, 'require_feed_schema', lambda _: None)
+    monkeypatch.setattr(automation_runtime, 'require_observation_integrity', lambda _: None)
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'current', lambda _: SimpleNamespace(version=7))
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'is_rolling', lambda _: True)
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'require_shadow_mode', lambda *args: None)
+    monkeypatch.setattr(rolling_runtime, 'selected', lambda _: True)
+
+    def pending(*args, **kwargs):
+        raise RollingSourceFrontierPending('ROLLING_INPUTS_NOT_READY: rolling source-final frontier')
+
+    monkeypatch.setattr(rolling_runtime, 'status', pending)
+    monkeypatch.setattr(runtime, '_broker', lambda *args: pytest.fail('waiting reached broker'))
+    monkeypatch.setattr(automation_runtime.ingest, 'daily',
+                        lambda *args, **kwargs: pytest.fail('waiting raced publisher'))
+    with pytest.raises(SourceDataPending, match='source-final close'):
+        await runtime.refresh(ctx)
+    assert conn.closed == 1
+
+
+@async_test
 async def test_dual_refresh_never_races_the_shadow_publication_writer(
         monkeypatch) -> None:
     cfg = config()

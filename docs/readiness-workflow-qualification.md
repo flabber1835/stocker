@@ -54,6 +54,58 @@ python -m pytest tests/sentinel/test_current_dashboard_evidence.py \
 
 ## Targeted results
 
+### Close-time source frontier correction
+
+The installed October 14 cycle stopped at `REFRESHING_DATA` with
+`NonRetryableCallbackRefused` wrapping the native `RollingSourceFrontierPending`.
+Read-only primary evidence showed no plan, no transport/reconciliation event,
+zero commands and zero fills. The preceding broker preflight was clean. The
+adapter now preserves only the direct typed pending cause; matching text and
+unrelated causes still refuse. Its existing refresh callback returns bounded
+`SourceDataPending` without constructing a broker or racing the publisher.
+The explicit unsent recovery recognizes only that reviewed unprepared failure
+and retains all shared lineage, command/UNKNOWN, pre-open, binding, certificate,
+kill, ownership, idempotency and fresh-plan guards. It never edits the failed
+cycle or its events. The prepared version-3 activation seals this separate
+recovery alongside the retained-key initial anchor repair.
+
+The first overlapping native/architecture pass completed 78 tests in 51.55s.
+The final adjacent modules passed 305 tests in 353.82s:
+
+```sh
+python -m pytest tests/sentinel/test_dual_reconciliation.py \
+  tests/sentinel/test_unsent_cycle_recovery.py \
+  tests/sentinel/test_automation_runtime.py tests/sentinel/test_rolling_go_inputs.py \
+  tests/sentinel/test_source_wait_recovery.py tests/sentinel/test_close_cycle_upgrade.py \
+  tests/sentinel/test_retained_source_compatibility.py \
+  tests/sentinel/test_paper_package_architecture.py \
+  tests/scripts/test_deployment_recovery.py \
+  tests/sentinel/test_autonomous_deploy_bootstrap.py \
+  -q -ra --tb=short -p no:cacheprovider
+```
+
+The paired request, initial repair, routing and native restore fences passed
+235 tests in 36.51s, including real queue sealing of both explicit recoveries
+and refusal before handoff when any confirmation is omitted:
+
+```sh
+python -m pytest tests/sentinel/test_installation_activation_separation.py \
+  tests/sentinel/test_initial_paper_recovery.py tests/sentinel/test_cli_routing.py \
+  tests/sentinel/test_activation_restore_upgrade_fence.py \
+  -q -ra --tb=short -p no:cacheprovider
+```
+
+Eleven in-memory guard mutations were killed by the actual targeted falsifiers:
+nine recovery eligibility clauses and both deletion/bypass of the typed-cause
+guard. These isolated checks made no broker calls, database writes or production
+changes. The exact close-cycle profile is
+`7e3da169e9bb46b7e144caa7552519684e37d1266de75ce710d4985e55af6ec8`.
+Offline compatibility with the authenticated original genesis passed for source
+closure `d49f4573b3da1c2dbaf2b8773f1f8f46e6a92ce7e8c148f6d4c4d7bd17b0f998`.
+This diagnostic grants no admission, certification or activation. The earlier
+commit's full CI, including all twenty warmup tests, passed; this new source
+correction requires its own final exact-head protected CI before merge.
+
 On exact head `5deab62edb2a62f98d1b67910000d68946118ccb`, safety run
 `38611753074` passed every ordinary, rolling, automation, mutation and replay
 lane. Warmup job `116020000428` collected all 20 tests, passed 19, and was

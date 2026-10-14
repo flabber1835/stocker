@@ -60,6 +60,30 @@ This changes CI scheduling only, not production deadlines, test selection,
 coverage, source/attempt identity, or the requirement for a successful signed
 lane receipt. A cancelled run remains unqualified and requires a fresh run.
 
+### Source-final frontier at the close
+
+The October 14 close exposed an adapter classification defect: the native rolling
+reader correctly raised `RollingSourceFrontierPending` while the new close was
+being acquired, but the shadow-status wrapper retained it as a cause and dual
+reconciliation converted that temporary condition into a permanent refusal.
+The dual reader maps only that direct, typed cause to its existing pending result.
+It never interprets error text as permission, grants stale intent, skips corpus
+verification, or changes retry/execution deadlines. Other shadow failures,
+including future or combined frontier failures, remain refusals. Existing refresh
+and preparation callbacks then use their ordinary bounded source-wait policy.
+
+The already latched unsent cycle is recovered only through the existing attended
+authorization path. Extend its reviewed kinds with
+`ROLLING_SOURCE_FRONTIER_MISCLASSIFIED`, requiring no plan and the exact persisted
+`NonRetryableCallbackRefused` detail and REFRESH/permanent-failure diagnostics from
+this adapter defect. Preserve all old cycles and events. Existing lineage,
+negative transport/command/UNKNOWN proofs, latest-close/pre-open scope, fresh
+certificate, exact binding, stopped writer, kill fence, one-shot authorization
+and fresh-plan guards remain mandatory. Seal this separately confirmed payload
+alongside the initial paper anchor repair in the existing version-3 activation
+request; ordinary activation never infers recovery. No calendar date, incident ID
+or account identifier belongs in production code.
+
 ## Daily close and maintenance
 
 The daily cycle is discovery, accepted-source refresh, one canonical decision
