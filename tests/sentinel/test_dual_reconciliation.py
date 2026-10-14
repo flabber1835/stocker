@@ -106,6 +106,28 @@ def test_missing_or_behind_shadow_is_retryable(monkeypatch):
             starting_cash="100000")
 
 
+@pytest.mark.parametrize("native_pending", [True, False, None])
+def test_only_direct_native_source_frontier_cause_is_pending(monkeypatch, native_pending):
+    from sentinel import rolling_runtime
+    from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
+
+    monkeypatch.setattr(rolling_runtime, "selected", lambda _: True)
+
+    def status(*args, **kwargs):
+        message = "RollingSourceFrontierPending: ROLLING_INPUTS_NOT_READY: rolling source-final frontier"
+        if native_pending is None:
+            raise dual.shadow_runtime.ShadowRuntimeRefused(message)
+        if native_pending:
+            raise RollingSourceFrontierPending(message)
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(rolling_runtime, "status", status)
+    expected = dual.DualReconciliationPending if native_pending else dual.DualReconciliationRefused
+    with pytest.raises(expected):
+        dual.verified_shadow_intent(object(), decision_session=SESSION,
+                                   observation_id="year-end", starting_cash="100000")
+
+
 @pytest.mark.parametrize("change", [
     {"shadow_snapshot_hash": "d" * 64},
     {"data_version": 8},

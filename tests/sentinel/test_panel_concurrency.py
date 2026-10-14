@@ -119,7 +119,8 @@ def test_contending_phone_keeps_last_known_but_machine_health_never_reuses_it(mo
                 assert response.headers['x-sentinel-panel-status'] == 'LAST_KNOWN'
                 assert 'Retained holding' in response.text
                 assert 'UPDATING STATUS — LAST KNOWN VALUES BELOW' in response.text
-                assert 'class="not-current"' in response.text
+                assert 'class="not-current"' not in response.text
+                assert 'class="row warn"' in response.text
                 assert 'data-refresh-pending="true"' in response.text
                 assert '2026-09-15T04:00:00+00:00' in response.text
                 assert 'LAST KNOWN · not current' in response.text

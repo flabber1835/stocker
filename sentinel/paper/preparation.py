@@ -286,6 +286,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                              automation_config_sha256: str | None = None,
                              dual_shadow_observation_id: str | None = None,
                              dual_shadow_starting_cash: Decimal | str | None = None,
+                             initial_paper_recovery: Mapping | None = None,
                              ) -> PreparationResult:
     """Advance and adopt one current plan without any broker mutation."""
     _require_mutation_backup(conn, operation="paper plan preparation")
@@ -395,6 +396,14 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 automation_config_sha256=automation_config_sha256,
                 dual_shadow_observation_id=dual_shadow_observation_id,
                 dual_shadow_starting_cash=dual_shadow_starting_cash)
+
+            if initial_paper_recovery is not None:
+                if not dual_mode or automation_grant is not None:
+                    raise PaperActivationRefused('initial paper recovery requires attended informational dual preparation')
+                from sentinel.execution.initial_paper_recovery import authorize
+                await authorize(conn, broker=broker, grant=grant, request=initial_paper_recovery,
+                    fresh_authority=lambda: require_current_authority(
+                        conn, required_operation='PREPARE_READ', **authority_kwargs).certificate_sha256)
 
             existing_plan = _latest_plan_or_refuse(conn)
             dual_result = None

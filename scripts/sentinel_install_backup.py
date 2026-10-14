@@ -11,7 +11,7 @@ from sentinel_backup_deadlines import (BASE_COMMAND_SECONDS, CHAIN_STATUS_SECOND
 from sentinel_maintenance_process import run_bounded
 
 
-def milestone(mode, runner=run_bounded):
+def milestone(mode, runner=run_bounded, *, reuse_current=False):
     if mode not in {'full', 'physical'} or not lock_is_held():
         raise RuntimeError('installation backup requires the verified target owner and restore mode')
     root = Path(os.environ[LOCK_ROOT_ENV])
@@ -20,15 +20,27 @@ def milestone(mode, runner=run_bounded):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise RuntimeError('installation recovery deadline exhausted')
-        print('  recovery milestone: ' + Path(argv[1]).name, file=sys.stderr, flush=True)
+        if argv[0] == 'bash':
+            print('  recovery milestone: ' + Path(argv[1]).name, file=sys.stderr, flush=True)
         # Each phase owns its descendants, including a shell that exits while
         # another process still holds its pipe or inherited backup descriptor.
         result = runner(argv, timeout=min(timeout, remaining), private_group=True)
-        print(result.stdout, end='', file=sys.stderr, flush=True)
+        if argv[0] == 'bash':
+            print(result.stdout, end='', file=sys.stderr, flush=True)
         print(result.stderr, end='', file=sys.stderr, flush=True)
         if result.returncode:
             raise RuntimeError('installation recovery command refused')
         return result.stdout
+    if reuse_current:
+        if mode != 'full':
+            raise RuntimeError('only full activation recovery may reuse a prior proof')
+        from sentinel_activation_checkpoint import reuse
+        backup = reuse(root, command)
+        if backup is not None:
+            if time.monotonic() >= deadline:
+                raise RuntimeError('installation recovery deadline exhausted')
+            print('verified_installation_backup:' + backup, flush=True)
+            return backup
     output = command(['bash', 'scripts/sentinel-base-backup.sh'], BASE_COMMAND_SECONDS)
     paths = [line[len('verified_base_backup:'):].strip() for line in output.splitlines()
              if line.startswith('verified_base_backup:')]
@@ -53,9 +65,10 @@ def milestone(mode, runner=run_bounded):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--restore', required=True, choices=('full', 'physical'))
+    parser.add_argument('--reuse-current-proof', action='store_true')
     args = parser.parse_args()
     try:
-        milestone(args.restore)
+        milestone(args.restore, reuse_current=args.reuse_current_proof)
     except (RuntimeError, OSError, ValueError) as exc:
         print('REFUSED: ' + str(exc), file=sys.stderr)
         return 2

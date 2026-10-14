@@ -53,7 +53,11 @@ has an unknown outcome.
 
 This deliberately treats host/process loss during an unacknowledged attempt as
 an unknown worker outcome requiring operator inspection and clearance, rather
-than guessing it was recoverable. Normal success, availability retries and
+than guessing it was recoverable. The narrowly proved startup exception in
+[verified shadow restart recovery](shadow-restart-recovery.md) permits resuming
+an independently verified, current rolling checkpoint while preserving the
+unknown attempt as incident evidence. Without that proof the operator rule
+below still applies. Normal success, availability retries and
 supervised hard deadlines still permit continuation. To clear an incident, stop
 the service, inspect the worker outcome and repair the underlying cause, then
 archive both `shadow-supervisor-critical.json` and

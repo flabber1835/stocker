@@ -342,6 +342,13 @@ def read_benchmarks(conn, candidate_id: str):
 
 
 def verify_content(conn, candidate_id: str) -> SnapshotManifest:
+    """Verify once per exact live publication pin, fully when unscoped."""
+    from sentinel.feed import readiness_scope
+    return readiness_scope.verified_snapshot(conn, candidate_id,
+        lambda: _verify_content_uncached(conn, candidate_id))
+
+
+def _verify_content_uncached(conn, candidate_id: str) -> SnapshotManifest:
     """Full read-only integrity check for restore/comparison, not daily status.
 
     Recompute persisted payload hashes rather than accepting a self-consistent

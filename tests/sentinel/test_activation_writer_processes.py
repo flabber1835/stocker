@@ -38,6 +38,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from sentinel import shadow_supervisor as shadow
 root, mode, payload = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+os.environ.update(SENTINEL_GIT_COMMIT='1'*40,
+                  SENTINEL_RUNTIME_IMAGE_DIGEST='sha256:'+'2'*64,
+                  SENTINEL_DATABASE_URL=os.environ['HANDOFF_TEST_DSN'])
 shadow.ShadowServiceConfig.from_env = lambda: SimpleNamespace(poll_seconds=300)
 shadow.LATCH_FILE = root/'critical.json'
 shadow.HEARTBEAT_FILE = root/'heartbeat'
@@ -46,7 +49,7 @@ shadow.shadow_budget.seconds = lambda: 120
 spawn = subprocess.Popen
 def worker(*args, **kwargs):
     return spawn([sys.executable, '-c', payload, str(root), mode],
-                 stdin=subprocess.DEVNULL)
+                 stdin=subprocess.DEVNULL, pass_fds=kwargs.get('pass_fds', ()))
 shadow.subprocess.Popen = worker
 raise SystemExit(shadow.run())
 '''

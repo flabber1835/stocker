@@ -111,16 +111,30 @@ def test_verified_shadow_book_is_sole_current_book_and_plan_must_agree(monkeypat
         assert all(row.status == model.UNKNOWN for row in rows)
 
 
-def test_dual_runtime_broker_reader_does_not_consult_legacy_book(monkeypatch):
-    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'dual')
+@pytest.mark.parametrize('mode', ['shadow', 'dual'])
+def test_dual_runtime_broker_reader_does_not_consult_legacy_book(monkeypatch, mode):
+    from sentinel import paper_plan_preview
+
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', mode)
     helper = RuntimeFixture()
-    helper._install_sources(monkeypatch, observation={'observed_at': NOW,
+    _sources, connection = helper._install_sources(monkeypatch, observation={'observed_at': NOW,
         'completeness': 'COMPLETE', 'positions': {}, 'orders': [], 'runtime_state': 'RUNNING'},
         commands={'counts': {}, 'updated_at': NOW})
+    preview_reads = []
+    def read_preview(conn):
+        assert conn is connection
+        preview_reads.append(conn)
+        return None
+    monkeypatch.setattr(paper_plan_preview, 'read', read_preview)
     for name in ('_canonical_state', '_current_plan', '_rollout_state'):
         monkeypatch.setattr(sources, name, lambda conn: pytest.fail('alternate book queried'))
     rows, errors = sources._runtime_rows('fixture')
-    assert not errors and [row.key for row in rows] == ['broker']
+    assert not errors
+    assert [row.key for row in rows] == (['broker', 'paper_plan'] if mode == 'dual' else ['broker'])
+    assert len(preview_reads) == (1 if mode == 'dual' else 0)
+    if mode == 'dual':
+        assert rows[1].value == 'NOT PREPARED'
+        assert rows[1].status == model.PENDING
 
 
 def test_real_sql_identity_changes_on_book_or_control_but_not_heartbeats(conn, pg):

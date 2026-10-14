@@ -52,7 +52,8 @@ def spawn(*args, **kwargs):
         "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
         "Path('worker.pid').write_text(str(os.getpid())); " +
         ("raise SystemExit(2)" if mode == 'terminal' else ("time.sleep(1.5)" if mode in {'recover', 'ack_stall'} else "time.sleep(60)"))], cwd=root,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        pass_fds=kwargs.get('pass_fds', ()))
     children.append(child)
     until = time.monotonic() + 2
     while not (root / 'worker.pid').exists():

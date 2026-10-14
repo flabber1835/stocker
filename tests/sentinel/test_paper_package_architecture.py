@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 import sentinel.paper as paper
 
 TEST_ROOT = Path(__file__).resolve().parents[2]
@@ -205,6 +207,19 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                     "hashlib").sha256(normalized.encode()).hexdigest(), (
                         f"unreviewed canonical paper definition: {module_name}.{node.name}")
     assert actual == expected
+
+
+def test_paper_delta_registry_rejects_an_unreviewed_preparation_fingerprint(tmp_path, monkeypatch):
+    docs = tmp_path / 'docs'
+    docs.mkdir()
+    (docs / 'paper-lifecycle-equivalence.json').write_bytes(
+        (ROOT / 'docs' / 'paper-lifecycle-equivalence.json').read_bytes())
+    delta = json.loads((ROOT / 'docs' / 'production-champion-paper-deltas.json').read_text())
+    delta['definitions']['prepare_paper_plan']['generated_ast_sha256'] = 'f' * 64
+    (docs / 'production-champion-paper-deltas.json').write_text(json.dumps(delta))
+    monkeypatch.setattr(sys.modules[__name__], 'ROOT', tmp_path)
+    with pytest.raises(AssertionError, match='unreviewed canonical paper definition: preparation.prepare_paper_plan'):
+        test_equivalence_manifest_covers_every_canonical_definition()
 
 
 def _check_and_remove_backup_gate_delta(node):

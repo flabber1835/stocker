@@ -95,6 +95,25 @@ failures, population/domain failures, and immutable identity failures remain
 terminal refusals. No stale publication earns trading authority. The new
 exact retained-source profile also pins this reader and service adapter.
 
+The dual status bridge preserves this pending classification when the public
+shadow wrapper retains `RollingSourceFrontierPending` as its direct typed cause.
+Only that native cause maps to `DualReconciliationPending`; matching text,
+unrelated causes, future frontiers and combined readiness failures remain
+permanent refusals. Refresh then uses its existing bounded `SourceDataPending`
+retry path, without granting stale intent or altering execution deadlines.
+
+For a legacy cycle already latched by this adapter defect, add the explicit
+unsent-recovery kind `ROLLING_SOURCE_FRONTIER_MISCLASSIFIED`. Require no plan,
+`NonRetryableCallbackRefused`, the exact shadow-status/frontier refusal detail,
+`retry_phase=REFRESH`, permanent callback/terminal diagnostics and the exact
+exception type. All original lineage, stopped-writer, killed control, exact
+binding/certificate, latest-close/pre-open, negative transport/command/UNKNOWN,
+one-shot and fresh-plan conditions remain. The unchanged generic recovery owner
+creates a fresh cycle and preserves the failed predecessor and its events.
+Seal this separately confirmed recovery in the existing activation request;
+the initial-paper anchor repair may accompany it, but neither is inferred by
+ordinary activation. Never reopen a missed execution window.
+
 The supervised GO check exposed a host-to-image permission defect: its private
 umask produced a mode-0600 retained-source manifest owned by the host UID, while
 the certified image runs as a different non-root UID. This manifest contains

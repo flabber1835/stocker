@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from sentinel.panel.presentation import describe, CASINO_STAGE, CASINO_ACCENT, CASINO_CSS
 
@@ -305,7 +306,7 @@ def _row_html(r: Row, now: datetime) -> str:
         f'<div class="label">{_esc(label)}</div>'
         f'<div class="value">{_esc(value)}</div>'
         f'<div class="detail">{_esc(explanation)}{age_html}</div>'
-        + _holdings_html(r, now) +
+        + _holdings_html(r, now) + _paper_plan_html(r, now) +
         f'<details class="technical" data-detail-key="{_esc(r.key)}"><summary>Technical details</summary>'
         f'<div class="detail-body">{_esc(r.label)} · {_esc(r.value)}<br>{_esc(r.detail)}</div></details>'
         f"</div>"
@@ -332,6 +333,26 @@ def _holdings_html(row: Row, now: datetime) -> str:
             + f'<p>{book.pending_operations} pending operations; these are not filled holdings. '
             'Unavailable prices are not treated as zero.</p><div style="overflow-x:auto">'
             + _table(('Ticker', 'Quantity', 'Close', 'Value', 'Book weight'), rows) + '</div></div></details>')
+
+
+def _paper_plan_html(row: Row, now: datetime) -> str:
+    plan = row.paper_plan
+    if plan is None or row.effective_status(now) != 'ok':
+        return ''
+    def number(value):
+        return 'Unavailable' if value is None else format(value,'f')
+    rows = [(leg.ticker,leg.action,number(leg.current_quantity),
+             '$'+number(leg.opening_dollars)+' at open' if leg.opening_dollars else number(leg.target_quantity),
+             'Sized at open' if leg.opening_dollars else number(leg.change_quantity)) for leg in plan.legs]
+    opened = plan.execute_at.astimezone(ZoneInfo('America/Los_Angeles'))
+    return ('<details class="technical" data-detail-key="next-paper-plan"><summary>View planned trades</summary>'
+        '<div class="detail-body"><p>Trading date: '+_esc(plan.effective_session)+
+        ' · scheduled '+_esc(opened.strftime('%I:%M %p Pacific'))+'. Decision close: '+_esc(plan.decision_session)+
+        '. These are proposed changes; opening quotes, corporate actions and fresh broker checks determine final orders.</p>'
+        '<p>Recorded broker shares as of '+_esc(plan.observation_at or 'Unavailable')+
+        '. No orders have been submitted by this view.</p><div style="overflow-x:auto">'+
+        _table(('Ticker','Proposed action','Recorded shares','Target','Proposed share change'),rows)+
+        '</div></div></details>')
 
 
 def _esc(s) -> str:
@@ -530,9 +551,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
             "Paper account results are shown as checked or unverified.")
     stale_headline = "OPERATIONAL RED — STATUS NOT CURRENT"
     if refresh_pending:
-        headline_status = FAIL
+        headline_status = FAIL if operational in {FAIL, UNKNOWN} else WARN
         operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
-        rendered_rows = [replace(row, status=UNKNOWN,
+        rendered_rows = [replace(row, status=WARN if row.effective_status(now) == OK else row.effective_status(now),
             detail='LAST KNOWN · not current · ' + row.detail) for row in rendered_rows]
     rows = "".join(_row_html(r, now) for r in rendered_rows)
     reasons = []
@@ -548,7 +569,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
     return f"""<!doctype html>
-<html lang="en"{' class="not-current"' if refresh_pending else ''}><head>
+<html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
@@ -611,6 +632,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var wentToBackground = false;
   var wentOffline = !navigator.onLine;
   var refreshing = false;
+  var refreshDelayed = document.body.dataset.refreshPending === "true";
+  var knownFailure = badge.className === "state fail" || badge.className === "state unknown";
   var retryTimer = null;
   var ageTimer;
   var refreshTimer;
@@ -622,8 +645,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     refreshing = true;
     var controller = new AbortController();
     var deadline = setTimeout(function(){{ controller.abort(); }}, 15000);
+    var transportDelay = true;
     try {{
       var response = await fetch(location.href, {{cache:"no-store", signal:controller.signal}});
+      transportDelay = response.status === 503 || response.headers.get("X-Sentinel-Panel-Status") === "LAST_KNOWN";
       if (!response.ok || response.headers.get("X-Sentinel-Panel-Status") !== "CURRENT"){{
         throw new Error("Current dashboard is not ready");
       }}
@@ -651,13 +676,30 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }});
       window.scrollTo(0, scroll);
     }} catch (_error) {{
-      invalidate(false);
-      heartbeat.textContent = "Refreshing status · showing last known values";
+      if (transportDelay && !invalidated && originalCurrent()){{
+        pendingRefresh();
+      }} else {{
+        invalidate(false);
+        heartbeat.textContent = "Refreshing status · showing last known values";
+      }}
       retryTimer = setTimeout(function(){{ retryTimer = null; refreshDocument(); }}, 5000);
     }} finally {{
       clearTimeout(deadline);
       refreshing = false;
     }}
+  }}
+  function originalCurrent(){{
+    var age = Date.now() - generated;
+    return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age <= budget;
+  }}
+  function pendingRefresh(){{
+    refreshDelayed = true;
+    if (!knownFailure){{
+      badge.className = "state warn";
+      badge.textContent = "STATUS REFRESHING — ORIGINAL CHECK TIMES RETAINED";
+    }}
+    heartbeat.textContent = "Refreshing status · last known observation " +
+      new Date(generated).toISOString();
   }}
   function invalidate(andReload){{
     if (!invalidated){{
@@ -673,7 +715,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     var age = Date.now() - generated;
     if (!Number.isFinite(age) || !validBudget(budget) || age > budget || age < -5000){{
       invalidate(true);
-    }} else if (!invalidated){{
+    }} else if (!invalidated && !refreshDelayed){{
       heartbeat.textContent = "DASHBOARD HEARTBEAT · UPDATED " +
         Math.max(0, Math.floor(age / 1000)) + "s AGO";
     }}
@@ -700,7 +742,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   ageTimer = setInterval(checkAge, 1000);
   refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, {refresh_seconds * 1000});
   checkAge();
-  if (document.body.dataset.refreshPending === "true"){{ invalidate(true); }}
+  if (document.body.dataset.refreshPending === "true"){{
+    if (!invalidated){{ pendingRefresh(); }}
+    refreshDocument();
+  }}
 }})();
 </script>
 <script>{PUSH_SCRIPT}</script>

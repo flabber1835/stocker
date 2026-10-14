@@ -14,6 +14,9 @@ from sentinel import shadow_supervisor as shadow, shadow_worker_liveness as live
 
 @pytest.fixture
 def worker(tmp_path, monkeypatch):
+    monkeypatch.setenv('SENTINEL_GIT_COMMIT', '1'*40)
+    monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', 'sha256:'+'2'*64)
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'postgresql://qualification/sentinel')
     monkeypatch.setattr(shadow, 'LATCH_FILE', tmp_path / 'critical.json')
     monkeypatch.setattr(shadow, 'HEARTBEAT_FILE', tmp_path / 'heartbeat')
     monkeypatch.setattr(live, 'ACTIVE_FILE', tmp_path / 'active.json')

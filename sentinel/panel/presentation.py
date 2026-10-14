@@ -4,6 +4,7 @@ from __future__ import annotations
 from sentinel.panel.model import Row, FINANCIAL_AUTHORITY_ROW_KEYS
 
 _COPY = {
+    'paper_plan': ('Next paper plan', 'Saved targets for the next market open. Proposed trades are estimates, not submitted orders or fills.'),
     'shadow_worker': ('Strategy worker', 'Checks that the worker updating the simulated portfolio is running. A verified saved portfolio can still be displayed while its worker is halted.'),
     'shadow_verification': ('Simulated portfolio check', 'Checks that the strategy portfolio was built correctly from the available market data. This is separate from your Alpaca account.'),
     'shadow_nav': ('Simulated portfolio value', 'The value of the strategy’s simulated shares and cash. This is not the balance in your Alpaca paper account.'),

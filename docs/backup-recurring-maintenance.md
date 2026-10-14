@@ -1,5 +1,9 @@
 # Recurring backup maintenance (Step 1)
 
+[Readiness workflow](readiness-workflow.md) lets activation reuse this owner's
+exact current-image full receipt, proving its new state through archived WAL.
+It adds no close-time backup trigger and does not change renewal or retention.
+
 ## Decision, recorded before implementation
 
 Maintenance is a host job using the existing physical producer, exact-path

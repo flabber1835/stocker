@@ -480,6 +480,49 @@ def install_durable_projection(monkeypatch, current_plan, *, multiplier="1"):
 
 
 @async_test
+@pytest.mark.parametrize('failure_at', ['resolver', 'execution'])
+async def test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch, failure_at):
+    from contextlib import contextmanager
+    cfg=config(); ctx=context(cfg); conn=FakeConnection(); worker=production(cfg)
+    install_runtime_seams(monkeypatch,worker,conn,ctx,SimulatedBroker())
+    worker._operational_source_only=True
+    monkeypatch.setattr(worker,'_require_operational_inputs',lambda _:None)
+    monkeypatch.setattr(automation_runtime,'require_observation_integrity',lambda _:None)
+    trace=[]; held=[False]
+    @contextmanager
+    def pin(reader,*,commit):
+        assert reader is conn and not commit
+        held[0]=True;trace.append('PIN')
+        try:yield object()
+        finally:held[0]=False;trace.append('RELEASE')
+    monkeypatch.setattr(automation_runtime.feed_inputs,'pinned',pin)
+    def resolver(*a):
+        assert held[0],'resolver performed an unscoped full scan'
+        trace.append('RESOLVER')
+        if failure_at=='resolver':raise NonRetryableCallbackRefused('resolver refused')
+        return SimulatedBroker()
+    monkeypatch.setattr(worker,'_broker',resolver)
+    async def execute(**kwargs):
+        assert held[0],'execution lost its original publication pin'
+        trace.append('EXECUTE');raise paper.PaperActivationRefused('execution refused')
+    monkeypatch.setattr(paper,'execute_automated_paper_plan',execute)
+    with pytest.raises(NonRetryableCallbackRefused):await worker.execute(ctx)
+    assert trace==(['PIN','RESOLVER','RELEASE'] if failure_at=='resolver' else ['PIN','RESOLVER','EXECUTE','RELEASE'])
+    assert conn.closed==1 and not held[0]
+
+
+def test_removed_operational_execution_pin_is_detected(monkeypatch):
+    import inspect,textwrap
+    source=textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation.execute))
+    line='input_scope.enter_context(feed_inputs.pinned(conn, commit=False))'
+    assert line in source
+    namespace={};exec(compile(source.replace(line,'pass'),'execution-pin-falsifier','exec'),automation_runtime.__dict__,namespace)
+    monkeypatch.setattr(automation_runtime.ProductionAutomation,'execute',namespace['execute'])
+    with pytest.raises(AssertionError):
+        test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch,'resolver')
+
+
+@async_test
 @pytest.mark.parametrize('pending', [False, True])
 async def test_close_preflight_observes_monday_with_friday_identity_frontier(monkeypatch, pending):
     from sentinel.feed import source_aliases
@@ -555,6 +598,41 @@ def test_removing_preflight_date_guard_is_detected(monkeypatch):
     monkeypatch.setattr(runtime, '_recovery_identity_session', lambda c: (str(c.effective_session), True))
     with pytest.raises(AssertionError):
         assert runtime._recovery_identity_session(ctx.cycle) == ('2026-08-12', True)
+
+
+@async_test
+async def test_native_close_frontier_wait_reaches_source_retry_without_broker_or_publisher(monkeypatch):
+    from sentinel import rolling_runtime
+    from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
+
+    cfg = config()
+    ctx = context(cfg, state=CycleState.REFRESHING_DATA)
+    conn = FakeConnection()
+    runtime = production(cfg)
+    runtime._dual_run_enabled = True
+    runtime._shadow_observation_id = 'primary'
+    runtime._shadow_starting_cash = Decimal('50000')
+    monkeypatch.setattr(runtime, 'connect', lambda: conn)
+    monkeypatch.setattr(runtime, '_assert_cycle_authority',
+                        lambda *args, **kwargs: (ctx.cycle, control(cfg)))
+    monkeypatch.setattr(automation_runtime.schema, 'require_runtime_schema', lambda _: None)
+    monkeypatch.setattr(automation_runtime.feed_store, 'require_feed_schema', lambda _: None)
+    monkeypatch.setattr(automation_runtime, 'require_observation_integrity', lambda _: None)
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'current', lambda _: SimpleNamespace(version=7))
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'is_rolling', lambda _: True)
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'require_shadow_mode', lambda *args: None)
+    monkeypatch.setattr(rolling_runtime, 'selected', lambda _: True)
+
+    def pending(*args, **kwargs):
+        raise RollingSourceFrontierPending('ROLLING_INPUTS_NOT_READY: rolling source-final frontier')
+
+    monkeypatch.setattr(rolling_runtime, 'status', pending)
+    monkeypatch.setattr(runtime, '_broker', lambda *args: pytest.fail('waiting reached broker'))
+    monkeypatch.setattr(automation_runtime.ingest, 'daily',
+                        lambda *args, **kwargs: pytest.fail('waiting raced publisher'))
+    with pytest.raises(SourceDataPending, match='source-final close'):
+        await runtime.refresh(ctx)
+    assert conn.closed == 1
 
 
 @async_test

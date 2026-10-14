@@ -12,6 +12,13 @@ from sentinel.automation import store
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg
 
 
+@pytest.fixture(autouse=True)
+def reviewed_shadow_attempt_binding(monkeypatch):
+    monkeypatch.setenv('SENTINEL_GIT_COMMIT', '1'*40)
+    monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', 'sha256:'+'2'*64)
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'postgresql://qualification/sentinel')
+
+
 def test_same_phase_invocations_get_separate_deadlines_but_one_cannot_renew():
     watch = supervisor.CallbackWatch()
     for tick in range(0, 1800, 2):
@@ -219,7 +226,7 @@ def test_worker_arming_timeout_never_launches(tmp_path, monkeypatch):
     monkeypatch.setattr(shadow.ShadowServiceConfig, 'from_env', lambda: object())
     monkeypatch.setattr(shadow.signal, 'signal', lambda *a: None)
     monkeypatch.setattr(shadow, '_touch', lambda: None)
-    monkeypatch.setattr(shadow, '_arm_worker', lambda: time.sleep(.3))
+    monkeypatch.setattr(shadow, '_arm_worker', lambda *a: time.sleep(.3))
     observed = supervisor_io.run
     monkeypatch.setattr(supervisor_io, 'run', lambda f, *a, **k: observed(f, *a, timeout=.05))
     monkeypatch.setattr(supervisor_io, 'report', lambda *a, **k: None)

@@ -1,5 +1,10 @@
 # Installation, preparation and activation
 
+[Readiness workflow](readiness-workflow.md) supersedes repeated fresh-base/full
+activation restores below with exact proof reuse and a new archived state
+checkpoint. Software and financial boundaries remain separate; schema migration
+and missing/ineligible recovery evidence still use their required full paths.
+
 The 2026-10-09 [anytime activation decision](anytime-paper-activation.md)
 supersedes following-open waits below for reviewed operational dual activation.
 The scheduler's durable activation cutover prevents same-open transport while

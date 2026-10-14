@@ -462,8 +462,9 @@ def test_host_dual_plan_readback_joins_actual_cli_and_read_only_book(
 
 
 @pytest.mark.parametrize("gateway", ["alpaca"], indirect=True)
+@pytest.mark.parametrize('initial_recovery', [False, True])
 def test_production_alpaca_dual_preparation_uses_current_book_without_fill_history(
-        conn, gateway, monkeypatch):
+        conn, gateway, monkeypatch, initial_recovery):
     from pathlib import Path
     from sentinel.config import SentinelConfig, build_execution_broker
     from tests.sentinel.test_issue_183_alpaca_hardening import Httpx, Response
@@ -488,7 +489,19 @@ def test_production_alpaca_dual_preparation_uses_current_book_without_fill_histo
         from sentinel.execution import alpaca
         monkeypatch.setattr(alpaca, name, lambda *_a, **_k:
                             pytest.fail("current book borrowed historical recovery authority"))
-    result = prepare(conn, broker)
+    options = {}
+    original_binding = binding.require(conn)
+    original_shadow = conn.execute("SELECT cursor_name,state FROM sentinel_processed_sessions WHERE cursor_name LIKE 'shadow-%%' OR cursor_name LIKE 'rolling-%%' ORDER BY cursor_name").fetchall()
+    conn.rollback()
+    if initial_recovery:
+        conn.execute('CREATE TABLE IF NOT EXISTS sentinel_backup_recovery_markers(marker TEXT PRIMARY KEY,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())')
+        conn.execute("INSERT INTO sentinel_backup_recovery_markers(marker) VALUES('initial-paper-fixture')")
+        conn.commit()
+        sid = conn.execute('SELECT (pg_control_system()).system_identifier::text').fetchone()[0]
+        conn.rollback()
+        options['initial_paper_recovery'] = dict(system_identifier=sid, actor='owner', reason='explicit retained-key initial paper repair',
+            same_host_confirmed=True, retain_current_paper_credentials=True)
+    result = prepare(conn, broker, **options)
     assert result.plan == journal.latest_plan(conn)
     assert result.plan.broker == "alpaca"
     assert result.reconciliation.runtime_state.value == "RUNNING"
@@ -499,8 +512,13 @@ def test_production_alpaca_dual_preparation_uses_current_book_without_fill_histo
     assert http.calls and all(call[0] == "GET" for call in http.calls)
     assert not any("activities" in call[1] for call in http.calls)
     assert not journal.load_commands(conn, bound.identity)
+    assert binding.require(conn) == original_binding
+    assert conn.execute("SELECT cursor_name,state FROM sentinel_processed_sessions WHERE cursor_name LIKE 'shadow-%%' OR cursor_name LIKE 'rolling-%%' ORDER BY cursor_name").fetchall() == original_shadow
+    if initial_recovery:
+        from sentinel.execution.initial_paper_recovery import CURSOR
+        assert conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (CURSOR,)).fetchone()[0]['receipt']['credential_policy'] == 'RETAINED_CURRENT_PAPER'
     # Same-session restart keeps the exact durable plan and the same scope.
-    assert prepare(conn, broker).plan == result.plan
+    assert prepare(conn, broker, **options).plan == result.plan
 
 
 def test_fresh_dual_guard_reuses_only_its_verified_state_digest(conn, gateway, monkeypatch):

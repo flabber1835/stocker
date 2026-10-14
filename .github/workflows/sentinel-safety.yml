@@ -264,7 +264,7 @@ jobs:
     name: sentinel-suite-${{ matrix.lane }}
     needs: [qualification-source, runtime-build]
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (matrix.lane == 'sentinel-warmup' || startsWith(matrix.lane, 'sentinel-rolling-')) && 60 || 45 }}
+    timeout-minutes: ${{ matrix.lane == 'sentinel-warmup' && 90 || (startsWith(matrix.lane, 'sentinel-rolling-') || startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}
     strategy:
       fail-fast: false
       matrix:
@@ -496,6 +496,19 @@ jobs:
           docker run --rm --network none \
             --entrypoint python sentinel-test:ci \
             -m tools.current_window_falsifiers
+          docker run --rm --network none \
+            -v "$PWD/sentinel:/source/sentinel:ro" \
+            -v "$PWD/tests:/source/tests:ro" \
+            -v "$PWD/shared:/source/shared:ro" \
+            -v "$PWD/scripts:/source/scripts:ro" \
+            -v "$PWD/tools:/source/tools:ro" \
+            --entrypoint bash sentinel-test:ci -ceu '
+              mkdir /tmp/repo
+              cp -a /source/sentinel /source/tests /source/shared /source/scripts /source/tools /tmp/repo/
+              cd /tmp/repo
+              export PYTHONPATH=/tmp/repo:/tmp/repo/scripts:/tmp/repo/shared
+              exec python -m tools.sentinel_readiness_falsifiers
+            '
 
       - name: Seal the successful lane evidence against the exact loaded images
         run: |

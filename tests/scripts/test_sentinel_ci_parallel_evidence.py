@@ -140,19 +140,21 @@ def test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines(workflow_
         assert 30 <= budget <= 60, (workflow_name, job_name, budget)
     else:
         assert budget in {
-            "${{ (matrix.lane == 'sentinel-warmup' || "
-            "startsWith(matrix.lane, 'sentinel-rolling-')) && 60 || 45 }}",
+            "${{ matrix.lane == 'sentinel-warmup' && 90 || "
+            "(startsWith(matrix.lane, 'sentinel-rolling-') || "
+            "startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}",
             "${{ github.event_name == 'workflow_dispatch' && 360 || 180 }}",
         }, (workflow_name, job_name, budget)
 
 
-def test_warmup_lane_has_bounded_setup_margin_and_streams_all_test_evidence():
+def test_large_lanes_have_bounded_setup_margin_and_stream_all_test_evidence():
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
                               ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
     job = workflow["jobs"]["parallel-certification"]
     assert job["timeout-minutes"] == (
-        "${{ (matrix.lane == 'sentinel-warmup' || "
-        "startsWith(matrix.lane, 'sentinel-rolling-')) && 60 || 45 }}"
+        "${{ matrix.lane == 'sentinel-warmup' && 90 || "
+        "(startsWith(matrix.lane, 'sentinel-rolling-') || "
+        "startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}"
     )
     step = next(step for step in job["steps"]
                 if step.get("if") == "${{ matrix.lane == 'sentinel-warmup' }}")
@@ -162,6 +164,20 @@ def test_warmup_lane_has_bounded_setup_margin_and_streams_all_test_evidence():
     assert "--junitxml=/evidence/sentinel-warmup.xml" in command
     assert "set -euo pipefail" in command
     assert "2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt" in command
+
+
+@pytest.mark.parametrize("budget", [None,
+    "${{ (matrix.lane == 'sentinel-warmup' || "
+    "startsWith(matrix.lane, 'sentinel-rolling-') || "
+    "startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}",
+])
+def test_large_lane_budget_guard_rejects_missing_and_obsolete_warmup_allowance(monkeypatch, budget):
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
+                              ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
+    workflow["jobs"]["parallel-certification"]["timeout-minutes"] = budget
+    monkeypatch.setattr(yaml, "safe_load", lambda _: workflow)
+    with pytest.raises(AssertionError):
+        test_large_lanes_have_bounded_setup_margin_and_stream_all_test_evidence()
 
 
 @pytest.fixture

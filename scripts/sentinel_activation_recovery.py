@@ -3,6 +3,20 @@ from datetime import date
 import re
 
 
+def validate_initial(value):
+    import sentinel_autonomous_deploy as core
+    if (not isinstance(value, dict) or set(value) != {'system_identifier', 'actor',
+            'reason', 'same_host_confirmed', 'retain_current_paper_credentials'}
+            or value['same_host_confirmed'] is not True
+            or value['retain_current_paper_credentials'] is not True
+            or not isinstance(value['system_identifier'], str)
+            or re.fullmatch('[1-9][0-9]{5,25}', value['system_identifier']) is None
+            or any(not isinstance(value[k], str) or not value[k].strip()
+                   or len(value[k]) > limit for k, limit in (('actor', 200), ('reason', 1000)))):
+        raise core.DeployRefused('initial paper recovery confirmation is malformed')
+    return dict(value)
+
+
 def validate(value):
     import sentinel_autonomous_deploy as core
     if (not isinstance(value, dict) or set(value) != {

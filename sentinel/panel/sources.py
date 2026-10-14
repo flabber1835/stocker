@@ -2235,7 +2235,7 @@ def _trial_rows(database_url: str, *, now: datetime
 def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     reviewed_shadow = os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'shadow', 'dual'}
     rows, errors = _runtime_projection(database_url, include_book=not reviewed_shadow)
-    return ([row for row in rows if row.key == 'broker'] if reviewed_shadow else rows), errors
+    return ([row for row in rows if row.key in {'broker','paper_plan'}] if reviewed_shadow else rows), errors
 
 
 def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[model.Row], list[str]]:
@@ -2421,7 +2421,23 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
                 ("commands", command_error))
             if error
         ]
-        return [exposure, book, terminals, broker], errors
+        if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual','paper'}:
+            return [exposure, book, terminals, broker], errors
+        from sentinel import paper_plan_preview
+        preview, preview_error = _read(conn, paper_plan_preview.read, STATEMENT_TIMEOUT_MS, default=None)
+        if preview_error:
+            plan_row = model.Row('paper_plan','Next paper plan','UNAVAILABLE',model.UNKNOWN,detail=preview_error)
+        elif preview is None:
+            plan_row = model.Row('paper_plan','Next paper plan','NOT PREPARED',model.PENDING,
+                detail='No current next-open plan is ready. Historical plans are not shown as tomorrow’s trades.')
+        else:
+            plan_row = model.Row('paper_plan','Next paper plan',
+                (f'{preview.effective_session} · changes unavailable' if any(leg.action == 'UNAVAILABLE' for leg in preview.legs)
+                 else f'{preview.effective_session} · {preview.buys} buys · {preview.sells} sells'),model.OK,
+                detail='Saved plan; proposed changes use the dated recorded Alpaca observation. '
+                       'Opening prices and fresh account checks can change final quantities. No orders are submitted by this view.',
+                as_of=preview.created_at,valid_until=preview.execute_at,paper_plan=preview)
+        return [exposure, book, terminals, broker, plan_row], errors
     except Exception as exc:                                 # noqa: BLE001
         detail = _short(exc)
         return ([

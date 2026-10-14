@@ -11,7 +11,7 @@ const timers = new Map();
 const listeners = {};
 const reads = [];
 const writes = [];
-const badge = { className: 'state ok', textContent: 'current' };
+const badge = { className: input.wake === 'known-failure' ? 'state fail' : 'state ok', textContent: 'current' };
 const heartbeat = { textContent: 'current' };
 const expandedDetail = {dataset: {detailKey: 'shadow-holdings'}, open: true};
 const document = {
@@ -62,7 +62,7 @@ function fireDelay(delay) {
 async function settled() { for (let i = 0; i < 8; i++) await Promise.resolve(); }
 function failRead(read) {
   if (input.failure === 'timeout') { fireDelay(15000); return; }
-  read.resolve({ok: input.failure !== 'busy',
+  read.resolve({ok: input.failure !== 'busy', status: input.failure === 'busy' ? 503 : 200,
     headers: {get: () => input.failure === 'cached' ? 'LAST_KNOWN' : 'CURRENT'},
     text: async () => input.failure});
 }
@@ -71,6 +71,12 @@ function failRead(read) {
   vm.runInNewContext(input.script, context, {
     filename: 'sentinel-panel-refresh://' + sourceHash
   });
+  if (input.wake === 'known-failure') {
+    now += 30000; fireDelay(30000); await settled();
+    failRead(reads[0]); await settled();
+    assert.equal(badge.className,'state fail','transport delay must not hide a known negative verdict');
+    process.stdout.write('PASS\n'); return;
+  }
   if (input.wake.startsWith('ordinary-')) {
     const cycles = input.wake === 'ordinary-healthy' ? 3 : 1;
     for (let cycle = 0; cycle < cycles; cycle++) {
@@ -87,11 +93,12 @@ function failRead(read) {
       if (input.wake === 'ordinary-failure') {
         failRead(reads[first]);
         await settled();
-        assert.equal(badge.className, 'state fail', 'failed refresh withdraws current');
+        const expected = ['busy','cached','timeout'].includes(input.failure) ? 'state warn' : 'state fail';
+        assert.equal(badge.className, expected, 'refresh preserves only bounded transport delays');
         assert(heartbeat.textContent.includes('last known'));
         assert.equal(writes.length, 0);
         now = original + 31000; fireDelay(1000);
-        assert.equal(badge.className, 'state fail', 'unexpired age cannot clear a known failure');
+        assert.equal(badge.className, expected, 'unexpired age cannot clear a known failure or delay');
         listeners.pageshow({persisted: true});
         assert.equal(reads.length, first + 1, 'retry backoff prevents overlapping reads');
         fireDelay(5000);
@@ -164,7 +171,7 @@ function failRead(read) {
     listeners.online(); assert.equal(reads.length, 0, 'no outage, no recovery read');
   } else if (input.wake === 'initial-pending') {
     assert.equal(reads.length, 1);
-    assert.equal(badge.className, 'state fail');
+    assert.equal(badge.className, 'state warn');
   }
   fireDelay(30000);
   now += 1000;

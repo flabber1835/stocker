@@ -14,6 +14,7 @@ import errno
 import os
 import socket
 import uuid
+from contextlib import ExitStack
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import MappingProxyType
@@ -1226,6 +1227,7 @@ class ProductionAutomation:
 
     async def execute(self, context: CycleContext) -> ExecuteResult:
         conn = None
+        input_scope = ExitStack()
         try:
             conn = self.connect()
             feed_store.require_feed_schema(conn)
@@ -1243,6 +1245,8 @@ class ProductionAutomation:
                     raise NonRetryableCallbackRefused(
                         "automation execution cycle does not name the durable "
                         "current PAPER plan")
+            if getattr(self, '_operational_source_only', False):
+                input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
             broker = self._broker(conn, cycle.effective_session.isoformat())
             try:
                 context.require_active()
@@ -1367,8 +1371,11 @@ class ProductionAutomation:
                 raise
             raise mapped from exc
         finally:
-            if conn is not None:
-                conn.close()
+            try:
+                input_scope.close()
+            finally:
+                if conn is not None:
+                    conn.close()
 
     async def notify(self, conn, result: TickResult | BaseException):
         if isinstance(result, BaseException):

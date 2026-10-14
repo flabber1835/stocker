@@ -13,6 +13,7 @@ import secrets
 import time
 from contextlib import closing
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Callable, Mapping, Optional
 from urllib.parse import urlsplit
 
@@ -205,6 +206,9 @@ def notification_payload(alert) -> dict:
     elif alert.event_type == "PUSH_ENROLLMENT_TEST":
         title = "Caesar's Palace notifications enabled"
         body = "Test notification requested from this device."
+    elif alert.event_type == 'PAPER_PLAN_READY':
+        title = 'Paper trades planned for ' + str(details.get('effective_session') or 'next open')
+        body = str(details.get('reason') or 'Open the dashboard to review proposed trades.')[:240]
     else:
         critical = str(alert.severity).upper() == "CRITICAL"
         title = (
@@ -385,11 +389,29 @@ class WebPushAlertAdapter:
             self._record(**kwargs, claim=alert if claimed else None, claim_seconds=claim_seconds,
                          created_at=alert.created_at, recipient=recipient)
         if (str(alert.severity).upper() == "INFO"
-                and alert.event_type != "PUSH_ENROLLMENT_TEST"):
+                and alert.event_type not in {"PUSH_ENROLLMENT_TEST", "PAPER_PLAN_READY"}):
             # Webhook-era informational rows may still exist in the durable
             # outbox. Consume them successfully without initializing fan-out:
             # quiet green must not become either a push or a dead letter.
             return
+        if alert.event_type == 'PAPER_PLAN_READY':
+            try:
+                execute_at = datetime.fromisoformat(str(alert.payload.get('execute_at') or ''))
+            except ValueError as exc:
+                raise WebPushDeliveryFailure('planned-trade notification time is malformed',retryable=False) from exc
+            if execute_at.utcoffset() is None:
+                raise WebPushDeliveryFailure('planned-trade notification has no timezone',retryable=False)
+            if datetime.now(timezone.utc) >= execute_at:
+                return  # A delayed delivery must not announce a past open.
+            from sentinel.paper_plan_preview import still_current
+            with closing(self._connection_factory()) as conn:
+                try:
+                    current = still_current(conn, cycle_id=alert.payload.get('cycle_id'),
+                                            plan_id=alert.payload.get('plan_id'))
+                finally:
+                    conn.rollback()
+            if not current:
+                return
         recipient_count, delivery_required = self._initialize_fanout(alert)
         if not delivery_required:
             # The migration boundary is durable. Quietly close historical

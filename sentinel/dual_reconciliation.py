@@ -572,6 +572,10 @@ def verified_shadow_intent(
             conn, observation_id=observation_id,
             starting_cash=starting_cash)
     except shadow_runtime.ShadowRuntimeRefused as exc:
+        from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
+        if isinstance(exc.__cause__, RollingSourceFrontierPending):
+            raise DualReconciliationPending(
+                "certified shadow is waiting for the source-final close") from exc
         raise DualReconciliationRefused(
             f"certified shadow status is invalid: {exc}") from exc
     if result is None or result.session < wanted:

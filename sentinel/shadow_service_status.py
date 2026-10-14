@@ -84,6 +84,9 @@ def _decode_pending(raw):
     if raw is None:
         return None
     value = json.loads(raw)
+    if isinstance(value, dict) and value.get('schema') == 'sentinel.shadow-supervisor-pending/3':
+        from sentinel.shadow_restart_recovery import decode_pending
+        return decode_pending(value)
     import math
     import re
     if (not isinstance(value, dict)

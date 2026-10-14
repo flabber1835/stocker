@@ -11,6 +11,7 @@ import subprocess
 SHARDS = 4
 AUTOMATION = frozenset({
     "test_activation_startup_contention.py",
+    "test_automation_clock_sampling.py",
     "test_automation_generation.py",
     "test_automation_composition.py",
     "test_automation_worker_source_recovery.py",
@@ -25,14 +26,24 @@ SPECIAL = AUTOMATION | frozenset({
     "test_source_seed_warmup.py", "test_runtime_contention.py",
     "test_status_memory.py",
 })
-# Rounded minutes from the last successful CI run. These affect only runner
-# balance; the exact test inventory is always discovered from the checkout.
+# Rounded CI wall-time estimates, including the first test's fixture setup.
+# Retained activation is conservatively estimated from a cancelled partial run.
+# These affect balance only; the complete inventory comes from the checkout.
 ROLLING_WEIGHTS = {
-    "test_rolling_daily.py": 20,
-    "test_rolling_runtime.py": 14,
-    "test_rolling_initialization.py": 12,
-    "test_rolling_restore_integrity.py": 11,
-    "test_rolling_recovery.py": 9,
+    "test_rolling_retained_runtime_activation.py": 40,
+    "test_rolling_runtime.py": 27,
+    "test_rolling_daily.py": 23,
+    "test_rolling_paper_inputs.py": 19,
+    "test_rolling_initialization.py": 14,
+    "test_rolling_restore_integrity.py": 14,
+    "test_rolling_recovery.py": 10,
+    "test_rolling_admission_readers.py": 4,
+    "test_rolling_audit_acceptance.py": 3,
+    "test_rolling_recovery_report_inputs.py": 3,
+    "test_rolling_go_inputs.py": 2,
+    "test_rolling_history_retention.py": 2,
+    "test_rolling_report_consumers.py": 2,
+    "test_rolling_retention_runtime.py": 2,
 }
 MODULE = re.compile(r"tests/sentinel/test_[a-zA-Z0-9_]+\.py\Z")
 

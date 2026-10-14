@@ -231,10 +231,20 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
     try:
         feed_store.require_feed_schema(conn)
         schema.require_runtime_schema(conn)
-        resolve_security_id = paper.build_security_resolver(conn, args.through)
-        broker = build_execution_broker(
-            config, resolve_security_id=resolve_security_id)
         dual_kwargs = {}
+        initial_sid = getattr(args, 'initial_paper_recovery_system_identifier', None)
+        initial_confirmed = getattr(args, 'confirm_initial_paper_recovery', False)
+        initial_retained = getattr(args, 'confirm_retain_current_paper_credentials', False)
+        initial_actor = getattr(args, 'initial_paper_recovery_actor', None)
+        initial_reason = getattr(args, 'initial_paper_recovery_reason', None)
+        if any(v is not None for v in (initial_sid, initial_actor, initial_reason)) or initial_confirmed or initial_retained:
+            from sentinel.execution.initial_paper_recovery import Request
+            if not getattr(args, 'reviewed_informational_dual', False):
+                raise paper.PaperActivationRefused('initial paper recovery requires explicit informational dual mode')
+            dual_kwargs['initial_paper_recovery'] = Request.model_validate(dict(
+                system_identifier=initial_sid, actor=initial_actor, reason=initial_reason,
+                same_host_confirmed=initial_confirmed,
+                retain_current_paper_credentials=initial_retained)).model_dump()
         if getattr(args, "reviewed_informational_dual", False):
             if os.environ.get("SENTINEL_REVIEWED_DEPLOYMENT_MODE") != "dual":
                 raise paper.PaperActivationRefused(
@@ -245,10 +255,12 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
                 raise paper.PaperActivationRefused(
                     "reviewed informational dual preparation requires the "
                     "validated broker-free shadow service configuration")
-            dual_kwargs = {
+            dual_kwargs.update({
                 "dual_shadow_observation_id": observation_id,
                 "dual_shadow_starting_cash": starting_cash,
-            }
+            })
+        resolve_security_id = paper.build_security_resolver(conn, args.through)
+        broker = build_execution_broker(config, resolve_security_id=resolve_security_id)
         result = await paper.prepare_paper_plan(
             conn=conn, broker=broker, base_url=config.base_url,
             through=args.through, expected_account=args.expect_account,

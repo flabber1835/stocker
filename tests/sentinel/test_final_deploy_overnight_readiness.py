@@ -79,9 +79,11 @@ def test_bootstrap_persists_reviewed_dual_as_dual(monkeypatch, tmp_path):
     obj.new_certificate = "f" * 64
     obj.active_certificate = ""
     obj.verify_operator_services = lambda: None
-    monkeypatch.setattr(
-        obj, "_create_backup",
-        lambda *, restore_drill: "/backups/final")
+    backup_calls = []
+    def backup(*, restore_drill, reuse_current=False):
+        backup_calls.append((restore_drill, reuse_current))
+        return "/backups/final"
+    monkeypatch.setattr(obj, "_create_backup", backup)
 
     obj.persist_success({
         "control_generation": 7,
@@ -105,6 +107,8 @@ def test_bootstrap_persists_reviewed_dual_as_dual(monkeypatch, tmp_path):
 
     receipt = json.loads(
         (tmp_path / "activation-receipt.json").read_text(encoding="utf-8"))
+    assert backup_calls == [(True, True)]
+    assert receipt['post_deploy_backup'] == '/backups/final'
     assert receipt['schema'] == 'sentinel.activation-receipt/1'
     assert receipt["activation_mode"] == "dual"
     assert receipt["certified_performance_authority"] == \

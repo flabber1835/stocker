@@ -2132,6 +2132,19 @@ class AutonomousDeploy:
     def assert_activation_timing(self, decision_session: str) -> None:
         """Install overlays may recheck the actual prospective decision window."""
 
+    def _initial_paper_recovery_args(self):
+        requested = getattr(self, 'requested_initial_paper_recovery', None)
+        if requested is None:
+            return []
+        from sentinel_activation_recovery import validate_initial
+        initial = validate_initial(requested)
+        if self.reviewed_validation is None or self.reviewed_validation.mode != 'dual':
+            raise DeployRefused('initial paper recovery requires attended informational dual activation')
+        return ['--initial-paper-recovery-system-identifier', initial['system_identifier'],
+                '--initial-paper-recovery-actor', initial['actor'],
+                '--initial-paper-recovery-reason', initial['reason'],
+                '--confirm-initial-paper-recovery', '--confirm-retain-current-paper-credentials']
+
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
         self.assert_activation_timing(decision_session)
@@ -2143,6 +2156,7 @@ class AutonomousDeploy:
         if (self.reviewed_validation is not None
                 and self.reviewed_validation.mode == "dual"):
             prepare_args.append("--reviewed-informational-dual")
+        prepare_args += self._initial_paper_recovery_args()
         prepared = _json_output(self._authorized_cli(prepare_args,
             capture=True), label="prepared paper plan")
         current = _json_output(self._base_cli(
@@ -2256,7 +2270,7 @@ class AutonomousDeploy:
             raise DeployRefused("released automation control differs from activation authority")
 
     def establish_activation_backup(self) -> None:
-        self.phase('durability: verify newly formed and authorized state while paper remains killed')
+        self.phase('durability: archive saved plan and authority using proven recovery while paper remains killed')
         self._activation_backup = self._post_deploy_backup()
 
     def _verify_dual_plan_shadow_reconciliation(self) -> Mapping:
@@ -2267,9 +2281,13 @@ class AutonomousDeploy:
             "import json,os; from decimal import Decimal; "
             "from sentinel import dual_reconciliation; "
             "from sentinel.execution import journal; "
+            "from sentinel.execution.alpaca import upgrade_restore_reason; "
             "from sentinel.feed import store; "
             "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
             "cur=c.cursor(); cur.execute('BEGIN TRANSACTION READ ONLY'); "
+            "reason=upgrade_restore_reason(c)\n"
+            "if reason:\n"
+            "    raise RuntimeError(reason)\n"
             "p=journal.latest_plan(c); "
             "assert p is not None, 'current PAPER plan is absent'; "
             "r=dual_reconciliation.require_plan_matches_verified_shadow("

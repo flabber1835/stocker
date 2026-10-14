@@ -24,6 +24,7 @@ from pathlib import Path
 
 from sentinel.feed import calendar
 from sentinel import supervisor_io, shadow_budget, shadow_worker_liveness, shadow_service_status
+from sentinel import shadow_restart_recovery as restart_recovery
 from sentinel.shadow_recovery import ShadowServiceConfig, ShadowServiceWaiting, service_health
 from sentinel.shadow_worker import (
     EXIT_AVAILABILITY, EXIT_DEPENDENCY_UNAVAILABLE, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
@@ -72,15 +73,12 @@ def _pending_file():
     return LATCH_FILE.with_name('shadow-supervisor-pending.json')
 
 
-def _arm_worker():
+def _arm_worker(supervisor_pid=None):
     # A positive, durable acknowledgement is required before launching work.
     # Never reuse an existing marker from an unacknowledged prior attempt.
     attempt = uuid.uuid4().hex
-    _write_marker(_pending_file(), {
-        'schema': 'sentinel.shadow-supervisor-pending/2',
-        'attempt_id': attempt,
-        'started_at_unix': time.time(),
-    })
+    _write_marker(_pending_file(), restart_recovery.make_pending(
+        attempt, supervisor_pid if supervisor_pid is not None else os.getpid()))
     return attempt
 
 
@@ -308,6 +306,9 @@ def _latched_wait(stopping, pending=None) -> int:
     while not stopping():
         if pending is not None:
             pending = _try_persist_latch(pending)
+            if pending is not None:
+                time.sleep(1.0)
+                continue  # Persistence loss cannot renew a positive heartbeat.
         if not notified and time.monotonic() >= next_notice:
             notified = _report_retained_interruption()
             next_notice = time.monotonic()+30
@@ -378,6 +379,56 @@ def _health_snapshot(max_age_seconds, config, *, financial=True):
 
 
 def run() -> int:
+    try:
+        with restart_recovery.owner(LATCH_FILE.parent) as owner_fd:
+            return _run_owned(owner_fd)
+    except (OSError, restart_recovery.RecoveryRefused) as exc:
+        supervisor_io.report('REFUSED: shadow publisher ownership unavailable: '+type(exc).__name__)
+        return EXIT_REFUSED
+
+
+def _recover_startup(config, stopping, heartbeat):
+    try:
+        selected = supervisor_io.run(restart_recovery.eligible, LATCH_FILE.parent, timeout=2)
+        if not selected:
+            return False
+    except Exception:
+        return False  # Critical, malformed and legacy attempts remain fenced.
+    deadline = time.monotonic()+restart_recovery.RECOVERY_SECONDS
+    while not stopping() and time.monotonic() < deadline:
+        heartbeat()
+        remaining = deadline-time.monotonic()
+        if remaining <= 0:
+            return False
+        try:
+            result = supervisor_io.run(restart_recovery.probe, config,
+                timeout=min(restart_recovery.PROBE_SECONDS, remaining))
+        except TimeoutError:
+            result = {'status': 'WAITING'}
+        except Exception:
+            return False
+        if result['status'] == 'VERIFIED':
+            if stopping() or time.monotonic() >= deadline:
+                return False
+            try:
+                recovered = supervisor_io.run(restart_recovery.archive, LATCH_FILE.parent,
+                    result['proof'], selected['marker_sha256'],
+                    timeout=min(2, deadline-time.monotonic()))
+            except Exception as exc:
+                raise restart_recovery.ArchiveUncertain('restart incident archive is uncertain') from exc
+            supervisor_io.report('shadow restart recovered verified session '+recovered['session']+
+                                 '; interrupted worker outcome remains UNKNOWN')
+            return True
+        if result['status'] != 'WAITING':
+            return False
+        wake = min(deadline, time.monotonic()+5)
+        while not stopping() and time.monotonic() < wake:
+            heartbeat()
+            time.sleep(min(1, wake-time.monotonic()))
+    return False
+
+
+def _run_owned(owner_fd) -> int:
     global _STATUS_INCARNATION
     _STATUS_INCARNATION = uuid.uuid4().hex
     config = ShadowServiceConfig.from_env()
@@ -416,11 +467,17 @@ def run() -> int:
             supervisor_io.report(f"REFUSED: shadow latch state unavailable: {type(exc).__name__}")
             return EXIT_REFUSED
         if latched:
-            _report_retained_interruption()
-            return _latched_wait(lambda: stopping)
+            try:
+                recovered = _recover_startup(config, lambda: stopping, heartbeat)
+            except restart_recovery.ArchiveUncertain:
+                pending = _latch('restart incident archive requires operator inspection')
+                return _latched_wait(lambda: stopping, pending)
+            if not recovered:
+                _report_retained_interruption()
+                return _latched_wait(lambda: stopping)
         while not stopping:
             try:
-                attempt = supervisor_io.run(_arm_worker, timeout=2)
+                attempt = supervisor_io.run(_arm_worker, os.getpid(), timeout=2)
             except Exception as exc:
                 supervisor_io.report('REFUSED: shadow worker could not be durably armed: '
                                      + type(exc).__name__)
@@ -431,7 +488,7 @@ def run() -> int:
                 shadow_budget.now() + timedelta(seconds=deadline_seconds)).isoformat()
             active = subprocess.Popen(
                 [sys.executable, "-m", "sentinel.shadow_worker"],
-                stdin=subprocess.DEVNULL, env=worker_env)
+                stdin=subprocess.DEVNULL, env=worker_env, pass_fds=(owner_fd,))
             if stopping:
                 stop()  # A signal during arming/spawn must also terminate this child.
             if active.poll() is None:

@@ -400,19 +400,39 @@ class AutomationService:
             or now >= cycle.execution_close_at
         )
 
-    def _assert_clock_skew(self, *, now: datetime, conn_factory) -> None:
+    def _assert_clock_skew(
+            self, *, now: datetime, conn_factory,
+            clock: Callable[[], datetime] | None = None) -> datetime:
         """Bind host scheduling time to fresh PostgreSQL wall time."""
         clock_conn = conn_factory()
         try:
+            before = _utc(clock()) if clock is not None else now
+            started = time.monotonic()
             database_now = _utc(integrity.database_now(clock_conn))
+            elapsed = time.monotonic() - started
+            after = _utc(clock()) if clock is not None else now
         finally:
             clock_conn.close()
         limit = float(self.config.maximum_clock_skew_seconds)
-        skew = abs((now - database_now).total_seconds())
+        if clock is not None:
+            wall_elapsed = (after - before).total_seconds()
+            if (not math.isfinite(elapsed) or elapsed < 0 or wall_elapsed < 0
+                    or abs(wall_elapsed - elapsed) > limit):
+                raise AutomationRefused('host clock changed during database sampling')
+            if elapsed > limit:
+                raise TransientInfrastructureFailure(
+                    'database clock sample exceeded its timing precision budget')
+        skew = max((before - database_now).total_seconds(),
+                   (database_now - after).total_seconds(), 0.0)
         if skew > limit:
             raise AutomationRefused(
                 "host/database clock skew exceeds automation safety limit: "
                 f"{skew:.3f}s > {limit:.3f}s")
+        if max(abs((before - database_now).total_seconds()),
+               abs((after - database_now).total_seconds())) > limit:
+            raise TransientInfrastructureFailure(
+                'database clock interval cannot prove the configured skew limit')
+        return after
 
     @staticmethod
     def _exception_fingerprint(exc: BaseException) -> str:
@@ -867,7 +887,8 @@ class AutomationService:
 
     async def tick(
             self, conn, *, now: datetime,
-            heartbeat_conn_factory=None) -> TickResult:
+            heartbeat_conn_factory=None,
+            clock: Callable[[], datetime] | None = None) -> TickResult:
         """Advance at most one callback boundary.
 
         Disabled and killed states return before lease acquisition and before
@@ -911,8 +932,14 @@ class AutomationService:
                     f"generation {killed.generation} is durably killed"))
 
         if heartbeat_conn_factory is not None:
-            self._assert_clock_skew(
-                now=now, conn_factory=heartbeat_conn_factory)
+            try:
+                sampled_now = self._assert_clock_skew(
+                    now=now, conn_factory=heartbeat_conn_factory, clock=clock)
+            except TransientInfrastructureFailure as exc:
+                conn.rollback()
+                return TickResult(action=TickAction.WAITING, reason=str(exc))
+            if sampled_now is not None:
+                now = sampled_now
 
         try:
             permit = store.acquire_lease(
@@ -1594,7 +1621,8 @@ class AutomationService:
                 now = _utc(clock())
                 try:
                     result = await self.tick(
-                        conn, now=now, heartbeat_conn_factory=conn_factory)
+                        conn, now=now, heartbeat_conn_factory=conn_factory,
+                        clock=clock)
                 except BaseException as exc:                    # noqa: BLE001
                     if self.notify is not None:
                         await _resolve(self.notify(conn, exc))
@@ -1630,6 +1658,7 @@ class AutomationService:
                                          "automation emergency kill was "
                                          "explicitly engaged"))))):
                     await _resolve(self.notify(conn, result))
+                now = _utc(clock())
                 wake_candidates = [
                     now + timedelta(seconds=self.config.heartbeat_seconds),
                     now + timedelta(seconds=self.config.control_poll_seconds),
