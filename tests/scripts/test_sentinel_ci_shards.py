@@ -64,7 +64,8 @@ def test_tracked_inventory_rejects_untracked_and_symlinked_modules(tmp_path):
 
 
 @pytest.mark.parametrize('module', [
-    'test_activation_startup_contention.py', 'test_automation_generation.py'])
+    'test_activation_startup_contention.py', 'test_automation_generation.py',
+    'test_automation_clock_sampling.py'])
 def test_new_automation_boundaries_have_one_coverage_owner(module):
     modules = _inventory()
     startup = "tests/sentinel/" + module

@@ -5,6 +5,29 @@ databases. Test containers have no network, production database mounts or broker
 credentials. CPU is bounded while the installed paper system continues running.
 This is source qualification; it grants no image certification or activation.
 
+## CI coverage ownership repair
+
+The initial automation lane passed all 433 selected tests but failed its
+unchanged 100% coverage gate at 99.26%. The clock sampling module had been
+assigned to an ordinary shard instead of the automation coverage owner.
+Registering it in the existing automation registry preserves one execution
+owner and restores the coverage contract. No production code or threshold
+changes are needed for this repair.
+
+The corrected automation registry passed 444 tests under:
+
+```sh
+python -m coverage run --branch --source=sentinel.automation.service \
+  -m pytest "${modules[@]}" -q -ra --junitxml=/evidence/automation.xml
+python -m coverage report --precision=2 --fail-under=100.00 -m
+python -m pytest tests/scripts/test_sentinel_ci_shards.py -q -ra
+```
+
+`modules` is the exact list returned by `automation_modules` from the same
+registry used by protected CI. Coverage is 100.00%: 774 statements and 312
+branches, with no missing statements or partial branches. All ten shard
+inventory tests passed, including the clock module's unique coverage owner.
+
 ## Targeted results
 
 The following command passed 355 tests, with six cold formation fixtures
