@@ -174,6 +174,36 @@ install, deferred until Wednesday's original opening cycle finished.
 
 ## October 14 restart and opening-path qualification
 
+### Independent legacy restore upgrade blocker
+
+The actual installed dashboard also records the executor's separate native
+increase refusal: backup-capable state predates its physical incarnation
+anchor. Read-only inspection at 2026-10-14T15:11:25Z confirmed the original
+cluster `7691913275518591014`, timeline 1, takeover epoch 1, zero commands and
+fills, and 172 backup markers dating to October 5, with no incarnation anchor.
+The anchor was absent before today's reboot. Timing optimization does not
+clear this refusal. The existing execution contract requires explicit adoption
+after predecessor credential revocation; this PR never initializes an anchor
+or adopts an account automatically.
+
+The existing dual plan/shadow reconciliation now checks the same native
+read-only `upgrade_restore_reason` before activation and before resumed
+automation starts. No additional observer, broker call or backup is introduced.
+Qualification used the isolated Python 3.12/PostgreSQL runner:
+
+```text
+tests/sentinel/test_activation_restore_upgrade_fence.py
+tests/sentinel/test_issue282_restore_upgrade_fence.py
+tests/sentinel/test_activation_writer_handoff.py
+tests/sentinel/test_activation_writer_processes.py
+139 passed in 55.74s
+```
+
+Real PostgreSQL cases prove legacy backup history refuses, an existing anchor
+passes, and a fresh no-backup database remains unmodified. All cases retain
+the control fence and make zero broker calls. Removing the native guard is
+detected. The adjacent real-process activation handoff checks passed unchanged.
+
 Windows System events record planned update restarts at 23:29 and 23:32 Pacific.
 Docker/WSL resumed at 05:35. The installed publisher's legacy interrupted marker
 was preserved under `operator-incidents` after authenticated current-book

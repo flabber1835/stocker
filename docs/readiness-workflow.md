@@ -208,6 +208,24 @@ backup, restore, after-close or ordinary poll check.
 
 ## Qualification
 
+### Existing restore upgrade fence before dual activation
+
+The October 14 opening diagnostics also exposed an independent pre-existing
+blocker: the primary has backup markers but no physical broker-recovery
+incarnation anchor. The executor correctly refused all increases through its
+existing `upgrade_restore_reason`; the activation plan/shadow reconciliation
+did not check that refusal and had reported operational readiness.
+
+Restore conformance to the existing execution contract by invoking that same
+native read-only guard inside the existing dual plan/shadow reconciliation.
+Fail before activating control, and recheck in the existing resumed-shadow
+reconciliation before starting automation. This adds no subprocess, backup,
+restore, broker read or recurring check. It does not initialize an anchor,
+advance the takeover epoch, infer credential revocation, adopt an account or
+relax any execution fence. Existing legacy databases require the documented
+explicit account adoption after predecessor credential revocation; a normal
+reboot is not adoption and cannot authorize it.
+
 [Verified shadow restart recovery](shadow-restart-recovery.md) addresses the
 October 14 Windows Update interruption. It performs one bounded startup proof
 before resuming an intact publisher and preserves unverifiable/critical fences.
