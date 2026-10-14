@@ -637,6 +637,7 @@ c.rollback(); c.close()
         if (self.reviewed_validation is not None
                 and self.reviewed_validation.mode == "dual"):
             prepare_args.append("--reviewed-informational-dual")
+        prepare_args += self._initial_paper_recovery_args()
         prepared = core._json_output(self._authorized_cli(
             prepare_args, capture=True), label="prepared paper plan")
         current = core._json_output(self._base_cli(

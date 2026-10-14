@@ -73,6 +73,7 @@
     "shadow_service_status.py": {
       "after": "2328035c1534bcde2d76586948de163ae5cdff48ebd8a883c5b98fcc67b5b016",
       "before": [
+        "2328035c1534bcde2d76586948de163ae5cdff48ebd8a883c5b98fcc67b5b016",
         "575a34da2c7b9f83dd32471bd40516d2c73fa43d23e619338a43678dc53e3a7e",
         "f843073631df229d9d52ab68ca36547db55795119b2aee863800c2ed1f444b64"
       ]
@@ -82,6 +83,7 @@
       "before": [
         "591f73525849fe0eca907e5a7567211aaf7d695a3cc3a3b410c6c4e3db966af4",
         "5abbf4d33ffc3686131ae8bc8ea2b3f7567e5d7e3a29b84b45420e71b08cd004",
+        "8f2535cf89f149796746689ca8f9479bcee8928008f506dd8d6a853f615ee692",
         "dfda2df42978b2d257ea3d4982a86f672ba7719cb9a82da958b50c76891db0d3",
         "f197100adf5682a1b5435e44a332d611bc7602093674243ecdd9b57223437c89"
       ]
@@ -89,6 +91,7 @@
     "shadow_worker_liveness.py": {
       "after": "6ade169ab8d44d33f1d757aede2c5d6cfdfd816f30536c53602f5fa30ab44452",
       "before": [
+        "6ade169ab8d44d33f1d757aede2c5d6cfdfd816f30536c53602f5fa30ab44452",
         "d1527ab67a8fef35a17054a0f8d5470307899af63a94c49c6ce1093bf89f3ee0"
       ]
     },

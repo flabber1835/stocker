@@ -221,10 +221,16 @@ native read-only guard inside the existing dual plan/shadow reconciliation.
 Fail before activating control, and recheck in the existing resumed-shadow
 reconciliation before starting automation. This adds no subprocess, backup,
 restore, broker read or recurring check. It does not initialize an anchor,
-advance the takeover epoch, infer credential revocation, adopt an account or
-relax any execution fence. Existing legacy databases require the documented
-explicit account adoption after predecessor credential revocation; a normal
-reboot is not adoption and cannot authorize it.
+advance the takeover epoch, infer credential revocation or adopt an account.
+The owner's explicit retained-key initial-paper repair in execution contract
+§11.1 supplies a separate, narrowly constrained initial anchor. Pass that
+attended request through the existing activation owner to manual preparation;
+ordinary activation and daily preparation never infer it. Preparation reuses
+its existing writer/publication pin and read-only broker grant. Normal restore,
+UNKNOWN and replacement-host fences remain unchanged.
+Admit only the exact reviewed `paper/preparation.py`, `cli/paper.py` and
+`cli/main.py` successors plus `execution/initial_paper_recovery.py` through the
+existing close-cycle source profile, retaining the original book admission.
 
 [Verified shadow restart recovery](shadow-restart-recovery.md) addresses the
 October 14 Windows Update interruption. It performs one bounded startup proof

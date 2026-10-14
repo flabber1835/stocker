@@ -182,9 +182,10 @@ anchor. Read-only inspection at 2026-10-14T15:11:25Z confirmed the original
 cluster `7691913275518591014`, timeline 1, takeover epoch 1, zero commands and
 fills, and 172 backup markers dating to October 5, with no incarnation anchor.
 The anchor was absent before today's reboot. Timing optimization does not
-clear this refusal. The existing execution contract requires explicit adoption
-after predecessor credential revocation; this PR never initializes an anchor
-or adopts an account automatically.
+clear this refusal. The owner explicitly chose to retain the current paper
+keys. The reviewed, attended initial-anchor repair in execution contract §11.1
+is separate from restored-host adoption and never asserts credential revocation.
+No ordinary activation or daily invocation initializes an anchor automatically.
 
 The existing dual plan/shadow reconciliation now checks the same native
 read-only `upgrade_restore_reason` before activation and before resumed
@@ -203,6 +204,59 @@ Real PostgreSQL cases prove legacy backup history refuses, an existing anchor
 passes, and a fresh no-backup database remains unmodified. All cases retain
 the control fence and make zero broker calls. Removing the native guard is
 detected. The adjacent real-process activation handoff checks passed unchanged.
+
+The owner then explicitly retained the existing Alpaca paper keys. Qualified
+the attended initial-anchor repair through the existing preparation membrane
+and sealed activation request v3, with no takeover or credential operation:
+
+```text
+tests/sentinel/test_initial_paper_recovery.py
+tests/sentinel/test_activation_restore_upgrade_fence.py
+tests/sentinel/test_installation_activation_separation.py
+tests/sentinel/test_activation_writer_handoff.py
+tests/sentinel/test_activation_writer_processes.py
+tests/sentinel/test_activation_completion_protocol.py
+368 passed in 71.85s
+
+tests/sentinel/test_initial_paper_recovery.py
+tests/sentinel/test_activation_restore_upgrade_fence.py
+tests/sentinel/test_activation_writer_handoff.py
+tests/sentinel/test_close_cycle_upgrade.py
+192 passed in 117.73s
+
+tests/sentinel/test_paper_activation.py
+tests/sentinel/test_cli.py
+tests/sentinel/test_anytime_paper_activation.py
+127 passed in 70.06s
+
+tests/sentinel/test_rolling_paper_inputs.py -k production_alpaca_dual_preparation
+2 passed, 35 deselected in 100.34s
+
+tests/sentinel/test_initial_paper_recovery.py
+tests/sentinel/test_activation_writer_handoff.py
+169 passed in 30.89s (final added guard-removal cases)
+```
+
+The joined rolling test uses real PostgreSQL, the native Alpaca adapter,
+generation-fenced preparation reads and mocked HTTP responses. Both ordinary
+and explicit initial repair prepare/re-read the same canonical plan, preserve
+the exact original shadow records and binding, make only GET requests, and
+create zero broker commands. Historical fill transport remains quarantined.
+The one-time receipt resumes after lost acknowledgement without another
+repair observation or row update. Partial/foreign/nonempty/unstable/stale
+broker evidence, incorrect cluster/timeline, a live lease, enabled control,
+any command including UNKNOWN, changed authority and conflicting or tampered
+receipts refuse. Actual second-insert and no-op receipt-claim failures roll
+back the anchor through the existing canonical writer context.
+
+Fifteen additional native/host guard removals were detected, covering the
+local broker/cluster/timeline/control/lease/never-traded boundaries, declared
+recovery, fresh authority, atomic receipt claim, the canonical writer boundary,
+explicit confirmation, flat cash/equity, observation freshness, guarded read
+transport and request forwarding. Final source compatibility against the
+authenticated original genesis passed offline with candidate closure
+`28232fe41bac4e716ce5ce1840a214b7c39178ef078bccf9539cc568509acd0a`.
+This diagnostic still grants no admission, certificate or production authority.
 
 Windows System events record planned update restarts at 23:29 and 23:32 Pacific.
 Docker/WSL resumed at 05:35. The installed publisher's legacy interrupted marker

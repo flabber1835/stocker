@@ -227,6 +227,52 @@ def test_queue_recovery_requires_separate_explicit_confirmation(tmp_path):
             '--unsent-recovery-actor', 'owner', '--unsent-recovery-reason', 'reviewed incident'])
 
 
+@pytest.mark.parametrize('defect', [None, 'confirmation', 'retention', 'cluster', 'extra', 'mode'])
+def test_initial_paper_recovery_request_preserves_old_requests_and_exact_scope(phase_request, defect):
+    old, _ = activate.validate_request(phase_request)
+    assert old['schema'] == 'sentinel.activation-request/1'
+    value = dict(system_identifier='7691913275518591014', actor='owner', reason='unchanged initial paper appliance',
+                 same_host_confirmed=True, retain_current_paper_credentials=True)
+    if defect == 'confirmation': value['same_host_confirmed'] = False
+    elif defect == 'retention': value['retain_current_paper_credentials'] = False
+    elif defect == 'cluster': value['system_identifier'] = 123
+    elif defect == 'extra': value['bypass'] = True
+    old.update(schema='sentinel.activation-request/3', unsent_recovery=None, initial_paper_recovery=value)
+    if defect == 'mode': old['mode'] = 'paper'
+    records.write_document(phase_request, old)
+    if defect:
+        with pytest.raises(core.DeployRefused): activate.validate_request(phase_request)
+    else:
+        assert activate.validate_request(phase_request)[0]['initial_paper_recovery'] == value
+
+
+@pytest.mark.parametrize('missing', ['confirmation', 'retention'])
+def test_initial_paper_queue_requires_both_explicit_confirmations(tmp_path, missing):
+    args = ['--queue-from-installation', str(tmp_path/'missing'), '--mode', 'dual',
+            '--initial-paper-recovery-system-identifier', '7691913275518591014',
+            '--initial-paper-recovery-actor', 'owner', '--initial-paper-recovery-reason', 'same laptop']
+    if missing != 'confirmation': args.append('--confirm-initial-paper-recovery')
+    if missing != 'retention': args.append('--confirm-retain-current-paper-credentials')
+    with pytest.raises(SystemExit): activate.main(args)
+
+
+def test_actual_queue_seals_the_retained_key_initial_paper_request(monkeypatch, phase_request):
+    observed = []
+    def handoff(path):
+        value, _ = activate.validate_request(path)
+        observed.append(value)
+        return {'activation_state': 'SUPERVISED'}
+    monkeypatch.setattr(activate, 'handoff', handoff)
+    assert activate.main(['--queue-from-installation', str(phase_request.parent/'installation-receipt.json'),
+        '--mode', 'dual', '--initial-paper-recovery-system-identifier', '7691913275518591014',
+        '--initial-paper-recovery-actor', 'owner', '--initial-paper-recovery-reason', 'same laptop',
+        '--confirm-initial-paper-recovery', '--confirm-retain-current-paper-credentials']) == 0
+    assert len(observed) == 1
+    assert observed[0]['schema'] == 'sentinel.activation-request/3'
+    assert observed[0]['unsent_recovery'] is None
+    assert observed[0]['initial_paper_recovery']['retain_current_paper_credentials'] is True
+
+
 def test_actual_queue_seals_explicit_recovery_in_the_immutable_request(monkeypatch, phase_request):
     observed = []
     def handoff(path):

@@ -30,19 +30,26 @@ def validate_request(path):
     """No financial work before exact immutable software/configuration binding."""
     request = read_document(path)
     recovery = request.get('schema') == 'sentinel.activation-request/2'
-    expected = REQUEST_KEYS | {'unsent_recovery'} if recovery else REQUEST_KEYS
+    initial = request.get('schema') == 'sentinel.activation-request/3'
+    expected = (REQUEST_KEYS | {'unsent_recovery', 'initial_paper_recovery'} if initial else
+                REQUEST_KEYS | {'unsent_recovery'} if recovery else REQUEST_KEYS)
     if (set(request) != expected or request['schema'] not in {
-            'sentinel.activation-request/1', 'sentinel.activation-request/2'}
+            'sentinel.activation-request/1', 'sentinel.activation-request/2', 'sentinel.activation-request/3'}
             or not isinstance(request['mode'], str)
             or request['mode'] not in {'shadow', 'dual', 'paper'}
             or not isinstance(request['source_commit'], str)
             or re.fullmatch('[0-9a-f]{40}', request['source_commit']) is None):
         raise core.DeployRefused('activation request schema is malformed')
-    if recovery:
+    if recovery or (initial and request['unsent_recovery'] is not None):
         from sentinel_activation_recovery import validate
         if request['mode'] not in {'dual', 'paper'}:
             raise core.DeployRefused('unsent recovery requires PAPER activation')
         validate(request['unsent_recovery'])
+    if initial:
+        from sentinel_activation_recovery import validate_initial
+        if request['mode'] != 'dual':
+            raise core.DeployRefused('initial paper recovery requires informational dual activation')
+        validate_initial(request['initial_paper_recovery'])
     for key in ('installation_sha256', 'env_sha256'):
         if not isinstance(request[key], str) or re.fullmatch('[0-9a-f]{64}', request[key]) is None:
             raise core.DeployRefused('activation request digest is malformed')
@@ -213,6 +220,7 @@ def attempt(path, request, receipt):
     directory = core._attempt_dir(cfg, request['source_commit'])
     obj = bootstrap.BootstrapDeploy(cfg, core.Runner(env, directory / 'commands.log'), directory)
     obj.requested_unsent_recovery = request.get('unsent_recovery')
+    obj.requested_initial_paper_recovery = request.get('initial_paper_recovery')
     obj.git_preflight()
     if obj.commit != request['source_commit']:
         raise core.DeployRefused('activation checkout changed from installed software')
@@ -293,10 +301,25 @@ def main(argv=None):
     parser.add_argument('--unsent-recovery-actor')
     parser.add_argument('--unsent-recovery-reason')
     parser.add_argument('--confirm-authorize-unsent-recovery', action='store_true')
+    parser.add_argument('--initial-paper-recovery-system-identifier')
+    parser.add_argument('--initial-paper-recovery-actor')
+    parser.add_argument('--initial-paper-recovery-reason')
+    parser.add_argument('--confirm-initial-paper-recovery', action='store_true')
+    parser.add_argument('--confirm-retain-current-paper-credentials', action='store_true')
     args = parser.parse_args(argv)
     recovery_args = (args.unsent_blocked_cycle_id, args.unsent_decision_session,
                      args.unsent_recovery_actor, args.unsent_recovery_reason)
     recovery = None
+    initial_args = (args.initial_paper_recovery_system_identifier,
+                    args.initial_paper_recovery_actor, args.initial_paper_recovery_reason)
+    initial = None
+    if any(v is not None for v in initial_args) or args.confirm_initial_paper_recovery or args.confirm_retain_current_paper_credentials:
+        if (args.queue_from_installation is None or not all(initial_args)
+                or not args.confirm_initial_paper_recovery or not args.confirm_retain_current_paper_credentials
+                or args.mode != 'dual'):
+            parser.error('initial paper recovery requires dual queue mode, all scope fields and both confirmations')
+        initial = dict(zip(('system_identifier', 'actor', 'reason'), initial_args),
+                       same_host_confirmed=True, retain_current_paper_credentials=True)
     if any(v is not None for v in recovery_args) or args.confirm_authorize_unsent_recovery:
         if (args.queue_from_installation is None or not all(recovery_args)
                 or not args.confirm_authorize_unsent_recovery):
@@ -313,6 +336,8 @@ def main(argv=None):
             installation = SimpleNamespace(installation_receipt=args.queue_from_installation,
                                            commit=receipt.get('git_commit'))
             options = {'unsent_recovery': recovery} if recovery is not None else {}
+            if initial is not None:
+                options['initial_paper_recovery'] = initial
             request_activation(installation, args.mode, bundle=args.validation_bundle,
                                confirmation=args.confirm_reviewed_go, **options)
             return 0

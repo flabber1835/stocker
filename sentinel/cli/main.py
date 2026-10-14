@@ -238,6 +238,11 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument(
         "--reviewed-informational-dual", action="store_true",
         help="size only from the exact reviewed shadow state; no broker mutation")
+    prep.add_argument('--initial-paper-recovery-system-identifier')
+    prep.add_argument('--initial-paper-recovery-actor')
+    prep.add_argument('--initial-paper-recovery-reason')
+    prep.add_argument('--confirm-initial-paper-recovery', action='store_true')
+    prep.add_argument('--confirm-retain-current-paper-credentials', action='store_true')
     sub.add_parser(
         "current-paper-plan",
         help="inspect the durable current paper plan; contacts no broker")

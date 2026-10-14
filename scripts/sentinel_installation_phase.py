@@ -115,7 +115,7 @@ class InstallationDeploy(bootstrap.BootstrapDeploy):
 
 
 def request_activation(installation, mode, *, bundle=None, confirmation=None,
-                       unsent_recovery=None):
+                       unsent_recovery=None, initial_paper_recovery=None):
     """Seal a separate request after software success; never import financial admission."""
     from sentinel_activation_coordinator import handoff
     from sentinel_phase_records import write_document
@@ -135,6 +135,13 @@ def request_activation(installation, mode, *, bundle=None, confirmation=None,
             raise core.DeployRefused('unsent recovery requires PAPER activation')
         request.update(schema='sentinel.activation-request/2',
                        unsent_recovery=validate(unsent_recovery))
+    if initial_paper_recovery is not None:
+        from sentinel_activation_recovery import validate_initial
+        if mode != 'dual':
+            raise core.DeployRefused('initial paper recovery requires informational dual activation')
+        request.update(schema='sentinel.activation-request/3',
+                       unsent_recovery=request.get('unsent_recovery'),
+                       initial_paper_recovery=validate_initial(initial_paper_recovery))
     requests = receipt.parent / 'activation-requests'
     requests.mkdir(mode=0o700, exist_ok=True)
     directory = Path(tempfile.mkdtemp(prefix='request-', dir=str(requests)))

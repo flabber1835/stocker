@@ -184,6 +184,44 @@ def test_complete_activation_hands_off_all_writers_before_dispatch(tmp_path, cls
 
 
 @pytest.mark.parametrize('cls', CLASSES)
+def test_explicit_initial_paper_recovery_reaches_only_attended_preparation(tmp_path, cls):
+    obj, events, control, running = appliance(tmp_path, cls)
+    obj.requested_initial_paper_recovery = dict(system_identifier='7691913275518591014',
+        actor='owner', reason='same laptop with existing paper credentials',
+        same_host_confirmed=True, retain_current_paper_credentials=True)
+    original = obj._authorized_cli
+    seen = []
+    def cli(args, **kwargs):
+        if args[0] == 'prepare-paper-plan':
+            seen.append(list(args))
+            assert not any(running.values()) and control['kill_switch_engaged'] and not control['enabled']
+        return original(args, **kwargs)
+    obj._authorized_cli = cli
+    with obj.activation_transition(): obj.prepare_activate_start('certificate', '2026-10-08')
+    assert len(seen) == 1
+    assert '--confirm-initial-paper-recovery' in seen[0]
+    assert '--confirm-retain-current-paper-credentials' in seen[0]
+    assert '--confirm-old-credentials-revoked' not in seen[0]
+    assert events.count('prepare-paper-plan') == 1
+
+
+def test_malformed_initial_request_never_reaches_preparation_or_release(tmp_path):
+    obj, events, control, running = appliance(tmp_path, CLASSES[-1])
+    obj.requested_initial_paper_recovery = dict(system_identifier='1234567', actor='owner', reason='same laptop',
+        same_host_confirmed=True, retain_current_paper_credentials=False)
+    with pytest.raises(core.DeployRefused):
+        with obj.activation_transition(): obj.prepare_activate_start('certificate', '2026-10-08')
+    assert 'prepare-paper-plan' not in events and 'release-paper-automation-kill-switch' not in events
+    assert control['kill_switch_engaged'] and not running['automation']
+
+
+def test_removed_initial_request_forwarding_is_detected(tmp_path, monkeypatch):
+    monkeypatch.setattr(core.AutonomousDeploy, '_initial_paper_recovery_args', lambda self: [])
+    with pytest.raises(AssertionError):
+        test_explicit_initial_paper_recovery_reaches_only_attended_preparation(tmp_path, CLASSES[-1])
+
+
+@pytest.mark.parametrize('cls', CLASSES)
 @pytest.mark.parametrize('failure', ['stop-error', 'stop-noop', 'prepare-paper-plan',
     'reconciliation', 'activate-paper-automation', 'restore', 'writer-reappeared',
     'release-paper-automation-kill-switch', 'restart', 'health', 'session',

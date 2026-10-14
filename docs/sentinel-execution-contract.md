@@ -1706,6 +1706,36 @@ credential, unreadable identity, or mismatch leaves the old epoch untouched
 
 Ordinary reboots need none of this. Moving to a replacement host does.
 
+#### Initial paper anchor on the unchanged appliance
+
+The owner explicitly chose to retain the current paper API credentials on
+October 14, 2026. For this paper-only case, provide an attended initial-anchor
+repair through the ordinary authorized `prepare-paper-plan` membrane. It is
+not a restored-host adoption: preserve the account binding and takeover epoch,
+and never assert that credentials were revoked. Replacement-host adoption
+keeps its existing credential-revocation requirement.
+
+This repair requires explicit same-host and retained-paper-credential
+confirmations, the original externally recorded PostgreSQL system identifier,
+actor and reason, the existing signed current preparation authority, a genuine
+execution writer lock and disabled+killed automation with no live lease.
+Accept only an unanchored, backup-capable epoch-one database on timeline one
+that is not in recovery and has zero commands and fills. UNKNOWN or any other
+recorded command makes this path unavailable. Two fresh, complete, stable,
+cash-only, empty observations of the exact bound Alpaca paper account must pass
+through the existing read-only preparation grant. Recheck physical/control and
+fresh certificate authority immediately before the commit.
+
+Atomically persist the canonical physical incarnation anchor and an
+authenticated operator receipt. No broker mutation, book edit, takeover,
+retroactive cycle, time-window extension, credential change or trading grant
+is permitted. An exact committed receipt permits read-only resumption after a
+lost acknowledgement; absent, malformed or conflicting evidence refuses.
+This is an explicit one-time initial repair, not automatic normal startup or
+a daily check. Retaining a paper key cannot prove that no other appliance
+holds it; the owner accepts that procedural paper limitation, rather than
+claiming external fencing or allowing this path for a replacement database.
+
 ### 11.2 Ownership moves to PostgreSQL
 
 `ownership.jsonl` was chosen because Sentinel had no database. It now has one.

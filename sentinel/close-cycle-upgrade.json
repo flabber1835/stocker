@@ -1,5 +1,6 @@
 {
   "additions": {
+    "execution/initial_paper_recovery.py": "95b09cbccee7807437bfdcde6645ec80d1fece54fa55c3838e50a08a4219e8db",
     "feed/alpaca_identity.py": "b2ee30f43da8633c3c2b77aa8fa9e2f90cea379f36e3192f24ca1566b3b2aab6"
   },
   "files": {
@@ -13,12 +14,26 @@
     "automation_runtime.py": {
       "after": "1e160682b8cd5477d99641afe577c5bbbc7282977277afca8df225c0b7e36e6a",
       "before": [
+        "1e160682b8cd5477d99641afe577c5bbbc7282977277afca8df225c0b7e36e6a",
         "310287f990f4989582bab2c7b884eabc909d30f2278f131d06f8cb95f32604ba",
         "35ebc276815342d68bdbf18adc3d00fd55708c20ec3ccec5416be01713952d83",
         "3bf28bed17ad66e7bca97814b394abd4ad7f2256920c611c8ec9e5de228db9ca",
         "7a250ade04d19d581f6aed1b57ba729e88505819de610ef4e588bfbf79da6f4c",
         "eb098713f6cf4a364a00ae11265a1894cf097cb1b9d2c31ef07fc758fe8ee2a6",
         "ec97acbca88207b251d2131cf96397ccc6ba1054aed5008c749aad3652b40dcb"
+      ]
+    },
+    "cli/main.py": {
+      "after": "961769d01fb6ea55e3bd1a44796c6956646bf6a2511a94db9a93a7d1cbfb71c2",
+      "before": [
+        "d7a823af93b4738e2c4e20a030da79420e184d29f26d800f31dd2e57c409aba8",
+        "ebc5014f1b9c6ace9374e8743c912a34fbf911b59bd7c194ab1bc32ba2baa253"
+      ]
+    },
+    "cli/paper.py": {
+      "after": "2f4c143adda925b4afeac860b59b3dbaabc2bbc50a8c5a1d2d0d86c734d4e675",
+      "before": [
+        "50abf5de644d9b2d7b62bdedd23887fb1506267052b8dafbf8d176265142a210"
       ]
     },
     "core/rolling_inputs.py": {
@@ -50,7 +65,8 @@
     "feed/readiness_scope.py": {
       "after": "99978175164320decfd893b0f1d8d28d98d0ce7c591a85a48222da03d6e9a2a2",
       "before": [
-        "31906f05761ee6173234b4a18dc37ee9cd48b74097b368d47413e6c99ca86d87"
+        "31906f05761ee6173234b4a18dc37ee9cd48b74097b368d47413e6c99ca86d87",
+        "99978175164320decfd893b0f1d8d28d98d0ce7c591a85a48222da03d6e9a2a2"
       ]
     },
     "feed/rolling_builder.py": {
@@ -72,6 +88,7 @@
     "feed/rolling_store.py": {
       "after": "3e12084449e525b10fa4c645f904ac2706d41fd2fc60461db38a0a77dcac85bb",
       "before": [
+        "3e12084449e525b10fa4c645f904ac2706d41fd2fc60461db38a0a77dcac85bb",
         "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d"
       ]
     },
@@ -82,6 +99,15 @@
         "b884b8b72241630ddef7049442ea59e4cf63cc3b0fc900098452861d085a5147",
         "c79bf0d8dc0e17d8b3feea9a7c992353184d13b4f023091f9305428154ca8fb8",
         "e569924d2a0e29228c112449c2248c078bb2bafd682e894a079928fdf9dca498"
+      ]
+    },
+    "paper/preparation.py": {
+      "after": "cfe7c1c470abcd9beda64c1172e6d618cd19763b02a10760e436877258c42c05",
+      "before": [
+        "2e228c6a35d25c58a0415fa068646e85e3db13694eee24c913b408310dc11925",
+        "47a3a9a9d3d37e1e42d190c4fbcf53e4f9c31d73c009bde9dfb0fda4f172e002",
+        "586287a6f6947df302d2336376b128580f3c731034b5dc5d1204aa960ac43f1e",
+        "9205bdaedb898fc02f38c97f7bd3636cddc3db7cd108bf422db5eb4115ebe9ba"
       ]
     },
     "rolling_reconstruction_evidence.py": {
@@ -107,6 +133,6 @@
       ]
     }
   },
-  "module_sha256": "faf31b7f871e7635b22541c1877008b52d9bfc56ca4628b427aff9dad0452c5b",
+  "module_sha256": "2737927c02db2887a833a5896758e04298be7b9c4f95d0539fc169ec5b836285",
   "schema": "sentinel.close-cycle-upgrade/1"
 }
