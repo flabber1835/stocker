@@ -264,7 +264,7 @@ jobs:
     name: sentinel-suite-${{ matrix.lane }}
     needs: [qualification-source, runtime-build]
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ (matrix.lane == 'sentinel-warmup' || startsWith(matrix.lane, 'sentinel-rolling-') || startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}
+    timeout-minutes: ${{ matrix.lane == 'sentinel-warmup' && 90 || (startsWith(matrix.lane, 'sentinel-rolling-') || startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}
     strategy:
       fail-fast: false
       matrix:

@@ -54,6 +54,29 @@ python -m pytest tests/sentinel/test_current_dashboard_evidence.py \
 
 ## Targeted results
 
+On exact head `5deab62edb2a62f98d1b67910000d68946118ccb`, safety run
+`38611753074` passed every ordinary, rolling, automation, mutation and replay
+lane. Warmup job `116020000428` collected all 20 tests, passed 19, and was
+cancelled at the 60-minute whole-job deadline during the final daily/restart
+test. Its diagnostics showed continuing loader, canonical strategy and source
+preflight work; no assertion failed. The shared production-size seed first
+completed after 43 minutes. The documented CI-only correction gives this one
+lane 90 minutes while retaining its complete million-row fixture, inventory,
+assertions, evidence sealing and all certification gates. The cancelled run
+does not qualify the release; the corrected exact head needs fresh protected CI.
+
+The warmup-budget correction passed 102 CI ownership and evidence tests in
+13.73 seconds with the command below. Its negative cases invoke the actual
+deadline regression against a missing budget and the obsolete 60-minute warmup
+allowance; both refuse. Python syntax and `git diff --check` passed. No Sentinel
+production source changed.
+
+```sh
+python -m pytest tests/scripts/test_sentinel_ci_parallel_evidence.py \
+  tests/scripts/test_sentinel_ci_shards.py \
+  -q -ra --tb=short -p no:cacheprovider
+```
+
 The final general-2 CI lane passed all 1,538 tests in 44m24s. Its existing
 45-minute whole-job deadline also included checkout and image loading, so the
 job was cancelled before sealing its successful lane receipt. Both required

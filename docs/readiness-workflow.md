@@ -46,6 +46,20 @@ remain at their meaningful mutation boundaries; status polling must not launch
 validation or acquire new authority. Earlier protected software/readiness
 evidence remains subject to its existing exact-identity and temporal guards.
 
+### CI warmup qualification budget
+
+The complete million-row cold-seed/warmup/daily/restart acceptance module retains
+one shared production-size fixture and runs without omitted tests. Its CI owner
+has a bounded 90-minute whole-job allowance. The October 14 exact-head run spent
+43 minutes constructing and checking that fixture, passed 19 of 20 tests, and
+was still advancing the final published-update/restart test when the previous
+60-minute whole-job limit cancelled it. The extra allowance covers that measured
+fixture cost, final assertions and evidence sealing. Ordinary and rolling
+shards retain their 60-minute allowances; other parallel lanes retain 45 minutes.
+This changes CI scheduling only, not production deadlines, test selection,
+coverage, source/attempt identity, or the requirement for a successful signed
+lane receipt. A cancelled run remains unqualified and requires a fresh run.
+
 ## Daily close and maintenance
 
 The daily cycle is discovery, accepted-source refresh, one canonical decision
