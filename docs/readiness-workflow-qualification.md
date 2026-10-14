@@ -28,6 +28,30 @@ registry used by protected CI. Coverage is 100.00%: 774 statements and 312
 branches, with no missing statements or partial branches. All ten shard
 inventory tests passed, including the clock module's unique coverage owner.
 
+## CI regression fixture repair
+
+The ordinary general shard passed 1,914 tests and found two fixtures that still
+assumed the previous interface. Reviewed dual mode now includes the read-only
+next-open plan alongside broker evidence. Finalization now requests exact
+current-proof reuse when no earlier activation milestone is present.
+
+The repaired dashboard test keeps the alternate-book readers forbidden, checks
+that only dual mode reads the optional plan, and requires a missing plan to be
+pending. The finalization test accepts the explicit reuse option, requires one
+full-proof reuse request and checks that its exact backup reaches the receipt.
+These repairs change tests only; production code and safety gates are unchanged.
+
+The regression modules and their adjacent panel, plan and backup paths passed
+all 189 tests in 36.02 seconds under:
+
+```sh
+python -m pytest tests/sentinel/test_current_dashboard_evidence.py \
+  tests/sentinel/test_final_deploy_overnight_readiness.py \
+  tests/sentinel/test_panel.py tests/sentinel/test_paper_plan_preview.py \
+  tests/scripts/test_installation_efficiency.py \
+  -q -ra --tb=short -p no:cacheprovider -o faulthandler_timeout=60
+```
+
 ## Targeted results
 
 The following command passed 355 tests, with six cold formation fixtures
