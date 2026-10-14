@@ -8,6 +8,17 @@ TEST = 'tests/backup/test_recurring_maintenance.py::'
 MEDIA = 'sentinel/backup_retention.py'
 HOST = 'scripts/sentinel_backup_maintenance.py'
 MUTANTS = {
+    'runtime_transition_renewal': (HOST,
+        'if existing_receipt is not None and existing_receipt["runtime_image"] != image:',
+        'if False:', 'test_runtime_transition_renews_young_marker_before_restore_and_retention'),
+    'runtime_transition_full_proof': (HOST,
+        'for k, v in expected.items()):',
+        'for k, v in expected.items() if k != "physical_only"):',
+        'test_runtime_renewal_requires_exact_bound_full_receipt[physical_only-True]'),
+    'runtime_transition_immutable_image': (HOST,
+        'if not isinstance(prior_image, str) or not IMAGE_RE.fullmatch(prior_image):',
+        'if False:',
+        'test_runtime_renewal_requires_exact_bound_full_receipt[runtime_image-123]'),
     'wal_headroom': (HOST, 'RENEW_BYTES = 256 * 1024 * 1024', 'RENEW_BYTES = 2**60',
                      'test_proactive_wal_boundary_is_independent_of_age[15-True]'),
     'age_renewal': (HOST, 'RENEW_SECONDS = 12 * 3600', 'RENEW_SECONDS = 2**60',
@@ -15,7 +26,7 @@ MUTANTS = {
     'restore_receipt': (MEDIA, '    valid_receipt(receipt, selected, media.system_id, image)\n', '',
                         'test_bad_restore_evidence_never_deletes[physical_only-True]'),
     'wal_floor': (MEDIA, 'min(r["start"] for r in ranges)', 'min(r["end"] for r in ranges)',
-                  'test_calendar_retention_and_exact_start_segment_boundary'),
+                  'test_bounded_retention_and_exact_start_segment_boundary'),
     'every_range': (MEDIA, 'for r in item["ranges"]]', 'for r in item["ranges"][-1:]]',
                      'test_every_manifest_range_contributes_to_retention_floor'),
     'keep_selected': (MEDIA, 'keep = {selected, *names[:2]}', 'keep = set(names[:2])',

@@ -120,7 +120,7 @@ def worker(action, image, root, observation, runner=run, request=None):
                              stdin=json.dumps(request) if request is not None else None))
 
 
-def receipt_for(selected, observation, image, runner=run):
+def _selected_full_restore_receipt(selected, observation, runner=run):
     name, digest = selected["name"], selected["metadata_sha256"]
     if not BASE_RE.fullmatch(name) or not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise Refused("invalid selected identity")
@@ -133,13 +133,21 @@ def receipt_for(selected, observation, image, runner=run):
         return None
     result = json.loads(raw)
     expected = {"base_backup": name, "metadata_sha256": digest,
-                "system_identifier": observation["system_id"], "runtime_image": image,
+                "system_identifier": observation["system_id"],
                 "physical_only": False, "marker": selected["marker"],
                 "target_lsn": selected["target_lsn"]}
     if not isinstance(result, dict) or any(type(result.get(k)) is not type(v) or result.get(k) != v
                                           for k, v in expected.items()):
         return None
+    prior_image = result.get("runtime_image")
+    if not isinstance(prior_image, str) or not IMAGE_RE.fullmatch(prior_image):
+        return None
     return result
+
+
+def receipt_for(selected, observation, image, runner=run):
+    result = _selected_full_restore_receipt(selected, observation, runner)
+    return result if result is not None and result["runtime_image"] == image else None
 
 
 def publish_runtime_chain(output, selected, observation, root, runner=run):
@@ -287,8 +295,12 @@ def _tick(root, runner, progress, started):
     # exact selected base already has current-image full semantic restore proof.
     renewed = renewal_due(selected, observation)
     if not renewed:
-        existing_receipt = receipt_for(selected, observation, image, runner)
-        if existing_receipt is not None:
+        existing_receipt = _selected_full_restore_receipt(selected, observation, runner)
+        # An older marker cannot contain a later executable admission. Its full
+        # proof permits renewal only; the successor still needs current proof.
+        if existing_receipt is not None and existing_receipt["runtime_image"] != image:
+            renewed = True
+        elif existing_receipt is not None:
             status = runner(["bash", "scripts/sentinel-backup-status.sh", "--backup",
                              root + "/base/" + selected["name"]], timeout=600)
             observation = observe_primary(runner)
