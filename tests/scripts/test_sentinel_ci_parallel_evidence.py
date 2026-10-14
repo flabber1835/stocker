@@ -141,18 +141,20 @@ def test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines(workflow_
     else:
         assert budget in {
             "${{ (matrix.lane == 'sentinel-warmup' || "
-            "startsWith(matrix.lane, 'sentinel-rolling-')) && 60 || 45 }}",
+            "startsWith(matrix.lane, 'sentinel-rolling-') || "
+            "startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}",
             "${{ github.event_name == 'workflow_dispatch' && 360 || 180 }}",
         }, (workflow_name, job_name, budget)
 
 
-def test_warmup_lane_has_bounded_setup_margin_and_streams_all_test_evidence():
+def test_large_lanes_have_bounded_setup_margin_and_stream_all_test_evidence():
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
                               ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
     job = workflow["jobs"]["parallel-certification"]
     assert job["timeout-minutes"] == (
         "${{ (matrix.lane == 'sentinel-warmup' || "
-        "startsWith(matrix.lane, 'sentinel-rolling-')) && 60 || 45 }}"
+        "startsWith(matrix.lane, 'sentinel-rolling-') || "
+        "startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}"
     )
     step = next(step for step in job["steps"]
                 if step.get("if") == "${{ matrix.lane == 'sentinel-warmup' }}")

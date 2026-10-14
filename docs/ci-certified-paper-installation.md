@@ -158,6 +158,17 @@ not remove tests, reduce the million-row fixture, or change production deadlines
 Rolling lanes retain their 60-minute budget; all other matrix lanes retain 45
 minutes. Exact-source, same-attempt evidence and failure aggregation are unchanged.
 
+Decision: 2026-10-14 UTC. The ordinary general shards also receive a bounded
+60-minute whole-job budget. PR521's general-2 shard passed all 1,538 tests in
+44m24s, but its 45-minute job deadline included checkout and image loading and
+cancelled the step before the successful lane could be sealed. Reserve the same
+setup, cleanup and evidence margin as the rolling and warmup lanes. Keep each
+complete deterministic shard, all test/coverage requirements, exact source and
+workflow-attempt bindings, and refusal of missing or cancelled dependencies.
+All remaining matrix lanes keep their existing 45-minute limit. This changes
+only CI scheduling; production, source, backup and execution deadlines are
+unchanged. Do not reuse an unsealed cancelled lane as successful evidence.
+
 ## Read-only operational shadow preflight
 
 The installer must inspect the Alpaca/OpenFIGI lineage under the same closed-

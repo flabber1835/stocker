@@ -54,6 +54,24 @@ python -m pytest tests/sentinel/test_current_dashboard_evidence.py \
 
 ## Targeted results
 
+The final general-2 CI lane passed all 1,538 tests in 44m24s. Its existing
+45-minute whole-job deadline also included checkout and image loading, so the
+job was cancelled before sealing its successful lane receipt. Both required
+aggregators correctly refused that missing evidence. The documented repair
+gives ordinary general shards the same bounded 60-minute setup/cleanup/evidence
+allowance as rolling and warmup shards, without changing test selection,
+coverage, source/attempt binding or aggregation. The cancelled result remains
+unqualified; the new head requires a fresh protected CI run.
+The CI ownership/evidence checks passed all 98 tests in 15.14 seconds. Invoking
+the actual deadline regression against a missing budget and the obsolete
+45-minute general-shard budget detected both deliberately broken configurations.
+
+```sh
+python -m pytest tests/scripts/test_sentinel_ci_parallel_evidence.py \
+  tests/scripts/test_sentinel_ci_shards.py \
+  -q -ra --tb=short -p no:cacheprovider
+```
+
 The following command passed 355 tests, with six cold formation fixtures
 deselected because Wealth Core is unchanged. Exact retained-source admission
 and the real authenticated origin are checked separately below.
