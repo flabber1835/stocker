@@ -54,7 +54,7 @@ def matches(pending_path: Path) -> bool:
         pending, active = _read(pending_path), _read(ACTIVE_FILE)
         attempt = pending.get('attempt_id')
         deadline = active.get('deadline_monotonic')
-        if (pending.get('schema') != 'sentinel.shadow-supervisor-pending/2'
+        if (pending.get('schema') not in {'sentinel.shadow-supervisor-pending/2', 'sentinel.shadow-supervisor-pending/3'}
                 or not isinstance(attempt, str) or len(attempt) != 32
                 or active.get('schema') != SCHEMA or active.get('attempt_id') != attempt
                 or active.get('boot_id') != _boot()

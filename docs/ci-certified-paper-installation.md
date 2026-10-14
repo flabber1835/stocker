@@ -169,6 +169,18 @@ All remaining matrix lanes keep their existing 45-minute limit. This changes
 only CI scheduling; production, source, backup and execution deadlines are
 unchanged. Do not reuse an unsealed cancelled lane as successful evidence.
 
+Decision: 2026-10-14 UTC. Refresh rolling-shard cost estimates using PR521's
+protected run 38517231659. The runtime module consumed approximately 27 minutes,
+paper-input checks 18 minutes, and retained-runtime activation was still running
+when their shared lane reached 60 minutes. The other three complete rolling
+lanes finished their tests in 22 to 25 minutes. Give retained-runtime activation
+a conservative 40-minute estimate until a complete run supplies its duration;
+weight all observed multi-minute modules rather than assigning them one minute.
+Rebalance the existing four deterministic, disjoint, complete module shards.
+Keep the 60-minute job bound, source/attempt-bound evidence and every test.
+Do not interpret the cancelled lane as passed or retry it without its matching
+workflow-attempt image bundle.
+
 ## Read-only operational shadow preflight
 
 The installer must inspect the Alpaca/OpenFIGI lineage under the same closed-

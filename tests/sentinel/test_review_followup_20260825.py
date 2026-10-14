@@ -129,6 +129,9 @@ def test_shadow_health_requires_frontier_health_and_respects_latch(
 
 def test_shadow_retry_threshold_latches_instead_of_exit_restart_loop(
         monkeypatch, tmp_path):
+    monkeypatch.setenv('SENTINEL_GIT_COMMIT', '1'*40)
+    monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', 'sha256:'+'2'*64)
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'postgresql://qualification/sentinel')
     heartbeat = tmp_path / "heartbeat"
     latch = tmp_path / "latch"
     monkeypatch.setattr(shadow_supervisor, "HEARTBEAT_FILE", heartbeat)

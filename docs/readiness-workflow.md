@@ -158,7 +158,61 @@ tick and its completion hooks. A slow database read must not consume an old
 polling deadline and cause an immediate burst of repeated checks. Exact future
 cycle/market boundaries and earlier control/alert wakes still take precedence.
 
+## Reuse complete snapshot verification inside an existing publication pin
+
+Decision, 2026-10-14, before implementation. The installed Wednesday cycle
+entered EXECUTING at 06:31 Pacific but submitted zero commands. Recovery found
+twelve remaining targets, then superseded the cycle with
+MAX_EXECUTION_LATENESS_EXCEEDED at 06:43:54. A GET-only account check confirmed
+zero orders/positions and the unchanged $50,000 cash account. Read-only profiling
+found `rolling_store.verify_content` hashing the sealed input window; a complete
+canonical status read took 97.003 seconds, another independent shadow-intent
+read took 84.556 seconds, and sizing rederivation took 6.973 seconds.
+
+`execution.feed_inputs.references` currently repeats that complete snapshot
+scan for resolver, metadata and mark readers even after readiness has verified
+the same candidate. Extend the existing `readiness_scope` lifetime to retain
+the exact completed verification's manifest, keyed by candidate and snapshot
+identity. Full verification still runs once per candidate under that scope.
+Before every reuse, require the original live PostgreSQL shared publication
+lock, exact database/publication identity, current authenticated publication
+and unchanged manifest. A partial, failed or cancelled scan installs no cached
+proof. Without that exact live scope, use the original full verifier. Clear
+the material on scope exit; it is not durable evidence, a readiness verdict,
+strategy authority or broker authority. The original row hashes, price domains,
+manifest format and restore/corruption checks remain unchanged.
+
+Start the execution callback's ordinary publication pin before constructing
+its snapshot-bound security resolver, so the resolver, readiness, shadow intent
+and later reference readers share the same verified immutable input closure.
+Keep this lifetime within one bounded callback; no lock spans WAITING_OPEN,
+host restart or the next close. Recheck lease, certificate, account, kill,
+rollout, clock, publication receipts and broker outcomes at their existing
+operation boundaries. Neither the certified opening deadline nor the late-order
+refusal is extended, and the superseded Wednesday cycle is not reopened.
+
+Qualify actual pinned PostgreSQL reads across commits and new read connections,
+candidate/manifest changes, released pins, exceptions, cancellation, and scope
+exit. Falsify each reuse guard and prove the unchanged full verifier still
+detects altered rows. Measure the original production-size input closure in a
+read-only diagnostic before claiming that the fresh execution budget fits.
+Admit only the exact `feed/readiness_scope.py`, `feed/rolling_store.py` and
+`automation_runtime.py` successors through the existing close-cycle profile.
+
+The new restart probe's initial 30-second per-read estimate was insufficient
+for this production-size closure. Before release, give its single startup
+inspection a fixed 180-second total budget and a maximum 120-second read. Keep
+the proof's post-verification age at 30 seconds, all existing worker/financial
+deadlines, and refusal of missing or unverifiable state. This adds no repeating
+backup, restore, after-close or ordinary poll check.
+
 ## Qualification
+
+[Verified shadow restart recovery](shadow-restart-recovery.md) addresses the
+October 14 Windows Update interruption. It performs one bounded startup proof
+before resuming an intact publisher and preserves unverifiable/critical fences.
+It adds no recurring backup or restore work and makes no unattended Windows
+boot claim.
 
 Completed local results and exact commands are recorded in
 [readiness workflow qualification](readiness-workflow-qualification.md).

@@ -6,7 +6,7 @@ strategy, clocks and execution grants are rechecked by their existing owners.
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sentinel.feed import publication
 from sentinel.feed.rolling_contract import digest
@@ -20,6 +20,8 @@ class _Scope:
     publication: str
     active: bool = True
     material: object = None
+    publication_object: object = None
+    verified_snapshots: dict = field(default_factory=dict)
 
 
 _current: ContextVar[_Scope | None] = ContextVar('rolling_readiness_pin', default=None)
@@ -77,7 +79,8 @@ def pinned(conn, pub):
         _require_pin(conn, previous)
         yield
         return
-    scope = _Scope(conn, conn.info.backend_pid, database, identity)
+    scope = _Scope(conn, conn.info.backend_pid, database, identity,
+                   publication_object=deepcopy(pub))
     _require_pin(conn, scope)
     token = _current.set(scope)
     try:
@@ -85,6 +88,7 @@ def pinned(conn, pub):
     finally:
         scope.active = False
         scope.material = None
+        scope.verified_snapshots.clear()
         _current.reset(token)
 
 
@@ -102,3 +106,39 @@ def material(conn, pub, load):
     value = deepcopy(scope.material)
     _require_pin(conn, scope)
     return value
+
+
+def verified_snapshot(conn, candidate_id, load):
+    """Reuse only a completed full scan under the original live corpus pin."""
+    scope = _current.get()
+    if scope is None or scope.database != _database(conn):
+        return load()
+    _require_pin(conn, scope)
+    pub = scope.publication_object
+    if pub is None or digest(pub.to_dict()) != scope.publication:
+        raise publication.CorpusIncoherent('VERIFIED_SNAPSHOT_SCOPE_CHANGED')
+    publication._validate_publication(conn, pub, allow_snapshot=True)
+    from sentinel.feed import rolling_store
+    binding = pub.evidence.get('rolling_snapshot')
+    if (not isinstance(binding, dict) or not isinstance(binding.get('candidate_id'), str)
+            or not isinstance(binding.get('snapshot_id'), str)):
+        raise publication.CorpusIncoherent('VERIFIED_SNAPSHOT_BINDING_CHANGED')
+    if binding['candidate_id'] != candidate_id:
+        return load()  # A different generation does not inherit this proof.
+    key = (candidate_id, binding['snapshot_id'])
+    current = rolling_store.manifest(conn, candidate_id)
+    if current.snapshot_id != binding['snapshot_id']:
+        raise publication.CorpusIncoherent('VERIFIED_SNAPSHOT_MANIFEST_CHANGED')
+    cached = scope.verified_snapshots.get(key)
+    if cached is None:
+        completed = load()
+        _require_pin(conn, scope)
+        publication._validate_publication(conn, pub, allow_snapshot=True)
+        if completed != current or rolling_store.manifest(conn, candidate_id) != current:
+            raise publication.CorpusIncoherent('VERIFIED_SNAPSHOT_RESULT_CHANGED')
+        scope.verified_snapshots[key] = deepcopy(completed)
+        cached = completed
+    if cached != current:
+        raise publication.CorpusIncoherent('VERIFIED_SNAPSHOT_MANIFEST_CHANGED')
+    _require_pin(conn, scope)
+    return deepcopy(cached)

@@ -168,5 +168,75 @@ The fixture and test tab were closed. The automated browser harness also covers
 transport failures, malformed responses, offline/background restoration,
 overlapping requests, finite retries and expiry without timestamp renewal.
 
-The installed release remains unchanged pending PR review, protected CI,
-immutable-image certification and a separately authorized certified install.
+The installed release remains unchanged pending protected CI and immutable-image
+certification. The owner authorized three additional merges and the certified
+install, deferred until Wednesday's original opening cycle finished.
+
+## October 14 restart and opening-path qualification
+
+Windows System events record planned update restarts at 23:29 and 23:32 Pacific.
+Docker/WSL resumed at 05:35. The installed publisher's legacy interrupted marker
+was preserved under `operator-incidents` after authenticated current-book
+verification, and the same publisher resumed. Automation and PostgreSQL stayed
+running during that targeted recovery. All nineteen original book records,
+the original cluster/account binding and the earlier failed-cycle histories
+remained unchanged. Five inspected, recovered clock/restart alerts were
+acknowledged through the supported CLI, preserving incident/delivery history.
+
+The Wednesday cycle fired at 06:31, submitted zero commands, and was superseded
+at 06:43:54 with MAX_EXECUTION_LATENESS_EXCEEDED after clean reconciliation.
+GET-only Alpaca evidence confirmed zero orders/positions and $50,000 cash/equity.
+The cycle has not been reopened and no late orders were sent.
+
+Exact additional commands used the existing isolated test lens and
+`python -m pytest -q -ra --tb=short -p no:cacheprovider`:
+
+```text
+tests/sentinel/test_shadow_restart_recovery.py
+tests/scripts/test_sentinel_ci_shards.py
+tests/sentinel/test_shadow_active_worker_health.py
+tests/sentinel/test_review_followup_20260825.py
+77 passed in 41.92s (before the production-size startup budget adjustment)
+
+tests/sentinel/test_rolling_shadow_restart_recovery.py
+tests/sentinel/test_supervisor_dependency_bounds.py
+tests/sentinel/test_shadow_worker_monitoring.py
+63 passed in 179.81s
+
+tests/sentinel/test_rolling_snapshot_verification_scope.py
+tests/sentinel/test_rolling_paper_inputs.py
+tests/sentinel/test_shadow_restart_recovery.py
+tests/sentinel/test_automation_runtime.py
+tests/sentinel/test_automation_clock_sampling.py
+tests/scripts/test_sentinel_ci_shards.py
+160 passed in 691.20s
+
+tests/sentinel/test_automation_runtime.py
+-k 'operational_execute_pins or removed_operational_execution_pin'
+3 passed, 60 deselected in 1.17s
+```
+
+The completed passes include eight restart guard removals, four snapshot reuse
+guard removals, the execution pin removal and the obsolete shard-weight falsifier. The real PostgreSQL
+restart checks preserved checkpoint and plan/command/fill row counts, refused
+candidate/tampered/foreign state, and constructed no broker. The final separate
+run verifies pin acquisition before resolver construction and release on both
+resolver and execution failures, including removal of that sequencing guard.
+
+The actual 1,582,763-row production input closure was measured with the proposed
+two source files mounted read-only in a disposable diagnostic container. One
+complete unchanged hash verification took 31.954 seconds. Five reference
+readers took 0.758–0.824 seconds each; canonical readiness counts took 20.600
+seconds. Exactly one full scan occurred under the real publication pin. No
+broker credentials or execution grants were supplied, the connection remained
+read-only, and no financial state was changed. This unsigned benchmark grants
+no GO, activation or trading authority and does not by itself certify the full
+network execution latency.
+
+The latest original-genesis compatibility diagnostic passed offline against
+the authenticated origin, preserving source/environment/strategy/capital
+constraints. Candidate Sentinel closure:
+`c723590e43bf7190d1c0c4adca70e7d48cc1bd2db7587c1527673be7abd9a333`.
+This is unsigned compatibility evidence, not a new admission or certificate.
+Windows unattended startup before login still needs host qualification;
+publisher recovery does not establish that property.

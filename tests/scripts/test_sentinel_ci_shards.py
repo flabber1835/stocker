@@ -82,3 +82,24 @@ def test_missing_registered_automation_module_refuses_instead_of_running_a_subse
     modules.remove("tests/sentinel/test_activation_startup_contention.py")
     with pytest.raises(ValueError, match="missing registered automation"):
         shards.automation_modules(modules)
+
+
+def test_rolling_costs_reserve_setup_margin_without_dropping_tests():
+    groups = shards.plan(_inventory())
+    costs = [sum(shards.ROLLING_WEIGHTS.get(Path(name).name, 1) for name in
+                 groups[f'sentinel-rolling-{index}']) for index in range(shards.SHARDS)]
+    assert max(costs) <= 50
+    heavy = {'test_rolling_retained_runtime_activation.py', 'test_rolling_runtime.py',
+             'test_rolling_daily.py', 'test_rolling_paper_inputs.py'}
+    owners = [index for index in range(shards.SHARDS) for name in groups[f'sentinel-rolling-{index}']
+              if Path(name).name in heavy]
+    assert len(owners) == len(set(owners)) == 4
+
+
+def test_old_rolling_weights_are_detected_as_an_overloaded_lane(monkeypatch):
+    monkeypatch.setattr(shards, 'ROLLING_WEIGHTS', {
+        'test_rolling_daily.py': 20, 'test_rolling_runtime.py': 14,
+        'test_rolling_initialization.py': 12, 'test_rolling_restore_integrity.py': 11,
+        'test_rolling_recovery.py': 9})
+    with pytest.raises(AssertionError):
+        test_rolling_costs_reserve_setup_margin_without_dropping_tests()

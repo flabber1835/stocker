@@ -480,6 +480,49 @@ def install_durable_projection(monkeypatch, current_plan, *, multiplier="1"):
 
 
 @async_test
+@pytest.mark.parametrize('failure_at', ['resolver', 'execution'])
+async def test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch, failure_at):
+    from contextlib import contextmanager
+    cfg=config(); ctx=context(cfg); conn=FakeConnection(); worker=production(cfg)
+    install_runtime_seams(monkeypatch,worker,conn,ctx,SimulatedBroker())
+    worker._operational_source_only=True
+    monkeypatch.setattr(worker,'_require_operational_inputs',lambda _:None)
+    monkeypatch.setattr(automation_runtime,'require_observation_integrity',lambda _:None)
+    trace=[]; held=[False]
+    @contextmanager
+    def pin(reader,*,commit):
+        assert reader is conn and not commit
+        held[0]=True;trace.append('PIN')
+        try:yield object()
+        finally:held[0]=False;trace.append('RELEASE')
+    monkeypatch.setattr(automation_runtime.feed_inputs,'pinned',pin)
+    def resolver(*a):
+        assert held[0],'resolver performed an unscoped full scan'
+        trace.append('RESOLVER')
+        if failure_at=='resolver':raise NonRetryableCallbackRefused('resolver refused')
+        return SimulatedBroker()
+    monkeypatch.setattr(worker,'_broker',resolver)
+    async def execute(**kwargs):
+        assert held[0],'execution lost its original publication pin'
+        trace.append('EXECUTE');raise paper.PaperActivationRefused('execution refused')
+    monkeypatch.setattr(paper,'execute_automated_paper_plan',execute)
+    with pytest.raises(NonRetryableCallbackRefused):await worker.execute(ctx)
+    assert trace==(['PIN','RESOLVER','RELEASE'] if failure_at=='resolver' else ['PIN','RESOLVER','EXECUTE','RELEASE'])
+    assert conn.closed==1 and not held[0]
+
+
+def test_removed_operational_execution_pin_is_detected(monkeypatch):
+    import inspect,textwrap
+    source=textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation.execute))
+    line='input_scope.enter_context(feed_inputs.pinned(conn, commit=False))'
+    assert line in source
+    namespace={};exec(compile(source.replace(line,'pass'),'execution-pin-falsifier','exec'),automation_runtime.__dict__,namespace)
+    monkeypatch.setattr(automation_runtime.ProductionAutomation,'execute',namespace['execute'])
+    with pytest.raises(AssertionError):
+        test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch,'resolver')
+
+
+@async_test
 @pytest.mark.parametrize('pending', [False, True])
 async def test_close_preflight_observes_monday_with_friday_identity_frontier(monkeypatch, pending):
     from sentinel.feed import source_aliases
