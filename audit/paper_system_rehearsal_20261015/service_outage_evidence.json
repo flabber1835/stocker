@@ -1,0 +1,60 @@
+{
+  "schema": "sentinel.paper-rehearsal-supplement/1",
+  "verdict": "INCOMPLETE_PROVIDER_OUTAGE",
+  "observed_at": "2026-10-15T18:00:01.162210+00:00",
+  "production_authority": false,
+  "service_attempt": {
+    "transport_starts": 0,
+    "quote_refusals": 21,
+    "writer_refusals": 1,
+    "command_states": [
+      "PLANNED"
+    ],
+    "terminal": "SUPERSEDED",
+    "positions": 0,
+    "working_orders": 0
+  },
+  "incident": "https://status.alpaca.markets/incidents/8tvqz47bxs2v",
+  "files": [
+    {
+      "private_evidence": "service-run-1/events.jsonl",
+      "sha256": "1ddb0c0b1a5967f46b34c0edc5e81b6978b358ee90c8229c86b762fe2a389a5c",
+      "bytes": 2015
+    },
+    {
+      "private_evidence": "service-run-1/native-run-closed.json",
+      "sha256": "926f585116a5531a919000763267551118bdaabce3521b227080765b24d0ddc8",
+      "bytes": 166
+    },
+    {
+      "private_evidence": "service-run-2/events.jsonl",
+      "sha256": "6e3e4e7b84b1a993b86ded0698753e4ea27923d9a7f2b2f16570928c733ef5f5",
+      "bytes": 9056
+    },
+    {
+      "private_evidence": "service-run-2/native-run-closed.json",
+      "sha256": "412beb45620afd2600e2db896b39a76ddb71fb8401355a04bb45e1f5ed94dea1",
+      "bytes": 182
+    },
+    {
+      "private_evidence": "service-run-2/broker-after.json",
+      "sha256": "12f341ad05f3ab118d82b59f1050d096e44c312f30856cde7808a78075ed607b",
+      "bytes": 373
+    },
+    {
+      "private_evidence": "production-after-rehearsal.json",
+      "sha256": "89d184db4d9b3ad7f98c588427dc5e5b8c7b209bd87c33a761777b68b57621f9",
+      "bytes": 15915
+    },
+    {
+      "private_evidence": "push-test-result.json",
+      "sha256": "92c4bcdc3e86c6b7a754c1c10bfef9d2f719ced6a9e73e6ee11ea741280c6b32",
+      "bytes": 320
+    },
+    {
+      "private_evidence": "quote-outage-observation.log",
+      "sha256": "319b53cf1b6ee0203e5c39958288ac696053c619b8faaf56d9b7c8ff39f59295",
+      "bytes": 1919
+    }
+  ]
+}

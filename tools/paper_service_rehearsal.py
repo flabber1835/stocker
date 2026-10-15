@@ -60,6 +60,9 @@ class ServiceCampaign:
             self.value=json.loads(self.path.read_text())
             with self.run.connect() as conn:
                 self.plan=journal.load_plan(conn,self.value['plan']['plan_id'])
+                commands=journal.load_commands(conn,binding.require(conn).identity)
+                self.run.keys.update(c.client_key for c in commands)
+                self.run.ids.update(c.broker_order_id for c in commands if c.broker_order_id)
             if (self.plan is None or self.plan.deployment_id!=self.run.deployment_id
                     or self.plan.fingerprint()!=self.value['plan']['fingerprint']):
                 raise Refused('saved service plan differs from its durable test authority')
@@ -137,7 +140,9 @@ class ServiceCampaign:
                 with journal.writer_lock(conn):
                     executor._assert_executable(self.plan)
                     executor._assert_current_plan(conn,self.plan)
-                    result=await executor._execute_session_locked(broker=self.run.guarded(self.broker,self.plan),
+                    end=min(context.cycle.execution_close_at,context.cycle.execute_at+
+                        timedelta(seconds=self.config.maximum_execution_lateness_seconds))
+                    result=await executor._execute_session_locked(broker=self.run.guarded(self.broker,self.plan,not_after=end),
                         conn=conn,deployment=binding.require(conn).identity,plan=self.plan,
                         instruments=self.instruments,today=datetime.now(timezone.utc).date(),actions=None,
                         target_projection=None,min_increment=Decimal(1),informational_current_book=True)

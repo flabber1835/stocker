@@ -147,7 +147,9 @@ identity are not evidence that unexercised provider transitions have worked.
     cycles, lease, heartbeat, retries and recovery. Its callbacks authenticate
     the copied publication/book, build the canonical allocated plan, and use
     the native execution journal, reconciliation and executor body. They have
-    no signed production activation authority. Record real service concurrency,
+    no signed production activation authority. Its mutation grant also ends at
+    the cycle's upper lateness cutoff, so slow broker I/O cannot extend that
+    deadline. Record real service concurrency,
     pre-transport writer refusal, recovery and restart separately from provider
     probes and deterministic fault tests. Test scheduling and paper fills must
     never appear as production strategy history.
@@ -159,7 +161,7 @@ identity are not evidence that unexercised provider transitions have worked.
     backup proof nor cleanup competes with opening execution. This deferral
     grants no financial authority and never changes retention pins or bounds.
 16. Production supervision forks each callback. The attended callbacks must
-    therefore reload their plan and native instrument mapping from durable
+    therefore reload their plan, command ownership and native instrument mapping from durable
     evidence at every boundary; no parent object mutation is a handoff. A
     post-prepare recovery without that exact plan is a refusal, never a clean
     empty-account success. Forked callbacks must not use an inherited psycopg

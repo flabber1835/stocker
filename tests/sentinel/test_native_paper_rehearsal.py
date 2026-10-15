@@ -51,7 +51,7 @@ def test_native_checks_run_before_inner_submit_and_prove_no_transport(monkeypatc
     command=SimpleNamespace(client_key='owned',state=CommandState.SEND_PENDING,
         instrument=instrument,side=Side.BUY,quantity=Decimal(1))
     run=object.__new__(NativeRun)
-    from datetime import datetime,timezone
+    from datetime import datetime,timedelta,timezone
     instant=datetime(2026,10,15,17,30,tzinfo=timezone.utc)
     class Clock(datetime):
         @classmethod
@@ -76,7 +76,9 @@ def test_native_checks_run_before_inner_submit_and_prove_no_transport(monkeypatc
         await run.authorize('POST',PAPER+'/v2/orders',checked[-1])
         return CommandOutcome(CommandState.ACKNOWLEDGED,'native-id')
     raw=SimpleNamespace(capabilities=BrokerCapabilities(),submit=submit,_now=lambda:instant)
-    wrapped=run.guarded(raw,SimpleNamespace(plan_id='plan',effective_session=__import__('datetime').date(2026,10,15)))
+    end=instant+timedelta(seconds=30)
+    wrapped=run.guarded(raw,SimpleNamespace(plan_id='plan',effective_session=__import__('datetime').date(2026,10,15)),not_after=end)
+    assert wrapped.grant.not_after==end
     assert wrapped.capabilities is raw.capabilities
     if refused:
         with pytest.raises(PreTransportAuthorityRefused) as error:

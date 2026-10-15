@@ -114,6 +114,45 @@ financial records, binding, original plans, terminal cycles and events.
 Production commands remained **0**. Private ledger digests/sizes are in
 [evidence.json](evidence.json); credentials/account identities are excluded.
 
+## Supervised service attempt during the provider outage
+
+The second supervised service fixture prepared the actual 11-stock basket from
+the authenticated October 14 book, then encountered the deliberately held real
+PostgreSQL writer lock. It recovered with zero commands created by that refused
+attempt. Its following quote refusals occurred before transport and left one
+PLANNED command, **zero UNKNOWN**, and **zero HTTP mutations**. At 17:58:39 UTC,
+the service recorded SUPERSEDED after its unchanged upper lateness cutoff. This
+is a verified negative path, **not** a completed basket or crash/fill rehearsal.
+The fixture is closed to reuse.
+
+At 18:12 UTC, independent bulk and single-symbol IEX endpoints still returned
+SPY/DAR quotes from about 16:56 UTC. Responses had current HTTP dates, and the
+actual broker clock reported an open market; no-cache requests gave the same
+stale data. SIP access returned HTTP 403 for the existing subscription.
+[Alpaca's incident](https://status.alpaca.markets/incidents/8tvqz47bxs2v) identified
+a vendor network disruption affecting IEX and SIP. This later outage is separate
+from the 13:31 UTC missed-open software incident.
+
+A fresh preservation receipt at 17:58:30 UTC confirmed all 22 original
+production records and histories and zero production commands. The paper
+account remained flat with no open orders and USD 49,995.80 at 18:00 UTC.
+One standard notification test reached the push gateway on its first attempt,
+HTTP 201 at 17:53:42 UTC. This confirms gateway acceptance, not observed display
+on the phone. The associated non-secret evidence digests are in
+[service_outage_evidence.json](service_outage_evidence.json).
+
+Final attended callback/deadline checks: 42 passed. An additional actual
+PostgreSQL service test passed future-wake persistence, no early execution and
+exactly one execution at the intended time:
+
+```text
+python -m pytest tests/sentinel/test_paper_service_rehearsal.py tests/sentinel/test_native_paper_rehearsal.py tests/sentinel/test_live_paper_rehearsal.py -q --tb=short -p no:cacheprovider
+42 passed
+
+python -m pytest tests/sentinel/test_automation_service.py::test_early_recovery_persists_future_wake_and_executes_once_on_time -q --tb=short -p no:cacheprovider
+1 passed
+```
+
 ## Remaining acceptance
 
 The owner approved the early-recovery wait and isolated intraday service
@@ -154,9 +193,11 @@ zero-command terminal state and `service_cycle_pass` event are invalid as basket
 evidence. It is closed to reuse. Each corrected callback reloads the durable
 plan; post-prepare recovery cannot certify an absent plan. Children verify the
 parent's exact advisory owner using a fresh connection rather than an inherited
-psycopg connection. A fresh service journal is running the corrected campaign.
+psycopg connection. The second fixture's protected refusal during the provider
+outage is recorded above; it is not a positive campaign completion.
 
-Requalify the repaired boundary, finish the full basket in that journal, and exercise
+Requalify the repaired boundary, finish the full basket in a fresh journal once
+actual fresh quotes return, and exercise
 actual service transitions, restart, concurrency, close/preparation and
 notification delivery. Preserve the failed journal. Complete exact-head CI
 before review readiness. Installation/activation also requires signed release

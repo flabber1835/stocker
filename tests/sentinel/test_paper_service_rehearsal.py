@@ -12,6 +12,25 @@ from tools import paper_service_rehearsal as module
 from tools.live_paper_rehearsal import AttendedRun,Refused
 
 
+def test_fresh_callback_reloads_durable_order_ownership(tmp_path,monkeypatch):
+    import json
+    path=tmp_path/'plan.json'
+    path.write_text(json.dumps({'plan':{'plan_id':'plan','fingerprint':'hash'},
+        'instruments':{'s':dict(security_id='s',symbol='AAA',broker_id='asset')}}))
+    campaign=object.__new__(module.ServiceCampaign)
+    campaign.path=path
+    @contextmanager
+    def connect():yield object()
+    campaign.run=SimpleNamespace(connect=connect,deployment_id='test-run',keys=set(),ids=set())
+    plan=SimpleNamespace(deployment_id='test-run',fingerprint=lambda:'hash')
+    monkeypatch.setattr(module.journal,'load_plan',lambda *_:plan)
+    monkeypatch.setattr(module.binding,'require',lambda _:SimpleNamespace(identity='bound'))
+    monkeypatch.setattr(module.journal,'load_commands',lambda *_:[SimpleNamespace(client_key='owned',broker_order_id='native-order')])
+    campaign.load_durable_plan()
+    assert campaign.run.keys=={'owned'} and campaign.run.ids=={'native-order'}
+    assert campaign.run.allowed_symbols=={'AAA','SPY'}
+
+
 @pytest.mark.parametrize('damage',[None,'stale','closed'])
 def test_rehearsal_quotes_use_actual_endpoint_and_canonical_parser(monkeypatch,damage):
     from datetime import datetime,timedelta,timezone

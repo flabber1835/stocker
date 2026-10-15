@@ -130,7 +130,7 @@ class NativeRun(AttendedRun):
         if ticket is None or ticket[0]!=request or time.monotonic()>ticket[1]:
             raise Refused('native HTTP mutation requires a fresh exact single-use pre-transport ticket')
 
-    def guarded(self,raw,plan):
+    def guarded(self,raw,plan,*,not_after=None):
         with self.connect() as conn:bound=binding.require(conn)
         from sentinel.feed import calendar
         opened, closed=calendar.session_window(plan.effective_session)
@@ -139,7 +139,7 @@ class NativeRun(AttendedRun):
             paper_account_id=bound.broker_account_id,plan_id=plan.plan_id,
             effective_session=plan.effective_session,
             not_before=max(opened,now-timedelta(seconds=1)),
-            not_after=min(closed,now+timedelta(minutes=29)))
+            not_after=min(closed,now+timedelta(minutes=29),not_after or closed))
         async def before_read(*_):self.production_fenced()
         async def after_read(*_):self.production_fenced()
         async def before_mutation(_grant,operation):
