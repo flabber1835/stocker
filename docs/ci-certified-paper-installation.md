@@ -126,6 +126,15 @@ mismatch retains the fresh exact pre-migration base and physical
 replay before explicit migration. Connection/transport errors are refusals, not
 evidence that a migration is needed. Newly formed/authorized state gets one fresh
 base and full semantic restore while paper remains killed, before kill release.
+Decision: 2026-10-15. A physical-only pre-migration replay must also support
+a pristine application database. It still verifies the immutable base bytes,
+original cluster/WAL identity, exact committed marker, target LSN and paused
+recovery state. Requiring application tables before their initial migration
+deadlocks a cold install, so that table-presence check belongs to the full
+semantic restore path. Physical-only completion never writes a full semantic
+receipt or permits paper activation. Newly formed state still requires the exact
+runtime's full semantic restore before trading can be enabled.
+
 Final receipt persistence reuses that milestone instead of making another copy.
 Maintenance sees installer ownership as a normal standby state, not a failed
 backup; WAL archiving continues. Exact-base, metadata, cluster, target marker and
