@@ -599,3 +599,101 @@ def test_reused_install_object_must_return_to_financial_verification_for_activat
         raise FinancialVerificationReached
     obj.build_promote = verify
     with pytest.raises(FinancialVerificationReached): obj.run_activation()
+
+
+def frontier_failure(**changes):
+    import hashlib
+    detail = 'ROLLING_INPUTS_NOT_READY: rolling source-final frontier'
+    value = dict(phase='DAILY_CATCHUP', error_type='RollingSourceFrontierPending',
+        reason_code='PREPARATION_DAILY_CATCHUP_FAILED', schema_migration_attempted=True,
+        bounded_sharadar_daily_attempted=True, detail=detail,
+        detail_sha256=hashlib.sha256(detail.encode()).hexdigest())
+    value.update(changes)
+    return value
+
+
+def frontier_completed(value=None, *, stream='stdout', code=2):
+    marker = 'SENTINEL_GO_PREPARATION_FAILURE='
+    raw = marker + json.dumps(frontier_failure() if value is None else value) + '\n'
+    return subprocess.CompletedProcess([], code,
+        raw if stream == 'stdout' else '', raw if stream == 'stderr' else '')
+
+
+@pytest.mark.parametrize('stream', ['stdout', 'stderr'])
+def test_exact_source_frontier_failure_enters_existing_wait(stream):
+    obj = SimpleNamespace(runner=SimpleNamespace(run=lambda *a, **k: frontier_completed(stream=stream)))
+    with pytest.raises(core.ActivationPending):
+        activate.financial_bundle(obj, {'mode': 'dual', 'bundle': None})
+
+
+@pytest.mark.parametrize('defect', ['wrong-type', 'wrong-phase', 'wrong-reason', 'combined',
+    'bad-hash', 'missing-hash', 'false-attempt', 'numeric-attempt', 'extra-nonfinite',
+    'duplicate-key', 'duplicate-marker', 'malformed-then-valid', 'unexpected-exit',
+    'signal', 'contradictory-bundle'])
+def test_nonexact_source_failures_remain_terminal(defect):
+    value = frontier_failure()
+    if defect == 'wrong-type': value['error_type'] = 'RollingGoRefused'
+    elif defect == 'wrong-phase': value['phase'] = 'PUBLICATION_CHECK'
+    elif defect == 'wrong-reason': value['reason_code'] = 'SOURCE_AUTHORITY_REFUSED'
+    elif defect == 'combined': value['detail'] += '; rolling current BIL domains'
+    elif defect == 'bad-hash': value['detail_sha256'] = 'a'*64
+    elif defect == 'missing-hash': value.pop('detail_sha256')
+    elif defect == 'false-attempt': value['bounded_sharadar_daily_attempted'] = False
+    elif defect == 'numeric-attempt': value['schema_migration_attempted'] = 1
+    elif defect == 'extra-nonfinite': value['unexpected'] = float('nan')
+    result = frontier_completed(value)
+    if defect == 'duplicate-key':
+        result.stdout = result.stdout.replace('"error_type":', '"error_type":"RollingGoRefused","error_type":')
+    elif defect == 'duplicate-marker': result.stderr = result.stdout
+    elif defect == 'malformed-then-valid': result.stdout = 'SENTINEL_GO_PREPARATION_FAILURE={bad\n'+result.stdout
+    elif defect == 'unexpected-exit': result.returncode = 1
+    elif defect == 'signal': result.returncode = -9
+    elif defect == 'contradictory-bundle': result.stdout += 'bundle: partial.zip\nsha256: '+ 'b'*64+'\n'
+    obj = SimpleNamespace(runner=SimpleNamespace(run=lambda *a, **k: result))
+    with pytest.raises(core.DeployRefused) as caught:
+        activate.financial_bundle(obj, {'mode': 'dual', 'bundle': None})
+    assert not isinstance(caught.value, core.ActivationPending)
+
+
+def test_source_wait_reuses_sealed_request_and_releases_lifecycle_before_retry(monkeypatch, phase_request):
+    from contextlib import contextmanager
+    import sentinel_autonomous_deploy_entry as entry
+    owned = []
+    calls = []
+    @contextmanager
+    def lock():
+        owned.append(True)
+        try: yield
+        finally: owned.pop()
+    monkeypatch.setattr(activate, 'host_lifecycle_lock', lock)
+    monkeypatch.setattr(activate.signal, 'signal', lambda *args: None)
+    monkeypatch.setattr(entry, 'install_runtime_guards', lambda mode: None)
+    monkeypatch.setattr(activate.bootstrap, '_install_wallclock_independent_dual_overlay', lambda: None)
+    monkeypatch.setattr(core, 'merged_environment', lambda: {
+        'SENTINEL_AUTHORITY_ARTIFACTS_DIR': str(phase_request.parent/'authority')})
+    bundle = phase_request.parent/'bundle.zip'
+    bundle.write_bytes(b'fixture-producer-result-not-production-authority')
+    good = completed('bundle: bundle.zip\nsha256: '+activate.digest(bundle)+'\n')
+    outputs = [frontier_completed(), good]
+    original_request = phase_request.read_bytes()
+    installation = phase_request.parent/'installation-receipt.json'
+    original_installation = installation.read_bytes()
+    def run(command, **options):
+        assert owned and command == ['bash','scripts/sentinel-go-validate.sh','--target','DUAL_RUN_OBSERVATION']
+        assert options == dict(capture=True, stream=True, check=False, timeout=86400)
+        calls.append(command)
+        return outputs.pop(0)
+    obj = SimpleNamespace(runner=SimpleNamespace(run=run))
+    def attempt(path, request, receipt):
+        activate.financial_bundle(obj, request)
+    def sleep(delay):
+        assert delay == 60 and not owned
+        assert records.read_document(phase_request.parent/'activation-status.json')['activation_state'] == 'WAITING_FOR_READINESS'
+        assert phase_request.read_bytes() == original_request
+        assert installation.read_bytes() == original_installation
+    monkeypatch.setattr(activate, 'attempt', attempt)
+    monkeypatch.setattr(activate.time, 'sleep', sleep)
+    assert activate.main(['--request',str(phase_request)]) == 0
+    assert len(calls) == 2 and not outputs
+    assert phase_request.read_bytes() == original_request
+    assert installation.read_bytes() == original_installation

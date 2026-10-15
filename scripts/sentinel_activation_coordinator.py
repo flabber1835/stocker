@@ -178,6 +178,27 @@ def handoff(path, *, invoke=subprocess.run, sleep=time.sleep, monotonic=time.mon
     return {'schema': 'sentinel.activation-handoff/1', 'activation_state': 'SERVICE_HANDOFF_UNCONFIRMED', 'unit': unit}
 
 
+def _source_frontier_wait(completed):
+    """Recognize only the producer's exact, sole source-availability refusal."""
+    from sentinel_go_backup_retry import failure_payload
+    result = subprocess.CompletedProcess([], completed.returncode,
+        completed.stdout or '', getattr(completed, 'stderr', '') or '')
+    value = failure_payload(result)
+    detail = 'ROLLING_INPUTS_NOT_READY: rolling source-final frontier'
+    keys = {'phase', 'error_type', 'reason_code', 'schema_migration_attempted',
+            'bounded_sharadar_daily_attempted', 'detail', 'detail_sha256'}
+    return bool(result.returncode == 2 and value is not None and set(value) == keys
+        and value['phase'] == 'DAILY_CATCHUP'
+        and value['error_type'] == 'RollingSourceFrontierPending'
+        and value['reason_code'] == 'PREPARATION_DAILY_CATCHUP_FAILED'
+        and value['schema_migration_attempted'] is True
+        and value['bounded_sharadar_daily_attempted'] is True
+        and value['detail'] == detail
+        and value['detail_sha256'] == hashlib.sha256(detail.encode()).hexdigest()
+        and not any(line.strip().startswith(('bundle:', 'sha256:'))
+            for stream in (result.stdout, result.stderr) for line in stream.splitlines()))
+
+
 def financial_bundle(obj, request):
     """Only the supported producer may mint the explicit mode request's own evidence."""
     if request['bundle'] is not None:
@@ -187,6 +208,8 @@ def financial_bundle(obj, request):
     completed = obj.runner.run(['bash', 'scripts/sentinel-go-validate.sh', '--target', target],
                                capture=True, stream=True, check=False, timeout=86400)
     if completed.returncode:
+        if _source_frontier_wait(completed):
+            raise core.ActivationPending('closed-session market data is not source-final yet')
         raise core.DeployRefused('supported financial GO refused; retained evidence requires review')
     output = completed.stdout or ''
     paths = re.findall(r'^bundle: (.+)$', output, re.M)
