@@ -8,9 +8,10 @@ markers and a contiguous external WAL chain from the published base backup's exa
 manifest End-LSN through the archiver's latest successful segment.
 
 Each archived object carries an atomically published SHA-256 sidecar. Runtime
-performs two bounded complete byte scrubs on every check. PostgreSQL's coarse
-file timestamps cannot authorize reuse of an earlier content proof. A fixed
-byte/object ceiling bounds the worst-case synchronous proof cost.
+performs two bounded byte scrubs on first use and at least every five minutes.
+Within that interval unchanged objects reuse the proof; new or changed objects
+are hashed immediately. Coarse timestamps cannot prove immutability, so expiry
+forces a full scrub even if metadata is unchanged. Reuse never extends expiry.
 The PostgreSQL OS identity also lstat-checks every required object so a symlink or
 hardlink cannot substitute storage outside the reviewed durable namespace.
 
@@ -38,7 +39,8 @@ MARKER = ".sentinel-independent-durable-target-v1"
 MARKER_CONTENT = "sentinel-independent-durable-target-v1"
 BASE_ROOT = "/sentinel-backup/base"
 WAL_ROOT = "/sentinel-backup/wal"
-RUNTIME_MAX_VERIFIED_BYTES = 1024 * 1024 * 1024
+RUNTIME_MAX_VERIFIED_BYTES = 16 * 1024 * 1024 * 1024
+FULL_SCRUB_SECONDS = 300
 RUNTIME_MAX_ARCHIVE_OBJECTS = 1024
 RUNTIME_MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 RUNTIME_MAX_SELECTION_BYTES = 256
@@ -47,7 +49,7 @@ _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 _RECOVERY_WAL = re.compile(r"^wal=([0-9A-F]{24})$", re.MULTILINE)
 _LSN = re.compile(r"^([0-9A-F]+)/([0-9A-F]+)$")
 _SHA256 = re.compile(r"^sha256=([0-9a-f]{64})\s*\Z")
-# Last successful observations detect regressions; never reuse content authority.
+# Process-local proofs are never transferred to another process or database.
 _PROOF_CACHE: dict[tuple, dict] = {}
 
 
@@ -342,12 +344,20 @@ for p in \
   [ ! -L "$p" ] || exit 42
   [ ! -e "$p" ] || [ "$(stat -c %h -- "$p")" -eq 1 ] || exit 43
 done
-while IFS= read -r name; do
-  for p in "{namespace}/$name" "{namespace}/$name.sha256"; do
-    [ ! -L "$p" ] || exit 44
-    [ ! -e "$p" ] || [ "$(stat -c %h -- "$p")" -eq 1 ] || exit 45
-  done
-done
+namespace={shlex.quote(namespace)}
+observed="$(
+  while IFS= read -r name; do
+    printf '%s\\0%s\\0' "$namespace/$name" "$namespace/$name.sha256"
+  done | find -P -files0-from - -maxdepth 0 -printf '%y %n\\n'
+)" || exit 45
+count=0
+while IFS=' ' read -r kind links extra; do
+  [ "$kind" = f ] && [ "$links" = 1 ] && [ -z "$extra" ] || exit 44
+  count=$((count+1))
+done <<SENTINEL_REQUIRED_PATHS
+$observed
+SENTINEL_REQUIRED_PATHS
+[ "$count" -eq {2*len(objects)} ] || exit 45
 """.strip()
     program = "sh -ceu " + shlex.quote(script)
     query = (
@@ -392,6 +402,13 @@ def _hash_objects(conn, *, root: str,
                   sizes: dict[str, int]) -> dict[str, str | None]:
     if not objects:
         return {}
+    if len(objects)>4:
+        # Default WAL geometry reads at most 64 MiB per SQL statement. Total
+        # proof work remains governed by the same byte/object ceilings.
+        result={}
+        for offset in range(0,len(objects),4):
+            result.update(_hash_objects(conn,root=root,objects=objects[offset:offset+4],sizes=sizes))
+        return result
     with conn.cursor() as cur:
         cur.execute(
             "SELECT name,encode(sha256(pg_read_binary_file("
@@ -468,7 +485,11 @@ def _validate_archive_objects(
         if any(name not in objects for name in previous_names):
             raise BackupRuntimeRefused(
                 f"{operation}: archived frontier moved behind an already verified restore horizon")
-    hash_names = objects
+    full_scrub = (cached is None or now < cached['full_scrub_at'] or
+                  now-cached['full_scrub_at'] >= FULL_SCRUB_SECONDS or
+                  any(name in cached['metadata'] and cached['metadata'][name] != actual[name]
+                      for name in objects))
+    hash_names = objects if full_scrub else tuple(name for name in objects if name not in cached['metadata'])
 
     digests = _hash_objects(conn, root=wal_root, objects=hash_names,
                             sizes={name: int(actual[name][0]) for name in hash_names})
@@ -478,10 +499,10 @@ def _validate_archive_objects(
         if repeated != digests:
             raise BackupRuntimeUnavailable(
                 f"{operation}: archived objects changed during content proof")
-        if _archive_metadata(conn, root=wal_root, objects=objects) != actual:
-            raise BackupRuntimeUnavailable(
-                f"{operation}: archived objects changed during integrity proof")
-        _require_no_aliases(conn, base=base, system_id=system_id, objects=objects)
+    if _archive_metadata(conn, root=wal_root, objects=objects) != actual:
+        raise BackupRuntimeUnavailable(
+            f"{operation}: archived objects changed during integrity proof")
+    _require_no_aliases(conn, base=base, system_id=system_id, objects=objects)
 
     for name in hash_names:
         checksum = actual[name][3]
@@ -497,7 +518,7 @@ def _validate_archive_objects(
         raise BackupRuntimeUnavailable("runtime base selection changed during restore proof")
 
     _PROOF_CACHE[cache_key] = {
-        "full_scrub_at": now,
+        "full_scrub_at": now if full_scrub else cached['full_scrub_at'],
         "objects": objects,
         "metadata": actual,
         "end": end,
@@ -506,7 +527,7 @@ def _validate_archive_objects(
         oldest = min(_PROOF_CACHE, key=lambda key: _PROOF_CACHE[key]["full_scrub_at"])
         if oldest != cache_key:
             _PROOF_CACHE.pop(oldest, None)
-    return actual, 2 * len(hash_names), True
+    return actual, 2 * len(hash_names), full_scrub
 
 
 def _require(conn, *, operation: str,
@@ -571,7 +592,8 @@ def _require(conn, *, operation: str,
         "wal_integrity": "sha256-sidecar-v1",
         "integrity_objects_hashed": hashed_objects,
         "integrity_full_scrub": full_scrub,
-        "integrity_read_passes": 2,
+        "integrity_read_passes": 2 if hashed_objects else 0,
+        "integrity_max_reuse_seconds": FULL_SCRUB_SECONDS,
     }
 
 
@@ -581,9 +603,13 @@ def require(conn, *, operation: str,
     try:
         return _require(
             conn, operation=operation, base_backup=base_backup)
-    except (BackupRuntimeUnavailable, BackupRuntimeRefused):
-        raise
     except Exception as exc:
+        scope = _connection_scope(conn)
+        for key in tuple(_PROOF_CACHE):
+            if key[0] == scope:
+                _PROOF_CACHE.pop(key, None)
+        if isinstance(exc, (BackupRuntimeUnavailable, BackupRuntimeRefused)):
+            raise
         if _is_media_error(exc):
             raise BackupRuntimeUnavailable(
                 f"{operation}: backup media could not be read ({type(exc).__name__})") from exc

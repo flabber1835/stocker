@@ -1157,6 +1157,7 @@ def automation_alerts_row(*, installed: Optional[bool],
                           retry_max_attempts: Optional[int] = None,
                           next_attempt_at: Optional[datetime] = None,
                           as_of: Optional[datetime] = None,
+                          incidents: Optional[list[str]] = None,
                           error: Optional[str] = None) -> Row:
     """Durable outbox pressure; missing data never renders as zero."""
     if error or installed is None:
@@ -1173,7 +1174,9 @@ def automation_alerts_row(*, installed: Optional[bool],
     status = FAIL if dead_letter or unacknowledged else (
         WARN if pending else OK)
     return Row("automation_alerts", "Automation alerts", value, status,
-               "SELECT-only projection of the durable alert outbox", as_of,
+               " | ".join(incidents or [
+                   f"Durable notification history: {pending} pending delivery, "
+                   f"{dead_letter} failed delivery, {unacknowledged} critical alerts awaiting acknowledgement"]), as_of,
                required_current=True,
                recovery=(RecoveryEvidence(
                    phase="ALERT_DELIVERY", automatic=True,

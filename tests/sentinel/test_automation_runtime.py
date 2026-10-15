@@ -880,6 +880,55 @@ async def test_dual_raw_buy_ack_fill_recovery_converges_without_projection(
     assert pending_calls[-1]["sizing_authority_sha256"] == "d" * 64
 
 
+@pytest.mark.parametrize('existing_state', [None, *CommandState])
+@async_test
+async def test_unstamped_raw_recovery_requires_no_durable_command(monkeypatch, existing_state):
+    cfg = config()
+    runtime = production(cfg)
+    runtime._dual_run_enabled = True
+    p = plan()
+    broker = SimulatedBroker()
+    observation = await broker.observe()
+    monkeypatch.setattr(runtime, '_require_dual_plan_shadow_match',
+                        lambda *_a, **_k: {'sizing_authority_sha256':'d'*64,
+                                          'shadow_record_sha256':'e'*64})
+    monkeypatch.setattr(target_reprojection, 'load_projection', lambda *_a, **_k: None)
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'require_current',
+                        lambda _c: SimpleNamespace(version=7))
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'frontier', lambda _c: DECISION.isoformat())
+    monkeypatch.setattr(informational_paper_mirror, 'require_transport_permitted', lambda *_a, **_k: {})
+    def unstamped(*_a, **_k):
+        raise informational_paper_mirror.InformationalPaperMirrorUnstamped('not reached')
+    monkeypatch.setattr(informational_paper_mirror, 'require_pending_for_plan', unstamped)
+    monkeypatch.setattr(journal, 'load_commands',
+                        lambda *_a, **_k: (() if existing_state is None else
+                                          (SimpleNamespace(state=existing_state),)))
+    kwargs = dict(plan=p, effective_session=EFFECTIVE, observation=observation,
+                  minimum_quantity_increment=Decimal(1), reconciliation=reconciliation(observation))
+    if existing_state is None:
+        assert len(runtime._actionable_current_plan_deltas(FakeConnection(), **kwargs)) == 1
+        for evidence in (None, replace(kwargs['reconciliation'], runtime_state=RuntimeState.FOREIGN_ACTIVITY),
+                         replace(kwargs['reconciliation'], observation=replace(observation))):
+            with pytest.raises(NonRetryableCallbackRefused, match='clean transport reconciliation'):
+                runtime._actionable_current_plan_deltas(FakeConnection(), **{**kwargs,'reconciliation':evidence})
+        from sentinel.execution.contract import BrokerPosition
+        held=replace(observation,positions=(BrokerPosition(INSTRUMENT,Decimal(1)),))
+        assert runtime._actionable_current_plan_deltas(FakeConnection(),
+            **{**kwargs,'observation':held,'reconciliation':reconciliation(held)}) == ()
+    else:
+        with pytest.raises(NonRetryableCallbackRefused, match='commands but no PENDING'):
+            runtime._actionable_current_plan_deltas(FakeConnection(), **kwargs)
+        import inspect,textwrap
+        from types import MethodType
+        source=textwrap.dedent(inspect.getsource(type(runtime)._actionable_current_plan_deltas))
+        weakened=source.replace('if journal.load_commands(conn, deployment, plan_id=plan.plan_id):','if False:')
+        assert weakened!=source
+        namespace=dict(vars(automation_runtime));exec(weakened,namespace)
+        unsafe=MethodType(namespace['_actionable_current_plan_deltas'],runtime)
+        # The same durable command would become executable without this guard.
+        assert len(unsafe(FakeConnection(),**kwargs))==1
+
+
 @async_test
 async def test_scoped_recovery_retries_and_expires_without_operator_latch(monkeypatch):
     cfg = config()

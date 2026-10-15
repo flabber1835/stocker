@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = '7bea90fe646b16d4704005b0d7eabe31ee63f233f420eb3acdef940b44ec5471'
+PROFILE_SHA256 = '2d59b3e68df1368f0f8f8ca4644f5f1a8334867fdbb0893ae216a7035faf1672'
 PROFILE = Path(__file__).with_name('unsent-recovery-upgrade.json')
 SCOPE = frozenset({'automation/store.py', 'automation/integrity.py',
     'automation/control_integrity.py', 'cli/main.py', 'cli/automation.py',

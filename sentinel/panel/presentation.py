@@ -9,7 +9,7 @@ _COPY = {
     'shadow_verification': ('Simulated portfolio check', 'Checks that the strategy portfolio was built correctly from the available market data. This is separate from your Alpaca account.'),
     'shadow_nav': ('Simulated portfolio value', 'The value of the strategy’s simulated shares and cash. This is not the balance in your Alpaca paper account.'),
     'shadow_return': ('Strategy gain or loss', 'The simulated strategy’s gain or loss since its starting book, excluding money added to a broker account.'),
-    'paper_reconciliation': ('Paper account alignment', 'Checks whether Alpaca’s paper holdings and orders match the trading plan. Paper trading must be activated separately.'),
+    'paper_reconciliation': ('Paper account alignment', 'Checks whether Alpaca’s paper holdings and orders match the trading plan. Alignment is confirmed after execution and reconciliation.'),
     'trial_verification': ('Paper account check', 'Checks the paper account’s holdings, cash and trading results. Unverified results should not be treated as confirmed performance.'),
     'actual_account': ('Paper account value', 'The value of simulated money held at Alpaca. No real-money trading takes place.'),
     'trial_return': ('Paper account gain or loss', 'The change in the paper account after accounting for deposits and withdrawals.'),
@@ -28,7 +28,7 @@ _COPY = {
     'automation_cycle': ('Today’s daily run', 'Tracks the daily sequence from preparing data to checking the paper account.'),
     'automation_alerts': ('System notifications', 'Messages queued when the system needs attention or completes an important step.'),
     'alert_dispatcher': ('Notification delivery', 'Checks that queued notifications can be delivered to your devices.'),
-    'alpaca_account': ('Alpaca paper connection', 'Checks that the configured account is reachable and is a paper account.'),
+    'alpaca_account': ('Recorded Alpaca paper account', 'Shows the last recorded account check. Its timestamp tells you when Alpaca was reached; this page does not poll the broker.'),
     'backup_restore': ('Backup and recovery', 'Checks that a recent database backup can actually be restored and its portfolio verified.'),
     'runtime_identity': ('Installed software', 'Checks that the running software matches the reviewed release.'),
     'authority': ('Permission to trade', 'Shows whether this software and account have permission to submit paper orders. A working dashboard alone does not grant permission.'),
@@ -77,10 +77,12 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
                  .replace('STATUS UNREADABLE', 'Unable to read status'))
         if status in {'fail', 'unknown'}:
             explanation += ' Attention needed: this check is failing or cannot be confirmed. Open the technical details for the recorded reason.'
+        elif status == 'warn' and row.value == 'WAITING_OPEN':
+            explanation += ' The plan is ready and waiting for its scheduled execution time.'
         elif status == 'warn':
             explanation += ' This is waiting or needs review; it is not a completed check.'
         elif status == 'pending':
-            explanation += ' This part has not started or is not enabled.'
+            explanation += ' This step has not been reached in the current daily run.'
     if key in FINANCIAL_AUTHORITY_ROW_KEYS and status != 'ok':
         explanation += ' This result is unverified; do not treat it as confirmed performance.'
     if status != 'ok' and row.detail.startswith(('LAST KNOWN · ', 'NOT CURRENT · LAST KNOWN · ')):

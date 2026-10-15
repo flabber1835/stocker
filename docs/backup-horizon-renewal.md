@@ -1,5 +1,10 @@
 # GO renewal at an exhausted runtime backup horizon
 
+The October 15 [owner-approved policy](paper-system-rehearsal.md) raises the shared
+payload bound to 16 GiB while retaining the 1,024-object ceiling and the exact
+exhausted-horizon refusal/renewal protocol below. The earlier 1 GiB figures are
+historical context for this review, not the current runtime bound.
+
 Decision before implementation on verified main
 `8212a55335500b4bbb81853572019d9eb4443724`.
 

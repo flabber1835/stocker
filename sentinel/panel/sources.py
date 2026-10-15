@@ -849,6 +849,16 @@ def _automation_alert_counts(conn) -> dict:
         raise ValueError("durable alert outbox aggregate returned no row")
     (pending, dead, unacknowledged, retry_attempt, retry_max_attempts,
      next_attempt_at, updated_at) = row
+    incidents = []
+    if dead or unacknowledged:
+        with conn.cursor() as cur:
+            cur.execute("SELECT event_type,payload->>'reason',updated_at,state,ack_state "
+                "FROM sentinel_alert_outbox a WHERE (state='DEAD_LETTER' OR "
+                "(severity='CRITICAL' AND ack_state='UNACKNOWLEDGED')) "
+                f"AND NOT {CANCELLED_TEST_SQL} ORDER BY updated_at DESC LIMIT 5")
+            for kind, reason, stamp, state, ack in cur.fetchall():
+                incidents.append(f"{kind} at {_utc(stamp)}: {str(reason or 'Open the alert history for details')[:600]} "
+                                 f"({state}; {ack}; recorded incident, see current worker and daily run for present state)")
     return {
         "pending": int(pending), "dead_letter": int(dead),
         "unacknowledged": int(unacknowledged),
@@ -858,6 +868,7 @@ def _automation_alert_counts(conn) -> dict:
             None if retry_max_attempts is None else int(retry_max_attempts)),
         "next_attempt_at": _utc(next_attempt_at),
         "updated_at": _utc(updated_at),
+        "incidents": incidents,
     }
 
 

@@ -30,11 +30,52 @@ def test_proposed_buys_sells_and_holds_use_saved_quantities():
         ('BUY',Decimal(10)),('HOLD',Decimal(0)),('SELL',Decimal(-3))]
 
 
-@pytest.mark.parametrize('age', [None,timedelta(minutes=10,seconds=1),timedelta(seconds=-1)])
+@pytest.mark.parametrize('age', [None,timedelta(hours=26,seconds=1),timedelta(seconds=-1)])
 def test_stale_missing_future_broker_observation_cannot_invent_trades(age):
     value=project(observation_at=NOW-age if age is not None else None)
     assert value.trades==0
     assert all(x.current_quantity is None and x.change_quantity is None and x.action=='UNAVAILABLE' for x in value.legs)
+
+
+def test_dated_estimate_survives_the_overnight_wait():
+    value=project(observation_at=NOW-timedelta(hours=15))
+    assert value.trades==2
+    html=render._paper_plan_html(model.Row('paper_plan','Plan','ready',paper_plan=value),NOW)
+    assert 'dated snapshot' in html and 'portfolio-table' in html
+    assert str(value.observation_at) in html
+
+
+@pytest.mark.parametrize('legacy', [[], [('one','CONFLICT')]])
+def test_reader_uses_retained_plan_tickers_when_legacy_bars_are_absent(monkeypatch,legacy):
+    from contextlib import contextmanager
+    from sentinel import dual_plan_authority
+    selected=plan()
+    class Cursor:
+        def execute(self,query,params):
+            if 'FROM sentinel_automation_cycles' in query:
+                self.rows=[(selected['cycle_id'],selected['plan_id'],selected['decision_session'],
+                    selected['effective_session'],selected['execute_at'],selected['created_at'],
+                    selected['target_basket'],'alpaca','paper-fixture',NOW)]
+            elif 'FROM sentinel_observations' in query:
+                self.rows=[({'one':'2','two':'3','three':'5'},NOW-timedelta(hours=15))]
+            elif 'FROM sentinel_processed_sessions' in query:self.rows=[]
+            elif 'FROM sentinel_bars' in query:self.rows=legacy
+            else:pytest.fail('unexpected plan-view query')
+        def fetchall(self):return self.rows
+        def fetchone(self):return self.rows[0] if self.rows else None
+    @contextmanager
+    def cursor():yield Cursor()
+    def retained(conn,*,plan_id):
+        assert plan_id==selected['plan_id']
+        return {'tickers':{'one':'ONE','two':'TWO','three':'THREE'}}
+    monkeypatch.setattr(dual_plan_authority,'load_authority',retained)
+    conn=SimpleNamespace(cursor=cursor)
+    if legacy:
+        with pytest.raises(ValueError,match='ambiguous'):preview.read(conn)
+    else:
+        value=preview.read(conn)
+        assert {leg.ticker for leg in value.legs}=={'ONE','TWO','THREE'}
+        assert value.trades==2
 
 
 @pytest.mark.parametrize('quantity', ['NaN','Infinity','-1','1e100',True])

@@ -150,6 +150,31 @@ def test_canonical_worker_publishes_projection_and_io_failure_does_not_change_bo
     assert health.health(config,fallback=forbidden)['service_health']=='HEALTHY_ATTESTED'
     before=rolling_runtime.status(conn,observation_id=OBS,starting_cash=50000).to_dict()
     conn.rollback()
+    from sentinel.execution import journal
+    peer=store.connect(conn.info.dsn)
+    try:
+        with journal.writer_lock(peer):
+            assert rolling_runtime.service_advance(conn,through=before['session'],
+                observation_id=OBS,starting_cash=50000).record_sha256==before['record_sha256']
+            health.path().unlink()
+            # Missing auxiliary evidence may wait for ownership, but must never
+            # put the full unchanged-book scan under the trading writer again.
+            assert rolling_runtime.service_advance(conn,through=before['session'],
+                observation_id=OBS,starting_cash=50000).record_sha256==before['record_sha256']
+            assert not health.path().exists()
+    finally:
+        peer.close()
+    assert rolling_runtime.service_advance(conn,through=before['session'],
+        observation_id=OBS,starting_cash=50000).record_sha256==before['record_sha256']
+    assert health.health(config,fallback=forbidden)['service_health']=='HEALTHY_ATTESTED'
+    # Simulate a correctly signed projection bound to the previous executable.
+    wrapped=json.loads(health.path().read_text())
+    wrapped['projection']['config_sha256']='0'*64
+    wrapped['hmac_sha256']=health._signature(wrapped['projection'])
+    health.path().write_text(json.dumps(wrapped))
+    assert shadow_worker.main()==0
+    assert health.health(config,fallback=forbidden)['service_health']=='HEALTHY_ATTESTED'
+    health.path().unlink()
     def io_failure(*_): raise OSError('projection store unavailable')
     monkeypatch.setattr(health,'_write',io_failure)
     assert shadow_worker.main()==0
@@ -157,6 +182,29 @@ def test_canonical_worker_publishes_projection_and_io_failure_does_not_change_bo
     after=rolling_runtime.status(conn,observation_id=OBS,starting_cash=50000).to_dict()
     assert before==after
     conn.rollback()
+
+
+def test_changed_inventory_refuses_projection_and_removed_guard_is_detected(projection,conn,monkeypatch):
+    import inspect
+    from types import SimpleNamespace
+    from sentinel import rolling_runtime,backup_runtime_authority
+    monkeypatch.setenv('SENTINEL_FEED_SERVICE_MODE','SHADOW')
+    monkeypatch.setattr(shadow_service.ShadowServiceConfig,'from_env',lambda:projection)
+    def missing(*_a,**_k):raise FileNotFoundError('projection requires repair')
+    monkeypatch.setattr(health,'health',missing)
+    calls=[]
+    monkeypatch.setattr(health,'publish',lambda *_:calls.append('published'))
+    monkeypatch.setattr(backup_runtime_authority,'require',lambda *_a,**_k:
+        pytest.fail('auxiliary projection requested another backup proof'))
+    result=SimpleNamespace(to_dict=lambda:{})
+    rolling_runtime._refresh_unchanged_health(conn,result,'0'*64)
+    assert calls==[]
+    source=inspect.getsource(rolling_runtime._refresh_unchanged_health)
+    weakened=source.replace('if not present or current_inventory != verified_inventory:','if False:')
+    assert weakened!=source
+    namespace=dict(vars(rolling_runtime));exec(weakened,namespace)
+    namespace['_refresh_unchanged_health'](conn,result,'0'*64)
+    assert calls==['published']
 
 
 def test_killed_probe_parent_cannot_leave_reader_running(tmp_path):

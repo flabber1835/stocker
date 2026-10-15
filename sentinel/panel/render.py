@@ -145,6 +145,8 @@ summary{cursor:pointer;padding:13px 15px;font-weight:650;list-style-position:ins
 table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
 th,td{padding:7px 6px;text-align:left;border-top:1px solid var(--line);vertical-align:top}
 th{color:var(--muted);font-weight:600;letter-spacing:.04em}
+.portfolio-table{min-width:650px;table-layout:auto;overflow-wrap:normal}
+.portfolio-table th,.portfolio-table td{white-space:nowrap;word-break:normal}
 .not-current .row.ok{border-color:var(--fail)}
 .not-current .dot.ok{color:var(--fail)}
 .push-card{
@@ -332,7 +334,7 @@ def _holdings_html(row: Row, now: datetime) -> str:
             'stock allocation, Treasury-bill sleeve and transaction costs, so the two totals can differ.</p>'
             + f'<p>{book.pending_operations} pending operations; these are not filled holdings. '
             'Unavailable prices are not treated as zero.</p><div style="overflow-x:auto">'
-            + _table(('Ticker', 'Quantity', 'Close', 'Value', 'Book weight'), rows) + '</div></div></details>')
+            + _table(('Ticker', 'Quantity', 'Close', 'Value', 'Book weight'), rows, portfolio=True) + '</div></div></details>')
 
 
 def _paper_plan_html(row: Row, now: datetime) -> str:
@@ -350,8 +352,8 @@ def _paper_plan_html(row: Row, now: datetime) -> str:
         ' · scheduled '+_esc(opened.strftime('%I:%M %p Pacific'))+'. Decision close: '+_esc(plan.decision_session)+
         '. These are proposed changes; opening quotes, corporate actions and fresh broker checks determine final orders.</p>'
         '<p>Recorded broker shares as of '+_esc(plan.observation_at or 'Unavailable')+
-        '. No orders have been submitted by this view.</p><div style="overflow-x:auto">'+
-        _table(('Ticker','Proposed action','Recorded shares','Target','Proposed share change'),rows)+
+        '. These estimates use that dated snapshot; they are not current broker holdings. No orders have been submitted by this view.</p><div style="overflow-x:auto">'+
+        _table(('Ticker','Proposed action','Recorded shares','Target','Proposed share change'),rows,portfolio=True)+
         '</div></div></details>')
 
 
@@ -360,14 +362,15 @@ def _esc(s) -> str:
             .replace(">", "&gt;").replace('"', "&quot;"))
 
 
-def _table(headers, rows) -> str:
+def _table(headers, rows, *, portfolio=False) -> str:
     head = "".join(f"<th>{_esc(value)}</th>" for value in headers)
     body = "".join(
         "<tr>" + "".join(f"<td>{_esc(value)}</td>" for value in row) + "</tr>"
         for row in rows)
     if not rows:
         body = f'<tr><td colspan="{len(headers)}">none</td></tr>'
-    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+    css = ' class="portfolio-table"' if portfolio else ''
+    return f"<table{css}><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
 
 def _detail_sections(panel: Panel) -> str:
@@ -596,7 +599,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO'}</span>
   {CASINO_ACCENT}
 </header>
-<details class="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
+<details class="mode-guide" data-detail-key="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
   <p><strong>Your strategy, at a glance.</strong> The simulated portfolio is the strategy’s model book. Formation builds it by simulating earlier trading days; daily updates then carry it forward.</p>
   <p>Market data comes from Alpaca, with OpenFIGI identifying common stocks. The paper account is separate: it uses simulated money and only trades after activation. A simulated portfolio check does not mean paper orders have been placed.</p>
   <p>Green means the check passed. Amber means waiting or review needed. Red means a failed or unreadable check. Open technical details for the precise reason.</p>
@@ -615,7 +618,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   as of {_esc(stamp)} · refreshes every {refresh_seconds}s<br>
   This page shows status; it cannot place trades.<br>
   {_esc(footer_authority)}<br>
-  <details class="technical"><summary>Technical status</summary>operational condition: {_esc(operational)} · all-row condition: {_esc(overall)}</details>
+  <details class="technical" data-detail-key="technical-status"><summary>Technical status</summary>Current operational checks: {_esc(operational)} · all displayed checks, including notifications and unverified results: {_esc(overall)}. The attention list above identifies each failing check; this aggregate alone does not diagnose a stopped worker.</details>
 </footer>
 </div>
 <script>
@@ -668,11 +671,17 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       var scroll = window.scrollY;
       var expanded = Array.from(document.querySelectorAll('details[data-detail-key][open]'))
         .map(function(item){{ return item.dataset.detailKey; }});
+      var focused = document.activeElement && document.activeElement.closest
+        ? document.activeElement.closest('details[data-detail-key]') : null;
+      var focusKey = focused ? focused.dataset.detailKey : null;
       document.open();
       document.write(html);
       document.close();
       document.querySelectorAll('details[data-detail-key]').forEach(function(item){{
         item.open = expanded.includes(item.dataset.detailKey);
+        if (focusKey && item.dataset.detailKey === focusKey){{
+          item.querySelector('summary').focus({{preventScroll:true}});
+        }}
       }});
       window.scrollTo(0, scroll);
     }} catch (_error) {{

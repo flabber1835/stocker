@@ -101,7 +101,7 @@ if [ -n "$history" ]; then
   history_bytes="$(stat -c %s "$history_path")"
   [ "$history_bytes" -gt 0 ] || refuse "timeline history is empty"
 fi
-[ "$interval_count" -le $(((1073741824 - history_bytes) / wal_bytes)) ] || runtime_horizon_exceeded
+[ "$interval_count" -le $(((17179869184 - history_bytes) / wal_bytes)) ] || runtime_horizon_exceeded
 
 verify_checksum_object() {
   local path="$1" label="$2" expected_size="${3:-}"

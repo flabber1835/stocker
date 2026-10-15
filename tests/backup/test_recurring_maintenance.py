@@ -230,7 +230,7 @@ class Boundary:
 
     def selected(self):
         return {"name": self.selected_override or self.name, "metadata_sha256": "a" * 64,
-                "timestamp": NOW - (50000 if self.old else 0),
+                "timestamp": NOW - (90000 if self.old else 0),
                 "ranges": [{"timeline": 1, "start": 10 * SEGMENT, "end": 11 * SEGMENT}],
                 "marker": "sentinel-backup-20260919T120000Z-42", "target_lsn": "0/D000000"}
 
@@ -416,12 +416,40 @@ def test_successful_restore_without_durable_receipt_refuses(boundary):
     assert not any("retain" in call for call in boundary.calls)
 
 
-@pytest.mark.parametrize("segments,due", [(14, False), (15, True), (16, True)])
+@pytest.mark.parametrize("segments,due", [(510, False), (511, True), (512, True)])
 def test_proactive_wal_boundary_is_independent_of_age(boundary, segments, due):
     item = boundary.selected()
     observation = {"now": NOW, "timeline": "00000001", "segment_size": SEGMENT,
                    "lsn": position(10 + segments)}
     assert coordinator.renewal_due(item, observation) is due
+
+
+@pytest.mark.parametrize('hour,minute,allowed',[(9,0,True),(12,29,True),(12,30,False),
+                                               (13,31,False),(20,59,False),(21,0,True)])
+def test_heavy_work_yields_to_market_and_preparation(hour,minute,allowed):
+    stamp=int(datetime(2026,10,15,hour,minute,tzinfo=timezone.utc).timestamp())
+    assert coordinator.heavy_work_allowed({'now':stamp}) is allowed
+
+
+def test_daily_preopen_slot_and_installation_result_reuse(boundary):
+    stamp=int(datetime(2026,10,15,9,tzinfo=timezone.utc).timestamp())
+    observation=dict(now=stamp,timeline='00000001',segment_size=SEGMENT,lsn='0/D000000')
+    selected=boundary.selected()
+    selected['timestamp']=stamp-15*3600
+    assert coordinator.renewal_due(selected,observation)
+    selected['timestamp']=stamp-3600
+    assert not coordinator.renewal_due(selected,observation)
+
+
+def test_due_backup_is_deferred_without_allocation_during_market(boundary,monkeypatch):
+    boundary.old=True
+    stamp=int(datetime(2026,10,15,13,31,tzinfo=timezone.utc).timestamp())
+    original=coordinator.observe_primary
+    monkeypatch.setattr(coordinator,'observe_primary',lambda runner:{**original(runner),'now':stamp})
+    result=coordinator.tick('/media',boundary)
+    assert result['maintenance_deferred'] is True
+    assert not any('scripts/sentinel-base-backup.sh' in c or 'scripts/sentinel-restore-drill.sh' in c
+                   or 'retain' in c for c in boundary.calls)
 
 
 def test_timeline_advance_renews_and_regression_refuses(boundary):

@@ -13,8 +13,11 @@ const reads = [];
 const writes = [];
 const badge = { className: input.wake === 'known-failure' ? 'state fail' : 'state ok', textContent: 'current' };
 const heartbeat = { textContent: 'current' };
-const expandedDetail = {dataset: {detailKey: 'shadow-holdings'}, open: true};
+let focusRestored = false;
+const expandedDetail = {dataset: {detailKey: 'shadow-holdings'}, open: true,
+  querySelector: () => ({focus: options => { assert.equal(options.preventScroll, true); focusRestored = true; }})};
 const document = {
+  activeElement: {closest: () => expandedDetail},
   body: { dataset: { generatedAt: input.wake === 'invalid-date' ? 'invalid' :
       input.wake === 'future-date' ? new Date(stamp + 10000).toISOString() : input.generated,
       maxAgeSeconds: input.budget,
@@ -201,6 +204,7 @@ function failRead(read) {
   await settled();
   assert.deepEqual(writes, ['open', 'fresh', 'close']);
   assert.equal(expandedDetail.open, true, 'expanded holdings survive page replacement');
+  assert.equal(focusRestored, true, 'keyboard focus survives page replacement');
   assert.equal(timers.size, 0, 'old document timers must not survive replacement');
   process.stdout.write('PASS\n');
 })().catch(error => { console.error(error.message); process.exitCode = 1; });

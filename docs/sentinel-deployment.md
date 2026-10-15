@@ -2149,14 +2149,15 @@ generation and image before retention. Its policy preserves recent bases,
 seven daily and four weekly representatives plus the WAL required by every
 retained base. See [recurring maintenance](backup-recurring-maintenance.md).
 
-Daily creation alone does not keep the runtime within its 1 GiB WAL proof
-ceiling. With 16 MiB segments, timeline 1 admits at most 64 segments; a later
-timeline's history consumes additional bytes. At the configured five-minute
-archive timeout, continuing database activity can exhaust that horizon in
-roughly five hours, and higher WAL traffic can do so sooner. This is a modeled
-cadence, not a measured NAS rate. The maintenance task renews at 12 hours,
-256 MiB of inclusive primary WAL footprint, or a later timeline, and verifies
-the exact selected generation. Missing runtime selection refuses even when a
+The owner-approved October 15 policy creates one verified base daily, preferring
+09:00-12:00 UTC at least 12 hours after the prior base, with a 24-hour fallback.
+Renew early at 8 GiB of inclusive primary WAL, a later timeline or a new runtime
+image. The hard proof bound is 16 GiB / 1,024 objects, including timeline history.
+Heavy creation, restore and retention defer from 12:30 through 21:00 UTC; current
+chain validation continues and exhausted headroom still fences mutations. Each
+new selected base retains its single semantic restore requirement. Preparation,
+close and restart reuse that exact receipt rather than requesting another drill.
+Missing runtime selection refuses even when a
 complete unselected directory exists. NAS cadence/capacity qualification and
 observed retention remain deployment requirements. See
 the [combined review and local evidence](../audit/economic_399/backup_selection_integration/README.md).
@@ -2171,8 +2172,14 @@ on a fresh authority connection. Broker observations, recovery-journal updates,
 lease coordination, and emergency fencing remain available during media loss.
 
 The archive producer durably publishes a `<WAL>.sha256` sidecar for every newly
-archived WAL object. Runtime and operator status rehash every required segment;
-missing evidence or a size-preserving bit flip fences mutation. After upgrading
+archived WAL object. Operator status rehashes every required segment. Runtime
+double-hashes on first use and every five minutes, hashing new or changed objects
+immediately; unchanged in-process proofs never extend their original expiry.
+Metadata, sidecars, aliases, selection and cluster identity are checked each time.
+Silent corruption preserving coarse metadata can remain undetected for up to
+five minutes, an explicitly owner-approved durability tradeoff. Missing evidence
+and detected corruption fence mutations. See [rehearsal policy](paper-system-rehearsal.md).
+After upgrading
 from an archive producer that predates sidecars, create a fresh verified base
 with `scripts/sentinel-base-backup.sh`, then run status and the restore drill
 above. Retained WAL is never retroactively granted checksum authority. A fresh

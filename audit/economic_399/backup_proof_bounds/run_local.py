@@ -10,7 +10,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("campaign", choices=("regression", "backup", "mutations", "payload"))
     parser.add_argument("--image", default="sentinel-test:ci")
-    parser.add_argument("--segments", type=int, choices=(1, 4, 64), default=4)
+    parser.add_argument("--segments", type=int, choices=(1, 4, 64, 1024), default=4)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[3]
     command = (["-m", "tools.sentinel_backup_bound_falsifiers"]

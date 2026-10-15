@@ -45,14 +45,14 @@ def _timeline_two(world):
     return history
 
 
-def test_every_mutation_repeats_complete_content_proof(world):
+def test_unchanged_mutation_reuses_bounded_content_proof(world):
     first = authority.require(world, operation="first mutation")
     second = authority.require(world, operation="second mutation")
     assert first["integrity_full_scrub"] is True
     assert first["integrity_objects_hashed"] == 8
-    assert second["integrity_full_scrub"] is True
-    assert second["integrity_objects_hashed"] == 8
-    assert first["integrity_read_passes"] == second["integrity_read_passes"] == 2
+    assert second["integrity_full_scrub"] is False
+    assert second["integrity_objects_hashed"] == 0
+    assert first["integrity_read_passes"] == 2 and second["integrity_read_passes"] == 0
 
 
 def test_changed_object_is_rehashed_between_full_scrubs(world):
@@ -65,7 +65,7 @@ def test_changed_object_is_rehashed_between_full_scrubs(world):
         authority.require(world, operation="second mutation")
 
 
-def test_content_proof_does_not_depend_on_scrub_age(world, monkeypatch):
+def test_reuse_never_extends_original_scrub_expiry(world, monkeypatch):
     ticks = [100.0]
     monkeypatch.setattr(authority.time, "monotonic", lambda: ticks[0])
     first = authority.require(world, operation="first mutation")
@@ -74,9 +74,27 @@ def test_content_proof_does_not_depend_on_scrub_age(world, monkeypatch):
     ticks[0] += 301
     renewed = authority.require(world, operation="renewed mutation")
     assert first["integrity_full_scrub"] is True
-    assert cached["integrity_objects_hashed"] == 8
+    assert cached["integrity_objects_hashed"] == 0
     assert renewed["integrity_full_scrub"] is True
     assert renewed["integrity_objects_hashed"] == 8
+
+
+def test_same_metadata_corruption_is_detected_at_five_minute_boundary(world,monkeypatch):
+    ticks=[100.0]
+    monkeypatch.setattr(authority.time,'monotonic',lambda:ticks[0])
+    authority.require(world,operation='first')
+    original=authority._archive_metadata
+    saved=original(world,root=f'/sentinel-backup/wal/cluster-{SYSTEM_ID}',objects=tuple(wal_name(i) for i in range(2,6)))
+    # Deliberately model a medium that preserves its coarse metadata on damage.
+    monkeypatch.setattr(authority,'_archive_metadata',lambda *_a,**_k:saved)
+    path=world.media.namespace/wal_name(4)
+    with path.open('r+b') as stream:stream.write(b'silent corruption')
+    ticks[0]=399.0
+    assert authority.require(world,operation='bounded reuse')['integrity_full_scrub'] is False
+    ticks[0]=400.0
+    with pytest.raises(authority.BackupRuntimeRefused,match='SHA-256'):
+        authority.require(world,operation='mandatory full scrub')
+    assert authority._PROOF_CACHE == {}
 
 
 def test_runtime_integrity_budget_is_fail_closed(world, monkeypatch):
