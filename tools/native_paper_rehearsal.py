@@ -20,6 +20,9 @@ from sentinel import binding, schema
 from sentinel.execution import executor, journal
 from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
 from sentinel.execution.plan import ExecutionPlan
+from sentinel.execution.guarded import (
+    BrokerOperation, ExecutionBrokerGuard, GuardedExecutionBroker,
+    ManualExecutionGrant, PreTransportAuthorityRefused)
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import store
 from tools.live_paper_rehearsal import AttendedRun, PAPER, Refused
@@ -46,6 +49,7 @@ class NativeRun(AttendedRun):
         self.saved=saved
         self.manifest=manifest
         self.crash_after_accept=crash
+        self._transport_ticket=None
         self.plan_id='attended-probe-'+self.run_id
         self.deployment_id='attended-paper-'+self.run_id
         self.assert_isolated_database()
@@ -69,7 +73,7 @@ class NativeRun(AttendedRun):
         if not name.startswith('rehearsal_execution') or system==original:
             raise Refused('test journal requires an isolated rehearsal PostgreSQL server')
 
-    async def authorize(self, method, url, body):
+    async def authorize_command(self, method, url, body):
         if method=='POST':
             with self.connect() as conn:
                 bound=binding.require(conn)
@@ -87,18 +91,66 @@ class NativeRun(AttendedRun):
                 self.quantities[command.client_key]=command.quantity
         await super().authorize(method,url,body)
 
+    def _issue_transport_ticket(self,method,url,body):
+        self._transport_ticket=((method,str(url),json.dumps(body,sort_keys=True)),time.monotonic()+2)
+
+    async def authorize(self,method,url,body):
+        ticket=getattr(self,'_transport_ticket',None)
+        self._transport_ticket=None
+        request=(method,str(url),json.dumps(body,sort_keys=True))
+        if ticket is None or ticket[0]!=request or time.monotonic()>ticket[1]:
+            raise Refused('native HTTP mutation requires a fresh exact single-use pre-transport ticket')
+
+    def guarded(self,raw,plan):
+        with self.connect() as conn:bound=binding.require(conn)
+        grant=ManualExecutionGrant(confirm_paper_account=bound.broker_account_id,
+            confirm_plan_id=plan.plan_id,confirm_effective_session=plan.effective_session,
+            confirm_submit_paper_orders=True)
+        async def before_read(*_):self.production_fenced()
+        async def after_read(*_):self.production_fenced()
+        async def before_mutation(_grant,operation):
+            self._transport_ticket=None
+            with self.connect() as conn:
+                current=binding.require(conn)
+                commands=journal.load_commands(conn,current.identity,
+                    states=((CommandState.SEND_PENDING,) if operation is BrokerOperation.SUBMIT
+                            else (CommandState.CANCEL_PENDING,)))
+                if len(commands)!=1:
+                    raise Refused('attended transport requires one exact pending native command')
+                command=commands[0]
+            if operation is BrokerOperation.SUBMIT:
+                method,url='POST',PAPER+'/v2/orders'
+                body=dict(symbol=command.instrument.broker_id,qty=str(command.quantity),
+                    side=command.side.value.lower(),type='market',time_in_force='day',
+                    client_order_id=command.client_key,order_class='simple',extended_hours=False)
+            elif operation is BrokerOperation.CANCEL and command.broker_order_id:
+                method,url,body='DELETE',PAPER+'/v2/orders/'+command.broker_order_id,{}
+            else:raise Refused('unsupported attended native mutation')
+            await self.authorize_command(method,url,body)
+            self.production_fenced()
+            self._issue_transport_ticket(method,url,body)
+        return GuardedExecutionBroker(inner=raw,grant=grant,
+            guard=ExecutionBrokerGuard(before_read,after_read,before_mutation))
+
     async def converge(self, broker, conn, plan, instrument):
         executor._assert_executable(plan)
         instruments=instrument if isinstance(instrument,dict) else {'SPY':instrument}
         deadline=time.monotonic()+300
         while time.monotonic()<deadline:
             self.production_fenced()
-            with journal.writer_lock(conn):
-                executor._assert_current_plan(conn,plan)
-                result=await executor._execute_session_locked(
-                    broker=broker,conn=conn,deployment=binding.require(conn).identity,plan=plan,
-                    instruments=instruments,today=plan.effective_session,actions=None,
-                    target_projection=None,min_increment=Decimal(1),informational_current_book=True)
+            try:
+                with journal.writer_lock(conn):
+                    executor._assert_current_plan(conn,plan)
+                    result=await executor._execute_session_locked(
+                        broker=broker,conn=conn,deployment=binding.require(conn).identity,plan=plan,
+                        instruments=instruments,today=plan.effective_session,actions=None,
+                        target_projection=None,min_increment=Decimal(1),informational_current_book=True)
+            except PreTransportAuthorityRefused as exc:
+                self._transport_ticket=None
+                self.ledger.record('native_pretransport_refusal',detail=str(exc),
+                    production_authority=False)
+                await asyncio.sleep(2)
+                continue
             commands=journal.load_commands(conn,binding.require(conn).identity)
             self.keys.update(c.client_key for c in commands)
             self.ledger.record('native_executor',plan=plan.plan_id,state=result.runtime_state.value,
@@ -170,6 +222,8 @@ class NativeRun(AttendedRun):
                 self.keys.update(c.client_key for c in commands)
                 plan=journal.latest_plan(conn)
                 self.ledger.record('native_restart',commands=[dict(key=c.client_key,state=c.state.value) for c in commands])
+            raw=broker
+            broker=self.guarded(raw,plan)
             commands=await self.converge(broker,conn,plan,instrument)
             if not plan.plan_id.endswith('-cleanup'):
                 if len(commands)!=1 or commands[0].state is not CommandState.FILLED:
@@ -178,7 +232,7 @@ class NativeRun(AttendedRun):
                 self.ledger.record('scenario_pass',scenario='native_send_pending_restart_exact_key_no_duplicate')
                 cleanup=replace(plan,plan_id=self.plan_id+'-cleanup',target_basket={'SPY':Decimal(0)},target_exposure=Decimal(0))
                 executor.adopt_plan(conn,cleanup)
-                await self.converge(broker,conn,cleanup,instrument)
+                await self.converge(self.guarded(raw,cleanup),conn,cleanup,instrument)
             account,positions,orders,_=await self.snapshot()
             if positions or orders:raise Refused('native test effects remain')
             commands=journal.load_commands(conn,bound.identity)

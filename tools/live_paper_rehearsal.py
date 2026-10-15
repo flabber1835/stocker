@@ -100,10 +100,11 @@ class AttendedRun:
             self.last_request=time.monotonic()
 
     def production_fenced(self):
-        if self.owner_connection is not None:
-            # A lost session also loses the exclusive test-owner lock. Never
-            # silently reconnect and continue a previously authorized send.
-            self.owner_connection.execute('SELECT 1')
+        if self.owner_connection is None:
+            raise Refused('exclusive attended account owner is required')
+        # A lost session also loses the exclusive test-owner lock. Never
+        # silently reconnect and continue a previously authorized send.
+        self.owner_connection.execute('SELECT 1')
         c = store.connect(os.environ['REHEARSAL_PRODUCTION_DATABASE_URL'],
                           connect_timeout=3, statement_timeout_ms=3000)
         try:

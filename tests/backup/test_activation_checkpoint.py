@@ -122,7 +122,9 @@ def test_normal_fresh_milestone_needed_only_before_new_marker(commands, reason):
     elif reason == 'age':
         commands.selected['timestamp'] = NOW - maintenance.RENEW_SECONDS
     else:
-        commands.observation['lsn'] = '0/20000000'
+        # The selected base ends in segment 0B. Reach the approved 8 GiB
+        # renewal threshold; the former 512 MiB fixture is now reusable.
+        commands.observation['lsn'] = '2/0C000000'
     assert checkpoint.reuse(Path('/backups'), commands) is None
     assert not commands.recorded and not any('INSERT' in a[-1] for a in commands.calls)
 

@@ -24,6 +24,64 @@ def test_closed_native_campaign_cannot_resume_and_guard_removal_is_detected(tmp_
     assert namespace['require_open_native_run'](tmp_path) is None
 
 
+@pytest.mark.parametrize('damage',['missing','body','method','url','expired'])
+def test_http_transport_requires_exact_unused_ticket(monkeypatch,damage):
+    import tools.native_paper_rehearsal as module
+    run=object.__new__(NativeRun)
+    body=dict(symbol='asset',qty='1')
+    url=PAPER+'/v2/orders'
+    run._issue_transport_ticket('POST',url,body)
+    method='POST'
+    if damage=='missing':run._transport_ticket=None
+    if damage=='body':body={**body,'qty':'2'}
+    if damage=='method':method='DELETE'
+    if damage=='url':url='https://api.alpaca.markets/v2/orders'
+    if damage=='expired':monkeypatch.setattr(module.time,'monotonic',lambda:float('inf'))
+    with pytest.raises(Refused,match='single-use'):
+        asyncio.run(run.authorize(method,url,body))
+    assert run._transport_ticket is None
+
+
+@pytest.mark.parametrize('refused',[False,True])
+def test_native_checks_run_before_inner_submit_and_prove_no_transport(monkeypatch,refused):
+    import tools.native_paper_rehearsal as module
+    from sentinel.execution.contract import BrokerCapabilities,BrokerInstrument,CommandOutcome,Side
+    from sentinel.execution.guarded import PreTransportAuthorityRefused
+    instrument=BrokerInstrument('security','SPY','asset')
+    command=SimpleNamespace(client_key='owned',state=CommandState.SEND_PENDING,
+        instrument=instrument,side=Side.BUY,quantity=Decimal(1))
+    run=object.__new__(NativeRun)
+    run._transport_ticket=None
+    @contextmanager
+    def connect():yield object()
+    run.connect=connect
+    run.production_fenced=lambda:None
+    monkeypatch.setattr(module.binding,'require',lambda _:SimpleNamespace(broker_account_id='paper',identity='bound'))
+    monkeypatch.setattr(module.journal,'load_commands',lambda *_a,**_k:[command])
+    checked=[];submitted=[]
+    async def authorize_command(method,url,body):
+        checked.append(body)
+        if refused:raise Refused('stale quote before adapter')
+    run.authorize_command=authorize_command
+    async def submit(**kwargs):
+        submitted.append(kwargs)
+        await run.authorize('POST',PAPER+'/v2/orders',checked[-1])
+        return CommandOutcome(CommandState.ACKNOWLEDGED,'native-id')
+    raw=SimpleNamespace(capabilities=BrokerCapabilities(),submit=submit)
+    wrapped=run.guarded(raw,SimpleNamespace(plan_id='plan',effective_session=__import__('datetime').date(2026,10,15)))
+    assert wrapped.capabilities is raw.capabilities
+    if refused:
+        with pytest.raises(PreTransportAuthorityRefused) as error:
+            asyncio.run(wrapped.submit(client_key='owned',instrument=instrument,side=Side.BUY,quantity=Decimal(1)))
+        assert not submitted
+        wrapped.consume_not_transported(error.value,command)
+        with pytest.raises(ValueError):wrapped.consume_not_transported(error.value,command)
+    else:
+        result=asyncio.run(wrapped.submit(client_key='owned',instrument=instrument,side=Side.BUY,quantity=Decimal(1)))
+        assert result.state is CommandState.ACKNOWLEDGED and len(submitted)==1
+        with pytest.raises(Refused):asyncio.run(run.authorize('POST',PAPER+'/v2/orders',checked[-1]))
+
+
 @pytest.mark.parametrize('change',[
     {'state':CommandState.PLANNED},{'state':CommandState.FILLED},
     {'key':'foreign'}, {'plan':'obsolete'}, {'asset':'another-asset'},
@@ -51,5 +109,5 @@ def test_native_transport_requires_exact_durable_pending_command(monkeypatch,cha
     async def authorized(*_a,**_k):reached.append(True)
     monkeypatch.setattr(AttendedRun,'authorize',authorized)
     with pytest.raises(Refused):
-        asyncio.run(run.authorize('POST',PAPER+'/v2/orders',dict(client_order_id='owned',symbol='asset',side='buy',qty='1')))
+        asyncio.run(run.authorize_command('POST',PAPER+'/v2/orders',dict(client_order_id='owned',symbol='asset',side='buy',qty='1')))
     assert not reached

@@ -80,7 +80,10 @@ python -m pytest tests/sentinel/test_paper_plan_preview.py -q --tb=short -p no:c
 16 passed (including retained ticker reader and ambiguity refusal)
 
 python -m pytest tests/sentinel/test_native_paper_rehearsal.py tests/sentinel/test_live_paper_rehearsal.py -q --tb=short -p no:cacheprovider
-26 passed (including closed-journal and exposure falsifiers)
+34 passed (including exact single-use transport tickets, refusal before the adapter, mandatory exclusive ownership, closed-journal and exposure falsifiers)
+
+python -m pytest tests/backup/test_activation_checkpoint.py tests/backup/test_runtime_backup_authority.py tests/sentinel/test_native_paper_rehearsal.py tests/sentinel/test_live_paper_rehearsal.py -q --tb=short -p no:cacheprovider
+111 passed after correcting two CI expectations: the WAL fixture now reaches the approved 8 GiB renewal threshold, and auxiliary health repair is the only allowed recovery-only caller in rolling_runtime
 
 python -m pytest tests/sentinel/test_automation_runtime.py -k unstamped -q --tb=short -p no:cacheprovider
 11 passed, 64 deselected; each durable command state refuses and removing the command-absence guard permits the unsafe request
@@ -113,8 +116,8 @@ Production commands remained **0**. Private ledger digests/sizes are in
 
 ## Remaining acceptance
 
-Approve and implement the isolated intraday service fixture. Repair the test
-pre-transport boundary, rerun the full basket in a fresh journal, and exercise
+Approve and implement the isolated intraday service fixture. Requalify the
+repaired pre-transport boundary, rerun the full basket in a fresh journal, and exercise
 actual service transitions, restart, concurrency, close/preparation and
 notification delivery. Preserve the failed journal. Complete exact-head CI
 before review readiness. Installation/activation also requires signed release

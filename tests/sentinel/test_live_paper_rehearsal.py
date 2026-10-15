@@ -77,6 +77,28 @@ def test_production_fence_is_checked_before_mutation(tmp_path,monkeypatch):
         asyncio.run(run.authorize('DELETE','https://paper-api.alpaca.markets/v2/orders/foreign',{}))
 
 
+def test_missing_owner_refuses_even_when_production_is_paused(tmp_path,monkeypatch):
+    import hashlib,inspect,textwrap
+    from types import MethodType
+    import tools.live_paper_rehearsal as module
+    account='synthetic-paper-account'
+    run=AttendedRun(output=tmp_path/'run',account_sha256=hashlib.sha256(account.encode()).hexdigest(),maximum=Decimal(5000))
+    class Paused:
+        def execute(self,*_):return self
+        def fetchall(self):return [(False,True,'alpaca',account)]
+        def rollback(self):pass
+        def close(self):pass
+    monkeypatch.setenv('REHEARSAL_PRODUCTION_DATABASE_URL','synthetic')
+    monkeypatch.setattr(module.store,'connect',lambda *_a,**_k:Paused())
+    with pytest.raises(Refused,match='exclusive'):run.production_fenced()
+    source=textwrap.dedent(inspect.getsource(AttendedRun.production_fenced))
+    start=source.index('    if self.owner_connection is None:')
+    end=source.index('    c = store.connect',start)
+    weakened=source[:start]+source[end:]
+    namespace=dict(vars(module));exec(weakened,namespace)
+    assert MethodType(namespace['production_fenced'],run)() is None
+
+
 def test_removed_exposure_guard_is_detected(tmp_path,monkeypatch):
     import inspect
     import textwrap

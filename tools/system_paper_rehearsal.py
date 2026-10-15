@@ -149,9 +149,10 @@ async def main_async(args):
             # Preflight all symbols before the first possible transport. Every
             # individual buy independently rechecks prices and the account cap.
             await await_quotes(run,instruments)
-            await run.converge(broker,conn,plan,instruments)
+            guarded=run.guarded(broker,plan)
+            await run.converge(guarded,conn,plan,instruments)
             before={c.client_key for c in journal.load_commands(conn,binding.require(conn).identity)}
-            await run.converge(broker,conn,plan,instruments)
+            await run.converge(guarded,conn,plan,instruments)
             after={c.client_key for c in journal.load_commands(conn,binding.require(conn).identity)}
             if before!=after:raise Refused('repeated basket execution created another command')
             account,positions,orders,exposure=await run.snapshot()
@@ -159,7 +160,7 @@ async def main_async(args):
                 working_orders=len(orders),open_position_value=str(exposure),
                 maximum_open_usd=str(run.maximum),repeat_new_commands=0)
         executor.adopt_plan(conn,cleanup)
-        await run.converge(broker,conn,cleanup,instruments)
+        await run.converge(run.guarded(broker,cleanup),conn,cleanup,instruments)
         account,positions,orders,_=await run.snapshot()
         if positions or orders:raise Refused('system basket test effects remain')
         commands=journal.load_commands(conn,binding.require(conn).identity)

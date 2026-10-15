@@ -347,20 +347,32 @@ def test_runtime_preserves_current_archiver_clock_refusal(world):
         authority.require(world, operation="future-dated archive")
 
 
-def test_recovery_lock_exemptions_are_limited_to_observation_and_lease():
+def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
     import ast
     root = Path(__file__).resolve().parents[2]
     found = set()
     for path in (root / "sentinel").rglob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text())):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
             if isinstance(node, ast.Call) and any(
                     kw.arg == "recovery_only" for kw in node.keywords):
-                found.add(str(path.relative_to(root)))
+                relative = path.relative_to(root).as_posix()
+                found.add(relative)
                 assert next(kw.value.value for kw in node.keywords
                             if kw.arg == "recovery_only") is True
+                if relative == 'sentinel/rolling_runtime.py':
+                    # Only the auxiliary health-file repair may skip the
+                    # financial backup guard. A new caller in this module
+                    # must not inherit a file-wide exemption.
+                    owners = [f for f in ast.walk(tree)
+                              if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+                              and node in ast.walk(f)]
+                    assert len(owners) == 1
+                    assert owners[0].name == '_refresh_unchanged_health'
+                    assert ast.unparse(node.func) == 'journal.writer_lock'
     assert found == {
         "sentinel/automation/store.py", "sentinel/paper/recovery.py",
-        "sentinel/execution/executor.py"}
+        "sentinel/execution/executor.py", "sentinel/rolling_runtime.py"}
 
 
 @pytest.mark.parametrize("event", ["advance", "failure"])

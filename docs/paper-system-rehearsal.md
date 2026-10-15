@@ -118,6 +118,15 @@ identity are not evidence that unexercised provider transitions have worked.
     for an auxiliary file, so it uses the nonfinancial/recovery lock mode and
     performs no backup scan or book mutation. Busy ownership defers projection
     repair; it must never move full content verification back inside the lock.
+11. Move attended native-command checks ahead of the adapter using the existing
+    canonical GuardedExecutionBroker. A refusal then carries its single-use
+    no-transport proof and restores only SEND_PENDING to PLANNED through the
+    existing journal operation. The HTTP client consumes a short-lived,
+    exact-request ticket issued after those checks, rather than repeating
+    refusable quote I/O inside submit. Keep the real adapter's capabilities,
+    clock, next-open window and certification requirements intact. This fixes
+    test-boundary placement without granting the still-unapproved intraday
+    schedule. Existing UNKNOWN records remain untouched.
 
 The owner explicitly approved decision 6, including its five-minute integrity
 interval and 8/16 GiB limits, and decision 8's exact compatibility-profile updates
@@ -168,9 +177,12 @@ adapter caused the conservative adapter to retain UNKNOWN. Native absence is
 not finality evidence and that record was not rewritten. Five confirmed holdings
 were closed through the separately journalled, explicitly owner-authorized API
 probe cleanup. The combined ledgers reconcile; the failed native journal is
-closed to further use. Repair the attended pre-transport grant/checkpoint
-placement before another basket run; do not fabricate a broker rejection or
-retroactively restore UNKNOWN to PLANNED.
+closed to further use. The candidate now checks the attended grant through the
+canonical GuardedExecutionBroker before calling the adapter, with an exact,
+single-use HTTP ticket. A refusal at that boundary uses the executor's existing
+one-use proof of no transport. Targeted tests pass; real-provider basket
+requalification remains pending the isolated schedule approval. Do not fabricate
+a broker rejection or retroactively restore UNKNOWN to PLANNED.
 
 Two scheduling decisions remain pending explicit owner approval following
 automatic approval review. A READY_TO_EXECUTE recovery before execute_at should
