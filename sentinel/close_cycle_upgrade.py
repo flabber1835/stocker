@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = '7e3da169e9bb46b7e144caa7552519684e37d1266de75ce710d4985e55af6ec8'
+PROFILE_SHA256 = 'd69e4cfe7d59ae175639474dcda62ec8215ac2dcc2d6a9c859705441c2fcea69'
 PROFILE = Path(__file__).with_name('close-cycle-upgrade.json')
 SCOPE = frozenset({'automation/unsent_recovery.py', 'automation_runtime.py', 'feed/rolling_go_inputs.py', 'shadow_service.py',
                    'dual_reconciliation.py',

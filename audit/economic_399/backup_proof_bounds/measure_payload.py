@@ -13,7 +13,7 @@ from tests.support.postgres import _EphemeralPostgres
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--segments", type=int, choices=(1, 4, 64), default=4)
+    parser.add_argument("--segments", type=int, choices=(1, 4, 64, 1024), default=4)
     args = parser.parse_args()
     segment_size = 16 * 1024 * 1024
     server = _EphemeralPostgres()
@@ -33,16 +33,17 @@ def main():
                      "sentinel-pitr-base-identity"):
             (base / name).write_text("isolated payload measurement, no backup authority")
         checksum = hashlib.sha256(b"\0" * segment_size).hexdigest()
-        names = tuple(f"0000000100000000{i:08X}" for i in range(args.segments))
+        names = tuple(f"00000001{i//256:08X}{i%256:08X}" for i in range(args.segments))
         for name in names:
             with (namespace / name).open("wb") as stream:
                 stream.truncate(segment_size)
             (namespace / (name + ".sha256")).write_text("sha256=" + checksum + "\n")
         samples = []
         with psycopg.connect(server.sync_dsn, autocommit=True) as conn:
-            conn.execute("SET statement_timeout = '30s'")
+            conn.execute("SET statement_timeout = '3s'")
             version = conn.execute("SHOW server_version").fetchone()[0]
             for _ in range(3):
+                authority._PROOF_CACHE.clear()  # Measure cold proof, not reused content.
                 start = time.monotonic()
                 _, hashed, full = authority._validate_archive_objects(conn,
                     operation="isolated payload measurement", system_id="1", base=base.name,
@@ -54,10 +55,18 @@ def main():
                 peak = next(line for line in proc.splitlines() if line.startswith("VmHWM:"))
                 samples.append({"elapsed_seconds": elapsed, "hash_operations": hashed,
                                 "postgres_backend_peak_rss": peak})
+            start=time.monotonic()
+            _,hashed,full=authority._validate_archive_objects(conn,
+                operation="isolated warm proof",system_id="1",base=base.name,
+                wal_root=str(namespace),wal_objects=names,history_object=None,
+                segment_size=segment_size,start=names[0],end=names[-1])
+            assert hashed==0 and not full
+            warm_seconds=time.monotonic()-start
         print(json.dumps({"scope": "ISOLATED_PAYLOAD_PHASE_ONLY", "postgres": version,
             "segments": args.segments, "distinct_bytes": args.segments * segment_size,
             "read_bytes_per_proof": args.segments * segment_size * 2,
             "sparse_zero_fixture": True, "samples": samples,
+            "warm_proof_seconds":warm_seconds,"warm_hash_operations":hashed,
             "container_memory_peak_bytes": (
                 Path("/sys/fs/cgroup/memory.peak").read_text().strip()
                 if Path("/sys/fs/cgroup/memory.peak").exists() else None),

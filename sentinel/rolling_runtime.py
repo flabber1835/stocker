@@ -87,7 +87,8 @@ def _result(result, value):
                    live_frontier=result.session, verification_scope=authority.SCOPE)
 
 
-def classify(conn, *, observation_id, starting_cash, structural_only=False, clock=None):
+def classify(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
+             unchanged_through=None):
     """Own an idle read-only transaction; structural status grants no live GO."""
     try:
         inputs.require_schemas(conn)
@@ -113,6 +114,14 @@ def classify(conn, *, observation_id, starting_cash, structural_only=False, cloc
                         "recovery_cutoff_at": timing["execution_open_at"]}
             if structural_only:
                 status = "RECONSTRUCTED_STRUCTURAL" if isinstance(attested, authority.ReconstructionReceipt) else "ATTESTED_STRUCTURAL"
+                if status == "ATTESTED_STRUCTURAL" and checkpoint.session == unchanged_through:
+                    _current(conn, checkpoint, pub, now=clock() if clock else None)
+                    from sentinel import shadow_health_projection
+                    inventory, present = shadow_health_projection._inventory(conn)
+                    if not present:
+                        raise Refused('verified unchanged session has no origin inventory')
+                    return {"status": "VERIFIED_UNCHANGED", "result": _result(result, attested),
+                            "inventory_sha256": inventory}
                 return {"status": status, "latest_session": checkpoint.session}
             _current(conn, checkpoint, pub, now=clock() if clock else None)
             return {"status": "VERIFIED", "result": _result(result, attested)}
@@ -190,12 +199,48 @@ def advance(conn, *, through, observation_id, starting_cash):
         raise
 
 
+def _refresh_unchanged_health(conn, result, verified_inventory):
+    """Repair only the auxiliary hint under a short, nonfinancial writer lock."""
+    import os, sys
+    if os.environ.get('SENTINEL_FEED_SERVICE_MODE') != 'SHADOW':
+        return
+    try:
+        from sentinel import shadow_health_projection as health, shadow_service
+        config = shadow_service.ShadowServiceConfig.from_env()
+        def unavailable(_):
+            raise ValueError('verified origin health projection is unavailable')
+        try:
+            health.health(config, fallback=unavailable)
+            return
+        except Exception:
+            pass
+        # This writes no financial state. Full content verification completed
+        # outside this lock and supplied its pinned snapshot's row inventory.
+        with journal.writer_lock(conn, recovery_only=True):
+            current_inventory, present = health._inventory(conn)
+            if not present or current_inventory != verified_inventory:
+                raise Refused('shadow inventory changed after read-only verification')
+            health.publish(config, result.to_dict(), conn)
+    except Exception as exc:
+        print('WARNING: shadow health projection unavailable: ' +
+              type(exc).__name__, file=sys.stderr, flush=True)
+    finally:
+        conn.rollback()
+
+
 def service_advance(conn, *, through, observation_id, starting_cash, acquisition_deadline=None):
     """Acquire only after checking the previous runtime authority and adjacency."""
     from sentinel import shadow_budget
     if acquisition_deadline is None:
         acquisition_deadline = shadow_budget.cutoff()
-    classified = classify(conn, observation_id=observation_id, starting_cash=starting_cash, structural_only=True)
+    classified = classify(conn, observation_id=observation_id, starting_cash=starting_cash,
+                          structural_only=True, unchanged_through=through)
+    if classified["status"] == "VERIFIED_UNCHANGED":
+        result = classified['result']
+        _refresh_unchanged_health(conn, result, classified['inventory_sha256'])
+        from sentinel.feed import retention
+        retention.maintain(conn)
+        return result
     if classified['status'] == 'NOT_STARTED':
         context = initial._context(observation_id, starting_cash)
         from sentinel.core import window_policy

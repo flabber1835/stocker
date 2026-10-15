@@ -37,7 +37,7 @@ class InformationalPaperMirrorPending(InformationalPaperMirrorRefused):
     """Expected source-final evidence is not available under this publication."""
 
 
-class InformationalPaperMirrorUnstamped(InformationalPaperMirrorPending):
+class InformationalPaperMirrorUnstamped(InformationalPaperMirrorRefused):
     """The current plan has not reached its pre-mutation stamp boundary."""
 
 
@@ -420,7 +420,7 @@ def require_pending_for_plan(
     pending = _load_row(
         conn, _pending_cursor(plan.plan_id), status=PENDING)
     if pending is None:
-        raise InformationalPaperMirrorRefused(
+        raise InformationalPaperMirrorUnstamped(
             "the dual plan has no pre-mutation PENDING stamp")
     expected = (
         plan.fingerprint(), str(sizing_authority_sha256),

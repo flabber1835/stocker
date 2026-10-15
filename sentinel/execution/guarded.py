@@ -118,6 +118,30 @@ class ManualExecutionGrant:
 
 
 @dataclass(frozen=True)
+class AttendedPaperExecutionGrant:
+    """Explicit, uncertifiable intraday rehearsal authority for one plan."""
+
+    run_id: str
+    paper_account_id: str
+    plan_id: str
+    effective_session: date
+    not_before: datetime
+    not_after: datetime
+
+    def __post_init__(self) -> None:
+        for name in ('run_id', 'paper_account_id', 'plan_id'):
+            _required_text(name, getattr(self, name))
+        if type(self.effective_session) is not date:
+            raise TypeError('attended grant requires an effective session')
+        from sentinel.feed import calendar
+        opened, closed = calendar.session_window(self.effective_session)
+        if (self.not_before.utcoffset() is None or self.not_after.utcoffset() is None
+                or not opened <= self.not_before < self.not_after <= closed
+                or self.not_after - self.not_before > timedelta(minutes=30)):
+            raise ValueError('attended paper window must fit within 30 regular-session minutes')
+
+
+@dataclass(frozen=True)
 class PaperPreparationGrant:
     """Read-only identity for preparation-time paper-account observation.
 
@@ -180,7 +204,8 @@ class AutomationExecutionGrant:
 
 
 ExecutionGrant: TypeAlias = (
-    PaperPreparationGrant | ManualExecutionGrant | AutomationExecutionGrant)
+    PaperPreparationGrant | ManualExecutionGrant | AutomationExecutionGrant
+    | AttendedPaperExecutionGrant)
 BeforeRead: TypeAlias = Callable[
     [ExecutionGrant, BrokerOperation], Awaitable[None]]
 AfterRead: TypeAlias = Callable[
@@ -210,7 +235,7 @@ class GuardedExecutionBroker(ExecutionBroker):
             self, *, inner: ExecutionBroker, grant: ExecutionGrant,
             guard: ExecutionBrokerGuard) -> None:
         if not isinstance(grant, (PaperPreparationGrant, ManualExecutionGrant,
-                                  AutomationExecutionGrant)):
+                                  AutomationExecutionGrant, AttendedPaperExecutionGrant)):
             raise TypeError("grant must be a typed execution grant")
         if not isinstance(guard, ExecutionBrokerGuard):
             raise TypeError("guard must be an ExecutionBrokerGuard")
@@ -222,6 +247,12 @@ class GuardedExecutionBroker(ExecutionBroker):
         self._unsent_proofs = {}
         self.capabilities = inner.capabilities
         self.certification_name = getattr(inner, "certification_name", None)
+        if isinstance(grant, AttendedPaperExecutionGrant):
+            # An attended test window must never become signed production
+            # authority even when its inner adapter is itself certified.
+            self.certification_name = 'attended-paper-test-only'
+            self.certified_adapter_identity = None
+            return
         from sentinel.execution.certification import (
             AdapterNotCertified, certify_wrapper)
 
@@ -314,6 +345,12 @@ class GuardedExecutionBroker(ExecutionBroker):
                 # This is deliberately after the awaited fresh database check
                 # and immediately before the non-awaited transport handoff.
                 self._grant.require_active()
+            if isinstance(self._grant, AttendedPaperExecutionGrant):
+                now_reader = getattr(self._inner, '_now', None)
+                now = now_reader() if callable(now_reader) else None
+                if (not isinstance(now, datetime) or now.utcoffset() is None
+                        or not self._grant.not_before <= now < self._grant.not_after):
+                    raise ValueError('attended paper mutation is outside its explicit window')
         except PreTransportAuthorityRefused:
             raise
         except Exception as exc:                              # noqa: BLE001
@@ -525,8 +562,13 @@ class GuardedExecutionBroker(ExecutionBroker):
                     raise ValueError("broker has no fresh timezone-aware submission clock")
                 from sentinel.feed import calendar
                 opened, closed = calendar.session_window(now.date())
-                latest = min(closed, opened + timedelta(seconds=600))
-                if not opened <= now < latest:
+                if isinstance(self._grant, AttendedPaperExecutionGrant):
+                    earliest, latest = self._grant.not_before, self._grant.not_after
+                    if now.date() != self._grant.effective_session:
+                        raise ValueError('attended plan belongs to another session')
+                else:
+                    earliest, latest = opened, min(closed, opened + timedelta(seconds=600))
+                if not earliest <= now < latest:
                     raise ValueError(
                         f"increase freshness expired at {latest.isoformat()}; "
                         f"submission time is {now.isoformat()}")
@@ -562,6 +604,7 @@ __all__ = [
     "BrokerAuthorityRefused", "BrokerOperation", "ExecutionBrokerGuard", "ExecutionGrant",
     "BrokerAuthorityCheckFailed",
     "GuardedExecutionBroker", "ManualExecutionGrant",
+    "AttendedPaperExecutionGrant",
     "PaperPreparationGrant",
     "PreTransportAuthorityRefused",
 ]

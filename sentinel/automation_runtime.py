@@ -721,7 +721,7 @@ class ProductionAutomation:
 
     def _actionable_current_plan_deltas(
             self, conn, *, plan, effective_session, observation,
-            minimum_quantity_increment) -> tuple:
+            minimum_quantity_increment, reconciliation=None) -> tuple:
         """Use retained projections; support older stamped raw dual plans."""
         if not self._dual_run_enabled:
             return _actionable_projection_deltas(
@@ -749,6 +749,23 @@ class ProductionAutomation:
                 conn, plan=plan,
                 sizing_authority_sha256=proof["sizing_authority_sha256"],
                 shadow_record_sha256=proof["shadow_record_sha256"])
+        except informational_paper_mirror.InformationalPaperMirrorUnstamped as exc:
+            deployment = DeploymentIdentity(
+                plan.deployment_id, plan.broker, plan.broker_account_id,
+                plan.takeover_epoch)
+            # Execution can lose ownership before it reaches the stamp. Only
+            # positive absence of every command for this plan permits ordinary
+            # unsent re-entry. Any durable command may represent a broker effect,
+            # including a terminal command, and still requires the exact stamp.
+            if journal.load_commands(conn, deployment, plan_id=plan.plan_id):
+                raise NonRetryableCallbackRefused(
+                    f"dual raw-plan transport has commands but no PENDING stamp: {exc}") from exc
+            observation.require_complete("unstamped unsent plan recovery")
+            if (reconciliation is None or not reconciliation.transport_ready
+                    or reconciliation.observation is not observation):
+                raise NonRetryableCallbackRefused(
+                    "unstamped unsent plan recovery requires the current "
+                    "account-bound clean transport reconciliation") from exc
         except informational_paper_mirror.InformationalPaperMirrorPending as exc:
             raise paper.PaperRetryableRefused(
                 f"dual raw-plan convergence evidence is pending: {exc}") from exc
@@ -1142,6 +1159,7 @@ class ProductionAutomation:
                             conn, plan=plan,
                             effective_session=cycle.effective_session,
                             observation=result.observation,
+                            reconciliation=result,
                             minimum_quantity_increment=(
                                 broker.capabilities
                                 .minimum_quantity_increment))
@@ -1336,6 +1354,7 @@ class ProductionAutomation:
                             conn, plan=result.plan,
                             effective_session=cycle.effective_session,
                             observation=final_reconciliation.observation,
+                            reconciliation=final_reconciliation,
                             minimum_quantity_increment=(
                                 broker.capabilities
                                 .minimum_quantity_increment))

@@ -83,7 +83,7 @@ def test_changed_archive_during_scrub_refuses_without_caching(world, monkeypatch
     assert authority._PROOF_CACHE == {}
     world.media.segment(4)
     assert authority.require(world, operation="repaired")["integrity_full_scrub"] is True
-    assert authority.require(world, operation="unchanged")["integrity_objects_hashed"] == 8
+    assert authority.require(world, operation="unchanged")["integrity_objects_hashed"] == 0
 
 
 def test_alias_introduced_after_hashing_cannot_enter_cache(world, monkeypatch):

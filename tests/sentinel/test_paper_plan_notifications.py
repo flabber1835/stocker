@@ -76,7 +76,7 @@ def test_no_false_next_open_trade_notification(conn,fault):
         'generation':"UPDATE sentinel_automation_control SET generation=2",
         'superseded':"UPDATE sentinel_execution_plans SET superseded_by='newer-plan'",
         'expired':"UPDATE sentinel_automation_cycles SET decision_close_at=clock_timestamp()-interval '4h',prepare_at=clock_timestamp()-interval '3h',execution_open_at=clock_timestamp()-interval '2h',execute_at=clock_timestamp()-interval '1h'",
-        'stale':"UPDATE sentinel_observations SET observed_at=clock_timestamp()-interval '11m'",
+        'stale':"UPDATE sentinel_observations SET observed_at=clock_timestamp()-interval '27h'",
         'incomplete':"UPDATE sentinel_observations SET completeness='INCOMPLETE'",
         'historical':"UPDATE sentinel_automation_cycles SET historical_state_only=true",
         'killed':"UPDATE sentinel_automation_control SET kill_switch_engaged=true"}

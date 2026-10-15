@@ -346,6 +346,10 @@ class AutomationService:
         self.notify = notify
         self.terminal = terminal
 
+    def _schedule(self, now: datetime):
+        """Production XNYS obligation; an isolated rehearsal may override it."""
+        return schedule.for_clock(now, self.config)
+
     def _spec(self, control, obligation) -> CycleSpec:
         binding = control.binding
         if binding is None:
@@ -954,7 +958,7 @@ class AutomationService:
                 action=TickAction.WAITING,
                 reason="canonical writer lock is busy; leadership was not acquired")
         control = store.load_control(conn)
-        obligation = schedule.for_clock(now, self.config)
+        obligation = self._schedule(now)
 
         inherited = store.oldest_nonterminal_other_generation_cycle(
             conn, control_generation=control.generation)
@@ -1430,7 +1434,7 @@ class AutomationService:
                 return TickResult(
                     action=TickAction.BLOCKED, cycle=cycle, permit=permit,
                     reason=cycle.failure_detail)
-            if not self._execution_is_fresh(now=now, cycle=cycle):
+            if self._execution_expired(now=now, cycle=cycle):
                 if cycle.state is CycleState.EXECUTING:
                     cycle = store.transition_cycle(
                         conn, permit=permit, cycle_id=cycle.cycle_id,
@@ -1450,7 +1454,8 @@ class AutomationService:
                     reason=cycle.failure_detail)
             cycle = store.transition_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
-                to_state=CycleState.RETRY_WAIT, next_wake_at=now,
+                to_state=CycleState.RETRY_WAIT,
+                next_wake_at=max(now, cycle.execute_at),
                 last_clean_reconciliation_id=
                     result.last_clean_reconciliation_id,
                 failure_code=result.failure_code,

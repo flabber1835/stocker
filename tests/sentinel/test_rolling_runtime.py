@@ -46,6 +46,55 @@ def test_first_runtime_approval_is_signed_bound_and_idempotent(conn, published):
         assert conn.execute("SELECT COUNT(*) FROM " + table).fetchone()[0] == 0
 
 
+def test_same_session_service_verifies_without_account_writer(conn, published, monkeypatch):
+    """The real service read must coexist with the execution writer at open."""
+    from sentinel.execution import journal
+    expected = advance(conn)
+    conn.rollback()
+    reads=[]
+    actual_closure=runtime._closure
+    def read_once(*args,**kwargs):
+        reads.append(True)
+        return actual_closure(*args,**kwargs)
+    monkeypatch.setattr(runtime,'_closure',read_once)
+    other = store.connect(conn.info.dsn)
+    try:
+        with journal.writer_lock(other):
+            actual = runtime.service_advance(
+                conn, through=expected.session, observation_id=OBS,
+                starting_cash=100_000)
+            assert actual.record_sha256 == expected.record_sha256
+            assert actual.verification == shadow.VERIFIED
+            assert len(reads)==1
+    finally:
+        other.rollback()
+        other.close()
+
+
+def test_removed_same_session_read_path_is_detected(conn, monkeypatch):
+    import inspect
+    from sentinel.execution import journal
+    marker = object()
+    monkeypatch.setattr(runtime, 'classify', lambda *_a, **_k:
+        {'status':'VERIFIED_UNCHANGED','result':marker,'inventory_sha256':'a'*64})
+    monkeypatch.setattr(runtime, '_refresh_unchanged_health', lambda *_a, **_k: None)
+    monkeypatch.setattr(initial, '_now', lambda _: NOW)
+    source = inspect.getsource(runtime.service_advance)
+    mutant = source.replace('if classified["status"] == "VERIFIED_UNCHANGED":', 'if False:')
+    assert mutant != source
+    namespace = dict(vars(runtime))
+    exec(mutant, namespace)
+    peer = store.connect(conn.info.dsn)
+    try:
+        with journal.writer_lock(peer):
+            args=dict(through='2026-09-14',observation_id=OBS,starting_cash=100_000)
+            assert runtime.service_advance(conn, **args) is marker
+            with pytest.raises(journal.WriterLockUnavailable):
+                namespace['service_advance'](conn, **args)
+    finally:
+        peer.close()
+
+
 def test_committed_candidate_requires_runtime_attestation(conn, published):
     initial.initialize(conn, observation_id=OBS, starting_cash=100_000)
     assert classify(conn)["status"] == "RECOVERY_REQUIRED"

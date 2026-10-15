@@ -166,7 +166,7 @@ NETWORK_CREATED=1
 # One worker owns the media lock continuously through copy, verify and replay.
 # Its finite lifetime also releases the lock when its host/Docker client dies.
 docker run -d --rm --name "$CONTAINER" --network "$NETWORK" \
-  --label sentinel.restore-drill=v1 --memory 1g --pids-limit 128 \
+  --label sentinel.restore-drill=v1 --memory 1g --cpus 0.5 --pids-limit 128 \
   -e "SENTINEL_RESTORE_TARGET_LSN=$TARGET_LSN" \
   --network-alias restored-postgres \
   -v "$LATEST:/source:ro" -v "$BACKUP_ROOT/base:/backup-lock" \
@@ -267,7 +267,7 @@ IN_RECOVERY="$(docker exec "$CONTAINER" psql -U sentinel -d sentinel -Atc \
 export SENTINEL_RESTORE_DATABASE_PASSWORD="$SENTINEL_POSTGRES_PASSWORD"
 SEMANTIC_STARTED=1
 docker run --rm --name "$CONTAINER-semantic" --label sentinel.restore-drill=v1 \
-  --network "$NETWORK" --read-only --cap-drop ALL --memory 1g --pids-limit 128 \
+  --network "$NETWORK" --read-only --cap-drop ALL --memory 1g --cpus 0.5 --pids-limit 128 \
   --security-opt no-new-privileges --tmpfs /tmp/sentinel-restore:rw,noexec,nosuid,size=16m \
   -e TMPDIR=/tmp/sentinel-restore \
   -e SENTINEL_RESTORE_DATABASE_HOST=restored-postgres \

@@ -24,8 +24,9 @@ COMPOSE = ["docker", "compose", "-f", "docker-compose.sentinel.yml",
            "-f", "docker-compose.sentinel-backup.yml"]
 IMAGE_RE = re.compile(r"(?:sha256:[0-9a-f]{64}|[A-Za-z0-9][A-Za-z0-9._/:-]*@sha256:[0-9a-f]{64})\Z")
 BASE_RE = re.compile(r"base-[0-9]{8}T[0-9]{6}Z\Z")
-RENEW_BYTES = 256 * 1024 * 1024
-RENEW_SECONDS = 12 * 3600
+RENEW_BYTES = 8 * 1024 * 1024 * 1024
+RENEW_SECONDS = 24 * 3600
+RUNTIME_CHAIN_BYTES = 16 * 1024 * 1024 * 1024
 
 
 class Refused(RuntimeError):
@@ -105,7 +106,16 @@ def renewal_due(selected, observation):
         raise Refused("primary WAL regressed")
     size = observation["segment_size"]
     footprint = (current // size - (end - 1) // size + 1) * size
-    return age >= RENEW_SECONDS or footprint >= RENEW_BYTES
+    now = datetime.fromtimestamp(observation['now'], timezone.utc)
+    prior = datetime.fromtimestamp(selected['timestamp'], timezone.utc)
+    daily = 9 <= now.hour < 12 and now.date() > prior.date() and age >= 12*3600
+    return daily or age >= RENEW_SECONDS or footprint >= RENEW_BYTES
+
+
+def heavy_work_allowed(observation):
+    now = datetime.fromtimestamp(observation['now'], timezone.utc)
+    minutes = now.hour*60 + now.minute
+    return not 12*60+30 <= minutes < 21*60
 
 
 def worker(action, image, root, observation, runner=run, request=None):
@@ -195,7 +205,7 @@ def runtime_chain_proof(output, selected, observation, root):
             or marker_segment >= per_log or marker_timeline != timeline
             or marker_index != marker_lsn_index or not start <= marker_index <= last
             or count != last-start+1 or not 1 <= count <= 1024
-            or count*size > 1024**3 or history != expected_history):
+            or count*size > RUNTIME_CHAIN_BYTES or history != expected_history):
         raise Refused("runtime chain interval contradicts selected metadata")
     first_log, first_segment = divmod(start, per_log)
     proof = dict(enabled=True, system_identifier=system_id, base_backup=name,
@@ -322,6 +332,17 @@ def _tick(root, runner, progress, started):
                 return result
     # Prerequisite work is inside the invocation's original budget. The
     # primary observation may itself be older, so this boundary is conservative.
+    if not heavy_work_allowed(observation):
+        # Keep the predecessor's current chain visible while deferring heavy
+        # allocation. This never invents a receipt for a different image/base.
+        if receipt_for(selected, observation, image, runner) is not None:
+            status = runner(['bash','scripts/sentinel-backup-status.sh','--backup',
+                             root+'/base/'+selected['name']],timeout=600)
+            publish_runtime_chain(status, selected, observe_primary(runner), root, runner)
+        result = {'maintenance_deferred': True, 'reason': 'market and daily preparation window',
+                  'base': selected['name'], 'renewal_due': renewed}
+        print(json.dumps(result, sort_keys=True))
+        return result
     first_second = observation['now'] - math.ceil(time.monotonic()-started)
     progress.update(schema='sentinel.backup-maintenance-progress/1',
         attempt=uuid.uuid4().hex, started_at=first_second,

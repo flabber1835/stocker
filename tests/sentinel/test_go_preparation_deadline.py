@@ -85,7 +85,7 @@ def test_slow_preparation_and_backup_share_original_host_deadline(
         row = c.execute("SELECT job_id,state FROM sentinel_snapshot_jobs ORDER BY created_at DESC LIMIT 1").fetchone()
         if (row and row[1] == "READY" and not renewed
                 and operation == 'operational publication preflight'):
-            authority._expected_wals("000000010000000000000000", "000000010000000000000040",
+            authority._expected_wals("000000010000000000000000", "000000010000000400000000",
                                      segment_size=16 * 1024 * 1024)
         return original_require(c, operation=operation, **kwargs)
     monkeypatch.setattr(authority, "require", horizon)

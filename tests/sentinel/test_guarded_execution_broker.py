@@ -17,6 +17,7 @@ from sentinel.execution.certification import (
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import BrokerInstrument, ExecutionBroker, Side
 from sentinel.execution.guarded import (
+    AttendedPaperExecutionGrant,
     AutomationExecutionGrant,
     BrokerAuthorityRefused,
     BrokerOperation,
@@ -38,6 +39,74 @@ INSTRUMENT = BrokerInstrument(
 DEPLOYMENT = DeploymentIdentity(
     deployment_id="sentinel-test", broker="sim",
     broker_account_id="SIM-ACCOUNT", takeover_epoch=1)
+
+
+def test_attended_grant_never_receives_production_certification():
+    from datetime import datetime,timezone,timedelta
+    from sentinel.execution.certification import certify_wrapper
+    now=datetime(2026,10,15,17,30,tzinfo=timezone.utc)
+    grant=AttendedPaperExecutionGrant('test','paper','plan',now.date(),now,now+timedelta(minutes=5))
+    inner=SimulatedBroker()
+    wrapped=Recorder().wrap(inner,grant)
+    assert wrapped.certified_adapter_identity is None
+    with pytest.raises(AdapterNotCertified):require_certified_adapter(wrapped)
+    with pytest.raises(AdapterNotCertified,match='attended'):
+        certify_wrapper(wrapped,inner,wrapper_kind='generation-fenced-execution')
+    # Falsify the restriction against a genuinely issued inner identity:
+    # without this check, a test window could obtain a wrapper certificate.
+    from sentinel.execution import certification as certification_module
+    import textwrap
+    certification_module.certify_adapter(inner,name='simulator',mode='SIMULATION')
+    source=textwrap.dedent(inspect.getsource(certification_module.certify_wrapper))
+    changed=source.replace("if isinstance(getattr(wrapper, 'grant', None), AttendedPaperExecutionGrant):",'if False:')
+    assert changed!=source
+    namespace=dict(vars(certification_module));exec(changed,namespace)
+    unsafe=namespace['certify_wrapper'](wrapped,inner,wrapper_kind='generation-fenced-execution')
+    assert unsafe.wrapper_kind=='generation-fenced-execution'
+
+
+@pytest.mark.parametrize('damage',['long','closed','naive','reversed'])
+def test_attended_grant_requires_a_short_actual_session_window(damage):
+    from datetime import datetime,timezone,timedelta
+    now=datetime(2026,10,15,17,30,tzinfo=timezone.utc)
+    start,end=now,now+timedelta(minutes=5)
+    if damage=='long':end=now+timedelta(minutes=31)
+    if damage=='closed':start,end=now+timedelta(hours=4),now+timedelta(hours=4,minutes=5)
+    if damage=='naive':start=start.replace(tzinfo=None)
+    if damage=='reversed':start,end=end,start
+    with pytest.raises(ValueError):
+        AttendedPaperExecutionGrant('test','paper','plan',now.date(),start,end)
+
+
+@pytest.mark.parametrize('attended,expired',[(False,False),(True,False),(True,True)])
+def test_intraday_window_is_explicit_and_cannot_extend_production(attended,expired):
+    from datetime import datetime,timezone,timedelta
+    from types import SimpleNamespace
+    from sentinel.execution.contract import BrokerCapabilities,CommandOutcome
+    now=datetime(2026,10,15,17,30,tzinfo=timezone.utc)
+    submitted=[]
+    async def clock():return SimpleNamespace(timestamp=now,is_open=True)
+    async def submit(**kwargs):
+        submitted.append(kwargs)
+        return CommandOutcome(CommandState.ACKNOWLEDGED,'test-order')
+    class ClockBroker:
+        capabilities=BrokerCapabilities()
+        async def market_clock(self):return await clock()
+        def _now(self):return now
+        async def submit(self,**kwargs):return await submit(**kwargs)
+    inner=ClockBroker()
+    if attended:
+        grant=AttendedPaperExecutionGrant('test','paper','plan',now.date(),
+            now-timedelta(minutes=5),now+(timedelta(0) if expired else timedelta(minutes=5)))
+    else:grant=manual_grant()
+    wrapped=Recorder().wrap(inner,grant)
+    async def attempt():return await wrapped.submit(client_key='key',instrument=INSTRUMENT,side=Side.BUY,quantity=Decimal(1))
+    if attended and not expired:
+        assert asyncio.run(attempt()).state is CommandState.ACKNOWLEDGED
+        assert len(submitted)==1
+    else:
+        with pytest.raises(PreTransportAuthorityRefused):asyncio.run(attempt())
+        assert not submitted
 
 
 @pytest.fixture(scope="module")

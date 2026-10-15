@@ -71,11 +71,16 @@ authorize current-cluster retention.
 
 Use the cluster-bound runtime selection record; never discover a different
 generation after a malformed selection. Read its bounded, nonaliased metadata.
-Renew when the selected base reaches 12 hours, its inclusive WAL footprint
-reaches 256 MiB, or the primary moves to a later timeline. The footprint uses
+The October 15 owner-approved policy renews daily in 09:00-12:00 UTC after a
+minimum 12-hour interval, falling back at 24 hours, or early when inclusive WAL
+reaches 8 GiB or the primary moves to a later timeline. The footprint uses
 the primary's current WAL position, including unarchived activity. These are
 early triggers, not a guarantee against arbitrarily fast WAL production.
-The existing 1 GiB/1024-object runtime refusal remains authoritative.
+The hard 16 GiB/1024-object runtime refusal remains authoritative. From 12:30
+through 21:00 UTC defer heavy allocation, restore and retention while continuing
+current-chain status and operational evidence publication. Deferral grants no
+new receipt or runtime authority. Restore workers are capped at half a CPU each.
+See [the approved policy and integrity interval](paper-system-rehearsal.md).
 
 A selected base with an exactly bound full semantic receipt for a different
 immutable runtime also requires renewal, as specified in

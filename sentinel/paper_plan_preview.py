@@ -6,7 +6,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 import re
 
-MAX_OBSERVATION_AGE = timedelta(minutes=10)
+# A dated estimate survives the overnight wait. This is display authority only;
+# the executor independently requires fresh broker evidence before any order.
+MAX_OBSERVATION_AGE = timedelta(hours=26)
 
 
 def quantity(value):
@@ -184,10 +186,12 @@ def read(conn, *, unnotified=False):
         identities = sorted(set(plan['target_basket']) | set(observation[0] if observation else {}))
         if len(identities)>100:
             raise ValueError('paper plan exceeds display holdings bound')
+        from sentinel import dual_plan_authority
+        sizing = dual_plan_authority.load_authority(conn, plan_id=plan['plan_id'])
+        tickers = dict(sizing['tickers']) if sizing else {}
         cur.execute("SELECT security_id,ticker FROM sentinel_bars WHERE session=%s AND security_id=ANY(%s) "
             "UNION SELECT security_id,ticker FROM sentinel_defensive_bars WHERE session=%s AND security_id=ANY(%s)",
             (plan['decision_session'],identities,plan['decision_session'],identities))
-        tickers = {}
         for sid,ticker in cur.fetchall():
             if sid in tickers and tickers[sid] != ticker:
                 raise ValueError('planned security ticker is ambiguous')

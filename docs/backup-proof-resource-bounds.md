@@ -1,5 +1,14 @@
 # Runtime archive proof resource bounds
 
+**Current policy (October 15):** the owner explicitly approved a 16 GiB /
+1,024-object ceiling and up to five minutes of process-local content-proof reuse.
+New/changed objects are double-hashed immediately; unchanged metadata is not a
+claim of immutable content. A five-minute full scrub detects silent corruption
+that preserves coarse metadata. Reuse never extends that deadline. The historical
+review and 1 GiB measurement commands below describe the previous policy; they do
+not qualify the new maximum. See [the current design and qualification
+requirements](paper-system-rehearsal.md).
+
 Step 1 review on base `3c4fb030b3ad06bc8996771479b2d68b71cb17e6`
 found two implementation gaps in `sentinel/backup_runtime_authority.py`:
 

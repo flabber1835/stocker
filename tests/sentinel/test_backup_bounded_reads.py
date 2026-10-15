@@ -76,13 +76,17 @@ def archive(pg, monkeypatch):
     authority._PROOF_CACHE.clear()
 
 
-def test_unchanged_chain_repeats_content_proof_with_real_sql(archive):
+def test_unchanged_chain_reuses_then_expires_content_proof_with_real_sql(archive,monkeypatch):
     conn, _, kwargs = archive
+    clock=[100.0]
+    monkeypatch.setattr(authority.time,'monotonic',lambda:clock[0])
     first = authority._validate_archive_objects(conn, **kwargs)
     second = authority._validate_archive_objects(conn, **kwargs)
     assert first[1:] == (2, True)
-    assert second[1:] == (2, True)
+    assert second[1:] == (0, False)
     assert first[0] == second[0]
+    clock[0]+=authority.FULL_SCRUB_SECONDS
+    assert authority._validate_archive_objects(conn, **kwargs)[1:] == (2, True)
 
 
 @pytest.mark.parametrize("change", ["growth-before-read", "missing-before-read",
@@ -122,12 +126,18 @@ def test_real_sql_changed_chain_is_retryable_and_never_cached(archive, monkeypat
     assert authority._PROOF_CACHE == {}
 
 
-def test_same_metadata_cannot_reuse_old_content_authority(archive, monkeypatch):
+def test_same_metadata_corruption_is_detected_at_full_scrub_deadline(archive, monkeypatch):
     conn, path, kwargs = archive
+    clock=[100.0]
+    monkeypatch.setattr(authority.time,'monotonic',lambda:clock[0])
     observed, _, _ = authority._validate_archive_objects(conn, **kwargs)
     # Model the documented timestamp precision collision deterministically.
     # SQL hashing still reads the actual replacement bytes from PostgreSQL.
     monkeypatch.setattr(authority, "_archive_metadata", lambda *a, **kw: observed)
     path.write_bytes(b"X" * kwargs["segment_size"])
+    # The explicitly approved five-minute interval can defer detection of
+    # same-metadata silent corruption, but reuse cannot extend its expiry.
+    assert authority._validate_archive_objects(conn, **kwargs)[1:] == (0, False)
+    clock[0]+=authority.FULL_SCRUB_SECONDS
     with pytest.raises(authority.BackupRuntimeRefused, match="SHA-256"):
         authority._validate_archive_objects(conn, **kwargs)

@@ -135,6 +135,39 @@ def service_for(cfg, *, holder="worker-a", refresh=refresh_result,
 
 
 @pytest.mark.asyncio
+async def test_early_recovery_persists_future_wake_and_executes_once_on_time(conn):
+    cfg=config()
+    enable(conn,cfg)
+    executed=[]
+    def recover(context):
+        result=recovery_success(context)
+        if context.cycle.plan_id:
+            result={**result,'disposition':'READY_TO_EXECUTE'}
+        return result
+    def execute(context):
+        executed.append(context.cycle.plan_id)
+        return execution_success(context)
+    service=service_for(cfg,recover=recover,execute=execute)
+    for _ in range(3):
+        prepared=await service.tick(conn,now=THURSDAY_BEFORE_OPEN)
+    assert prepared.cycle.state is CycleState.PLAN_READY
+    # Model an already-durable interrupted execution obligation. Recovery is
+    # read-only and may complete before the immutable execution wake.
+    for state in (CycleState.WAITING_OPEN,CycleState.EXECUTING,CycleState.RECONCILING):
+        cycle=store.transition_cycle(conn,permit=prepared.permit,
+            cycle_id=prepared.cycle.cycle_id,to_state=state)
+    recovered=await service.tick(conn,now=THURSDAY_BEFORE_OPEN)
+    assert recovered.cycle.state is CycleState.RETRY_WAIT
+    assert recovered.cycle.next_wake_at==cycle.execute_at
+    waiting=await service.tick(conn,now=THURSDAY_BEFORE_OPEN)
+    assert waiting.action is TickAction.WAITING and not executed
+    completed=await service.tick(conn,now=THURSDAY_AFTER_OPEN)
+    assert completed.cycle.state is CycleState.SUCCEEDED
+    await service.tick(conn,now=THURSDAY_AFTER_OPEN)
+    assert executed==[prepared.cycle.plan_id]
+
+
+@pytest.mark.asyncio
 async def test_idle_ticks_keep_same_live_lease_during_financial_writer_wait(conn, pg):
     import asyncio
     from sentinel.execution.journal import WRITER_LOCK_KEY

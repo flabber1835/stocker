@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = '17692efe6b2649291c4b0a9ffa2dad1bf9a6b6c8474c4fedd19a0595a7cf3d0c'
+PROFILE_SHA256 = '1c209f633b892414de1158aa6cb92159eab6b8ba18bbfb7d362a5e31b3efb73e'
 PROFILE = Path(__file__).with_name('retained-readiness-upgrade.json')
 SCOPE = frozenset({'feed/rolling_go_inputs.py',
     'paper/preparation.py', 'paper/validation.py', 'paper/execution.py'})

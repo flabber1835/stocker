@@ -1,0 +1,21 @@
+{
+  "schema": "sentinel.attended-paper-rehearsal-evidence/v1",
+  "verdict": "INCOMPLETE",
+  "verified_main": "71abaa4c158ffbeae762d7272b6204d59590fee8",
+  "paper_only": true,
+  "owner_maximum_open_usd": "5000",
+  "production_installed": false,
+  "production_submission_paused": true,
+  "original_financial_records_preserved": 22,
+  "production_commands": 0,
+  "paper_account_after_cleanup": {"cash": "49995.80", "positions": 0, "working_orders": 0},
+  "private_evidence": [
+    {"name":"provider-run-2/events.jsonl","sha256":"6f5b1b303172cc1e5f2a4c7b439ff6e64b884cffb6d5413f2ef90c2a0e5ccad8","bytes":6942},
+    {"name":"native-run-2/events.jsonl","sha256":"614fba08ebc40eebc2ac83d8afb01a0f37306da712076ab2824e724111425da2","bytes":56237},
+    {"name":"provider-cleanup-1/events.jsonl","sha256":"2c63e0d8e20c5b4d3ca003ab689c8e5e14355ac8e7eb66c196f409c0f5c91e24","bytes":6396},
+    {"name":"production-before.json","sha256":"cb8bccc8912432acbd3a394c00e85bafea8e09fe781e57e964b34a7d56f1226a","bytes":16102},
+    {"name":"production-after.json","sha256":"b93957855bf0d51b3cb97089d478190f68f06e5763f2f7eebcaec771a16a6044","bytes":15915},
+    {"name":"backup-pg16-16gib-result.json","sha256":"785cb23d49f91fb53b4ecb9529cc2478ae47987034324f437de420983f30b243","bytes":702},
+    {"name":"plan-browser-result.json","sha256":"a18e5963bea9cacbc388fa44d08604ccef18246cf82c714a752e3c0672af20d5","bytes":616}
+  ]
+}
