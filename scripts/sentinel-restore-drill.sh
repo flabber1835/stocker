@@ -202,17 +202,11 @@ done
 docker exec "$CONTAINER" psql -U sentinel -d sentinel -v ON_ERROR_STOP=1 -Atc \
   'DO $$
    BEGIN
-      IF to_regclass('"'"'public.sentinel_account_binding'"'"') IS NULL OR
-         to_regclass('"'"'public.sentinel_behavioral_schema_migrations'"'"') IS NULL OR
-         to_regclass('"'"'public.sentinel_rollout_state'"'"') IS NULL OR
-         to_regclass('"'"'public.sentinel_processed_sessions'"'"') IS NULL OR
-         to_regclass('"'"'public.sentinel_execution_plans'"'"') IS NULL THEN
-       RAISE EXCEPTION '"'"'canonical Sentinel tables are missing'"'"';
-     END IF;
      IF NOT pg_is_in_recovery() THEN
        RAISE EXCEPTION '"'"'restore drill did not enter recovery'"'"';
      END IF;
    END $$;'
+
 echo "physical_wal_replay_ready:true backup=$LATEST"
 
 record_restore_evidence() {
@@ -235,6 +229,18 @@ record_restore_evidence() {
 if [ "$PHYSICAL_ONLY" -eq 1 ]; then
   exit 0
 fi
+
+docker exec "$CONTAINER" psql -U sentinel -d sentinel -v ON_ERROR_STOP=1 -Atc \
+  'DO $$
+   BEGIN
+      IF to_regclass('"'"'public.sentinel_account_binding'"'"') IS NULL OR
+         to_regclass('"'"'public.sentinel_behavioral_schema_migrations'"'"') IS NULL OR
+         to_regclass('"'"'public.sentinel_rollout_state'"'"') IS NULL OR
+         to_regclass('"'"'public.sentinel_processed_sessions'"'"') IS NULL OR
+         to_regclass('"'"'public.sentinel_execution_plans'"'"') IS NULL THEN
+       RAISE EXCEPTION '"'"'canonical Sentinel tables are missing'"'"';
+     END IF;
+   END $$;'
 
 RUNTIME_IMAGE="${SENTINEL_RUNTIME_IMAGE_REF:-}"
 if [ -z "$RUNTIME_IMAGE" ] && \
