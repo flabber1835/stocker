@@ -72,6 +72,23 @@ verification, or changes retry/execution deadlines. Other shadow failures,
 including future or combined frontier failures, remain refusals. Existing refresh
 and preparation callbacks then use their ordinary bounded source-wait policy.
 
+Decision: 2026-10-15. The host activation producer can cross the actual close
+while preparing a retained book. GO then emits a typed, sole
+`RollingSourceFrontierPending` preparation failure instead of a bundle. Treat
+only its exact daily-catchup failure envelope as activation availability: one
+unambiguous object, exact reason/type/phase, both true attempt flags, the exact
+frontier detail and its matching SHA256, and no contradictory bundle identity.
+Reuse the existing strict preparation-failure reader. Any malformed, combined,
+future-frontier, contradictory or unrelated result still refuses.
+
+The coordinator enters its existing WAITING_FOR_READINESS loop, retaining the
+same sealed request and immutable installation receipt, releasing lifecycle
+ownership before the ordinary 60-second sleep. It reruns canonical preparation;
+it never treats the stale book as ready, changes market/execution deadlines,
+submits orders, or skips signed authority, account or restore checks. The old
+`bounded_sharadar_daily_attempted` wire field remains for compatibility; this
+classification does not select a provider or revive retired operational feeds.
+
 The already latched unsent cycle is recovered only through the existing attended
 authorization path. Extend its reviewed kinds with
 `ROLLING_SOURCE_FRONTIER_MISCLASSIFIED`, requiring no plan and the exact persisted
