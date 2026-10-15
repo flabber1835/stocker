@@ -19,6 +19,15 @@ def test_rehearsal_cannot_exceed_owner_limit(tmp_path):
             AttendedRun(output=tmp_path/limit,account_sha256='a'*64,maximum=Decimal(limit))
 
 
+def test_http_pacing_can_cross_supervised_callback_event_loops():
+    run=object.__new__(AttendedRun)
+    run.last_request=0
+    run.pacing_lock=asyncio.Lock()
+    async def batch():await asyncio.gather(run.pace(),run.pace(),run.pace())
+    asyncio.run(batch())
+    asyncio.run(batch())
+
+
 @pytest.mark.parametrize('change', [
     {'qty':'2'}, {'symbol':'QQQ'}, {'side':'sell'}, {'side':'short'},
     {'client_order_id':'not-this-run'}, {'time_in_force':'gtc'},

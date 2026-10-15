@@ -1,0 +1,101 @@
+{
+  "schema": "sentinel.paper-service-rehearsal/1",
+  "observed_at": "2026-10-15T18:40:43.738529+00:00",
+  "result": "PASS",
+  "scope": "ATTENDED_PAPER_SERVICE_AND_TRANSPORT",
+  "production_authority": false,
+  "source_sha256": "8245c3233081c74bb11becbeb10125e7c4cd5da47dfa1cfd0cca1249dd076670",
+  "commands": 22,
+  "buys": 11,
+  "sells": 11,
+  "final_command_states": {
+    "FILLED": 22
+  },
+  "provider_orders": 22,
+  "posts_per_client_key": 1,
+  "repeated_execution_new_commands": 0,
+  "positions": 0,
+  "working_orders": 0,
+  "cash": "49988.87",
+  "campaign_pnl": "-6.93",
+  "invested_cost": "2746.74",
+  "first_crash_command": "sntl-0818095717bca09f915c",
+  "crash_recovery_transitions": [
+    {
+      "previous": null,
+      "state": "PLANNED",
+      "filled": "0",
+      "at": "2026-10-15 18:29:36.613026+00:00"
+    },
+    {
+      "previous": "PLANNED",
+      "state": "SEND_PENDING",
+      "filled": "0",
+      "at": "2026-10-15 18:29:46.212200+00:00"
+    },
+    {
+      "previous": "SEND_PENDING",
+      "state": "UNKNOWN",
+      "filled": "0",
+      "at": "2026-10-15 18:31:27.923297+00:00"
+    },
+    {
+      "previous": "UNKNOWN",
+      "state": "FILLED",
+      "filled": "3",
+      "at": "2026-10-15 18:31:27.926109+00:00"
+    }
+  ],
+  "cycle_state": "SUCCEEDED",
+  "cycle_attempts": 8,
+  "execute_at": "2026-10-15 18:29:13.056418+00:00",
+  "partial_fill_or_cancel_race_observed": false,
+  "production_preservation": {
+    "observed_at": "2026-10-15T18:45:51.876023+00:00",
+    "preservation": "PASS",
+    "original_records": 22,
+    "production_commands": 0
+  },
+  "files": [
+    {
+      "private_evidence": "service-run-3/verified-completion.json",
+      "sha256": "d62df973de79b83a20f83bdd5627e6ddfdd6e8192e7488c1bc2aeefe31134027",
+      "bytes": 1352
+    },
+    {
+      "private_evidence": "service-run-3/events.jsonl",
+      "sha256": "c715250d5b1a92f980c6591340df2103b12fb5925a59f2f321bc6772ef8ecf66",
+      "bytes": 21705
+    },
+    {
+      "private_evidence": "service-run-3/native-run-closed.json",
+      "sha256": "5de0c78a1e7b28db7ea362f3d7ed77c2904223b5f1dc362cd7b2ca3d542fabfc",
+      "bytes": 172
+    },
+    {
+      "private_evidence": "service-run-3/tested-source.json",
+      "sha256": "035e91d90a9efee189e0bdc2973907e438c79c4d0f9d2f0c785483d42628a200",
+      "bytes": 43480
+    },
+    {
+      "private_evidence": "service-run-3/writer-contention.json",
+      "sha256": "8ac0992aff3904195646a161d4a70dd06e538d2d6a4fda2ae0906237027b3852",
+      "bytes": 53
+    },
+    {
+      "private_evidence": "service-run-3/whole-process-crash.json",
+      "sha256": "b511e25c15f3ce6df55b8146530f28f07e4d1cba12495572e2db9c52eaafe700",
+      "bytes": 205
+    },
+    {
+      "private_evidence": "service-run-3/provider-orders-private.json",
+      "sha256": "0d054b8e081f223f78707505e9b6ac7d39539b647fe2c2a0c5091446104cde9b",
+      "bytes": 24176
+    },
+    {
+      "private_evidence": "production-after-final.json",
+      "sha256": "4612f62917885f4645fa46e920f5f3d688b38166cb66e3b713a1b2f6a9100260",
+      "bytes": 15915
+    }
+  ]
+}

@@ -93,6 +93,10 @@ class AttendedRun:
         fcntl.flock(self.lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     async def pace(self):
+        loop=asyncio.get_running_loop()
+        if getattr(self,'_pacing_loop',None) is not loop:
+            self.pacing_lock=asyncio.Lock()
+            self._pacing_loop=loop
         async with self.pacing_lock:
             delay=0.4-(time.monotonic()-self.last_request)
             if delay>0:

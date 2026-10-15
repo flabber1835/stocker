@@ -167,6 +167,10 @@ identity are not evidence that unexercised provider transitions have worked.
     empty-account success. Forked callbacks must not use an inherited psycopg
     connection. They verify the parent's exact advisory owner through a fresh
     connection, matching backend PID, backend start and the account lock key.
+    HTTP pacing also creates a fresh lock for each actual event loop; a forked
+    callback cannot reuse its parent's loop-bound asyncio lock. The last
+    recorded request time is retained when a new loop is created; requests
+    in each active loop share one pacing lock.
     Parent death or lost ownership prevents subsequent mutations. Preserve the
     first service fixture as FAIL: it produced no orders and its empty-plan
     terminal state is not evidence that the basket succeeded.
@@ -188,10 +192,10 @@ Wealth Core state. The original USD 50,000 account value is retained as an
 independent provider fact; the test allocation is explicitly labelled.
 
 Completion requires the real automation state machine, canonical plan adapter,
-PostgreSQL journal, reconciliation and executor body. The implemented provider
-and native-journal probes do not yet complete the automation-state-machine
-campaign. The intended transport
-boundary independently requires the owner-approved account, exclusive test
+PostgreSQL journal, reconciliation and executor body. The final service campaign
+completed that boundary on October 15; earlier probes retain their narrower
+scopes and failed attempts remain failures. The attended transport boundary
+independently requires the owner-approved account, exclusive test
 ownership, production disabled and killed, the real open session, the exact
 durable test command, fresh prices, cash, long-only quantities and the USD 5,000
 cap including working purchases. Production's signed activation, database-
@@ -212,26 +216,47 @@ fill or cancellation race occurred unless the native evidence actually shows it.
 
 ## Required qualification record
 
-The native SPY restart probe passed: process death after provider acceptance left
-SEND_PENDING; exact-key recovery reached FILLED without another purchase. The
-larger canonical basket has **not** passed. Five buys filled, then the test HTTP
-guard refused ATEX with a 34.7-second quote. Placing that local guard inside the
-adapter caused the conservative adapter to retain UNKNOWN. Native absence is
-not finality evidence and that record was not rewritten. Five confirmed holdings
-were closed through the separately journalled, explicitly owner-authorized API
-probe cleanup. The combined ledgers reconcile; the failed native journal is
-closed to further use. The candidate now checks the attended grant through the
-canonical GuardedExecutionBroker before calling the adapter, with an exact,
-single-use HTTP ticket. A refusal at that boundary uses the executor's existing
-one-use proof of no transport. Targeted tests pass; real-provider basket
-requalification uses the now-approved isolated schedule. Do not fabricate
-a broker rejection or retroactively restore UNKNOWN to PLANNED.
+The final service campaign passed at 18:36:11 UTC, with independent provider,
+journal and source verification at 18:40:43 UTC. The actual AutomationService
+prepared the 11-stock canonical basket from the authenticated October 14 book
+using the USD 5,000 purse. A real PostgreSQL writer conflict refused before any
+command, then read-only recovery resumed ordinary execution. After Alpaca
+accepted the first buy, the callback process exited before journalling its
+acknowledgement and the owning test container was killed. A new process waited
+for the real database lease expiry, acquired a new fence, and recovered that
+exact client key through SEND_PENDING -> UNKNOWN -> FILLED. There was one POST
+for that key, and one per other command.
 
-The owner approved both scheduling decisions following automatic approval
-review. Early READY_TO_EXECUTE recovery is a source edge-case finding, not the
-observed cause of the October 15 miss. Its repair and the isolated intraday
-profile require targeted falsifiers and actual service rehearsal before review
-readiness; approval is not a qualification result.
+All 11 buys filled, the durable cycle reached SUCCEEDED, and repeated execution
+created zero new commands. An ordinary native cleanup plan filled 11 sells.
+Independent provider reads confirmed 22 matching filled orders, zero positions,
+zero working orders and exact journal/provider cash of USD 49,988.87. The final
+campaign cost USD 6.93 from its USD 49,995.80 starting balance. Every captured
+runtime source digest remained unchanged through completion. At 18:45:51 UTC,
+all 22 original production records and histories were preserved, production had
+zero commands, and automatic production submission remained disabled/killed.
+
+The first native basket attempt remains FAIL: five buys filled before an ATEX
+quote-age refusal inside its test adapter retained UNKNOWN. A separate attended
+ledger closed the five known holdings; that failed journal was never rewritten.
+The first supervised service fixture remains FAIL with zero orders because its
+callback-local plan did not survive the fork. Durable callback reloads and
+fresh child ownership checks repair that harness boundary. The second service
+fixture exercised protected refusal during the later Alpaca quote outage and
+correctly expired without transport. The third, final campaign above is the
+positive full-basket result. No provider partial fill or cancellation/fill race
+was observed; deterministic tests cover those cases without a provider claim.
+
+The owner approved the scheduling decisions following automatic approval
+review. Early READY_TO_EXECUTE recovery is an additional source edge-case
+finding, not the observed cause of the October 15 miss. Actual PostgreSQL tests
+verify its future wake and exactly one execution at the intended time. A pacing
+reproducer failed with the inherited event-loop lock before the repair and
+passed afterward; all 43 final attended harness tests passed. Full qualification
+commands and non-secret evidence digests are in
+[the scenario ledger](../audit/paper_system_rehearsal_20261015/README.md).
+The attended result supplies no signed production authority. New after-close
+provider input and the next production open remain future operational checks.
 
 Keep a scenario ledger with expected transitions, actual provider evidence,
 command identities, timestamps, cleanup, result and untested limits. Cover:

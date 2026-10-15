@@ -1,8 +1,9 @@
 # October 15 incident and attended paper rehearsal
 
-**INCOMPLETE: not a trading-readiness or installation certificate.**
+**Attended paper service rehearsal: PASS. Release CI and certified deployment
+remain separate gates; this is not a production trading certificate.**
 Verified main: `71abaa4c158ffbeae762d7272b6204d59590fee8`.
-[Design, incident timeline and pending decisions](../../docs/paper-system-rehearsal.md).
+[Design and incident timeline](../../docs/paper-system-rehearsal.md).
 
 The overnight leader interruption overlapped a restore drill. The same worker
 reacquired its lease; no container restart, OOM kill or Windows sleep was seen.
@@ -28,16 +29,22 @@ it does not repeat a backup or hold the lock during a full book scan.
 | Actual process death before journal acknowledgement | PASS; SEND_PENDING recovered without duplicate purchase |
 | Repeated settled native SPY execution | PASS; no extra command |
 | Canonical book scaled to $5,000 test purse | PASS; authenticated book, 11 nonzero stock targets |
-| Full canonical basket execution | FAIL; five buys filled; next attempt locally refused on ATEX quote age 34.7s, retained UNKNOWN |
+| First native basket attempt | FAIL; five buys filled; ATEX quote-age refusal retained UNKNOWN |
+| Final canonical service basket | PASS; 11 buys filled, actual writer refusal and recovery, terminal cycle SUCCEEDED |
+| Full-process crash and restarted service | PASS; accepted first buy recovered after lease expiry, one POST per key |
+| Final native cleanup and independent account reconciliation | PASS; 11 sells filled, flat, no working orders, cash USD 49,988.87 |
 | Owner-authorized cleanup of five confirmed holdings | PASS; flat, no open orders; combined ledgers reconcile |
-| Full service schedule, close/preparation and notifications | INCOMPLETE; intraday scheduling approval pending |
+| Actual service preparation, schedule and retries | PASS under the approved isolated intraday profile |
+| Push notification gateway delivery | PASS; HTTP 201, phone display unobserved |
+| New after-close data and next production open | Future operational checks; no result claimed |
 | Native partial fill / cancel-fill race | Not observed; no provider PASS claimed |
 
-Independent Alpaca read at **16:07:19 UTC**: cash/equity **$49,995.80**,
-positions **0**, open orders **0**. The native failure journal retains UNKNOWN;
-cleanup is in a separate attended ledger. This is not clean native
-reconciliation, and that failed run is closed to further use. Production stays
-disabled/killed for the rehearsal and owner account reset. No installation.
+Independent final Alpaca read at **18:40:43 UTC**: cash **$49,988.87**,
+positions **0**, open orders **0**. All 22 final native commands and corresponding
+provider orders are FILLED. The earlier failed native journal separately retains
+UNKNOWN and is closed to reuse; its cleanup is in a distinct attended ledger.
+Production stays disabled/killed pending the qualified release and supported
+account reconciliation. No installation is claimed here.
 
 ## Backup and rendering evidence
 
@@ -153,7 +160,7 @@ python -m pytest tests/sentinel/test_automation_service.py::test_early_recovery_
 1 passed
 ```
 
-## Remaining acceptance
+## Approved timing and additional qualification
 
 The owner approved the early-recovery wait and isolated intraday service
 schedule. The implementation has an explicit short paper-only grant that cannot
@@ -196,9 +203,48 @@ parent's exact advisory owner using a fresh connection rather than an inherited
 psycopg connection. The second fixture's protected refusal during the provider
 outage is recorded above; it is not a positive campaign completion.
 
-Requalify the repaired boundary, finish the full basket in a fresh journal once
-actual fresh quotes return, and exercise
-actual service transitions, restart, concurrency, close/preparation and
-notification delivery. Preserve the failed journal. Complete exact-head CI
-before review readiness. Installation/activation also requires signed release
-certification and reconciliation after the owner's paper-account reset.
+## Final service completion
+
+Fresh provider quotes were observed again at 18:22 UTC; the final run retained
+the normal quote freshness checks. It prepared the authenticated canonical book
+into a new isolated execution journal. A real competing writer refused before
+command creation. Read-only recovery then reached the scheduled intraday
+execution. At 18:29:50 UTC Alpaca accepted the first buy. The callback exited
+before acknowledgement persistence; the named owning test container was then
+killed. Its successor waited for the actual PostgreSQL lease to expire and
+recovered the exact command through SEND_PENDING -> UNKNOWN -> FILLED without
+resubmission. All 11 buys filled. The cycle reached SUCCEEDED and a subsequent
+tick created zero new commands. A native cleanup plan filled 11 sells and ended
+at 18:36:11 UTC.
+
+Independent verification matched all 22 native orders to actual provider IDs,
+asset IDs, side, quantity, fills and price. Each key had exactly one POST. Cash
+reconciled exactly to USD 49,988.87, a USD 6.93 cost for this final campaign.
+All 393 captured runtime files retained their tested digests. A final read-only
+comparison at 18:45:51 UTC preserved all 22 original production financial records,
+plans, binding, cycles and events, with zero production commands. The final run
+is closed to reuse. Non-secret receipts and private evidence hashes are in
+[service_completion_evidence.json](service_completion_evidence.json).
+
+The final pacing change has a reproducer that failed before the repair with an
+event-loop ownership error and passed afterward. Final targeted runs:
+
+```text
+python -m pytest tests/sentinel/test_paper_service_rehearsal.py tests/sentinel/test_native_paper_rehearsal.py tests/sentinel/test_live_paper_rehearsal.py tests/sentinel/test_rolling_runtime.py tests/sentinel/test_shadow_health_projection.py -q --tb=short -p no:cacheprovider
+87 passed; 23m07s, production worker/health source unchanged thereafter
+
+python -m pytest tests/sentinel/test_live_paper_rehearsal.py::test_http_pacing_can_cross_supervised_callback_event_loops -q --tb=short -p no:cacheprovider
+Failed before the fix, 1 passed after the fix
+
+python -m pytest tests/sentinel/test_paper_service_rehearsal.py tests/sentinel/test_native_paper_rehearsal.py tests/sentinel/test_live_paper_rehearsal.py -q --tb=short -p no:cacheprovider
+43 passed on the final tested runtime bytes
+```
+
+## Remaining release gates
+
+Complete exact-head CI before review readiness. Installation and activation
+require the signed release gates and supported account reconciliation; the owner
+plans to reset the paper account. New after-close data and the next production
+open remain future operational checks. No actual partial fill or cancellation/
+fill race was observed. The final attended result does not certify those paths
+or grant production authority.
