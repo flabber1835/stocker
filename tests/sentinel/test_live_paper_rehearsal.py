@@ -94,7 +94,7 @@ def test_missing_owner_refuses_even_when_production_is_paused(tmp_path,monkeypat
     source=textwrap.dedent(inspect.getsource(AttendedRun.production_fenced))
     start=source.index('    if self.owner_connection is None:')
     end=source.index('    c = store.connect',start)
-    weakened=source[:start]+source[end:]
+    weakened=source[:start]+'    inherited=False\n'+source[end:]
     namespace=dict(vars(module));exec(weakened,namespace)
     assert MethodType(namespace['production_fenced'],run)() is None
 

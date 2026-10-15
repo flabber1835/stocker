@@ -37,7 +37,7 @@ class InformationalPaperMirrorPending(InformationalPaperMirrorRefused):
     """Expected source-final evidence is not available under this publication."""
 
 
-class InformationalPaperMirrorUnstamped(InformationalPaperMirrorPending):
+class InformationalPaperMirrorUnstamped(InformationalPaperMirrorRefused):
     """The current plan has not reached its pre-mutation stamp boundary."""
 
 

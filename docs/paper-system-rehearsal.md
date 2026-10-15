@@ -125,8 +125,49 @@ identity are not evidence that unexercised provider transitions have worked.
     exact-request ticket issued after those checks, rather than repeating
     refusable quote I/O inside submit. Keep the real adapter's capabilities,
     clock, next-open window and certification requirements intact. This fixes
-    test-boundary placement without granting the still-unapproved intraday
-    schedule. Existing UNKNOWN records remain untouched.
+    test-boundary placement. Existing UNKNOWN records remain untouched.
+12. The owner approved the remaining timing changes on October 15. A clean
+    READY_TO_EXECUTE recovery before execute_at enters RETRY_WAIT with its wake
+    at execute_at; only expiry beyond the existing upper cutoff supersedes it.
+    Recovery never itself submits. The default service obligation remains XNYS;
+    a private overridable schedule method permits an isolated test service to
+    use a persisted intraday slot, with real wall time and PostgreSQL time.
+13. Intraday tests use a distinct AttendedPaperExecutionGrant naming one run,
+    account, plan, effective session and at most 30 minutes within the real XNYS
+    session. The canonical guard keeps instrument, clock, quote, cash and
+    pre-transport checks, but applies this explicit window to attended grants.
+    That grant never receives a composition-issued certification identity.
+    A tools-only Alpaca subclass reads actual IEX quotes using the canonical
+    parser throughout the approved test window; only quote-acquisition timing
+    differs. It fixes the PAPER endpoint and inherits the actual submit,
+    cancellation, lookup and observation implementations. Production's adapter,
+    quote acquisition window, default schedule and late cutoff are unchanged.
+    Fresh owner/budget/paused-production checks remain mandatory per mutation.
+14. The isolated service campaign reuses AutomationService and its durable
+    cycles, lease, heartbeat, retries and recovery. Its callbacks authenticate
+    the copied publication/book, build the canonical allocated plan, and use
+    the native execution journal, reconciliation and executor body. They have
+    no signed production activation authority. Record real service concurrency,
+    pre-transport writer refusal, recovery and restart separately from provider
+    probes and deterministic fault tests. Test scheduling and paper fills must
+    never appear as production strategy history.
+15. Unchanged-session verification must retain the existing bounded garbage
+    collection pass; skipping it strands obsolete price payload. Run that pass
+    after the read-only verification has ended, through its existing best-effort
+    ownership and pin checks. Defer its writer acquisition from 15 minutes
+    before the actual XNYS open through 10 minutes after it, so neither a cold
+    backup proof nor cleanup competes with opening execution. This deferral
+    grants no financial authority and never changes retention pins or bounds.
+16. Production supervision forks each callback. The attended callbacks must
+    therefore reload their plan and native instrument mapping from durable
+    evidence at every boundary; no parent object mutation is a handoff. A
+    post-prepare recovery without that exact plan is a refusal, never a clean
+    empty-account success. Forked callbacks must not use an inherited psycopg
+    connection. They verify the parent's exact advisory owner through a fresh
+    connection, matching backend PID, backend start and the account lock key.
+    Parent death or lost ownership prevents subsequent mutations. Preserve the
+    first service fixture as FAIL: it produced no orders and its empty-plan
+    terminal state is not evidence that the basket succeeded.
 
 The owner explicitly approved decision 6, including its five-minute integrity
 interval and 8/16 GiB limits, and decision 8's exact compatibility-profile updates
@@ -181,16 +222,14 @@ closed to further use. The candidate now checks the attended grant through the
 canonical GuardedExecutionBroker before calling the adapter, with an exact,
 single-use HTTP ticket. A refusal at that boundary uses the executor's existing
 one-use proof of no transport. Targeted tests pass; real-provider basket
-requalification remains pending the isolated schedule approval. Do not fabricate
+requalification uses the now-approved isolated schedule. Do not fabricate
 a broker rejection or retroactively restore UNKNOWN to PLANNED.
 
-Two scheduling decisions remain pending explicit owner approval following
-automatic approval review. A READY_TO_EXECUTE recovery before execute_at should
-wait for execute_at while preserving the upper lateness cutoff. This is a source
-edge-case finding, not the observed cause of the October 15 miss. An isolated
-test schedule should select an actual intraday regular-session slot while the
-production XNYS schedule remains unchanged. Neither production scheduling
-change nor the proposed test seam is implemented in this draft.
+The owner approved both scheduling decisions following automatic approval
+review. Early READY_TO_EXECUTE recovery is a source edge-case finding, not the
+observed cause of the October 15 miss. Its repair and the isolated intraday
+profile require targeted falsifiers and actual service rehearsal before review
+readiness; approval is not a qualification result.
 
 Keep a scenario ledger with expected transitions, actual provider evidence,
 command identities, timestamps, cleanup, result and untested limits. Cover:

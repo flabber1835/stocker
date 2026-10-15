@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = 'c646f7d9365392604eb8b94f76c49ad85bfa1b14968932ed81ded776167d3030'
+PROFILE_SHA256 = 'b7f8f033a61aa06eb24fcbf0cecca000d892830e20dd619a354e780cc6741fc0'
 PROFILE = Path(__file__).with_name('callback-liveness-upgrade.json')
 SCOPE = frozenset({'automation/health.py', 'automation/service.py',
                    'automation/store.py', 'automation_supervisor.py',

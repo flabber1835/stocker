@@ -1,6 +1,7 @@
 """Current checkpoint pins, unattended retry, and database restore after GC."""
 import subprocess
 import uuid
+import pytest
 
 from sentinel import rolling_runtime as runtime
 from sentinel.feed import retention, rolling_store, runtime_schema
@@ -12,6 +13,40 @@ from tests.sentinel.test_rolling_daily import refresh
 from tests.support.postgres import _find_pg_bin
 
 __all__ = ['conn', 'pg', 'source', 'operational_source', 'issuer_source', 'published', 'ready']
+
+
+@pytest.mark.parametrize('instant,expected',[
+    ('2026-10-15T13:14:59+00:00',False),('2026-10-15T13:15:00+00:00',True),
+    ('2026-10-15T13:39:59+00:00',True),('2026-10-15T13:40:00+00:00',False),
+    ('2026-11-16T14:20:00+00:00',True),('2026-10-17T13:30:00+00:00',False)])
+def test_retention_opening_deferral_follows_actual_xnys(instant,expected):
+    from datetime import datetime
+    assert retention.opening_execution_due(datetime.fromisoformat(instant)) is expected
+
+
+def test_opening_deferral_precedes_writer_and_has_a_removal_falsifier(monkeypatch):
+    from types import SimpleNamespace
+    from contextlib import contextmanager
+    from sentinel.execution import journal
+    from datetime import datetime
+    class Clock:
+        @staticmethod
+        def now(*_):return datetime.fromisoformat('2026-10-15T13:31:00+00:00')
+    monkeypatch.setattr(retention,'datetime',Clock)
+    conn=SimpleNamespace(info=SimpleNamespace(transaction_status=SimpleNamespace(value=0)),
+        execute=lambda *_a,**_k:None,commit=lambda:None,rollback=lambda:None)
+    acquired=[]
+    @contextmanager
+    def writer(_):
+        acquired.append(True)
+        raise RuntimeError('writer acquisition detected')
+        yield
+    monkeypatch.setattr(journal,'writer_lock',writer)
+    assert retention.maintain(conn)['status']=='DEFERRED'
+    assert not acquired
+    monkeypatch.setattr(retention,'opening_execution_due',lambda _:False)
+    assert retention.maintain(conn)['status']=='RETRY'
+    assert acquired==[True]
 
 
 def test_checkpoint_handoff_releases_origin_prices_and_restore_keeps_current_closure(

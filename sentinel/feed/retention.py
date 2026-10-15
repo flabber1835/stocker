@@ -1,5 +1,6 @@
 """Incremental maintenance. Owns an idle connection; failures only retain data."""
 import logging
+from datetime import datetime,timedelta,timezone
 
 from sentinel.feed import rolling_jobs, rolling_store, store
 from sentinel.feed.rolling_contract import canonical_json
@@ -17,6 +18,16 @@ RETIRED_PAYLOAD_QUERY = (
     "(SELECT TRUE FROM sentinel_snapshot_benchmarks b WHERE b.candidate_id=r.candidate_id "
     "ORDER BY b.session LIMIT 1),FALSE) "
     "ORDER BY r.retired_at,r.candidate_id LIMIT 1")
+
+
+def opening_execution_due(now):
+    """Keep bounded disposal and its backup proof away from the US open."""
+    from sentinel.feed import calendar
+    day=now.astimezone(timezone.utc).date()
+    if not calendar.sessions_in_range(day,day):
+        return False
+    opened,_=calendar.session_window(day)
+    return opened-timedelta(minutes=15)<=now<opened+timedelta(minutes=10)
 
 
 def _pass(conn, *, batch_rows):
@@ -113,6 +124,8 @@ def maintain(conn, *, batch_rows=BATCH_ROWS):
         raise RuntimeError("retention requires an idle connection")
     if not 1 <= batch_rows <= 50000:
         raise ValueError("retention batch must be in 1..50000")
+    if opening_execution_due(datetime.now(timezone.utc)):
+        return dict(status='DEFERRED',reason='OPENING_EXECUTION_WINDOW',more_work=True)
     try:
         with writer_lock(conn), store.corpus_write_lock(conn):
             conn.execute("SET LOCAL lock_timeout='250ms'")

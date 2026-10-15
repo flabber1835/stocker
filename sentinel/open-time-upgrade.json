@@ -87,17 +87,49 @@
         "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       ]
     },
+    "automation/service.py": {
+      "before": [
+        "16177ffeb2b863b51081e981674d97a1fe58a20ede7c53b4a154baf61c0d3a49",
+        "36d52f91852f7dac249c94be567191bf86f4e9502c51bde452e15bf81f70d469",
+        "4df9d459b8e12aff63cb6c6acf88b8fa876a85d2189259cbbed6c769d2f61b3a",
+        "8ae5efc91f0f9b45d1e94b96013e7ca6ffd5bd66f3558de0ad0ffa72a76aac93",
+        "9b9e7366505dd94ea4c75927cf1af9537ab3bcdde786e787de3f4df79957bfcb",
+        "b4d0708fe1b38f966de8d5675fc12e6bb4321ba46582d4c266a1f56c16d79d1e",
+        "cf04f5762961da8fc507a8a78aa7c53ccb61c03c6c4c16e98dba990b29d472d7",
+        "d9af5e1e1fb111b376ec577a57a0cc8ea71fab085471663986aaa4dc08430b48"
+      ],
+      "after": "8ae5efc91f0f9b45d1e94b96013e7ca6ffd5bd66f3558de0ad0ffa72a76aac93"
+    },
     "backup_runtime_authority.py": {
       "before": [
         "117a9268c1893879e7f60bce5d640fe9c69d4497fce608ed0ff23bbe245433f1"
       ],
       "after": "350b8d4edb1d2af9da0ddfa5680ffeed30bad945206ad39a140c5a36fc79f3d4"
     },
+    "execution/certification.py": {
+      "before": [
+        "93ef057d8084a7e15de602174af7159191c877f67069520ca88dce7d480a962c"
+      ],
+      "after": "f96965908db32e1a4510eadf0c968260f5542329e7372519b3ef058a3478cde4"
+    },
+    "execution/guarded.py": {
+      "before": [
+        "0dbcac8e6210ac9827050cd9710fdd5d58ac69993c671e92650f32a989b2eb9c"
+      ],
+      "after": "2a8bf2830703fafae9ec29b5538a93775bd2e9ee3e41a7ab05bec796aa134b2c"
+    },
+    "feed/retention.py": {
+      "before": [
+        "55ee9ab3dc3e2b424b2fd61ce9cdabf06ad172ea480c94ff77bbca29d175fd0d",
+        "7a7c1a032ab00148eebcd155d9bb85b789723c1a9a0e099855cc9938fbf1d8a9"
+      ],
+      "after": "5aaa7df46a78f9a61c881d1e523466165abd69e1d21e147cd2a26b2ec81b84db"
+    },
     "informational_paper_mirror.py": {
       "before": [
         "885b977e99c573aa8c84cb6b07c6e6bed9c1dc8bb6324237a4ce57f70ead590a"
       ],
-      "after": "afb74d2723e37dbdb3f242f55a8160ae0f58d5360772c9eb6b84094d355dabda"
+      "after": "e99ec7248dd08a7b01d7ddf7ad9fd7817c8c896b20fb9955ea76c132834a800d"
     },
     "paper_plan_preview.py": {
       "before": [
@@ -107,11 +139,12 @@
     },
     "rolling_runtime.py": {
       "before": [
+        "1140c2ff3b0fcf3bd758c4d03a1e4d37402c263102b9fcce16c8dc625191227f",
         "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777"
       ],
-      "after": "7275633d339935577ba74ee411cdccfdbbf28687f9f501d7d07eb5b62b395592"
+      "after": "f63e920c79fdd61bb1324ad32758be0dc01b3de4354254d22be2b7467f365da5"
     }
   },
-  "module_sha256": "3321261bace5688ee07c85419a93c6ec623465dc1d7aa038fcf5d7a6c3470e58",
+  "module_sha256": "ad5b56636b4e2eb41bec6ffa2f8991d4403e448221603db3a9871322f2903c76",
   "schema": "sentinel.open-time-upgrade/1"
 }

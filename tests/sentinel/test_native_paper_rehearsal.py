@@ -51,6 +51,13 @@ def test_native_checks_run_before_inner_submit_and_prove_no_transport(monkeypatc
     command=SimpleNamespace(client_key='owned',state=CommandState.SEND_PENDING,
         instrument=instrument,side=Side.BUY,quantity=Decimal(1))
     run=object.__new__(NativeRun)
+    from datetime import datetime,timezone
+    instant=datetime(2026,10,15,17,30,tzinfo=timezone.utc)
+    class Clock(datetime):
+        @classmethod
+        def now(cls,*_):return instant
+    monkeypatch.setattr(module,'datetime',Clock)
+    run.run_id='isolated-test'
     run._transport_ticket=None
     @contextmanager
     def connect():yield object()
@@ -58,6 +65,7 @@ def test_native_checks_run_before_inner_submit_and_prove_no_transport(monkeypatc
     run.production_fenced=lambda:None
     monkeypatch.setattr(module.binding,'require',lambda _:SimpleNamespace(broker_account_id='paper',identity='bound'))
     monkeypatch.setattr(module.journal,'load_commands',lambda *_a,**_k:[command])
+    monkeypatch.setattr(module.journal,'latest_plan',lambda _:SimpleNamespace(plan_id='plan'))
     checked=[];submitted=[]
     async def authorize_command(method,url,body):
         checked.append(body)
@@ -67,7 +75,7 @@ def test_native_checks_run_before_inner_submit_and_prove_no_transport(monkeypatc
         submitted.append(kwargs)
         await run.authorize('POST',PAPER+'/v2/orders',checked[-1])
         return CommandOutcome(CommandState.ACKNOWLEDGED,'native-id')
-    raw=SimpleNamespace(capabilities=BrokerCapabilities(),submit=submit)
+    raw=SimpleNamespace(capabilities=BrokerCapabilities(),submit=submit,_now=lambda:instant)
     wrapped=run.guarded(raw,SimpleNamespace(plan_id='plan',effective_session=__import__('datetime').date(2026,10,15)))
     assert wrapped.capabilities is raw.capabilities
     if refused:

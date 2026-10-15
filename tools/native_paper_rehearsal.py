@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
 import os
@@ -22,7 +22,7 @@ from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.guarded import (
     BrokerOperation, ExecutionBrokerGuard, GuardedExecutionBroker,
-    ManualExecutionGrant, PreTransportAuthorityRefused)
+    AttendedPaperExecutionGrant, PreTransportAuthorityRefused)
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import store
 from tools.live_paper_rehearsal import AttendedRun, PAPER, Refused
@@ -31,6 +31,35 @@ from tools.live_paper_rehearsal import AttendedRun, PAPER, Refused
 def require_open_native_run(output):
     if (output/'native-run-closed.json').exists():
         raise Refused('native test run is closed; preserve its evidence and use a fresh test journal')
+
+
+class RehearsalAlpacaBroker(AssetIdAlpacaExecutionBroker):
+    """Actual PAPER transport with explicitly intraday quote acquisition."""
+
+    def __init__(self,run,*,resolve_security_id=None):
+        self.run=run
+        super().__init__(api_key=os.environ['ALPACA_API_KEY'],
+            secret_key=os.environ['ALPACA_SECRET_KEY'],base_url=PAPER,
+            http_provider=run.provider,resolve_security_id=resolve_security_id)
+
+    async def opening_prices(self,*,session,instruments):
+        import httpx
+        from sentinel.execution.opening_prices import QUOTE_ENDPOINT,FEED,parse_quotes
+        from sentinel.feed import calendar
+        self.run.production_fenced()
+        opened,closed=calendar.session_window(session)
+        if not opened<=self._now()<closed:
+            raise Refused('attended quotes require the actual regular session')
+        if not instruments or len(instruments)>40:
+            raise Refused('invalid attended quote request')
+        symbols={sid:self._to_symbol(item.symbol) for sid,item in instruments.items()}
+        async with httpx.AsyncClient(timeout=20) as client:
+            response=await client.get(QUOTE_ENDPOINT,headers=self._headers(),
+                params={'symbols':','.join(sorted(symbols.values())),'feed':FEED})
+            response.raise_for_status()
+            payload=response.json(parse_float=Decimal)
+        return parse_quotes(payload,session=session,instruments=instruments,
+            observed_at=self._now(),broker_symbols=symbols)
 
 
 class NativeRun(AttendedRun):
@@ -103,15 +132,23 @@ class NativeRun(AttendedRun):
 
     def guarded(self,raw,plan):
         with self.connect() as conn:bound=binding.require(conn)
-        grant=ManualExecutionGrant(confirm_paper_account=bound.broker_account_id,
-            confirm_plan_id=plan.plan_id,confirm_effective_session=plan.effective_session,
-            confirm_submit_paper_orders=True)
+        from sentinel.feed import calendar
+        opened, closed=calendar.session_window(plan.effective_session)
+        now=datetime.now(timezone.utc)
+        grant=AttendedPaperExecutionGrant(run_id=self.run_id,
+            paper_account_id=bound.broker_account_id,plan_id=plan.plan_id,
+            effective_session=plan.effective_session,
+            not_before=max(opened,now-timedelta(seconds=1)),
+            not_after=min(closed,now+timedelta(minutes=29)))
         async def before_read(*_):self.production_fenced()
         async def after_read(*_):self.production_fenced()
         async def before_mutation(_grant,operation):
             self._transport_ticket=None
             with self.connect() as conn:
                 current=binding.require(conn)
+                latest=journal.latest_plan(conn)
+                if latest is None or latest.plan_id!=_grant.plan_id:
+                    raise Refused('attended grant does not name the current durable plan')
                 commands=journal.load_commands(conn,current.identity,
                     states=((CommandState.SEND_PENDING,) if operation is BrokerOperation.SUBMIT
                             else (CommandState.CANCEL_PENDING,)))
@@ -179,8 +216,7 @@ class NativeRun(AttendedRun):
         self.account_id=str(account.get('account_number') or account['id'])
         if not self.saved and (positions or orders):
             raise Refused('new native rehearsal requires a flat account')
-        broker=AssetIdAlpacaExecutionBroker(api_key=os.environ['ALPACA_API_KEY'],
-            secret_key=os.environ['ALPACA_SECRET_KEY'],base_url=PAPER,http_provider=self.provider)
+        broker=RehearsalAlpacaBroker(self)
         instrument=await broker.resolve_instrument(security_id='SPY',symbol='SPY')
         self.asset_id=instrument.broker_id
         conn=self.connect()

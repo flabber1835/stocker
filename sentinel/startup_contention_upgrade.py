@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = '22f9cddd7036a5353a4a1e51c8d24c4872dea1c3353227f1d685055725fcf11f'
+PROFILE_SHA256 = '5e1d922590412b3ca51ba0988b7d88067e6d51cc03e832fd8086d1fbe4109cf1'
 PROFILE = Path(__file__).with_name('startup-contention-upgrade.json')
 SCOPE = frozenset({'automation/service.py', 'automation_runtime.py',
                    'panel/model.py', 'panel/sources.py'})

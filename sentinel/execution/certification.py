@@ -279,6 +279,10 @@ def certify_adapter(value, *, name: str,
 def certify_wrapper(wrapper, inner, *, wrapper_kind: str
                     ) -> CertifiedAdapterIdentity:
     """Bind a canonical wrapper to the already certified inner instance."""
+    if wrapper_kind == 'generation-fenced-execution':
+        from sentinel.execution.guarded import AttendedPaperExecutionGrant
+        if isinstance(getattr(wrapper, 'grant', None), AttendedPaperExecutionGrant):
+            raise AdapterNotCertified('attended paper grants cannot receive production certification')
     spec = _WRAPPER_SPECS.get(wrapper_kind)
     if spec is None:
         raise AdapterNotCertified(

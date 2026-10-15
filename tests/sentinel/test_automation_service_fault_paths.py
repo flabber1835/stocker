@@ -600,6 +600,42 @@ def test_missing_activation_binding_cannot_construct_an_executable_cycle():
         service._spec(SimpleNamespace(binding=None), object())
 
 
+@pytest.mark.parametrize('restore_old_guard',[False,True])
+def test_early_clean_recovery_waits_for_execute_at_and_falsifies_old_guard(monkeypatch,restore_old_guard):
+    import inspect,textwrap,types
+    config=AutomationConfig()
+    cycle,permit=scheduled_record(config,module.CycleState.RECONCILING)
+    now=cycle.execute_at-timedelta(minutes=2)
+    async def recover(context):
+        return module.ExecuteResult(disposition=module.ExecuteDisposition.READY_TO_EXECUTE,
+            last_clean_reconciliation_id='positive-clean-observation')
+    service=module.AutomationService(config=config,holder_id='early-recovery',
+        refresh=None,prepare=None,recover=recover,execute=lambda _:pytest.fail('early transport'))
+    if restore_old_guard:
+        source=textwrap.dedent(inspect.getsource(module.AutomationService._run_recover))
+        changed=source.replace('if self._execution_expired(now=now, cycle=cycle):',
+            'if not self._execution_is_fresh(now=now, cycle=cycle):')
+        assert changed!=source
+        namespace=dict(vars(module));exec(changed,namespace)
+        service._run_recover=types.MethodType(namespace['_run_recover'],service)
+    monkeypatch.setattr(module.store,'require_leader',lambda _c,p:p)
+    current=cycle
+    def transition(_c,*,to_state,**fields):
+        nonlocal current
+        fields.pop('permit');fields.pop('cycle_id')
+        current=current.model_copy(update={'state':to_state,**fields})
+        return current
+    monkeypatch.setattr(module.store,'transition_cycle',transition)
+    result=asyncio.run(service._run_recover(SimpleNamespace(rollback=lambda:None),
+        now=now,cycle=cycle,permit=permit))
+    if restore_old_guard:
+        assert result.cycle.state is module.CycleState.SUPERSEDED
+    else:
+        assert result.cycle.state is module.CycleState.RETRY_WAIT
+        assert result.cycle.next_wake_at==cycle.execute_at
+        assert result.cycle.diagnostic['retry_phase']=='EXECUTE'
+
+
 @pytest.mark.parametrize('raw_mapping', [False, True])
 @pytest.mark.parametrize('disposition,initial,expired,new_generation,expected,states', [
     ('READY_TO_EXECUTE', 'RECONCILING', False, False, 'RECOVERED', ['RETRY_WAIT']),

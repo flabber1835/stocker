@@ -238,6 +238,8 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
     if classified["status"] == "VERIFIED_UNCHANGED":
         result = classified['result']
         _refresh_unchanged_health(conn, result, classified['inventory_sha256'])
+        from sentinel.feed import retention
+        retention.maintain(conn)
         return result
     if classified['status'] == 'NOT_STARTED':
         context = initial._context(observation_id, starting_cash)

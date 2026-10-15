@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = '82e0c8fea99a37813c40308595a4571cac115dbb291e31ea31e0f08b629217ba'
+PROFILE_SHA256 = '86d02b45ce868506668cb0e7cd330c047651f371f433926f7c2d8eb498e0f618'
 PROFILE = Path(__file__).with_name('operational-runtime-upgrade.json')
 SCOPE = frozenset({'automation/service.py', 'schema.py', 'supervisor_io.py',
                    'panel/model.py', 'panel/sources.py', 'automation/model.py',

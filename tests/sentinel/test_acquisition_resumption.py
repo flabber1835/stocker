@@ -654,7 +654,7 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
                      and sum(name.startswith('SEP.') for name in names) == 19)
         due = len(renewed) < len(boundaries) and current["state"] == boundaries[len(renewed)]
         if completed and due and not in_failure[0]:
-            authority._expected_wals("000000010000000000000000", "000000010000000000000040",
+            authority._expected_wals("000000010000000000000000", "000000010000000400000000",
                                      segment_size=16 * 1024 * 1024)
         return original_require(c, operation=operation, **kwargs)
     monkeypatch.setattr(authority, "require", horizon)

@@ -104,11 +104,21 @@ class AttendedRun:
             raise Refused('exclusive attended account owner is required')
         # A lost session also loses the exclusive test-owner lock. Never
         # silently reconnect and continue a previously authorized send.
-        self.owner_connection.execute('SELECT 1')
+        inherited=os.getpid()!=getattr(self,'owner_process_id',os.getpid())
+        if not inherited:
+            self.owner_connection.execute('SELECT 1')
         c = store.connect(os.environ['REHEARSAL_PRODUCTION_DATABASE_URL'],
                           connect_timeout=3, statement_timeout_ms=3000)
         try:
             c.execute('BEGIN TRANSACTION READ ONLY')
+            if inherited:
+                key=self.owner_key & ((1<<64)-1)
+                present=c.execute("SELECT EXISTS(SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid "
+                    "WHERE l.pid=%s AND a.backend_start=%s AND l.locktype='advisory' AND l.granted "
+                    "AND l.mode='ExclusiveLock' AND l.objsubid=1 AND l.classid::bigint=%s AND l.objid::bigint=%s "
+                    "AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database()))",
+                    (self.owner_backend_pid,self.owner_backend_start,key>>32,key & ((1<<32)-1))).fetchone()[0]
+                if not present:raise Refused('parent attended account owner was lost')
             row = c.execute('SELECT a.enabled,a.kill_switch_engaged,b.broker,b.broker_account_id '
                 'FROM sentinel_automation_control a CROSS JOIN sentinel_account_binding b '
                 'WHERE a.id=1').fetchall()
@@ -128,6 +138,10 @@ class AttendedRun:
             self.owner_connection.close()
             self.owner_connection=None
             raise Refused('another attended test owns this paper account')
+        self.owner_process_id=os.getpid()
+        self.owner_key=key
+        self.owner_backend_pid,self.owner_backend_start=self.owner_connection.execute(
+            'SELECT pid,backend_start FROM pg_stat_activity WHERE pid=pg_backend_pid()').fetchone()
         self.owner_connection.commit()
 
     async def read(self, path, params=None):
@@ -248,7 +262,12 @@ class AttendedRun:
                     run.ledger.record('provider_mutation',method=method,path=target.path,
                         status=response.status_code,client_key=body.get('client_order_id'),
                         order={k:data.get(k) for k in ('id','symbol','side','qty','status','filled_qty','filled_avg_price')})
-                    if method=='POST' and response.status_code in (200,201) and run.crash_after_accept:
+                    crash_marker=run.ledger.root/'accepted-crash-injected.json'
+                    if (method=='POST' and response.status_code in (200,201)
+                            and run.crash_after_accept and not crash_marker.exists()):
+                        with crash_marker.open('x') as stream:
+                            json.dump({'client_key':body['client_order_id'],'at':datetime.now(timezone.utc).isoformat()},stream)
+                            stream.flush();os.fsync(stream.fileno())
                         run.ledger.record('injected_process_death_before_journal_ack',client_key=body['client_order_id'])
                         os._exit(75)
                     if method=='POST' and response.status_code in (200,201) and run.drop_ack:

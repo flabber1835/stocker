@@ -24,7 +24,7 @@ from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
 from sentinel.feed import calendar, rolling_go_inputs as inputs, store
 from sentinel.strategy import production_strategy
 from tools.live_paper_rehearsal import PAPER,Refused
-from tools.native_paper_rehearsal import NativeRun
+from tools.native_paper_rehearsal import NativeRun,RehearsalAlpacaBroker
 
 
 async def await_quotes(run,instruments,*,timeout=300):
@@ -60,9 +60,7 @@ async def prepare_system(run):
         reverse={symbol:sid for sid,symbol in tickers.items()}
         if len(reverse)!=len(tickers):raise Refused('test ticker mapping is ambiguous')
         run.allowed_symbols=set(tickers.values())
-        broker=AssetIdAlpacaExecutionBroker(api_key=os.environ['ALPACA_API_KEY'],
-            secret_key=os.environ['ALPACA_SECRET_KEY'],base_url=PAPER,http_provider=run.provider,
-            resolve_security_id=lambda symbol:reverse[symbol])
+        broker=RehearsalAlpacaBroker(run,resolve_security_id=lambda symbol:reverse[symbol])
         account=await broker.account_snapshot()
         observation=await broker.observe()
         observation.require_complete('attended system preparation')
@@ -117,9 +115,7 @@ async def main_async(args):
         run.allowed_symbols=set(tickers.values())|{'SPY'}
         reverse={symbol:sid for sid,symbol in tickers.items()}
         reverse['SPY']='SPY'
-        broker=AssetIdAlpacaExecutionBroker(api_key=os.environ['ALPACA_API_KEY'],
-            secret_key=os.environ['ALPACA_SECRET_KEY'],base_url=PAPER,http_provider=run.provider,
-            resolve_security_id=lambda symbol:reverse[symbol])
+        broker=RehearsalAlpacaBroker(run,resolve_security_id=lambda symbol:reverse[symbol])
         instruments={}
         for sid,symbol in tickers.items():
             instrument=await broker.resolve_instrument(security_id=sid,symbol=symbol)

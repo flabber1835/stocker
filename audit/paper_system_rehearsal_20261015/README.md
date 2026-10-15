@@ -116,8 +116,47 @@ Production commands remained **0**. Private ledger digests/sizes are in
 
 ## Remaining acceptance
 
-Approve and implement the isolated intraday service fixture. Requalify the
-repaired pre-transport boundary, rerun the full basket in a fresh journal, and exercise
+The owner approved the early-recovery wait and isolated intraday service
+schedule. The implementation has an explicit short paper-only grant that cannot
+receive production certification, keeps the actual broker clock, and preserves
+the production adapter's opening window. Early clean recovery waits for the
+immutable execute_at; its upper lateness cutoff is unchanged.
+
+Additional qualification:
+
+```text
+python -m pytest tests/sentinel/test_guarded_execution_broker.py tests/sentinel/test_native_paper_rehearsal.py tests/sentinel/test_live_paper_rehearsal.py tests/sentinel/test_automation_service_fault_paths.py tests/sentinel/test_automation_schedule.py tests/sentinel/test_automation_service.py -q --tb=short -p no:cacheprovider
+353 passed
+
+python -m pytest tests/sentinel/test_backup_bounded_reads.py tests/sentinel/test_informational_paper_mirror.py tests/sentinel/test_paper_plan_notifications.py tests/sentinel/test_rolling_retention_runtime.py tests/sentinel/test_acquisition_resumption.py tests/sentinel/test_go_preparation_deadline.py -q --tb=short -p no:cacheprovider
+90 passed
+
+python -m pytest tests/sentinel/test_open_time_upgrade.py tests/sentinel/test_close_cycle_upgrade.py tests/sentinel/test_operational_liveness_upgrade.py::test_complete_historical_source_manifest_is_admitted -q --tb=short -p no:cacheprovider
+57 passed, including both actual formed-book upgrades and all twelve supported historical manifests
+
+python -m pytest tests/sentinel/test_paper_service_rehearsal.py tests/sentinel/test_native_paper_rehearsal.py tests/sentinel/test_live_paper_rehearsal.py -q --tb=short -p no:cacheprovider
+38 passed, including durable callback and fork-safe owner checks
+
+python -m pytest tests/sentinel/test_paper_service_rehearsal.py tests/sentinel/test_guarded_execution_broker.py tests/sentinel/test_automation_runtime.py -q --tb=short -p no:cacheprovider
+107 passed, including the certification-guard falsifier and actual quote-parser/production-window distinction
+```
+
+Broader CI exposed a skipped incremental retention pass. It is restored outside
+unchanged-book verification and defers writer acquisition around the actual
+XNYS open. Its batch bounds and retention pins stay intact. Missing PENDING
+remains a refusal by default; only the explicit positively unsent recovery path
+may handle its specialized subtype. Old WAL and preview-age fixtures now test
+the approved 16 GiB/five-minute/26-hour display policies.
+
+The first supervised service fixture is **FAIL**, with zero broker mutations.
+Callback-local plan changes did not survive supervision's fork boundary. Its
+zero-command terminal state and `service_cycle_pass` event are invalid as basket
+evidence. It is closed to reuse. Each corrected callback reloads the durable
+plan; post-prepare recovery cannot certify an absent plan. Children verify the
+parent's exact advisory owner using a fresh connection rather than an inherited
+psycopg connection. A fresh service journal is running the corrected campaign.
+
+Requalify the repaired boundary, finish the full basket in that journal, and exercise
 actual service transitions, restart, concurrency, close/preparation and
 notification delivery. Preserve the failed journal. Complete exact-head CI
 before review readiness. Installation/activation also requires signed release
