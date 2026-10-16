@@ -63,12 +63,14 @@ class SessionResult:
     deferred: tuple = ()
     detail: str = ""
     restricted_securities: Mapping[str, str] = field(default_factory=dict)
+    deferral_reasons: Mapping[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {"runtime_state": self.runtime_state.value,
                 "submitted": [c.client_key for c in self.submitted],
                 "refused": dict(self.refused),
                 "deferred": list(self.deferred),
+                "deferral_reasons": dict(self.deferral_reasons),
                 "detail": self.detail,
                 "restricted_securities": dict(self.restricted_securities),
                 "reconciliation": (self.reconciliation.to_dict()
@@ -446,6 +448,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     submitted: list = []
     refused: dict = {}
     deferred: list = []
+    deferral_reasons: dict = {}
     restrictions = dict(security_restrictions or {})
     from sentinel.execution.share_units import material_restrictions
     restrictions.update(material_restrictions(actions, {
@@ -503,6 +506,12 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 delta=delta, instrument=instruments[delta.security_id])
             sent = await _persist_and_send(
                 conn, broker, command, already_planned=already_planned)
+            if sent.state is CommandState.PLANNED:
+                # Only _persist_and_send's consumed no-transport proof can
+                # return an unsent command. Preserve its exact key/economics.
+                deferred.append(delta.security_id)
+                deferral_reasons[delta.security_id] = sent.detail
+                continue
             submitted.append(sent)
             commands = commands + (sent,)
             if sent.state is not CommandState.ACKNOWLEDGED:
@@ -656,12 +665,15 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         await submit_all(increases, observation, open_commands)
 
     detail = f"{len(submitted)} submitted, {len(refused)} refused"
+    if deferral_reasons:
+        detail += ", deferred: " + "; ".join(deferral_reasons.values())
     for note in (detail_window, settle_note):
         if note:
             detail += ", " + note
     return SessionResult(runtime_state=runtime, reconciliation=rec,
                          submitted=tuple(submitted), refused=refused,
                          deferred=tuple(deferred), detail=detail,
+                         deferral_reasons=deferral_reasons,
                          restricted_securities=restrictions)
 
 
@@ -831,11 +843,14 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
     try:
         settled = await recovery.dispatch(broker, pending)
     except Exception as exc:
-        from sentinel.execution.guarded import GuardedExecutionBroker, PreTransportAuthorityRefused
+        from sentinel.execution.guarded import GuardedExecutionBroker, PreTransportAuthorityRefused, OrderEvidenceNotReady
         if (type(broker) is GuardedExecutionBroker
                 and isinstance(exc, PreTransportAuthorityRefused)
                 and getattr(exc, '_not_transported', None) is not None):
             journal.restore_proven_unsent(conn, pending, broker=broker, refusal=exc)
+            if isinstance(exc, OrderEvidenceNotReady):
+                from dataclasses import replace
+                return replace(command, detail=str(exc))
         raise
     journal.save_command(conn, settled, previous=pending.state)
 

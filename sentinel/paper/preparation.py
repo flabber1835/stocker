@@ -136,6 +136,7 @@ from .cash import (
 )
 
 from .targets import (
+    _instrument_map,
     _action_lookup,
     _target_action_lookup,
     _preopen_active_security_ids,
@@ -530,6 +531,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     conn, plan=existing_plan, deployment=binding.identity,
                     account=account, observation=observation,
                     activity_state=activity_state)
+                await _instrument_map(
+                    conn, broker, state, existing_plan, observation, preparation=True)
                 journal.adopt_current_plan(conn, existing_plan)
                 return PreparationResult(
                     plan=existing_plan, sessions_replayed=0,
@@ -583,6 +586,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     activity_state=activity_state)
                 # Repairs any legacy save/supersede crash shape without
                 # changing plan economics; identical adoption is idempotent.
+                await _instrument_map(
+                    conn, broker, state, existing_plan, observation, preparation=True)
                 journal.adopt_current_plan(conn, existing_plan)
                 return PreparationResult(
                     plan=existing_plan, sessions_replayed=0,
@@ -712,6 +717,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 superseded = int(
                     existing_plan is not None
                     and existing_plan.plan_id != decision.plan.plan_id)
+                await _instrument_map(
+                    conn, broker, state, decision.plan, observation, preparation=True)
                 latest = journal.adopt_current_plan(
                     conn, decision.plan, commit=False)
                 dual_plan_authority.record_authority(
@@ -806,6 +813,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 raise PaperActivationRefused(
                     "preparation did not leave exactly its plan current")
             _assert_deterministic_plan_id(latest)
+            await _instrument_map(
+                conn, broker, final_state, latest, observation, preparation=True)
             if activity_state is not None:
                 try:
                     broker_cash.record_plan_baseline(

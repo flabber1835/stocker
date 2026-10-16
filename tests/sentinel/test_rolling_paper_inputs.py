@@ -117,6 +117,7 @@ def test_broker_resolver_releases_full_reference_bundle(monkeypatch):
 
     class Reference:
         def __init__(self):
+            self.manifest = SimpleNamespace(provider="SHARADAR")
             self.resolver = SimpleNamespace(resolve=lambda symbol, day: ("past", symbol, day))
             self.actions = [object()]
 
@@ -475,7 +476,11 @@ def test_production_alpaca_dual_preparation_uses_current_book_without_fill_histo
         state_dir=Path("/fixture"), max_cycles=1, poll_seconds=0)
     broker = build_execution_broker(
         cfg, resolve_security_id=paper.build_security_resolver(conn, DAY))
-    http = Httpx(routes={"/v2/account": Response({
+    assets = {"/v2/assets/" + meta.ticker.replace('-', '.'): Response({
+        "id": "native-" + sid, "symbol": meta.ticker.replace('-', '.'),
+        "status": "active", "tradable": True,
+    }) for sid, meta in feed_inputs.metadata(conn).items()}
+    http = Httpx(routes={**assets, "/v2/account": Response({
         "id": "native-paper-fixture", "account_number": "paper-fixture",
         "equity": "250000", "cash": "250000", "buying_power": "250000",
         "multiplier": "1", "status": "ACTIVE", "trading_blocked": False,
@@ -519,6 +524,33 @@ def test_production_alpaca_dual_preparation_uses_current_book_without_fill_histo
         assert conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (CURSOR,)).fetchone()[0]['receipt']['credential_policy'] == 'RETAINED_CURRENT_PAPER'
     # Same-session restart keeps the exact durable plan and the same scope.
     assert prepare(conn, broker, **options).plan == result.plan
+
+
+@pytest.mark.parametrize('restart', [False, True])
+def test_preparation_cannot_report_ready_when_native_identity_is_malformed(
+        conn, gateway, monkeypatch, restart):
+    from sentinel.execution.alpaca import MalformedBrokerPayload
+    _shadow, bound, broker = gateway
+    first = prepare(conn, broker) if restart else None
+    calls = []
+    async def refuse(**values):
+        calls.append(values)
+        raise MalformedBrokerPayload('unmapped native share-class symbol')
+    monkeypatch.setattr(broker, 'resolve_instrument', refuse)
+    with pytest.raises(paper.PaperActivationRefused, match='invalid broker instrument identity'):
+        prepare(conn, broker)
+    assert calls
+    assert not journal.load_commands(conn, bound.identity)
+    assert journal.latest_plan(conn) == (first.plan if first else None)
+
+
+def test_preparation_gate_falsifier_detects_removed_preflight(conn, gateway, monkeypatch):
+    async def absent(*a, **k):
+        return {}
+    monkeypatch.setattr(preparation, '_instrument_map', absent)
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_preparation_cannot_report_ready_when_native_identity_is_malformed(
+            conn, gateway, monkeypatch, False)
 
 
 def test_fresh_dual_guard_reuses_only_its_verified_state_digest(conn, gateway, monkeypatch):

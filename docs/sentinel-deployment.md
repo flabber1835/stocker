@@ -1,5 +1,12 @@
 # Current installation boundary
 
+[Production path qualification](production-path-qualification.md) binds broker
+symbol spelling to authenticated source identity, checks actionable instruments
+before plan readiness, prevents a proven unsent quote failure from starving
+other names, and qualifies the actual paper gateways with an explicitly
+uncertifiable attended profile. Its handback retires only an unsent terminal plan
+after proving native test cash flow; the canonical book remains intact.
+
 [Readiness workflow](readiness-workflow.md) reuses an exact current-image full
 restore proof with a newly archived activation-state checkpoint, keeps daily
 close work independent of physical maintenance, and bounds dashboard refresh

@@ -12,6 +12,41 @@ from tools import paper_service_rehearsal as module
 from tools.live_paper_rehearsal import AttendedRun,Refused
 
 
+def test_saved_system_campaign_resumes_through_production_source_factory(tmp_path,monkeypatch):
+    import json
+    from datetime import date
+    from decimal import Decimal
+    from tools import system_paper_rehearsal as system
+    saved=dict(complete=False,plan={'plan_id':'saved'},plan_fingerprint='fingerprint',
+        tickers={'permanent-class':'PBR.A'})
+    (tmp_path/'system-plan.json').write_text(json.dumps(saved))
+    trace=[]
+    @contextmanager
+    def connect():yield object()
+    run=SimpleNamespace(deployment_id='test-run',connect=connect,
+        acquire_owner=lambda:trace.append('owner'),production_fenced=lambda:trace.append('fenced'))
+    monkeypatch.setattr(system,'NativeRun',lambda **_:run)
+    plan=SimpleNamespace(plan_id='saved',deployment_id='test-run',
+        effective_session=date(2026,10,16),fingerprint=lambda:'fingerprint')
+    monkeypatch.setattr(system.journal,'load_plan',lambda *_:plan)
+    class Connection:
+        def execute(self,sql):trace.append(sql)
+    source=Connection()
+    @contextmanager
+    def source_connect(dsn,*,statement_timeout_ms):
+        assert dsn=='authenticated-source' and statement_timeout_ms==90000;yield source
+    monkeypatch.setattr(system.store,'connect',source_connect)
+    monkeypatch.setenv('REHEARSAL_DATABASE_URL','authenticated-source')
+    class ReachedProductionFactory(Exception):pass
+    def factory(owner,connection,session):
+        assert owner is run and connection is source and session==plan.effective_session
+        assert trace==['owner','fenced','SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY']
+        raise ReachedProductionFactory()
+    monkeypatch.setattr(system,'production_broker',factory)
+    args=SimpleNamespace(output=tmp_path,account_sha256='fixture',maximum_open_usd=Decimal(5000))
+    with pytest.raises(ReachedProductionFactory):asyncio.run(system.main_async(args))
+
+
 def test_fresh_callback_reloads_durable_order_ownership(tmp_path,monkeypatch):
     import json
     path=tmp_path/'plan.json'

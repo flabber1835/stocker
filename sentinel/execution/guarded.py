@@ -70,6 +70,10 @@ class OrderFundingNotReady(RuntimeError):
     """The fixed order is currently unaffordable; no submit was attempted."""
 
 
+class OrderEvidenceNotReady(PreTransportAuthorityRefused):
+    """This security lacks a fresh quote/funding; its transport was prevented."""
+
+
 class BrokerOperation(str, Enum):
     IDENTIFY_ACCOUNT = "identify_account"
     ACCOUNT_SNAPSHOT = "account_snapshot"
@@ -534,10 +538,10 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "broker-native instrument identity changed before submit; "
                     f"durable={instrument}, current={current}")
 
+        from sentinel.execution.opening_prices import OpeningPriceNotReady, RegularQuotes
         quote = None
         if side is Side.BUY and self.capabilities.regular_session_quote_prices:
             try:
-                from sentinel.execution.opening_prices import OpeningPriceNotReady, RegularQuotes
                 quote = await self.opening_prices(session=clock.timestamp.date(),
                     instruments={instrument.security_id:instrument})
                 if (not isinstance(quote, RegularQuotes)
@@ -549,6 +553,9 @@ class GuardedExecutionBroker(ExecutionBroker):
                 # Funding does not assume a favourable fill or unsettled proceeds.
                 if quantity * quote.prices[instrument.security_id] > account.cash:
                     raise OrderFundingNotReady('fresh ask exceeds available cash for the fixed quantity')
+            except (OpeningPriceNotReady, OrderFundingNotReady) as exc:
+                raise OrderEvidenceNotReady(
+                    f'{instrument.symbol}: {type(exc).__name__}: {exc}') from exc
             except Exception as exc:
                 raise PreTransportAuthorityRefused(
                     'increase quote or affordability unavailable before transport: ' + type(exc).__name__) from exc
@@ -575,6 +582,9 @@ class GuardedExecutionBroker(ExecutionBroker):
                 if quote is not None and now - quote.quoted_at[instrument.security_id] > timedelta(seconds=60):
                     from sentinel.execution.opening_prices import OpeningPriceNotReady
                     raise OpeningPriceNotReady('executable quote expired during submission authority checks')
+            except OpeningPriceNotReady as exc:
+                raise OrderEvidenceNotReady(
+                    f'{instrument.symbol}: {type(exc).__name__}: {exc}') from exc
             except PreTransportAuthorityRefused:
                 raise
             except Exception as exc:                          # noqa: BLE001

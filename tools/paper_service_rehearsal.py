@@ -24,7 +24,7 @@ from sentinel.execution.guarded import PreTransportAuthorityRefused
 from sentinel.execution.states import CommandState
 from tools.live_paper_rehearsal import Refused
 from tools.native_paper_rehearsal import NativeRun,RehearsalAlpacaBroker
-from tools.system_paper_rehearsal import prepare_system
+from tools.system_paper_rehearsal import prepare_system,production_broker
 
 
 def durable_json(path,value):
@@ -51,7 +51,10 @@ class ServiceCampaign:
         self.value=json.loads(self.path.read_text()) if self.path.exists() else None
         self.plan=None
         self.instruments={}
-        self.broker=RehearsalAlpacaBroker(run,resolve_security_id=self.resolve)
+        from sentinel.feed import store
+        with store.connect(os.environ['REHEARSAL_DATABASE_URL']) as source:
+            source.execute('SET TRANSACTION READ ONLY')
+            self.broker=production_broker(run,source,slot.effective_session)
         run.crash_after_accept=crash
         self.load_durable_plan()
 
@@ -70,12 +73,6 @@ class ServiceCampaign:
             self.run.allowed_symbols={item.symbol for item in self.instruments.values()}|{'SPY'}
             self.run.asset_symbols={item.broker_id:item.symbol for item in self.instruments.values()}
             self.run.allow_batch=True
-
-    def resolve(self,symbol):
-        if symbol=='SPY':return symbol
-        matches=[sid for sid,item in self.instruments.items() if item.symbol==symbol]
-        if len(matches)!=1:raise Refused('unattributed service instrument')
-        return matches[0]
 
     async def refresh(self,context):
         context.require_active();self.run.production_fenced()

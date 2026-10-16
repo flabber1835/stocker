@@ -892,6 +892,7 @@ class ProductionAutomation:
 
     async def prepare(self, context: CycleContext) -> PrepareResult:
         conn = None
+        input_scope = ExitStack()
         try:
             conn = self.connect()
             feed_store.require_feed_schema(conn)
@@ -900,6 +901,8 @@ class ProductionAutomation:
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="PREPARE")
             self._require_operational_inputs(conn)
+            if getattr(self, '_operational_source_only', False):
+                input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
             missed = ()
             if not self._dual_run_enabled:
                 # Reviewed dual mode adopts the exact current shadow-produced
@@ -996,11 +999,15 @@ class ProductionAutomation:
                 raise
             raise mapped from exc
         finally:
-            if conn is not None:
-                conn.close()
+            try:
+                input_scope.close()
+            finally:
+                if conn is not None:
+                    conn.close()
 
     async def recover(self, context: CycleContext) -> ExecuteResult:
         conn = None
+        input_scope = ExitStack()
         try:
             conn = self.connect()
             feed_store.require_feed_schema(conn)
@@ -1008,6 +1015,8 @@ class ProductionAutomation:
             require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="RECOVER")
+            if getattr(self, '_operational_source_only', False):
+                input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
             identity_session, preflight = self._recovery_identity_session(cycle)
             try:
                 broker = self._broker(conn, identity_session)
@@ -1240,8 +1249,11 @@ class ProductionAutomation:
                 raise
             raise mapped from exc
         finally:
-            if conn is not None:
-                conn.close()
+            try:
+                input_scope.close()
+            finally:
+                if conn is not None:
+                    conn.close()
 
     async def execute(self, context: CycleContext) -> ExecuteResult:
         conn = None

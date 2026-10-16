@@ -398,13 +398,14 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                           observation: BrokerObservation,
                           target_basket: Mapping[str, Decimal] | None = None,
                           restricted_security_ids=(),
+                          preparation: bool = False,
                           ) -> dict[str, BrokerInstrument]:
     desired = plan.target_basket if target_basket is None else target_basket
     target = shadow_target(state)
     symbols = dict(target.tickers)
     symbols[DEFENSIVE_SECURITY_ID] = DEFENSIVE_SYMBOL
     opening_prices = None
-    if plan.opening_intents and plan.target_exposure != 0:
+    if not preparation and plan.opening_intents and plan.target_exposure != 0:
         from sentinel.execution.opening_prices import OpeningPrices
         projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
         if (projection is None or projection.plan_fingerprint != plan.fingerprint()
@@ -440,6 +441,8 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         and desired.get(security_id, Decimal(0))
         != effective_current[security_id]
     }
+    if preparation and plan.target_exposure != 0:
+        needed.update(item.security_id for item in plan.opening_intents)
     unresolved = []
     for security_id in sorted(needed):
         current = instruments.get(security_id)
@@ -464,6 +467,9 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                 security_id=security_id, symbol=str(symbol))
         except BrokerAuthorityRefused:
             raise
+        except MalformedBrokerEvidence as exc:
+            raise PaperActivationRefused(
+                f"invalid broker instrument identity {security_id}/{symbol}: {exc}") from exc
         except Exception as exc:                              # noqa: BLE001
             raise PaperRetryableRefused(
                 f"cannot resolve broker instrument {security_id}/{symbol}: "

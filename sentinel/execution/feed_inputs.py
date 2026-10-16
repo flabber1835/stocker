@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from dataclasses import dataclass
+from typing import Callable
 
 from sentinel.feed import calendar, publication, operational_snapshot as snapshots
 from sentinel.feed import rolling_go_inputs, rolling_store, readiness as legacy_readiness
@@ -19,6 +21,17 @@ frontier = readers.frontier
 
 class ExecutionInputsRefused(publication.CorpusIncoherent):
     pass
+
+
+@dataclass(frozen=True)
+class BrokerSecurityResolver:
+    """Point-in-time lookup bound to the authenticated source's symbol domain."""
+
+    source_provider: str
+    lookup: Callable
+
+    def __call__(self, symbol, as_of=None):
+        return self.lookup(symbol, as_of)
 
 
 def coherent(conn):
@@ -115,6 +128,7 @@ def opening_resolver(conn, *, session):
 def resolver(conn, pub, *, session):
     refs, requested, end, future = _snapshot_identity_authorities(conn, pub, session=session)
     historical = refs.resolver
+    provider = refs.manifest.provider
 
     def resolve(symbol, as_of=None):
         effective = str(as_of or requested)
@@ -124,7 +138,7 @@ def resolver(conn, pub, *, session):
             return None
         authority = future if effective == requested else historical
         return authority.resolve(str(symbol), effective)
-    return resolve
+    return BrokerSecurityResolver(provider, resolve)
 
 
 def metadata(conn):

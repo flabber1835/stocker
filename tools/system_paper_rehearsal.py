@@ -27,6 +27,39 @@ from tools.live_paper_rehearsal import PAPER,Refused
 from tools.native_paper_rehearsal import NativeRun,RehearsalAlpacaBroker
 
 
+class AttendedQuoteBroker:
+    """Uncertifiable timing/purse view over the exact production transport."""
+
+    def __init__(self, raw, run, *, reserve=Decimal(0)):
+        self.raw, self.run, self.reserve = raw, run, reserve
+
+    def __getattr__(self, name):
+        return getattr(self.raw, name)
+
+    async def market_clock(self):
+        return await self.raw.market_clock()
+
+    async def account_snapshot(self):
+        actual = await self.raw.account_snapshot()
+        return replace(actual, equity=actual.equity-self.reserve,
+            cash=actual.cash-self.reserve, buying_power=actual.buying_power-self.reserve)
+
+    async def opening_prices(self, *, session, instruments):
+        return await RehearsalAlpacaBroker.opening_prices(
+            self, session=session, instruments=instruments)
+
+
+def production_broker(run, source, session):
+    """Use the exact production resolver/factory; transport adds test limits."""
+    from types import SimpleNamespace
+    from sentinel.automation_runtime import ProductionAutomation
+    from sentinel.config import SentinelConfig
+    owner = SimpleNamespace(sentinel_config=SentinelConfig.from_env())
+    broker = ProductionAutomation._broker(owner, source, str(session))
+    broker._http_provider = run.provider
+    return AttendedQuoteBroker(broker, run)
+
+
 async def await_quotes(run,instruments,*,timeout=300):
     deadline=time.monotonic()+timeout
     while True:
@@ -57,10 +90,8 @@ async def prepare_system(run):
         if sizing is None or sizing['shadow_record_sha256']!=result.record_sha256:
             raise Refused('retained sizing belongs to another canonical book')
         tickers={**sizing['tickers'],'SPY':'SPY','SENTINEL:BIL':'BIL'}
-        reverse={symbol:sid for sid,symbol in tickers.items()}
-        if len(reverse)!=len(tickers):raise Refused('test ticker mapping is ambiguous')
         run.allowed_symbols=set(tickers.values())
-        broker=RehearsalAlpacaBroker(run,resolve_security_id=lambda symbol:reverse[symbol])
+        broker=production_broker(run,source,calendar.next_session(checkpoint.session))
         account=await broker.account_snapshot()
         observation=await broker.observe()
         observation.require_complete('attended system preparation')
@@ -113,9 +144,9 @@ async def main_async(args):
             raise Refused('saved basket differs from its durable test identity')
         tickers=value['tickers']
         run.allowed_symbols=set(tickers.values())|{'SPY'}
-        reverse={symbol:sid for sid,symbol in tickers.items()}
-        reverse['SPY']='SPY'
-        broker=RehearsalAlpacaBroker(run,resolve_security_id=lambda symbol:reverse[symbol])
+        with store.connect(os.environ['REHEARSAL_DATABASE_URL'],statement_timeout_ms=90000) as source:
+            source.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            broker=production_broker(run,source,plan.effective_session)
         instruments={}
         for sid,symbol in tickers.items():
             instrument=await broker.resolve_instrument(security_id=sid,symbol=symbol)

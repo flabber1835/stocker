@@ -7,7 +7,9 @@ from decimal import Decimal as D
 import pytest
 
 from sentinel.execution.contract import Side
-from sentinel.execution.guarded import GuardedExecutionBroker, PreTransportAuthorityRefused
+from sentinel.execution.guarded import (
+    GuardedExecutionBroker, OrderEvidenceNotReady, PreTransportAuthorityRefused,
+)
 from sentinel.execution.opening_prices import RegularQuotes
 from sentinel.execution.opening_prices import OpeningPriceNotReady
 from sentinel.feed import calendar
@@ -55,8 +57,11 @@ def test_fresh_quote_and_cash_required_before_any_buy_transport(fault):
     operation = broker.submit(client_key='quote-buy', instrument=instrument(),
                               side=Side.BUY, quantity=D(1))
     if fault:
-        with pytest.raises(PreTransportAuthorityRefused, match='quote or affordability'):
+        expected = OrderEvidenceNotReady if fault == 'cash' else PreTransportAuthorityRefused
+        message = 'fresh ask exceeds available cash' if fault == 'cash' else 'quote or affordability'
+        with pytest.raises(expected, match=message) as caught:
             asyncio.run(operation)
+        assert type(caught.value) is expected
         assert 'submit:quote-buy' not in inner.calls
     else:
         asyncio.run(operation)
@@ -72,7 +77,7 @@ def test_quote_expiring_during_authority_wait_never_reaches_transport():
         inner.now += timedelta(seconds=61)
     broker = GuardedExecutionBroker(inner=inner, grant=broker.grant,
                                    guard=replace(broker.guard, before_mutation=delayed))
-    with pytest.raises(PreTransportAuthorityRefused, match='final next-open freshness'):
+    with pytest.raises(OrderEvidenceNotReady, match='executable quote expired'):
         asyncio.run(broker.submit(client_key='expired-quote', instrument=instrument(),
                                   side=Side.BUY, quantity=D(1)))
     assert 'submit:expired-quote' not in inner.calls
@@ -108,7 +113,7 @@ def test_pre_submit_pending_and_identity_have_distinct_retry_taxonomy(fault):
     assert 'submit:pending-buy' not in inner.calls
 
 
-def test_proven_no_transport_restores_planned_identity_then_submits_once(conn):
+def test_proven_no_transport_restores_planned_identity_then_submits_once(conn, monkeypatch):
     from sentinel.execution import executor, journal, recovery
     from sentinel.execution.commands import Command
     from sentinel.execution.identity import CommandIdentity
@@ -118,18 +123,25 @@ def test_proven_no_transport_restores_planned_identity_then_submits_once(conn):
     inner.now = opened+timedelta(minutes=3)
     inner.missing = True
     broker = wrap(inner)
+    consumed = []
+    consume = broker.consume_not_transported
+    def capture_consumption(refusal, command):
+        consumed.append(refusal)
+        consume(refusal, command)
+    monkeypatch.setattr(broker, 'consume_not_transported', capture_consumption)
     planned = Command(identity=CommandIdentity(deployment=DEPLOYMENT,
         plan_id='quote-retry-plan', security_id=instrument().security_id),
         instrument=instrument(), side=Side.BUY, quantity=D(1))
-    with pytest.raises(PreTransportAuthorityRefused) as caught:
-        asyncio.run(executor._persist_and_send(conn, broker, planned))
+    deferred = asyncio.run(executor._persist_and_send(conn, broker, planned))
+    assert deferred.state is S.PLANNED and 'quote has not arrived' in deferred.detail
+    assert len(consumed) == 1 and type(consumed[0]) is OrderEvidenceNotReady
     retained = journal.load_commands(conn, DEPLOYMENT)[0]
     assert retained.state is S.PLANNED
     assert retained.client_key == planned.client_key and retained.quantity == planned.quantity
     assert [row['to'] for row in journal.command_history(conn, planned.client_key)] == [
         'PLANNED', 'SEND_PENDING', 'PLANNED']
     with pytest.raises(ValueError, match='unused pre-transport'):
-        broker.consume_not_transported(caught.value, recovery.prepare_send(retained))
+        consume(consumed[0], recovery.prepare_send(retained))
     inner.missing = False
     result = asyncio.run(executor._persist_and_send(conn, broker, retained, already_planned=True))
     assert result.state is S.ACKNOWLEDGED and result.client_key == planned.client_key
