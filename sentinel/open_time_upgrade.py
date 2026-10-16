@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = '880809198498f27fa07cded158d8d8db279df66cc4ad7cc1f65090d30a2fbf44'
+PROFILE_SHA256 = '282a161b42c8966ff6c6a75094d5085a3e9c6a42b11163fe6c3ffc8baf297b3d'
 PROFILE = Path(__file__).with_name('open-time-upgrade.json')
 SCOPE = frozenset({'automation_runtime.py', 'panel/authority_reader.py', 'panel/model.py', 'panel/sources.py', 'structural_verification.py',
                    'paper/execution.py', 'paper/validation.py', 'shadow_worker.py', 'shadow_supervisor.py',

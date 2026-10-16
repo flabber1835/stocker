@@ -123,9 +123,14 @@
       "module": "targets"
     },
     "_instrument_map": {
-      "generated_ast_sha256": "0b9dea5e89fb384d7e4c4ded284eb03ae3ada53ea875c8993e8c1976d5756131",
+      "generated_ast_sha256": "f973e496a89d999288965699af96f8ab7bc26be874ebea062fad9e31d55ea1bb",
       "historical_ast_sha256": "901822d197c2e7745701f79b95096887b3dd3e3e02dead3160013fe356bbdc30",
-      "module": "targets"
+      "module": "targets",
+      "production_path_design": "docs/production-path-qualification.md",
+      "production_path_acceptance": [
+        "tests/sentinel/test_production_symbol_boundary.py",
+        "tests/sentinel/test_rolling_paper_inputs.py"
+      ]
     },
     "_latest_plan_or_refuse": {
       "generated_ast_sha256": "8ae8415d255fcca8a8010d0d175de6ff45cff00156424e22294fae8d4f9963c0",
@@ -274,7 +279,7 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "e58b347bd8f6a095177670b5834b09debfcddf4245c1c39833119853f59e45fa",
+      "generated_ast_sha256": "e5f8cd9ca0071260e7403202ec367e57d03f05df54940888a35e681bf651f879",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "module": "preparation",
       "initial_paper_recovery_acceptance": [
@@ -295,7 +300,12 @@
         "tests/sentinel/test_retained_admission_chain.py",
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
       ],
-      "retained_design": "docs/retained-state-activation.md"
+      "retained_design": "docs/retained-state-activation.md",
+      "production_path_design": "docs/production-path-qualification.md",
+      "production_path_acceptance": [
+        "tests/sentinel/test_production_symbol_boundary.py",
+        "tests/sentinel/test_rolling_paper_inputs.py"
+      ]
     },
     "recover_automated_paper_cycle": {
       "acceptance": "docs/unattended-operation-qualification.md",

@@ -6,9 +6,10 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = 'd18336ef4d8cea04addf63d02bb90fec5b43f94e75378458ec3e6b98395f3949'
+PROFILE_SHA256 = 'bf41ee4968143f9cb42e844b1854dc7f3dd840ecfb674135e447b1b458e731a2'
 PROFILE = Path(__file__).with_name('paper-composition-upgrade.json')
 SCOPE = frozenset({
+    'config.py', 'execution/feed_inputs.py', 'paper/targets.py',
     'execution/executor.py', 'execution/reconcile.py',
     'paper/execution.py', 'paper/inspection.py', 'paper/preparation.py',
     'paper/reconciliation_evidence.py', 'paper/recovery.py', 'paper/validation.py',

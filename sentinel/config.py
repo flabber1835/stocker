@@ -241,10 +241,20 @@ def build_execution_broker(config: SentinelConfig, *, resolve_security_id,
     config.assert_paper()
     config.assert_credentials()
     require_certified("alpaca")
+    provider = getattr(resolve_security_id, "source_provider", "SHARADAR")
+    if provider not in {"SHARADAR", "ALPACA_NASDAQ", "ALPACA_OPENFIGI"}:
+        raise ValueError("execution resolver has an unsupported source symbol domain")
+    from_broker_symbol = None
+    if provider != "SHARADAR":
+        if to_broker_symbol is not None:
+            raise ValueError("native source symbols cannot use a legacy symbol override")
+        to_broker_symbol = str
+        from_broker_symbol = str
     broker = AssetIdAlpacaExecutionBroker(
         api_key=config.alpaca_key, secret_key=config.alpaca_secret,
         base_url=config.base_url, resolve_security_id=resolve_security_id,
-        to_broker_symbol=to_broker_symbol)
+        to_broker_symbol=to_broker_symbol,
+        from_broker_symbol=from_broker_symbol)
     certify_adapter(broker, name="alpaca", mode="ALPACA_PAPER")
     from sentinel.execution.contract import resolved_capability_graph
     resolved_capability_graph(broker)

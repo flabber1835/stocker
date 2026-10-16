@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = 'e67ded4bedb5595b14b35068584e5d8cca5b17de23d834a57a4d23efc79d9dc8'
+PROFILE_SHA256 = '6d8ba8f4b362cb39b100ab94fa8dfba2c4e8f6cd16232a3bc9fd6d8826d574d4'
 PROFILE = Path(__file__).with_name('dual-plan-renewal-upgrade.json')
 SCOPE = frozenset({'paper/preparation.py'})
 

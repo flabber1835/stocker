@@ -2120,7 +2120,7 @@ class TestStrictExecutionGate:
 
         with pytest.raises(
                 paper.PaperActivationRefused,
-                match=f"cannot resolve broker instrument.*{condition}"):
+                match=f"invalid broker instrument identity.*{condition}"):
             _execute(conn, broker)
 
         assert (f"resolve_instrument:{AAA.security_id}:{AAA.symbol}"
