@@ -129,6 +129,24 @@ the authorized rehearsal, not a general cash-rebasing or recovery override.
 
 ## Acceptance ledger
 
+### Exact deployed scheduler profile
+
+The final audit found a qualification difference: the attended campaign used a
+30-second lease while Compose intentionally deploys a 12-second lease, a
+three-second heartbeat/control poll, five-second retry base, and eight attempt
+limits. The standalone model's 45-second default is not the deployment contract.
+Do not change production timing to make a test pass. Capture only named public
+scheduler policy/timing fields from the installed runtime, bind their complete
+AutomationConfig fingerprint to the paused production control, and require that
+exact match before creating an attended cycle. Preserve the nine-minute fresh
+execution cutoff. The full native gateway campaign must also pass with those
+deployed timings; its earlier 30-second pass does not qualify 12-second liveness.
+Record the profile fingerprint and actual attempt counts in the native evidence.
+The initial full-gateway results below used the 30-second attended lease. The
+additional deployed-profile campaign and its final native counts are recorded in
+[PR 525's validation](https://github.com/flabber1835/stocker/pull/525) and the private
+`gateway-run-7` evidence. Both native completion and final CI are merge gates.
+
 Record source, inputs, callback path, expected/observed transitions, native
 methods/orders, preservation, cleanup, falsifiers and remaining limits for each
 scenario. Cover today's entire instrument set and the actual scaled basket.
@@ -217,7 +235,7 @@ These groups overlap and must not be added as a unique-test total.
   instrument instead of reporting ready.
 * **17 passed**: `test_paper_rehearsal_handback.py`, including real PostgreSQL
   atomic receipt/retirement and rollback, immutable book and plan preservation.
-* **57 passed**: `test_paper_service_rehearsal.py
+* **64 passed**: `test_paper_service_rehearsal.py
   test_native_paper_rehearsal.py test_live_paper_rehearsal.py
   test_attended_gateway_boundary.py test_alpaca_source_codec.py`. These test the
   test boundary; they do not replace the native results above.

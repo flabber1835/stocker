@@ -23,6 +23,7 @@ from sentinel.automation.model import AutomationConfig, ControlBinding, SessionS
 from sentinel.config import SentinelConfig
 from sentinel.execution import certification, journal
 from sentinel.execution import alpaca
+from sentinel.feed import store as feed_store
 from sentinel.execution.guarded import ExecutionBrokerGuard, GuardedExecutionBroker, PaperPreparationGrant
 from sentinel.paper import preparation, execution, recovery, validation
 from sentinel.strategy import production_strategy
@@ -145,6 +146,25 @@ class GatewayCampaign(automation_runtime.ProductionAutomation, ServiceCampaign):
         return result
 
 
+def installed_scheduler_config(run, path):
+    """Bind the public timing fixture to the actual fenced production control."""
+    run.production_fenced()
+    payload=json.loads(path.read_text())
+    if (not isinstance(payload,dict) or set(payload)!={'schema','scheduler','config_sha256'}
+            or payload['schema']!='sentinel.attended-scheduler-profile/1'):
+        raise Refused('a captured deployed scheduler profile is required')
+    config=AutomationConfig.model_validate(payload['scheduler'])
+    if payload['config_sha256']!=config.fingerprint:
+        raise Refused('captured scheduler fingerprint differs from its timing fields')
+    with feed_store.connect(os.environ['REHEARSAL_PRODUCTION_DATABASE_URL']) as conn:
+        conn.execute('SET TRANSACTION READ ONLY')
+        current=conn.execute('SELECT config_sha256,enabled,kill_switch_engaged FROM sentinel_automation_control WHERE id=1').fetchone()
+        if current!=(config.fingerprint,False,True):
+            raise Refused('attended scheduler differs from the fenced production control')
+    run.production_fenced()
+    return config
+
+
 async def main(args):
     run = NativeRun(output=args.output,account_sha256=args.account_sha256,maximum=args.maximum_open_usd)
     run.acquire_owner();run.production_fenced()
@@ -153,8 +173,11 @@ async def main(args):
     run.account_id = str(account.get('account_number') or account['id'])
     reserve = Decimal(account['cash'])-run.maximum
     if reserve < 0: raise Refused('paper account cannot fund the authorized test purse')
-    config = AutomationConfig(lease_seconds=30,heartbeat_seconds=3,callback_deadline_seconds=600,
-        retry_base_seconds=2,retry_max_seconds=10,execute_max_attempts=30,recover_max_attempts=30)
+    config = installed_scheduler_config(run,args.scheduler_profile)
+    run.ledger.record('deployed_scheduler_profile',config_sha256=config.fingerprint,
+        lease_seconds=config.lease_seconds,heartbeat_seconds=config.heartbeat_seconds,
+        control_poll_seconds=config.control_poll_seconds,retry_base_seconds=config.retry_base_seconds,
+        maximum_execution_lateness_seconds=config.maximum_execution_lateness_seconds)
     now = datetime.now(timezone.utc)
     ordinary = schedule.for_clock(now,config)
     slot = SessionSchedule.model_validate(ordinary.model_copy(update={
@@ -186,7 +209,7 @@ async def main(args):
         automation_store.release_kill(conn,expected_binding=control,actor='owner-attended-audit',reason='paper test grant only')
     run.saved = dict(run_id=run.run_id,account_sha256=run.account_sha256,maximum=str(run.maximum),
         starting_cash=str(account['cash']),reserve=str(reserve),production_authority=False,
-        profile='UNSIGNED_ATTENDED_GATEWAY_FIXTURE')
+        profile='UNSIGNED_ATTENDED_GATEWAY_FIXTURE',scheduler_config_sha256=config.fingerprint)
     with run.connect() as conn:
         database,system,started=conn.execute('SELECT current_database(),system_identifier::text,pg_postmaster_start_time() FROM pg_control_system()').fetchone()
         if journal.load_commands(conn,binding.require(conn).identity):
@@ -249,5 +272,6 @@ if __name__=='__main__':
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--account-sha256',required=True)
     parser.add_argument('--maximum-open-usd',type=Decimal,required=True)
+    parser.add_argument('--scheduler-profile',type=Path,required=True)
     parser.add_argument('--confirm-owner-authorized-current-paper-account',action='store_true',required=True)
     asyncio.run(main(parser.parse_args()))

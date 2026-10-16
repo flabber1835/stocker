@@ -45,3 +45,53 @@ def test_full_gateway_driver_uses_actual_production_callbacks():
         body=ast.unparse(method)
         assert 'automation_runtime.ProductionAutomation.'+name+'(self, context)' in body
         assert '_execute_session_locked' not in body
+def _scheduler_case(tmp_path,monkeypatch,damage=None,loader=None):
+    import json
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from tools import production_gateway_rehearsal as module
+    from sentinel.automation.model import AutomationConfig
+    from tools.live_paper_rehearsal import Refused
+    config=AutomationConfig(lease_seconds=12,heartbeat_seconds=3,control_poll_seconds=3,
+        retry_base_seconds=5)
+    payload=dict(schema='sentinel.attended-scheduler-profile/1',
+        scheduler=config.model_dump(mode='json'),config_sha256=config.fingerprint)
+    if damage=='payload':payload['config_sha256']='f'*64
+    path=tmp_path/'scheduler.json';path.write_text(json.dumps(payload))
+    expected=(('e'*64 if damage=='production' else config.fingerprint),damage=='enabled',damage!='unkilled')
+    statements=[];fences=[]
+    class Connection:
+        def execute(self,sql):
+            statements.append(sql);return SimpleNamespace(fetchone=lambda:expected)
+    @contextmanager
+    def connect(dsn):
+        assert dsn=='production-read-only';yield Connection()
+    monkeypatch.setattr(module.feed_store,'connect',connect)
+    monkeypatch.setenv('REHEARSAL_PRODUCTION_DATABASE_URL','production-read-only')
+    def fence():
+        fences.append(True)
+        if damage=='owner':raise Refused('owner lost')
+    run=SimpleNamespace(production_fenced=fence)
+    loader=loader or module.installed_scheduler_config
+    if damage:
+        with pytest.raises(Refused):loader(run,path)
+    else:
+        assert loader(run,path)==config
+        assert len(fences)==2 and statements[0]=='SET TRANSACTION READ ONLY'
+
+
+@pytest.mark.parametrize('damage',[None,'payload','production','enabled','unkilled','owner'])
+def test_native_campaign_requires_exact_fenced_deployment_timing(tmp_path,monkeypatch,damage):
+    _scheduler_case(tmp_path,monkeypatch,damage)
+
+
+def test_scheduler_profile_guard_falsifier(tmp_path,monkeypatch):
+    import inspect
+    from tools import production_gateway_rehearsal as module
+    original=inspect.getsource(module.installed_scheduler_config)
+    changed=original.replace('if current!=(config.fingerprint,False,True):','if False:')
+    assert changed!=original
+    namespace={};exec(compile(changed,'scheduler-guard-falsifier','exec'),vars(module),namespace)
+    with pytest.raises(pytest.fail.Exception):
+        _scheduler_case(tmp_path,monkeypatch,'production',namespace['installed_scheduler_config'])
+
