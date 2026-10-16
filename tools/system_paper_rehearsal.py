@@ -144,9 +144,9 @@ async def main_async(args):
             raise Refused('saved basket differs from its durable test identity')
         tickers=value['tickers']
         run.allowed_symbols=set(tickers.values())|{'SPY'}
-        reverse={symbol:sid for sid,symbol in tickers.items()}
-        reverse['SPY']='SPY'
-        broker=RehearsalAlpacaBroker(run,resolve_security_id=lambda symbol:reverse[symbol])
+        with store.connect(os.environ['REHEARSAL_DATABASE_URL'],statement_timeout_ms=90000) as source:
+            source.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            broker=production_broker(run,source,plan.effective_session)
         instruments={}
         for sid,symbol in tickers.items():
             instrument=await broker.resolve_instrument(security_id=sid,symbol=symbol)

@@ -144,7 +144,7 @@ before the first test order. No production order was replayed late.
 
 | Boundary | Qualification and observed result |
 | --- | --- |
-| Production source to broker | Actual `ProductionAutomation._broker`, authenticated `ALPACA_OPENFIGI` resolver and native GETs resolved all 14 positive production instruments, including PBR and PBR.A. No broker mutation in this preflight. |
+| Production source to broker | Actual `ProductionAutomation._broker`, authenticated `ALPACA_OPENFIGI` resolver and native GETs resolved all 14 positive production instruments, including PBR and PBR.A. A separate native GET at 15:33 UTC also verified the canonical defensive BIL identity. No broker mutation in these preflights. |
 | First service campaign | Six native buys and six closing sells filled. Accepted first DAR buy survived actual process death before local acknowledgement, with exactly one POST. Missing ATEX quote exposed starvation; preserve this failed/SUPERSEDED campaign rather than treating it as a pass. |
 | Full production gateway | Actual prepare/recover/execute callbacks and paper gateway bodies; 12 stocks survived whole-share scaling to the USD 5,000 purse. All 12 buys filled; cycle SUCCEEDED, and a repeated service tick created zero commands. All 12 closing sells filled. |
 | Quote deferral | ECPG and ETON lacked fresh native IEX quotes on the first execution. Ten other buys proceeded, including later basket entries. Both deferred names filled on the next execution within the unchanged cutoff; identical command keys and quantities were retained. |
@@ -217,9 +217,16 @@ These groups overlap and must not be added as a unique-test total.
   instrument instead of reporting ready.
 * **17 passed**: `test_paper_rehearsal_handback.py`, including real PostgreSQL
   atomic receipt/retirement and rollback, immutable book and plan preservation.
-* **51 passed**: the full gateway driver and existing native/system/service
-  rehearsal tool tests. These test the test boundary; they do not replace the
-  native results above.
+* **57 passed**: `test_paper_service_rehearsal.py
+  test_native_paper_rehearsal.py test_live_paper_rehearsal.py
+  test_attended_gateway_boundary.py test_alpaca_source_codec.py`. These test the
+  test boundary; they do not replace the native results above.
+
+Final adjacent-path audit also removed the old saved-system rehearsal resume
+branch's reverse ticker dictionary. Fresh preparation, saved-run resume and
+service callbacks now all construct the authenticated production source broker.
+The saved-run regression enters the actual resume body and proves the read-only
+source factory is reached before any possible transport.
 
 The new source-domain, quote-deferral, callback-pin and preparation guards each
 have a falsifier. Local qualification deliberately did not rerun Wealth Core
