@@ -5,14 +5,15 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const stamp = Date.parse(input.generated);
-let now = stamp;
+let now = input.wake === 'resume-initial-pending' ? stamp + 120000 : stamp;
 let sequence = 0;
 const timers = new Map();
 const listeners = {};
 const reads = [];
 const writes = [];
-const badge = { className: input.wake === 'known-failure' ? 'state fail' : 'state ok', textContent: 'current' };
+const badge = { className: ['known-failure','resume-known-failure'].includes(input.wake) ? 'state fail' : 'state ok', textContent: 'current' };
 const heartbeat = { textContent: 'current' };
+const classes = new Set();
 let focusRestored = false;
 const expandedDetail = {dataset: {detailKey: 'shadow-holdings'}, open: true,
   querySelector: () => ({focus: options => { assert.equal(options.preventScroll, true); focusRestored = true; }})};
@@ -21,8 +22,8 @@ const document = {
   body: { dataset: { generatedAt: input.wake === 'invalid-date' ? 'invalid' :
       input.wake === 'future-date' ? new Date(stamp + 10000).toISOString() : input.generated,
       maxAgeSeconds: input.budget,
-      refreshPending: input.wake === 'initial-pending' ? 'true' : 'false' } },
-  documentElement: { classList: { add() {} } },
+      refreshPending: ['initial-pending','resume-initial-pending'].includes(input.wake) ? 'true' : 'false' } },
+  documentElement: { classList: { add: value => classes.add(value), remove: value => classes.delete(value) } },
   visibilityState: input.wake === 'initial-hidden' ? 'hidden' : 'visible',
   getElementById: id => id === 'operational-state' ? badge : heartbeat,
   addEventListener: (name, fn) => { listeners[name] = fn; },
@@ -43,7 +44,7 @@ class Parser {
         refreshPending: html === 'pending' ? 'true' : 'false' } } };
   }
 }
-function schedule(fn, delay) { const id = ++sequence; timers.set(id, {fn, delay}); return id; }
+function schedule(fn, delay) { const id = ++sequence; timers.set(id, {fn, delay, due: now + delay}); return id; }
 function interval(fn, delay) { const id = schedule(fn, delay); timers.get(id).interval = true; return id; }
 const context = {
   document, Date: Clock, DOMParser: Parser, AbortController,
@@ -74,6 +75,80 @@ function failRead(read) {
   vm.runInNewContext(input.script, context, {
     filename: 'sentinel-panel-refresh://' + sourceHash
   });
+  if (input.wake.startsWith('resume-')) {
+    async function advance(ms) {
+      now += ms;
+      for (let guard = 0; guard < 50; guard++) {
+        const entry = [...timers.entries()].filter(([, t]) => t.due <= now)
+          .sort((a, b) => a[1].due - b[1].due)[0];
+        if (!entry) return;
+        if (entry[1].interval) entry[1].due = now + entry[1].delay;
+        else timers.delete(entry[0]);
+        entry[1].fn(); await settled();
+      }
+      throw new Error('timer loop is unbounded');
+    }
+    const original = document.body.dataset.generatedAt;
+    if (input.wake !== 'resume-initial-pending') {
+      document.visibilityState = 'hidden'; listeners.visibilitychange();
+      now = stamp + 120000;
+      // iOS can deliver an overdue age timer before the visible/pageshow event.
+      fireDelay(1000);
+      assert.equal(reads.length, 0, 'hidden age checks must not create refresh traffic');
+      document.visibilityState = 'visible'; listeners.visibilitychange();
+      listeners.pageshow({persisted: true});
+    }
+    assert.equal(reads.length, 1, 'one network read on app return');
+    if (input.wake === 'resume-known-failure') {
+      assert.equal(badge.className, 'state fail', 'known failure stays red during resume');
+      process.stdout.write('PASS\n'); return;
+    }
+    assert.equal(badge.className, 'state warn', 'resume withdraws green without inventing red');
+    assert(classes.has('refreshing-status'), 'saved financial values need last-known styling');
+    assert.equal(document.body.dataset.generatedAt, original, 'resume cannot renew evidence clocks');
+    if (input.wake === 'resume-offline') {
+      context.navigator.onLine = false; listeners.offline();
+      assert.equal(badge.className, 'state fail', 'offline immediately fails');
+      process.stdout.write('PASS\n'); return;
+    }
+    if (input.wake === 'resume-clock') {
+      now -= 10000; fireDelay(1000);
+      assert.equal(badge.className, 'state fail', 'clock rollback cannot extend resume');
+      process.stdout.write('PASS\n'); return;
+    }
+    if (input.wake === 'resume-malformed') {
+      reads[0].resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'incomplete'});
+      await settled();
+      assert.equal(badge.className, 'state fail', 'invalid server evidence fails immediately');
+      process.stdout.write('PASS\n'); return;
+    }
+    if (input.wake === 'resume-expiry') {
+      // Busy at 10 seconds. Repeated lifecycle events may not buy another budget.
+      await advance(10000);
+      reads[0].resolve({ok:false,status:503,headers:{get:()=> 'LAST_KNOWN'}});
+      await settled();
+      document.visibilityState='hidden'; listeners.visibilitychange();
+      document.visibilityState='visible'; listeners.visibilitychange();
+      listeners.pageshow({persisted:true});
+      assert.equal(badge.className,'state warn');
+      await advance(4999);
+      assert.equal(badge.className,'state warn');
+      await advance(2);
+      assert.equal(badge.className,'state fail','the original 15-second foreground deadline must fail red');
+      assert(classes.has('not-current') && !classes.has('refreshing-status'));
+      assert.equal(document.body.dataset.generatedAt,original);
+      now -= 1000; fireDelay(1000);
+      assert.equal(badge.className,'state fail','expired resume remains red until a server answer');
+    }
+    const pending=reads.at(-1);
+    pending.resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
+    await settled();
+    assert.deepEqual(writes,['open','fresh','close'],'fresh server document replaces last-known view');
+    assert.equal(expandedDetail.open,true);
+    assert.equal(focusRestored,true);
+    assert.equal(timers.size,0,'successful replacement cancels the foreground deadline');
+    process.stdout.write('PASS\n'); return;
+  }
   if (input.wake === 'known-failure') {
     now += 30000; fireDelay(30000); await settled();
     failRead(reads[0]); await settled();
@@ -159,7 +234,7 @@ function failRead(read) {
     document.visibilityState = 'hidden'; listeners.visibilitychange();
     document.visibilityState = 'visible'; listeners.visibilitychange();
     assert.equal(reads.length, 1);
-    assert.equal(badge.className, 'state fail');
+    assert.equal(badge.className, 'state warn');
   } else if (['offline', 'initial-offline'].includes(input.wake)) {
     if (input.wake === 'offline') {
       context.navigator.onLine = false; listeners.offline();
@@ -182,7 +257,8 @@ function failRead(read) {
   listeners.pageshow({persisted: true});
   assert.equal(reads.length, 1, 'overlapping wakeups must not start another refresh');
   assert.equal(writes.length, 0);
-  assert.equal(badge.className, 'state fail');
+  const alreadyFailed=['fresh-age','invalid-date','future-date','offline','initial-offline'].includes(input.wake);
+  assert.equal(badge.className, alreadyFailed ? 'state fail' : 'state warn');
   if (input.failure === 'timeout') {
     fireDelay(15000);
   } else {

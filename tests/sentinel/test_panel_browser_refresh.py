@@ -32,6 +32,15 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None):
         script = script.replace('age > budget', 'false')
     elif mutation == 'known-negative':
         script = script.replace('if (!knownFailure)', 'if (true)')
+    elif mutation == 'resume-red':
+        script = script.replace('showResume();\n    refreshDocument();', 'invalidate(true);')
+    elif mutation == 'resume-deadline':
+        script = script.replace('elapsed < 15000', 'elapsed < 150000').replace(
+            'resumeTimer = setTimeout(function(){ invalidate(false); }, 15000)',
+            'resumeTimer = setTimeout(function(){ invalidate(false); }, 150000)')
+    elif mutation == 'resume-renewal':
+        script = script.replace('if (resumeStarted === null)', 'if (true)').replace(
+            'resumeStarted = Date.now();', 'clearTimeout(resumeTimer); resumeStarted = Date.now();')
     return subprocess.run([node, str(Path(__file__).with_name('panel_refresh_harness.cjs'))],
         input=json.dumps({'script':script,'generated':generated.isoformat(),'failure':failure,
                           'wake':wake,'budget':str(PRESENTATION_MAX_AGE_SECONDS)}),
@@ -107,6 +116,25 @@ def test_refresh_never_installs_unbounded_or_malformed_freshness_metadata(failur
     result = run_refresh(failure)
     assert result.returncode == 0, result.stderr
     assert result.stdout == 'PASS\n'
+
+
+@pytest.mark.parametrize('wake', ['resume-success','resume-initial-pending',
+    'resume-expiry','resume-known-failure','resume-offline','resume-clock','resume-malformed'])
+def test_app_resume_is_bounded_last_known_presentation(wake):
+    result=run_refresh('busy',wake=wake)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'PASS\n'
+
+
+@pytest.mark.parametrize('mutation,wake,expected', [
+    ('resume-red','resume-success','without inventing red'),
+    ('resume-deadline','resume-expiry','foreground deadline'),
+    ('resume-renewal','resume-expiry','foreground deadline'),
+])
+def test_broken_app_resume_guards_are_detected(mutation,wake,expected):
+    result=run_refresh('busy',wake=wake,mutation=mutation)
+    assert result.returncode != 0
+    assert expected in result.stderr
 
 
 def run_push(scenario, *, remove_guard=False):

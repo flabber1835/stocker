@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = 'd2c15621b3b79fad3f7631e85c472dd0494e9049d9e766c2aef5e76bb7c10442'
+PROFILE_SHA256 = '1f3fe126b1cdffdf1e18eb88945d63be4b8bbe21de8bd86aa1c050919b59aa10'
 PROFILE = Path(__file__).with_name('shadow-ui-upgrade.json')
 SCOPE = frozenset({'shadow_supervisor.py', 'shadow_worker_liveness.py', 'shadow_service_status.py', 'panel/sources.py', 'panel/render.py', 'panel/presentation.py',
                    'panel/app.py', 'panel/model.py', 'automation/outbox.py', 'web_push.py'})
