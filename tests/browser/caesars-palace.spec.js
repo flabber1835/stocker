@@ -26,6 +26,9 @@ const REQUIRED_AUTOMATION_STEPS = [
 ];
 
 test.describe('App resume presentation', () => {
+  // Hold the foreground HTML read deterministically. Worker delivery and
+  // offline navigation are qualified separately by the PWA tests below.
+  test.use({serviceWorkers:'block'});
   for (const expires of [false, true]) {
     test(`a saved positive view is amber during reconnect${expires ? ' and red on timeout' : ''}`, async ({ page }) => {
       // CI's unconfigured server is deliberately red. Only this client-display
