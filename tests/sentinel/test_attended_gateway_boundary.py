@@ -94,4 +94,3 @@ def test_scheduler_profile_guard_falsifier(tmp_path,monkeypatch):
     namespace={};exec(compile(changed,'scheduler-guard-falsifier','exec'),vars(module),namespace)
     with pytest.raises(pytest.fail.Exception):
         _scheduler_case(tmp_path,monkeypatch,'production',namespace['installed_scheduler_config'])
-
