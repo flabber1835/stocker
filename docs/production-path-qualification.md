@@ -198,7 +198,7 @@ These groups overlap and must not be added as a unique-test total.
   test_alpaca_execution_entrypoint.py test_paper_activation.py
   test_paper_package_architecture.py test_paper_composition_upgrade.py`.
 * **175 passed**: `test_callback_publication_lifetime.py
-  test_production_symbol_boundary.py test_paper_composition_upgrade.py
+  test_alpaca_source_codec.py test_paper_composition_upgrade.py
   test_operational_liveness_upgrade.py test_retained_readiness_upgrade.py
   test_automation_runtime.py`.
 * **115 passed**: `test_paper_cli.py test_preopen_paper_gate.py

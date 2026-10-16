@@ -128,7 +128,7 @@
       "module": "targets",
       "production_path_design": "docs/production-path-qualification.md",
       "production_path_acceptance": [
-        "tests/sentinel/test_production_symbol_boundary.py",
+        "tests/sentinel/test_alpaca_source_codec.py",
         "tests/sentinel/test_rolling_paper_inputs.py"
       ]
     },
@@ -303,7 +303,7 @@
       "retained_design": "docs/retained-state-activation.md",
       "production_path_design": "docs/production-path-qualification.md",
       "production_path_acceptance": [
-        "tests/sentinel/test_production_symbol_boundary.py",
+        "tests/sentinel/test_alpaca_source_codec.py",
         "tests/sentinel/test_rolling_paper_inputs.py"
       ]
     },
