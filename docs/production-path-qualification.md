@@ -179,6 +179,20 @@ independent verification completed at 15:15:25. This demonstrates the attended
 gateway under observed daytime conditions; it does not establish a latency SLA
 at tomorrow's opening auction.
 
+The additional campaign used the complete deployed scheduler fingerprint
+`7bd10dae05bd216a1d6e2bac4f22250d1058e679305ed9bdba312f5661ae0c76`,
+including its 12-second lease. Preparation completed at 16:22:41 UTC; execution
+began at 16:23:57 and reached SUCCEEDED at 16:31:59 with one leader fence, two
+execution entries and final attempt counter two. ETON deferred while later names
+proceeded, then filled on retry. Every buy began within the original cutoff;
+all 12 closing sells filled, and cleanup ended at 16:34:16.
+
+Final independent native/journal verification passed at 16:35:16: 65 native
+orders, 64 filled and one canceled unfilled, no duplicate POSTs, positions or
+working orders. Ending cash/equity was USD 49,972.56, a total test loss of
+USD 16.16. Exact fill arithmetic predicts 49,972.560004 before native cents
+rounding. The earlier 41-order proof remains retained separately.
+
 Private native records and failed attempts are retained under the operational
 `production-path-audit-20261016` evidence directory. Its independent completion
 record and native order list are the handback inputs; no account identifiers,
@@ -239,6 +253,10 @@ These groups overlap and must not be added as a unique-test total.
   test_native_paper_rehearsal.py test_live_paper_rehearsal.py
   test_attended_gateway_boundary.py test_alpaca_source_codec.py`. These test the
   test boundary; they do not replace the native results above.
+* **18 passed**: `test_regular_quote_submission.py test_quote_starvation.py`.
+  Existing quote tests now require the typed per-order deferral and retain
+  exact identity, zero transport and single-use proof assertions. Malformed
+  evidence and an exception raised inside transport still stop execution.
 
 Final adjacent-path audit also removed the old saved-system rehearsal resume
 branch's reverse ticker dictionary. Fresh preparation, saved-run resume and
