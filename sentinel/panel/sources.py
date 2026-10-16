@@ -1786,7 +1786,7 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="PENDING" if pending else "CLEAN",
             cycle_state=cycle_state,
             detail=(
-                "raw plan remains pre-open unproven; post-close Sharadar "
+                "raw plan remains pre-open unproven; post-close market-data "
                 "unit check is pending" if pending else
                 "post-close unit evidence and durable broker reconciliation "
                 "are clean; P/L remains informational"))
