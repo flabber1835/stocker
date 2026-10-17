@@ -492,6 +492,17 @@ and genuine financial GO evidence remains attributed to that earlier runtime.
 Fresh source profiles, immutable images, software checks and a new real-provider
 financial/backup/full-restore GO are required before publishing this repair.
 
+The same `a437e7fe` CI run also found two stale source-codec fixtures in a
+1,777-test shard. Their manifest double omitted the published reference/source
+evidence now required for authenticated native asset identity. The unchanged
+`e9172f44` test image reproduced two failures and three passes in 1.26 s. Updating
+only that test file produced five passes in 1.07 s. Its digest-addressed database
+double exercises the production evidence checksum and identity-binding readers;
+the test asserts the exact evidence reads and canonical/native asset mapping.
+The original lossy-symbol-conversion falsifier remains unchanged. Independent
+review confirmed a test-only repair with no runtime guard bypass. The original
+image is not relabelled as embedding the updated fixture.
+
 ## Remaining acceptance boundaries
 
 The earlier `05c516a6` isolated run passed genuine initial backup/full restore
