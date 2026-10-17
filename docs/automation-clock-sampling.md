@@ -6,6 +6,9 @@ The owner requested triage, repair and qualification in PR #530. The verified
 main base is `90a960547b58bb245c998ae3f70d0baed1fe95d0`; the pre-fix PR head is
 `18a4c8b732b50eace554cd3da53e909c27baaada`.
 
+[Qualification results](automation-clock-qualification.md) bind the completed
+repair to its exact source, images, falsifiers and fresh real-provider campaign.
+
 ## Confirmed defect
 
 The existing sampler raises a fatal `AutomationRefused` for any negative host

@@ -1,5 +1,11 @@
 # Native read preparation qualification — 2026-10-17
 
+This ledger records the initial native-read qualification at `c71277c4` and its
+ledger-only handoff at `18a4c8b7`. The subsequent clock-sampling repair and its
+fresh exact-image and real-provider qualification are recorded separately in
+[automation clock qualification](automation-clock-qualification.md). The
+original evidence below keeps its original commit and image attribution.
+
 This implements the offline preparation phase authorized by the owner, based on
 verified main `90a960547b58bb245c998ae3f70d0baed1fe95d0`. The independent live
 account checks are deferred. The offline checks used no broker credentials or
@@ -18,7 +24,8 @@ were not changed.
 
 ## Exact immutable image evidence
 
-The tested commit is `c71277c4b6d25972df24309ad687ef7cc18b346e`:
+The initial native-read qualification tested commit
+`c71277c4b6d25972df24309ad687ef7cc18b346e`:
 
 | Artifact | Immutable identity |
 | --- | --- |
@@ -120,9 +127,10 @@ No raw logs or credentials are included in the sanitized evidence archive.
 This is local market-data, canonical-book and logical-recovery qualification.
 The existing operator-attested local backup target was used; physical
 independence and NAS qualification remain `NOT_PROVEN`. Protected software
-certification and live activation remain `NOT_PROVEN`. The tested code remains
-at `c71277c4b6d25972df24309ad687ef7cc18b346e`; the later handoff changes this
-ledger only and does not relabel the tested image. Native account checks remain
+certification and live activation remain `NOT_PROVEN`. This initial evidence
+belongs to `c71277c4b6d25972df24309ad687ef7cc18b346e`; its `18a4c8b7` handoff
+changed this ledger only. The later clock repair has its own qualification
+linked above. Native account checks remain
 `DEFERRED`; all six native guarantees listed above remain `NOT_PROVEN`.
 
 ## Reproduction
