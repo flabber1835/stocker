@@ -125,6 +125,9 @@ opt-in registry preserving older doubles while they migrate. Do not add new
 modules by default. Dedicated real-guard witnesses and the million-row warmup
 keep their existing validation boundaries. Shared synthetic market/HTTP helpers
 live under `tests/support`; helper reuse is not a second strategy implementation.
+The root backup-policy substitution likewise requires an explicit surviving
+module path in `tests/legacy-backup-policy-modules.txt`. New and renamed tests
+keep the real backup-policy marker. Synthetic cache directories remain isolated.
 
 Automation-service branch coverage remains a mandatory CI gate. The manually
 dispatched repository coverage campaign measures the complete Python 3.12

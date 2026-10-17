@@ -213,8 +213,9 @@ docs/wealth-core-test-rewrite.md
 - Sentinel controls exposure only; it does not choose Wealth Core holdings.
 - Execution is the only broker-facing layer.
 - Alpaca SIP bars/actions plus free OpenFIGI classifications are the production GO
-  market-data inputs; retired-source identifiers are historical evidence only. See
-  `docs/alpaca-go-cold-start.md` for this scoped source transition.
+  market-data inputs. Historical data, shared normalization APIs and stored schema
+  identifiers retain compatibility names; those names do not select the live
+  source. See `docs/alpaca-go-cold-start.md` for this scoped source transition.
 - Preserve the price-domain rules documented in the repository.
 - No live credentials in the repo.
 - Paper trading only unless the repository's explicit safety contract is changed

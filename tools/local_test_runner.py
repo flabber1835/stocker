@@ -188,7 +188,8 @@ def main(argv: list[str] | None = None) -> int:
                     name, inventory[name], authority=authority, root=ROOT,
                     evidence=evidence, pytest_args=pytest_args,
                     coverage_config=config)}
-            except (AssertionError, ValueError, OSError, ET.ParseError) as exc:
+            except (AssertionError, ValueError, OSError, RuntimeError,
+                    subprocess.SubprocessError, ET.ParseError) as exc:
                 results[name] = {"verdict": "FAIL", "error": str(exc)}
                 print(f"REFUSED: {exc}", file=sys.stderr, flush=True)
         payload = {"schema": "sentinel.local-pytest/1", "python": sys.version,

@@ -66,6 +66,10 @@ New and renamed modules receive real production validation by default. Preserve
 dedicated schema, source-authority and producer-identity witnesses. Shared
 synthetic filesystem isolation remains explicit and cannot issue deployment
 authority. Remove unused retired-service import activation code.
+The root backup-policy marker substitution also has a finite module-path
+registry, limited to surviving pre-hardening tests. New and renamed modules
+keep the real marker by default. Synthetic source-cache directories remain
+unconditional filesystem isolation; they do not replace validation functions.
 
 The local complete pytest command builds or uses the pinned runtime/test lens
 and derives test inventory from the permanent owner authority. It must reject
@@ -85,6 +89,11 @@ neither `/work/sentinel` Python code nor a second shared package may be made
 importable. Collection and execution use the same baked inspection inputs,
 including in the coverage campaign, without host-source overlays or skipped
 prerequisites counting as success.
+The test root may contain `/work/sentinel/requirements.lock` as non-Python
+inspection metadata only. It must contain no Sentinel Python modules or
+bytecode; imports still resolve from `/app`. The standalone restored evidence
+verifier continues to read its own archived lockfiles rather than an environment
+override, preserving its self-contained source authority.
 
 ## Scheduling and diagnostics
 

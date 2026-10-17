@@ -112,7 +112,9 @@ def test_fast_composition_checks_cannot_become_manual(job, step_name):
 
 
 def test_script_process_can_load_production_session_calendar(tmp_path):
-    env = dict(os.environ, PYTHONPATH=str(ROOT / "shared"))
+    python_path = os.pathsep.join(filter(None, (
+        str(ROOT / "shared"), os.environ.get("PYTHONPATH", ""))))
+    env = dict(os.environ, PYTHONPATH=python_path)
     completed = subprocess.run(
         [sys.executable, "-c",
          "import runpy,sys; h=runpy.run_path(sys.argv[1]); "

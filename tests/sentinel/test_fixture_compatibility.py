@@ -5,6 +5,7 @@ import pytest
 
 from sentinel import identity
 from sentinel.feed import coherence, store
+from tests import conftest as root_fixtures
 from tests.sentinel import conftest as fixtures
 
 
@@ -75,3 +76,42 @@ def test_registry_contains_only_existing_explicit_modules():
     current = {path.stem for path in fixtures.HERE.glob("test_*.py")}
     assert fixtures._LEGACY_COMPATIBILITY_MODULES <= current
     assert "test_fixture_compatibility" not in fixtures._LEGACY_COMPATIBILITY_MODULES
+
+
+@pytest.mark.parametrize("module", ["test_future_backup_safety.py",
+                                   "test_renamed_backup_policy.py",
+                                   "test_fixture_compatibility.py"])
+def test_new_and_renamed_modules_keep_real_backup_policy(module, tmp_path, monkeypatch):
+    from sentinel import backup_runtime_authority as backup
+    real_marker = tmp_path / "production-policy"
+    monkeypatch.setattr(backup, "POLICY_MARKER", real_marker)
+    request = SimpleNamespace(node=SimpleNamespace(
+        path=root_fixtures.ROOT / "tests/sentinel" / module))
+    root_fixtures.isolated_image_backup_policy.__wrapped__(request, tmp_path, monkeypatch)
+    assert backup.POLICY_MARKER == real_marker
+
+
+def test_explicit_old_module_keeps_synthetic_backup_filesystem(tmp_path, monkeypatch):
+    from sentinel import backup_runtime_authority as backup
+    module = "tests/sentinel/test_feed_store.py"
+    assert module in root_fixtures._LEGACY_BACKUP_POLICY_MODULES
+    request = SimpleNamespace(node=SimpleNamespace(path=root_fixtures.ROOT / module))
+    root_fixtures.isolated_image_backup_policy.__wrapped__(request, tmp_path, monkeypatch)
+    assert backup.POLICY_MARKER == tmp_path / "absent-production-backup-policy"
+
+
+@pytest.mark.parametrize("text", ["", "tests/test_old.py\ntests/test_old.py\n",
+                                  "tests/../test_old.py\n", "tests/test_*.py\n",
+                                  "outside/test_old.py\n"])
+def test_invalid_backup_registry_refuses(tmp_path, text):
+    path = tmp_path / "legacy.txt"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match="explicit legacy backup-policy"):
+        root_fixtures._legacy_backup_policy_modules(path)
+
+
+def test_backup_registry_contains_only_surviving_preexisting_modules():
+    registry = root_fixtures._LEGACY_BACKUP_POLICY_MODULES
+    assert all((root_fixtures.ROOT / name).is_file() for name in registry)
+    assert "tests/sentinel/test_fixture_compatibility.py" not in registry
+    assert "tests/sentinel/test_listing_metadata_publication.py" not in registry

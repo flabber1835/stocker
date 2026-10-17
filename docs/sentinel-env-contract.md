@@ -142,19 +142,24 @@ receipt authority. Existing immutable-image and authority-directory guards run
 after ingestion. Automation commands additionally apply the operation-aware
 dispatcher requirement above.
 
-## Adversarial harness
+## Retained protocol harness
 
-The ordinary CLI Compose service forwards the existing Sharadar Tables endpoint,
+The following endpoint controls and normalized Tables fixtures support legacy
+protocol and runtime-boundary tests. They are not current-provider configuration
+or qualification. Current GO acquisition uses the
+[Alpaca/OpenFIGI source contract](alpaca-go-cold-start.md).
+
+The compatibility CLI Compose service forwards the existing Tables endpoint,
 insecure-development opt-in, retry count and backoff settings to the container.
-Defaults retain the public HTTPS endpoint and production retry policy. An
+The legacy client retains its HTTPS endpoint and bounded retry defaults. An
 explicit insecure-development endpoint permits HTTP export downloads only from
 that same configured HTTP origin; other export origins still require HTTPS.
 The legacy environment converter deliberately leaves this development opt-in
 unset; each development deployment must select it explicitly.
 
-The production GO E2E fixture implements cursor-paginated Tables responses and
+The retained source fixture implements cursor-paginated Tables responses and
 complete zipped CSV exports for TICKERS, ACTIONS and SEP. Its 4,000 securities
-have complete listing intervals and preserve the production seed population
+have complete listing intervals and preserve the historical seed population
 floor. Before seeding, it inspects the resolved
 Compose service and refuses unless the effective endpoint, development opt-in
 and retry settings match its local server. It retains the observed request

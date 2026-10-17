@@ -50,7 +50,8 @@ def test_lens_contains_host_owner_inspection_inputs_without_runtime_shadowing():
     ):
         assert (test_root / relative).is_file(), relative
     if os.environ.get("SENTINEL_IN_IMAGE") == "1":
-        assert not (test_root / "sentinel").exists()
+        assert {path.relative_to(test_root / "sentinel").as_posix()
+                for path in (test_root / "sentinel").rglob("*") if path.is_file()} == {"requirements.lock"}
         assert not (test_root / "stock_strategy_shared").exists()
 
 

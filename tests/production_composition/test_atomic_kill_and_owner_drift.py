@@ -36,11 +36,16 @@ def test_foreign_owner_selector_is_replaced_with_current_process_owner(monkeypat
     pointer = tmp_path / "validated-runtime.env"
     pointer.write_text("SENTINEL_RUNTIME_IMAGE_REF=" + OLD + "\n", encoding="ascii")
     before = pointer.stat()
-    chown = subprocess.run(
-        ["sudo", "-n", "chown", "0:0", str(pointer)],
-        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-    assert chown.returncode == 0, chown.stderr
-    assert pointer.stat().st_uid == 0
+    foreign_uid = 1 if os.getuid() == 0 else 0
+    if os.geteuid() == 0:
+        os.chown(pointer, foreign_uid, foreign_uid)
+    else:
+        chown = subprocess.run(
+            ["sudo", "-n", "chown", f"{foreign_uid}:{foreign_uid}", str(pointer)],
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        assert chown.returncode == 0, chown.stderr
+    assert pointer.stat().st_uid == foreign_uid
+    assert pointer.stat().st_uid != os.getuid()
     monkeypatch.setattr(runtime, "POINTER", pointer)
 
     runtime._write_pointer(NEW)

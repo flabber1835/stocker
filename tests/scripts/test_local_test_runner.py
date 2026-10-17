@@ -1,4 +1,5 @@
 """Falsify omitted tests, silent skips and stale local execution evidence."""
+import json
 from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
@@ -157,6 +158,38 @@ def test_ci_database_context_cleans_up_after_failed_provisioning(monkeypatch):
         with runner.owner_environment("core.infrastructure", {}):
             pytest.fail("unprovisioned database reached the test process")
     assert events == ["stopped"]
+
+
+def test_failed_core_provisioning_retains_failure_and_executes_next_owner(tmp_path, monkeypatch):
+    from tools import core_infrastructure_suite as core
+    root, authority = sample(tmp_path)
+    authority["owners"] = {
+        "core.infrastructure": authority["owners"]["sample.owner"],
+        "next.owner": {"paths": ["tests/next"], "execution": {"kind": "pytest-junit"}},
+    }
+    following = root / "tests/next"
+    following.mkdir()
+    (following / "test_after.py").write_text("def test_after(): assert True\n")
+    events = []
+    class Server:
+        def start(self):
+            events.append("start")
+            raise RuntimeError("private initialization failed")
+        def stop(self):
+            events.append("stop")
+    actual_inventory = runner.owner_inventory
+    monkeypatch.setattr(core, "_EphemeralPostgres", Server)
+    monkeypatch.setattr(runner, "ROOT", root)
+    monkeypatch.setattr(runner, "load_authority", lambda: authority)
+    monkeypatch.setattr(runner, "owner_inventory", lambda value: actual_inventory(value, root))
+    monkeypatch.setenv("SENTINEL_IN_IMAGE", "1")
+    evidence = tmp_path / "evidence"
+    assert runner.main(["--evidence", str(evidence)]) == 1
+    result = json.loads((evidence / "execution.json").read_text())
+    assert result["owners"]["core.infrastructure"]["verdict"] == "FAIL"
+    assert "private initialization failed" in result["owners"]["core.infrastructure"]["error"]
+    assert result["owners"]["next.owner"]["verdict"] == "PASS"
+    assert events == ["start", "stop"]
 
 
 def test_coverage_command_keeps_owner_inventory_and_unique_junit(tmp_path):
