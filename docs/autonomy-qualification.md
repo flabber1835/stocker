@@ -107,6 +107,24 @@ book restart/parity and full semantic restore through their existing producers.
 Keep signed certification, deployment admission, physical independence, NAS
 capacity and live authority explicitly unproven. No backup policy is relaxed.
 
+### Private harness filesystem identity
+
+The immutable runtime retains its dependency lock at
+`/tmp/req/requirements.lock`; the exact environment identity includes that
+file's digest. Production Compose and the production semantic restore launcher
+both leave this baked path visible. A private qualification harness must preserve
+the same visibility. For a read-only root filesystem, mount only a dedicated
+writable temporary subdirectory and set `TMPDIR` to it. Do not mask all `/tmp`.
+
+The first two private attempts masked all `/tmp` in their ordinary CLI workers
+but not in the restore worker. The final attempt captured an exact identity
+refusal, without an OOM event. Verify the two filesystem identities directly
+before applying the harness correction. Keep these failed attempts as failures.
+Run a new complete, bounded cold qualification with the corrected filesystem
+profile and newly computed native identity. Do not change the production identity
+guard, copy a new identity onto an existing book, edit a checkpoint/admission or
+raise resource limits to turn the refusal into a pass.
+
 ## Retained runtime compatibility
 
 The forward-cash v2 economic migration remains its own explicit strategy
