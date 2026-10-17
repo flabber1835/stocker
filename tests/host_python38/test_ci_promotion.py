@@ -46,5 +46,26 @@ class PromotionHostCompatibility(unittest.TestCase):
                 promote._json_bytes(raw, "REFUSED", "promotion")
 
 
+    def test_partial_rerun_preserves_the_original_producer(self):
+        repo = {"id": policy.REPOSITORY_ID, "full_name": policy.REPOSITORY}
+        run = {"id": 100, "workflow_id": 333697638, "path": policy.WORKFLOWS[0],
+               "head_sha": "a" * 40, "event": "pull_request", "status": "completed",
+               "conclusion": "success", "run_attempt": 2, "repository": repo, "head_repository": repo}
+        original = dict(run, run_attempt=1)
+        jobs = [{"name": name, "status": "completed", "conclusion": "success",
+                 "run_id": 100, "head_sha": "a" * 40} for name in (
+                 "sentinel-runtime-build", "sentinel-exact-head", "sentinel-suite-operator")]
+        class Client:
+            def json(self, path):
+                if "/jobs?" in path:
+                    return {"jobs": jobs}
+                return original if "/attempts/1" in path else run
+        row = {"path": policy.WORKFLOWS[0], "run": 100, "attempt": 2, "evidence_attempt": 1}
+        policy.check_run(Client(), row, "a" * 40)
+        jobs[-1]["conclusion"] = "failure"
+        with self.assertRaises(policy.PromotionRefused):
+            policy.check_run(Client(), row, "a" * 40)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,11 @@
 Host-compatible Python 3.8. No Docker, signing, broker or mutation operations.
 """
 from copy import deepcopy
+import hashlib
+import io
+import json
 import re
+import zipfile
 
 REPOSITORY = "flabber1835/stocker"
 REPOSITORY_ID = 1233957439
@@ -15,6 +19,9 @@ WORKFLOWS = (
     ".github/workflows/internal-state-harness.yml",
 )
 PLAN_SCHEMA = "sentinel.qualified-pr-promotion/1"
+PRODUCER_PLAN_SCHEMA = "sentinel.qualified-pr-promotion/2"
+PRODUCER_SCHEMA = "sentinel.qualification-producer/1"
+REPORT_ONLY_JOBS = {"sentinel-synthetic-merge", "host-python-38-synthetic-merge"}
 PROMOTION_SCHEMA = "sentinel.software-qualification-reuse/1"
 GIT = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -92,7 +99,9 @@ def check_pr(client, plan):
 
 
 def check_run(client, row, commit):
-    require(set(row) == {"path", "run", "attempt"} and row["path"] in WORKFLOWS,
+    extended = "evidence_attempt" in row
+    require(set(row) == ({"path", "run", "attempt", "evidence_attempt"} if extended else
+                        {"path", "run", "attempt"}) and row["path"] in WORKFLOWS,
             "unknown qualification workflow")
     run = client.json("/repos/%s/actions/runs/%d" % (REPOSITORY, positive(row["run"])))
     require(type(run.get("workflow_id")) is int and run["workflow_id"] > 0
@@ -108,7 +117,88 @@ def check_run(client, row, commit):
                 (REPOSITORY, row["run"], row["attempt"]), "jobs")
     require(jobs and all(x.get("conclusion") == "success" for x in jobs),
             "original qualification contains nonpassing jobs")
+    if extended:
+        check_jobs(jobs, row["run"], commit)
+        evidence_attempt = positive(row["evidence_attempt"])
+        require(evidence_attempt <= row["attempt"], "evidence attempt is newer than validation")
+        if evidence_attempt != row["attempt"]:
+            original = client.json("/repos/%s/actions/runs/%d/attempts/%d" %
+                                   (REPOSITORY, row["run"], evidence_attempt))
+            require(original.get("id") == row["run"] and type(original.get("id")) is int
+                    and original.get("run_attempt") == evidence_attempt
+                    and type(original.get("run_attempt")) is int
+                    and original.get("workflow_id") == run["workflow_id"]
+                    and original.get("path") == row["path"] and original.get("head_sha") == commit
+                    and original.get("event") == "pull_request" and original.get("status") == "completed"
+                    and same_repo(original.get("repository")) and same_repo(original.get("head_repository")),
+                    "producer workflow binding differs")
+            jobs = rows(client, "/repos/%s/actions/runs/%d/attempts/%d/jobs" %
+                        (REPOSITORY, row["run"], evidence_attempt), "jobs")
+            reporting = REPORT_ONLY_JOBS if row["path"] == WORKFLOWS[0] else set()
+            check_jobs(jobs, row["run"], commit, reporting)
+        if row["path"] == WORKFLOWS[0]:
+            require({"sentinel-exact-head", "sentinel-runtime-build"}.issubset(
+                        {x.get("name") for x in jobs}), "producer carrier or runtime is missing")
     return run
+
+
+def check_jobs(jobs, run, commit, reporting=()):
+    names = [x.get("name") for x in jobs]
+    require(jobs and all(isinstance(x, str) and x for x in names)
+            and len(names) == len(set(names)) and all(
+                type(x.get("run_id")) is int and x["run_id"] == run and x.get("head_sha") == commit
+                and (x["name"] in reporting or
+                     (x.get("status") == "completed" and x.get("conclusion") == "success"))
+                for x in jobs), "producer or validation jobs are not successful")
+
+
+def read_proof(client, item):
+    raw = client.bytes("https://api.github.com/repos/%s/actions/artifacts/%d/zip" %
+                       (REPOSITORY, item["id"]))
+    require(len(raw) <= 1024 * 1024 and "sha256:" + hashlib.sha256(raw).hexdigest() == item["digest"],
+            "retained proof artifact bytes differ")
+
+    def pairs(items):
+        require(len(items) == len({key for key, _ in items}), "duplicate proof JSON key")
+        return dict(items)
+
+    def noninteger(value):
+        raise PromotionRefused("noninteger numeric proof field")
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            require(archive.namelist() == ["proof.json"], "proof archive member inventory differs")
+            entry = archive.getinfo("proof.json")
+            require(entry.file_size <= 65536 and not (entry.flag_bits & 1)
+                    and (entry.external_attr >> 16) & 0o170000 != 0o120000,
+                    "proof archive entry differs")
+            value = json.loads(archive.read(entry).decode("utf-8"), object_pairs_hook=pairs,
+                               parse_constant=noninteger, parse_float=noninteger)
+    except (UnicodeError, json.JSONDecodeError, zipfile.BadZipFile) as exc:
+        raise PromotionRefused("malformed retained proof") from exc
+    require(isinstance(value, dict), "proof JSON is not an object")
+    return value
+
+
+def input_digest(value):
+    return "sha256:" + hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest()
+
+
+def validate_producer(plan):
+    entry = plan["producer_proof"]
+    require(isinstance(entry, dict) and set(entry) == {"artifact", "proof"}, "producer proof shape differs")
+    proof = entry["proof"]
+    safety = next(x for x in plan["workflows"] if x["path"] == WORKFLOWS[0])
+    require(isinstance(proof, dict) and set(proof) == {"schema", "repository", "commit", "tree",
+            "run", "attempt", "runtime_artifact", "input_sha256"}
+            and proof["schema"] == PRODUCER_SCHEMA and proof["repository"] == REPOSITORY
+            and proof["commit"] == plan["tested_commit"] and proof["tree"] == plan["tested_tree"]
+            and positive(proof["run"]) == safety["run"]
+            and positive(proof["attempt"]) == safety["evidence_attempt"]
+            and proof["runtime_artifact"] == plan["artifact"], "producer qualification binding differs")
+    digest(proof["input_sha256"])
+    return proof
 
 
 def check_artifact(client, artifact, name, run):
@@ -127,22 +217,29 @@ def check_artifact(client, artifact, name, run):
 
 
 def validate_plan(plan):
-    require(isinstance(plan, dict) and set(plan) == {
-        "schema", "mode", "source_commit", "source_tree", "pr", "tested_commit",
-        "tested_tree", "workflows", "artifact", "checkout_proofs"} and
-        plan["schema"] == PLAN_SCHEMA and plan["mode"] == "promote", "promotion plan schema differs")
+    require(isinstance(plan, dict), "promotion plan is not an object")
+    extended = plan.get("schema") == PRODUCER_PLAN_SCHEMA
+    fields = {"schema", "mode", "source_commit", "source_tree", "pr", "tested_commit",
+              "tested_tree", "workflows", "artifact", "checkout_proofs"}
+    if extended:
+        fields.add("producer_proof")
+    require(set(plan) == fields and plan["schema"] in (PLAN_SCHEMA, PRODUCER_PLAN_SCHEMA)
+            and plan["mode"] == "promote", "promotion plan schema differs")
     for key in ("source_commit", "source_tree", "tested_commit", "tested_tree"):
         git(plan[key])
     positive(plan["pr"])
     require(plan["source_tree"] == plan["tested_tree"], "tested tree differs")
     require(isinstance(plan["workflows"], list) and len(plan["workflows"]) == len(WORKFLOWS)
-            and all(isinstance(x, dict) and set(x) == {"path", "run", "attempt"}
+            and all(isinstance(x, dict) and set(x) ==
+                    ({"path", "run", "attempt", "evidence_attempt"} if extended else {"path", "run", "attempt"})
                     for x in plan["workflows"])
             and {x["path"] for x in plan["workflows"]} == set(WORKFLOWS),
             "qualification workflow inventory differs")
     for row in plan["workflows"]:
         positive(row["run"])
         positive(row["attempt"])
+        if extended:
+            require(positive(row["evidence_attempt"]) <= row["attempt"], "producer attempt is in the future")
     require(isinstance(plan["artifact"], dict) and
             set(plan["artifact"]) == {"id", "digest", "name", "run"}, "tested artifact schema differs")
     positive(plan["artifact"]["id"])
@@ -150,6 +247,8 @@ def validate_plan(plan):
     digest(plan["artifact"]["digest"])
     require(isinstance(plan["checkout_proofs"], list) and len(plan["checkout_proofs"]) == 2,
             "checkout proof inventory differs")
+    if extended:
+        validate_producer(plan)
 
 
 def verify_plan(client, plan):
@@ -164,6 +263,12 @@ def verify_plan(client, plan):
         check_run(client, row, plan["tested_commit"])
     safety = next(x for x in workflow_rows if x["path"] == WORKFLOWS[0])
     check_artifact(client, plan["artifact"], "sentinel-tested-image-" + plan["tested_commit"], safety["run"])
+    if plan["schema"] == PRODUCER_PLAN_SCHEMA:
+        producer = plan["producer_proof"]
+        check_artifact(client, producer["artifact"],
+                       "sentinel-qualification-producer-" + plan["tested_commit"], safety["run"])
+        require(read_proof(client, producer["artifact"]) == producer["proof"],
+                "retained producer proof content differs")
     proofs = plan["checkout_proofs"]
     require(isinstance(proofs, list) and len(proofs) == 2, "checkout proof inventory differs")
     seen = set()
@@ -177,12 +282,15 @@ def verify_plan(client, plan):
             "actual harness checkout tree differs")
         seen.add(proof["path"])
         row = next(x for x in workflow_rows if x["path"] == proof["path"])
+        producer_attempt = row.get("evidence_attempt", row["attempt"])
         require(proof["run"] == row["run"] and type(proof["run"]) is int and
-                proof["attempt"] == row["attempt"] and type(proof["attempt"]) is int
+                proof["attempt"] == producer_attempt and type(proof["attempt"]) is int
                 and tree(client, proof["commit"]) == proof["tree"], "harness checkout identity differs")
         role = "composition" if proof["path"] == WORKFLOWS[1] else "browser"
         check_artifact(client, entry["artifact"],
-                       "ci-checkout-proof-%s-%d" % (role, row["attempt"]), row["run"])
+                       "ci-checkout-proof-%s-%d" % (role, producer_attempt), row["run"])
+        if plan["schema"] == PRODUCER_PLAN_SCHEMA:
+            require(read_proof(client, entry["artifact"]) == proof, "retained checkout proof content differs")
 
 
 def image_record(image):
@@ -234,7 +342,8 @@ def verify_reuse(value, evidence):
     plan = value["plan"]
     require(isinstance(original, dict) and set(original) == set(evidence) - {"qualification_reuse"}
             and original.get("schema") == "sentinel.software-certification-input/2"
-            and isinstance(plan, dict) and plan.get("schema") == PLAN_SCHEMA and plan.get("mode") == "promote",
+            and isinstance(plan, dict) and plan.get("schema") in (PLAN_SCHEMA, PRODUCER_PLAN_SCHEMA)
+            and plan.get("mode") == "promote",
             "original qualification schema differs")
     validate_plan(plan)
     require(isinstance(value["tested_image"], dict) and isinstance(value["promoted_image"], dict),
@@ -246,7 +355,11 @@ def verify_reuse(value, evidence):
             and plan["tested_commit"] == original["source_commit"], "qualification source binding differs")
     safety = [x for x in plan["workflows"] if x.get("path") == WORKFLOWS[0]]
     require(len(safety) == 1 and original["test_workflow_run"] == safety[0]["run"]
-            and original["test_workflow_attempt"] == safety[0]["attempt"], "original test attempt differs")
+            and original["test_workflow_attempt"] == safety[0].get("evidence_attempt", safety[0]["attempt"]),
+            "original test attempt differs")
+    if plan["schema"] == PRODUCER_PLAN_SCHEMA:
+        require(input_digest(original) == validate_producer(plan)["input_sha256"],
+                "original certification input differs from producer proof")
     for key in original:
         if key not in ("schema", "source_commit", "test_workflow_run", "test_workflow_attempt", "runtime_image_id"):
             require(original[key] == evidence.get(key), "reused evidence differs: " + key)
