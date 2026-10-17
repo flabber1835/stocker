@@ -291,11 +291,13 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     close_cycle_profile = close_cycle_upgrade.profile()
     from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
     autonomy_profile = autonomy_upgrade.profile()
+    from sentinel import native_read_upgrade
+    native_read_profile = native_read_upgrade.profile()
     profiles = (legacy_economic_profile, economic_profile, execution_records, readiness_records,
                 renewal_records, liveness_records, operational_profile,
                 callback_profile, startup_profile, recovery_profile, ui_profile,
                 monitor_profile, open_time_profile, close_cycle_profile,
-                autonomy_profile)
+                autonomy_profile, native_read_profile)
 
     def source_allowed(name, previous, actual, records=profiles):
         for value in records:
@@ -323,6 +325,7 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     open_time_additions = open_time_upgrade.additions_allowed(actual)
     close_cycle_additions = close_cycle_upgrade.additions_allowed(actual)
     autonomy_additions = autonomy_upgrade.additions_allowed(actual)
+    native_read_additions = native_read_upgrade.additions_allowed(actual)
     # An earlier pinned addition can later receive only its exact reviewed
     # transition; an unpinned neighboring edit still fails the closure gate.
     for previous_profile, allowed in ((operational_profile, operational_additions),
@@ -330,23 +333,28 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
                                      (ui_profile, ui_additions),
                                      (monitor_profile, monitor_additions),
                                      (open_time_profile, open_time_additions),
-                                     (close_cycle_profile, close_cycle_additions)):
+                                     (close_cycle_profile, close_cycle_additions),
+                                     (autonomy_profile, autonomy_additions)):
         allowed.update(name for name, previous in previous_profile['additions'].items()
-                       if source_allowed(name, previous, actual.get(name), profiles[-4:]))
+                       if source_allowed(name, previous, actual.get(name), profiles[-5:]))
     if (source_closure(actual) != context['runtime']['sentinel_source_sha256']
             or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']
             or set(manifest.files) - set(actual)
-            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions - recovery_additions - ui_additions - monitor_additions - open_time_additions - close_cycle_additions - autonomy_additions
+            or native_read_upgrade.ADDITIONS - set(actual)
+            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions - recovery_additions - ui_additions - monitor_additions - open_time_additions - close_cycle_additions - autonomy_additions - native_read_additions
             or (set(actual) & set(operational_profile['additions'])) - operational_additions
             or (set(actual) & set(recovery_profile['additions'])) - recovery_additions
             or (set(actual) & set(ui_profile['additions'])) - ui_additions
             or (set(actual) & set(monitor_profile['additions'])) - monitor_additions
             or (set(actual) & set(open_time_profile['additions'])) - open_time_additions
             or (set(actual) & set(close_cycle_profile['additions'])) - close_cycle_additions
-            or (set(actual) & set(autonomy_profile['additions'])) - autonomy_additions):
+            or (set(actual) & set(autonomy_profile['additions'])) - autonomy_additions
+            or (set(actual) & set(native_read_profile['additions'])) - native_read_additions
+            or any(name in actual and actual[name] != record['after']
+                   for name, record in native_read_profile['files'].items())):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     for name, previous in manifest.files.items():
-        if actual[name] == previous or name in ((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE-close_cycle_upgrade.SCOPE) | ADDITIONS):
+        if actual[name] == previous or name in (((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE-close_cycle_upgrade.SCOPE) | ADDITIONS) - native_read_upgrade.SCOPE):
             continue
         module = SEAMS.get(name)
         if source_allowed(name, previous, actual[name]):

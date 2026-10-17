@@ -102,6 +102,13 @@
         "required_contracts": "alpaca"
       }
     },
+    "alpaca.native-read-acceptance": {
+      "paths": ["tools/sentinel_native_acceptance.py"],
+      "scopes": ["synthetic-merge"],
+      "ci_job": ".github/workflows/alpaca-simulation-harness.yml#alpaca",
+      "independence": "offline-native-replay",
+      "execution": {"kind": "command", "command": "python tools/sentinel_native_acceptance.py"}
+    },
     "alpaca.mutations": {
       "paths": ["tools/alpaca_harness_mutations.py"],
       "scopes": ["synthetic-merge"],

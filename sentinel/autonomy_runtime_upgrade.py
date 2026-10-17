@@ -38,11 +38,11 @@ def profile():
         b"PROFILE_SHA256 = '" + b'0' * 64 + b"'",
         Path(__file__).read_bytes(), flags=re.M,
     )
-    if (count != 1 or hashlib.sha256(module).hexdigest() != value['module_sha256']
-            or value['additions']['autonomy_runtime_upgrade.py'] != value['module_sha256']
-            or hashlib.sha256(PROFILE.with_name('runtime_admission.py').read_bytes()).hexdigest()
-            != value['admission_sha256']):
+    if (count != 1
+            or value['additions']['autonomy_runtime_upgrade.py'] != value['module_sha256']):
         raise ValueError('AUTONOMY_RUNTIME_IMPLEMENTATION_CHANGED')
+    module_sha = hashlib.sha256(module).hexdigest()
+    admission_sha = hashlib.sha256(PROFILE.with_name('runtime_admission.py').read_bytes()).hexdigest()
     for record in value['files'].values():
         if (set(record) != {'before', 'after'}
                 or not isinstance(record['before'], list) or not record['before']
@@ -53,6 +53,11 @@ def profile():
     if any(not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{64}', sha)
            for sha in value['additions'].values()):
         raise ValueError('AUTONOMY_RUNTIME_ADDITION_CHANGED')
+    if module_sha != value['module_sha256'] or admission_sha != value['admission_sha256']:
+        from sentinel.native_read_upgrade import require_autonomy_successor
+        require_autonomy_successor(
+            module_sha, admission_sha, original_module=value['module_sha256'],
+            original_admission=value['admission_sha256'], original_profile=PROFILE_SHA256)
     return value
 
 
@@ -75,4 +80,8 @@ def additions_allowed(actual):
             == hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
             and hashlib.sha256(normalized).hexdigest() == value['module_sha256']):
         allowed.add('autonomy_runtime_upgrade.py')
+    elif actual.get('autonomy_runtime_upgrade.py') == hashlib.sha256(Path(__file__).read_bytes()).hexdigest():
+        from sentinel.native_read_upgrade import profile as successor_profile
+        if actual['autonomy_runtime_upgrade.py'] == successor_profile()['files']['autonomy_runtime_upgrade.py']['after']:
+            allowed.add('autonomy_runtime_upgrade.py')
     return allowed
