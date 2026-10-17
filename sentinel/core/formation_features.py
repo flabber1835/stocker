@@ -1,6 +1,5 @@
 """Bounded price work reuse within one immutable formation generation."""
 from array import array
-from dataclasses import asdict
 from math import isnan
 
 from stock_strategy_shared.wealth_core.feed import SecuritySeries
@@ -117,8 +116,8 @@ class FormationFeatures:
                 signal_closes=list(ring.values['close_signal'][-127:]),
                 raw_closes=list(ring.values['close_unadjusted'][-20:]),
                 volumes=[_value(value) for value in ring.values['volume'][-20:]])
-            signals.append(Signal.model_validate(asdict(feature(
-                series, meta[sid], index=299, session=session))))
+            signals.append(Signal.from_feature(feature(
+                series, meta[sid], index=299, session=session)))
         return WindowFeatures(snapshot_sha256=self.snapshot_id,
             prior_state_sha256=prior.state_hash, publication_version=self.version,
             sessions=tuple(days), signals=tuple(signals), histories=histories)

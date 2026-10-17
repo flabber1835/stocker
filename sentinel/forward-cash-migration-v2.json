@@ -1,0 +1,67 @@
+{
+  "additions": {
+    "core/cash_distributions.py": "6bfc664500caeda8dcead85fc923c298700167a5d6b2ad28515ea9baa50b8e47",
+    "economic_migration.py": "d9486441b39b7b33943a66c155bfcfe869eafc7ee7969acf02a0fc9812cc1b7c"
+  },
+  "files": {
+    "core/cash_distributions.py": {
+      "after": "6bfc664500caeda8dcead85fc923c298700167a5d6b2ad28515ea9baa50b8e47",
+      "before": [
+        "e7996b64bf4b7e741b5231eb1f57496cb14e5521d07469213ab9cfc916cb94d8"
+      ]
+    },
+    "core/formation_features.py": {
+      "after": "c1a56a44bed44f4be5e0088556fbf2a90e0188ee490e0dc6019a79fedd6de34c",
+      "before": [
+        "aa9787bc362c7fe6ec840ec523cef9bfeb641b65d96075e9bd2aa05901f07656"
+      ]
+    },
+    "core/rolling_inputs.py": {
+      "after": "2195344583fdf3753bf5a0809dfed699a55f7055e531e80fb6a613dd930c89a2",
+      "before": [
+        "24d2e47bd18a1d84b76fdcb78831e3450bad99629b0eb5ad728ffadf4f2f6196",
+        "a09da51b3f2d31d54ac81185b9b9d6457bea04803aca409b3e99b6663154819c",
+        "fb469e12e1023c5ccc66decf6b66bb5d24c497bc58541bcff743be67df54f478"
+      ]
+    },
+    "core/rolling_reader.py": {
+      "after": "23da909396d24efd0bbe3592a213e5cbb9ef258ac8475b7e107b9e6ae3a24b87",
+      "before": [
+        "7d1110ca247232e6bb0960ff8bad5c0eba79c30a32f614b9eb85cd646189dc06"
+      ]
+    },
+    "core/window_features.py": {
+      "after": "95f9270809d75981ca54c4d3e0e36fb9c72fb99a8ec78c71b031ffda59883c37",
+      "before": [
+        "64d86ae71711594c39f1acc12e538361d7bf57255876ca7b6b2e27f58fce50ea"
+      ]
+    },
+    "observation_storage.py": {
+      "after": "df7835f6062ef15172cf52f1329ba907ede1c03d81303ee0e6012a6fe19798a3",
+      "before": [
+        "61d790f31995d212f7895895b3d26b51c5798178a12b1716e76b9bbf5c1fff56"
+      ]
+    },
+    "shadow_observation.py": {
+      "after": "2b9077a57b39dcbc6ca7fad799756fd941a2e2ca1948140c6cb4fb1b86e45ff4",
+      "before": [
+        "bb968003a0c8aa91c77e61766d438bc3c7a4f9a743b73e0cb2bb1f3b95b3c233",
+        "bec6e2bed8f4ca1a09cc35e2f5fb0568fe73b7b7fdaeb6c1f743a9f6bca93b1a"
+      ]
+    },
+    "strategy.py": {
+      "after": "ab8540e347f019e9d68c1ed8363a51d04a24af8e909553df138bb5f331673946",
+      "before": [
+        "ee9aaba7c4141d73db3c55b04268d9fd68a40b18a665dfbec12d1af69b701825",
+        "fcd59967dc8a18ad9d4808331b5417011d40d5e879f18265838847382ae22f13"
+      ]
+    }
+  },
+  "from_policies": [
+    null,
+    "FORWARD_CASH_DISTRIBUTIONS_V1",
+    "FORWARD_CASH_DISTRIBUTIONS_V2"
+  ],
+  "schema": "sentinel.forward-cash-policy-migration/2",
+  "to_policy": "FORWARD_CASH_DISTRIBUTIONS_V2"
+}

@@ -12,6 +12,28 @@ class FillHistoryIncomplete(ValueError):
     pass
 
 
+def _serialized_average_gross_interval(quantity, average):
+    quantity = Fraction(quantity)
+    average = Decimal(average)
+    if not average.is_finite() or average <= 0 or quantity < 0:
+        return None
+    expected = quantity * Fraction(average)
+    exponent = average.as_tuple().exponent
+    tolerance = (quantity * Fraction(10) ** exponent / 2
+                 if exponent < 0 else Fraction(0))
+    return expected - tolerance, expected + tolerance
+
+
+def gross_matches_serialized_average(quantity, gross, average):
+    interval = _serialized_average_gross_interval(quantity, average)
+    return interval is not None and interval[0] <= Fraction(gross) <= interval[1]
+
+
+def partial_gross_leaves_positive_notional(quantity, gross, average):
+    interval = _serialized_average_gross_interval(quantity, average)
+    return interval is not None and Fraction(gross) < interval[1]
+
+
 def validate(observation, orders):
     totals, gross, seen = {}, {}, set()
     for fill in observation.fills:
@@ -49,11 +71,13 @@ def validate(observation, orders):
             raise ValueError('native fill quantity exceeds cumulative order fills')
     for key, quantity in totals.items():
         order = orders[key]
-        expected = Fraction(order.filled_quantity) * Fraction(order.filled_average_price)
-        if quantity < Fraction(order.filled_quantity) and gross[key] >= expected:
+        if (quantity < Fraction(order.filled_quantity)
+                and not partial_gross_leaves_positive_notional(
+                    order.filled_quantity, gross[key], order.filled_average_price)):
             raise ValueError('native partial fill gross leaves no positive notional for missing fills')
         if quantity == Fraction(order.filled_quantity):
-            if gross[key] != expected:
+            if not gross_matches_serialized_average(
+                    quantity, gross[key], order.filled_average_price):
                 raise ValueError('native fill gross notional contradicts cumulative order')
     if observation.fill_history_complete:
         for key, order in orders.items():
@@ -140,11 +164,13 @@ def require_durable_coverage(conn, binding, *, allow_incomplete=False):
                         or not Decimal(average).is_finite() or Decimal(average) <= 0
                         or (filled == 0 and gross != 0)
                         or (filled > 0 and gross <= 0)
-                        or Fraction(gross) >= Fraction(quantity) * Fraction(average)):
+                        or not partial_gross_leaves_positive_notional(
+                            quantity, gross, average)):
                     raise TrialEvidenceRefused('paper dividend ownership has contradictory native fills: ' + key)
                 complete = False
                 continue
             if (quantity != filled or (quantity and
-                    (average is None or Fraction(gross) != Fraction(quantity) * Fraction(average)))):
+                    (average is None or not gross_matches_serialized_average(
+                        quantity, gross, average)))):
                 raise TrialEvidenceRefused('paper dividend ownership lacks complete native fills: ' + key)
     return complete

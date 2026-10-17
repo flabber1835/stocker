@@ -10,7 +10,8 @@ from sentinel.feed import acquisition_work, authority, progress, rolling_jobs as
 from sentinel.feed.rolling_contract import canonical_json, digest
 from sentinel.feed.tickers_authority import _Fingerprint
 
-SCHEMA = "sentinel.acquisition-part/1"
+LEGACY_SCHEMA = "sentinel.acquisition-part/1"
+SCHEMA = "sentinel.acquisition-part/2"
 MAX_SUCCESSORS = 3
 JSONB_REFERENCE_BYTES = 1024 * 1024
 MAX_REFERENCE_BYTES = 256 * 1024 * 1024
@@ -51,13 +52,13 @@ class Parts:
         with acquisition_work.budget(seconds=min(500, remaining)):
             yield
 
-    def _manifest(self, part_id, *, expected_generation=None, defer_prices=False):
+    def _manifest(self, part_id, *, expected_generation=None, defer_prices=False, commit_progress=True):
         row = self.conn.execute("SELECT manifest,reference_payload,canonical_reference FROM sentinel_acquisition_parts "
                                 "WHERE part_id=%s", (part_id,)).fetchone()
         if row is None:
             return None
         manifest, payload, encoded = row
-        if digest(manifest) != part_id or manifest.get("schema") != SCHEMA:
+        if digest(manifest) != part_id or manifest.get("schema") not in (LEGACY_SCHEMA, SCHEMA):
             raise PartCorrupt("retained acquisition manifest checksum mismatch: " + part_id)
         # A mismatched generation cannot be selected. Do not replay obsolete
         # payload merely to discover that its manifest already rules out reuse.
@@ -66,19 +67,26 @@ class Parts:
         if encoded is not None:
             from sentinel.feed.acquisition_limits import check
             check('ACQUISITION_REFERENCE_BYTES', len(encoded), MAX_REFERENCE_BYTES)
-            if payload is not None or hashlib.sha256(encoded.encode('utf-8')).hexdigest() != manifest['content_sha256']:
+            expected_reference = (manifest['reference_sha256'] if manifest['schema'] == SCHEMA
+                                  else manifest['content_sha256'])
+            if payload is not None or hashlib.sha256(encoded.encode('utf-8')).hexdigest() != expected_reference:
                 raise PartCorrupt('retained acquisition reference bytes changed: ' + part_id)
             try:
                 payload = json.loads(encoded)
             except (ValueError, TypeError) as exc:
                 raise PartCorrupt('retained acquisition reference JSON invalid: ' + part_id) from exc
+        if manifest['schema'] == SCHEMA and manifest.get('reference_sha256') != (
+                digest(payload) if payload is not None else None):
+            raise PartCorrupt('retained acquisition auxiliary payload checksum mismatch: ' + part_id)
         if manifest["component"].startswith("SEP.") and defer_prices:
             return manifest, payload
         if manifest["component"].startswith("SEP."):
+            payload_part = self.conn.execute('SELECT payload_part_id FROM sentinel_acquisition_price_links WHERE part_id=%s', (part_id,)).fetchone()
+            payload_id = payload_part[0] if payload_part else part_id
             observed = _Fingerprint()
             with store.streaming_cursor(self.conn,
                     "SELECT payload,session,ticker FROM sentinel_acquisition_prices WHERE part_id=%s "
-                    'ORDER BY session,ticker COLLATE "C"', (part_id,), batch=5000, withhold=True) as cur:
+                    'ORDER BY session,ticker COLLATE "C"', (payload_id,), batch=5000, withhold=True) as cur:
                 for index, (encoded, day, ticker) in enumerate(cur, 1):
                     row = json.loads(encoded)
                     if row["date"] != str(day) or row["ticker"] != ticker:
@@ -86,7 +94,8 @@ class Parts:
                     observed.add(canonical_json(row).encode("ascii"))
                     if index % 5000 == 0:
                         jobs.heartbeat(self.conn, self.lease, lease_seconds=600)
-                        self.conn.commit()
+                        if commit_progress:
+                            self.conn.commit()
             valid = observed.rows == manifest["rows"] and observed.digest() == manifest["content_sha256"]
         else:
             valid = payload is not None and digest(payload) == manifest["content_sha256"]
@@ -139,13 +148,27 @@ class Parts:
         content = (fingerprint(prices) if prices is not None else
                    hashlib.sha256(encoded.encode('ascii')).hexdigest() if encoded is not None else digest(None))
         manifest = dict(schema=SCHEMA, job_id=self.lease.job_id, component=component, generation=generation,
-                        content_sha256=content, rows=rows, evidence=evidence)
+                        content_sha256=content, reference_sha256=digest(payload) if payload is not None else None,
+                        rows=rows, evidence=evidence)
         part_id = digest(manifest)
         large = encoded is not None and len(encoded) > JSONB_REFERENCE_BYTES
         inserted = self.conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest,reference_payload,canonical_reference) "
             "VALUES(%s,%s::jsonb,%s::jsonb,%s) ON CONFLICT DO NOTHING RETURNING part_id",
             (part_id, canonical_json(manifest), None if large else encoded, encoded if large else None)).fetchone()
+        shared = None
         if inserted and prices is not None:
+            from sentinel.feed import rolling_store
+            rolling_store._pin_reader(self.conn)
+            shared = self.conn.execute("SELECT a.part_id FROM sentinel_acquisition_parts a "
+                "WHERE a.manifest->>'component'=%s AND a.manifest->>'content_sha256'=%s "
+                "AND a.manifest->>'rows'=%s AND a.part_id<>%s "
+                "AND NOT EXISTS(SELECT 1 FROM sentinel_acquisition_price_links l WHERE l.part_id=a.part_id) "
+                "AND EXISTS(SELECT 1 FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id) "
+                "ORDER BY a.created_at LIMIT 1", (component, content, str(rows), part_id)).fetchone()
+            if shared:
+                self._manifest(shared[0], commit_progress=False)
+                self.conn.execute('INSERT INTO sentinel_acquisition_price_links VALUES(%s,%s)', (part_id, shared[0]))
+        if inserted and prices is not None and not shared:
             iterator = iter(prices)
             with self.conn.cursor() as cur:
                 while batch := list(islice(iterator, 5000)):
@@ -187,8 +210,10 @@ class PricePartVerifier:
 def price_rows(conn, job_id, *, tickers=None, verifier=None):
     """Project only SEP equity domains in canonical global session order."""
     from sentinel.feed.staging_impl import _source_or_compat
-    query = ("SELECT p.part_id,p.session,p.ticker,p.payload FROM sentinel_acquisition_prices p JOIN sentinel_acquisition_bindings b "
-             "USING(part_id) WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' ")
+    query = ("SELECT b.part_id,p.session,p.ticker,p.payload FROM sentinel_acquisition_bindings b "
+             "LEFT JOIN sentinel_acquisition_price_links l USING(part_id) "
+             "JOIN sentinel_acquisition_prices p ON p.part_id=COALESCE(l.payload_part_id,b.part_id) "
+             "WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' ")
     params = (job_id,)
     if tickers is not None:
         if not tickers:

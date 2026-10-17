@@ -5,6 +5,7 @@ import time
 
 from sentinel.feed import progress, rolling_jobs as jobs, sharadar
 from sentinel.feed.publication import CorpusBusy
+from sentinel.feed.alpaca_transport import AlpacaTransportUnavailable
 
 
 def run(conn, job_id, *, prepare, check_target, sleep=None):
@@ -21,7 +22,7 @@ def run(conn, job_id, *, prepare, check_target, sleep=None):
             job_id = successor(conn, job_id, exc.component)
             continue
         except (sharadar.SharadarRetryDeferred, ConnectionError, CorpusBusy,
-                jobs.JobWaiting, SourceCoveragePending):
+                jobs.JobWaiting, SourceCoveragePending, AlpacaTransportUnavailable):
             conn.rollback()
             state = jobs.status(conn, job_id)
             conn.rollback()

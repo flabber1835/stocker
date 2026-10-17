@@ -61,6 +61,93 @@ def test_old_reference_does_not_block_initial_or_repeated_publication(conn, oper
     assert conn.execute("SELECT count(*) FROM sentinel_action_history WHERE session<'1997-01-01'").fetchone()[0] == 0
 
 
+def test_alpaca_action_rolloff_keeps_retained_entitlement_without_false_restriction(conn, operational_source, monkeypatch):
+    from types import SimpleNamespace
+    from sentinel.core import rolling_inputs
+    from sentinel.execution import share_units
+    aged_source(operational_source, monkeypatch, '2025-01-02', actions=False)
+    dividend = dict(ticker='AAA', date='2024-12-16', action='dividend', name='fixture',
+        value='0.5', contraticker=None, contraname=None)
+    operational_source['ACTIONS'].append(dividend)
+    first = publish(conn)
+    original = rolling_inputs.SnapshotReferences
+    def alpaca_references(*args, **kwargs):
+        refs = original(*args, **kwargs)
+        refs.manifest = refs.manifest.model_copy(update={'provider': 'ALPACA_OPENFIGI'})
+        return refs
+    monkeypatch.setattr(rolling_inputs, 'SnapshotReferences', alpaca_references)
+    for end in ('2025-12-01', '2026-09-14'):
+        aged_source(operational_source, monkeypatch, end, actions=False)
+        if dividend['date'] > str(PriceWindow.through(end).start):
+            operational_source['ACTIONS'].append(dividend)
+        publish(conn)
+    pub = op._current(conn)
+    lookup = action_history.lookup(conn, pub, start=date(2024,12,13), end=date(2026,9,14))
+    assert not lookup.unresolved_events
+    assert share_units.material_restrictions(lookup, {'1':'AAA'}) == {}
+    evidence = action_history.records(conn, version=pub.version,
+        start=date(2024,12,13), end=date(2026,9,14))
+    assert evidence['2024-12-16']['sources'][0]['value'] == '0.5'
+
+
+def test_bulk_snapshot_delete_checks_ownership_once_and_rolls_back_mixed_batch(conn, operational_source, monkeypatch):
+    from sentinel.feed.retention_schema import DDL
+    monkeypatch.setattr(retention, 'maintain', lambda *_a, **_k: None)
+    first, second = publish(conn), publish(conn)
+    conn.commit()
+    original = next(sql for sql in DDL if sql.startswith('CREATE OR REPLACE FUNCTION sentinel_retention_locks()'))
+    measured = original.replace('BEGIN', 'BEGIN UPDATE deletion_guard_probe SET calls=calls+1;', 1)
+    conn.execute('CREATE TEMP TABLE deletion_guard_probe(calls integer)')
+    conn.execute('INSERT INTO deletion_guard_probe VALUES(0)')
+    conn.execute(measured)
+    conn.commit()
+    try:
+        with journal.writer_lock(conn), store.corpus_write_lock(conn):
+            conn.execute('INSERT INTO sentinel_snapshot_retirements(candidate_id) VALUES(%s)', (first['candidate_id'],))
+            conn.execute('UPDATE deletion_guard_probe SET calls=0')
+            result = conn.execute('DELETE FROM sentinel_snapshot_bars WHERE candidate_id=%s', (first['candidate_id'],))
+            assert result.rowcount == 600
+            assert conn.execute('SELECT calls FROM deletion_guard_probe').fetchone()[0] == 1
+            conn.commit()
+        with pytest.raises(Exception, match='immutable'):
+            with journal.writer_lock(conn), store.corpus_write_lock(conn):
+                conn.execute('DELETE FROM sentinel_snapshot_benchmarks')
+        assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars WHERE candidate_id=%s',
+                            (second['candidate_id'],)).fetchone()[0] == 600
+        assert conn.execute('SELECT count(*) FROM sentinel_snapshot_benchmarks').fetchone()[0] == 600
+        conn.rollback()
+        with journal.writer_lock(conn), store.corpus_write_lock(conn):
+            conn.execute('UPDATE deletion_guard_probe SET calls=0')
+            result = conn.execute('DELETE FROM sentinel_acquisition_prices')
+            assert result.rowcount == 600
+            assert conn.execute('SELECT calls FROM deletion_guard_probe').fetchone()[0] == 1
+            conn.commit()
+    finally:
+        conn.execute(original)
+        conn.commit()
+
+
+def test_observed_alpaca_action_correction_survives_later_loss_of_source_coverage(conn, operational_source, monkeypatch):
+    from sentinel.core import rolling_inputs
+    aged_source(operational_source, monkeypatch, '2025-01-02', actions=False)
+    operational_source['ACTIONS'].append(dict(ticker='AAA', date='2024-12-16',
+        action='dividend', name='fixture', value='0.5', contraticker=None, contraname=None))
+    publish(conn)
+    original = rolling_inputs.SnapshotReferences
+    def alpaca_references(*args, **kwargs):
+        refs = original(*args, **kwargs)
+        refs.manifest = refs.manifest.model_copy(update={'provider': 'ALPACA_OPENFIGI'})
+        return refs
+    monkeypatch.setattr(rolling_inputs, 'SnapshotReferences', alpaca_references)
+    for end in ('2025-01-02', '2025-12-01', '2026-09-14'):
+        aged_source(operational_source, monkeypatch, end, actions=False)
+        publish(conn)
+        lookup = action_history.lookup(conn, op._current(conn),
+            start=date(2024,12,13), end=date.fromisoformat(end))
+        assert any(event.ticker == 'AAA' and event.reason == 'RETAINED_ACTION_MEANING_CHANGED'
+                   for event in lookup.unresolved_events)
+
+
 def aged_source(data, monkeypatch, end, *, actions=True):
     window = PriceWindow.through(end)
     first, second = '2024-12-16', '2025-09-15'

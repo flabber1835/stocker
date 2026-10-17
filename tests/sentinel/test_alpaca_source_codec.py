@@ -9,7 +9,34 @@ import pytest
 from sentinel import config
 from sentinel.execution import feed_inputs
 from sentinel.execution.alpaca import MalformedBrokerPayload
+from sentinel.feed import alpaca_identity
+from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_issue_183_alpaca_hardening import Httpx, Response
+
+
+class EvidenceConnection:
+    def __init__(self, payloads):
+        self.rows = {digest(value): value for value in payloads}
+        self.reads = []
+
+    def cursor(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, sql, params):
+        assert sql == (
+            "SELECT payload,canonical_payload FROM sentinel_snapshot_evidence "
+            "WHERE evidence_sha256=%s")
+        self.reads.append(params[0])
+        self.row = (self.rows[params[0]], None) if params[0] in self.rows else None
+
+    def fetchone(self):
+        return self.row
 
 
 @pytest.mark.parametrize('provider', ['ALPACA_OPENFIGI', 'ALPACA_NASDAQ', 'SHARADAR'])
@@ -22,10 +49,33 @@ def test_source_resolver_factory_and_native_instrument_roundtrip(monkeypatch, pr
         calls.append((value, day))
         return 'permanent-listing' if value == symbol and day in {'2026-10-15', '2026-10-16'} else None
     authority = SimpleNamespace(resolve=lookup)
-    refs = SimpleNamespace(manifest=SimpleNamespace(provider=provider), resolver=authority)
+    binding = alpaca_identity.IdentityBinding(
+        security_id='permanent-listing', provider_asset_id='native-asset',
+        prior_provider_asset_id='permanent-listing', ticker=symbol,
+        origin_snapshot_id='a' * 64,
+        event=alpaca_identity.NameChange(
+            id='same-symbol-recreation', old_symbol=symbol, new_symbol=symbol,
+            old_cusip='000000001', new_cusip='000000002', process_date=date(2026, 10, 15)),
+    ).model_dump(mode='json')
+    reference = {
+        'schema': 'sentinel.rolling-alpaca-openfigi-references/3',
+        'tickers': [{'table': 'SEP', 'ticker': symbol, 'permaticker': 'permanent-listing'}],
+        'identity_bindings': [binding],
+    }
+    source = {
+        'schema': 'sentinel.alpaca-openfigi-operational-source/3',
+        'provider': 'ALPACA_OPENFIGI', 'identity_bindings_sha256': digest([binding]),
+    }
+    conn = EvidenceConnection([reference, source])
+    refs = SimpleNamespace(manifest=SimpleNamespace(
+        provider=provider, reference_sha256=digest(reference),
+        source_evidence_sha256=digest(source)), resolver=authority)
     monkeypatch.setattr(feed_inputs, '_snapshot_identity_authorities',
         lambda *a, **k: (refs, '2026-10-16', '2026-10-15', authority))
-    resolver = feed_inputs.resolver(None, None, session='2026-10-16')
+    resolver = feed_inputs.resolver(conn, None, session='2026-10-16')
+    assert conn.reads == ([digest(reference), digest(source)] if provider == 'ALPACA_OPENFIGI' else [])
+    assert resolver.provider_asset_ids == ({'permanent-listing': 'native-asset'}
+                                          if provider == 'ALPACA_OPENFIGI' else {})
     cfg = config.SentinelConfig('fixture', 'fixture', config.DEFAULT_BASE_URL, Path('/fixture'), 1, 0)
     broker = config.build_execution_broker(cfg, resolve_security_id=resolver)
     http = Httpx(routes={'/v2/assets/' + wire: Response({

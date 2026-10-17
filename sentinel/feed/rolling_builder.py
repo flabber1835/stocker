@@ -184,7 +184,8 @@ def _build(conn, lease, request, source):
         return candidate
 
 
-ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/2"
+ALPACA_NORMALIZATION_HISTORICAL = ("sentinel.alpaca-openfigi-dividend-current-window/2",)
+ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/3"
 MIN_ADMITTED_COMMON_STOCKS = 500
 MIN_ALPACA_ADMITTED_PERCENT = 95
 
@@ -207,9 +208,10 @@ def _alpaca_rows(conn, lease, *, verifier=None):
     from sentinel.feed import store
     from sentinel.feed.acquisition_parts import PartCorrupt
 
-    query = ("SELECT p.part_id,p.session,p.ticker,p.payload "
-             "FROM sentinel_acquisition_prices p "
-             "JOIN sentinel_acquisition_bindings b USING(part_id) "
+    query = ("SELECT b.part_id,p.session,p.ticker,p.payload "
+             "FROM sentinel_acquisition_bindings b "
+             "LEFT JOIN sentinel_acquisition_price_links l USING(part_id) "
+             "JOIN sentinel_acquisition_prices p ON p.part_id=COALESCE(l.payload_part_id,b.part_id) "
              "WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' "
              'ORDER BY p.session,p.ticker COLLATE "C"')
     previous = None
@@ -241,12 +243,23 @@ def build_alpaca(conn, lease, request, source):
     verifier = PricePartVerifier(source.price_manifests) if source.price_manifests else None
     with progress.phase("rolling_identity", subphase="alpaca_admission",
                         selected=len(selected), job_id=lease.job_id) as counter:
-        admitted, exclusions = admissible_history(
-            _alpaca_rows(conn, lease, verifier=verifier), axis=axis,
-            symbols=set(selected), action_affected=source.action_affected,
-            pair_absent=source.pair_absent, dividend_dates=dividend_dates,
-            reset_after=source.reset_after, split_terms=source.split_terms())
-        counter[0] = len(admitted)
+        def admission_rows():
+            with closing(_alpaca_rows(conn, lease, verifier=verifier)) as rows:
+                for row in rows:
+                    counter[0] += 1
+                    if counter[0] % rolling_store.BATCH_SIZE == 0:
+                        pulse()
+                        progress.emit('rolling_identity', 'working', subphase='alpaca_admission',
+                                      rows=counter[0], selected=len(selected), job_id=lease.job_id)
+                    yield row
+
+        with closing(admission_rows()) as rows:
+            admitted, exclusions = admissible_history(
+                rows, axis=axis,
+                symbols=set(selected), action_affected=source.action_affected,
+                pair_absent=source.pair_absent, dividend_dates=dividend_dates,
+                reset_after=source.reset_after, split_terms=source.split_terms())
+        pulse()
     # Quarantined economic ambiguities are explicitly observed exclusions.
     # Absent or stale prices remain unexpected coverage loss and cannot dilute
     # the collapse denominator. The broad admitted floor always still applies.
@@ -300,8 +313,9 @@ def build_alpaca(conn, lease, request, source):
         cur.execute("CREATE TEMP TABLE alpaca_expected_keys("
                     "session date,security_id text,PRIMARY KEY(session,security_id)) ON COMMIT DROP")
         cur.execute("INSERT INTO alpaca_expected_keys "
-                    "SELECT p.session,a.security_id FROM sentinel_acquisition_prices p "
-                    "JOIN sentinel_acquisition_bindings b USING(part_id) "
+                    "SELECT p.session,a.security_id FROM sentinel_acquisition_bindings b "
+                    "LEFT JOIN sentinel_acquisition_price_links l USING(part_id) "
+                    "JOIN sentinel_acquisition_prices p ON p.part_id=COALESCE(l.payload_part_id,b.part_id) "
                     "JOIN alpaca_admitted a ON a.ticker=p.ticker "
                     "WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' "
                     "AND p.session>=a.first_session", (lease.job_id,))

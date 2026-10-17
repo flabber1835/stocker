@@ -13,6 +13,12 @@ def require_recovery_pin(cur):
     row = cur.fetchone()
     if row is None or " ".join(row[0].split()) != " ".join(expected.split()):
         raise _refuse("snapshot recovery pin function has changed semantics")
+    statement = next(sql for sql in DDL if sql.startswith(
+        'CREATE OR REPLACE FUNCTION sentinel_snapshot_delete_guard()'))
+    cur.execute("SELECT prosrc FROM pg_proc WHERE oid=to_regprocedure('public.sentinel_snapshot_delete_guard()')")
+    row = cur.fetchone()
+    if row is None or ' '.join(row[0].split()) != ' '.join(statement.split('$$')[1].split()):
+        raise _refuse('snapshot batch deletion function has changed semantics')
 
 COLUMNS = {
     "sentinel_action_history": {
@@ -50,7 +56,10 @@ rolling_catalog.CONSTRAINTS["sentinel_snapshot_evidence"] += (
            "268435456", "sha256", "evidence_sha256")),)
 for table in ("sentinel_snapshot_bars", "sentinel_snapshot_benchmarks"):
     rolling_catalog.TRIGGERS[table]["snapshot_immutable"] = (
-        "before delete or update", "for each row", "execute function sentinel_snapshot_payload_guard()")
+        "before update", "for each row", "execute function sentinel_snapshot_immutable()")
+    rolling_catalog.TRIGGERS[table]['snapshot_delete_guard'] = (
+        'after delete', 'referencing old table as retired_payload', 'for each statement',
+        'execute function sentinel_snapshot_delete_guard()')
 rolling_catalog.TRIGGERS["sentinel_snapshot_evidence"]["snapshot_immutable"] = (
     "before delete or update", "for each row", "execute function sentinel_snapshot_evidence_guard()")
 rolling_catalog.TRIGGERS["sentinel_price_candidates"]["snapshot_live_candidate"] = (

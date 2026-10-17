@@ -250,9 +250,14 @@ class FakeCursor:
         return False
 
     def execute(self, _sql, _params=None) -> None:
+        self.sql = _sql
         return None
 
     def fetchone(self):
+        if 'SELECT COALESCE(MAX(o.seq),0)' in self.sql:
+            return (0, 'sim', 'SIM-ACCOUNT', NOW)
+        if 'SELECT broker,broker_account_id,established_at' in self.sql:
+            return ('sim', 'SIM-ACCOUNT', NOW)
         return self.conn.lease_row
 
     def fetchall(self):

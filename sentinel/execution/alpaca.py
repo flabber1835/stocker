@@ -2441,22 +2441,7 @@ def witness_name(broker_name: str, account_id: str) -> str:
     return f"{_WITNESS_PREFIX}{broker_name}:{account_id}"
 
 def load_provenance(conn, seq: int) -> dict:
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT state FROM sentinel_processed_sessions"
-            " WHERE cursor_name=%s",
-            (provenance_name(seq),),
-        )
-        row = cur.fetchone()
-    if row is None:
-        raise RuntimeError(
-            f"broker observation {seq} has no account/asset provenance")
-    state = _json(row[0], where=f"broker observation {seq} provenance")
-    if (state.get("kind") != "broker-observation/v4"
-            or state.get("observation_seq") != int(seq)):
-        raise RuntimeError(
-            f"broker observation {seq} provenance shape is invalid")
-    return state
+    return journal.load_observation_payload(conn, seq)
 
 def durable_covers_observed(*, command_row, observed_order: dict) -> bool:
     state = CommandState(str(command_row[5]))

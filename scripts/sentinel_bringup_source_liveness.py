@@ -7,10 +7,15 @@ Those remain owned by the supported GO lifecycle.
 """
 from __future__ import annotations
 
-import hashlib
-import json
-import re
+from pathlib import Path
+import sys
 from typing import Mapping, Optional
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import sentinel_probe_output as probe_output
 
 MARKER = "SENTINEL_BRINGUP_SOURCE_LIVENESS="
 
@@ -205,32 +210,8 @@ except BaseException as exc:
 
 
 def payload(completed) -> Optional[Mapping[str, object]]:
-    matches = []
-    for line in (completed.stdout or "").splitlines():
-        if not line.startswith(MARKER):
-            continue
-        try:
-            value = json.loads(line[len(MARKER):])
-        except ValueError:
-            return None
-        if not isinstance(value, dict):
-            return None
-        matches.append(value)
-    return matches[0] if len(matches) == 1 else None
+    return probe_output.payload(completed, marker=MARKER)
 
 
 def safe_detail(value: object) -> Optional[str]:
-    detail = str(value or "").strip()
-    if not detail:
-        return None
-    lowered = detail.lower()
-    prohibited = (
-        "http://", "https://", "api_key", "api-key", "password", "authorization",
-        "postgres://", "postgresql://", "apca-api-",
-    )
-    if any(item in lowered for item in prohibited) or re.search(r"[\r\n\x00]", detail):
-        return None
-    if len(detail) <= 500:
-        return detail
-    digest = hashlib.sha256(detail.encode("utf-8", errors="replace")).hexdigest()[:16]
-    return detail[:445] + " ... [sha256:%s]" % digest
+    return probe_output.safe_detail(value)

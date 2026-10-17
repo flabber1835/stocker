@@ -152,3 +152,19 @@ for table, name, event, function in (
 ):
     DDL.extend([f"DROP TRIGGER IF EXISTS {name} ON {table}",
                 f"CREATE TRIGGER {name} BEFORE {event} ON {table} FOR EACH ROW EXECUTE FUNCTION {function}()"])
+
+DDL.append("""CREATE OR REPLACE FUNCTION sentinel_snapshot_delete_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM sentinel_retention_locks();
+  IF EXISTS(SELECT 1 FROM (SELECT DISTINCT candidate_id FROM retired_payload) d
+            WHERE NOT EXISTS(SELECT 1 FROM sentinel_snapshot_retirements r WHERE r.candidate_id=d.candidate_id))
+  THEN RAISE EXCEPTION 'snapshot evidence is immutable'; END IF;
+  RETURN NULL;
+END $$""")
+for table in ('sentinel_snapshot_bars', 'sentinel_snapshot_benchmarks'):
+    DDL.extend([
+        f'DROP TRIGGER IF EXISTS snapshot_immutable ON {table}',
+        f'CREATE TRIGGER snapshot_immutable BEFORE UPDATE ON {table} FOR EACH ROW EXECUTE FUNCTION sentinel_snapshot_immutable()',
+        f'DROP TRIGGER IF EXISTS snapshot_delete_guard ON {table}',
+        f'CREATE TRIGGER snapshot_delete_guard AFTER DELETE ON {table} REFERENCING OLD TABLE AS retired_payload FOR EACH STATEMENT EXECUTE FUNCTION sentinel_snapshot_delete_guard()',
+    ])

@@ -209,7 +209,8 @@ def _observation_evidence(conn, *, seq: int | None = None):
     provenance_record = _json_value(
         raw_provenance_positions, label="broker observation provenance",
         expected_type=dict)
-    if set(provenance_record) != {"started_at", "positions"}:
+    if set(provenance_record) not in (
+            {"started_at", "positions"}, {"started_at", "positions", "exact_evidence"}):
         raise DualReconciliationRefused(
             "broker observation provenance has an unknown shape")
     started_at = _aware(
@@ -219,6 +220,46 @@ def _observation_evidence(conn, *, seq: int | None = None):
     if not isinstance(provenance_positions, list):
         raise DualReconciliationRefused(
             "broker position provenance is not a list")
+    exact_evidence = provenance_record.get('exact_evidence', [])
+    if not isinstance(exact_evidence, list):
+        raise DualReconciliationRefused('broker exact-order provenance is not a list')
+    exact_fields = {'client_key', 'request_started_at', 'request_completed_at',
+                    'identity_before', 'identity_after', 'initial_order_id', 'order'}
+    exact_keys = set()
+    for exact in exact_evidence:
+        expected_identity = {'broker': broker, 'account_id': broker_account_id}
+        if (not isinstance(exact, Mapping) or set(exact) != exact_fields
+                or not isinstance(exact['client_key'], str) or not exact['client_key']
+                or exact['client_key'] in exact_keys
+                or exact['identity_before'] != expected_identity
+                or exact['identity_after'] != expected_identity):
+            raise DualReconciliationRefused('broker exact-order provenance identity is invalid')
+        exact_keys.add(exact['client_key'])
+        try:
+            began = _aware(datetime.fromisoformat(exact['request_started_at']),
+                           label='exact-order request start')
+            ended = _aware(datetime.fromisoformat(exact['request_completed_at']),
+                           label='exact-order request completion')
+        except (TypeError, ValueError) as exc:
+            raise DualReconciliationRefused('broker exact-order provenance time is invalid') from exc
+        if began > ended or began < started_at:
+            raise DualReconciliationRefused('broker exact-order provenance time is contradictory')
+        order = exact['order']
+        if order is not None:
+            expected_fields = {'broker_order_id', 'client_key', 'security_id', 'symbol',
+                'broker_id', 'side', 'state', 'quantity', 'filled_quantity',
+                'filled_average_price', 'submitted_at', 'external_replacement',
+                'replaced_by', 'replaces'}
+            if (not isinstance(order, Mapping) or set(order) != expected_fields
+                    or not order['broker_order_id'] or order['client_key'] != exact['client_key']
+                    or order['state'] not in {state.value for state in CommandState}
+                    or order['side'] not in {'BUY', 'SELL'}
+                    or type(order['external_replacement']) is not bool):
+                raise DualReconciliationRefused('broker exact-order provenance economics are invalid')
+            quantity = _decimal(order['quantity'], label='exact-order quantity')
+            filled = _decimal(order['filled_quantity'], label='exact-order fill')
+            if quantity <= 0 or not 0 <= filled <= quantity:
+                raise DualReconciliationRefused('broker exact-order provenance quantity is invalid')
     valid_states = {state.value for state in CommandState}
     for index, order in enumerate(orders):
         if not isinstance(order, Mapping):
@@ -268,6 +309,8 @@ def _observation_evidence(conn, *, seq: int | None = None):
         "broker_account_id": broker_account_id,
         "provenance_positions": json.loads(_canonical(provenance_positions)),
     }
+    if 'exact_evidence' in provenance_record:
+        body['exact_evidence'] = json.loads(_canonical(exact_evidence))
     return body, _sha256(body), observed
 
 
@@ -288,6 +331,10 @@ def _require_flat_observation_body(body: Mapping, *, binding=None) -> None:
     working = [
         str(order.get("id") or "UNKNOWN") for order in body.get("orders", [])
         if str(order.get("state") or "") in in_flight_states]
+    working.extend(str(exact['order']['broker_order_id'])
+                   for exact in body.get('exact_evidence', [])
+                   if exact.get('order') is not None
+                   and str(exact['order']['state']) in in_flight_states)
     if working:
         raise DualReconciliationPending(
             "re-genesis broker handover still has working order(s): "

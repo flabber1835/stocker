@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
 from sentinel import open_time_upgrade, close_cycle_upgrade
 
 from sentinel import startup_contention_upgrade as upgrade, runtime_admission as admission
@@ -31,7 +32,8 @@ def test_only_exact_reviewed_service_upgrade_is_allowed(closure, name):
                 or monitoring_upgrade.source_allowed(name, record['after'], actual)
                 or dashboard_upgrade.source_allowed(name, record['after'], actual)
                 or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual))
+                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
+                or autonomy_upgrade.source_allowed(name, record['after'], actual))
     assert all(upgrade.source_allowed(name, prior, record['after']) for prior in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)

@@ -63,15 +63,18 @@ def a_config(url):
 ACCEPTED = [
     PAPER,
     PAPER + "/",
-    PAPER + "/v2",
     "https://PAPER-API.Alpaca.Markets",          # case
-    "https://paper-api.alpaca.markets.",         # trailing DNS root dot
     "https://paper-api.alpaca.markets:443",      # the default port, written out
 ]
 
 #: Each with the reason it must be refused, so a future reader can tell an
 #: intentional entry from a copy-paste.
 REFUSED = [
+    (PAPER + "/v2", "the base URL must be an origin"),
+    (PAPER + ".", "noncanonical hostname"),
+    (PAPER + ":444", "alternate transport port"),
+    (PAPER + "?route=other", "query changes the request target"),
+    (PAPER + "#paper", "fragment is not an origin"),
     ("https://api.alpaca.markets", "the live endpoint"),
     ("https://api.alpaca.markets/", "the live endpoint, trailing slash"),
     ("https://api.alpaca.markets.", "the live endpoint, root dot"),

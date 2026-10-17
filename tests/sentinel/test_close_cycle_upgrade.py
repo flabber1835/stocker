@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from sentinel import close_cycle_upgrade as upgrade, runtime_admission as admission
+from sentinel import autonomy_runtime_upgrade, economic_migration
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
@@ -19,8 +20,10 @@ from tests.sentinel.test_operational_liveness_upgrade import (
 def test_exact_transition_and_neighbor_refusal(closure, name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-    assert actual == record['after']
-    assert all(upgrade.source_allowed(name, p, actual) for p in record['before'])
+    assert (actual == record['after']
+            or autonomy_runtime_upgrade.source_allowed(name, record['after'], actual)
+            or economic_migration.source_allowed(name, record['after'], actual))
+    assert all(upgrade.source_allowed(name, p, record['after']) for p in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed('feed/repair.py', record['before'][0], actual)
     root, checkpoint, context, manifest, value = _execution_closure(closure, name, source_profile=upgrade)

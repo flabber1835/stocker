@@ -13,7 +13,7 @@ from sentinel.core.terminal import SPINOFF_ACTIONS, map_terminal_rows
 from sentinel.feed import (
     action_source, calendar, rolling_store, source_aliases, symbol_identity, tickers_authority,
 )
-from sentinel.feed.rolling_builder import ALPACA_NORMALIZATION, NORMALIZATION_VERSION
+from sentinel.feed.rolling_builder import ALPACA_NORMALIZATION, ALPACA_NORMALIZATION_HISTORICAL, NORMALIZATION_VERSION
 from sentinel.feed.rolling_contract import CanonicalBenchmark, digest
 from sentinel.feed.requirements import PREFERRED_SESSIONS
 from sentinel.feed.universe import listings_from_rows, parse_related_tickers
@@ -60,13 +60,13 @@ class SnapshotReferences:
             raise RollingInputsRefused("SNAPSHOT_ID_MISMATCH")
         from sentinel.core import window_policy
         self.current_window = self.manifest.normalization_version in (
-            window_policy.NORMALIZATION, ALPACA_NORMALIZATION)
+            window_policy.NORMALIZATION, ALPACA_NORMALIZATION, *ALPACA_NORMALIZATION_HISTORICAL)
         if (self.manifest.normalization_version not in (
-                NORMALIZATION_VERSION, window_policy.NORMALIZATION, ALPACA_NORMALIZATION)
+                NORMALIZATION_VERSION, window_policy.NORMALIZATION, ALPACA_NORMALIZATION, *ALPACA_NORMALIZATION_HISTORICAL)
                 or self.manifest.calendar_version != calendar.calendar_version()):
             raise RollingInputsRefused("UNSUPPORTED_SNAPSHOT_SEMANTICS")
         if (self.manifest.provider == "ALPACA_OPENFIGI") != (
-                self.manifest.normalization_version == ALPACA_NORMALIZATION):
+                self.manifest.normalization_version in (ALPACA_NORMALIZATION, *ALPACA_NORMALIZATION_HISTORICAL)):
             raise RollingInputsRefused("SNAPSHOT_PROVIDER_NORMALIZATION_MISMATCH")
         reference = rolling_store.load_evidence(conn, self.manifest.reference_sha256)
         reference_schema = ("sentinel.rolling-alpaca-openfigi-references/1"

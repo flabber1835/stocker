@@ -24,6 +24,10 @@ from pathlib import Path
 from typing import Mapping
 from urllib.parse import urlparse
 
+from sentinel.trading_environment import (
+    TradingEndpoint, TradingEndpointRefused, TradingEnvironment,
+)
+
 DEFAULT_BASE_URL = "https://paper-api.alpaca.markets"
 
 #: Hosts that reach REAL money. Mirrors Stocker's `_LIVE_ALPACA_HOSTS`; kept here
@@ -68,11 +72,10 @@ def is_paper_url(url: str) -> bool:
     an allowlist drift, and the copy that drifts is the one nobody is reading
     when it matters — so both boundaries call this.
     """
-    parsed = urlparse(url or "")
-    host = (parsed.hostname or "").lower().rstrip(".")
-    return (parsed.scheme == "https"
-            and not parsed.username and not parsed.password
-            and host in PAPER_HOSTS)
+    try:
+        return TradingEndpoint.parse(url).environment is TradingEnvironment.PAPER
+    except TradingEndpointRefused:
+        return False
 
 
 def assert_paper_url(url: str) -> None:

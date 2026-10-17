@@ -299,13 +299,21 @@ def test_checkpoint_authentication_detects_valid_json_mutations(conn, ready, fie
 
 
 def test_changed_state_cannot_be_self_rehashed_into_checkpoint(conn, ready):
-    start(conn)
+    from sentinel import observation_storage
+
+    original = start(conn)
+    assert resume(conn).state.state_hash == original.state.state_hash
     key = f"shadow-observation:v1:{OBS}:session:2026-09-14"
     raw = conn.execute("SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s", (key,)).fetchone()[0]
+    raw = observation_storage.decode(raw, ledger_reader=lambda name:
+        observation_storage._read_ledger_chunk(conn, name))
     raw["state"]["wealth_core"]["cash"] = 99_000
     raw["state_sha256"] = digest(raw["state"])
     raw["record_sha256"] = digest({k: v for k, v in raw.items() if k != "record_sha256"})
-    conn.execute("UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s", (canonical_json(raw), key))
+    assert raw['state_sha256'] != original.state.state_hash
+    encoded = observation_storage.encode(raw, 'state', ledger_writer=lambda group, day:
+        observation_storage._write_ledger_chunk(conn, group, day))
+    conn.execute("UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s", (canonical_json(encoded), key))
     conn.commit()
     with pytest.raises(cp.RollingColdStartRefused, match="RECORD_BINDING_CHANGED"):
         resume(conn)

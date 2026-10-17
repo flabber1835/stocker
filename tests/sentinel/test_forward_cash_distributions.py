@@ -215,3 +215,76 @@ def test_reduced_paid_terms_debit_cash_once_and_insufficient_cash_is_pending():
             next_prior = SimpleNamespace(**{**vars(prior), 'ledger': restored.to_dict()})
             again, audit = reconcile(next_prior, '.1')
             assert audit['observations'][0]['status'] == 'ALREADY_RECOGNIZED'
+
+
+def converted_book():
+    from stock_strategy_shared.wealth_core.state import PortfolioState
+    from stock_strategy_shared.wealth_core.engine import WealthCoreConfig, Op, Operation, apply_entry
+    from stock_strategy_shared.wealth_core.terminal import TerminalTerms, TerminalKind, apply_terminal
+    state, ledger, config = PortfolioState.fresh(5000), Ledger(), WealthCoreConfig()
+    state.reserve_slot(0, 'OLD', 'OLD', 'issuer-old')
+    before = state.cash
+    apply_entry(state, op=Op(Operation.OPEN_SLOT_POSITION, None, 0, 'OLD', 'OLD', 100),
+        session='2026-01-02', signal_session='2025-12-31', raw_open=10,
+        split_adjusted_price=10, issuer_id='issuer-old', cfg=config)
+    ledger.post(session='2026-01-02', event_type=EventType.BUY, cash_before=before,
+        cash_delta=state.cash-before, security_id='OLD', ticker='OLD', shares_delta=100, price=10)
+    terms = TerminalTerms(session='2026-02-02', security_id='OLD', kind=TerminalKind.CONVERSION,
+        delivered_security_id=SID, delivered_ticker='RENAMED', delivered_issuer_id='issuer-new',
+        exchange_ratio='.5', reference='reviewed-conversion')
+    apply_terminal(state, terms, ledger=ledger, session=terms.session, cfg=config,
+        source_signal_to_raw_scale=1, delivered_signal_to_raw_scale=1, delivered_raw_open=20)
+    return state, ledger
+
+
+def test_actual_conversion_credits_delivered_identity_and_removes_predecessor():
+    state, ledger = converted_book()
+    assert state.episodes[0].security_id == SID and state.episodes[0].current_shares == 50
+    assert entitlement(ledger, security_id=SID, ex_date=EX) == 50
+    assert entitlement(ledger, security_id='OLD', ex_date=EX) == 0
+    assert entitlement(ledger, security_id=SID, ex_date='2026-02-02') == 0
+    assert entitlement(ledger, security_id='OLD', ex_date='2026-02-02') == 100
+    ledger.post(session='2026-09-18', event_type=EventType.SELL, security_id=SID,
+                cash_before=state.cash, shares_delta=-50)
+    restored = Ledger.from_dict(ledger.to_dict())
+    assert entitlement(restored, security_id=SID, ex_date='2026-10-01') == 0
+
+
+def test_forward_check_never_cancels_the_delivered_stocks_correct_dividend():
+    state, ledger = converted_book()
+    ledger.accrue_dividend(session=EX, security_id=SID, ticker='RENAMED',
+        shares=50, per_share=1, cash=state.cash, due_in=1)
+    prior = SimpleNamespace(ledger=ledger.to_dict(), state_hash='a'*64, last_processed_session='2026-10-06')
+    checked, audit = reconcile(prior, '1')
+    assert checked.to_dict() == ledger.to_dict()
+    assert checked.receivable_total() == 50
+    assert audit['observations'][0]['status'] == 'ALREADY_RECOGNIZED'
+
+
+def test_multiple_conversion_legs_aggregate_existing_successor_ownership():
+    _, ledger = converted_book()
+    ledger.post(session='2026-01-05', event_type=EventType.BUY, cash_before=1000,
+                security_id=SID, shares_delta=20)
+    ledger.post(session='2026-01-06', event_type=EventType.BUY, cash_before=1000,
+                security_id='SECOND', shares_delta=10)
+    ledger.post(session='2026-03-02', event_type=EventType.CONVERSION, cash_before=1000,
+        security_id='SECOND', shares_delta=20, detail={'shares_in':10, 'shares_delivered':30,
+                                                     'delivered_security_id':SID})
+    assert entitlement(ledger, security_id=SID, ex_date=EX) == 100
+    assert entitlement(ledger, security_id='SECOND', ex_date=EX) == 0
+
+
+def test_index_queries_do_not_rescan_lifetime_events_for_each_dividend():
+    from sentinel.core.cash_distributions import OwnershipIndex
+    class Counted(list):
+        scans = 0
+        def __iter__(self):
+            self.scans += 1
+            return super().__iter__()
+    prior = book([('2026-09-16', EventType.BUY, 100)])
+    ledger = Ledger.from_dict(prior.ledger)
+    ledger.events = Counted(ledger.events)
+    index = OwnershipIndex(ledger)
+    for _ in range(100):
+        assert index.entitlement(security_id=SID, ex_date=EX) == 100
+    assert ledger.events.scans == 1

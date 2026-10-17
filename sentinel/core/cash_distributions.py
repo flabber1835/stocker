@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from bisect import bisect_right
+from collections import defaultdict
 from datetime import date
 from math import isfinite
 from typing import Literal
@@ -9,7 +11,8 @@ from pydantic import Field
 from sentinel.feed.rolling_contract import Contract, Digest, digest
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 
-POLICY = 'FORWARD_CASH_DISTRIBUTIONS_V1'
+LEGACY_POLICY = 'FORWARD_CASH_DISTRIBUTIONS_V1'
+POLICY = 'FORWARD_CASH_DISTRIBUTIONS_V2'
 SCHEMA = 'sentinel.forward-cash-distributions/1'
 
 
@@ -32,20 +35,55 @@ class Inputs(Contract):
     legacy_floors: list[Observation] = Field(default_factory=list)
 
 
+class OwnershipIndex:
+    def __init__(self, ledger):
+        self.first_session = None
+        changes = defaultdict(lambda: defaultdict(Decimal))
+        self.accrued = defaultdict(Decimal)
+        for event in ledger.events:
+            if self.first_session is None or event.session < self.first_session:
+                self.first_session = event.session
+            if event.event_type is EventType.DIVIDEND_ACCRUED:
+                self.accrued[(event.security_id, event.detail.get('entitlement_date', event.session))] += Decimal(str(event.detail['amount']))
+            if event.event_type is EventType.CONVERSION:
+                detail = event.detail
+                try:
+                    source = Decimal(str(detail['shares_in']))
+                    delivered = Decimal(str(detail['shares_delivered']))
+                    successor = detail['delivered_security_id']
+                    if (not source.is_finite() or not delivered.is_finite()
+                            or source < 0 or delivered < 0 or not isinstance(successor, str) or not successor):
+                        raise ValueError
+                except (KeyError, InvalidOperation, ValueError) as exc:
+                    raise ValueError('CASH_CONVERSION_OWNERSHIP_INCOMPLETE') from exc
+                changes[event.security_id][(event.session, 1)] -= source
+                changes[successor][(event.session, 1)] += delivered
+            else:
+                opening = event.event_type in (EventType.SPLIT, EventType.SPINOFF_RECEIPT,
+                                               EventType.SPINOFF_LIQUIDATION)
+                changes[event.security_id][(event.session, 0 if opening else 1)] += Decimal(str(event.shares_delta))
+        self.histories = {}
+        for security_id, daily in changes.items():
+            keys, quantities, shares = [], [], Decimal(0)
+            for key, delta in sorted(daily.items()):
+                shares += delta
+                keys.append(key)
+                quantities.append(shares)
+            self.histories[security_id] = keys, quantities
+
+    def entitlement(self, *, security_id, ex_date):
+        if self.first_session is None or ex_date < self.first_session:
+            return None
+        keys, quantities = self.histories.get(security_id, ((), ()))
+        index = bisect_right(keys, (ex_date, 0)) - 1
+        shares = quantities[index] if index >= 0 else Decimal(0)
+        if shares < 0:
+            raise ValueError('CASH_ENTITLEMENT_OWNERSHIP_INCOHERENT')
+        return shares
+
+
 def entitlement(ledger, *, security_id, ex_date):
-    """Opening shares on ex-date; same-day trades do not earn entitlement."""
-    if not ledger.events or ex_date < min(e.session for e in ledger.events):
-        return None
-    shares = Decimal(0)
-    for event in ledger.events:
-        if event.security_id != security_id:
-            continue
-        if event.session < ex_date or (event.session == ex_date and event.event_type in (
-                EventType.SPLIT, EventType.CONVERSION, EventType.SPINOFF_RECEIPT)):
-            shares += Decimal(str(event.shares_delta))
-    if shares < 0:
-        raise ValueError('CASH_ENTITLEMENT_OWNERSHIP_INCOHERENT')
-    return shares
+    return OwnershipIndex(ledger).entitlement(security_id=security_id, ex_date=ex_date)
 
 
 def apply(inputs, *, prior, published, state, ledger, lag):
@@ -57,17 +95,15 @@ def apply(inputs, *, prior, published, state, ledger, lag):
         raise ValueError('CASH_DISTRIBUTION_INPUT_BINDING_CHANGED')
     keys, audit = set(), []
     historical = Ledger.from_dict(prior.ledger)
+    ownership = OwnershipIndex(historical)
     for observation in value.observations:
         key = (observation.security_id, observation.ex_date)
         if (key in keys or date.fromisoformat(observation.ex_date).isoformat() != observation.ex_date
                 or observation.ex_date > prior.last_processed_session):
             raise ValueError('CASH_DISTRIBUTION_KEYS_INVALID')
         keys.add(key)
-        owned = entitlement(historical, security_id=key[0], ex_date=key[1])
-        accrued = sum((Decimal(str(e.detail['amount'])) for e in historical.events
-                       if e.event_type is EventType.DIVIDEND_ACCRUED
-                       and e.security_id == key[0]
-                       and e.detail.get('entitlement_date', e.session) == key[1]), Decimal(0))
+        owned = ownership.entitlement(security_id=key[0], ex_date=key[1])
+        accrued = ownership.accrued[key]
         target = None if owned is None else owned * observation.per_share
         delta = None if target is None else target - accrued
         if delta is not None:

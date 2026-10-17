@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from sentinel.feed import rolling_work
+from sentinel.trading_environment import TradingEndpoint
 
 DATA = "https://data.alpaca.markets"
 ASSETS = "https://paper-api.alpaca.markets/v2/assets"
@@ -42,7 +43,12 @@ class _NoRedirect(HTTPRedirectHandler):
 
 class Client:
     def __init__(self, *, opener=None, sleeper=time.sleep, clock=None,
-                 monotonic=time.monotonic, interval=MIN_REQUEST_INTERVAL_SECONDS):
+                 monotonic=time.monotonic, interval=MIN_REQUEST_INTERVAL_SECONDS, base_url=None):
+        self.trading_endpoint = TradingEndpoint.parse(
+            os.environ.get('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+            if base_url is None else base_url)
+        self.assets_url = self.trading_endpoint.assets_url
+        self._allowed = frozenset((self.assets_url, BAR_URL, ACTION_URL))
         self._opener = opener or build_opener(_NoRedirect())
         self._sleep = sleeper
         self._clock = clock or (lambda: datetime.now(timezone.utc))
@@ -60,7 +66,7 @@ class Client:
         self._last_request = now
 
     def get(self, endpoint: str, params: dict | None = None, *, text=False):
-        if endpoint not in ALLOWED or text:
+        if endpoint not in self._allowed or text:
             raise AlpacaTransportRefused("unsupported operational input endpoint")
         params = dict(params or {})
         if any(not isinstance(k, str) or not isinstance(v, (str, int))

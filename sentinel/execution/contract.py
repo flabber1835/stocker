@@ -255,6 +255,23 @@ class BrokerAccountSnapshot:
             _require_decimal("BrokerAccountSnapshot.multiplier", self.multiplier)
 
 
+def available_purchase_cash(snapshot: BrokerAccountSnapshot) -> Decimal:
+    if not isinstance(snapshot, BrokerAccountSnapshot):
+        raise MalformedBrokerEvidence('available cash requires a typed account snapshot')
+    if (snapshot.multiplier != Decimal(1)
+            or any(not isinstance(value, Decimal) or not value.is_finite() or value < 0
+                   for value in (snapshot.cash, snapshot.buying_power))):
+        raise MalformedBrokerEvidence('account cash, buying power or multiplier is unusable')
+    flags = (snapshot.trading_blocked, snapshot.account_blocked,
+             snapshot.trade_suspended_by_user)
+    if (any(type(value) is not bool for value in flags)
+            or not isinstance(snapshot.status, str) or not snapshot.status.strip()):
+        raise MalformedBrokerEvidence('account availability evidence is malformed')
+    if snapshot.status.upper() != 'ACTIVE' or any(flags):
+        return Decimal(0)
+    return min(snapshot.cash, snapshot.buying_power)
+
+
 @dataclass(frozen=True)
 class BrokerCloseValuation:
     """One quarantined broker portfolio-history point.

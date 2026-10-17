@@ -233,6 +233,7 @@ _FEED_TABLES = frozenset({
     "sentinel_action_history", "sentinel_action_coverage",
     "sentinel_snapshot_retirements", "sentinel_snapshot_workers", "sentinel_snapshot_maintenance",
     "sentinel_acquisition_parts", "sentinel_acquisition_prices",
+    "sentinel_acquisition_price_links",
     "sentinel_acquisition_bindings", "sentinel_acquisition_successors",
     "sentinel_acquisition_source_wait",
     "sentinel_publication_validation_policy",

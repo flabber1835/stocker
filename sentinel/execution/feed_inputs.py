@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from dataclasses import dataclass
-from typing import Callable
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Callable, Mapping
 
 from sentinel.feed import calendar, publication, operational_snapshot as snapshots
 from sentinel.feed import rolling_go_inputs, rolling_store, readiness as legacy_readiness
@@ -29,6 +30,15 @@ class BrokerSecurityResolver:
 
     source_provider: str
     lookup: Callable
+    provider_asset_ids: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self):
+        values = dict(self.provider_asset_ids)
+        if (any(not isinstance(key, str) or not key or not isinstance(value, str)
+                or not value for key, value in values.items())
+                or len(set(values.values())) != len(values)):
+            raise ExecutionInputsRefused('AMBIGUOUS_CURRENT_PROVIDER_IDENTITIES')
+        object.__setattr__(self, 'provider_asset_ids', MappingProxyType(values))
 
     def __call__(self, symbol, as_of=None):
         return self.lookup(symbol, as_of)
@@ -138,7 +148,29 @@ def resolver(conn, pub, *, session):
             return None
         authority = future if effective == requested else historical
         return authority.resolve(str(symbol), effective)
-    return BrokerSecurityResolver(provider, resolve)
+    provider_ids = {}
+    if provider == 'ALPACA_OPENFIGI':
+        from sentinel.feed import alpaca_identity
+        reference = rolling_store.load_evidence(conn, refs.manifest.reference_sha256)
+        source = rolling_store.load_evidence(conn, refs.manifest.source_evidence_sha256)
+        assets = alpaca_identity.published_assets(reference, source)
+        canonical = {row['ticker']: row['permaticker'] for row in reference['tickers']}
+        canonical.update({value.ticker: value.security_id for value in
+                          alpaca_identity.bindings(reference.get('identity_bindings', []))})
+        provider_ids = {canonical[asset['ticker']]: asset['asset_id'] for asset in assets}
+    return BrokerSecurityResolver(provider, resolve, provider_ids)
+
+
+def source_bound_provider_asset_ids(broker):
+    seen = set()
+    while broker is not None and id(broker) not in seen:
+        seen.add(id(broker))
+        source_resolver = getattr(broker, '_resolve', None)
+        if (isinstance(source_resolver, BrokerSecurityResolver)
+                and source_resolver.source_provider == 'ALPACA_OPENFIGI'):
+            return source_resolver.provider_asset_ids
+        broker = getattr(broker, '_inner', None)
+    return {}
 
 
 def metadata(conn):

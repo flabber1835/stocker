@@ -156,11 +156,19 @@ def read(conn, context, checkpoint):
 def _require_retained_strategy(conn, checkpoint, context, stored):
     if stored in (checkpoint.strategy_identity, context['strategy']):
         return
-    from sentinel.economic_migration import POLICY, PROFILE_SHA256, compatible
-    if (stored.get('cash_distribution_policy') != POLICY
+    from sentinel.economic_migration import (
+        POLICY, LEGACY_POLICY, PROFILE_SHA256, LEGACY_PROFILE_SHA256,
+        compatible, legacy_profile,
+    )
+    policy = stored.get('cash_distribution_policy')
+    if (policy not in (POLICY, LEGACY_POLICY)
             or context['strategy'].get('cash_distribution_policy') != POLICY
             or not compatible(stored, context['strategy'])):
         raise Refused('RETAINED_ECONOMIC_CHECKPOINT_IDENTITY_CHANGED')
+    expected_profile = PROFILE_SHA256
+    if policy == LEGACY_POLICY:
+        legacy_profile()
+        expected_profile = LEGACY_PROFILE_SHA256
     prefix = PREFIX + context['observation_id'] + ':'
     # Select only the small administrative namespace, never financial history.
     rows = conn.execute('SELECT cursor_name,session,state FROM sentinel_processed_sessions '
@@ -175,7 +183,7 @@ def _require_retained_strategy(conn, checkpoint, context, stored):
                 or value.origin_sha256 != digest(checkpoint.model_dump(by_alias=True))
                 or value.book_runtime_sha256 != digest(checkpoint.runtime_identity)
                 or value.strategy_sha256 != digest(stored)
-                or value.migration_profile_sha256 != PROFILE_SHA256
+                or value.migration_profile_sha256 != expected_profile
                 or value.origin_strategy_sha256 != digest(checkpoint.strategy_identity)):
             raise Refused('RETAINED_INTERMEDIATE_ADMISSION_BINDING_CHANGED')
         found = True
@@ -254,22 +262,23 @@ def source_closure(files):
 
 def prove_compatibility(manifest, checkpoint, context, *, source=None):
     from sentinel import semantic_source_basis as basis
-    from sentinel.economic_migration import profile
-    profile()
+    from sentinel.economic_migration import profile, legacy_profile
+    economic_profile = profile()
+    legacy_economic_profile = legacy_profile()
     from sentinel.execution_upgrade import profile as execution_profile
-    execution_profile()
+    execution_records = execution_profile()
     from sentinel.retained_readiness_upgrade import profile as readiness_profile
-    readiness_profile()
+    readiness_records = readiness_profile()
     from sentinel.dual_plan_renewal_upgrade import profile as renewal_profile
-    renewal_profile()
+    renewal_records = renewal_profile()
     from sentinel.operational_liveness_upgrade import profile as liveness_profile
-    liveness_profile()
+    liveness_records = liveness_profile()
     from sentinel import operational_runtime_upgrade as operational_upgrade
     operational_profile = operational_upgrade.profile()
     from sentinel import callback_liveness_upgrade as callback_upgrade
-    callback_upgrade.profile()
+    callback_profile = callback_upgrade.profile()
     from sentinel import startup_contention_upgrade as startup_upgrade
-    startup_upgrade.profile()
+    startup_profile = startup_upgrade.profile()
     from sentinel import unsent_recovery_upgrade as recovery_upgrade
     recovery_profile = recovery_upgrade.profile()
     from sentinel import shadow_ui_upgrade as ui_upgrade
@@ -280,6 +289,22 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     open_time_profile = open_time_upgrade.profile()
     from sentinel import close_cycle_upgrade
     close_cycle_profile = close_cycle_upgrade.profile()
+    from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
+    autonomy_profile = autonomy_upgrade.profile()
+    profiles = (legacy_economic_profile, economic_profile, execution_records, readiness_records,
+                renewal_records, liveness_records, operational_profile,
+                callback_profile, startup_profile, recovery_profile, ui_profile,
+                monitor_profile, open_time_profile, close_cycle_profile,
+                autonomy_profile)
+
+    def source_allowed(name, previous, actual, records=profiles):
+        for value in records:
+            record = value['files'].get(name)
+            if (record is not None and previous in record['before']
+                    and actual == record['after']):
+                return True
+        return False
+
     manifest = SourceManifest.model_validate(manifest)
     source = source or identity.rehearsal_identity()
     _require_context(checkpoint, context)
@@ -297,6 +322,7 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     monitor_additions = monitor_upgrade.additions_allowed(actual)
     open_time_additions = open_time_upgrade.additions_allowed(actual)
     close_cycle_additions = close_cycle_upgrade.additions_allowed(actual)
+    autonomy_additions = autonomy_upgrade.additions_allowed(actual)
     # An earlier pinned addition can later receive only its exact reviewed
     # transition; an unpinned neighboring edit still fails the closure gate.
     for previous_profile, allowed in ((operational_profile, operational_additions),
@@ -306,54 +332,24 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
                                      (open_time_profile, open_time_additions),
                                      (close_cycle_profile, close_cycle_additions)):
         allowed.update(name for name, previous in previous_profile['additions'].items()
-                       if monitor_upgrade.source_allowed(name, previous, actual.get(name))
-                       or open_time_upgrade.source_allowed(name, previous, actual.get(name))
-                       or close_cycle_upgrade.source_allowed(name, previous, actual.get(name)))
+                       if source_allowed(name, previous, actual.get(name), profiles[-4:]))
     if (source_closure(actual) != context['runtime']['sentinel_source_sha256']
             or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']
             or set(manifest.files) - set(actual)
-            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions - recovery_additions - ui_additions - monitor_additions - open_time_additions - close_cycle_additions
+            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions - recovery_additions - ui_additions - monitor_additions - open_time_additions - close_cycle_additions - autonomy_additions
             or (set(actual) & set(operational_profile['additions'])) - operational_additions
             or (set(actual) & set(recovery_profile['additions'])) - recovery_additions
             or (set(actual) & set(ui_profile['additions'])) - ui_additions
             or (set(actual) & set(monitor_profile['additions'])) - monitor_additions
             or (set(actual) & set(open_time_profile['additions'])) - open_time_additions
-            or (set(actual) & set(close_cycle_profile['additions'])) - close_cycle_additions):
+            or (set(actual) & set(close_cycle_profile['additions'])) - close_cycle_additions
+            or (set(actual) & set(autonomy_profile['additions'])) - autonomy_additions):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     for name, previous in manifest.files.items():
         if actual[name] == previous or name in ((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE-close_cycle_upgrade.SCOPE) | ADDITIONS):
             continue
         module = SEAMS.get(name)
-        from sentinel.economic_migration import source_allowed
         if source_allowed(name, previous, actual[name]):
-            continue
-        from sentinel.execution_upgrade import source_allowed as execution_source_allowed
-        if execution_source_allowed(name, previous, actual[name]):
-            continue
-        from sentinel.retained_readiness_upgrade import source_allowed as readiness_source_allowed
-        if readiness_source_allowed(name, previous, actual[name]):
-            continue
-        from sentinel.dual_plan_renewal_upgrade import source_allowed as renewal_source_allowed
-        if renewal_source_allowed(name, previous, actual[name]):
-            continue
-        from sentinel.operational_liveness_upgrade import source_allowed as liveness_source_allowed
-        if liveness_source_allowed(name, previous, actual[name]):
-            continue
-        if operational_upgrade.source_allowed(name, previous, actual[name]):
-            continue
-        if callback_upgrade.source_allowed(name, previous, actual[name]):
-            continue
-        if startup_upgrade.source_allowed(name, previous, actual[name]):
-            continue
-        if recovery_upgrade.source_allowed(name, previous, actual[name]):
-            continue
-        if ui_upgrade.source_allowed(name, previous, actual[name]):
-            continue
-        if monitor_upgrade.source_allowed(name, previous, actual[name]):
-            continue
-        if open_time_upgrade.source_allowed(name, previous, actual[name]):
-            continue
-        if close_cycle_upgrade.source_allowed(name, previous, actual[name]):
             continue
         if module is None:
             raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)
