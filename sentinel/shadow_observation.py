@@ -1006,15 +1006,15 @@ class PostgresShadowObservationStore:
                     series[key] = item
         return session, value
 
-    @staticmethod
-    def _owned_mapping(value, *, where, exact_numbers=False):
+    def _owned_mapping(self, value, *, where, exact_numbers=False):
         # A JSONB decoder owns this fresh object; there is no store-side alias.
         # Other observation stores still use the defensive canonical round trip.
         if not isinstance(value, dict):
             raise ShadowObservationRefused(f"{where} is not an object")
         try:
             return observation_storage.decode(value, loads=_compact_json_decoder(
-                number_type=Decimal if exact_numbers else float))
+                number_type=Decimal if exact_numbers else float),
+                ledger_reader=lambda name: observation_storage._read_ledger_chunk(self.conn, name))
         except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
             raise ShadowObservationRefused(f'{where}: invalid observation storage: {exc}') from exc
 

@@ -128,6 +128,17 @@ def test_old_gap_retains_only_clean_tail_and_never_fills_missing_prices():
     assert len([row for row in rows if row['date'] >= admitted['A']]) == 199
 
 
+def test_old_basis_break_retains_clean_candidate_tail():
+    from sentinel.feed import calendar
+    axis = calendar.previous_sessions('2026-09-30', 300)
+    rows = [_row('A', day, adjusted=50 if i < 40 else 100)
+            for i, day in enumerate(axis)]
+    admitted, reasons = admissible_history(rows, axis=axis, symbols={'A'},
+        action_affected=frozenset(), pair_absent=set())
+    assert admitted == {'A': axis[40]} and reasons == {}
+    assert len([row for row in rows if row['date'] >= admitted['A']]) == 260
+
+
 def test_old_adjustment_anomaly_does_not_poison_tail_after_later_gap():
     rows = [_row('A', AXIS[0], adjusted=20), _row('A', AXIS[2])]
     assert admissible_history(rows, axis=AXIS, symbols={'A'},
@@ -174,9 +185,8 @@ def test_price_gaps_actions_and_adjustment_changes_exclude_security():
             _row("A", AXIS[2]), _row("B", AXIS[2]), _row("C", AXIS[2])]
     admitted, reasons = admissible_history(rows, axis=AXIS, symbols={"A", "B", "C"},
                                           action_affected=frozenset({"A"}), pair_absent=set())
-    assert admitted == {'B': AXIS[2]}
-    assert reasons == {"adjustment_discontinuity": 1,
-                       "reported_corporate_action": 1}
+    assert admitted == {'B': AXIS[2], 'C': AXIS[2]}
+    assert reasons == {"reported_corporate_action": 1}
 
 
 def test_price_page_refuses_duplicate_and_foreign_bars():
@@ -224,7 +234,7 @@ def test_split_terms_and_independent_prices_must_agree(kind, old, new, ratio):
     kwargs = dict(axis=AXIS, symbols={'A'}, action_affected=frozenset(), pair_absent=set())
     assert admissible_history(rows, split_terms={('A',AXIS[1]):ratio}, **kwargs) == ({'A':AXIS[0]}, {})
     # Removing the action or corrupting its multiplier must fail corroboration.
-    assert admissible_history(rows, **kwargs)[0] == {}
+    assert admissible_history(rows, **kwargs)[0] == {'A': AXIS[1]}
     assert admissible_history(rows, split_terms={('A',AXIS[1]):'4'}, **kwargs)[0] == {}
 
 
@@ -245,7 +255,7 @@ def test_cent_rounded_reverse_split_prices_keep_exact_terms_without_false_exclus
     kwargs = dict(axis=AXIS,symbols={'A'},action_affected=frozenset(),pair_absent=set())
     terms = {('A',AXIS[2]):'0.0625'}
     assert admissible_history(rows,split_terms=terms,**kwargs)[0] == {'A':AXIS[0]}
-    assert admissible_history(rows,**kwargs)[0] == {}
+    assert admissible_history(rows,**kwargs)[0] == {'A': AXIS[2]}
     assert admissible_history(rows,split_terms={('A',AXIS[2]):'0.1'},**kwargs)[0] == {}
     rows[1]['adjusted_close'] += .02
     assert admissible_history(rows,split_terms=terms,**kwargs)[0] == {}

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
 from sentinel import open_time_upgrade, close_cycle_upgrade
 
 from sentinel import unsent_recovery_upgrade as upgrade, runtime_admission as admission
@@ -23,7 +24,8 @@ def test_recovery_upgrade_pins_exact_predecessor_and_target_and_rejects_neighbor
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
     assert (actual == record['after'] or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual))
+                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
+                or autonomy_upgrade.source_allowed(name, record['after'], actual))
     assert all(upgrade.source_allowed(name, before, record['after']) for before in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)

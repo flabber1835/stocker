@@ -69,6 +69,45 @@ def test_successive_admissions_keep_exact_retained_strategy_and_current_process(
     assert admission.retained_publication_strategy(conn, SimpleNamespace(to_dict=lambda: {'version': 3})) is None
 
 
+@pytest.mark.parametrize('wrong_profile', [False, True])
+def test_authenticated_v1_intermediate_retains_original_profile(chain, wrong_profile):
+    from sentinel.economic_migration import LEGACY_POLICY, LEGACY_PROFILE_SHA256
+    conn, context, retained, checkpoint, rows, current_key, prior_key = chain
+    retained.strategy_identity['cash_distribution_policy'] = LEGACY_POLICY
+    raw = rows[prior_key][1]['admission']
+    raw['strategy_sha256'] = digest(retained.strategy_identity)
+    raw['migration_profile_sha256'] = (
+        PROFILE_SHA256 if wrong_profile else LEGACY_PROFILE_SHA256)
+    rows[prior_key][1]['hmac_sha256'] = admission._signature(raw)
+    before = deepcopy(rows)
+    bound = deepcopy(context)
+    if wrong_profile:
+        with pytest.raises(RuntimeError, match='INTERMEDIATE_ADMISSION_BINDING_CHANGED'):
+            admission.bind_context(conn, bound)
+        assert bound == context
+    else:
+        admission.bind_context(conn, bound)
+        assert bound['strategy'] == retained.strategy_identity
+        assert bound['runtime'] == checkpoint.runtime_identity
+    assert rows == before
+
+
+def test_v1_intermediate_does_not_replace_current_v2_admission(chain):
+    from sentinel.economic_migration import LEGACY_POLICY, LEGACY_PROFILE_SHA256
+    conn, context, retained, _, rows, current_key, prior_key = chain
+    retained.strategy_identity['cash_distribution_policy'] = LEGACY_POLICY
+    for key in (prior_key, current_key):
+        raw = rows[key][1]['admission']
+        raw['migration_profile_sha256'] = LEGACY_PROFILE_SHA256
+        if key == prior_key:
+            raw['strategy_sha256'] = digest(retained.strategy_identity)
+        rows[key][1]['hmac_sha256'] = admission._signature(raw)
+    before = deepcopy(context)
+    with pytest.raises(RuntimeError, match='ECONOMIC_MIGRATION_ADMISSION_REQUIRED'):
+        admission.bind_context(conn, context)
+    assert context == before
+
+
 @pytest.mark.parametrize('defect', ['missing_prior', 'missing_current', 'hmac', 'shape', 'origin',
     'book', 'observation', 'process', 'cursor', 'profile', 'origin_strategy', 'session',
     'unadmitted_strategy', 'economic_setting', 'cash_policy'])

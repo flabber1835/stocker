@@ -3,6 +3,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
+from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
 from sentinel import open_time_upgrade, close_cycle_upgrade
 
 from sentinel import dual_plan_renewal_upgrade as upgrade, runtime_admission as admission
@@ -16,7 +17,8 @@ def test_only_exact_retained_readiness_sources_are_pinned(name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
     assert (actual == record['after'] or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual))
+                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
+                or autonomy_upgrade.source_allowed(name, record['after'], actual))
     reviewed = record['after']
     for previous in record['before']:
         assert upgrade.source_allowed(name, previous, reviewed)

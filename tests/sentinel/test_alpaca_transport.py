@@ -52,6 +52,20 @@ def test_restricts_transport_to_fixed_get_only_data_endpoints():
     assert "test-key" not in repr(proof) and "test-secret" not in repr(proof)
 
 
+def test_live_source_assets_endpoint_is_exact_get_only_and_environment_bound(monkeypatch):
+    monkeypatch.setenv('ALPACA_BASE_URL', 'https://api.alpaca.markets')
+    opener = _Opener([[]])
+    client = Client(opener=opener)
+    assert client.assets_url == 'https://api.alpaca.markets/v2/assets'
+    value, proof = client.get(client.assets_url)
+    assert value == [] and proof['endpoint'] == client.assets_url
+    assert opener.methods == ['GET']
+    for endpoint in (ASSETS, 'https://api.alpaca.markets/v2/orders', 'https://foreign.example/v2/assets'):
+        with pytest.raises(AlpacaTransportRefused):
+            client.get(endpoint)
+    assert len(opener.urls) == 1
+
+
 def test_repeated_page_token_refuses_without_requerying_forever():
     opener = _Opener([
         {"bars": {"A": []}, "next_page_token": "same"},

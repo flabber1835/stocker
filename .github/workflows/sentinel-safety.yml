@@ -29,6 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Select full qualification or exact-tree PR reuse
@@ -55,6 +59,10 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
           fetch-depth: 2
           ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
 
@@ -120,6 +128,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         with:
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
           fetch-depth: 2
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
@@ -231,6 +243,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         if: ${{ needs.qualification-source.outputs.mode == 'promote' }}
         with:
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Download protected promotion selection
@@ -274,6 +290,10 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
           fetch-depth: 2
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
@@ -541,6 +561,10 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
           fetch-depth: 2
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
@@ -628,6 +652,10 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
           fetch-depth: 2
           ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
 

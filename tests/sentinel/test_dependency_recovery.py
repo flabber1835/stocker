@@ -118,6 +118,75 @@ def test_integrity_refusal_is_not_hidden_by_transient_context_or_cleanup(monkeyp
         runtime._require_backup_for_new_mutation('local acceptance')
 
 
+@pytest.mark.parametrize('error', [psycopg.OperationalError,
+    psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable])
+def test_owned_observation_wrapper_preserves_dependency_failure(error):
+    from sentinel.shadow_observation import ShadowObservationRefused
+    cause = error('temporary observation persistence failure')
+    wrapped = ShadowObservationRefused('shadow observation append failed')
+    wrapped.__cause__ = cause
+    retry = shadow_worker.ShadowServiceRetry('rolling service dependency unavailable')
+    retry.__cause__ = wrapped
+    assert shadow_worker._availability_failure(wrapped)
+    assert shadow_worker._availability_failure(retry)
+    assert shadow_worker._availability_exit(retry) == shadow_worker.EXIT_DEPENDENCY_UNAVAILABLE
+
+
+def test_dependency_walk_stops_at_integrity_decisions_and_cause_cycles():
+    from sentinel.shadow_observation import ShadowObservationRefused
+    transient = psycopg.OperationalError('older connection failure')
+    refused = shadow_worker.ShadowServiceRefused('authenticated state changed')
+    refused.__cause__ = transient
+    outer = ShadowObservationRefused('observation could not be appended')
+    outer.__cause__ = refused
+    assert not shadow_worker._availability_failure(outer)
+    assert shadow_worker._availability_exit(outer) == shadow_worker.EXIT_AVAILABILITY
+    outer.__cause__ = outer
+    assert not shadow_worker._availability_failure(outer)
+
+
+def test_wrapped_database_timeout_retries_one_durable_transition(conn, monkeypatch):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+    from sentinel import rolling_runtime, shadow_budget, shadow_service
+    from sentinel.shadow_observation import ShadowObservationRefused
+
+    conn.execute('CREATE TEMP TABLE autonomy_transition (session text PRIMARY KEY)')
+    conn.commit()
+    config = SimpleNamespace(operational_source_only=True, observation_id='test',
+        starting_cash=50000, database_url='isolated', poll_seconds=1)
+    attempts = []
+
+    class BorrowedConnection:
+        def rollback(self): conn.rollback()
+        def close(self): pass
+
+    def advance(*args, **kwargs):
+        attempts.append(len(attempts))
+        try:
+            if len(attempts) == 1:
+                conn.execute("SET LOCAL statement_timeout='10ms'")
+                conn.execute('SELECT pg_sleep(1)')
+            conn.execute("INSERT INTO autonomy_transition VALUES ('2026-10-15')")
+            conn.commit()
+            return SimpleNamespace(to_dict=lambda: {'session': '2026-10-15'})
+        except Exception as exc:
+            raise ShadowObservationRefused('shadow observation append failed') from exc
+
+    monkeypatch.setattr(shadow_worker.ShadowServiceConfig, 'from_env', lambda: config)
+    monkeypatch.setattr(shadow_service, 'preflight', lambda *a, **k: {
+        'status': 'ATTESTED_STRUCTURAL', 'input_contract': rolling_runtime.SCHEMA})
+    monkeypatch.setattr(shadow_service, '_causal_target', lambda **k: '2026-10-15')
+    monkeypatch.setattr(shadow_budget, 'cutoff', lambda: datetime.now(timezone.utc))
+    monkeypatch.setattr(shadow_service.feed_store, 'connect', lambda *a, **k: BorrowedConnection())
+    monkeypatch.setattr(rolling_runtime, 'service_advance', advance)
+    monkeypatch.setattr(shadow_worker, 'advance_once', shadow_service.advance_once)
+    assert shadow_worker.main() == shadow_worker.EXIT_DEPENDENCY_UNAVAILABLE
+    assert shadow_worker.main() == 0
+    assert conn.execute('SELECT count(*) FROM autonomy_transition').fetchone()[0] == 1
+    conn.rollback()
+
+
 def test_post_commit_retention_diagnostic_has_its_own_lock_budget(conn):
     from sentinel.feed import retention, store
     from sentinel import schema

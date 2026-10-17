@@ -1,6 +1,11 @@
 # Version control
 .git
 .gitignore
+sec-filings/
+.codex-tmp/
+.env
+.env.*
+!.env.example
 
 # Development scratch. NOT `tests/` — see below.
 screenshots/

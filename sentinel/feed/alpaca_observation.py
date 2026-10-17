@@ -247,6 +247,9 @@ def admissible_history(rows, *, axis: list[str], symbols: set[str],
             current[4] = max(current[4], normalized)
             lo, hi = _adjustment_interval(row, current[5])
             current[6], current[7] = max(current[6], lo), min(current[7], hi)
+            if (symbol not in split_symbols and current[4] / current[3] - 1 > 0.0005):
+                lo, hi = _adjustment_interval(row, Decimal(1))
+                by_symbol[symbol] = [position, position, 1, ratio, ratio, Decimal(1), lo, hi]
     admitted, reasons = {}, defaultdict(int)
     for symbol in sorted(symbols):
         observed = by_symbol.get(symbol)

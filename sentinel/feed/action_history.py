@@ -29,6 +29,24 @@ def _economics(value, symbol):
             for kind in ("scalar", "unsupported", "unresolved")}
 
 
+def _source_covered(refs, symbol, day):
+    if refs.manifest.provider != 'ALPACA_OPENFIGI':
+        return True
+    if not str(refs.manifest.window.start) < day <= str(refs.manifest.window.end):
+        return False
+    if symbol == 'BIL':
+        return True
+    bounds = getattr(refs, '_action_source_bounds', None)
+    if bounds is None:
+        bounds = defaultdict(list)
+        for row in refs.tickers:
+            bounds[row['ticker']].append((
+                row.get('firstpricedate') or str(refs.manifest.window.start),
+                row.get('lastpricedate') or str(refs.manifest.window.end)))
+        refs._action_source_bounds = bounds
+    return any(first <= day <= last for first, last in bounds.get(symbol, ()))
+
+
 def verify_coverage_chain(conn, *, version):
     """Enumerate required history from publications, never from surviving rows."""
     rows = conn.execute(
@@ -159,7 +177,7 @@ def append(conn, *, candidate, version, previous):
     manifest = rolling_store.manifest(conn, candidate)
     refs = SnapshotReferences(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id)
     pub = SimpleNamespace(version=version, run_id=None, window_end=str(manifest.window.end))
-    prior = (conn.execute("SELECT basis,through FROM sentinel_action_coverage WHERE publication_version=%s",
+    prior = (conn.execute("SELECT basis,through,payload FROM sentinel_action_coverage WHERE publication_version=%s",
                          (previous.version,)).fetchone() if previous else None)
     basis = prior[0] if prior else manifest.window.start
     if prior and manifest.window.start > prior[1]:
@@ -172,6 +190,12 @@ def append(conn, *, candidate, version, previous):
     for day, payload in _dated_sources(refs, start=basis, end=manifest.window.end):
         current_sources[day].append(payload)
     corrections, correction_evidence, added = [], {}, {}
+    if prior:
+        for event in prior[2]['corrections']:
+            if not _source_covered(refs, event['ticker'], event['session']):
+                corrections.append(event)
+                if event['session'] in prior[2].get('correction_evidence', {}):
+                    correction_evidence[event['session']] = prior[2]['correction_evidence'][event['session']]
     for day in sorted(set(old) | set(new) | {d for d in current_sources if str(basis) < d <= str(prior[1] if prior else basis)}):
         rolling_work.checkpoint()
         existing, observed = old.get(day), new.get(day)
@@ -180,7 +204,7 @@ def append(conn, *, candidate, version, previous):
         prior_sources = sorted((existing or {}).get("sources", []), key=lambda p: p["source_row_id"])
         events = [e for item in (existing, observed) if item for k in ("scalar", "unsupported", "unresolved") for e in item[k]]
         symbols = {p['ticker'] for p in sources + prior_sources + events}
-        changed = {symbol for symbol in symbols if historical and (
+        changed = {symbol for symbol in symbols if historical and _source_covered(refs, symbol, day) and (
             [p for p in sources if p['ticker'] == symbol] != [p for p in prior_sources if p['ticker'] == symbol]
             or (str(manifest.window.start) < day <= str(manifest.window.end)
                 and _economics(observed, symbol) != _economics(existing, symbol)))}

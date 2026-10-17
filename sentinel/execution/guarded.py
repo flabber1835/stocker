@@ -551,7 +551,9 @@ class GuardedExecutionBroker(ExecutionBroker):
                     raise OpeningPriceNotReady('fresh executable quote is not available')
                 account = await self.account_snapshot()
                 # Funding does not assume a favourable fill or unsettled proceeds.
-                if quantity * quote.prices[instrument.security_id] > account.cash:
+                from sentinel.execution.contract import available_purchase_cash
+                available = available_purchase_cash(account)
+                if quantity * quote.prices[instrument.security_id] > available:
                     raise OrderFundingNotReady('fresh ask exceeds available cash for the fixed quantity')
             except (OpeningPriceNotReady, OrderFundingNotReady) as exc:
                 raise OrderEvidenceNotReady(

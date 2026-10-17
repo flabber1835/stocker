@@ -55,6 +55,14 @@ def _backup_availability(exc: BaseException) -> bool:
     )
 
 
+def _availability_cause(exc: BaseException) -> BaseException | None:
+    from sentinel.shadow_observation import ShadowObservationRefused
+
+    if isinstance(exc, ShadowServiceRetry) or type(exc) is ShadowObservationRefused:
+        return exc.__cause__
+    return None
+
+
 def _availability_failure(exc: BaseException) -> bool:
     from sentinel.feed.rolling_jobs import JobWaiting, JobDeadlineExceeded
     current: BaseException | None = exc
@@ -68,7 +76,7 @@ def _availability_failure(exc: BaseException) -> bool:
             return True
         if isinstance(current, AlpacaTransportUnavailable) or _sharadar_availability(current):
             return True
-        current = current.__cause__ if isinstance(current, ShadowServiceRetry) else None
+        current = _availability_cause(current)
     return False
 
 
@@ -83,7 +91,7 @@ def _availability_exit(exc: BaseException) -> int:
                 or isinstance(current, JobDeadlineExceeded)
                 or _backup_availability(current)):
             return EXIT_DEPENDENCY_UNAVAILABLE
-        current = current.__cause__ if isinstance(current, ShadowServiceRetry) else None
+        current = _availability_cause(current)
     return EXIT_AVAILABILITY
 
 

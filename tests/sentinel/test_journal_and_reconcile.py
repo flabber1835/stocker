@@ -1015,16 +1015,18 @@ class TestReconciliation:
         assert submissions == []
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT o.runtime_state,p.canonical_payload_sha256,s.state "
+                "SELECT o.seq,o.runtime_state,p.canonical_payload_sha256,s.state "
                 "FROM sentinel_observations o "
                 "JOIN sentinel_observation_provenance p "
                 "ON p.observation_seq=o.seq "
                 "JOIN sentinel_processed_sessions s "
                 "ON s.cursor_name=('broker-observation:v4:' || o.seq) "
                 "ORDER BY o.seq DESC LIMIT 1")
-            runtime_state, digest, evidence = cur.fetchone()
+            seq, runtime_state, digest, witness = cur.fetchone()
         assert runtime_state == RuntimeState.FOREIGN_ACTIVITY.value
         assert len(digest) == 64
+        assert witness["kind"] == journal.OBSERVATION_WITNESS_KIND
+        evidence = journal.load_observation_payload(conn, seq)
         retained_exact = evidence["exact_evidence"][0]
         assert retained_exact["client_key"] == durable.client_key
         assert retained_exact["initial_order_id"] == "broker-original"

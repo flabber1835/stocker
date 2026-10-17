@@ -184,7 +184,8 @@ def _build(conn, lease, request, source):
         return candidate
 
 
-ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/2"
+ALPACA_NORMALIZATION_HISTORICAL = ("sentinel.alpaca-openfigi-dividend-current-window/2",)
+ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/3"
 MIN_ADMITTED_COMMON_STOCKS = 500
 MIN_ALPACA_ADMITTED_PERCENT = 95
 
@@ -207,9 +208,10 @@ def _alpaca_rows(conn, lease, *, verifier=None):
     from sentinel.feed import store
     from sentinel.feed.acquisition_parts import PartCorrupt
 
-    query = ("SELECT p.part_id,p.session,p.ticker,p.payload "
-             "FROM sentinel_acquisition_prices p "
-             "JOIN sentinel_acquisition_bindings b USING(part_id) "
+    query = ("SELECT b.part_id,p.session,p.ticker,p.payload "
+             "FROM sentinel_acquisition_bindings b "
+             "LEFT JOIN sentinel_acquisition_price_links l USING(part_id) "
+             "JOIN sentinel_acquisition_prices p ON p.part_id=COALESCE(l.payload_part_id,b.part_id) "
              "WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' "
              'ORDER BY p.session,p.ticker COLLATE "C"')
     previous = None
@@ -300,8 +302,9 @@ def build_alpaca(conn, lease, request, source):
         cur.execute("CREATE TEMP TABLE alpaca_expected_keys("
                     "session date,security_id text,PRIMARY KEY(session,security_id)) ON COMMIT DROP")
         cur.execute("INSERT INTO alpaca_expected_keys "
-                    "SELECT p.session,a.security_id FROM sentinel_acquisition_prices p "
-                    "JOIN sentinel_acquisition_bindings b USING(part_id) "
+                    "SELECT p.session,a.security_id FROM sentinel_acquisition_bindings b "
+                    "LEFT JOIN sentinel_acquisition_price_links l USING(part_id) "
+                    "JOIN sentinel_acquisition_prices p ON p.part_id=COALESCE(l.payload_part_id,b.part_id) "
                     "JOIN alpaca_admitted a ON a.ticker=p.ticker "
                     "WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' "
                     "AND p.session>=a.first_session", (lease.job_id,))

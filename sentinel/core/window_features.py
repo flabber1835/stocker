@@ -27,6 +27,12 @@ class Signal(Contract):
     eligibility_reason: str
     certified_signals: tuple[float, float, float, float] | None
 
+    @classmethod
+    def from_feature(cls, bar):
+        value = asdict(bar)
+        value['closes'] = value['closes'][-1:]
+        return cls.model_validate(value)
+
     def bar(self, multiplier=1.):
         return SecurityBar(self.security_id, self.ticker, self.issuer_id,
             tuple(None if c is None else c*multiplier for c in self.closes),
@@ -85,8 +91,8 @@ def load(conn, *, prior, refs, publication, session=None):
                 if sid in live and axis[-261] <= day < axis[-1]:
                     histories[sid].append(row)
             if series is not None and series.sessions[-1] == axis[-1]:
-                signals.append(Signal.model_validate(asdict(feature(
-                    series, meta[sid], index=299, session=axis[-1]))))
+                signals.append(Signal.from_feature(feature(
+                    series, meta[sid], index=299, session=axis[-1])))
     return WindowFeatures(snapshot_sha256=refs.manifest.snapshot_id,
         prior_state_sha256=prior.state_hash, publication_version=publication.version,
         sessions=tuple(axis), signals=tuple(signals), histories=histories)

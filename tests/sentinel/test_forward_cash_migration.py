@@ -28,6 +28,19 @@ def test_forward_transition_requires_exact_prior_and_target_commitments():
         migration.require_transition(prior, new, None)
 
 
+def test_v2_policy_requires_an_explicit_v1_state_bound_forward_transition():
+    old, new = strategies()
+    old['cash_distribution_policy'] = 'FORWARD_CASH_DISTRIBUTIONS_V1'
+    prior = SimpleNamespace(strategy_identity=old, state_hash='e'*64)
+    assert migration.compatible(old, new)
+    proof = migration.transition(prior, new)
+    assert proof['schema'] == 'sentinel.forward-cash-policy-transition/2'
+    migration.require_transition(prior, new, proof)
+    with pytest.raises(ValueError, match='migration required'):
+        migration.require_transition(prior, new, None)
+    assert not migration.compatible(new, old)
+
+
 def test_canonical_migration_check_performs_no_profile_io(monkeypatch):
     old, new = strategies()
     prior = SimpleNamespace(strategy_identity=old, state_hash='e'*64)

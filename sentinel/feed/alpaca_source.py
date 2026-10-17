@@ -118,7 +118,8 @@ class AlpacaSource:
             return payload
 
     def _inventory(self):
-        assets, asset_proof = self.client.get(ASSETS, {"status": "active", "asset_class": "us_equity"})
+        assets, asset_proof = self.client.get(getattr(self.client, 'assets_url', ASSETS),
+            {"status": "active", "asset_class": "us_equity"})
         if not isinstance(assets, list) or not assets:
             raise AlpacaTransportRefused("Alpaca asset inventory is absent")
         values = openfigi.inventory(assets)
@@ -348,7 +349,8 @@ class AlpacaSource:
         return rows, None, {"raw": raw_proofs, "all": adjusted_proofs, 'bil_split':split_proofs}, len(rows)
 
     def references(self, checkpoint):
-        base = {"provider": self.provider, "target": str(self.window.end), 'source_policy': SOURCE}
+        base = {"provider": self.provider, "target": str(self.window.end), 'source_policy': SOURCE,
+                'assets_endpoint': getattr(self.client, 'assets_url', ASSETS)}
         refs = self._classified_references(base, checkpoint)
         self.selected = refs["selected"]
         actions = self._part("ACTIONS", {**base, "component": "actions",

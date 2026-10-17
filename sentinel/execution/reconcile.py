@@ -366,7 +366,8 @@ def _keys_requiring_exact_evidence(observation, stored) -> tuple[str, ...]:
 
 
 def _position_identity_conflicts(
-        observation: BrokerObservation, stored) -> tuple[str, ...]:
+        observation: BrokerObservation, stored, *,
+        provider_asset_ids: Mapping[str, str] | None = None) -> tuple[str, ...]:
     """Refuse a held Alpaca asset that no longer matches durable command identity."""
     expected: dict[str, set[str]] = {}
     conflicts: list[str] = []
@@ -374,13 +375,16 @@ def _position_identity_conflicts(
         broker_id = command.instrument.broker_id
         if broker_id:
             expected.setdefault(command.security_id, set()).add(str(broker_id))
+    current_ids = provider_asset_ids or {}
     for security_id, broker_ids in sorted(expected.items()):
-        if len(broker_ids) > 1:
+        if len(broker_ids) > 1 and security_id not in current_ids:
             conflicts.append(
                 f"durable commands for {security_id} carry multiple broker "
                 f"instrument ids {sorted(broker_ids)}")
     for position in observation.positions:
-        broker_ids = expected.get(position.instrument.security_id)
+        security_id = position.instrument.security_id
+        broker_ids = ({current_ids[security_id]} if security_id in current_ids
+                      else expected.get(security_id))
         if not broker_ids:
             continue
         observed_id = position.instrument.broker_id
@@ -721,7 +725,9 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                  len(recovered), ", ".join(o.client_key for o in recovered))
         stored = journal.load_commands(conn, deployment)
 
-    identity_conflicts = _position_identity_conflicts(observation, stored)
+    from sentinel.execution.feed_inputs import source_bound_provider_asset_ids
+    identity_conflicts = _position_identity_conflicts(
+        observation, stored, provider_asset_ids=source_bound_provider_asset_ids(broker))
     if identity_conflicts:
         return ReconciliationResult(
             runtime_state=RuntimeState.RECONCILING,

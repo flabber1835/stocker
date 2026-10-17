@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Autonomy remediation and qualification](autonomy-qualification.md) records
+recoverable dependency failures, conversion accounting, conservative purchase
+funding, authenticated storage reductions and the separate live readiness gate.
+
 [Production path qualification](production-path-qualification.md) binds broker
 symbol spelling to authenticated source identity, checks actionable instruments
 before plan readiness, prevents a proven unsent quote failure from starving

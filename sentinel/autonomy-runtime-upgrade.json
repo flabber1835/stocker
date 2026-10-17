@@ -1,0 +1,161 @@
+{
+  "additions": {
+    "autonomy_runtime_upgrade.py": "d1374b8e76afe5a6319d316dffbb587cb8501fc8d5c5d7877787b4752ccf0057",
+    "trading_environment.py": "5e41099e6cd55f4cb2e6d32aa712aeaa8e83b92b4a7de69350b9def2c35c5a6c"
+  },
+  "admission_sha256": "fcf1228470a7a2a42dbc9534b05e66770a63d123281017aa0ffecfaf62a8f4b8",
+  "files": {
+    "config.py": {
+      "after": "a7c9c82d286751208ef99e8fb15f68060a3c4a2e6f31e5720bd7efa6067100a4",
+      "before": [
+        "81defb54f9d22b53a6a1a09fc7e9bc8e1cd45166cd03144107d0a85922110daa",
+        "c5b81333471a62af0537280a8e9f4e90b6bfc9f6fa87a4a4bef316145f0df610"
+      ]
+    },
+    "dual_reconciliation.py": {
+      "after": "8144ee7a1bcdea65edbc01aa18516a7994190693aa2ae529083ff283ce3ea515",
+      "before": [
+        "0aa64dada36e16e8aa6bdec70bde78d89c2aec6b20208893ba3309c54e107f06",
+        "e17764d35c0d8150495a4479e13e986f3a3d7fbc41c653543208eb788a50d223"
+      ]
+    },
+    "execution/alpaca.py": {
+      "after": "58603d5e999cd4dc57f35f5d1865a246b0200650af93ba35232ea2382c2acf78",
+      "before": [
+        "6e3efd98e2427f0f21cc88637362e5e5eea9b42badaeec0089e4b99e00b84a56"
+      ]
+    },
+    "execution/contract.py": {
+      "after": "0770bdb152e731bb780bf65a566fbf1ba4dae6a69ba12ee4daa314ed7751fb69",
+      "before": [
+        "6265fac3951d5ca77288bc30d179f53fc3021da463968dc20d4a0316998b61fe"
+      ]
+    },
+    "execution/feed_inputs.py": {
+      "after": "3dc7ba16c398278f5649b7ea745268b82f5e68ed1d83ac09a21dcfce97cfdb41",
+      "before": [
+        "0f6fa8e67810a844d8e053fdf6ee50b6c285e66877de6bf2d9ac694eae6edecd",
+        "1c136f4086e8c93593fc72b6700f366e7c5360ec1578888a21db139b95fdd4a8"
+      ]
+    },
+    "execution/fill_integrity.py": {
+      "after": "76f062060a7e641f035c886867ba19d3da9ee9976aa19ea2558dc0b5b9b3714c",
+      "before": [
+        "0b83015bb610a2dd3604c1ac3e7d69d312b1a99eab40e8edc57143e51be13705"
+      ]
+    },
+    "execution/guarded.py": {
+      "after": "1f37986c32650ebb0d0a3dec17038ea21097eb09960c69a02e06aa4089ec6e35",
+      "before": [
+        "0dbcac8e6210ac9827050cd9710fdd5d58ac69993c671e92650f32a989b2eb9c",
+        "27f4bf2bf5e6a1d13940cba3b9d0cb4476f59345c470b6f0ef8ef060bd82d0fa",
+        "2a8bf2830703fafae9ec29b5538a93775bd2e9ee3e41a7ab05bec796aa134b2c"
+      ]
+    },
+    "execution/journal.py": {
+      "after": "025a1847e57fcbfd7df00e8131b0673dfd332945bbcab0da1ed07218f5e9d093",
+      "before": [
+        "4b82c80dc4c05c09988bbe5823e6efa0bed84a89c42184b263f6ed5a83b84781"
+      ]
+    },
+    "execution/reconcile.py": {
+      "after": "08eb17ce5ad78b0b1d5d0965e2a12c2ac07dd1173e845d4760950be6b04d92e0",
+      "before": [
+        "c52c92fc143b390e78ebf2d0b9b5e24ca70d58822c16fa40e93caa5e0e34548f",
+        "cac2a3efdfb097e83631f5f7e66fd8a202fd561c25ec67969585b54365010b81",
+        "f1fd00ac9cb4e30a311266b0eff36760bc9837c4cccb27c5fc7ad4eead19d85a"
+      ]
+    },
+    "feed/acquisition_part_schema.py": {
+      "after": "b859ee1b2a020cbf68cb88a8bad120ec7c0b9c249329749a4289058ca5639ba5",
+      "before": [
+        "b3fd8e4151b8554764228e0c717e3200dc51692883bb713a68c954d09c0769bd"
+      ]
+    },
+    "feed/acquisition_parts.py": {
+      "after": "7aa5ebcac3b6f9d7594d1abbfa46e73866f9234e9dae28b98b4f8dd6b4590f29",
+      "before": [
+        "bb01a43e5041705964261a939647ea00eb9f8fededf91fcf743b7a48971a69a9"
+      ]
+    },
+    "feed/action_history.py": {
+      "after": "5ca9f9531826f1d922db6dd895e106fad50bffc036ad757e3badb2324358f7c8",
+      "before": [
+        "321c7c4d89a3b3dc66a1229992411ee45f5479855e47a42a29ffdb13de189a9d"
+      ]
+    },
+    "feed/alpaca_observation.py": {
+      "after": "8b85031e9f3ccab6c2f9fac489306f881dc025a221af494bd59d51183ea94ba6",
+      "before": [
+        "62199edb73a22f8e5e5c3a11b6e012c32860d321058ff953b599cc8a37889561",
+        "85a15d17709da45f12cb09c13c7527218bcce031afcab9e1ec4fa3ea28f90c30"
+      ]
+    },
+    "feed/alpaca_source.py": {
+      "after": "9c779e20a7f5d8e2bb95fd7522558943c2fbf9e9af72c9bcf68349907b213d06",
+      "before": [
+        "83418808af95709edc753c26ba05c4c1502bb0eb2f141553303e0c116424f305",
+        "93a32e831894d8e50b5f61eb3d1940e711e822ed65b5d9e0ac8bed1206a0c178",
+        "c41ebe28834f24dbdf824c6d4db830966384c2261d060df16f15052c0c4514b2",
+        "ddeb2d88859423b283c99a2f785c939fd712a47c17c1a5836999ff6586256a26",
+        "ff3955ab33c0002bd5c175d7c35084a54860787f455ed2b4ddcf2632ae29e4a6"
+      ]
+    },
+    "feed/alpaca_transport.py": {
+      "after": "29e2142e76715ffe61f7bd3aafadd35fa3ab3d7fcccd70877d76dd308d23470a",
+      "before": [
+        "756b4b71c0d68430dd43bae7db8faa99b4ef897014357bdc8e4008e793c67f71"
+      ]
+    },
+    "feed/history_retention_catalog.py": {
+      "after": "a39ecaa03216c4c36d20414d713d5b0d13606148f608b41674225efc5b0c746a",
+      "before": [
+        "8df531bab81d77c36bdc56911808a887f0dc3bedd4407ff0ba06a9f862a1ed6c"
+      ]
+    },
+    "feed/preparation_wait.py": {
+      "after": "68e263be3adf06548a4eed24f916c6bd4742162355af71390ebbb5d9b34b94b7",
+      "before": [
+        "85f0531e4a78d6416502fda7606f89b6f735b60cad9cf74ce98c2f707ed11ce6"
+      ]
+    },
+    "feed/retention_schema.py": {
+      "after": "e471520d9487cf8b99540c3cfc213e2aaa441cda240735bc8519ed56558205a1",
+      "before": [
+        "bd0784d6dbdab8d207a4d46fc0b73de3684e8ddd2717c3a64ac9a940cd06b285"
+      ]
+    },
+    "feed/rolling_builder.py": {
+      "after": "b1c694aaf57a91cc72bbfa820a138b559bd02cbd4890df770a07671b8b1558e3",
+      "before": [
+        "4405007b078cd0ac7260a5465c5b31c6282c9a9ffbe5131480f0fc67c570d016",
+        "8cd2957a5ba7033def2fbe329dda86adf4ec7a313d3ae130699ffdb9d2f7e74d"
+      ]
+    },
+    "feed/runtime_schema.py": {
+      "after": "2798474440848ce63824ba20eb30123a5ca97fc0fbeb461ef2fca00a60b39d18",
+      "before": [
+        "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4"
+      ]
+    },
+    "schema.py": {
+      "after": "6b5dcb1d53e49308ef72be21785d682eb4f0cdb4dc0b13c125ef4f8238225f3f",
+      "before": [
+        "0c4182749d9df0ae7d772bd6c1cc44bbfc95bf2d1c38a3fbd5a072513fa0132a",
+        "1345dba552f0ce785885eb32fd60d39d389347d0db0469e7affc90b173367012",
+        "5bc8919a2dd3837450596344f29e1c511866435032deab800e71746bfba22adc",
+        "63aa1e18bc4e40b63a0e0e7ed16eaf07311c20313cfabd0b1b041733fcbe547c",
+        "9b2102f232fd33702b939366dbbda5f7fb53910e4cec4388b2b07b67627f2560"
+      ]
+    },
+    "shadow_worker.py": {
+      "after": "0c1bbe668ebad526084f86906b4bb529022a6d1fcbf587199bb3d9df3b6e6444",
+      "before": [
+        "bd18258b06acb1697c985db603d26c48efcd36651853e3d250a89c71a4d5c00c",
+        "c46d2cb1c6ec635deb836173f6a8b72fe2cb8cbf684694276c9596f5cc726ee8"
+      ]
+    }
+  },
+  "module_sha256": "d1374b8e76afe5a6319d316dffbb587cb8501fc8d5c5d7877787b4752ccf0057",
+  "schema": "sentinel.autonomy-runtime-upgrade/1"
+}

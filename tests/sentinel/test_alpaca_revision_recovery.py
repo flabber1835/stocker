@@ -22,6 +22,93 @@ def enqueue(conn, *, absolute_deadline=None):
     return job
 
 
+def test_foreground_transient_alpaca_failure_retries_original_job(conn, alpaca_path, monkeypatch):
+    from sentinel.feed.alpaca_transport import AlpacaTransportUnavailable
+    original = alpaca_path.get
+    attempts = []
+    def get(*args, **kwargs):
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise AlpacaTransportUnavailable('temporary source outage')
+        return original(*args, **kwargs)
+    monkeypatch.setattr(alpaca_path, 'get', get)
+    job = enqueue(conn)
+    deadline = jobs.status(conn, job)['deadline']
+    def sleep(_seconds):
+        state = jobs.status(conn, job)
+        assert state['state'] == 'RETRY_WAIT' and state['reason'] == 'SOURCE_RETRY'
+        assert state['deadline'] == deadline
+        conn.execute('UPDATE sentinel_snapshot_jobs SET next_retry=clock_timestamp() WHERE job_id=%s', (job,))
+        conn.commit()
+    result = preparation_wait.run(conn, job, prepare=op.prepare,
+        check_target=lambda: None, sleep=sleep)
+    assert result['job_id'] == job and jobs.status(conn, job)['deadline'] == deadline
+    assert len(attempts) >= 2
+
+
+def test_fresh_equal_partitions_share_verified_payload_without_reusing_observation(conn, alpaca_path, monkeypatch, record_property):
+    from sentinel.feed import retention
+    monkeypatch.setattr(retention, 'maintain', lambda *_a, **_k: None)
+    original = alpaca_path.pages
+    revision = [0]
+    def pages(endpoint, params, *, key):
+        for values, proof in original(endpoint, params, key=key):
+            if endpoint == BAR_URL and revision[0] == 2:
+                values = deepcopy(values)
+                for row in values.get('AAA', []):
+                    if row['t'][:10] == str(alpaca_path.window.end):
+                        row['c'] += 1
+            yield values, {**proof, 'observed_at':f'2026-09-15T00:00:0{revision[0]}+00:00'}
+    monkeypatch.setattr(alpaca_path, 'pages', pages)
+    first = op.prepare(conn, enqueue(conn))
+    rows = conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone()[0]
+    initial_bytes = conn.execute("SELECT pg_total_relation_size('sentinel_acquisition_prices')").fetchone()[0]
+    requests = sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls)
+    revision[0] = 1
+    second = op.prepare(conn, enqueue(conn))
+    assert sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls) == 2 * requests
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone()[0] == rows
+    shared_bytes = conn.execute("SELECT pg_total_relation_size('sentinel_acquisition_prices')").fetchone()[0]
+    shared = conn.execute('SELECT l.part_id,l.payload_part_id,a.manifest,b.manifest '
+        'FROM sentinel_acquisition_price_links l JOIN sentinel_acquisition_parts a ON a.part_id=l.part_id '
+        'JOIN sentinel_acquisition_parts b ON b.part_id=l.payload_part_id').fetchall()
+    assert shared
+    assert all(a['job_id'] == second['job_id'] and b['job_id'] == first['job_id']
+               and a['evidence'] != b['evidence'] for _, _, a, b in shared)
+    assert all(conn.execute('SELECT sentinel_acquisition_part_pinned(%s)', (root,)).fetchone()[0]
+               for _, root, _, _ in shared)
+    revision[0] = 2
+    third = op.prepare(conn, enqueue(conn))
+    assert third['snapshot_id'] != second['snapshot_id']
+    added = conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone()[0] - rows
+    assert 0 < added < rows
+    record_property('fresh_baseline_rows', rows)
+    record_property('equal_refresh_additional_rows', 0)
+    record_property('changed_refresh_additional_rows', added)
+    record_property('baseline_price_relation_bytes', initial_bytes)
+    record_property('equal_refresh_price_relation_bytes', shared_bytes)
+    record_property('bar_requests_per_complete_observation', requests)
+    assert sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls) == 3 * requests
+    conn.commit()
+    import psycopg
+    with psycopg.connect(conn.info.dsn) as restarted:
+        assert op.published(restarted, second['job_id']) == second
+        assert rolling_store.verify_content(restarted, third['candidate_id']).snapshot_id == third['snapshot_id']
+
+
+def test_retained_partition_auxiliary_missing_key_evidence_is_authenticated(conn, alpaca_path):
+    from sentinel.feed.acquisition_parts import Parts, PartCorrupt
+    published = op.prepare(conn, enqueue(conn))
+    part = conn.execute("SELECT part_id FROM sentinel_acquisition_bindings WHERE job_id=%s "
+        "AND component LIKE 'SEP.%%' ORDER BY component LIMIT 1", (published['job_id'],)).fetchone()[0]
+    conn.execute('SET LOCAL session_replication_role=replica')
+    conn.execute("UPDATE sentinel_acquisition_parts SET reference_payload=%s::jsonb WHERE part_id=%s",
+        ('{"pair_absent":[["AAA","2026-09-14"]]}', part))
+    with pytest.raises(PartCorrupt, match='auxiliary payload'):
+        Parts(conn, None)._manifest(part, defer_prices=True)
+    conn.rollback()
+
+
 def test_backup_renewal_keeps_ready_candidate_and_does_not_repeat_downloads(conn, alpaca_path, monkeypatch, capsys):
     from sentinel import backup_runtime_authority as backup
     job = enqueue(conn)

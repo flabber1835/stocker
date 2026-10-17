@@ -574,7 +574,9 @@ def test_account_and_asset_provenance_is_retained_with_observation(conn):
         state = json.loads(str(state))
     assert state["broker"] == "alpaca"
     assert state["account_id"] == ACCOUNT_NUMBER
-    assert state["orders"][0]["broker_id"] == "asset-aapl"
+    assert state["kind"] == journal.OBSERVATION_WITNESS_KIND
+    payload = journal.load_observation_payload(conn, seq)
+    assert payload["orders"][0]["broker_id"] == "asset-aapl"
 
 
 class _CountingConnection:
@@ -694,11 +696,13 @@ def test_historical_observation_missing_provenance_is_uncertifiable(conn):
 def test_historical_observation_identity_disagreement_is_uncertifiable(conn):
     seq = journal.record_observation(
         conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
+    payload = journal.load_observation_payload(conn, seq)
+    payload["account_id"] = "wrong"
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE sentinel_processed_sessions"
-            " SET state=jsonb_set(state,'{account_id}','\"wrong\"'::jsonb)"
-            " WHERE cursor_name=%s", (f"broker-observation:v4:{seq}",))
+            " SET state=%s::jsonb WHERE cursor_name=%s",
+            (json.dumps(payload, sort_keys=True), f"broker-observation:v4:{seq}"))
     conn.commit()
     issues = journal.observation_integrity_issues(conn)
     assert issues[0].observation_seq == seq
@@ -727,11 +731,8 @@ def test_historical_observation_economics_tamper_is_uncertifiable(
     seq = journal.record_observation(
         conn, _account_bound_observation(datetime.now(UTC)), "RECONCILING")
     cursor_name = f"broker-observation:v4:{seq}"
+    payload = journal.load_observation_payload(conn, seq)
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s",
-            (cursor_name,))
-        payload = cur.fetchone()[0]
         target = payload
         for part in path[:-1]:
             target = target[part]

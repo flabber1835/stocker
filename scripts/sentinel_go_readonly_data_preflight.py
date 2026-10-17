@@ -27,10 +27,7 @@ write membrane. This phase is only a liveness filter, never deployment authority
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import hashlib
-import json
 from pathlib import Path
-import re
 import sys
 from typing import Mapping, Optional, Sequence
 
@@ -330,35 +327,11 @@ class PreflightRefused(RuntimeError):
 
 
 def _safe_detail(value: object) -> Optional[str]:
-    detail = str(value or "").strip()
-    if not detail:
-        return None
-    lowered = detail.lower()
-    prohibited = (
-        "http://", "https://", "api_key", "api-key", "password", "authorization",
-        "postgres://", "postgresql://", "apca-api-",
-    )
-    if any(item in lowered for item in prohibited) or re.search(r"[\r\n\x00]", detail):
-        return None
-    if len(detail) <= 500:
-        return detail
-    digest = hashlib.sha256(detail.encode("utf-8", errors="replace")).hexdigest()[:16]
-    return detail[:445] + " ... [sha256:%s]" % digest
+    return probe_output.safe_detail(value)
 
 
 def _payload(completed) -> Optional[Mapping[str, object]]:
-    matches = []
-    for line in (completed.stdout or "").splitlines():
-        if not line.startswith(MARKER):
-            continue
-        try:
-            value = json.loads(line[len(MARKER):])
-        except ValueError:
-            return None
-        if not isinstance(value, dict):
-            return None
-        matches.append(value)
-    return matches[0] if len(matches) == 1 else None
+    return probe_output.payload(completed, marker=MARKER)
 
 
 def _build_exact_ordinary(runner: go.CommandRunner, commit: str) -> str:
