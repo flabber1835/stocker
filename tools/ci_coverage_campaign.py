@@ -54,7 +54,8 @@ def install_child_startup(directory: Path) -> Path:
     if os.environ.get("SENTINEL_IN_IMAGE") != "1":
         raise RuntimeError("coverage subprocess startup requires the disposable test lens")
     path = directory / "sentinel_advisory_coverage.pth"
-    content = "import coverage; coverage.process_startup()\n"
+    content = ("import os; exec('import coverage; coverage.process_startup()' "
+               "if os.environ.get('COVERAGE_PROCESS_START') else '')\n")
     if path.exists() and path.read_text(encoding="utf-8") != content:
         raise RuntimeError("refusing to replace another interpreter startup hook")
     path.write_text(content, encoding="utf-8")

@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import coverage
 import pytest
@@ -79,6 +82,46 @@ def test_startup_hook_refuses_to_replace_another_hook(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="another interpreter"):
         campaign.install_child_startup(tmp_path)
     assert path.read_text() == "another startup hook\n"
+
+
+@pytest.mark.parametrize("requested", [False, True])
+def test_startup_hook_imports_coverage_only_when_requested(tmp_path, monkeypatch, requested):
+    monkeypatch.setenv("SENTINEL_IN_IMAGE", "1")
+    hook = campaign.install_child_startup(tmp_path)
+    script = """
+import importlib.abc
+import importlib.util
+import os
+from pathlib import Path
+import sys
+
+class CoverageProbe(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == 'coverage':
+            if not os.environ.get('COVERAGE_PROCESS_START'):
+                raise RuntimeError('COVERAGE_IMPORT_WITHOUT_REQUEST')
+            return importlib.util.spec_from_loader(fullname, self)
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module):
+        module.process_startup = lambda: print('COVERAGE_STARTED')
+
+sys.meta_path.insert(0, CoverageProbe())
+exec(Path(sys.argv[1]).read_text())
+print('HOOK_COMPLETE')
+"""
+    env = {key: value for key, value in os.environ.items()
+           if key not in {"COVERAGE_PROCESS_START", "COVERAGE_PROCESS_CONFIG"}}
+    if requested:
+        env["COVERAGE_PROCESS_START"] = "explicit-request.ini"
+    result = subprocess.run(
+        [sys.executable, "-S", "-c", script, str(hook)], env=env,
+        capture_output=True, text=True, timeout=10, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert result.stdout.splitlines() == (["COVERAGE_STARTED"] if requested else []) + ["HOOK_COMPLETE"]
 
 
 @pytest.fixture

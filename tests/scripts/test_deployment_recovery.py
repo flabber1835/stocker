@@ -179,7 +179,7 @@ def test_health_wait_bounds_actual_status_subprocess(tmp_path, delay):
     # own child startup would consume the .25s deadline we are testing. Keep
     # the real subprocess and unchanged parent-runner/timeout assertions.
     fixture_env = {key: value for key, value in os.environ.items()
-                   if key != 'COVERAGE_PROCESS_CONFIG'}
+                   if key not in {'COVERAGE_PROCESS_CONFIG', 'COVERAGE_PROCESS_START'}}
     runner = deploy.Runner(os.environ, tmp_path/'commands.log')
     class StatusRunner:
         def run(self, argv, **kwargs):

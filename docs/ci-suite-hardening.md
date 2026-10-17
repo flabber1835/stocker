@@ -126,6 +126,13 @@ Proven empty interrupted-child counters admit both the documented
 `pid123` name and the pinned coverage library's numeric process-name spelling;
 their zero-content/known-empty-SQLite checks remain mandatory.
 
+The disposable interpreter startup hook imports coverage only when
+`COVERAGE_PROCESS_START` explicitly requests child instrumentation. Without that
+request the hook is inactive, including avoiding coverage's import cost.
+Opaque sleeper/status-JSON fixtures execute no repository code and remove both
+the current and legacy startup variables from that child only. Keep parent
+tracing, real subprocess execution and the original deadlines unchanged.
+
 ## Acceptance
 
 Run focused falsifiers for each new invariant and demonstrate that breaking the
