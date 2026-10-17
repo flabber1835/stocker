@@ -470,6 +470,28 @@ embedded runtime probe expression and completed genuine financial GO producer
 chain are unchanged. The corrected host script and its proof received independent
 review. Fresh GitHub validation is required on the updated PR head.
 
+## Acquisition checksum migration follow-up
+
+Further mutation qualification exposed a genuine legacy-schema migration bug.
+PostgreSQL names the original inline reference checksum
+`sentinel_acquisition_parts_check`; the migration removed a different name.
+The surviving legacy checksum rejects a valid schema /2 SEP auxiliary reference
+of 1,288,907 bytes when its reference and price-content hashes differ. Fresh
+databases also retained two equivalent checksum constraints. The disposable
+PostgreSQL reproducer confirmed the rejected valid insert and exact catalog
+names before the repair.
+
+The [documented migration decision](autonomy-feed-remediation.md#acquisition-reference-constraint-upgrade)
+removes the two explicitly owned reference-constraint names and installs one
+validated canonical checksum. Existing /1 fallback, byte bounds, exclusivity,
+immutability and corruption refusals remain required. Authentic fresh/legacy
+database regressions and the acquisition mutation harness cover the repair.
+
+This changes runtime source after `bc734310`. The preceding immutable-image
+and genuine financial GO evidence remains attributed to that earlier runtime.
+Fresh source profiles, immutable images, software checks and a new real-provider
+financial/backup/full-restore GO are required before publishing this repair.
+
 ## Remaining acceptance boundaries
 
 The earlier `05c516a6` isolated run passed genuine initial backup/full restore

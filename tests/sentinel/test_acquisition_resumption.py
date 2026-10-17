@@ -14,6 +14,102 @@ REAL_DOWNLOAD = snapshot_export.download_snapshot
 __all__ = ["conn", "pg", "source"]
 
 
+@pytest.fixture
+def reference_upgrade_conn(pg):
+    import psycopg
+    from psycopg import sql
+    from sentinel.feed import store
+
+    database = "reference_upgrade_" + uuid4().hex
+    with psycopg.connect(pg.sync_dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+    connection = store.connect(pg.sync_dsn.rsplit("/", 1)[0] + "/" + database)
+    try:
+        yield connection
+    finally:
+        connection.close()
+        with psycopg.connect(pg.sync_dsn, autocommit=True) as admin:
+            admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(database)))
+
+
+def legacy_reference_table(connection):
+    connection.execute("CREATE TABLE sentinel_acquisition_parts ("
+        "part_id TEXT PRIMARY KEY CHECK(part_id ~ '^[0-9a-f]{64}$'),"
+        "manifest JSONB NOT NULL, reference_payload JSONB,"
+        "created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())")
+    connection.execute("ALTER TABLE sentinel_acquisition_parts ADD COLUMN canonical_reference TEXT "
+        "CHECK(canonical_reference IS NULL OR (reference_payload IS NULL "
+        "AND octet_length(canonical_reference)<=268435456 "
+        "AND (manifest->>'content_sha256') IS NOT NULL "
+        "AND encode(sha256(convert_to(canonical_reference,'UTF8')),'hex')=manifest->>'content_sha256'))")
+    connection.commit()
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_reference_checksum_schema_upgrade_preserves_both_payload_domains(reference_upgrade_conn, source, legacy):
+    import psycopg
+    from sentinel.feed import acquisition_parts, runtime_schema
+    from sentinel.feed.rolling_contract import canonical_json
+
+    connection = reference_upgrade_conn
+    payload = {"value": "retained legacy reference"}
+    manifest = dict(schema=acquisition_parts.LEGACY_SCHEMA, job_id=str(uuid4()),
+                    component="TICKERS", generation={}, content_sha256=digest(payload), rows=1, evidence=None)
+    if legacy:
+        legacy_reference_table(connection)
+        connection.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest,canonical_reference) "
+            "VALUES(%s,%s::jsonb,%s)", (digest(manifest), canonical_json(manifest), canonical_json(payload)))
+        connection.commit()
+    runtime_schema.migrate_feed_schema(connection)
+    if not legacy:
+        connection.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest,canonical_reference) "
+            "VALUES(%s,%s::jsonb,%s)", (digest(manifest), canonical_json(manifest), canonical_json(payload)))
+        connection.commit()
+    assert acquisition_parts.Parts(connection, None)._manifest(digest(manifest)) == (manifest, payload)
+
+    job = formation_job(connection, source)
+    lease = jobs.claim(connection, job, lease_seconds=600)
+    missing = {"pair_absent": [[f"SYM{i}", "2026-09-14"] for i in range(50000)]}
+    assert len(canonical_json(missing)) > acquisition_parts.JSONB_REFERENCE_BYTES
+    current, _ = acquisition_parts.Parts(connection, lease).put("SEP.2025-03-12.2025-03-31", {},
+        payload=missing, prices=source["SEP"][:2], rows=2)
+    assert current["reference_sha256"] != current["content_sha256"]
+    assert acquisition_parts.Parts(connection, lease).get(current["component"], {}) == (current, missing)
+    runtime_schema.migrate_feed_schema(connection)
+    checks = connection.execute("SELECT conname FROM pg_constraint "
+        "WHERE conrelid='sentinel_acquisition_parts'::regclass AND contype='c' "
+        "AND pg_get_constraintdef(oid) LIKE '%canonical_reference%' ORDER BY conname").fetchall()
+    assert checks == [("sentinel_acquisition_parts_canonical_reference_check",)]
+    for retained in (manifest, current):
+        with pytest.raises(psycopg.errors.CheckViolation), connection.transaction():
+            connection.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest,canonical_reference) "
+                "VALUES(%s,%s::jsonb,'[]')", (digest({"damaged": retained["schema"]}), canonical_json(retained)))
+    assert source["calls"] == []
+
+
+def test_reference_checksum_upgrade_refuses_corrupt_existing_rows_atomically(reference_upgrade_conn):
+    import psycopg
+    from sentinel.feed import runtime_schema
+    from sentinel.feed.rolling_contract import canonical_json
+
+    connection = reference_upgrade_conn
+    connection.execute("CREATE TABLE sentinel_acquisition_parts ("
+        "part_id TEXT PRIMARY KEY CHECK(part_id ~ '^[0-9a-f]{64}$'),"
+        "manifest JSONB NOT NULL, reference_payload JSONB,"
+        "created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(), canonical_reference TEXT)")
+    connection.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest,canonical_reference) "
+        "VALUES(%s,%s::jsonb,'[]')", ("e" * 64, canonical_json({"content_sha256": digest({"value": 1})})))
+    connection.commit()
+
+    with pytest.raises(psycopg.errors.CheckViolation):
+        runtime_schema.migrate_feed_schema(connection)
+    assert connection.execute("SELECT canonical_reference FROM sentinel_acquisition_parts").fetchall() == [("[]",)]
+    assert connection.execute("SELECT to_regclass('sentinel_acquisition_price_links')").fetchone()[0] is None
+    assert connection.execute("SELECT COUNT(*) FROM pg_constraint WHERE "
+        "conrelid='sentinel_acquisition_parts'::regclass AND "
+        "conname='sentinel_acquisition_parts_canonical_reference_check'").fetchone()[0] == 0
+
+
 @pytest.mark.parametrize('large', [False, True])
 def test_reference_storage_roundtrip_and_sql_integrity(conn, source, monkeypatch, large):
     import psycopg
@@ -272,6 +368,32 @@ def test_corrupt_retained_payload_refuses_before_source_io(conn, source, monkeyp
     assert source["calls"] == []
 
 
+def test_legacy_reference_payload_checksum_refuses_before_source_io(conn, source):
+    from sentinel.feed.acquisition_parts import LEGACY_SCHEMA, Parts, PartCorrupt
+    from sentinel.feed.rolling_contract import canonical_json
+
+    job = formation_job(conn, source)
+    lease = jobs.claim(conn, job, lease_seconds=600)
+    payload = {"value": 1}
+    manifest = dict(schema=LEGACY_SCHEMA, job_id=job, component="TICKERS", generation={},
+                    content_sha256=digest(payload), rows=1, evidence=None)
+    part_id = digest(manifest)
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest,reference_payload) "
+                 "VALUES(%s,%s::jsonb,%s::jsonb)",
+                 (part_id, canonical_json(manifest), canonical_json(payload)))
+    parts = Parts(conn, lease)
+    parts._bind("TICKERS", part_id)
+    conn.commit()
+    assert parts.get("TICKERS", {}) == (manifest, payload)
+    conn.execute("SET LOCAL session_replication_role=replica")
+    conn.execute("UPDATE sentinel_acquisition_parts SET reference_payload='{}' WHERE part_id=%s", (part_id,))
+    conn.commit()
+
+    with pytest.raises(PartCorrupt, match="payload checksum mismatch"):
+        parts.get("TICKERS", {})
+    assert source["calls"] == []
+
+
 def test_deferred_price_verification_refuses_corruption_in_coverage_scan(conn, source):
     from sentinel.feed.acquisition_parts import Parts, PartCorrupt, PricePartVerifier, price_rows
 
@@ -433,6 +555,31 @@ def test_retention_pins_parts_until_successor_finishes(conn, source):
     assert result["status"] == "COMPLETE" and result["deleted_acquisition_rows"] == 1
     assert conn.execute("SELECT COUNT(*) FROM sentinel_acquisition_parts").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM sentinel_acquisition_bindings").fetchone()[0] == 1
+
+
+def test_active_shared_price_part_pins_terminal_payload_owner(conn, source):
+    from sentinel.feed.acquisition_parts import Parts
+
+    component = "SEP.2025-03-12.2025-03-31"
+    owner = formation_job(conn, source)
+    owner_lease = jobs.claim(conn, owner, lease_seconds=600)
+    original, _ = Parts(conn, owner_lease).put(component, {}, prices=source["SEP"][:2], rows=2)
+    jobs.finish(conn, owner_lease, state="ABORTED", reason="TEST_FINISHED")
+    conn.commit()
+
+    active = formation_job(conn, source)
+    active_lease = jobs.claim(conn, active, lease_seconds=600)
+    current, _ = Parts(conn, active_lease).put(component, {"capture": 2},
+                                                 prices=source["SEP"][:2], rows=2)
+    conn.commit()
+    assert conn.execute("SELECT payload_part_id FROM sentinel_acquisition_price_links WHERE part_id=%s",
+                        (digest(current),)).fetchone() == (digest(original),)
+    assert jobs.status(conn, owner)["state"] == "ABORTED"
+    assert jobs.status(conn, active)["state"] == "ACQUIRING"
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_operational_snapshots").fetchone()[0] == 0
+    assert conn.execute("SELECT sentinel_acquisition_part_pinned(%s)",
+                        (digest(original),)).fetchone()[0]
+    assert source["calls"] == []
 
 
 def test_price_payload_is_immutable_after_binding(conn, source):

@@ -157,3 +157,28 @@ strict reset equality and clean recent-tail behavior. This changes repeated
 symbol-by-absence scans into one absence pass plus one lookup per symbol; it
 changes no admitted securities or rejection reasons and requires no new policy
 or input epoch.
+
+## Acquisition reference constraint upgrade
+
+Decision: 2026-10-17, before the migration repair. PostgreSQL names the original
+multi-column canonical-reference CHECK `sentinel_acquisition_parts_check`.
+Dropping only `sentinel_acquisition_parts_canonical_reference_check` leaves that
+legacy constraint installed. Its price-content checksum rejects valid schema /2
+auxiliary reference text when the independently authenticated reference checksum
+differs. Fresh installation also leaves two equivalent checksum checks.
+
+Add the text column without an inline CHECK, remove those two explicitly owned
+constraint names, then install one named canonical-reference constraint. Keep
+the reference/payload exclusivity, byte bound, required content commitment and
+`COALESCE(reference_sha256, content_sha256)` equality. Validate existing rows
+through the ordinary transactional DDL; a violated constraint must abort the
+upgrade. Preserve schema /1 fallback and immutable payload/binding guards. Do
+not remove other constraints, rewrite retained payloads or weaken admission.
+
+Qualification must reproduce the actual original PostgreSQL schema, retain a
+valid /1 row, and accept a valid /2 auxiliary reference above the text-storage
+threshold after upgrade. Fresh and upgraded catalogs must contain one reference
+checksum constraint, and direct SQL corruption must still refuse. The checksum
+mutation must target that emitted named constraint and fail at the intended
+integrity assertion. This runtime change requires fresh image attribution and
+the real-provider financial/restore qualification before publication.

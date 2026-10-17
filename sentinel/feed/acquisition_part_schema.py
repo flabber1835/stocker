@@ -9,12 +9,8 @@ DDL = [
         part_id TEXT PRIMARY KEY CHECK(part_id ~ '^[0-9a-f]{64}$'),
         manifest JSONB NOT NULL, reference_payload JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
-    """ALTER TABLE sentinel_acquisition_parts ADD COLUMN IF NOT EXISTS canonical_reference TEXT
-        CHECK(canonical_reference IS NULL OR (reference_payload IS NULL
-          AND octet_length(canonical_reference)<=268435456
-          AND (manifest->>'content_sha256') IS NOT NULL
-           AND encode(sha256(convert_to(canonical_reference,'UTF8')),'hex')=
-             COALESCE(manifest->>'reference_sha256',manifest->>'content_sha256')))""",
+    "ALTER TABLE sentinel_acquisition_parts ADD COLUMN IF NOT EXISTS canonical_reference TEXT",
+    "ALTER TABLE sentinel_acquisition_parts DROP CONSTRAINT IF EXISTS sentinel_acquisition_parts_check",
     "ALTER TABLE sentinel_acquisition_parts DROP CONSTRAINT IF EXISTS sentinel_acquisition_parts_canonical_reference_check",
     """ALTER TABLE sentinel_acquisition_parts ADD CONSTRAINT sentinel_acquisition_parts_canonical_reference_check
         CHECK(canonical_reference IS NULL OR (reference_payload IS NULL
