@@ -116,7 +116,8 @@ def test_real_branch_report_preserves_missing_paths_and_has_no_release_authority
     assert report["python"]["missing_branches"] > 0
     untouched = next(item for item in report["files"] if item["path"] == "untouched.py")
     assert untouched["missing_statements"] == untouched["statements"] > 0
-    assert (output / "coverage-summary.md").is_file()
+    summary = (output / "coverage-summary.md").read_text()
+    assert "Selected pytest owners: `one`" in summary
 
 
 @pytest.mark.parametrize("owners", [["one", "two"], [], ["two"]])

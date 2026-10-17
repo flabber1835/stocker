@@ -106,6 +106,7 @@ def write_report(root: Path, evidence: Path, data_root: Path,
         json.dumps(result, indent=2) + "\n", encoding="utf-8")
     rows = ["# Advisory repository coverage", "",
             "Source: `" + manifest["revision"] + "`", "",
+            "Selected pytest owners: " + ", ".join("`" + owner + "`" for owner in expected_owners), "",
             "Coverage measures executed paths; it is not release or broker authority.",
             "Missing statements, branches and unmeasured languages remain visible.", "",
             "| Domain | Statements | Missing | Branches | Missing | Combined |",

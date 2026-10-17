@@ -120,7 +120,9 @@ baseline, not an arbitrary repository-wide 100 percent release gate. Existing
 automation-service branch protection stays mandatory. Any later regression
 threshold is a separately documented decision based on measured baseline data.
 The campaign checks the exact selected owner receipt union as well as source
-hashes. Proven empty interrupted-child counters admit both the documented
+hashes. Every summary names the selected owners, so a focused measurement cannot
+be mistaken for execution of the complete owner inventory.
+Proven empty interrupted-child counters admit both the documented
 `pid123` name and the pinned coverage library's numeric process-name spelling;
 their zero-content/known-empty-SQLite checks remain mandatory.
 
