@@ -261,7 +261,7 @@ def available_purchase_cash(snapshot: BrokerAccountSnapshot) -> Decimal:
     if (snapshot.multiplier != Decimal(1)
             or any(not isinstance(value, Decimal) or not value.is_finite() or value < 0
                    for value in (snapshot.cash, snapshot.buying_power))):
-        raise MalformedBrokerEvidence('account has no usable cash-only funding evidence')
+        raise MalformedBrokerEvidence('account cash, buying power or multiplier is unusable')
     flags = (snapshot.trading_blocked, snapshot.account_blocked,
              snapshot.trade_suspended_by_user)
     if (any(type(value) is not bool for value in flags)

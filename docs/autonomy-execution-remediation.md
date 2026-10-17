@@ -21,15 +21,19 @@ check. No symbol-only UUID replacement or inferred continuity is permitted.
 ## Available purchase funds
 
 The shared pure `contract.available_purchase_cash` calculation requires fresh
-account evidence with usable, nonnegative cash and buying power in the cash-only
-envelope. Its available funds are the lower of
-those amounts; buying power accounts for broker reservations and settlement
-restrictions. The quote and fixed quantity must fit those funds before submit.
+account evidence with usable, nonnegative cash and buying power and multiplier
+one. Its available funds are the lower of those amounts. This is a conservative
+paper purchase budget; it does not prove that cash is settled or that all native
+reservations are represented. Alpaca multiplier one is limited margin and can
+permit reuse of unsettled proceeds. The quote and fixed quantity must fit the
+paper budget before submit.
 Insufficient funds use the existing typed, command-bound no-transport deferral,
 so another independently fundable leg may proceed. Deferred purchases are never
 queued outside their existing session window; later-session intent is owned by
-the ordinary next canonical plan. This does not spend unsettled proceeds,
-introduce margin, resize a transported command, or infer an unexplained flow.
+the ordinary next canonical plan. The live transport fence remains closed until
+broker-native settlement and reservation evidence is qualified as described in
+[live trading readiness](live-trading-readiness.md). This does not resize a
+transported command or infer an unexplained flow.
 
 ## Native fills and serialized cumulative averages
 

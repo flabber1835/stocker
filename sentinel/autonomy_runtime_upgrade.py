@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = 'da2510ad540cca5d7cde7ed8b2816d0863edfe0c6063b805d2e88c036275c60d'
+PROFILE_SHA256 = '39d2717a26c9e23f1e0176790ae507396416bc135b2e668156baf7ac0c18a67c'
 PROFILE = Path(__file__).with_name('autonomy-runtime-upgrade.json')
 SCOPE = frozenset({
     'config.py',

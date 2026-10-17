@@ -67,6 +67,9 @@ orders, migration of the installed financial book or production activation.
 
 ## Qualification and delivery
 
+[Qualification results](autonomy-qualification-results.md) records exact images,
+test selections, measured resources, provider observations and open gates.
+
 Each repaired behavior needs an executable regression that fails on the old
 implementation, plus directly relevant tests. New guards need falsifiers.
 Storage changes need legacy/new round trips, tamper and missing-object refusals,
@@ -84,6 +87,25 @@ The completion ledger must distinguish implemented and tested work, provider
 qualification, protected CI, deployment qualification and live activation.
 Historical research evidence and independent test oracles are retained. Git
 delivery is a feature branch and pull request targeting `main`, without merge.
+
+### Local functional environment
+
+The root checkout's NAS deployment template does not name the active local
+installation's target. Read-only Compose discovery identified the active
+installation at `/home/bron/stocker-local-paper-20261016-118b7c15`, with the
+existing operator-attested backup target
+`/home/bron/sentinel-local-backup-20261003`. The latter is on Ubuntu's local
+virtual disk. Its physical independence and NAS durability are not established.
+
+Local functional qualification may use a fresh private child of that existing
+configured target, preserving its operator attestation as an input and running
+the ordinary target, ownership, marker and restore checks. It must not manufacture
+a new independent-media claim, use the installed database or reuse its backup
+namespace. Every Compose invocation and helper must name the private project.
+Run genuine physical backups, schema-guarded preparation, formation, durable
+book restart/parity and full semantic restore through their existing producers.
+Keep signed certification, deployment admission, physical independence, NAS
+capacity and live authority explicitly unproven. No backup policy is relaxed.
 
 ## Retained runtime compatibility
 

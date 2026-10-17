@@ -1,7 +1,7 @@
 import asyncio
 import json
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -123,3 +123,82 @@ def test_reconciliation_uses_authenticated_current_uuid_and_retains_old_commands
                 else RuntimeState.RECONCILING)
     assert result.runtime_state is expected
     assert journal.load_commands(conn, DEPLOY)[0].instrument.broker_id == 'old-provider'
+
+
+@pytest.mark.parametrize('loss', ['interior', 'all'])
+@pytest.mark.parametrize('legacy', [False, True])
+def test_observation_scrub_refuses_witnesses_after_primary_rows_are_lost(conn, loss, legacy):
+    sequences = _record(conn, count=3)
+    missing = [sequences[1]] if loss == 'interior' else sequences
+    if legacy:
+        for seq in missing:
+            full = journal.load_observation_payload(conn, seq)
+            _edit(conn, 'sentinel_processed_sessions',
+                'UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',
+                (json.dumps(full), f'broker-observation:v4:{seq}'))
+    conn.execute('DELETE FROM sentinel_observation_provenance WHERE observation_seq=ANY(%s)',
+                 (missing,))
+    conn.execute('DELETE FROM sentinel_observations WHERE seq=ANY(%s)', (missing,))
+    conn.commit()
+    assert conn.execute('SELECT count(*) FROM sentinel_processed_sessions '
+                        'WHERE cursor_name=ANY(%s)',
+                        ([f'broker-observation:v4:{seq}' for seq in missing],)).fetchone()[0] == len(missing)
+    with pytest.raises(journal.ObservationEvidenceUncertifiable, match='MISSING_PRIMARY_OBSERVATION'):
+        journal.require_observation_integrity(conn)
+
+
+@pytest.mark.parametrize('fault,reason', [
+    ('key', 'CANONICAL_SEQUENCE_DISAGREEMENT'),
+    ('sequence', 'CANONICAL_SEQUENCE_DISAGREEMENT'),
+    ('account', 'CANONICAL_IDENTITY_DISAGREEMENT'),
+    ('time', 'MALFORMED_CANONICAL_EVIDENCE'),
+    ('backdated_session', 'PROCESSED_SESSION_DISAGREEMENT'),
+    ('backdated_observed', 'MALFORMED_CANONICAL_EVIDENCE'),
+])
+def test_orphan_witness_metadata_cannot_hide_loss(conn, fault, reason):
+    seq = _record(conn)[0]
+    key = f'broker-observation:v4:{seq}'
+    conn.execute('DELETE FROM sentinel_observation_provenance WHERE observation_seq=%s', (seq,))
+    conn.execute('DELETE FROM sentinel_observations WHERE seq=%s', (seq,))
+    if fault == 'key':
+        conn.execute('UPDATE sentinel_processed_sessions SET cursor_name=%s WHERE cursor_name=%s',
+                     ('broker-observation:v4:noncanonical', key))
+    elif fault == 'backdated_session':
+        conn.execute('UPDATE sentinel_processed_sessions SET session=session-1 WHERE cursor_name=%s',
+                     (key,))
+    else:
+        observed_at = conn.execute(
+            "SELECT state->>'observed_at' FROM sentinel_processed_sessions WHERE cursor_name=%s",
+            (key,)).fetchone()[0]
+        patch = ({'observation_seq': seq+1} if fault == 'sequence' else
+                 {'account_id': 'foreign'} if fault == 'account' else
+                 {'observed_at': (datetime.fromisoformat(observed_at)
+                                  - timedelta(days=1)).isoformat()}
+                 if fault == 'backdated_observed' else {'observed_at': 'invalid'})
+        conn.execute('UPDATE sentinel_processed_sessions SET state=state || %s::jsonb '
+                     'WHERE cursor_name=%s', (json.dumps(patch), key))
+    conn.commit()
+    issues = journal.observation_integrity_issues(conn)
+    assert len(issues) == 1
+    assert 'MISSING_PRIMARY_OBSERVATION' in issues[0].reasons
+    assert reason in issues[0].reasons
+
+
+def test_prebinding_orphan_from_previous_account_stays_outside_current_scrub(conn):
+    seq = _record(conn)[0]
+    observed_at = conn.execute('SELECT observed_at FROM sentinel_observations WHERE seq=%s',
+                               (seq,)).fetchone()[0]
+    conn.execute('DELETE FROM sentinel_observation_provenance WHERE observation_seq=%s', (seq,))
+    conn.execute('DELETE FROM sentinel_observations WHERE seq=%s', (seq,))
+    conn.execute('UPDATE sentinel_account_binding SET established_at=%s,broker_account_id=%s WHERE id=1',
+                 (observed_at + timedelta(seconds=1), 'next-account'))
+    conn.commit()
+    journal.require_observation_integrity(conn)
+
+
+def test_unused_sequence_numbers_are_not_missing_observations(conn):
+    _record(conn)
+    conn.execute("SELECT nextval(pg_get_serial_sequence('sentinel_observations','seq'))")
+    conn.commit()
+    _record(conn)
+    journal.require_observation_integrity(conn)

@@ -20,6 +20,15 @@ does not enable live submission. The repository still requires a separately
 reviewed live authority design and qualified native recovery before that gate
 can change. No environment variable or endpoint edit grants authority.
 
+Alpaca describes its trading accounts as margin accounts; a multiplier of one
+can still permit reuse of unsettled proceeds. The paper purchase budget
+`min(cash, buying_power)` is therefore not evidence of settled live cash. The
+live adapter must obtain and qualify settlement and reservation evidence before
+the settled-cash policy can authorize purchases. Neither a one-times multiplier
+nor a field name supplies that proof. See Alpaca's [account
+description](https://docs.alpaca.markets/us/docs/account-plans) and [limited-margin
+explanation](https://alpaca.markets/support/alpaca-cash-accounts).
+
 ## Acceptance still required before live activation
 
 | Boundary | Required evidence |

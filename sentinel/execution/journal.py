@@ -1179,7 +1179,65 @@ _OBSERVATION_INTEGRITY_SELECT = (
     "   ON s.cursor_name=('broker-observation:v4:' || o.seq::text)")
 
 
-def _observation_integrity_rows(conn):
+def _orphaned_observation_issues(conn, account_binding):
+    broker, account, established_at = account_binding
+    established_at = _aware_utc(established_at, 'account establishment timestamp')
+    after = ''
+    while True:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT s.cursor_name,s.session,s.state->'observation_seq',"
+                " s.state->>'broker',s.state->>'account_id',s.state->>'observed_at',"
+                " s.state->>'started_at',s.state->>'kind'"
+                ' FROM sentinel_processed_sessions s LEFT JOIN sentinel_observations o'
+                " ON s.cursor_name=('broker-observation:v4:' || o.seq::text)"
+                " WHERE s.cursor_name LIKE 'broker-observation:v4:%%'"
+                ' AND o.seq IS NULL AND s.cursor_name>%s'
+                ' ORDER BY s.cursor_name LIMIT %s',
+                (after, OBSERVATION_INTEGRITY_PAGE_SIZE))
+            rows = cur.fetchall()
+        if not rows:
+            return
+        for (name, session, stored_seq, stored_broker, stored_account, observed,
+             started, kind) in rows:
+            reasons = ['MISSING_PRIMARY_OBSERVATION']
+            try:
+                observed_at = _aware_utc(datetime.fromisoformat(
+                    str(observed).replace('Z', '+00:00')), 'orphaned observation timestamp')
+            except (TypeError, ValueError):
+                observed_at = None
+                reasons.append('MALFORMED_CANONICAL_EVIDENCE')
+            try:
+                started_at = _aware_utc(datetime.fromisoformat(
+                    str(started).replace('Z', '+00:00')), 'orphaned observation start')
+            except (TypeError, ValueError):
+                started_at = None
+            if (started_at is None or observed_at is None or started_at > observed_at
+                    or kind not in ('broker-observation/v4', OBSERVATION_WITNESS_KIND)):
+                if 'MALFORMED_CANONICAL_EVIDENCE' not in reasons:
+                    reasons.append('MALFORMED_CANONICAL_EVIDENCE')
+            if observed_at is not None and str(session) != observed_at.date().isoformat():
+                reasons.append('PROCESSED_SESSION_DISAGREEMENT')
+            try:
+                seq = int(str(name).removeprefix('broker-observation:v4:'))
+            except (TypeError, ValueError):
+                seq = 0
+            if (seq < 1 or str(name) != f'broker-observation:v4:{seq}'
+                    or type(stored_seq) is not int or stored_seq != seq):
+                reasons.append('CANONICAL_SEQUENCE_DISAGREEMENT')
+            if any(not isinstance(value, str) or not value.strip()
+                   for value in (stored_broker, stored_account)):
+                reasons.append('CANONICAL_IDENTITY_DISAGREEMENT')
+            if (len(reasons) == 1 and observed_at < established_at):
+                continue
+            if (stored_broker, stored_account) != (broker, account):
+                if 'CANONICAL_IDENTITY_DISAGREEMENT' not in reasons:
+                    reasons.append('CANONICAL_IDENTITY_DISAGREEMENT')
+            yield ObservationIntegrityIssue(observation_seq=max(0, seq), reasons=tuple(reasons))
+        after = str(rows[-1][0])
+
+
+def _observation_integrity_rows(conn, *, orphan_issues=None):
     with conn.cursor() as cur:
         cur.execute(
             'SELECT COALESCE(MAX(o.seq),0),b.broker,b.broker_account_id,b.established_at'
@@ -1211,6 +1269,8 @@ def _observation_integrity_rows(conn):
                 'observation integrity traversal did not advance')
         after = next_sequence
         del rows
+    if orphan_issues is not None:
+        orphan_issues.extend(_orphaned_observation_issues(conn, account_binding))
     with conn.cursor() as cur:
         cur.execute('SELECT broker,broker_account_id,established_at'
                     ' FROM sentinel_account_binding WHERE id=1')
@@ -1403,7 +1463,7 @@ def _verify_observation_integrity_row(row):
 
 def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
     issues = []
-    for row in _observation_integrity_rows(conn):
+    for row in _observation_integrity_rows(conn, orphan_issues=issues):
         issue, _payload = _verify_observation_integrity_row(row)
         if issue is not None:
             issues.append(issue)
