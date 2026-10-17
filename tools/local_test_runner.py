@@ -6,6 +6,7 @@ This produces local diagnostics, never signed CI or deployment authority.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -64,7 +65,18 @@ def execution_environment() -> dict[str, str]:
     env.pop("PYTEST_ADDOPTS", None)
     env.pop("INTERNAL_STATE_SUITE_EVIDENCE", None)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["ALPACA_HARNESS_REQUIRE_POSTGRES"] = "1"
     return env
+
+
+@contextmanager
+def owner_environment(name: str, env: dict[str, str]):
+    if name == "core.infrastructure":
+        from tools.core_infrastructure_suite import owned_database_environment
+        with owned_database_environment(env) as prepared:
+            yield prepared
+    else:
+        yield env
 
 
 def collect_owner(name: str, modules: list[str], root: Path, env: dict) -> set[str]:
@@ -127,9 +139,10 @@ def run_owner(name: str, modules: list[str], *, authority: dict, root: Path,
         raw.mkdir(parents=True, exist_ok=True)
         env["COVERAGE_FILE"] = str(raw / "coverage")
     print(f"Running complete owner {name} ({len(collected)} cases)", flush=True)
-    result = subprocess.run(
-        pytest_command(modules, junit, pytest_args, coverage_config),
-        cwd=root, env=env, check=False)
+    with owner_environment(name, env) as prepared:
+        result = subprocess.run(
+            pytest_command(modules, junit, pytest_args, coverage_config),
+            cwd=root, env=prepared, check=False)
     if result.returncode:
         raise ValueError(f"{name}: pytest exited {result.returncode}; see {junit}")
     if not junit.is_file():

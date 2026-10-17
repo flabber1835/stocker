@@ -455,8 +455,8 @@ authorized CLI and must not be substituted.
 
 ### Clean-checkout one-time prerequisites
 
-Export the paper-only endpoint, the exact paper-account credentials, the
-Sharadar key, and a non-default database password into the current shell before
+Export the paper-only endpoint, the exact paper-account credentials and a
+non-default database password into the current shell before
 running these checks. Compose may also read the repository `.env`, but a value
 stored only there is not necessarily exported to this shell; source an approved
 environment file with export semantics or export every value explicitly.
@@ -465,7 +465,6 @@ These checks deliberately print no secret:
 ```bash
 : "${ALPACA_API_KEY:?set the approved paper account key}"
 : "${ALPACA_SECRET_KEY:?set the approved paper account secret}"
-: "${SHARADAR_API_KEY:?set the Sharadar key}"
 : "${SENTINEL_POSTGRES_PASSWORD:?set a non-default database password}"
 : "${SENTINEL_BACKUP_DIR:?set the independently durable backup target}"
 : "${SENTINEL_GIT_COMMIT:?set the exact certified Git commit}"

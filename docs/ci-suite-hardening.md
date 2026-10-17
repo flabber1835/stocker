@@ -35,6 +35,11 @@ change. Historical research consumers and normalization compatibility can retain
 their exact identifiers when deletion would break those contracts. Inventory
 and explain remaining references; remove obsolete active instructions and
 credentials from CI rather than manufacturing a migration or destroying data.
+Remove obsolete credential prerequisites from active host and paper runbooks;
+their source requirements must agree with the current environment validator.
+For example, `data/sharadar/source-corrections-v1.json`, published feed/schema
+identifiers and the shared normalization API remain compatibility inputs. Tests
+that prove retired credentials are rejected or stripped also remain necessary.
 New software evidence names current Alpaca/OpenFIGI provider qualification
 explicitly and marks historical research performance outside operational scope;
 old signed reports keep their original bytes and schema interpretation.
@@ -68,6 +73,18 @@ missing tests and unauthorized skips, preserve exact approved expected failures,
 and isolate owners in separate processes. The minimum-host Python 3.8 checks
 remain a separately identified runtime. Local test success is not signed CI,
 deployment, economic or broker authority.
+
+Complete local and advisory coverage execution must reproduce each owner's CI
+prerequisites as well as its test paths. Reuse the core-infrastructure harness's
+owned disposable PostgreSQL context and synthetic publication key; never inherit
+an external database URL as its test database. Require PostgreSQL-backed fixture
+execution explicitly. The lens includes source-matched scripts, Docker/Compose
+metadata and the narrow documentation inputs read by host-owned tests. Tests
+that inspect Sentinel source use the existing `SENTINEL_REPO_ROOT` mirror;
+neither `/work/sentinel` Python code nor a second shared package may be made
+importable. Collection and execution use the same baked inspection inputs,
+including in the coverage campaign, without host-source overlays or skipped
+prerequisites counting as success.
 
 ## Scheduling and diagnostics
 
@@ -106,3 +123,14 @@ collection and evidence assembly after retirement. Use targeted Linux tests for
 subprocess, shell, symlink and PostgreSQL behavior. Do not repin economic golden
 fixtures or run the full suite merely to hide an unrelated failure. Publish the
 completed validated feature branch through a ready-for-review PR to main.
+
+## Remaining optional source diagnostics
+
+Retire the standalone legacy membership probe and the optional dual-provider
+capture/preprocessing commands, including their source-only tests and active
+instructions. They have no production callers. Preserve the existing Alpaca
+read-only autonomy diagnostics and the independent liquidity/price-basis
+witnesses. Historical capture files and byte-pinned audit evidence remain intact.
+The legacy read-only GO preflight still supplies mandatory runtime-boundary
+fixtures; removing that code requires a separate migration of those witnesses.
+Existing readiness function names and stored gate keys remain compatible.

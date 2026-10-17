@@ -442,7 +442,6 @@
     "tests/sentinel/test_source_acquisition_replay.py": 12157,
     "tests/sentinel/test_source_corrections.py": 370,
     "tests/sentinel/test_source_coverage_diagnostic.py": 15,
-    "tests/sentinel/test_source_membership_probe.py": 20,
     "tests/sentinel/test_source_seed_warmup.py": 2237670,
     "tests/sentinel/test_source_wait_recovery.py": 13155,
     "tests/sentinel/test_sparse_entitlement_scope.py": 15226,

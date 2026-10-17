@@ -56,10 +56,12 @@ profile or another env file.
 
 ## Stage-specific preflight
 
-The installation/GO/bring-up gates require usable PostgreSQL credentials,
-SHARADAR_API_KEY and an absolute backup path. Paper/dual targets additionally
-require both Alpaca credentials and the exact paper URL. SHADOW remains broker
-free. Blank, whitespace-only and documented placeholder values fail immediately.
+The installation/GO/bring-up gates require usable PostgreSQL credentials and an
+absolute backup path. GO and receipt bootstrap additionally require both Alpaca
+credentials for current market-data acquisition, including SHADOW; the endpoint
+must be the exact paper URL. SHADOW remains free of broker operations. A retired
+source credential is not a prerequisite. Blank, whitespace-only and documented
+placeholder values fail immediately.
 PostgreSQL passwords must survive the currently unescaped Compose DSN. Optional
 receipt authority is validated when supplied; fresh blank authority is preserved
 for the existing ancestry-locked bootstrap. CPU force flags and backup attestation

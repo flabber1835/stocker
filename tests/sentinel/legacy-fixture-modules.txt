@@ -278,7 +278,6 @@ test_live_funding.py
 test_live_paper_rehearsal.py
 test_maintenance_future_cursor_refusal.py
 test_maintenance_publication_frontier.py
-test_market_data_capture.py
 test_merge_readiness_137_149.py
 test_migration.py
 test_migration_order_pagination.py
@@ -438,7 +437,6 @@ test_source_acquisition_lifecycle.py
 test_source_acquisition_replay.py
 test_source_corrections.py
 test_source_coverage_diagnostic.py
-test_source_membership_probe.py
 test_source_seed_warmup.py
 test_source_wait_recovery.py
 test_sparse_entitlement_scope.py

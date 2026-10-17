@@ -120,6 +120,43 @@ def test_independent_collection_cannot_be_measured_as_execution(monkeypatch, tmp
 def test_collection_environment_discards_inherited_pytest_selection(monkeypatch):
     monkeypatch.setenv("PYTEST_ADDOPTS", "-k silently_omit_others")
     assert "PYTEST_ADDOPTS" not in runner.execution_environment()
+    assert runner.execution_environment()["ALPACA_HARNESS_REQUIRE_POSTGRES"] == "1"
+
+
+def test_core_owner_uses_ci_database_context_and_never_an_inherited_dsn(monkeypatch):
+    from tools import core_infrastructure_suite as core
+    events = []
+    class Server:
+        sync_dsn = "postgresql://owned-disposable-test"
+        def start(self):
+            events.append("started")
+        def stop(self):
+            events.append("stopped")
+    monkeypatch.setattr(core, "_EphemeralPostgres", Server)
+    original = {"SENTINEL_DATABASE_URL": "postgresql://must-not-use",
+                "SENTINEL_PUBLICATION_RECEIPT_KEY": "must-not-inherit"}
+    with runner.owner_environment("core.infrastructure", original) as env:
+        assert env["SENTINEL_DATABASE_URL"] == Server.sync_dsn
+        assert env["SENTINEL_PUBLICATION_RECEIPT_KEY"] == "core-infrastructure-synthetic-receipt-key"
+        assert env["ALPACA_HARNESS_REQUIRE_POSTGRES"] == "1"
+        assert events == ["started"]
+    assert events == ["started", "stopped"]
+    assert original["SENTINEL_DATABASE_URL"] == "postgresql://must-not-use"
+
+
+def test_ci_database_context_cleans_up_after_failed_provisioning(monkeypatch):
+    from tools import core_infrastructure_suite as core
+    events = []
+    class Server:
+        def start(self):
+            raise RuntimeError("failed initialization")
+        def stop(self):
+            events.append("stopped")
+    monkeypatch.setattr(core, "_EphemeralPostgres", Server)
+    with pytest.raises(RuntimeError, match="failed initialization"):
+        with runner.owner_environment("core.infrastructure", {}):
+            pytest.fail("unprovisioned database reached the test process")
+    assert events == ["stopped"]
 
 
 def test_coverage_command_keeps_owner_inventory_and_unique_junit(tmp_path):

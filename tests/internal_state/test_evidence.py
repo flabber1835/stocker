@@ -20,7 +20,7 @@ from tools.validate_test_responsibility import (
     _field_from_step, _job_body, _job_scalar, _step_slices,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 SOURCE_FILES = (
     "tools/verify_internal_state_evidence.py",
     "sentinel/requirements.lock",
