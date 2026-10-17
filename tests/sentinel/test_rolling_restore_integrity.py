@@ -179,9 +179,10 @@ def test_populated_physical_restore_preserves_book_and_advances_next_session(
 
 def test_published_price_oracle_refuses_a_dollar_of_invented_cash(conn, restore_ready,
                                                                operational_source, monkeypatch):
+    from copy import deepcopy
     from decimal import Decimal
     from tests.support import formed_accounting
-    from sentinel import rolling_runtime, shadow_observation
+    from sentinel import observation_storage, rolling_runtime, shadow_observation
     from tests.sentinel.test_rolling_daily import refresh
     from tests.sentinel.test_rolling_initialization import OBS
     rolling_runtime.advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=100_000)
@@ -199,16 +200,27 @@ def test_published_price_oracle_refuses_a_dollar_of_invented_cash(conn, restore_
     name = store._name(result.session)
     original = conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s',
                             (name,)).fetchone()[0]
+    logical = observation_storage.decode(original, ledger_reader=lambda ref:
+        observation_storage._read_ledger_chunk(conn, ref))
+    assert original['state']['ledger']['events'] == []
+    assert logical['state']['ledger']['events']
     mutations = [
-        (['state', 'wealth_core', 'cash'], original['state']['wealth_core']['cash'] + 1, 'cash mismatch'),
-        (['state', 'ledger', 'events', '0', 'price'],
-         original['state']['ledger']['events'][0]['price'] + 1, 'trade price mismatch'),
+        (['state', 'wealth_core', 'cash'], logical['state']['wealth_core']['cash'] + 1, 'cash mismatch'),
+        (['state', 'ledger', 'events', 0, 'price'],
+         logical['state']['ledger']['events'][0]['price'] + 1, 'trade price mismatch'),
         (['strategy_economics', 'strategy_nav'],
          str(Decimal(report['expected_nav']) + Decimal(report['funded_entry_fee'])), 'funded NAV mismatch'),
     ]
     for path, value, reason in mutations:
-        conn.execute('UPDATE sentinel_processed_sessions SET state=jsonb_set(state,%s::text[],%s::jsonb) '
-                     'WHERE cursor_name=%s', (path, json.dumps(value), name))
+        changed = deepcopy(logical)
+        target = changed
+        for key in path[:-1]:
+            target = target[key]
+        target[path[-1]] = value
+        encoded = observation_storage.encode(changed, 'state', ledger_writer=lambda group, day:
+            observation_storage._write_ledger_chunk(conn, group, day))
+        conn.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',
+                     (json.dumps(encoded), name))
         with pytest.raises(AssertionError, match=reason):
             formed_accounting.check(conn, **accounting)
         conn.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',

@@ -7,6 +7,8 @@ fee. No production accounting or state decoder is called.
 from collections import defaultdict
 from decimal import Decimal as D
 
+from sentinel import observation_storage
+
 
 EPSILON = D('0.00000001')
 
@@ -18,13 +20,14 @@ def _near(actual, expected, label):
 def _record(conn, observation_id, session):
     name = f'shadow-observation:v1:{observation_id}:session:{session}'
     row = conn.execute(
-        "SELECT state#>'{state,wealth_core}', state#>'{state,ledger}', "
-        "state#>'{state,shadow_nav_history}', state#>'{state,last_decision}', "
-        "state->'strategy_economics', "
-        "state#>>'{publication,publication,evidence,rolling_snapshot,candidate_id}' "
-        'FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()
+        'SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()
     assert row is not None, 'missing accounting observation'
-    return row
+    value = observation_storage.decode(row[0], ledger_reader=lambda name:
+        observation_storage._read_ledger_chunk(conn, name))
+    state = value['state']
+    return (state['wealth_core'], state['ledger'], state['shadow_nav_history'],
+            state['last_decision'], value['strategy_economics'],
+            value['publication']['publication']['evidence']['rolling_snapshot']['candidate_id'])
 
 
 def check(conn, *, observation_id, session, previous_session, formation_candidate,

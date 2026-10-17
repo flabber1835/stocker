@@ -472,15 +472,20 @@ def test_restore_verification_reads_payload_not_only_manifest(conn, window, dama
     conn.commit()
     # Deliberately model corrupt restore bytes with otherwise valid metadata.
     table = "sentinel_snapshot_benchmarks" if damage == "benchmark_value" else "sentinel_snapshot_bars"
-    with conn.cursor() as cur:
-        cur.execute(f"ALTER TABLE {table} DISABLE TRIGGER snapshot_immutable")
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute("SET LOCAL session_replication_role=replica")
         if damage == "bar_missing":
             cur.execute(f"DELETE FROM {table} WHERE candidate_id=%s AND session=%s", (candidate, window.end))
         else:
             column = "spy_total_return" if damage == "benchmark_value" else "close_unadjusted"
             cur.execute(f"UPDATE {table} SET {column}={column}+1 "
                         "WHERE candidate_id=%s AND session=%s", (candidate, window.end))
-        cur.execute(f"ALTER TABLE {table} ENABLE TRIGGER snapshot_immutable")
+        assert cur.rowcount > 0
+        cur.execute("SET LOCAL session_replication_role=origin")
+    assert conn.execute("SHOW session_replication_role").fetchone()[0] == "origin"
+    if damage == "bar_missing":
+        assert conn.execute(f"SELECT COUNT(*) FROM {table} WHERE candidate_id=%s AND session=%s",
+                            (candidate, window.end)).fetchone()[0] == 0
     with pytest.raises(store.SnapshotStorageRefused, match="content differs"):
         store.verify_content(conn, candidate)
 

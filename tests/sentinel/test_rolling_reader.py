@@ -158,22 +158,30 @@ def test_composed_input_keeps_spy_equity_and_bil_domains_separate(conn, window):
 
 def test_corrupt_benchmark_tail_refuses(conn, window):
     selected = reader(conn, window)
-    with conn.cursor() as cur:
-        cur.execute("ALTER TABLE sentinel_snapshot_benchmarks DISABLE TRIGGER snapshot_immutable")
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute("SET LOCAL session_replication_role=replica")
         cur.execute("DELETE FROM sentinel_snapshot_benchmarks WHERE candidate_id=%s AND session=%s",
                     (selected.candidate_id, shadow.FIRST))
-        cur.execute("ALTER TABLE sentinel_snapshot_benchmarks ENABLE TRIGGER snapshot_immutable")
+        assert cur.rowcount > 0
+        cur.execute("SET LOCAL session_replication_role=origin")
+    assert conn.execute("SHOW session_replication_role").fetchone()[0] == "origin"
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_benchmarks WHERE candidate_id=%s AND session=%s",
+                        (selected.candidate_id, shadow.FIRST)).fetchone()[0] == 0
     with pytest.raises(RollingReaderRefused, match="INCOMPLETE_SPY_BIL_TAIL"):
         selected.prices(session=shadow.SECOND, spy_sessions=254, anchor_sessions={})
 
 
 def test_empty_session_refuses(conn, window):
     selected = reader(conn, window)
-    with conn.cursor() as cur:
-        cur.execute("ALTER TABLE sentinel_snapshot_bars DISABLE TRIGGER snapshot_immutable")
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute("SET LOCAL session_replication_role=replica")
         cur.execute("DELETE FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session=%s",
                     (selected.candidate_id, shadow.SECOND))
-        cur.execute("ALTER TABLE sentinel_snapshot_bars ENABLE TRIGGER snapshot_immutable")
+        assert cur.rowcount > 0
+        cur.execute("SET LOCAL session_replication_role=origin")
+    assert conn.execute("SHOW session_replication_role").fetchone()[0] == "origin"
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session=%s",
+                        (selected.candidate_id, shadow.SECOND)).fetchone()[0] == 0
     with pytest.raises(RollingReaderRefused, match="EMPTY_SNAPSHOT_SESSION"):
         selected.prices(session=shadow.SECOND, spy_sessions=254, anchor_sessions={})
 

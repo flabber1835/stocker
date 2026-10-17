@@ -503,6 +503,49 @@ The original lossy-symbol-conversion falsifier remains unchanged. Independent
 review confirmed a test-only repair with no runtime guard bypass. The original
 image is not relabelled as embedding the updated fixture.
 
+### Recovery fixture compatibility
+
+Further `a437e7fe` CI failures exposed physical-format assumptions in five test
+and support files. The financial oracle now reads the complete ledger through
+the storage codec and chunk reader. Its independent published-price Decimal
+arithmetic, whole-share quantities, long-only cash, historical fees, twenty
+slots, holdings, Core NAV and funded stock/BIL NAV assertions are unchanged.
+Cash, trade-price and funded-NAV mutations are encoded with valid storage
+checksums and still fail at their specific economic assertions. The checkpoint
+case rehashes logical state, proves an unchanged positive restart, and retains
+the exact `CHECKPOINT_RECORD_BINDING_CHANGED` refusal.
+
+Only those three test/support files were overlaid on the unchanged
+`e9172f44` runtime/test images. Four affected selectors passed in 320.082 s,
+including genuine `pg_basebackup`/`pg_verifybackup`, separate PostgreSQL restart,
+accounting parity and next-session advance for both inline and compressed
+series variants. The production economic validator is not used as the oracle.
+Existing immutable ledger chunks are not rewritten by the economic mutations.
+
+The other two test files now create privileged physical corruption inside an
+explicit local replica-role transaction, then restore and verify the ordinary
+role before invoking the production reader/verifier. The missing rows are
+asserted. All three affected cases passed in 6.33 s; their two surrounding
+files passed 93 tests in 13.45 s. `benchmark_axis`, `empty_session` and
+`restore_payload` mutations each died at the intended missing-refusal assertion.
+Production retention guards and all original recovery refusal expectations are
+unchanged. These groups overlap.
+
+The exact Docker argument arrays, source hashes and image/overlay attribution
+are preserved in `formed-accounting-fixture-remediation.json` and
+`tamper-fixture-remediation.json` in the sanitized evidence archive. Their
+pytest selections were:
+
+```sh
+python -m pytest -q -p no:cacheprovider --tb=short \
+  'tests/sentinel/test_rolling_restore_integrity.py::test_populated_physical_restore_preserves_book_and_advances_next_session[inline]' \
+  'tests/sentinel/test_rolling_restore_integrity.py::test_populated_physical_restore_preserves_book_and_advances_next_session[compressed]' \
+  tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash \
+  tests/sentinel/test_rolling_initialization.py::test_changed_state_cannot_be_self_rehashed_into_checkpoint
+python -m pytest -q -p no:cacheprovider --tb=short \
+  tests/sentinel/test_rolling_reader.py tests/sentinel/test_rolling_snapshot_storage.py
+```
+
 ## Remaining acceptance boundaries
 
 The earlier `05c516a6` isolated run passed genuine initial backup/full restore
