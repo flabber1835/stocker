@@ -150,7 +150,8 @@ styling immediately and retains the visible values as LAST KNOWN. Original age
 expiry also withdraws styling while a request is pending. Only a complete fresh
 server document can replace it. Offline events, return from a background tab and
 restoration from the browser's page cache still withdraw styling immediately.
-The single request, 15-second timeout and five-second retry bound remain.
+The bounded resume presentation below supersedes the red colour used for that
+withdrawal. The single request, 15-second timeout and five-second retry remain.
 
 Qualification executes the rendered JavaScript over successive healthy document
 replacements, slow responses, original expiry during a read, failed responses
@@ -159,6 +160,39 @@ removing failure or age withdrawal must fail the behavioral acceptance checks.
 The executable admission catalog pins the exact installed renderer and reviewed
 replacement, alongside historical renderer bytes independently retained in the
 source-history manifests. No other presentation change is implicitly admitted.
+
+### App resume is a bounded refresh, not a newly observed system failure
+
+Decision, 2026-10-16, before implementation. Returning to the installed iPhone
+app currently calls `invalidate(true)` immediately. This paints every reopening
+red before its first network answer, although the current backend is healthy.
+The existing tests explicitly required this misleading presentation.
+
+Withdraw cached positive styling when an already-visible page is backgrounded.
+On return, page-cache restoration or an initial explicitly LAST_KNOWN document,
+show amber **Refreshing status**, with saved values explicitly last known. Start
+one fixed 15-second foreground refresh budget; overlapping lifecycle events,
+retries and repeated hiding/showing cannot restart it. A fresh complete server
+document is the only way to earn current styling. The original generation time,
+row clocks, 45-second document validity and every server/execution gate remain
+unchanged. This foreground budget describes a connection attempt, not current
+financial evidence. No broker call, new polling loop or backup is introduced.
+
+Known failed/unknown server verdicts, offline state, malformed/future clocks or
+invalid budgets remain red immediately. Malformed/non-current evidence marked
+CURRENT also fails immediately. A busy/LAST_KNOWN response or network delay may
+remain amber only until the original fixed foreground deadline; exhaustion is
+sticky red until a fresh server document arrives. Ordinary visible-page expiry
+retains its existing immediate withdrawal. Hidden timer callbacks must not race
+the foreground event and invent a system failure before the connection attempt.
+
+Qualify the actual renderer script for suspension beyond document expiry,
+timer-before-visibility ordering, successful restoration, repeated wakeups,
+busy/network timeout, deadline exhaustion, offline and known failures. Exercise
+the rendered page in iPhone WebKit and Chromium, preserve detail expansion and
+scroll, and falsify both the neutral-resume and non-renewable deadline guards.
+Pin only the exact reviewed renderer successor through the existing shadow UI
+admission profile, preserving all predecessors and the original book.
 
 ## Idle discovery and maintenance observations
 

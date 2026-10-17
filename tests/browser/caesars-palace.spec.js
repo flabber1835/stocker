@@ -25,6 +25,63 @@ const REQUIRED_AUTOMATION_STEPS = [
   "automation_step_complete"
 ];
 
+test.describe('App resume presentation', () => {
+  // Hold the foreground HTML read deterministically. Worker delivery and
+  // offline navigation are qualified separately by the PWA tests below.
+  test.use({serviceWorkers:'block'});
+  for (const expires of [false, true]) {
+    test(`a saved positive view is amber during reconnect${expires ? ' and red on timeout' : ''}`, async ({ page }) => {
+      // CI's unconfigured server is deliberately red. Only this client-display
+      // fixture supplies a positive headline; it is not financial evidence.
+      let release;
+      const held = new Promise(resolve => { release = resolve; });
+      await page.route('**/', async route => {
+        if (!route.request().isNavigationRequest()) await held;
+        try {
+          const response = await route.fetch();
+          const body = (await response.text()).replace(
+            /(<span id="operational-state" class=")state [^"]+(">)[\s\S]*?(<\/span>)/,
+            '$1state ok$2CLIENT PRESENTATION FIXTURE$3');
+          await route.fulfill({response,body});
+        } catch (error) {
+          if (!expires) throw error; // The expected timeout can abort this request.
+        }
+      });
+      try {
+        await page.clock.install();
+        await page.goto('/', {waitUntil:'domcontentloaded'});
+        await page.locator('[data-detail-key="mode-guide"] summary').click();
+        const generated = await page.locator('body').getAttribute('data-generated-at');
+        await page.evaluate(() => {
+          window.__resumeRealNow = Date.now;
+          const clock = Date.now() + 120000;
+          Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'});
+          document.dispatchEvent(new Event('visibilitychange'));
+          Date.now = () => clock;
+          Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});
+          document.dispatchEvent(new Event('visibilitychange'));
+          window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));
+        });
+        await expect(page.locator('#operational-state')).toHaveClass('state warn');
+        await expect(page.locator('#operational-state')).toContainText('REFRESHING STATUS');
+        await expect(page.locator('html')).toHaveClass('refreshing-status');
+        expect(await page.locator('body').getAttribute('data-generated-at')).toBe(generated);
+        if (expires) {
+          await page.clock.runFor(15001);
+          await expect(page.locator('#operational-state')).toHaveClass('state fail');
+          await expect(page.locator('#operational-state')).toContainText('STATUS NOT CURRENT');
+        } else {
+          await page.evaluate(() => { Date.now = window.__resumeRealNow; });
+          release();
+          await expect(page.locator('#operational-state')).toContainText('CLIENT PRESENTATION FIXTURE');
+          await expect(page.locator('html')).not.toHaveClass('refreshing-status');
+          await expect(page.locator('[data-detail-key="mode-guide"]')).toHaveAttribute('open','');
+        }
+      } finally { release(); }
+    });
+  }
+});
+
 test.describe("Caesar's Palace on iPhone WebKit", () => {
   test.skip(({ browserName }) => browserName !== "webkit");
 

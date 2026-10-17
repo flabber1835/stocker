@@ -149,6 +149,10 @@ th{color:var(--muted);font-weight:600;letter-spacing:.04em}
 .portfolio-table th,.portfolio-table td{white-space:nowrap;word-break:normal}
 .not-current .row.ok{border-color:var(--fail)}
 .not-current .dot.ok{color:var(--fail)}
+.refreshing-status .row.ok{border-color:var(--warn)}
+.refreshing-status .dot.ok,.refreshing-status .heartbeat{color:var(--warn)}
+.refreshing-status .heartbeat::before{color:var(--warn)}
+.refreshing-status .row.ok .value::before{content:"LAST KNOWN · ";color:var(--warn)}
 .push-card{
   background:var(--card);border:1px solid var(--line);border-radius:14px;
   padding:13px 15px;margin:10px 0;box-shadow:var(--shadow);
@@ -638,6 +642,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var refreshDelayed = document.body.dataset.refreshPending === "true";
   var knownFailure = badge.className === "state fail" || badge.className === "state unknown";
   var retryTimer = null;
+  var resumeStarted = null;
+  var resumeTimer = null;
   var ageTimer;
   var refreshTimer;
   function validBudget(value){{
@@ -667,6 +673,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }}
       clearInterval(ageTimer);
       clearTimeout(refreshTimer);
+      clearTimeout(resumeTimer);
       clearTimeout(deadline);
       var scroll = window.scrollY;
       var expanded = Array.from(document.querySelectorAll('details[data-detail-key][open]'))
@@ -685,7 +692,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }});
       window.scrollTo(0, scroll);
     }} catch (_error) {{
-      if (transportDelay && !invalidated && originalCurrent()){{
+      if (transportDelay && !invalidated && resumeCurrent()){{
+        showResume();
+      }} else if (transportDelay && !invalidated && originalCurrent()){{
         pendingRefresh();
       }} else {{
         invalidate(false);
@@ -710,9 +719,38 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     heartbeat.textContent = "Refreshing status · last known observation " +
       new Date(generated).toISOString();
   }}
+  function resumeCurrent(){{
+    var elapsed = Date.now() - resumeStarted;
+    return resumeStarted !== null && elapsed >= 0 && elapsed < 15000;
+  }}
+  function showResume(){{
+    if (invalidated || knownFailure){{ return; }}
+    refreshDelayed = true;
+    document.documentElement.classList.add("refreshing-status");
+    badge.className = "state warn";
+    badge.textContent = "REFRESHING STATUS — LAST KNOWN VALUES";
+    heartbeat.textContent = "Refreshing status · checking connection · last known observation " +
+      new Date(generated).toISOString();
+  }}
+  function resumeDocument(){{
+    var age = Date.now() - generated;
+    if (invalidated || knownFailure || !navigator.onLine ||
+        !Number.isFinite(age) || !validBudget(budget) || age < -5000){{
+      invalidate(true);
+      return;
+    }}
+    if (resumeStarted === null){{
+      resumeStarted = Date.now();
+      resumeTimer = setTimeout(function(){{ invalidate(false); }}, 15000);
+    }}
+    if (!resumeCurrent()){{ invalidate(true); return; }}
+    showResume();
+    refreshDocument();
+  }}
   function invalidate(andReload){{
     if (!invalidated){{
       invalidated = true;
+      document.documentElement.classList.remove("refreshing-status");
       document.documentElement.classList.add("not-current");
       badge.className = "state fail";
       badge.textContent = "{_esc(stale_headline)}";
@@ -722,7 +760,13 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function checkAge(){{
     var age = Date.now() - generated;
-    if (!Number.isFinite(age) || !validBudget(budget) || age > budget || age < -5000){{
+    if (!Number.isFinite(age) || !validBudget(budget) || age < -5000){{
+      invalidate(true);
+    }} else if (wentToBackground){{
+      if (document.visibilityState === "visible"){{ resumeDocument(); }}
+    }} else if (resumeStarted !== null){{
+      if (!resumeCurrent()){{ invalidate(true); }}
+    }} else if (age > budget){{
       invalidate(true);
     }} else if (!invalidated && !refreshDelayed){{
       heartbeat.textContent = "DASHBOARD HEARTBEAT · UPDATED " +
@@ -730,13 +774,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     }}
   }}
   window.addEventListener("pageshow", function(event){{
-    if (event.persisted){{ invalidate(true); }} else {{ checkAge(); }}
+    if (event.persisted){{ resumeDocument(); }} else {{ checkAge(); }}
   }});
   document.addEventListener("visibilitychange", function(){{
     if (document.visibilityState === "hidden" && hasBeenVisible){{
       wentToBackground = true;
+      if (Number.isFinite(generated)){{ showResume(); }}
     }} else if (document.visibilityState === "visible"){{
-      if (wentToBackground){{ invalidate(true); }}
+      if (wentToBackground){{ resumeDocument(); }}
       hasBeenVisible = true;
     }}
   }});
@@ -750,11 +795,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   if (wentOffline){{ invalidate(false); }}
   ageTimer = setInterval(checkAge, 1000);
   refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, {refresh_seconds * 1000});
-  checkAge();
   if (document.body.dataset.refreshPending === "true"){{
-    if (!invalidated){{ pendingRefresh(); }}
-    refreshDocument();
-  }}
+    resumeDocument();
+  }} else {{ checkAge(); }}
 }})();
 </script>
 <script>{PUSH_SCRIPT}</script>
