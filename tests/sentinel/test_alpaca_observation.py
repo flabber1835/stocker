@@ -303,3 +303,193 @@ def test_bil_split_price_domains_and_action_record_reach_execution():
     source.splits = []
     with pytest.raises(AlpacaTransportRefused,match='corroborated'):
         source._benchmark_rows()
+
+
+def test_full_admission_renews_original_lease_before_long_pass_finishes(monkeypatch):
+    from types import SimpleNamespace
+    from sentinel.feed import calendar, rolling_builder, rolling_jobs, rolling_store, rolling_work
+
+    axis = calendar.previous_sessions('2026-09-14', 20)
+    lease = SimpleNamespace(job_id='paced-admission', owner='original-owner', fence=1)
+    clock = [0]
+    lease_until = [600]
+    heartbeats = []
+
+    def heartbeat(conn, current, *, lease_seconds):
+        assert current is lease and current.owner == 'original-owner' and current.fence == 1
+        assert lease_seconds == 600
+        if clock[0] >= lease_until[0]:
+            raise rolling_jobs.JobRefused('original lease expired during admission')
+        assert clock[0] < 2000
+        lease_until[0] = min(2000, clock[0] + lease_seconds)
+        heartbeats.append(clock[0])
+
+    def slow_rows(*args, **kwargs):
+        for day in axis:
+            clock[0] += 40
+            yield {'ticker':'ABC', 'date':day, 'adjusted_close':10., 'closeunadj':10.}
+
+    class AdmissionComplete(Exception):
+        pass
+
+    def complete(**counts):
+        assert counts['selected'] == counts['admitted'] == 1
+        heartbeat(None, lease, lease_seconds=600)
+        raise AdmissionComplete
+
+    source = SimpleNamespace(selected=[{'ticker':'ABC','asset_id':'permanent-id'}],
+        identity_bindings=[], dividends=[], price_manifests={}, action_affected=frozenset(),
+        pair_absent=set(), reset_after={}, split_terms=lambda:{})
+    monkeypatch.setattr(rolling_builder, '_alpaca_rows', slow_rows)
+    monkeypatch.setattr(rolling_builder, 'require_alpaca_population', complete)
+    monkeypatch.setattr(rolling_jobs, 'heartbeat', heartbeat)
+    monkeypatch.setattr(rolling_store, 'BATCH_SIZE', 5)
+    with rolling_work.renewing(lambda:heartbeat(None, lease, lease_seconds=600)):
+        with pytest.raises(AdmissionComplete):
+            rolling_builder.build_alpaca(None, lease, SimpleNamespace(window=SimpleNamespace(sessions=axis)), source)
+    assert clock[0] == 800 and len(heartbeats) >= 5
+    assert max(b-a for a,b in zip(heartbeats,heartbeats[1:])) <= 200
+
+
+@pytest.mark.parametrize('refusal', ('fence', 'deadline'))
+def test_admission_pacing_preserves_fence_deadline_and_transaction(monkeypatch, refusal):
+    from types import SimpleNamespace
+    from sentinel.feed import calendar, rolling_builder, rolling_jobs, rolling_store
+
+    axis = calendar.previous_sessions('2026-09-14', 20)
+    lease = SimpleNamespace(job_id='guarded-admission', owner='original-owner', fence=1)
+    clock = [0]
+    current_fence = [1]
+    closed = []
+    commits = []
+    checked = []
+    conn = SimpleNamespace(commit=lambda:commits.append(True))
+
+    def heartbeat(connection, supplied, *, lease_seconds):
+        assert connection is conn and supplied is lease and lease_seconds == 600
+        checked.append(clock[0])
+        if supplied.fence != current_fence[0]:
+            raise rolling_jobs.JobRefused('worker fence lost')
+        if refusal == 'deadline' and clock[0] >= 500:
+            raise rolling_jobs.JobDeadlineExceeded('original deadline exhausted')
+
+    def slow_rows(*args, **kwargs):
+        try:
+            for index, day in enumerate(axis):
+                clock[0] += 40
+                if refusal == 'fence' and index == 5:
+                    current_fence[0] = 2
+                yield {'ticker':'ABC','date':day,'adjusted_close':10.,'closeunadj':10.}
+        finally:
+            closed.append(True)
+
+    source = SimpleNamespace(selected=[{'ticker':'ABC','asset_id':'permanent-id'}],
+        identity_bindings=[], dividends=[], price_manifests={}, action_affected=frozenset(),
+        pair_absent=set(), reset_after={}, split_terms=lambda:{})
+    monkeypatch.setattr(rolling_builder, '_alpaca_rows', slow_rows)
+    monkeypatch.setattr(rolling_builder, 'require_alpaca_population', lambda **_:pytest.fail('admission advanced after lost authority'))
+    monkeypatch.setattr(rolling_jobs, 'heartbeat', heartbeat)
+    monkeypatch.setattr(rolling_store, 'BATCH_SIZE', 5)
+    error = rolling_jobs.JobRefused if refusal == 'fence' else rolling_jobs.JobDeadlineExceeded
+    with pytest.raises(error):
+        rolling_builder.build_alpaca(conn, lease, SimpleNamespace(window=SimpleNamespace(sessions=axis)), source)
+    assert clock[0] == (400 if refusal == 'fence' else 600)
+    assert checked and not commits and closed == [True]
+
+
+def test_admission_error_closes_underlying_price_cursor_without_commit(monkeypatch):
+    from types import SimpleNamespace
+    from sentinel.feed import alpaca_observation, rolling_builder, rolling_jobs
+
+    closed = []
+    commits = []
+    def rows(*args, **kwargs):
+        try:
+            yield {'ticker':'ABC','date':'2026-09-14','adjusted_close':10.,'closeunadj':10.}
+        finally:
+            closed.append(True)
+    def consume(rows, **kwargs):
+        next(rows)
+        raise ValueError('inconsistent observed price')
+    source = SimpleNamespace(selected=[{'ticker':'ABC','asset_id':'permanent-id'}],
+        identity_bindings=[], dividends=[], price_manifests={}, action_affected=frozenset(),
+        pair_absent=set(), reset_after={}, split_terms=lambda:{})
+    monkeypatch.setattr(rolling_builder, '_alpaca_rows', rows)
+    monkeypatch.setattr(alpaca_observation, 'admissible_history', consume)
+    monkeypatch.setattr(rolling_jobs, 'heartbeat', lambda *args, **kwargs:None)
+    with pytest.raises(ValueError) as retained_traceback:
+        rolling_builder.build_alpaca(SimpleNamespace(commit=lambda:commits.append(True)),
+            SimpleNamespace(job_id='failed-admission'),
+            SimpleNamespace(window=SimpleNamespace(sessions=['2026-09-14'])), source)
+    assert retained_traceback.value and closed == [True] and not commits
+
+
+@pytest.mark.parametrize('start,reset,absences', [
+    (0,None,[-1]), (0,None,[1,4]), (0,None,[12]),
+    (3,None,[1,2]), (3,None,[1,7]),
+    (5,4,[1,4]), (5,4,[1,5]), (5,4,[12]),
+    (None,None,[-1]), (None,None,[2]),
+])
+def test_absence_index_matches_original_scan_across_tail_and_reset_boundaries(start, reset, absences):
+    from datetime import date,timedelta
+    from sentinel.feed import calendar
+    from sentinel.feed.alpaca_observation import admissible_history
+
+    axis = calendar.previous_sessions('2026-09-14', 12)
+    date_for = lambda index: ((date.fromisoformat(axis[0])-timedelta(days=1)).isoformat()
+        if index == -1 else (date.fromisoformat(axis[-1])+timedelta(days=1)).isoformat()
+        if index == 12 else axis[index])
+    pairs = {('ABC',date_for(index)) for index in absences} | {('OTHER',axis[-1])}
+    reset_day = axis[reset] if reset is not None else ''
+    first = axis[start] if start is not None else axis[0]
+    original_scan = any(symbol == 'ABC' and day >= first and day > reset_day for symbol,day in pairs)
+    rows = [] if start is None else [
+        {'ticker':'ABC','date':day,'adjusted_close':10.,'closeunadj':10.} for day in axis[start:]]
+    admitted,reasons = admissible_history(rows,axis=axis,symbols={'ABC'},action_affected=frozenset(),
+        pair_absent=pairs,reset_after={'ABC':reset_day} if reset_day else {})
+    assert reasons == ({'raw_adjusted_key_mismatch':1} if original_scan else
+                       {'no_prices':1} if start is None else {})
+    assert admitted == ({} if original_scan or start is None else {'ABC':first})
+
+
+@pytest.mark.parametrize('missing_index', (2, 7))
+def test_absence_index_respects_actual_clean_basis_tail(missing_index):
+    from sentinel.feed import calendar
+
+    axis = calendar.previous_sessions('2026-09-14', 12)
+    rows = [{'ticker':'ABC','date':day,'adjusted_close':10.,
+             'closeunadj':10. if index < 3 else 20.}
+            for index,day in enumerate(axis)]
+    pairs = {('ABC', axis[missing_index])}
+    original_scan = any(symbol == 'ABC' and day >= axis[3] and day > ''
+                        for symbol,day in pairs)
+    admitted,reasons = admissible_history(rows,axis=axis,symbols={'ABC'},
+        action_affected=frozenset(),pair_absent=pairs)
+    assert admitted == ({} if original_scan else {'ABC':axis[3]})
+    assert reasons == ({'raw_adjusted_key_mismatch':1} if original_scan else {})
+
+
+def test_absence_index_avoids_symbols_times_absences_scan():
+    from sentinel.feed.alpaca_observation import admissible_history
+
+    class CountedAbsences(set):
+        visits = 0
+        def __iter__(self):
+            for value in super().__iter__():
+                self.visits += 1
+                yield value
+
+    symbols = {f'S{index:04}' for index in range(2000)}
+    pairs = CountedAbsences((symbol,'2026-09-10') for symbol in symbols)
+    axis = ['2026-09-11','2026-09-14']
+    rows = [{'ticker':symbol,'date':day,'adjusted_close':10.,'closeunadj':10.}
+            for day in axis for symbol in sorted(symbols)]
+    for symbol in symbols:
+        assert not any(pair_symbol == symbol and day >= axis[0] and day > '' for pair_symbol,day in pairs)
+    original_visits = pairs.visits
+    pairs.visits = 0
+    admitted,reasons = admissible_history(rows,axis=axis,symbols=symbols,
+        action_affected=frozenset(),pair_absent=pairs)
+    assert len(admitted) == len(symbols) and not reasons
+    assert original_visits == len(symbols)*len(pairs)
+    assert pairs.visits == len(pairs)

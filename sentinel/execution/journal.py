@@ -1172,9 +1172,9 @@ _OBSERVATION_INTEGRITY_SELECT = (
     ' b.broker,b.broker_account_id,o.observed_at,'
     ' o.terminal_recovery_through,o.completeness,o.positions,o.orders'
     ' FROM sentinel_observations o'
-    ' JOIN sentinel_account_binding b ON b.id=1'
-    '   AND o.observed_at >= b.established_at'
     ' LEFT JOIN sentinel_observation_provenance p ON p.observation_seq=o.seq'
+    ' JOIN sentinel_account_binding b ON b.id=1'
+    '   AND (o.observed_at >= b.established_at OR p.observed_at >= b.established_at)'
     ' LEFT JOIN sentinel_processed_sessions s'
     "   ON s.cursor_name=('broker-observation:v4:' || o.seq::text)")
 
@@ -1188,19 +1188,22 @@ def _orphaned_observation_issues(conn, account_binding):
             cur.execute(
                 "SELECT s.cursor_name,s.session,s.state->'observation_seq',"
                 " s.state->>'broker',s.state->>'account_id',s.state->>'observed_at',"
-                " s.state->>'started_at',s.state->>'kind'"
+                " s.state->>'started_at',s.state->>'kind',o.observed_at"
                 ' FROM sentinel_processed_sessions s LEFT JOIN sentinel_observations o'
                 " ON s.cursor_name=('broker-observation:v4:' || o.seq::text)"
+                ' LEFT JOIN sentinel_observation_provenance p ON p.observation_seq=o.seq'
                 " WHERE s.cursor_name LIKE 'broker-observation:v4:%%'"
-                ' AND o.seq IS NULL AND s.cursor_name>%s'
+                ' AND (o.seq IS NULL OR (o.observed_at<%s'
+                ' AND (p.observed_at IS NULL OR p.observed_at<%s))) AND s.cursor_name>%s'
                 ' ORDER BY s.cursor_name LIMIT %s',
-                (after, OBSERVATION_INTEGRITY_PAGE_SIZE))
+                (established_at, established_at, after, OBSERVATION_INTEGRITY_PAGE_SIZE))
             rows = cur.fetchall()
         if not rows:
             return
         for (name, session, stored_seq, stored_broker, stored_account, observed,
-             started, kind) in rows:
-            reasons = ['MISSING_PRIMARY_OBSERVATION']
+             started, kind, primary_observed_at) in rows:
+            reasons = ['MISSING_PRIMARY_OBSERVATION' if primary_observed_at is None
+                       else 'OBSERVATION_SCOPE_DISAGREEMENT']
             try:
                 observed_at = _aware_utc(datetime.fromisoformat(
                     str(observed).replace('Z', '+00:00')), 'orphaned observation timestamp')
@@ -1242,7 +1245,10 @@ def _observation_integrity_rows(conn, *, orphan_issues=None):
         cur.execute(
             'SELECT COALESCE(MAX(o.seq),0),b.broker,b.broker_account_id,b.established_at'
             ' FROM sentinel_account_binding b LEFT JOIN sentinel_observations o'
-            ' ON o.observed_at >= b.established_at WHERE b.id=1'
+            ' ON o.observed_at >= b.established_at OR EXISTS ('
+            ' SELECT 1 FROM sentinel_observation_provenance p'
+            ' WHERE p.observation_seq=o.seq AND p.observed_at>=b.established_at)'
+            ' WHERE b.id=1'
             ' GROUP BY b.broker,b.broker_account_id,b.established_at')
         boundary = cur.fetchone()
     if boundary is None:

@@ -250,15 +250,20 @@ def admissible_history(rows, *, axis: list[str], symbols: set[str],
             if (symbol not in split_symbols and current[4] / current[3] - 1 > 0.0005):
                 lo, hi = _adjustment_interval(row, Decimal(1))
                 by_symbol[symbol] = [position, position, 1, ratio, ratio, Decimal(1), lo, hi]
+    last_absent: dict[str, str] = {}
+    for symbol, day in pair_absent:
+        previous_absent = last_absent.get(symbol)
+        if previous_absent is None or day > previous_absent:
+            last_absent[symbol] = day
     admitted, reasons = {}, defaultdict(int)
     for symbol in sorted(symbols):
         observed = by_symbol.get(symbol)
+        last_missing = last_absent.get(symbol)
         if symbol in action_affected:
             reasons["reported_corporate_action"] += 1
-        elif any(pair_symbol == symbol and pair_day >= (
-                    axis[observed[0]] if observed else axis[0])
-                 and pair_day > (reset_after or {}).get(symbol, "")
-                 for pair_symbol, pair_day in pair_absent):
+        elif (last_missing is not None
+              and last_missing >= (axis[observed[0]] if observed else axis[0])
+              and last_missing > (reset_after or {}).get(symbol, "")):
             reasons["raw_adjusted_key_mismatch"] += 1
         elif observed is None:
             reasons["no_prices"] += 1

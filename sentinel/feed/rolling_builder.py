@@ -243,12 +243,23 @@ def build_alpaca(conn, lease, request, source):
     verifier = PricePartVerifier(source.price_manifests) if source.price_manifests else None
     with progress.phase("rolling_identity", subphase="alpaca_admission",
                         selected=len(selected), job_id=lease.job_id) as counter:
-        admitted, exclusions = admissible_history(
-            _alpaca_rows(conn, lease, verifier=verifier), axis=axis,
-            symbols=set(selected), action_affected=source.action_affected,
-            pair_absent=source.pair_absent, dividend_dates=dividend_dates,
-            reset_after=source.reset_after, split_terms=source.split_terms())
-        counter[0] = len(admitted)
+        def admission_rows():
+            with closing(_alpaca_rows(conn, lease, verifier=verifier)) as rows:
+                for row in rows:
+                    counter[0] += 1
+                    if counter[0] % rolling_store.BATCH_SIZE == 0:
+                        pulse()
+                        progress.emit('rolling_identity', 'working', subphase='alpaca_admission',
+                                      rows=counter[0], selected=len(selected), job_id=lease.job_id)
+                    yield row
+
+        with closing(admission_rows()) as rows:
+            admitted, exclusions = admissible_history(
+                rows, axis=axis,
+                symbols=set(selected), action_affected=source.action_affected,
+                pair_absent=source.pair_absent, dividend_dates=dividend_dates,
+                reset_after=source.reset_after, split_terms=source.split_terms())
+        pulse()
     # Quarantined economic ambiguities are explicitly observed exclusions.
     # Absent or stale prices remain unexpected coverage loss and cannot dilute
     # the collapse denominator. The broad admitted floor always still applies.

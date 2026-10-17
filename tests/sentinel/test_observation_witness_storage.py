@@ -202,3 +202,39 @@ def test_unused_sequence_numbers_are_not_missing_observations(conn):
     conn.commit()
     _record(conn)
     journal.require_observation_integrity(conn)
+
+
+@pytest.mark.parametrize('current_copy', ['primary', 'provenance', 'witness', 'missing_witness'])
+def test_each_retained_observation_copy_preserves_current_account_scope(conn, current_copy):
+    seq = _record(conn)[0]
+    key = f'broker-observation:v4:{seq}'
+    observed_at = conn.execute('SELECT observed_at FROM sentinel_observations WHERE seq=%s',
+                               (seq,)).fetchone()[0]
+    old_time = observed_at - timedelta(days=1)
+    if current_copy != 'primary':
+        _edit(conn, 'sentinel_observations',
+              'UPDATE sentinel_observations SET observed_at=%s WHERE seq=%s', (old_time, seq))
+    if current_copy not in ('provenance', 'missing_witness'):
+        _edit(conn, 'sentinel_observation_provenance',
+              'UPDATE sentinel_observation_provenance SET observed_at=%s WHERE observation_seq=%s',
+              (old_time, seq))
+    if current_copy == 'missing_witness':
+        _edit(conn, 'sentinel_processed_sessions',
+              'DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s', (key,))
+    elif current_copy != 'witness':
+        patch = json.dumps({'observed_at': old_time.isoformat(), 'started_at': old_time.isoformat()})
+        _edit(conn, 'sentinel_processed_sessions',
+              'UPDATE sentinel_processed_sessions SET session=%s,state=state || %s::jsonb '
+              'WHERE cursor_name=%s', (old_time.date(), patch, key))
+    with pytest.raises(journal.ObservationEvidenceUncertifiable):
+        journal.require_observation_integrity(conn)
+
+
+def test_concordant_prebinding_observations_stay_outside_current_account_scrub(conn):
+    seq = _record(conn)[0]
+    observed_at = conn.execute('SELECT observed_at FROM sentinel_observations WHERE seq=%s',
+                               (seq,)).fetchone()[0]
+    conn.execute('UPDATE sentinel_account_binding SET established_at=%s,broker_account_id=%s WHERE id=1',
+                 (observed_at + timedelta(seconds=1), 'next-account'))
+    conn.commit()
+    journal.require_observation_integrity(conn)

@@ -131,3 +131,29 @@ they must never be invoked against the installed stack as a shortcut. Full GO
 uses the operational command documented in `docs/sentinel-deployment.md` after
 independent media and isolated fixture ownership are available. This tool does
 not replace that required pre-publication qualification.
+
+## Full-window admission lease pacing
+
+The real cold acquisition exposes a full admission pass over more than two
+million paired rows before the first candidate is created. That pass must renew
+the existing job lease in bounded row batches and emit progress while preserving
+the original owner, fence and absolute deadline. It advances no observation
+clock, source generation, publication, cursor or trading authority. A lost fence
+or expired deadline still refuses through the ordinary heartbeat guard.
+
+Keep lease renewal in the current acquisition transaction; the admission iterator
+must not commit partial financial state or release its corpus ownership. A
+rollback removes those uncommitted renewals and all partial admission work. A
+subsequent ordinary claim can re-fence the expired owner and verify retained
+immutable parts under their original clocks/deadline. Source and normalization
+versions remain unchanged because only execution pacing changes.
+
+The final missing-pair admission check also indexes the maximum absent date for
+each symbol once. The original predicate asks whether any absent date is both at
+or after the usable tail start and strictly after its reset boundary. Both tests
+are monotone in the absent date, so that predicate is exactly equivalent to
+applying them to the maximum date. Preserve dates outside the price window,
+strict reset equality and clean recent-tail behavior. This changes repeated
+symbol-by-absence scans into one absence pass plus one lookup per symbol; it
+changes no admitted securities or rejection reasons and requires no new policy
+or input epoch.

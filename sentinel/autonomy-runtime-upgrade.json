@@ -53,7 +53,7 @@
       ]
     },
     "execution/journal.py": {
-      "after": "4b17d179e1118629471f59854e05f4d0547590045b80264c47ea518dd10e5321",
+      "after": "d9a0ea12d0f907f5e7cf42696770f2fbf171c5ac8b9250a31efce26333363c40",
       "before": [
         "4b82c80dc4c05c09988bbe5823e6efa0bed84a89c42184b263f6ed5a83b84781"
       ]
@@ -85,7 +85,7 @@
       ]
     },
     "feed/alpaca_observation.py": {
-      "after": "8b85031e9f3ccab6c2f9fac489306f881dc025a221af494bd59d51183ea94ba6",
+      "after": "5a3924d4d3e7200c907219c6c137d02cf11723f94dfd8b36b2ca87cfd7fbe4c9",
       "before": [
         "62199edb73a22f8e5e5c3a11b6e012c32860d321058ff953b599cc8a37889561",
         "85a15d17709da45f12cb09c13c7527218bcce031afcab9e1ec4fa3ea28f90c30"
@@ -126,7 +126,7 @@
       ]
     },
     "feed/rolling_builder.py": {
-      "after": "b1c694aaf57a91cc72bbfa820a138b559bd02cbd4890df770a07671b8b1558e3",
+      "after": "12ff3ae127688112efbdee4979e6cb791156f7ea80d460ff7e99349cc33c7fb5",
       "before": [
         "4405007b078cd0ac7260a5465c5b31c6282c9a9ffbe5131480f0fc67c570d016",
         "8cd2957a5ba7033def2fbe329dda86adf4ec7a313d3ae130699ffdb9d2f7e74d"
