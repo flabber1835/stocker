@@ -1,13 +1,18 @@
 # Autonomy remediation qualification record
 
 Implementation base: `118b7c15249e47bd7ea79a23ecbc58b6dc947741`.
-Qualified runtime implementation commit: `bc7343100d9d8ba3357c339242fbf5962c1111cd` on
-`codex/autonomy-live-qualification`. Earlier image evidence below identifies
+Qualified runtime implementation commit: `e9172f444acee40a20c0ecbbaa13f3c09e8eb953` on
+`codex/autonomy-live-qualification`. Later commits change tests and this record;
+the runtime, operational scripts, workflows and image-build sources are unchanged.
+Historical image evidence below identifies `bc734310` and
 `05c516a69401fe0cc4cf4355a311c3527f9706b8` explicitly. This record distinguishes software tests,
 provider observations and deployment/live authority. It is not a signed release
 certificate or a permission to trade.
-The subsequent host-only probe import repair has separate evidence below; it
-does not change that runtime's imported source or its completed financial GO.
+The host-only probe import repair and checksum migration have separate evidence
+below. The current source checkout/test lens and native host-script proof
+include the import repair; operational host scripts are not packaged in the
+runtime image. That image includes the checksum migration. Earlier images
+retain their original attribution.
 
 ## Implemented scope
 
@@ -47,7 +52,107 @@ remain complete; no delta-only source coverage or general runtime speedup is
 claimed. Larger workflow/module consolidation and authenticated verified-prefix
 checkpoints remain separate work with their own proof obligations.
 
-## Exact images and test evidence
+## Current e917 immutable-image and functional qualification
+
+Runtime image:
+`sha256:6a1dac0dac44033aa4244b50eaf492a885eb9b7e674417cc9fc3bcf329a6b6ca`.
+Test lens:
+`sha256:e36658fabc42d3e0d85ec1031910a16925b0e2a8594c1f4c80397e3ea0637c31`.
+Both identify source `e9172f444acee40a20c0ecbbaa13f3c09e8eb953`.
+The clean committed build, UID 10001, baked dependency lock and matching ordinary
+CLI/unchanged restore filesystem identities were independently verified.
+The native identity was
+`fbae4f848c9419f51742392cfd67ab6a1f74bee82e19163d28697fdb181c66d2`.
+
+Immutable-image checks passed 620 affected regressions in 135.854 s, 257 selected
+source-profile tests in 6.148 s, 17 host tests in 0.459 s and all 44 acquisition
+mutants in 234.875 s. The original forty mutant labels remain; the four added
+cases cover auxiliary reference hashes, both retained-root pins and actual
+legacy constraint retirement. Build acceptance passed 46 layout tests in
+41.20 s, 1,581 operator tests in 154.82 s and 79 browser tests in 10.48 s.
+The existing isolated native host-probe integration passed in 62.237 s.
+
+The immutable feed selection initially passed 161 tests and failed three host
+imports in 236.516 s because its harness omitted `/work/scripts` from
+`PYTHONPATH`. Those same three selectors passed in 2.857 s with the corrected
+path, without source changes. This is preserved as an initial failure and a
+separate correction, not a single all-green invocation. Later test-only codec,
+accounting, restore and reader fixture overlays on these unchanged images are
+recorded below. Groups overlap; the complete suite is not claimed. Exact Docker
+argument arrays and image/overlay attribution are retained in the evidence JSON.
+
+The new cold v3 run passed `functional_status`, `financial_proof_status` and
+`cleanup_status`, with `private_project_stopped=true`. Its complete raw report
+was 16,728 bytes, SHA256
+`9e609fe8c5397a2a446817ca89d4f95de5294e3aa096178c7da8b14d045813fa`.
+All command exits were zero. The original work deadline remained
+`2026-10-17T08:47:27.867514Z`.
+
+| Genuine producer/check | Result and command elapsed |
+| --- | --- |
+| Initial base/status/full semantic restore | PASS, 24.487 s / 6.491 s / 21.436 s. |
+| Complete provider preparation | PASS, 1,543.657 s main child; 1,545.535 s whole wrapper, including the separate 1.815 s retained-revision probe. |
+| Completed-input diagnostic | PASS, 5.111 s. |
+| 126-session canonical formation/restart parity | PASS, 905.347 s. |
+| Read-only readiness | PASS, 82.989 s. |
+| Read-only financial health | PASS, 90.411 s; all 14 checks true and zero database writes. |
+| Native durable initialization | PASS, 188.733 s. |
+| Fresh-process durable resume | PASS, 69.250 s; session, record, state, full ledger, checkpoint and execution-journal hashes equal. |
+| Retained canonical restart parity | PASS, 74.793 s. |
+| Populated base and exact backup status | PASS, 70.914 s / 7.872 s. |
+| Populated full semantic restore | PASS, 119.736 s. |
+| Private-project cleanup | PASS, 1.397 s. |
+
+The provider window contained 426 sessions, 5,937 selected and 5,913 admitted
+securities, 2,366,921 paired stock rows and 2,198,840 canonical stock rows.
+At the `07:15:07.365530Z` diagnostic, original inventory age was 1,539.983 s;
+stock ages were 521.275–1,374.752 s. Future observation counts were zero and
+source clocks were not refreshed. Admission processed the actual rows in
+54.212 s with 473 bounded working pulses; normalization took 128.508 s.
+These observations do not establish a comparative runtime speedup or final
+database size improvement.
+
+The populated backup `base-20261017T073847Z` restored the attested October 16
+book at publication version 1, with restart state present. Validation remained
+read-only, with no bound account, zero commands and automation disabled.
+The backup/status/full-restore producers passed for both the schema bootstrap
+and populated book. Automatic horizon-triggered renewal was NOT_EXERCISED:
+zero callback calls, zero successes and no exercised horizon resume. Controlled
+renewal tests and these explicit producers are distinct evidence.
+
+The auxiliary passive observer exited 1 after a `PermissionError` enumerating
+the private backup's base directory. It verified no restore-worker containers;
+current OOM and worker-log capture are NOT_PROVEN. This auxiliary failure does
+not change the independently successful restore producer, semantic validation
+or cleanup. Its failure is preserved separately. Original backup permissions
+and the successful qualification were unchanged.
+
+A bounded read-only copy of the historical populated backup established that
+the two runs used different input observations. Selection, fundamental,
+dividend and reset commitments matched; all 21 auxiliary reference hashes and
+20 price-content partitions matched. The October 1–16 partition changed from
+70,981 to 71,096 rows. Stale/noncontiguous exclusions changed 120 to 5 and
+discontinuity exclusions 16 to 17, while admitted count rose by 114. The recorded
+empty continuity-binding hash does not prove complete provider mapping
+equivalence. Individual bars, upstream mechanism and one-to-one causality were
+not established. The original backup stayed read-only, checked metadata hashes
+were unchanged, and the isolated copy's container and volume were removed.
+
+The same reviewed v3 driver and 7,200 s budget shown in the historical command
+below were used with the current runtime digest, commit and a fresh private
+workspace. The sanitized current evidence archive contains 32 members,
+142,216 bytes, SHA256
+`8d9edccc9ba19782ff04cf8fdf91721ed7bbb14dbb38eca8308b8f9c4b48c0b8`.
+Its fixed manifest preserves historical failures, current failure/correction
+history, diagnostic limits and immutable-image versus test-overlay attribution.
+Fresh exact-head GitHub checks are a separate PR validation gate. Physical
+backup independence, NAS capacity, signed release/deployment admission and live
+authority remain NOT_PROVEN.
+
+## Historical bc734310 images and test evidence
+
+The following image/table/command evidence retains its historical source
+attribution. Its uses of "final" refer to that earlier runtime, not e917.
 
 Final runtime image:
 `sha256:a0d52b8f0380025829b85464c63836fb113f28fa9eac3369a106c5a1957de01c`.
@@ -360,7 +465,7 @@ v2 only by its dedicated temporary mount and `TMPDIR`; its SHA256 is
 The new cold attempt used an empty private database, fresh backup namespace and
 new native identity. The implementation and test images were unchanged.
 
-## Corrected cold functional qualification: PASS
+## Historical bc734310 corrected cold functional qualification: PASS
 
 The corrected v3 attempt passed both `functional_status` and
 `financial_proof_status`, with `private_project_stopped=true` and cleanup PASS.
@@ -490,7 +595,9 @@ database regressions and the acquisition mutation harness cover the repair.
 This changes runtime source after `bc734310`. The preceding immutable-image
 and genuine financial GO evidence remains attributed to that earlier runtime.
 Fresh source profiles, immutable images, software checks and a new real-provider
-financial/backup/full-restore GO are required before publishing this repair.
+financial/backup/full-restore GO passed for e917 as recorded above. This local
+qualification precedes publication; exact-head GitHub validation is tracked on
+the pull request separately.
 
 The same `a437e7fe` CI run also found two stale source-codec fixtures in a
 1,777-test shard. Their manifest double omitted the published reference/source
