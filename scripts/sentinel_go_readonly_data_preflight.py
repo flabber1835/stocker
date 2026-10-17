@@ -37,6 +37,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import sentinel_go_probe_contract as probe_contract  # noqa: E402
 import sentinel_go_validate as go  # noqa: E402
+import sentinel_probe_output as probe_output  # noqa: E402
 
 MARKER = "SENTINEL_GO_READONLY_DATA_PREFLIGHT="
 

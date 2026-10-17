@@ -1,11 +1,13 @@
 # Autonomy remediation qualification record
 
 Implementation base: `118b7c15249e47bd7ea79a23ecbc58b6dc947741`.
-Final implementation commit: `bc7343100d9d8ba3357c339242fbf5962c1111cd` on
+Qualified runtime implementation commit: `bc7343100d9d8ba3357c339242fbf5962c1111cd` on
 `codex/autonomy-live-qualification`. Earlier image evidence below identifies
 `05c516a69401fe0cc4cf4355a311c3527f9706b8` explicitly. This record distinguishes software tests,
 provider observations and deployment/live authority. It is not a signed release
 certificate or a permission to trade.
+The subsequent host-only probe import repair has separate evidence below; it
+does not change that runtime's imported source or its completed financial GO.
 
 ## Implemented scope
 
@@ -417,13 +419,56 @@ python3 isolated_financial_go_v3.py \
   --workspace <new-private-directory> --budget-seconds 7200
 ```
 
-The sanitized evidence archive contains 22 reviewed files, including all five
+The sanitized evidence archive contains 23 reviewed files, including all five
 final JUnit selections, the three attempt summaries, reviewed driver versions,
-identity probes and manifest. It is 76,358 bytes with SHA256
-`8633a22a958174c992b61632f5fb74631ad6c6085002100a6c1c543195e26069`.
+identity probes, separate host-import proof and manifest. It is 78,223 bytes with SHA256
+`ca0719884bbfc740b0f7b905b7b26e50e19720885ad69a6dcafd13aa37a56270`.
 Independent member/hash, status-binding and redaction checks passed. Private
 keys, configuration, raw logs, provider responses, database backups and WAL are
 excluded. The archive is functional evidence, not a signed release certificate.
+
+## Host probe import follow-up
+
+The first PR head `9352fb59ae227e4c8e8312fe68b76096cdbeb835` failed the GitHub
+Sentinel safety runtime-boundary check: the read-only data-preflight host script
+called `probe_output` without importing it. The repair adds that one explicit
+import, restoring the documented shared parser contract. The fixed script SHA256
+is `7d94122ef8f9ab60644d647d62efc59c5f9ed78d83e944a4e0c21dda4197320d`.
+
+The existing native integration reproduced the actual `NameError` before repair
+(exit 1, 12.677 s) and passed after repair (exit 0, 45.421 s,
+`GO_PROBE_RUNTIME_INTEGRATION_PASS`). Its six read-only checks and authentication,
+mutable-import and receipt-ancestry refusals passed. The corrected run used only
+a verified private Docker graph, no host ports, and successful cleanup. The
+command, from an isolated integration checkout, was:
+
+```sh
+python3 scripts/test_go_probe_runtime_integration.py \
+  sha256:a0d52b8f0380025829b85464c63836fb113f28fa9eac3369a106c5a1957de01c
+```
+
+Three directly relevant existing test files passed 17 tests in 8.07 s:
+
+```sh
+docker run --rm --network none --read-only \
+  --tmpfs /tmp/sentinel-tests:rw,mode=1777 \
+  --mount type=bind,source=<feature-worktree>,target=/review,readonly \
+  --workdir /work --env PYTHONDONTWRITEBYTECODE=1 \
+  --env SENTINEL_REPO_ROOT=/review --env TMPDIR=/tmp/sentinel-tests \
+  --entrypoint python \
+  sha256:e042a245195c46e9c127138f66d1679a322757b0f36cf9a4e06e3f13c2495065 \
+  -m pytest -q -p no:cacheprovider \
+  /review/tests/sentinel/test_go_readonly_data_preflight.py \
+  /review/tests/sentinel/test_go_preflight_vendor_cursor_clock.py \
+  /review/tests/scripts/test_sentinel_bringup_source_liveness.py
+```
+
+This is a read-only host-source overlay test. The existing test lens retains the
+old embedded host script and is not relabelled as containing the repair. The
+native runtime image does not package `scripts/`; its Sentinel/shared source,
+embedded runtime probe expression and completed genuine financial GO producer
+chain are unchanged. The corrected host script and its proof received independent
+review. Fresh GitHub validation is required on the updated PR head.
 
 ## Remaining acceptance boundaries
 
