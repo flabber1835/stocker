@@ -164,5 +164,61 @@ Market-data/canonical-book/logical-recovery GO passed within this local scope.
 No raw logs, recordings, accounts, balances, credentials or recovery keys are
 included here.
 
-The handoff following the tested commit changes documentation only. Runtime,
-tooling, tests and workflow bytes remain those qualified at `e8f04420`.
+The initial `5d572180` handoff following the tested commit changed documentation
+only. Its runtime, tooling, tests and workflow bytes remained those qualified
+at `e8f04420`.
+
+## CI fixture follow-up — 2026-10-17
+
+The [automation CI job](https://github.com/flabber1835/stocker/actions/runs/39053365224/job/117457503377)
+ran the complete registered lane: 478 passed and six failed. The earlier local
+selection omitted the startup-contention and worker-source-recovery modules.
+Those fixtures froze the scheduling clock while monotonic time advanced; the
+production sampler correctly classified their inconsistent samples as WAITING.
+Consequently they never reached their intended lease, post-tick or recovery
+assertions. This was a test-fixture defect; no production guard was relaxed.
+
+An explicitly selected shared `frozen_clock_sample` fixture now provides
+coherent wall, monotonic and database times only inside the original production
+sampler. Its context restores real clocks before leases, callbacks, supervision
+and process reaping. It is used only by the affected frozen-time tests, including
+the two earlier service fixtures. The clock falsifiers retain their own clocks.
+All 293 original assertion expressions in the three changed test modules are
+AST-identical to `5d572180`.
+
+The complete eleven-module CI automation command passed locally: **484 passed,
+zero failures/errors/skips**, 11 fork deprecation warnings, in 163.16 seconds.
+The unchanged `--fail-under=100.00` gate passed with **796/796 statements and
+316/316 branches**, no partial branches or exclusions. This reproduction used
+the exact test image listed above, three read-only test-file overlays, and no
+production source overlay. All 344 production Python files were stable before
+and after. Runtime, tooling and workflow bytes remain unchanged, so the earlier
+real-provider GO retains its original source/image attribution.
+
+The receipt is `ci530-automation/a/qualification.json`, SHA256
+`c2e57901fc4e238fd52d79450a30698fd13b5cedbbe07b10955a06ba07682af1`.
+Its companion `container-result.json`, `automation.xml`, `coverage.json` and
+`assertion-preservation.json` retain exact commands, source/test hashes and
+coverage results. These follow-up test-overlay results are separate from the
+original immutable-image archive above; they do not relabel that archive.
+
+The checkout's `python tools/sentinel_ci_shards.py --root . --lane
+sentinel-automation` selected these eleven modules. The in-image commands use
+`COVERAGE_FILE=/evidence/automation.coverage` and match CI's coverage ownership:
+
+```bash
+python -m coverage run --branch --source=sentinel.automation.service -m pytest \
+  tests/sentinel/test_activation_startup_contention.py \
+  tests/sentinel/test_automation_clock_sampling.py \
+  tests/sentinel/test_automation_composition.py \
+  tests/sentinel/test_automation_generation.py \
+  tests/sentinel/test_automation_p1_continuity.py \
+  tests/sentinel/test_automation_process_contracts.py \
+  tests/sentinel/test_automation_safety_seams.py \
+  tests/sentinel/test_automation_service.py \
+  tests/sentinel/test_automation_service_fault_paths.py \
+  tests/sentinel/test_automation_worker_source_recovery.py \
+  tests/sentinel/test_issue_201_automation_financial_grade.py \
+  -q -ra --junitxml=/evidence/automation.xml
+python -m coverage report --precision=2 --fail-under=100.00
+```

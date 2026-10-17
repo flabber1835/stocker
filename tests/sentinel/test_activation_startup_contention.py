@@ -13,7 +13,8 @@ from sentinel.automation.health import read_health
 from sentinel.automation_runtime import ProductionAutomation
 from sentinel.feed import store as feed_store
 from tests.sentinel.test_automation_service import (
-    conn, pg, config, enable, service_for, binding, recovery_success, AFTER_WEDNESDAY_CLOSE)
+    conn, pg, config, enable, service_for, binding, recovery_success,
+    frozen_clock_sample, AFTER_WEDNESDAY_CLOSE)
 from tests.sentinel.test_autonomous_deploy import deploy, _cfg, _health
 from tests.sentinel.test_automation_generation import future_friday
 
@@ -54,7 +55,7 @@ def writer(pg):
 @pytest.mark.asyncio
 @pytest.mark.parametrize('release_before_next_tick', [False, True])
 async def test_busy_writer_keeps_worker_and_waits_without_financial_work(
-        conn, pg, writer, release_before_next_tick):
+        conn, pg, writer, release_before_next_tick, frozen_clock_sample):
     cfg = config()
     now = datetime.now(timezone.utc)
     # Activation/control mutations are deliberately before the independent
@@ -181,7 +182,8 @@ def test_historical_diagnostic_cannot_make_unready_worker_ready(tmp_path, monkey
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('prospective', [False, True])
-async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(conn, pg, prospective):
+async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(
+        conn, pg, prospective, frozen_clock_sample):
     """Real terminal/notifier/control loop; signed authority is a fixture seam.
 
     No certificate or broker is constructed. Terminal trial storage, outbox,
