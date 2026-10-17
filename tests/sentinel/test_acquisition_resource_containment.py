@@ -13,7 +13,7 @@ import pytest
 
 from sentinel.feed import acquisition_limits as limits, acquisition_work as work
 from sentinel.feed import snapshot_export as export
-from tests.sentinel.test_sharadar_snapshot_export import _Http, _Response, _zip_tickers
+from tests.support.table_export import _Http, _Response, _zip_tickers
 from tests.sentinel.test_source_acquisition_lifecycle import fresh, snapshot
 
 

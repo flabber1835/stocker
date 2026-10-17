@@ -25,7 +25,6 @@ PROTECTED_OWNER_JOBS = {
     "wealth-core.prospective": ".github/workflows/sentinel-safety.yml#certification-and-durability",
     "scripts.operator": ".github/workflows/sentinel-safety.yml#certification-and-durability",
     "host-python38.compatibility": ".github/workflows/sentinel-safety.yml#host-python-38-compatibility",
-    "sharadar.daily-replay": ".github/workflows/sentinel-safety.yml#certification-and-durability",
     "alpaca.contracts": ".github/workflows/sentinel-safety.yml#certification-and-durability",
 }
 ADVISORY_OWNERS = {
@@ -66,7 +65,6 @@ CONTAINER_OWNERS = {
     "production-champion.regressions",
     "wealth-core.prospective",
     "scripts.operator",
-    "sharadar.daily-replay",
 }
 _PROTECTED_SCOPE_MATRIX = (
     "${{ fromJSON(github.event_name == 'pull_request' && "
@@ -343,8 +341,6 @@ def _require_incident_anti_regrowth() -> str | None:
             "pull-request base SHA is unavailable for anti-regrowth authority")
     _ensure_git_commit(base)
     roots = ["tests"]
-    if (ROOT / "research/sharadar_replay/tests").is_dir():
-        roots.append("research/sharadar_replay/tests")
     diff = subprocess.check_output(
         ["git", "diff", "--name-status", "--find-renames", base, "HEAD", "--", *roots],
         cwd=ROOT, text=True)
@@ -372,11 +368,6 @@ def _collect_owned_pytest_nodes(owner_name: str, expected_names: list[str]) -> s
     env.pop("INTERNAL_STATE_SUITE_EVIDENCE", None)
     if owner_name in CONTAINER_OWNERS:
         command = ["docker", "run", "--rm", "--network", "none"]
-        if owner_name == "sharadar.daily-replay":
-            command.extend([
-                "-v", f"{ROOT / 'research'}:/work/research:ro",
-                "-v", f"{ROOT / '.git'}:/work/.git:ro",
-            ])
         command.extend(["--entrypoint", "python", "sentinel-test:ci", *pytest_args])
         result = subprocess.run(command, cwd=ROOT, env=env, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, check=False)

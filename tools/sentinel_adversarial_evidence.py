@@ -45,6 +45,14 @@ LAYERS = {
     "shadow": ("test_shadow_observation", "test_shadow_service"),
 }
 
+EXTERNAL_EVIDENCE = {
+    "current_alpaca_openfigi_inputs": "PROVIDER_QUALIFICATION_REQUIRED_NOT_RUN",
+    "historical_research_performance": "OUT_OF_OPERATIONAL_SCOPE",
+    "historical_metadata_causality": "NOT_CLAIMED",
+    "nas_resource_envelope": "NAS_REQUIRED_NOT_RUN",
+    "alpaca_expected_observed_shadow": "PAPER_ACCOUNT_REQUIRED_NOT_RUN",
+}
+
 
 def _git(repo: Path, *args: str) -> str:
     return subprocess.check_output(
@@ -146,12 +154,7 @@ def main() -> int:
         "layers": layers,
         "required_layers_present": required_layers_present,
         "generated_seeds": list(range(8)),
-        "external_evidence": {
-            "authoritative_sharadar_full_history": "NAS_REQUIRED_NOT_RUN",
-            "historical_metadata_causality": "NOT_CLAIMED",
-            "nas_resource_envelope": "NAS_REQUIRED_NOT_RUN",
-            "alpaca_expected_observed_shadow": "PAPER_ACCOUNT_REQUIRED_NOT_RUN",
-        },
+        "external_evidence": dict(EXTERNAL_EVIDENCE),
         "harness_error": harness_error or None,
         "certification_passed": passed,
     }

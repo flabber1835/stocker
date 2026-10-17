@@ -10,7 +10,7 @@ from sentinel.feed import (
     operational_source as source, snapshot_export as export, sharadar,
     authority, publication, ingest, outage_recovery, maintenance_impl,
 )
-from tests.sentinel.test_sharadar_snapshot_export import _Http, _Response, _status
+from tests.support.table_export import _Http, _Response, _status
 
 
 def install_source(monkeypatch, *, changed=False):

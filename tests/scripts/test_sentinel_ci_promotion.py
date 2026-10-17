@@ -274,7 +274,7 @@ def test_actual_runtime_zip_digest_and_members_are_bound_before_loading(authorit
 @pytest.mark.parametrize("change", ["selection-failed", "runtime-cancelled", "worker-failed", "missing", "extra"])
 def test_main_dependency_receipt_never_calls_failed_work_reused(change):
     value = {key: {"result": result} for key, result in {"qualification-source": "success", "runtime-build": "success",
-             "parallel-certification": "skipped", "sharadar-replay": "skipped"}.items()}
+             "parallel-certification": "skipped"}.items()}
     policy.verify_promotion_dependencies(value)
     if change == "selection-failed": value["qualification-source"]["result"] = "failure"
     elif change == "runtime-cancelled": value["runtime-build"]["result"] = "cancelled"
@@ -305,7 +305,7 @@ def test_workflow_keeps_pr_full_execution_and_single_guarded_publisher():
     root = Path(__file__).resolve().parents[2]
     safety = yaml.safe_load((root / ".github/workflows/sentinel-safety.yml").read_text())
     jobs = safety["jobs"]
-    for name in ("parallel-certification", "sharadar-replay"):
+    for name in ("parallel-certification",):
         assert "needs.qualification-source.outputs.mode == 'full'" in jobs[name]["if"]
         assert "qualification-source" in jobs[name]["needs"]
     carrier = jobs["certification-and-durability"]
@@ -328,7 +328,7 @@ def test_pr_projection_cannot_hide_a_weakened_selector(change):
     elif change == "selector-masked": text = text.replace("select --output /tmp/promotion-plan.json", "select --output /tmp/promotion-plan.json || true", 1)
     elif change == "selector-ref": text = text.replace("ref: ${{ github.event.pull_request.head.sha || github.sha }}", "ref: main", 1)
     elif change == "output": text = text.replace("mode: ${{ steps.select.outputs.mode }}", "mode: promote", 1)
-    elif change == "detached": text = text.replace("needs: [qualification-source, runtime-build, parallel-certification, sharadar-replay]", "needs: [runtime-build, parallel-certification, sharadar-replay]", 1)
+    elif change == "detached": text = text.replace("needs: [qualification-source, runtime-build, parallel-certification]", "needs: [runtime-build, parallel-certification]", 1)
     else: text = text.replace("  host-python-38-compatibility:", "      - run: echo mode=promote\n\n  host-python-38-compatibility:", 1)
     with pytest.raises(AssertionError): _promotion_pr_view(text)
 

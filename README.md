@@ -3,7 +3,7 @@
 This repository contains one production architecture. Stocker is retired.
 
 ```text
-Sharadar      versioned, atomically published market-data history
+Market data   Alpaca SIP bars/actions and OpenFIGI classification
 Wealth Core   deterministic alpha engine and immutable shadow book (WHAT)
 Sentinel      deterministic exposure controller (HOW MUCH)
 Execution     the only broker-facing layer; Alpaca paper accounts only
@@ -30,8 +30,11 @@ mkdir -p "$SENTINEL_BACKUP_DIR/wal" "$SENTINEL_BACKUP_DIR/base"
 make sentinel-up                     # PostgreSQL + read-only loopback panel
 make status
 make check-data
-make test                            # process-isolated repository suites
 ```
+
+Use [the testing guide](docs/testing.md) for targeted tests, the pinned local
+test lens, and explicitly requested complete runs. CI changes and retained
+historical evidence are governed by [CI hardening](docs/ci-suite-hardening.md).
 
 Historical replay and strategy research live outside the production trader.
 The pre-separation certification environment is preserved at

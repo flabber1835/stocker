@@ -37,7 +37,7 @@ def test_reviewed_cash_fixture_normalizes_the_complete_old_share_event():
 
 
 def test_same_session_provider_retry_advances_observation_only():
-    from research.sharadar_replay.provider import Provider
+    from tests.support.market_replay.provider import Provider
     provider = Provider()
     failed = market.step(market.FIRST, faulty=True)
     provider.advance(failed)
@@ -51,8 +51,8 @@ def test_same_session_provider_retry_advances_observation_only():
 
 
 def test_fictional_provider_serves_every_bounded_operational_partition():
-    from research.sharadar_replay.provider import Provider
-    from research.sharadar_replay.runtime import simulated_runtime
+    from tests.support.market_replay.provider import Provider
+    from tests.support.market_replay.runtime import simulated_runtime
     from sentinel.feed import operational_source, sharadar
 
     provider = Provider(page_size=197, variation_seed=7)
@@ -71,8 +71,8 @@ def test_fictional_provider_serves_every_bounded_operational_partition():
 
 
 def test_fictional_outage_reaches_export_preflight_before_downloads():
-    from research.sharadar_replay.provider import Provider
-    from research.sharadar_replay.runtime import simulated_runtime
+    from tests.support.market_replay.provider import Provider
+    from tests.support.market_replay.runtime import simulated_runtime
     from sentinel.feed import operational_source, sharadar
 
     provider = Provider()
@@ -87,7 +87,7 @@ def test_fictional_outage_reaches_export_preflight_before_downloads():
 
 @pytest.mark.parametrize("fault", ["roundoff", "volume", "price", "identity", "missing"])
 def test_corpus_storage_precision_preserves_independent_falsifiers(fault):
-    from research.sharadar_replay.oracle import StateMismatch
+    from tests.support.market_replay.oracle import StateMismatch
     expected = market.step(market.SEED).expected
     rows = list(expected.bars)
     row = list(rows[5])

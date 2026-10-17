@@ -6,7 +6,6 @@
     "wealth-core.prospective",
     "scripts.operator",
     "host-python38.compatibility",
-    "sharadar.daily-replay",
     "alpaca.contracts"
   ],
   "advisory_owners": [

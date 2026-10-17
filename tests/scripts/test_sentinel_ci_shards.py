@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+import json
 
 import pytest
 
@@ -33,7 +34,7 @@ def test_shards_are_deterministic_disjoint_and_cover_future_modules():
                for module in first[f"sentinel-rolling-{index}"])
 
 
-@pytest.mark.parametrize("fault", ["duplicate", "invalid-path", "too-few-rolling", "empty-shard"])
+@pytest.mark.parametrize("fault", ["duplicate", "invalid-path", "too-few-rolling", "changed-shards"])
 def test_invalid_inventory_refuses_instead_of_skipping(fault, monkeypatch):
     modules = _inventory()
     if fault == "duplicate":
@@ -43,8 +44,7 @@ def test_invalid_inventory_refuses_instead_of_skipping(fault, monkeypatch):
     elif fault == "too-few-rolling":
         modules = [name for name in modules if "test_rolling_" not in name]
     else:
-        monkeypatch.setattr(shards.hashlib, "sha256", lambda value: type(
-            "SameHash", (), {"digest": lambda self: b"\x00" * 32})())
+        monkeypatch.setattr(shards, "SHARDS", 5)
     with pytest.raises(ValueError, match="duplicated|invalid|too few|incomplete"):
         shards.plan(modules)
 
@@ -84,22 +84,57 @@ def test_missing_registered_automation_module_refuses_instead_of_running_a_subse
         shards.automation_modules(modules)
 
 
-def test_rolling_costs_reserve_setup_margin_without_dropping_tests():
+def test_measured_costs_balance_both_existing_families_without_dropping_modules():
     groups = shards.plan(_inventory())
-    costs = [sum(shards.ROLLING_WEIGHTS.get(Path(name).name, 1) for name in
-                 groups[f'sentinel-rolling-{index}']) for index in range(shards.SHARDS)]
-    assert max(costs) <= 50
-    heavy = {'test_rolling_retained_runtime_activation.py', 'test_rolling_runtime.py',
-             'test_rolling_daily.py', 'test_rolling_paper_inputs.py'}
-    owners = [index for index in range(shards.SHARDS) for name in groups[f'sentinel-rolling-{index}']
-              if Path(name).name in heavy]
-    assert len(owners) == len(set(owners)) == 4
+    weights, default = shards.load_durations()
+    for family, allowed_spread in (("general", 1000), ("rolling", 5000)):
+        costs = [sum(weights.get(name, default) for name in groups[f"sentinel-{family}-{i}"])
+                 for i in range(shards.SHARDS)]
+        assert max(costs) - min(costs) <= allowed_spread
 
 
-def test_old_rolling_weights_are_detected_as_an_overloaded_lane(monkeypatch):
-    monkeypatch.setattr(shards, 'ROLLING_WEIGHTS', {
-        'test_rolling_daily.py': 20, 'test_rolling_runtime.py': 14,
-        'test_rolling_initialization.py': 12, 'test_rolling_restore_integrity.py': 11,
-        'test_rolling_recovery.py': 9})
+def test_both_families_assign_measured_heavy_modules_to_distinct_workers(monkeypatch):
+    modules = [f"tests/sentinel/test_{prefix}case_{i:02d}.py"
+               for prefix in ("", "rolling_") for i in range(12)]
+    heavy = {name for name in modules if name.endswith(("00.py", "04.py", "08.py", "09.py"))}
+    weights = {name: 1000 if name in heavy else 1 for name in modules}
+    monkeypatch.setattr(shards, "load_durations", lambda: (weights, 60))
+    groups = shards.plan(modules)
+    for family in ("general", "rolling"):
+        assert all(sum(name in heavy for name in groups[f"sentinel-{family}-{i}"]) == 1
+                   for i in range(4))
+    assert groups == shards.plan(list(reversed(modules)))
+
+
+def test_unit_weight_regression_is_an_executed_falsifier(monkeypatch):
+    original = shards.plan
+    def unit_weights(modules):
+        with monkeypatch.context() as isolated:
+            isolated.setattr(shards, "load_durations", lambda: ({name: 1 for name in modules}, 1))
+            return original(modules)
+    monkeypatch.setattr(shards, "plan", unit_weights)
     with pytest.raises(AssertionError):
-        test_rolling_costs_reserve_setup_margin_without_dropping_tests()
+        test_both_families_assign_measured_heavy_modules_to_distinct_workers(monkeypatch)
+
+
+def test_new_modules_have_a_positive_conservative_automatic_estimate():
+    weights, default = shards.load_durations()
+    assert default == 60000
+    assert weights.get("tests/sentinel/test_future_case.py", default) > 0
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 1.5, "10"])
+def test_invalid_duration_estimates_refuse_instead_of_changing_partition(tmp_path, bad):
+    value = json.loads(shards.DURATIONS.read_text())
+    value["modules"][next(iter(value["modules"]))] = bad
+    target = tmp_path / "durations.json"
+    target.write_text(json.dumps(value))
+    with pytest.raises(ValueError, match="module duration"):
+        shards.load_durations(target)
+
+
+def test_duplicate_duration_keys_refuse(tmp_path):
+    target = tmp_path / "durations.json"
+    target.write_text('{"schema": 1, "schema": 2}')
+    with pytest.raises(ValueError, match="duplicate duration"):
+        shards.load_durations(target)

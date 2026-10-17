@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -26,25 +26,34 @@ SPECIAL = AUTOMATION | frozenset({
     "test_source_seed_warmup.py", "test_runtime_contention.py",
     "test_status_memory.py",
 })
-# Rounded CI wall-time estimates, including the first test's fixture setup.
-# Retained activation is conservatively estimated from a cancelled partial run.
-# These affect balance only; the complete inventory comes from the checkout.
-ROLLING_WEIGHTS = {
-    "test_rolling_retained_runtime_activation.py": 40,
-    "test_rolling_runtime.py": 27,
-    "test_rolling_daily.py": 23,
-    "test_rolling_paper_inputs.py": 19,
-    "test_rolling_initialization.py": 14,
-    "test_rolling_restore_integrity.py": 14,
-    "test_rolling_recovery.py": 10,
-    "test_rolling_admission_readers.py": 4,
-    "test_rolling_audit_acceptance.py": 3,
-    "test_rolling_recovery_report_inputs.py": 3,
-    "test_rolling_go_inputs.py": 2,
-    "test_rolling_history_retention.py": 2,
-    "test_rolling_report_consumers.py": 2,
-    "test_rolling_retention_runtime.py": 2,
-}
+DURATIONS = Path(__file__).with_name("sentinel_ci_durations.json")
+
+
+def load_durations(path: Path = DURATIONS) -> tuple[dict[str, int], int]:
+    """Scheduling evidence only; inventory authority remains the exact checkout."""
+    def unique_pairs(items):
+        if len(items) != len({key for key, _ in items}):
+            raise ValueError("duplicate duration manifest key")
+        return dict(items)
+
+    value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_pairs)
+    if (not isinstance(value, dict) or set(value) != {
+            "schema", "source_commit", "junit_sha256", "default_milliseconds", "modules"}
+            or value["schema"] != "sentinel.ci-module-durations/1"
+            or not isinstance(value["source_commit"], str)
+            or re.fullmatch(r"[0-9a-f]{40}", value["source_commit"]) is None
+            or not isinstance(value["junit_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", value["junit_sha256"]) is None):
+        raise ValueError("invalid source-bound duration manifest")
+    default, weights = value["default_milliseconds"], value["modules"]
+    if type(default) is not int or default <= 0 or not isinstance(weights, dict) or not weights:
+        raise ValueError("invalid positive duration estimates")
+    if any(MODULE.fullmatch(name) is None or type(cost) is not int or cost <= 0
+           for name, cost in weights.items()):
+        raise ValueError("invalid module duration estimate")
+    return weights, default
+
+
 MODULE = re.compile(r"tests/sentinel/test_[a-zA-Z0-9_]+\.py\Z")
 
 
@@ -64,6 +73,8 @@ def tracked_modules(root: Path) -> list[str]:
 
 
 def plan(modules: list[str]) -> dict[str, tuple[str, ...]]:
+    if SHARDS != 4:
+        raise ValueError("incomplete reviewed four-shard inventory")
     if not modules or len(modules) != len(set(modules)):
         raise ValueError("Sentinel test module inventory is empty or duplicated")
     if any(MODULE.fullmatch(name) is None for name in modules):
@@ -76,15 +87,13 @@ def plan(modules: list[str]) -> dict[str, tuple[str, ...]]:
 
     groups: dict[str, list[str]] = {f"sentinel-general-{i}": [] for i in range(SHARDS)}
     groups.update({f"sentinel-rolling-{i}": [] for i in range(SHARDS)})
-    for name in sorted(general):
-        index = int.from_bytes(hashlib.sha256(name.encode("utf-8")).digest()[:4], "big") % SHARDS
-        groups[f"sentinel-general-{index}"].append(name)
-
-    weights = [0] * SHARDS
-    for name in sorted(rolling, key=lambda item: (-ROLLING_WEIGHTS.get(Path(item).name, 1), item)):
-        index = min(range(SHARDS), key=lambda item: (weights[item], item))
-        groups[f"sentinel-rolling-{index}"].append(name)
-        weights[index] += ROLLING_WEIGHTS.get(Path(name).name, 1)
+    estimates, default = load_durations()
+    for family, selected_modules in (("general", general), ("rolling", rolling)):
+        totals = [0] * SHARDS
+        for name in sorted(selected_modules, key=lambda item: (-estimates.get(item, default), item)):
+            index = min(range(SHARDS), key=lambda item: (totals[item], item))
+            groups[f"sentinel-{family}-{index}"].append(name)
+            totals[index] += estimates.get(name, default)
 
     selected = [name for files in groups.values() for name in files]
     if (any(not files for files in groups.values()) or len(selected) != len(set(selected))

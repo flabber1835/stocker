@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from research.sharadar_replay.runtime import simulated_runtime
+from tests.support.market_replay.runtime import simulated_runtime
 from sentinel.feed import (calendar, coherence, domains, ingest, publication, seed_capture,
                            sharadar, snapshot_source, source_aliases, store, symbol_identity, universe)
 from test_concurrent_source_symbols import DAY, source

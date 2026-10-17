@@ -99,9 +99,15 @@ byte-for-byte the same tree already exercised by the exact-head context. Commit
 identity is not treated as evidence equivalence.
 
 Pushes to `main`, merge-group events, and manual runs have only the exact-head
-scope and continue to execute the complete certification. Protected publication
-therefore remains bound to a full run for the exact main commit and runtime
-artifact; pull-request evidence is never substituted for publication evidence.
+scope. Protected main publication can reuse successful PR qualification under
+the exact-tree and retained-image policy in
+[CI-certified installation](ci-certified-paper-installation.md#qualified-pr-image-promotion).
+When its complete proof is unavailable, main executes the complete certification.
+Reuse records the original producer run/attempt; skipped workers are never
+represented as newly executed tests. Merge-group and ordinary manual full runs
+retain their complete qualification. Current partition ownership and the
+retirement of source-specific replay jobs are defined in
+[CI hardening](ci-suite-hardening.md).
 
 The operator lane checks pull-request whitespace against the exact advertised
 base SHA and the tested head tree. It fetches that base explicitly because the
@@ -169,11 +175,12 @@ must preserve automatic operation and fail closed for unknown changes.
 
 ## Stage-two decision: parallel exact-head certification
 
-The expanded exact-head certification reached its 75-minute deadline after
-the complete Sentinel and champion suites passed, while source replay was
-still executing. Independent suites now run in parallel within the same
-Sentinel safety workflow. No tests, scenarios, mutations, coverage thresholds,
-or authorized expected failures are removed, and no deadline is increased.
+The expanded exact-head certification originally reached its 75-minute
+deadline. Independent suites now run in parallel within the same Sentinel
+safety workflow. Current worker ownership, the removal of retired-source
+tests, and preserved canonical/current-provider witnesses are defined in
+[CI hardening](ci-suite-hardening.md). Economic golden authority and the
+mandatory automation coverage threshold are unchanged.
 
 One runtime-build job builds the production image and its test lens once,
 executes the existing runtime/durability/compile probes, and exports both images
@@ -185,19 +192,18 @@ Every worker loads those exact images;
 it never rebuilds them. Identity includes the exact source commit and tree,
 workflow run and attempt, and both Docker image IDs and source labels.
 
-Seven independent suite lanes cover Sentinel main, the module-scoped
-million-row source warmup, automation coverage, champion regressions and their
-mutants, operator tests and shell/Compose validation, the prospective Wealth
-Core boundary, and production mutants. Keeping the warmup module intact
-avoids duplicating its expensive database fixture across test workers.
-Sharadar replay uses its existing four-way deterministic test partition.
-Steps inside each replay scenario and recovery test remain sequential.
+Sixteen workers cover four ordinary and four rolling module groups, contention,
+status/memory, module-scoped million-row warmup, automation coverage, champion
+regressions, operator tests and shell/Compose validation, the prospective Wealth
+Core boundary, and production mutants. Keeping the warmup module intact avoids
+duplicating its expensive database fixture. Current-provider acquisition and
+canonical transitions remain covered; retired research replay is not required.
 
 The protected `certification-and-durability` job retains its existing context
 names and logical test ownership. It explicitly depends on the build, all
-suite lanes, and all replay shards. It runs even after a dependency failure
+suite lanes. It runs even after a dependency failure
 and refuses anything other than success for every dependency. It also requires
-exactly one complete, checksummed receipt for each declared lane and shard,
+exactly one complete, checksummed receipt for each declared lane,
 bound to the same image manifest, commit/tree, run, and attempt. Missing,
 duplicate, cancelled, skipped, stale-attempt, or mismatched evidence cannot
 produce certification. A partial workflow rerun that reuses an older attempt's
@@ -205,19 +211,17 @@ bundle fails closed; certification requires a fresh complete workflow attempt.
 
 The gate merges Sentinel partition JUnit and independently re-collects every
 logical owner's complete test inventory, rejecting omissions, duplicates, or
-unauthorized outcomes. The existing replay verifier checks the union of all
-four shards, catalogue coverage, scenario steps, and corpus digests. This
-same-workflow dependency-and-artifact binding replaces the former same-process
-replay requirement; a point-in-time check from another workflow is still
-forbidden. Workflow-source validation must reject removed dependencies,
-suppressed lanes/shards, masked commands, or disabled evidence verification.
+unauthorized outcomes. Same-workflow dependency-and-artifact binding remains
+mandatory; a point-in-time check from another workflow is not a substitute.
+Workflow-source validation must reject removed active dependencies, suppressed
+lanes, masked commands, or disabled evidence verification.
 
 Synthetic-merge certification retains the strict identical-tree proof and
 does not repeat heavy suites. Both protected scopes now wait for the mandatory
 exact-head dependency graph. Main publication still exports the original
 tested production image and unchanged software-certification input schema
 only after the complete protected gate passes. Job names expose the active
-suite or replay shard, and each receipt records its completed files and image
+suite, and each receipt records its completed files and image
 identity for inspection.
 
 ## Million-row lane work and diagnostics

@@ -38,7 +38,6 @@ COPY audit/economic_399/local_closeout/resource_report.py /work/repo/audit/econo
 COPY audit/economic_399/postgres_pressure/report.py /work/repo/audit/economic_399/postgres_pressure/report.py
 # CI authority plus the shared provider simulator used by feed integration tests.
 COPY .github/workflows/ /work/.github/workflows/
-COPY research/sharadar_replay/ /work/research/sharadar_replay/
 COPY research/bounded_20y/ /work/research/bounded_20y/
 COPY scripts/sentinel_feed_gate.py /work/scripts/sentinel_feed_gate.py
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
@@ -116,8 +115,6 @@ RUN python -c "from pathlib import Path; \
 
 # Catch image-layout and COPY-parser regressions during the build.
 RUN python -m pytest tests/sentinel/test_image_layout.py -q -ra
-# Catch operator/certification regressions before the long Sentinel suite.
-RUN python -m pytest tests/scripts -q -ra
 # Execute the rendered dashboard controller before distributing the CI lens.
 RUN node --version \
  && python -m pytest tests/sentinel/test_panel_browser_refresh.py -q -ra

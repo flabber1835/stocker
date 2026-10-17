@@ -1,5 +1,29 @@
 # Repository code coverage qualification
 
+## Advisory CI campaign
+
+The manually dispatched `Advisory repository coverage` workflow builds the same
+hash-pinned runtime/test lens once and measures the permanent Python 3.12
+pytest owners in separate jobs. An optional comma-separated owner list permits
+a focused measurement; the final report requires exactly that selected owner
+receipt union. It publishes authenticated per-domain statement/branch data,
+missing paths and explicitly unmeasured languages. It does not run again on
+every ordinary pull request and introduces no new release authority or global
+percentage threshold. The existing mandatory automation-service threshold
+remains unchanged.
+
+The campaign instruments real child interpreters through a startup hook in
+each disposable lens only. Independent collect-only inventory runs remove the
+startup variable. Test failures and missing measurements remain visible and
+fail the campaign; available partial coverage can still be retained for
+diagnosis. Minimum-host Python 3.8, shell execution and browser JavaScript are
+separate obligations and are not silently counted as Python 3.12 coverage.
+
+See [testing](testing.md) and [CI hardening](ci-suite-hardening.md) for commands,
+the owner inventory and the accepted preservation/retirement boundary.
+
+## Measurement contract
+
 The repository coverage campaign includes all tracked non-test Python and shell
 source: Sentinel, Wealth Core/shared, deployment scripts, tools, research,
 audits, and executable reference code in documentation. Tests and test fixtures

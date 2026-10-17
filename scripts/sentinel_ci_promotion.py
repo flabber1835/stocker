@@ -391,7 +391,7 @@ def manifest_reuse(manifest):
 
 def verify_promotion_dependencies(needs):
     expected = {"qualification-source": "success", "runtime-build": "success",
-                "parallel-certification": "skipped", "sharadar-replay": "skipped"}
+                "parallel-certification": "skipped"}
     require(isinstance(needs, dict) and set(needs) == set(expected) and
             all(isinstance(needs[x], dict) and needs[x].get("result") == result
                 for x, result in expected.items()), "main promotion dependency inventory differs")

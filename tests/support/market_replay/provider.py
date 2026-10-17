@@ -179,7 +179,7 @@ class Provider:
             raise RuntimeError("provider has no published view")
         if request.method != "GET":
             raise RuntimeError("simulator permits GET only")
-        if request.url.host == "exports.sharadar-replay.invalid":
+        if request.url.host == "exports.market-fixture.invalid":
             if self.clock() >= self._expires.get(str(request.url), float("inf")):
                 return httpx.Response(403, request=request)
             body = self._downloads.get(str(request.url))
@@ -235,7 +235,7 @@ class Provider:
                     info = zipfile.ZipInfo(f"{table}.csv", date_time=(2000, 1, 1, 0, 0, 0))
                     archive.writestr(info, csv_text.getvalue())
                 generation = self._generation_digest([self.step.name, table, query], encoded_rows)
-                link = f"https://exports.sharadar-replay.invalid/{generation}.zip"
+                link = f"https://exports.market-fixture.invalid/{generation}.zip"
                 self._downloads[link] = buffer.getvalue()
                 self._expires[link] = self.clock() + self.link_lifetime
                 self._download_sources[link] = {"download_table": table,

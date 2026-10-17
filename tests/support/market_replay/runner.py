@@ -32,7 +32,7 @@ def checked_server_dsn(dsn: str) -> dict:
 @contextmanager
 def disposable_database(server_dsn: str):
     info = checked_server_dsn(server_dsn)
-    name = "sharadar_replay_" + uuid4().hex
+    name = "market_fixture_" + uuid4().hex
     with psycopg.connect(server_dsn, autocommit=True, connect_timeout=10) as admin:
         admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
         try:
@@ -75,7 +75,7 @@ def _write_new(path: Path, value) -> None:
 
 
 def _checkout_commit() -> str:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     return subprocess.check_output(
         ["git", "-c", f"safe.directory={root}", "rev-parse", "HEAD"],
         cwd=root, text=True).strip()
@@ -111,7 +111,7 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
                     recovery_attempts = 0
                 if recovery_attempts is not None and not recovered:
                     recovery_attempts += 1
-                print(f"[sharadar-replay] {scenario.name} {index + 1}/{len(scenario.steps) + 1} "
+                print(f"[market-fixture] {scenario.name} {index + 1}/{len(scenario.steps) + 1} "
                       f"{step.name} at {step.at.isoformat()}", flush=True)
                 with store.connect(dsn, statement_timeout_ms=30000) as conn:
                     previous_version = publication.require_current(conn).version if index else None

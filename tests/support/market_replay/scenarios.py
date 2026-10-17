@@ -6,7 +6,7 @@ from fractions import Fraction
 
 import exchange_calendars as xcals
 
-from .model import Corpus, Fault, Scenario, Step
+from .model import Corpus, Step
 
 START = "2025-12-01"
 SEED = "2026-08-17"
@@ -137,65 +137,3 @@ def step(name, day, *, hour=22, expected=None, ready=True, error=None,
                 through=dt.date.fromisoformat(day), tables=tables,
                 expected=expected or corpus, ready=ready, error=error, faults=faults,
                 required_blockers=required_blockers, publication_failure=publication_failure)
-
-
-def build_scenarios() -> dict[str, Scenario]:
-    seed = step("bootstrap", SEED, ready=False,
-                required_blockers=("SEP recent complete reconciliation",))
-    initial = seed.expected
-    base = {"seed_start": dt.date.fromisoformat(START), "seed": seed,
-            "acquisition_mode": "retained_component"}
-    cases = {}
-
-    def add(name, steps, **kw):
-        cases[name] = Scenario(name=name, **(base | kw), steps=tuple(steps))
-
-    add("happy_daily", [step("day_one", FIRST), step("day_two", SECOND), step("day_three", THIRD)])
-    add("old_price_correction", [step("correct_old_price", FIRST, correction=104),
-                                  step("continue_corrected", SECOND, correction=104)])
-    add("same_day_revision", [step("first_observation", FIRST),
-        step("later_same_date", FIRST, hour=23, correction=106),
-        step("next_session", SECOND, correction=106)])
-    add("late_dividend", [step("late_action_arrives", FIRST, dividend=1),
-                           step("repeat_action", SECOND, dividend=1)])
-    add("revised_dividend", [step("initial_dividend", FIRST, dividend=1),
-                             step("correct_dividend", SECOND, dividend=2),
-                             step("repeat_correction", THIRD, dividend=2)])
-    add("split_overlap_boundary", [step("replay_split_boundary", FIRST, split=True),
-                                    step("repeat_split", SECOND, split=True)],
-        seed=step("bootstrap", SEED, ready=False, split=True,
-                  required_blockers=("SEP recent complete reconciliation",)))
-    for name, fault, error in (
-        ("malformed_tickers", Fault(table="TICKERS", kind="missing_column"), "SharadarProtocolError"),
-        ("incomplete_tickers", Fault(table="TICKERS", kind="omit_ticker", ticker="BBB"), "SharadarSnapshotExportError"),
-        ("stale_tickers_export", Fault(table="TICKERS", channel="export", kind="stale_export"), "SharadarSnapshotExportError"),
-        ("interrupted_after_identity", Fault(table="ACTIONS", kind="http_400",
-                                           query={"action": None}), "SharadarRequestError"),
-    ):
-        add(name, [step("interrupted", FIRST, faults=(fault,), expected=initial,
-                        ready=False, error=error, required_blockers=("freshness",)),
-                   step("recover", SECOND), step("continue", THIRD)], recovery_from="recover")
-    reference_start = sessions(FIRST)[-41]
-    hidden_references = initial.model_copy(update={
-        "spy": tuple(r for r in initial.spy if r[0] < reference_start),
-        "defensive": tuple(r for r in initial.defensive if r[0] < reference_start),
-    })
-    add("incomplete_sep", [step("partial_prices", FIRST, ready=False,
-        error="SepListingPopulationIncomplete", expected=hidden_references,
-        faults=(Fault(table="SEP", kind="omit_ticker", ticker="BBB"),),
-        required_blockers=("freshness",)), step("recover", SECOND), step("continue", THIRD)],
-        recovery_from="recover")
-    # Identical previously published SEP values retain their original owner;
-    # the newly inserted session remains invisible until publication succeeds.
-    hidden_overlap = hidden_references
-    add("publication_interruption", [step("publication_interrupted", FIRST,
-        publication_failure=True, ready=False, error="scheduled publication interruption",
-        expected=hidden_overlap, required_blockers=("freshness",)),
-        step("recover_publication", SECOND), step("continue", THIRD)], recovery_from="recover_publication")
-    from .adversarial import build_adversarial_scenarios
-    cases.update(build_adversarial_scenarios(seed))
-    from .review_cases import build_review_scenarios
-    cases.update(build_review_scenarios(seed))
-    from .bounded_cases import build_bounded_scenarios
-    cases.update(build_bounded_scenarios())
-    return cases

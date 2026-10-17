@@ -1,4 +1,4 @@
-"""Fictional economic facts encoded for the existing Sharadar HTTP provider."""
+"""Fictional economic facts encoded for the normalized-market fixture transport."""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -6,8 +6,8 @@ from decimal import Decimal
 from fractions import Fraction
 import math
 
-from research.sharadar_replay.model import Corpus, Fault, Step
-from research.sharadar_replay.oracle import compare
+from tests.support.market_replay.model import Corpus, Fault, Step
+from tests.support.market_replay.oracle import compare
 from sentinel.feed import calendar
 
 SYMBOLS = tuple(f"S{i:03d}" for i in range(30))

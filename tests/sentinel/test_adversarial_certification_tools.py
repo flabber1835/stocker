@@ -8,6 +8,14 @@ from tools import sentinel_adversarial_evidence as evidence
 from tools import sentinel_mutation_certify as mutation
 
 
+def test_offline_evidence_names_current_provider_and_never_claims_external_qualification():
+    assert evidence.EXTERNAL_EVIDENCE["current_alpaca_openfigi_inputs"] == \
+        "PROVIDER_QUALIFICATION_REQUIRED_NOT_RUN"
+    assert evidence.EXTERNAL_EVIDENCE["historical_research_performance"] == \
+        "OUT_OF_OPERATIONAL_SCOPE"
+    assert all(value != "PASS" for value in evidence.EXTERNAL_EVIDENCE.values())
+
+
 def test_every_reviewed_mutant_has_one_source_anchor_and_one_test():
     for mutant in mutation.MUTANTS:
         source = mutation.RUNTIME / mutant.relative_path

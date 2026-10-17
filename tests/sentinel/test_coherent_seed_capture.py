@@ -4,7 +4,7 @@ import pytest
 
 from sentinel.feed import ingest, seed_capture, sharadar, snapshot_export
 from sentinel.feed.authority import VendorPublicationUnstable
-from tests.sentinel.test_sharadar_snapshot_export import _Http, _Response, _status
+from tests.support.table_export import _Http, _Response, _status
 from tests.sentinel.test_issue_178_seed_reference_bracketing import _ticker, _sep
 from tests.sentinel.test_issue_246_identity_rebuild import (
     pg, conn, _publish_base, _candidate_rows,

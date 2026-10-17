@@ -91,7 +91,7 @@ def _canonical_measured(value: str, root: Path, mappings) -> str | None:
 
 def _empty_unflushed_child(path: Path) -> bool:
     """Recognize only empty coverage storage, never repair or discard counters."""
-    if re.fullmatch(r'coverage\.[^.]+\.pid[0-9]+\.[^.]+', path.name) is None:
+    if re.fullmatch(r'coverage\.[^.]+\.(?:pid)?[0-9]+\.[^.]+', path.name) is None:
         return False
     if path.stat().st_size == 0:
         return True

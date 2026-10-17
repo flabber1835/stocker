@@ -21,9 +21,9 @@ import subprocess
 import traceback
 from types import SimpleNamespace
 
-from research.sharadar_replay.provider import Provider
-from research.sharadar_replay.runner import observed_corpus
-from research.sharadar_replay.runtime import simulated_runtime
+from tests.support.market_replay.provider import Provider
+from tests.support.market_replay.runner import observed_corpus
+from tests.support.market_replay.runtime import simulated_runtime
 from scripts import sentinel_env
 from sentinel import backup_runtime_authority, binding, schema
 from sentinel.authority import RolloutMode, RolloutState, PAPER_OBSERVATION_ONLY
