@@ -182,6 +182,10 @@ Existing source/renderer/presentation entries receive exact successor hashes.
 
 ## Worker clock sampling after database delays
 
+The 2026-10-17 [clock-sampling uncertainty recovery](automation-clock-sampling.md)
+refines the original refusal policy below: small corrections and imprecise
+measurements wait for a fresh sample, while proven material drift still refuses.
+
 The October 13 evening incident exited the automation child with a reported
 6.637-second host/database skew. Its scheduler timestamp was captured before
 control/lineage reads and creation of the separate clock connection. Database

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from sentinel import schema
 from sentinel.automation import schedule, store
+from sentinel.automation import integrity as automation_integrity
+from sentinel.automation import service as service_module
 from sentinel.automation.model import (
     AutomationConfig,
     ControlBinding,
@@ -820,7 +823,7 @@ async def test_missing_control_singleton_refuses_instead_of_reseeding(conn) -> N
 
 @pytest.mark.asyncio
 async def test_persistent_run_recomputes_boundaries_across_connections(
-        conn, pg) -> None:
+        conn, pg, monkeypatch) -> None:
     cfg = config()
     enable(conn, cfg)
     calls = []
@@ -843,6 +846,10 @@ async def test_persistent_run_recomputes_boundaries_across_connections(
 
     service = service_for(
         cfg, recover=recover, refresh=refresh, prepare=prepare)
+    monkeypatch.setattr(service_module, 'time', SimpleNamespace(
+        monotonic=lambda: 0.0, sleep=service_module.time.sleep))
+    monkeypatch.setattr(automation_integrity, 'database_now',
+                        lambda _conn: AFTER_WEDNESDAY_CLOSE)
     ticks = await service.run(
         lambda: feed_store.connect(pg.sync_dsn), stop=NeverStop(),
         clock=lambda: AFTER_WEDNESDAY_CLOSE, sleep=no_wait, max_ticks=3)
@@ -1279,7 +1286,7 @@ async def test_notify_distinguishes_explicit_kill_from_inert_schema(conn, pg) ->
 
 
 @pytest.mark.asyncio
-async def test_missed_window_supersession_is_notifier_eligible(conn, pg) -> None:
+async def test_missed_window_supersession_is_notifier_eligible(conn, pg, monkeypatch) -> None:
     cfg = config()
     enable(conn, cfg)
     setup = service_for(cfg)
@@ -1304,6 +1311,10 @@ async def test_missed_window_supersession_is_notifier_eligible(conn, pg) -> None
         config=cfg, holder_id="worker-a", refresh=refresh_result,
         prepare=prepare_result, recover=recovery_success,
         execute=execution_success, notify=notify, terminal=terminal)
+    monkeypatch.setattr(service_module, 'time', SimpleNamespace(
+        monotonic=lambda: 0.0, sleep=service_module.time.sleep))
+    monkeypatch.setattr(automation_integrity, 'database_now',
+                        lambda _conn: THURSDAY_AFTER_CLOSE)
     await runner.run(
         lambda: feed_store.connect(pg.sync_dsn), stop=NeverStop(),
         clock=lambda: THURSDAY_AFTER_CLOSE, max_ticks=1)

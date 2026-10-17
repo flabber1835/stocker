@@ -54,7 +54,7 @@ def profile():
            for sha in value['additions'].values()):
         raise ValueError('AUTONOMY_RUNTIME_ADDITION_CHANGED')
     if module_sha != value['module_sha256'] or admission_sha != value['admission_sha256']:
-        from sentinel.native_read_upgrade import require_autonomy_successor
+        from sentinel.clock_sampling_upgrade import require_autonomy_successor
         require_autonomy_successor(
             module_sha, admission_sha, original_module=value['module_sha256'],
             original_admission=value['admission_sha256'], original_profile=PROFILE_SHA256)
@@ -81,7 +81,7 @@ def additions_allowed(actual):
             and hashlib.sha256(normalized).hexdigest() == value['module_sha256']):
         allowed.add('autonomy_runtime_upgrade.py')
     elif actual.get('autonomy_runtime_upgrade.py') == hashlib.sha256(Path(__file__).read_bytes()).hexdigest():
-        from sentinel.native_read_upgrade import profile as successor_profile
+        from sentinel.clock_sampling_upgrade import profile as successor_profile
         if actual['autonomy_runtime_upgrade.py'] == successor_profile()['files']['autonomy_runtime_upgrade.py']['after']:
             allowed.add('autonomy_runtime_upgrade.py')
     return allowed

@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Automation clock sampling](automation-clock-sampling.md) defines nested timing
+bounds, nonfatal resampling before financial work, preserved skew guards and
+the exact retained-executable transition for the millisecond correction repair.
+
 [Autonomy remediation and qualification](autonomy-qualification.md) records
 recoverable dependency failures, conversion accounting, conservative purchase
 funding, authenticated storage reductions and the separate live readiness gate.

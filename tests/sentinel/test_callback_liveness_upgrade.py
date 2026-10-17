@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
+from sentinel import clock_sampling_upgrade
 from sentinel import open_time_upgrade, close_cycle_upgrade
 
 from sentinel import callback_liveness_upgrade as upgrade, runtime_admission as admission
@@ -33,7 +34,8 @@ def test_callback_transition_is_exact_and_neighbor_change_refuses(closure, name)
                 or dashboard(name, record['after'], actual)
                 or open_time_upgrade.source_allowed(name, record['after'], actual)
                 or close_cycle_upgrade.source_allowed(name, record['after'], actual)
-                or autonomy_upgrade.source_allowed(name, record['after'], actual))
+                or autonomy_upgrade.source_allowed(name, record['after'], actual)
+                or clock_sampling_upgrade.source_allowed(name, record['after'], actual))
     assert all(upgrade.source_allowed(name, previous, record['after']) for previous in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
@@ -48,7 +50,9 @@ def test_callback_transition_is_exact_and_neighbor_change_refuses(closure, name)
     path = root/name
     path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_NEIGHBOR = True\n')
     _refresh_current(root, context, value)
-    with pytest.raises(admission.Refused, match='RETAINED_ECONOMIC_SOURCE_CHANGED'):
+    expected = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in clock_sampling_upgrade.SCOPE
+                else 'RETAINED_ECONOMIC_SOURCE_CHANGED')
+    with pytest.raises(admission.Refused, match=expected):
         admission.prove_compatibility(manifest, checkpoint, context, source=value)
 
 

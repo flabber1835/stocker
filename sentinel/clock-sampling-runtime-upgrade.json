@@ -1,0 +1,59 @@
+{
+  "additions": {
+    "clock_sampling_upgrade.py": "dcec619172c23b95d11d8580cdec896ed0beb9a7aad96f29c943b7abdadc6a41"
+  },
+  "authority_effect": "NONE",
+  "autonomy_checker_normalized_sha256": "92742c20ce6ee3ef761a83b282d97170ac657f6e13890bd98218f9b6fff30550",
+  "files": {
+    "automation/service.py": {
+      "after": "d7fca08f49744bb7927d4974a44ea1bd1fa27a2cb882269fc75fac03bc8ca778",
+      "before": [
+        "16177ffeb2b863b51081e981674d97a1fe58a20ede7c53b4a154baf61c0d3a49",
+        "36d52f91852f7dac249c94be567191bf86f4e9502c51bde452e15bf81f70d469",
+        "4df9d459b8e12aff63cb6c6acf88b8fa876a85d2189259cbbed6c769d2f61b3a",
+        "8ae5efc91f0f9b45d1e94b96013e7ca6ffd5bd66f3558de0ad0ffa72a76aac93",
+        "9b9e7366505dd94ea4c75927cf1af9537ab3bcdde786e787de3f4df79957bfcb",
+        "b4d0708fe1b38f966de8d5675fc12e6bb4321ba46582d4c266a1f56c16d79d1e",
+        "cf04f5762961da8fc507a8a78aa7c53ccb61c03c6c4c16e98dba990b29d472d7",
+        "d9af5e1e1fb111b376ec577a57a0cc8ea71fab085471663986aaa4dc08430b48"
+      ]
+    },
+    "autonomy_runtime_upgrade.py": {
+      "after": "9a25f82d6e9f73f699be5773cdd2982f9f5e9032d23eb00dee4ae5b8907a691f",
+      "before": [
+        "9845046c7b3112f8b2f9ca06fb7c98dd058728d6767b6f5deab5e81c63f79dec",
+        "d1374b8e76afe5a6319d316dffbb587cb8501fc8d5c5d7877787b4752ccf0057",
+        "a76d9b0d987b6f1a0b4d42a7d7807c0253a6354fa9ee0bea9119e967ff93e312"
+      ]
+    },
+    "runtime_admission.py": {
+      "after": "087fe6d1981122054f34aa83fc41c07d9c583cdaf185bf6e9b0f4e54598f6421",
+      "before": [
+        "fcf1228470a7a2a42dbc9534b05e66770a63d123281017aa0ffecfaf62a8f4b8",
+        "a73b7606409bab7f53fe65c991bd3fb1aa9d77c77f3bbb14603cdbc48dc945f0",
+        "71b1a41073718a8cf39fcc48d9e6f70a01a39de9c64edbcc9c6e6988ff89cd0e",
+        "67d9c6929921eeee50d5e855edeff8a8a282f8380212141e8bd4b224b2d91705",
+        "ae76dd995f3ba44769ae933438f7d708783fb0a1a930b6939f29664811072276",
+        "4b629db5827dce482070f2f1271f42894937f087e132286b37d265e565baa968",
+        "1f3f95d3c8a5ddb81e57a6387536f8376efe7c3ecefeb8a4badf516e8e5491e4",
+        "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
+        "b74d74be6767674f9c186a160e4a0f983a93813e3236981109fae8d049cb96d0",
+        "990f8810a1788c68b960f481dd4dbc8c134072b9b1b2af63fd277d37b40de7b6",
+        "096e216e79c9f605a2fa210a6997c8dbecf42af0567e158a41ebb9bcab620d34",
+        "033aafc80d6e391687c4512e5e2bb2f5b846af2ac28819d37c4868a5e68740b1",
+        "c0e52e0bcfa13fb2540656d6cdd1ad7b9d266dc640aa4dd9f01f3eed711a8b0d",
+        "1d00db9525d9af85590f469c56ccd57b6d6fdc6c51f40becf5325b284394fa9b",
+        "4b3e4eec5f787ceb2d8ce3f4782b196df323032f1243a4b983376bd8a3580b91",
+        "4079cc42b19cd9ecd1629d243794b86d1049a484627fe08bcb135f87104cbb21"
+      ]
+    }
+  },
+  "module_sha256": "dcec619172c23b95d11d8580cdec896ed0beb9a7aad96f29c943b7abdadc6a41",
+  "native_checker_sha256": "6dfae675ef72e28f765c1d33a3702899bd86b6c45833a4daded73216a772c4e7",
+  "retained_profiles": {
+    "autonomy-runtime-upgrade.json": "09c9f7738ec5849284f239a07385af15faacb2c434b1d5e6ead31003622a9da9",
+    "native-read-runtime-upgrade.json": "200f95d633527d829504ea77ce40994c8c06567303f0b1e4af2178bfd1b3591b",
+    "open-time-upgrade.json": "282a161b42c8966ff6c6a75094d5085a3e9c6a42b11163fe6c3ffc8baf297b3d"
+  },
+  "schema": "sentinel.clock-sampling-runtime-upgrade/1"
+}
