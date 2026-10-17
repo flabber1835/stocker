@@ -58,6 +58,34 @@ merge and have no main-push trigger. Applicable optional checks must also pass.
 No elapsed-time, trading-session, broker, book or installation admission rule is
 changed. Software certification remains separate from financial activation.
 
+## Partial CI reruns and qualification provenance
+
+Decision: 2026-10-16. A workflow's latest validation attempt is distinct from
+the attempt that produced retained qualification. GitHub can report an inherited
+job under a later attempt after rerunning only a reporting job; neither that
+attempt number nor artifact timestamps identify the original test execution.
+
+New PR safety runs retain a small, digest-verified producer proof after uploading
+the tested runtime. It binds the runtime artifact ID/digest, exact source/tree,
+original run/attempt and canonical certification-input digest. Promotion plan
+version 2 records both the latest validation attempt and the evidence-producing
+attempt for each workflow. Browser/composition producers retain their existing
+attempt-bound checkout proofs. A completed, successful latest workflow and all
+current applicable checks remain mandatory. The original evidence-producing
+jobs must also pass; only the two safety synthetic-tree reporting jobs may be
+superseded by successful current reporting. The original exact-head carrier,
+runtime build and every test/replay worker must succeed. No failed test, skipped
+worker, cancelled execution or incomplete exact-head carrier becomes reusable.
+
+Selection, promotion, publication and the independent host verifier preserve
+and re-observe these identities. Original certification counts, image ID, locks,
+manifest and input digest remain unchanged. They never adopt the latest attempt
+number merely to satisfy certification. Missing provenance on a rerun selects
+full qualification before image promotion; malformed, mismatched or ambiguous
+proofs refuse. Version-1 plans keep their original strict same-attempt behavior.
+Normal merges reuse qualified PR evidence without repeating the suites. No
+production trading, activation, backup or runtime policy changes.
+
 ## Certification input identity
 
 The host verifier uses the same strict UTF-8 JSON object reader for the artifact

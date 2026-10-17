@@ -55,15 +55,42 @@ def artifact(client, run_id, name):
 
 
 def checkout_proof(client, item):
-    raw = client.bytes("https://api.github.com/repos/%s/actions/artifacts/%d/zip" %
-                       (policy.REPOSITORY, item["id"]))
-    policy.require(len(raw) <= 1024 * 1024 and
-                   "sha256:" + hashlib.sha256(raw).hexdigest() == item["digest"],
-                   "checkout artifact bytes differ")
-    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-        policy.require(archive.namelist() == ["proof.json"] and
-                       archive.getinfo("proof.json").file_size <= 65536, "checkout artifact schema differs")
-        return _json_bytes(archive.read("proof.json"), "CERT_PROMOTION_INPUT_INVALID", "checkout proof")
+    return policy.read_proof(client, item)
+
+
+def producer_proof(root, original, run_id, attempt, artifact_id, artifact_digest):
+    cert._validate_input(original)
+    source = identity(root)
+    policy.require(original["schema"] == cert.INPUT_SCHEMA
+                   and original["source_commit"] == source["source_commit"]
+                   and original["source_tree"] == source["source_tree"]
+                   and original["test_workflow_run"] == policy.positive(run_id)
+                   and original["test_workflow_attempt"] == policy.positive(attempt),
+                   "producer input differs from current execution")
+    return {"schema": policy.PRODUCER_SCHEMA, "repository": policy.REPOSITORY,
+            "commit": source["source_commit"], "tree": source["source_tree"],
+            "run": run_id, "attempt": attempt, "input_sha256": policy.input_digest(original),
+            "runtime_artifact": {"id": policy.positive(artifact_id), "run": run_id,
+                "name": "sentinel-tested-image-" + source["source_commit"],
+                "digest": policy.digest(artifact_digest)}}
+
+
+def retained_checkout(client, row, role):
+    prefix = "ci-checkout-proof-%s-" % role
+    candidates = [x for x in policy.rows(client, "/repos/%s/actions/runs/%d/artifacts" %
+                  (policy.REPOSITORY, row["run"]), "artifacts") if x.get("name", "").startswith(prefix)]
+    attempts = []
+    for item in candidates:
+        suffix = item["name"][len(prefix):]
+        policy.require(suffix.isascii() and suffix.isdecimal() and str(int(suffix)) == suffix
+                       and int(suffix) > 0, "malformed checkout producer attempt")
+        if int(suffix) <= row["attempt"] and item.get("expired") is not True:
+            attempts.append(int(suffix))
+    if not attempts:
+        return None
+    attempt = max(attempts)
+    item = artifact(client, row["run"], prefix + str(attempt))
+    return {"artifact": item, "proof": checkout_proof(client, item)}
 
 
 def select(root, client, event, ref):
@@ -102,15 +129,30 @@ def select(root, client, event, ref):
     plan["artifact"] = artifact(client, safety["run"], "sentinel-tested-image-" + tested)
     if plan["artifact"] is None:
         return {**full, "reason": "missing-tested-image"}
+    producer = artifact(client, safety["run"], "sentinel-qualification-producer-" + tested)
+    if producer is not None:
+        plan["schema"] = policy.PRODUCER_PLAN_SCHEMA
+        plan["producer_proof"] = {"artifact": producer, "proof": checkout_proof(client, producer)}
+        for row in plan["workflows"]:
+            row["evidence_attempt"] = row["attempt"]
+        safety["evidence_attempt"] = plan["producer_proof"]["proof"].get("attempt")
+    elif safety["attempt"] > 1:
+        return {**full, "reason": "missing-producer-proof-after-rerun"}
     for index, role in ((1, "composition"), (2, "browser")):
         row = plan["workflows"][index]
-        item = artifact(client, row["run"], "ci-checkout-proof-%s-%d" % (role, row["attempt"]))
-        if item is None:
+        if plan["schema"] == policy.PRODUCER_PLAN_SCHEMA:
+            entry = retained_checkout(client, row, role)
+        else:
+            item = artifact(client, row["run"], "ci-checkout-proof-%s-%d" % (role, row["attempt"]))
+            entry = {"artifact": item, "proof": checkout_proof(client, item)} if item else None
+        if entry is None:
             return {**full, "reason": "missing-checkout-proof"}
-        proof = checkout_proof(client, item)
+        proof = entry["proof"]
         if proof.get("tree") != source["source_tree"]:
             return {**full, "reason": "harness-tested-different-tree"}
-        plan["checkout_proofs"].append({"artifact": item, "proof": proof})
+        if plan["schema"] == policy.PRODUCER_PLAN_SCHEMA:
+            row["evidence_attempt"] = proof.get("attempt")
+        plan["checkout_proofs"].append(entry)
     policy.verify_plan(client, plan)
     return plan
 
@@ -219,10 +261,13 @@ def promote(root, client, plan, bundle, output, run_id, attempt):
 
 def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("select", "verify", "download", "promote", "scope"))
+    parser.add_argument("command", choices=("select", "verify", "download", "promote", "scope", "producer"))
     parser.add_argument("--root", type=Path, default=Path("."))
     parser.add_argument("--plan", type=Path)
     parser.add_argument("--bundle", type=Path)
+    parser.add_argument("--input", type=Path)
+    parser.add_argument("--artifact-id", type=int)
+    parser.add_argument("--artifact-digest")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--role", choices=("composition", "browser"))
     args = parser.parse_args(argv)
@@ -236,6 +281,11 @@ def main(argv=None):
                 with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
                     stream.write("mode=%s\nrun=%s\nartifact=%s\n" % (value["mode"],
                                  value.get("artifact", {}).get("run", ""), value.get("artifact", {}).get("name", "")))
+        elif args.command == "producer":
+            policy.require(args.input is not None and os.environ.get("GITHUB_REPOSITORY") == policy.REPOSITORY,
+                           "producer authority differs")
+            write(args.output, producer_proof(root, read(args.input), int(os.environ["GITHUB_RUN_ID"]),
+                  int(os.environ["GITHUB_RUN_ATTEMPT"]), args.artifact_id, args.artifact_digest))
         elif args.command == "scope":
             policy.require(args.role is not None and os.environ.get("GITHUB_REPOSITORY") == policy.REPOSITORY,
                            "checkout scope authority differs")

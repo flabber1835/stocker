@@ -809,10 +809,28 @@ jobs:
           python tools/sentinel_ci_certification_input_binding.py --input /tmp/sentinel-tested-image/software-certification-input.json --expected-commit "$GITHUB_SHA" --expected-workflow-run "$GITHUB_RUN_ID" --expected-workflow-attempt "$GITHUB_RUN_ATTEMPT" --image-ref sentinel:ci
 
       - name: Retain the exact tested runtime
+        id: tested-runtime
         if: ${{ matrix.scope == 'exact-head' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sentinel-tested-image-${{ github.event.pull_request.head.sha || github.sha }}
           path: /tmp/sentinel-tested-image
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Bind original qualification to the retained runtime
+        if: ${{ github.event_name == 'pull_request' && matrix.scope == 'exact-head' }}
+        run: |
+          python tools/sentinel_ci_promote.py producer \
+            --input /tmp/sentinel-tested-image/software-certification-input.json \
+            --artifact-id '${{ steps.tested-runtime.outputs.artifact-id }}' \
+            --artifact-digest 'sha256:${{ steps.tested-runtime.outputs.artifact-digest }}' \
+            --output /tmp/sentinel-qualification-producer/proof.json
+      - name: Retain original qualification producer proof
+        if: ${{ github.event_name == 'pull_request' && matrix.scope == 'exact-head' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sentinel-qualification-producer-${{ github.event.pull_request.head.sha }}
+          path: /tmp/sentinel-qualification-producer/proof.json
           if-no-files-found: error
           retention-days: 90
