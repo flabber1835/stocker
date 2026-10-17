@@ -15,7 +15,8 @@
     "internal-state.contract",
     "internal-state.campaign",
     "core.infrastructure",
-    "alpaca.mutations"
+    "alpaca.mutations",
+    "alpaca.native-read-acceptance"
   ],
   "alpaca_contract_epoch": "stocker.alpaca-contracts/1"
 }

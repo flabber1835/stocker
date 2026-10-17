@@ -16,6 +16,16 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from tools.sentinel_native_acceptance import _child_pythonpath
+
+
+def _configure_import_paths(root: Path) -> None:
+    paths = _child_pythonpath(root).split(os.pathsep)
+    sys.path[:] = paths + [path for path in sys.path if path not in paths]
+
+
+_configure_import_paths(ROOT)
+
 from sentinel.execution.alpaca_history import HistoryLimits, read_account_history
 from sentinel.execution.live_funding import FundingEvidence, assess_live_funding
 from sentinel.execution.native_readonly import (

@@ -142,6 +142,13 @@ establish that a capture came from Alpaca. The receipt retains source and fixtur
 identity, the exact required result inventory and explicit unproven native
 guarantees. CI runs this inventory without broker credentials.
 
+The immutable test lens keeps production imports in `/app` and test/tool files
+in `/work`. The offline runner resolves the imported Sentinel package separately
+when the tool root lacks a source package, hashes that actual runtime source,
+and puts its parent on the isolated child's import path. It must not manufacture
+a duplicate runtime under the test root. Repository runs retain their ordinary
+single-root layout; synthetic layout tests exercise both arrangements.
+
 After account checks are separately requested, the GET-only diagnostic can use
 explicit environment-variable names for credentials. It never loads the installed
 configuration. `--expected-account` is the native account UUID returned by Alpaca,

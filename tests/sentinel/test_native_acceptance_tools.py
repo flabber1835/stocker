@@ -5,8 +5,10 @@ from datetime import datetime, timezone
 import hashlib
 import inspect
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
@@ -37,8 +39,68 @@ def fake_repository(tmp_path):
     for name in acceptance.FIXED_SOURCE_FILES:
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("fixture source " + name)
+        path.write_bytes(acceptance._source_path(acceptance.ROOT, name).read_bytes())
     return root
+
+
+def split_repository(tmp_path, monkeypatch):
+    root = fake_repository(tmp_path)
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    (root / "sentinel").rename(runtime / "sentinel")
+    (runtime / "sentinel/__init__.py").write_text("")
+    mirror = root / "repo/sentinel/execution"
+    mirror.mkdir(parents=True)
+    (mirror / "native_readonly.py").write_text("UNUSED_SOURCE_MIRROR")
+    monkeypatch.setattr(acceptance, "ROOT", root)
+    monkeypatch.setitem(sys.modules, "sentinel", SimpleNamespace(__file__=str(runtime / "sentinel/__init__.py")))
+    return root, runtime
+
+
+def test_split_runtime_source_and_child_imports_are_bound(tmp_path, monkeypatch):
+    root, runtime = split_repository(tmp_path, monkeypatch)
+    assert not (root / "sentinel").exists()
+    source = acceptance._source_path(root, "sentinel/execution/native_readonly.py")
+    assert source == runtime / "sentinel/execution/native_readonly.py"
+    hashes = acceptance._source_hashes(root)
+    assert hashes["sentinel/execution/native_readonly.py"] == hashlib.sha256(source.read_bytes()).hexdigest()
+    def check(_command, kwargs):
+        imports = kwargs["env"]["PYTHONPATH"].split(os.pathsep)
+        assert imports[0] == str(runtime)
+        assert str(runtime / "shared") in imports and str(root) in imports
+        assert str(root / "tests") in imports and str(root / "tools") in imports
+        assert str(root / "shared") in imports
+    receipt = acceptance.qualify(root=root, output=tmp_path / "split.json", runner=fake_runner(callback=check))
+    assert receipt["status"] == "PASS_OFFLINE_QUALIFICATION"
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    diagnostic._configure_import_paths(root)
+    assert sys.path[0] == str(runtime)
+
+
+def test_custom_fixture_cannot_fall_back_to_imported_runtime(tmp_path):
+    root = tmp_path / "incomplete-fixture"
+    root.mkdir()
+    with pytest.raises(ValueError, match="CUSTOM_SENTINEL_SOURCE_REQUIRED"):
+        acceptance._sentinel_root(root)
+
+
+def test_local_repository_source_has_precedence(tmp_path):
+    root = fake_repository(tmp_path)
+    assert acceptance._sentinel_root(root) == root / "sentinel"
+
+
+def test_split_runtime_change_cannot_pass(tmp_path, monkeypatch):
+    root, runtime = split_repository(tmp_path, monkeypatch)
+    def change(_command, _kwargs):
+        (runtime / "sentinel/execution/broker_cash.py").write_text("CHANGED_RUNTIME")
+    receipt = acceptance.qualify(root=root, output=tmp_path / "changed.json", runner=fake_runner(callback=change))
+    assert receipt["status"] == "FAIL_OFFLINE_QUALIFICATION" and receipt["reason"] == "SOURCE_CHANGED"
+
+
+def test_split_runtime_import_guard_has_a_falsifier(tmp_path, monkeypatch):
+    _replace_function(acceptance, "_child_pythonpath", "runtime = _sentinel_root(root).parent", "runtime = root", monkeypatch)
+    with pytest.raises(AssertionError):
+        test_split_runtime_source_and_child_imports_are_bound(tmp_path, monkeypatch)
 
 
 def fake_runner(names=None, *, skipped=False, callback=None):

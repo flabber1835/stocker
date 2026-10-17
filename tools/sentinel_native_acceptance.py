@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path
@@ -62,20 +63,57 @@ def _digest(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def _source_hashes(root: Path) -> dict[str, str]:
+def _sentinel_root(root: Path) -> Path:
     resolved = root.resolve()
+    local = resolved / "sentinel"
+    if local.exists():
+        source = local.resolve(strict=True)
+        if local.is_symlink() or not source.is_relative_to(resolved) or not source.is_dir():
+            raise ValueError("SOURCE_PATH_REFUSED")
+        return source
+    if resolved != ROOT.resolve():
+        raise ValueError("CUSTOM_SENTINEL_SOURCE_REQUIRED")
+    package = importlib.import_module("sentinel")
+    source_file = Path(package.__file__).resolve(strict=True)
+    if source_file.name != "__init__.py" or not source_file.is_file():
+        raise ValueError("IMPORTED_SENTINEL_SOURCE_REQUIRED")
+    return source_file.parent
+
+
+def _source_path(root: Path, name: str) -> Path:
+    logical = Path(name)
+    if logical.is_absolute() or ".." in logical.parts or "\\" in name:
+        raise ValueError("SOURCE_PATH_REFUSED")
+    resolved = root.resolve()
+    if logical.parts and logical.parts[0] == "sentinel":
+        owner = _sentinel_root(root)
+        path = owner.joinpath(*logical.parts[1:]).resolve(strict=True)
+    else:
+        owner = resolved
+        path = (resolved / logical).resolve(strict=True)
+    if not path.is_relative_to(owner) or not path.is_file():
+        raise ValueError("SOURCE_PATH_REFUSED")
+    return path
+
+
+def _child_pythonpath(root: Path) -> str:
+    runtime = _sentinel_root(root).parent
+    paths = (runtime, runtime / "shared", root, root / "tests", root / "tools", root / "shared", root / "scripts")
+    return os.pathsep.join(dict.fromkeys(str(path.resolve()) for path in paths))
+
+
+def _source_hashes(root: Path) -> dict[str, str]:
+    sentinel = _sentinel_root(root)
     result = {}
     for name in FIXED_SOURCE_FILES:
-        path = (resolved / name).resolve(strict=True)
-        if not path.is_relative_to(resolved) or not path.is_file():
-            raise ValueError("SOURCE_PATH_REFUSED")
+        path = _source_path(root, name)
         result[name] = _digest(path.read_bytes())
     tree = {}
-    for path in sorted((resolved / "sentinel").rglob("*")):
+    for path in sorted(sentinel.rglob("*")):
         if path.is_symlink():
             raise ValueError("SOURCE_PATH_REFUSED")
         if path.suffix == ".py" and path.is_file():
-            relative = path.relative_to(resolved).as_posix()
+            relative = "sentinel/" + path.relative_to(sentinel).as_posix()
             tree[relative] = _digest(path.read_bytes())
     result["sentinel_python_tree_sha256"] = _digest(json.dumps(tree, sort_keys=True, separators=(",", ":")).encode())
     return result
@@ -158,7 +196,7 @@ def qualify(*, output: Path, root: Path = ROOT,
             "PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "HOME",
         ) if name in os.environ}
         env.update(PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
-                   PYTHONPATH=os.pathsep.join(str(root / part) for part in ("", "shared", "scripts")))
+                   PYTHONPATH=_child_pythonpath(root))
         if recording_payload is not None:
             private_input = temporary / "recording.json"
             descriptor = os.open(private_input, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
