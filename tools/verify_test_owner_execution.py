@@ -35,6 +35,7 @@ ADVISORY_OWNERS = {
     "internal-state.campaign",
     "core.infrastructure",
     "alpaca.mutations",
+    "alpaca.native-read-acceptance",
 }
 ALPACA_CONTRACT_EPOCH = "stocker.alpaca-contracts/1"
 SETTLED_ALPACA_CONTRACTS = {

@@ -48,7 +48,8 @@ def executable(ready, monkeypatch, request):
                   'due_poll_preceding': '85a1d270',
                   'unsent_recovery_preceding': '13a54fd6',
                   'shadow_ui_preceding': '00f3ef09',
-                  'close_cycle_preceding': '0a5e5e51'}
+                  'close_cycle_preceding': '0a5e5e51',
+                  'clock_sampling_preceding': '18a4c8b7'}
     if getattr(request, 'param', None) in historical:
         revision = historical[request.param]
         manifest = json.loads((Path(__file__).parent/

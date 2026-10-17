@@ -4,6 +4,7 @@ import hashlib
 
 import pytest
 from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
+from sentinel import clock_sampling_upgrade
 
 from sentinel import close_cycle_upgrade
 from sentinel import open_time_upgrade as upgrade, runtime_admission as admission
@@ -24,6 +25,7 @@ def test_exact_transition_and_neighbor_refusal(closure,name):
     from sentinel import shadow_ui_upgrade
     assert (actual==record['after'] or close_cycle_upgrade.source_allowed(name, record['after'], actual)
                 or autonomy_upgrade.source_allowed(name, record['after'], actual)
+                 or clock_sampling_upgrade.source_allowed(name, record['after'], actual)
             or shadow_ui_upgrade.source_allowed(name,record['after'],actual))
     assert all(upgrade.source_allowed(name,previous,record['after']) for previous in record['before'])
     assert not upgrade.source_allowed(name,'f'*64,actual)

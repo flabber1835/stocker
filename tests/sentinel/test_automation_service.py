@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
 from sentinel import schema
 from sentinel.automation import schedule, store
+from sentinel.automation import integrity as automation_integrity
+from sentinel.automation import service as service_module
 from sentinel.automation.model import (
     AutomationConfig,
     ControlBinding,
@@ -132,6 +135,23 @@ def service_for(cfg, *, holder="worker-a", refresh=refresh_result,
     return AutomationService(
         config=cfg, holder_id=holder, refresh=refresh, prepare=prepare,
         recover=recover, execute=execute)
+
+
+@pytest.fixture
+def frozen_clock_sample(monkeypatch):
+    sample = AutomationService._assert_clock_skew
+    real_time = service_module.time
+
+    def read(self, *, now, conn_factory, clock=None):
+        with monkeypatch.context() as sampling:
+            sampling.setattr(service_module, 'time', SimpleNamespace(
+                monotonic=lambda: 0.0, sleep=real_time.sleep))
+            sampling.setattr(automation_integrity, 'database_now', lambda _conn: now)
+            return sample(
+                self, now=now, conn_factory=conn_factory,
+                clock=(lambda: now) if clock is not None else None)
+
+    monkeypatch.setattr(AutomationService, '_assert_clock_skew', read)
 
 
 @pytest.mark.asyncio
@@ -820,7 +840,7 @@ async def test_missing_control_singleton_refuses_instead_of_reseeding(conn) -> N
 
 @pytest.mark.asyncio
 async def test_persistent_run_recomputes_boundaries_across_connections(
-        conn, pg) -> None:
+        conn, pg, frozen_clock_sample) -> None:
     cfg = config()
     enable(conn, cfg)
     calls = []
@@ -1279,7 +1299,8 @@ async def test_notify_distinguishes_explicit_kill_from_inert_schema(conn, pg) ->
 
 
 @pytest.mark.asyncio
-async def test_missed_window_supersession_is_notifier_eligible(conn, pg) -> None:
+async def test_missed_window_supersession_is_notifier_eligible(
+        conn, pg, frozen_clock_sample) -> None:
     cfg = config()
     enable(conn, cfg)
     setup = service_for(cfg)

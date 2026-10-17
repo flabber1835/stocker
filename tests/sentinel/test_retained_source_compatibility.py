@@ -67,9 +67,14 @@ def closure(tmp_path, monkeypatch):
     old_files = {name: hashlib.sha256(raw).hexdigest() for name, raw in original.items()}
     old_files['shadow_supervisor.py'] = worker_upgrade.profile()['files']['shadow_supervisor.py']['before'][0]
     current = {**original,
-               'runtime_admission.py': b'# reviewed admission module\n'}
+                'runtime_admission.py': Path(admission.__file__).read_bytes()}
+    from sentinel import native_read_upgrade, clock_sampling_upgrade
+    current.update({name: (Path(admission.__file__).parent / name).read_bytes()
+                    for name in native_read_upgrade.ADDITIONS | clock_sampling_upgrade.ADDITIONS})
     for name, raw in current.items():
-        (root/name).write_bytes(raw)
+        path = root/name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
     files = {name: hashlib.sha256(raw).hexdigest() for name, raw in current.items()}
     env = {'compatible': True, 'sentinel_source': {'root': 'sentinel', 'path': str(root),
         'files': len(files), 'hash': admission.source_closure(files)},

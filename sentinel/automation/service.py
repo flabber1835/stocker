@@ -10,6 +10,7 @@ import ctypes
 import hashlib
 import inspect
 import json
+import logging
 import math
 import multiprocessing
 import os
@@ -410,32 +411,75 @@ class AutomationService:
         """Bind host scheduling time to fresh PostgreSQL wall time."""
         clock_conn = conn_factory()
         try:
+            outer_start = time.monotonic()
             before = _utc(clock()) if clock is not None else now
-            started = time.monotonic()
+            query_start = time.monotonic()
             database_now = _utc(integrity.database_now(clock_conn))
-            elapsed = time.monotonic() - started
-            after = _utc(clock()) if clock is not None else now
+            query_end = time.monotonic()
         finally:
             clock_conn.close()
+        after = _utc(clock()) if clock is not None else now
+        outer_end = time.monotonic()
         limit = float(self.config.maximum_clock_skew_seconds)
-        if clock is not None:
-            wall_elapsed = (after - before).total_seconds()
-            if (not math.isfinite(elapsed) or elapsed < 0 or wall_elapsed < 0
-                    or abs(wall_elapsed - elapsed) > limit):
-                raise AutomationRefused('host clock changed during database sampling')
-            if elapsed > limit:
-                raise TransientInfrastructureFailure(
-                    'database clock sample exceeded its timing precision budget')
+        readings = (outer_start, query_start, query_end, outer_end)
+        inner = query_end - query_start
+        outer = outer_end - outer_start
+        wall_elapsed = (after - before).total_seconds()
+        jump_lower = wall_elapsed - outer
+        jump_upper = wall_elapsed - inner
         skew = max((before - database_now).total_seconds(),
                    (database_now - after).total_seconds(), 0.0)
+
+        def refuse(message: str, *, reason: str, uncertain: bool = False) -> None:
+            def finite(value: float) -> float | None:
+                return value if math.isfinite(value) else None
+
+            diagnostic = {
+                'schema': 'sentinel.automation-clock-sample/1',
+                'reason': reason,
+                'classification': 'UNCERTAIN' if uncertain else 'REFUSED',
+                'limit_seconds': limit,
+                'host_before': before.isoformat(),
+                'host_after': after.isoformat(),
+                'database_now': database_now.isoformat(),
+                'monotonic': [finite(value) for value in readings],
+                'inner_seconds': finite(inner),
+                'outer_seconds': finite(outer),
+                'wall_seconds': wall_elapsed,
+                'jump_lower_seconds': finite(jump_lower),
+                'jump_upper_seconds': finite(jump_upper),
+                'proven_skew_seconds': skew,
+            }
+            encoded = json.dumps(diagnostic, sort_keys=True, allow_nan=False,
+                                 separators=(',', ':'))
+            logging.getLogger(__name__).log(
+                logging.WARNING if uncertain else logging.ERROR,
+                'automation_clock_sample=%s', encoded)
+            error = TransientInfrastructureFailure if uncertain else AutomationRefused
+            raise error(f'{message}; clock_sample={encoded}')
+
+        if clock is not None:
+            if (not all(math.isfinite(value) for value in (*readings, inner, outer))
+                    or any(left > right for left, right in zip(readings, readings[1:]))):
+                refuse('monotonic clock invariant failed during database sampling',
+                       reason='MONOTONIC_INVARIANT')
+            if jump_lower > limit or jump_upper < -limit:
+                refuse('host clock changed during database sampling',
+                       reason='MATERIAL_HOST_CLOCK_CHANGE')
+            if outer > limit:
+                refuse('database clock sample exceeded its timing precision budget',
+                       reason='SAMPLING_PRECISION', uncertain=True)
+            if wall_elapsed < 0 or not inner <= wall_elapsed <= outer:
+                refuse('host clock sample cannot prove timing consistency',
+                       reason='HOST_CLOCK_UNCERTAIN', uncertain=True)
         if skew > limit:
-            raise AutomationRefused(
+            refuse(
                 "host/database clock skew exceeds automation safety limit: "
-                f"{skew:.3f}s > {limit:.3f}s")
+                f"{skew:.3f}s > {limit:.3f}s", reason='DATABASE_CLOCK_SKEW')
         if max(abs((before - database_now).total_seconds()),
                abs((after - database_now).total_seconds())) > limit:
-            raise TransientInfrastructureFailure(
-                'database clock interval cannot prove the configured skew limit')
+            refuse('database clock interval cannot prove the configured skew limit',
+                   reason='DATABASE_CLOCK_UNCERTAIN', uncertain=True)
         return after
 
     @staticmethod

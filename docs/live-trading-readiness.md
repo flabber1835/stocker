@@ -46,3 +46,127 @@ account-freshness and restore-grade capabilities are not changed to true by
 these tests. Its current declarations and every native acceptance limitation
 remain visible. This document is a handoff contract for the separate live
 review, not a live readiness certificate or order authorization.
+
+## Implementation before native account qualification — 2026-10-17
+
+The owner has authorized implementing and testing the integration before using
+the unfunded live account. Account access, funding, deployment and live order
+submission are deferred. This phase makes the following design choices.
+
+1. Native reads use a separate, bounded, GET-only execution transport. Its
+   versioned subject binds the exact trading origin, environment, deployment,
+   account and takeover epoch. It verifies account identity before collection
+   and again at the end. It cannot submit or cancel orders, adopt an account,
+   create a plan, update a journal or issue execution authority. Existing paper
+   grants, persisted identities and command keys retain their exact format.
+2. Retail REST activities are traversed by native activity ID with bounded
+   pages, bytes and elapsed time. Requested bounds refer to publication
+   `created_at`, not economic or settlement date. Exhausting pagination proves
+   only that traversal ended; it does not prove interval finality, absence of
+   late publications, settlement or restore-grade completeness. Order lookup
+   uses an exact native order ID; timestamp and order-ID cursors are never mixed.
+3. A single typed normalizer produces native fills and classified broker cash
+   events. Fills require exact native activity/order/asset identity, side,
+   positive Decimal quantity and price. An exact order response may supply
+   missing asset identity, but a symbol match cannot. Dividends, fees, interest,
+   withholding and cash transfers remain actual execution economics and never
+   become Wealth Core model inputs. Same-ID replay is idempotent; changed
+   economics, correction/bust chains, securities transfers and unsupported
+   corporate actions retain quarantine evidence and refuse financial projection.
+   This phase does not silently invent reversal/rebooking or an adjusted book.
+4. A separate settled-funds assessment describes the owner's live buy policy:
+   settled cash less outstanding reservations, bounded by broker purchase
+   constraints, with fresh account/subject evidence. An ordinary cash or buying
+   power snapshot cannot supply a settlement proof. Unproven, stale or
+   contradictory evidence produces a deferred buy, never a synthetic balance.
+   Production settlement sources remain unaccepted until native qualification;
+   synthetic evidence can exercise arithmetic but cannot authorize an order.
+5. Offline acceptance replays the canonical reader and normalizer against a
+   fixed scenario inventory. Receipts identify their sources and fixtures and
+   distinguish simulation from recorded replay. Parser, isolation, replay and
+   deferral checks may pass offline; native finality, settlement, restore-grade
+   recovery and live authority remain NOT_PROVEN. The future account diagnostic
+   uses explicit credentials and subject inputs without installed `.env`,
+   database or Compose access. Its zero-balance result can establish reachability
+   and response shape, not funded trading behavior.
+
+The native read implementation and its tools are additive. They do not relax
+`assert_paper_url`, production adapter capability declarations, paper
+certification, close-cash finality or activation gates. Any source admission is
+a separate exact, closed compatibility profile; historical profiles remain
+immutable. A future live activation change must version durable execution
+subjects through binding, planning, commands and restored-journal witnesses and
+qualify the provider guarantees that are still absent here.
+
+The REST contracts are the official [account activity reference](https://docs.alpaca.markets/us/reference/getaccountactivities-2)
+and [order reference](https://docs.alpaca.markets/us/reference/getallorders-1).
+The documented [activity SSE](https://docs.alpaca.markets/us/docs/activity-sse)
+has a different event envelope and entitlement/retention boundary; it is not
+silently substituted for a retail REST interval or inferred available from a
+paper response.
+
+The additive native-read source profile authenticates the exact current
+`runtime_admission.py` and autonomy checker transition plus the named new
+execution modules. It independently pins the unchanged historical autonomy
+descriptor, its original checker identity and its original admission identity.
+The historical checker accepts this one successor only after the successor
+validator authenticates its normalized bytes and the current admission bytes.
+The runtime admission matcher includes the successor's closed records and
+addition set, including transitions of previously authenticated additions.
+Unrelated source changes, unknown predecessor hashes and altered descriptors or
+checkers still refuse. This is source compatibility only and carries no broker
+or live authority.
+
+Admission predecessors include the 15 exact `runtime_admission.py` versions
+reachable in verified main `90a960547b58bb245c998ae3f70d0baed1fe95d0` history,
+with their immutable commit witnesses in the successor descriptor. This
+preserves the earlier retained-book upgrade path while replacing its former
+wildcard administrative-source exception with a finite authenticated list.
+
+## Offline and deferred account checks
+
+[Offline qualification results](native-read-qualification-results.md) records
+the tested implementation, exact scope and remaining native boundaries.
+
+Run the fixed offline inventory from a Python 3.12 test environment with the
+repository and `shared` on `PYTHONPATH`:
+
+```sh
+PYTHONPATH=.:shared python tools/sentinel_native_acceptance.py \
+  --output /private/new-native-acceptance.json
+```
+
+The output path must be new. An optional private transcript requires both
+`--recording` and its independently recorded `--recording-sha256`; replay cannot
+establish that a capture came from Alpaca. The receipt retains source and fixture
+identity, the exact required result inventory and explicit unproven native
+guarantees. CI runs this inventory without broker credentials.
+
+The immutable test lens keeps production imports in `/app` and test/tool files
+in `/work`. The offline runner resolves the imported Sentinel package separately
+when the tool root lacks a source package, hashes that actual runtime source,
+and puts its parent on the isolated child's import path. It must not manufacture
+a duplicate runtime under the test root. Repository runs retain their ordinary
+single-root layout; synthetic layout tests exercise both arrangements.
+
+After account checks are separately requested, the GET-only diagnostic can use
+explicit environment-variable names for credentials. It never loads the installed
+configuration. `--expected-account` is the native account UUID returned by Alpaca,
+not its display account number. Example arguments, with placeholders:
+
+```sh
+PYTHONPATH=.:shared python tools/sentinel_live_diagnostics.py \
+  --base-url https://api.alpaca.markets \
+  --expected-account ACCOUNT_UUID --deployment-id DEPLOYMENT --takeover-epoch 1 \
+  --api-key-env LIVE_DIAGNOSTIC_KEY --secret-key-env LIVE_DIAGNOSTIC_SECRET \
+  --after 2026-10-16T00:00:00Z --through 2026-10-17T00:00:00Z \
+  --output /private/new-live-diagnostic.json
+```
+
+An unfunded account can exercise authentication, exact account binding and empty
+native response shapes. It cannot exercise funded settlement, real dividends,
+regulatory fees, fills, corrections, liquidation or financial recovery. A
+diagnostic PASS means only that the read-only collection completed; buys remain
+deferred and native guarantees remain unproven. The implementation deliberately
+quarantines ambiguous journals, funding memos, security transfers and unhandled
+revision/corporate-action semantics. No diagnostic result enables live orders.

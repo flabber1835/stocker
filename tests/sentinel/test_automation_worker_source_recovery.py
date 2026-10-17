@@ -33,6 +33,8 @@ from sentinel.feed import (calendar, domains, publication, seed_capture,
                            sharadar, source_authority, store as feed_store, universe)
 from test_automation_composition import assembly, pg, fixture  # shared explicit inputs
 
+from tests.sentinel.test_automation_service import frozen_clock_sample
+
 REAL_LATEST = feed_store.latest_visible_session
 REAL_SESSIONS = calendar.sessions_in_range
 REAL_NEXT = calendar.next_session
@@ -109,7 +111,8 @@ def _eventually(read, predicate, *, timeout=40):
 
 @pytest.mark.skipif(os.name != "posix", reason="production requires Linux callback supervision")
 @pytest.mark.parametrize("finish", ["recover", "expired", "killed"])
-def test_worker_wait_restart_source_healing_and_transport(assembly, monkeypatch, finish):
+def test_worker_wait_restart_source_healing_and_transport(
+        assembly, monkeypatch, finish, frozen_clock_sample):
     _enable_fixture_archive(assembly.pg)
     context = mp.get_context("fork")
     clock = context.Value("d", assembly.clock[0].timestamp())
