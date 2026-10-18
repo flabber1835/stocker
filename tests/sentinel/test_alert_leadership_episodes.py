@@ -253,6 +253,33 @@ def test_independent_authority_integrity_and_broker_failures_still_notify(
     assert outbox.load_alert(conn, first.alert_id).ack_state is AckState.UNACKNOWLEDGED
 
 
+@pytest.mark.parametrize("independent", [
+    {"policy_state": "AUTHORITY_FAILED"},
+    {"policy_state": "CORRUPT", "healthy": False},
+    {"policy_state": "SCHEDULER_OVERDUE"},
+], ids=["authority", "integrity", "overdue"])
+def test_independent_failure_is_a_new_boundary_before_returning_leadership(
+        conn, observed_clock, independent):
+    first = _observe(conn, _red())
+    observed_clock[0] += timedelta(seconds=2)
+    separate = _observe(conn, _red(**independent))
+    assert _observe(conn, _red(**independent)).alert_id == separate.alert_id
+    observed_clock[0] += timedelta(seconds=2)
+    returning = _observe(conn, _red())
+
+    assert len({first.alert_id, separate.alert_id, returning.alert_id}) == 3
+    repeated = _observe(conn, _red(policy_state="WAITING_FOR_LEADER"))
+    assert repeated.alert_id == returning.alert_id
+    assert repeated.payload == returning.payload
+    assert repeated.payload["reason"] == "SCHEDULER_STALLED"
+    for original in (first, separate, returning):
+        retained = outbox.load_alert(conn, original.alert_id)
+        assert retained == original
+        assert retained.ack_state is AckState.UNACKNOWLEDGED
+    assert conn.execute("SELECT count(*) FROM sentinel_alert_outbox").fetchone()[0] == 3
+    assert _cursor(conn)[1] == 3
+
+
 def test_existing_cursor_reuses_existing_immutable_alert(conn, observed_clock):
     health = _red(latest_cycle_id="retained-cycle", latest_cycle_state="WAITING_OPEN")
     first = _observe(conn, health)

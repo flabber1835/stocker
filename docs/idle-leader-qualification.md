@@ -15,15 +15,18 @@ The first worker instance exists before initial lease acquisition. Identical
 cycle lineage is checked once per tick; changed state and execution still
 require their own validation.
 
-Full idle attestation is bounded to its original thirty-second start, including
-a deliberately slow check. Both a backwards skipped-poll clock and rollback
+Idle attestation reuse expires thirty seconds after the original check start,
+including a deliberately slow check; full revalidation occurs at the next
+ordinary poll, rather than promising a hard completion interval. Both a
+backwards skipped-poll clock and rollback
 after slow completion invalidate reuse. Current revocation, lifecycle, rollout,
 control and ownership remain observed; execution performs a fresh full gate.
 Skipped checks do not write another PASS or move its evidence timestamp.
 
 Leadership symptoms retain one immutable alert through cycle/holder churn and
-brief recovery. Sixty seconds of continuous fresh ownership is required to
-rearm; unknown reads, gaps, rollback, owner changes, expired observations and
+brief recovery. Within that continuous incident sixty seconds of continuous
+fresh ownership is required to rearm; an intervening independent failure
+establishes a new incident boundary. Unknown reads, gaps, rollback, owner changes, expired observations and
 dispatcher restart reset recovery. Current red and unacknowledged history stay
 visible. Authority, integrity, overdue and unresolved-broker failures remain
 independently actionable.
@@ -60,6 +63,11 @@ Tests create their own PostgreSQL fixtures.
 - `python -m pytest -q tests/sentinel/test_alert_leadership_episodes.py tests/sentinel/test_alert_attempt_fencing.py tests/sentinel/test_notification_recovery.py tests/sentinel/test_operator_monitoring.py`:
   126 passed, 143.49 seconds before the additional conservative dispatcher-start
   regression. That final regression is included in the later campaign.
+- `python -m pytest -q -p no:cacheprovider tests/sentinel/test_alert_leadership_episodes.py::test_independent_failure_is_a_new_boundary_before_returning_leadership`:
+  3 passed, 11.47 seconds. Authority, integrity and overdue failures each create
+  an independent incident boundary; returning leadership starts a new alert,
+  subsequent related symptoms reuse it, and all three original alerts retain
+  their immutable payloads and unacknowledged states.
 
 The final focused compatibility selection includes the full runtime module,
 retained-source compatibility, all fifteen upgrade-contract modules and the

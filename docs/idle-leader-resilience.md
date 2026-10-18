@@ -47,8 +47,10 @@ Do not memoize their identity as if they were. Full source, package, policy,
 certificate and publication validation remains mandatory at startup, before
 financial callbacks and at every execution authorization boundary.
 
-The nonfinancial idle display attestation may run at a maximum thirty-second
-interval for the same control, certificate and live ownership identity. Its
+The nonfinancial idle display attestation may reuse evidence younger than
+thirty seconds for the same control, certificate and live ownership identity.
+At that age it requires a full check on the next ordinary poll; scheduler or
+dependency delay can make the interval between completed checks longer. Its
 original checked-at time is retained between checks; a skipped check cannot
 publish another PASS or grant any financial permission. Continue polling current
 enabled/kill/generation and certificate lifecycle/revocation at the ordinary
@@ -71,12 +73,18 @@ existing alerts, weaken current health, or group authority/integrity/execution
 failures into this episode. A changed control generation or unresolved broker
 outcome identity remains independently actionable.
 
-Rearm a leadership episode only after sixty seconds of continuously observed
-operational readiness: an active lease, fresh current-holder heartbeat and the
+Within a continuous leadership incident, rearm after sixty seconds of
+continuously observed operational readiness: an active lease, fresh
+current-holder heartbeat and the
 same holder/fence. Recovery observations must have nondecreasing database time;
 a gap exceeding `max(10 seconds, twice the dispatcher poll interval)`, an unknown
 observation, a failed state or owner/fence change resets that recovery interval.
-Recovery sends no push. Retained unacknowledged critical history still renders
+An intervening independent authority, integrity, overdue or other failure is a
+new incident boundary: it gets its own alert, and a later leadership failure
+starts a new leadership episode. Keep the existing single active-incident
+cursor rather than a second concurrent incident registry. Test the complete
+leadership-to-independent-failure-to-leadership transition and preserve each
+immutable alert. Recovery sends no push. Retained unacknowledged critical history still renders
 red and remains available for explicit operator acknowledgement. Existing cursor
 and outbox records must remain readable across deployment without a new schema.
 
