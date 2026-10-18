@@ -39,7 +39,10 @@ def fake_repository(tmp_path):
     for name in acceptance.FIXED_SOURCE_FILES:
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(acceptance._source_path(acceptance.ROOT, name).read_bytes())
+        # Runtime Python stays under /app; /work/sentinel holds lock metadata only.
+        source_root = (Path(os.environ.get("SENTINEL_REPO_ROOT") or acceptance.ROOT)
+                       if name.startswith("sentinel/") else acceptance.ROOT)
+        path.write_bytes(acceptance._source_path(source_root, name).read_bytes())
     return root
 
 
