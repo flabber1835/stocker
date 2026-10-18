@@ -1,4 +1,4 @@
-.PHONY: help test lint sentinel-up sentinel-down status panel check-data \
+.PHONY: help test test-image test-host lint sentinel-up sentinel-down status panel check-data \
         feed-seed feed-daily feed-status feed-repair identity certify \
         sentinel-image sentinel-authorized-image
 
@@ -20,16 +20,20 @@
 # happens once per make invocation rather than per reference.
 COMPOSE  := bash scripts/sentinel-compose.sh --run
 GIT_SHA  := $(shell git rev-parse --short=12 HEAD 2>/dev/null)
+LOCAL_RUNTIME_IMAGE ?= sentinel:local-test
+LOCAL_TEST_IMAGE ?= sentinel-test:local
+TEST_RUNNER_ARGS ?=
+HOST_PYTHON ?= python3.8
 
 help:
 	@echo "Sentinel"
-	@echo "  make test           every suite, each in its own process"
+	@echo "  make test           complete Python 3.12 pytest owners in the pinned Docker lens"
+	@echo "  make test-host      minimum-host checks; requires Python 3.8.15"
 	@echo "  make status         ownership binding, feed frontier, readiness"
 	@echo "  make panel          start the read-only panel on :8004"
 	@echo "  make sentinel-up    panel + database (never the CLI)"
 	@echo "  make sentinel-down  stop them (NEVER with volumes)"
 	@echo ""
-	@echo "  make feed-seed      full Sharadar history. Hours"
 	@echo "  make feed-daily     fetch from the stored frontier"
 	@echo "  make feed-status    ingest progress, readable MID-RUN"
 	@echo "  make feed-repair    split ratios that contradict ACTIONS"
@@ -45,16 +49,20 @@ help:
 
 # ── tests ───────────────────────────────────────────────────────────────────
 #
-# The install line is the CONTRACT for a green run: a suite whose dependency is
-# missing ERRORS at collection, which reads as a broken repository rather than
-# an unprovisioned runner. `aiosqlite` earned its place that way.
-#
-# Process-per-suite is not a preference. Every service package is named `app`,
-# so a single cross-suite process is order-dependent; see scripts/run-tests.sh.
-test:
-	pip install --quiet -e shared pytest pytest-asyncio pandas numpy pydantic pyyaml hypothesis \
-	    sqlalchemy aiosqlite httpx exchange_calendars psycopg
-	bash scripts/run-tests.sh
+# Local-only image tags never confer CI, deployment or broker authority. Build
+# from current source while sharing CI's pinned interpreter and hash locks.
+test-image:
+	docker build --build-arg SOURCE_GIT_SHA=$$(git rev-parse HEAD) \
+	    -t $(LOCAL_RUNTIME_IMAGE) -f Dockerfile.sentinel .
+	docker build --build-arg SOURCE_GIT_SHA=$$(git rev-parse HEAD) \
+	    --build-arg SENTINEL_IMAGE=$(LOCAL_RUNTIME_IMAGE) \
+	    -t $(LOCAL_TEST_IMAGE) -f Dockerfile.sentinel-test .
+
+test: test-image
+	SENTINEL_TEST_IMAGE=$(LOCAL_TEST_IMAGE) bash scripts/run-tests.sh $(TEST_RUNNER_ARGS)
+
+test-host:
+	$(HOST_PYTHON) tools/run_unittest_owner.py --owner host-python38.compatibility
 
 lint:
 	python -m pyflakes sentinel/ tests/sentinel/

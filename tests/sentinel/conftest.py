@@ -5,13 +5,15 @@
 `import sentinel` resolve to the TEST package and shadow the real one, which is
 exactly how this suite first failed to collect.
 
-A small compatibility fixture also keeps older unit-level database doubles at
-the seam they actually exercise. Routine Sentinel paths use read-only schema
+A finite explicit registry opts older unit-level database doubles into their
+historical test seams. New and renamed modules keep real guards by default.
+Routine Sentinel paths use read-only schema
 validation. Older tests that pre-date that split still use the runtime validator
 as fixture bootstrap, so this file preserves the historical installer only
 inside the test process; production never imports this module.
 """
 import sys
+import re
 from pathlib import Path
 
 import pytest
@@ -42,6 +44,21 @@ _LEGACY_UNFINISHED_PUBLICATION_MODULES = {
 }
 
 
+def _legacy_compatibility_modules(path: Path) -> frozenset[str]:
+    """Read finite opt-ins; filenames never imply compatibility for new tests."""
+    names = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()
+             if line.strip() and not line.lstrip().startswith("#")]
+    if (not names or len(names) != len(set(names))
+            or any(re.fullmatch(r"test_[a-zA-Z0-9_]+\.py", name) is None
+                   for name in names)):
+        raise ValueError("invalid explicit legacy fixture module registry")
+    return frozenset(name[:-3] for name in names)
+
+
+_LEGACY_COMPATIBILITY_MODULES = _legacy_compatibility_modules(
+    HERE / "legacy-fixture-modules.txt")
+
+
 def _legacy_feed_fixture_install(conn) -> None:
     """Install feed DDL without invoking the production schema validator.
 
@@ -65,11 +82,13 @@ def _legacy_feed_fixture_install(conn) -> None:
 
 @pytest.fixture(autouse=True)
 def _runtime_schema_test_double_compat(request, monkeypatch):
-    """Keep legacy doubles narrow without weakening production validation."""
+    """Opted-in old doubles keep their seam; new modules retain real guards."""
+    module_name = request.module.__name__.rsplit(".", 1)[-1]
+    if module_name not in _LEGACY_COMPATIBILITY_MODULES:
+        return
     from sentinel import schema
     from sentinel.feed import store as feed_store
 
-    module_name = request.module.__name__.rsplit(".", 1)[-1]
     if module_name == "test_source_seed_warmup":
         # This module owns one source runtime across its shared real database.
         # Replacing its signing key after seed invalidates authentic receipts;

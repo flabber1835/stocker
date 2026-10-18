@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -22,12 +24,27 @@ TEST_SOURCE = Path("/work") if Path("/work/tests").is_dir() else REPO
 
 
 @dataclass(frozen=True)
+class FailureSignal:
+    exception: str
+    message_pattern: str | None = None
+
+
+ASSERTION_SIGNALS = (
+    FailureSignal("builtins.AssertionError"),
+    # Pytest intentionally publishes Failed as a builtins type. Accept only
+    # its missing-exception assertion, not arbitrary pytest.fail() messages.
+    FailureSignal("builtins.Failed", r"^DID NOT RAISE <class '[A-Za-z0-9_.]+'>$"),
+)
+
+
+@dataclass(frozen=True)
 class Mutant:
     name: str
     relative_path: str
     original: str
     replacement: str
     test: str
+    failure_signals: tuple[FailureSignal, ...] = ASSERTION_SIGNALS
 
 
 MUTANTS = (
@@ -117,6 +134,10 @@ MUTANTS = (
             "tests/sentinel/test_issue209_session_effective_metadata.py::"
             "test_future_tickers_snapshot_cannot_change_missed_session"
         ),
+        failure_signals=(FailureSignal(
+            "sentinel.core.loader.CausalMetadataUnavailable",
+            r"^no causally available TICKERS metadata exists on or before 2026-08-20$",
+        ),),
     ),
     Mutant(
         name="next-open-session-check-inverted",
@@ -214,30 +235,144 @@ def _pytest_counts(junit: Path) -> dict[str, object]:
     return counts
 
 
-def _mutation_verdict(returncode: int, junit: Path) -> tuple[bool, dict[str, object]]:
-    """A mutant dies only from an assertion failure, never harness breakage."""
+def _mutation_verdict(
+    returncode: int, junit: Path, *, probe: dict | None = None,
+    expected_cases: tuple[str, ...] = (),
+    failure_signals: tuple[FailureSignal, ...] = ASSERTION_SIGNALS,
+) -> tuple[bool, dict[str, object]]:
+    """Require complete execution and an explicitly reviewed call failure."""
     counts = _pytest_counts(junit)
+    calls = _complete_probe(probe, expected_cases)
+    failures = [] if calls is None else [call for call in calls if call["exception"]]
+    accepted = all(any(
+        failure["exception"] == signal.exception
+        and (signal.message_pattern is None
+             or re.search(signal.message_pattern, failure["message"]) is not None)
+        for signal in failure_signals) for failure in failures)
     killed = (
         returncode == 1
         and counts["valid"] is True
-        and int(counts["failures"]) > 0
+        and calls is not None
+        and bool(failures)
+        and accepted
+        and int(counts["total"]) == len(expected_cases)
+        and int(counts["failures"]) == len(failures)
         and int(counts["errors"]) == 0
+        and int(counts["skipped"]) == 0
     )
     return killed, counts
+
+
+def _complete_probe(probe: dict | None, expected: tuple[str, ...]) -> list[dict] | None:
+    """Every expected case must execute each phase exactly once."""
+    if (not expected or len(expected) != len(set(expected))
+            or not isinstance(probe, dict) or probe.get("probe_error")
+            or probe.get("collected") != list(expected)):
+        return None
+    reports = probe.get("reports")
+    if not isinstance(reports, list) or len(reports) != 3 * len(expected):
+        return None
+    by_case = {case: {} for case in expected}
+    for report in reports:
+        if not isinstance(report, dict) or set(report) != {
+                "nodeid", "phase", "exception", "message"}:
+            return None
+        case, phase = report["nodeid"], report["phase"]
+        if (case not in by_case or phase not in {"setup", "call", "teardown"}
+                or phase in by_case[case]
+                or not isinstance(report["message"], str)
+                or (report["exception"] is not None
+                    and not isinstance(report["exception"], str))):
+            return None
+        by_case[case][phase] = report
+    for phases in by_case.values():
+        if (set(phases) != {"setup", "call", "teardown"}
+                or phases["setup"]["exception"] is not None
+                or phases["teardown"]["exception"] is not None):
+            return None
+    return [by_case[case]["call"] for case in expected]
+
+
+def _probe(spec_path: Path) -> int:
+    """Private fresh-process entry point; JUnit does not retain exception types."""
+    import pytest
+
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    overlay = Path(spec["overlay"]).resolve()
+    source = overlay / spec["source"]
+    result = {"collected": [], "reports": [], "source": None}
+
+    class Probe:
+        def pytest_collection_finish(self, session):
+            result["collected"] = [item.nodeid for item in session.items]
+
+        def pytest_runtest_makereport(self, item, call):
+            exc = call.excinfo
+            result["reports"].append({
+                "nodeid": item.nodeid, "phase": call.when,
+                "exception": (f"{exc.type.__module__}.{exc.type.__qualname__}"
+                              if exc is not None else None),
+                "message": str(exc.value)[:4000] if exc is not None else "",
+            })
+
+    try:
+        module_name = ".".join(Path(spec["source"]).with_suffix("").parts)
+        module = importlib.import_module(module_name)
+        loaded = Path(module.__file__).resolve()
+        result["source"] = {"path": str(loaded), "sha256": _hash(loaded)}
+        if loaded != source.resolve() or _hash(loaded) != spec["sha256"]:
+            raise RuntimeError("pytest did not import the authenticated overlay source")
+        args = [spec["test"], "-q", "-ra", "-p", "no:cacheprovider",
+                f"--rootdir={overlay}", f"--confcutdir={overlay}",
+                f"--junitxml={spec['junit']}"]
+        if (overlay / "pytest.ini").is_file():
+            args.extend(["-c", str(overlay / "pytest.ini")])
+        return int(pytest.main(args, plugins=[Probe()]))
+    except Exception as exc:  # noqa: BLE001 - evidence must explain harness refusal
+        result["probe_error"] = f"{type(exc).__name__}: {exc}"
+        return 2
+    finally:
+        Path(spec["output"]).write_text(json.dumps(result, indent=2) + "\n",
+                                       encoding="utf-8")
+
+
+def _execute(overlay: Path, mutant: Mutant, source_hash: str,
+             env: dict[str, str], phase: str) -> dict:
+    output = overlay / f"{phase}-probe.json"
+    junit = overlay / f"{phase}-junit.xml"
+    spec = overlay / f"{phase}-input.json"
+    spec.write_text(json.dumps({
+        "overlay": str(overlay), "source": mutant.relative_path,
+        "sha256": source_hash, "test": mutant.test,
+        "output": str(output), "junit": str(junit),
+    }), encoding="utf-8")
+    completed = subprocess.run(
+        [sys.executable, "-B", str(Path(__file__).resolve()), "--probe", str(spec)],
+        cwd=overlay, env=env, capture_output=True, text=True, timeout=180,
+    )
+    probe = json.loads(output.read_text(encoding="utf-8")) if output.is_file() else {}
+    # Do not let a substituted or incomplete probe authenticate a different file.
+    if probe.get("source") != {"path": str((overlay / mutant.relative_path).resolve()),
+                              "sha256": source_hash}:
+        probe["probe_error"] = "overlay source identity was not established"
+    return {"pytest_exit_code": completed.returncode,
+            "pytest_counts": _pytest_counts(junit), "probe": probe,
+            "output_tail": (completed.stdout + completed.stderr)[-12000:]}
 
 
 def _run(mutant: Mutant) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix=f"sentinel-mutant-{mutant.name}-") as raw:
         overlay = Path(raw)
-        shutil.copytree(RUNTIME / "sentinel", overlay / "sentinel")
-        shutil.copytree(TEST_SOURCE / "tests", overlay / "tests")
+        ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
+        shutil.copytree(RUNTIME / "sentinel", overlay / "sentinel", ignore=ignore)
+        shutil.copytree(TEST_SOURCE / "tests", overlay / "tests", ignore=ignore)
+        if (TEST_SOURCE / "pytest.ini").is_file():
+            shutil.copy2(TEST_SOURCE / "pytest.ini", overlay / "pytest.ini")
         if (TEST_SOURCE / "docs").is_dir():
             (overlay / "docs").symlink_to(TEST_SOURCE / "docs",
                                            target_is_directory=True)
         source = overlay / mutant.relative_path
         before = _hash(source)
-        _apply_once(source, mutant.original, mutant.replacement)
-        after = _hash(source)
 
         env = dict(os.environ)
         inherited = [
@@ -250,37 +385,55 @@ def _run(mutant: Mutant) -> dict[str, object]:
             [str(overlay)]
             + ([str(shared)] if shared.is_dir() else [])
             + inherited)
-        relative_test, *selectors = mutant.test.split("::")
-        test = "::".join((str(overlay / relative_test), *selectors))
-        junit = overlay / "mutation-junit.xml"
-        completed = subprocess.run(
-            [sys.executable, "-m", "pytest", test, "-q", "-ra",
-             f"--junitxml={junit}"],
-            cwd=overlay,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        output = (completed.stdout + completed.stderr)[-12000:]
-        killed, counts = _mutation_verdict(completed.returncode, junit)
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        baseline = _execute(overlay, mutant, before, env, "baseline")
+        collected = baseline["probe"].get("collected", [])
+        expected = tuple(collected) if isinstance(collected, list) else ()
+        calls = _complete_probe(baseline["probe"], expected)
+        counts = baseline["pytest_counts"]
+        baseline_passed = (
+            baseline["pytest_exit_code"] == 0 and calls is not None
+            and all(call["exception"] is None for call in calls)
+            and counts["valid"] is True and counts["total"] == len(expected)
+            and counts["failures"] == counts["errors"] == counts["skipped"] == 0)
+        record = {
+            "name": mutant.name, "source": mutant.relative_path,
+            "source_sha256": before, "test": mutant.test,
+            "baseline": baseline, "baseline_passed": baseline_passed,
+            "expected_cases": list(expected), "mutant_killed": False,
+            "failure_signals": [
+                {"exception": signal.exception, "message_pattern": signal.message_pattern}
+                for signal in mutant.failure_signals],
+        }
+        if not baseline_passed:
+            return {**record, "harness_error": "unmodified overlay baseline did not pass"}
+        _apply_once(source, mutant.original, mutant.replacement)
+        after = _hash(source)
+        mutated = _execute(overlay, mutant, after, env, "mutation")
+        killed, counts = _mutation_verdict(
+            mutated["pytest_exit_code"], overlay / "mutation-junit.xml",
+            probe=mutated["probe"], expected_cases=expected,
+            failure_signals=mutant.failure_signals)
         return {
-            "name": mutant.name,
-            "source": mutant.relative_path,
-            "source_sha256": before,
+            **record,
             "mutant_sha256": after,
-            "test": mutant.test,
-            "pytest_exit_code": completed.returncode,
+            "pytest_exit_code": mutated["pytest_exit_code"],
             "pytest_counts": counts,
+            "probe": mutated["probe"],
             "mutant_killed": killed,
-            "output_tail": output,
+            "output_tail": mutated["output_tail"],
         }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output", required=True)
+    parser.add_argument("--output")
+    parser.add_argument("--probe", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.probe is not None:
+        return _probe(args.probe)
+    if args.output is None:
+        parser.error("--output is required")
 
     records = []
     for mutant in MUTANTS:

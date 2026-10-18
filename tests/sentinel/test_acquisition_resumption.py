@@ -624,7 +624,7 @@ def test_retained_identity_corruption_refuses(conn, source, damage):
 def test_repackaged_zip_has_same_content_commitment():
     import hashlib
     from sentinel.feed.acquisition_parts import fingerprint
-    from tests.sentinel.test_sharadar_snapshot_export import _zip_csv
+    from tests.support.table_export import _zip_csv
     first = _zip_csv("one.csv", "ticker,date,close", [["AAA", "2026-09-14", "50"], ["BBB", "2026-09-14", "51"]])
     second = _zip_csv("two.csv", "ticker,date,close", [["BBB", "2026-09-14", "51"], ["AAA", "2026-09-14", "50"]])
     assert hashlib.sha256(first).digest() != hashlib.sha256(second).digest()

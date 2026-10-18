@@ -4,14 +4,14 @@ import subprocess
 
 import pytest
 
-from research.sharadar_replay import runner
-from research.sharadar_replay.bounded_cases import build_bounded_scenarios
-from research.sharadar_replay.provider import Provider
+from tests.support.market_replay import runner
+from tests.support.market_replay.bounded_cases import build_bounded_scenarios
+from tests.support.market_replay.provider import Provider
 from tests.support.postgres import _EphemeralPostgres
 
 
 def test_standalone_replay_refuses_missing_checkout_identity(monkeypatch, tmp_path):
-    monkeypatch.setattr(runner, "__file__", str(tmp_path / "research" / "replay" / "runner.py"))
+    monkeypatch.setattr(runner, "__file__", str(tmp_path / "tests" / "support" / "market_replay" / "runner.py"))
     with pytest.raises(subprocess.CalledProcessError):
         runner._checkout_commit()
 
@@ -35,8 +35,8 @@ def test_bounded_daily_waits_and_recovers_through_real_protocol(monkeypatch, tmp
 def test_empty_database_bootstraps_with_delayed_exports():
     from sentinel import schema
     from sentinel.feed import outage_recovery, publication, store
-    from research.sharadar_replay.runtime import simulated_runtime
-    from research.sharadar_replay.bounded_cases import require_bounded_acquisition
+    from tests.support.market_replay.runtime import simulated_runtime
+    from tests.support.market_replay.bounded_cases import require_bounded_acquisition
     scenario = build_bounded_scenarios()["bounded_happy_daily"]
     provider = Provider(pending_polls=2)
     provider.advance(scenario.seed)

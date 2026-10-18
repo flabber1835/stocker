@@ -1,5 +1,11 @@
 # Current installation boundary
 
+[CI suite hardening](ci-suite-hardening.md) retires source-specific research
+replay jobs from production CI, preserves canonical invariants and current
+Alpaca/OpenFIGI witnesses, makes legacy fixture substitutions explicit, and
+adds an advisory source-authenticated coverage campaign. Historical evidence
+keeps its original identities; it is not a current-source requirement.
+
 [Automation clock sampling](automation-clock-sampling.md) defines nested timing
 bounds, nonfatal resampling before financial work, preserved skew guards and
 the exact retained-executable transition for the millisecond correction repair.

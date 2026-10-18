@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import subprocess
@@ -30,6 +31,21 @@ def owned_suites() -> tuple[str, ...]:
     return suites
 
 
+@contextmanager
+def owned_database_environment(environ: dict[str, str]):
+    """The CI and local owners share one privately provisioned SQL fixture."""
+    server = _EphemeralPostgres()
+    try:
+        server.start()
+        yield dict(
+            environ, SENTINEL_DATABASE_URL=server.sync_dsn,
+            ALPACA_HARNESS_REQUIRE_POSTGRES="1",
+            SENTINEL_PUBLICATION_RECEIPT_KEY="core-infrastructure-synthetic-receipt-key",
+        )
+    finally:
+        server.stop()
+
+
 def main() -> int:
     output = ROOT / "artifacts" / "core-infrastructure"
     output.mkdir(parents=True, exist_ok=False)
@@ -39,19 +55,13 @@ def main() -> int:
         raise RuntimeError("core infrastructure gate requires a clean tested commit")
     suites = owned_suites()
 
-    server = _EphemeralPostgres()
     result = None
-    try:
-        server.start()
-        env = dict(
+    with owned_database_environment(dict(
             os.environ,
             PYTHONPATH=str(ROOT / "shared"),
-            SENTINEL_DATABASE_URL=server.sync_dsn,
-            ALPACA_HARNESS_REQUIRE_POSTGRES="1",
-            SENTINEL_PUBLICATION_RECEIPT_KEY="core-infrastructure-synthetic-receipt-key",
             INTERNAL_STATE_SUITE_EVIDENCE=str(output / "suites"),
             PYTEST_ADDOPTS="-p tests.internal_state.ci_gate",
-        )
+    )) as env:
         result = subprocess.run(
             [sys.executable, "-m", "pytest", *suites, "-q", "-ra",
              f"--junitxml={output / 'junit.xml'}"],
@@ -59,8 +69,6 @@ def main() -> int:
             env=env,
             check=False,
         )
-    finally:
-        server.stop()
 
     status = 1 if result is None else result.returncode
     evidence = {

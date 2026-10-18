@@ -350,7 +350,9 @@ def test_ci_compiles_python_and_syntax_checks_every_tracked_shell_script():
     assert "mapfile -d '' shell_scripts < <(git ls-files -z -- '*.sh')" \
         in workflow
     assert 'if [ "${#shell_scripts[@]}" -eq 0 ]' in workflow
-    assert 'bash -n "${shell_scripts[@]}"' in workflow
+    assert 'for script in "${shell_scripts[@]}"; do' in workflow
+    assert 'bash -n "$script"' in workflow
+    assert 'bash -n "${shell_scripts[@]}"' not in workflow
 
 
 def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
@@ -409,7 +411,14 @@ def test_ci_log_contract_rejects_missing_evidence_or_failure_controls(monkeypatc
 def test_expected_golden_drift_is_exact_strict_xfail_not_a_suite_mask():
     runner = _read("scripts/run-tests.sh")
     assert "KNOWN_RED" not in runner
-    assert "strict xfail" in runner
+    from tools import local_test_runner
+    expected = local_test_runner._expected_xfails(
+        local_test_runner.load_authority(), "wealth-core.prospective")
+    assert expected == {
+        "tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture",
+        "tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER",
+        "tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash",
+    }
     fixture = (SUITE / "tests/wealth_core/test_golden_fixture.py").read_text()
     performance = (SUITE / "tests/wealth_core/test_performance_integration.py").read_text()
     assert fixture.count("strict=True") == 2
@@ -430,83 +439,74 @@ def test_make_certify_is_a_fail_closed_external_boundary():
     assert "--verify-only" not in target
 
 
-def test_make_host_test_runner_installs_async_pytest_support():
+def test_make_test_runner_uses_pinned_lens_with_async_pytest_support():
     body = _read("Makefile")
-    test_recipe = body.split("test:", 1)[1].split("\n\n", 1)[0]
-    assert "pytest-asyncio" in test_recipe
+    test_recipe = re.search(r"(?m)^test: test-image\n(?:\t[^\n]*\n)+", body)
+    assert test_recipe
+    assert "bash scripts/run-tests.sh $(TEST_RUNNER_ARGS)" in test_recipe.group()
+    assert "SENTINEL_TEST_IMAGE=$(LOCAL_TEST_IMAGE)" in test_recipe.group()
+    assert "--require-hashes" in _read("Dockerfile.sentinel-test")
+    assert "pytest-asyncio==" in (SUITE / "tests/requirements.lock").read_text()
 
 
-def test_test_runner_refuses_pytest_nothing_collected(tmp_path):
+def _run_local_wrapper(tmp_path, *, in_image, exit_code, arguments):
     root = tmp_path / "repository"
     scripts = root / "scripts"
-    suite = root / "tests" / "sentinel"
+    binaries = root / "bin"
     scripts.mkdir(parents=True)
-    suite.mkdir(parents=True)
-    runner = _executable(
-        scripts / "run-tests.sh", _read("scripts/run-tests.sh"))
-    (suite / "test_placeholder.py").write_text("def test_placeholder(): pass\n")
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    _executable(fake_bin / "python", "#!/bin/sh\nexit 5\n")
-    env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"}
-
-    result = subprocess.run(
-        ["bash", str(runner), "-q"], cwd=root, env=env,
-        capture_output=True, text=True, timeout=30)
-
-    assert result.returncode != 0
-    assert "pytest collected no tests" in result.stdout
-
-
-def test_test_runner_refuses_when_global_discovery_finds_no_suites(tmp_path):
-    root = tmp_path / "empty-repository"
-    scripts = root / "scripts"
-    scripts.mkdir(parents=True)
-    (root / "tests").mkdir()
-    runner = scripts / "run-tests.sh"
-    runner.write_text(_read("scripts/run-tests.sh"))
-    runner.chmod(0o755)
-
-    result = subprocess.run(
-        ["bash", str(runner)], cwd=root,
-        capture_output=True, text=True, timeout=30)
-
-    assert result.returncode != 0
-    assert "test discovery found no suites" in result.stderr
-
-
-def test_test_runner_skips_helper_only_directory_but_refuses_real_empty_suite(
-        tmp_path):
-    root = tmp_path / "repository"
-    scripts = root / "scripts"
-    support = root / "tests" / "support"
-    real = root / "tests" / "real"
-    fake_bin = root / "bin"
-    for path in (scripts, support, real, fake_bin):
-        path.mkdir(parents=True, exist_ok=True)
-    runner = scripts / "run-tests.sh"
-    runner.write_text(_read("scripts/run-tests.sh"))
-    runner.chmod(0o755)
-    (support / "helpers.py").write_text("HELPER = True\n")
-    (real / "test_empty.py").write_text(
-        "# A discoverable suite whose pytest process reports no collection.\n")
-    calls = root / "python-calls.log"
-    _executable(fake_bin / "python", """#!/bin/sh
-printf '%s\n' "$*" >> "$PYTHON_CALLS"
-exit 5
+    binaries.mkdir()
+    wrapper = _executable(scripts / "run-tests.sh", _read("scripts/run-tests.sh"))
+    command = "python" if in_image else "docker"
+    calls, cwd = root / "calls.txt", root / "cwd.txt"
+    _executable(binaries / command, """#!/bin/sh
+printf '%s\n' "$@" > "$LOCAL_WRAPPER_CALLS"
+printf '%s\n' "$PWD" > "$LOCAL_WRAPPER_CWD"
+exit "$LOCAL_WRAPPER_EXIT"
 """)
     env = {
         **os.environ,
-        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
-        "PYTHON_CALLS": str(calls),
+        "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}",
+        "SENTINEL_IN_IMAGE": "1" if in_image else "0",
+        "SENTINEL_TEST_IMAGE": "sentinel-test:fixture",
+        "SENTINEL_TEST_EVIDENCE": str(root / "evidence with spaces"),
+        "LOCAL_WRAPPER_CALLS": str(calls), "LOCAL_WRAPPER_CWD": str(cwd),
+        "LOCAL_WRAPPER_EXIT": str(exit_code),
     }
-
     result = subprocess.run(
-        ["bash", str(runner), "-q"], cwd=root, env=env,
+        ["bash", str(wrapper), *arguments], cwd=root, env=env,
         capture_output=True, text=True, timeout=30)
+    assert calls.is_file(), result.stdout + result.stderr
+    return result, calls.read_text().splitlines(), cwd.read_text().strip(), root
 
-    invoked = calls.read_text()
-    assert result.returncode != 0
-    assert "tests/real" in invoked
-    assert "tests/support" not in invoked
-    assert "pytest collected no tests for tests/real" in result.stdout
+
+def test_test_runner_preserves_in_image_runner_failure(tmp_path):
+    result, calls, cwd, _root = _run_local_wrapper(
+        tmp_path, in_image=True, exit_code=5, arguments=["--", "-q"])
+    assert result.returncode == 5
+    assert calls == ["tools/local_test_runner.py", "--", "-q"]
+    assert cwd == "/work"
+
+
+def test_test_runner_uses_offline_pinned_lens_from_host(tmp_path):
+    arguments = ["--owner", "sentinel.complete", "--", "-q"]
+    result, calls, cwd, root = _run_local_wrapper(
+        tmp_path, in_image=False, exit_code=7, arguments=arguments)
+    assert result.returncode == 7
+    assert cwd == str(root)
+    assert calls == [
+        "run", "--rm", "--network", "none",
+        "-v", str(root / "evidence with spaces") + ":/local-evidence",
+        "--entrypoint", "python", "sentinel-test:fixture",
+        "/work/tools/local_test_runner.py", "--evidence", "/local-evidence",
+        *arguments,
+    ]
+
+
+def test_test_runner_preserves_explicit_owners_and_pytest_arguments(tmp_path):
+    arguments = ["--owner", "scripts.operator", "--owner", "sentinel.complete",
+                 "--", "-k", "one or two", "-q"]
+    result, calls, cwd, _root = _run_local_wrapper(
+        tmp_path, in_image=True, exit_code=0, arguments=arguments)
+    assert result.returncode == 0
+    assert calls == ["tools/local_test_runner.py", *arguments]
+    assert cwd == "/work"

@@ -1,0 +1,153 @@
+name: Advisory repository coverage
+
+on:
+  workflow_dispatch:
+    inputs:
+      owners:
+        description: 'Comma-separated pytest owner names; empty measures all pytest owners'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: advisory-coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Select explicit permanent pytest owners
+        id: plan
+        env:
+          COVERAGE_OWNERS: ${{ inputs.owners }}
+        run: |
+          python tools/ci_coverage_campaign.py plan --owners "$COVERAGE_OWNERS" --output /tmp/coverage-matrix.json
+          echo "matrix=$(cat /tmp/coverage-matrix.json)" >> "$GITHUB_OUTPUT"
+      - name: Build one pinned disposable coverage lens
+        run: |
+          set -euo pipefail
+          docker build --build-arg SOURCE_GIT_SHA="$GITHUB_SHA" -t sentinel-coverage-runtime:ci -f Dockerfile.sentinel .
+          docker build --build-arg SOURCE_GIT_SHA="$GITHUB_SHA" --build-arg SENTINEL_IMAGE=sentinel-coverage-runtime:ci -t sentinel-coverage-test:ci -f Dockerfile.sentinel-test .
+          mkdir -p /tmp/coverage-images
+          docker save sentinel-coverage-runtime:ci sentinel-coverage-test:ci | gzip -1 > /tmp/coverage-images/images.tar.gz
+          cd /tmp/coverage-images
+          sha256sum images.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: advisory-coverage-images-${{ github.sha }}-${{ github.run_attempt }}
+          path: /tmp/coverage-images
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  measure:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 180 }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.build.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: advisory-coverage-images-${{ github.sha }}-${{ github.run_attempt }}
+          path: /tmp/coverage-images
+      - name: Verify and load the exact coverage lens
+        run: |
+          set -euo pipefail
+          cd /tmp/coverage-images
+          sha256sum --check SHA256SUMS
+          gzip -dc images.tar.gz | docker load
+          test "$(docker image inspect sentinel-coverage-test:ci --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$GITHUB_SHA"
+      - name: Execute and measure one complete owner
+        env:
+          COVERAGE_OWNER: ${{ matrix.owner }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/coverage-evidence"
+          docker run --rm --network none \
+            -v "$PWD:/coverage-source:ro" \
+            -v "$RUNNER_TEMP/coverage-evidence:/evidence" \
+            --entrypoint python sentinel-coverage-test:ci \
+            /work/tools/ci_coverage_campaign.py run --root /coverage-source \
+            --evidence /evidence --owner "$COVERAGE_OWNER"
+      - name: Retain measurements and test outcomes even on refusal
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: advisory-coverage-owner-${{ matrix.owner }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/coverage-evidence
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    needs: [build, measure]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: advisory-coverage-images-${{ github.sha }}-${{ github.run_attempt }}
+          path: /tmp/coverage-images
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: advisory-coverage-owner-*-${{ github.run_attempt }}
+          path: /tmp/coverage-owners
+      - name: Combine authenticated branch evidence without inventing coverage
+        env:
+          COVERAGE_OWNERS: ${{ inputs.owners }}
+        run: |
+          set -euo pipefail
+          (cd /tmp/coverage-images && sha256sum --check SHA256SUMS)
+          gzip -dc /tmp/coverage-images/images.tar.gz | docker load
+          mkdir -p /tmp/coverage-report
+          docker run --rm --network none \
+            -v "$PWD:/coverage-source:ro" \
+            -v /tmp/coverage-owners:/measurements:ro \
+            -v /tmp/coverage-report:/evidence \
+            --entrypoint python sentinel-coverage-test:ci \
+            /work/tools/ci_coverage_campaign.py report --root /coverage-source \
+            --data-root /measurements --evidence /evidence --owners "$COVERAGE_OWNERS"
+          cat /tmp/coverage-report/coverage-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: advisory-repository-coverage-${{ github.sha }}-${{ github.run_attempt }}
+          path: /tmp/coverage-report
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve incomplete or failed execution status
+        if: always()
+        env:
+          MEASUREMENT_RESULT: ${{ needs.measure.result }}
+        run: test "$MEASUREMENT_RESULT" = success

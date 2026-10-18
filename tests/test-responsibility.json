@@ -2,20 +2,41 @@
   "schema": "stocker.test-responsibility/2",
   "owners": {
     "sentinel.complete": {
-      "paths": ["tests/sentinel"],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "paths": [
+        "tests/sentinel"
+      ],
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
-      "execution": {"kind": "pytest-junit"}
+      "execution": {
+        "kind": "pytest-junit"
+      }
     },
     "production-champion.regressions": {
-      "paths": ["tests/champion", "tests/median5", "tests/v5"],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "paths": [
+        "tests/champion",
+        "tests/median5",
+        "tests/v5"
+      ],
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
-      "execution": {"kind": "pytest-junit"}
+      "execution": {
+        "kind": "pytest-junit"
+      }
     },
     "wealth-core.prospective": {
-      "paths": ["tests/wealth_core"],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "paths": [
+        "tests/wealth_core"
+      ],
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
       "execution": {
         "kind": "pytest-junit",
@@ -27,44 +48,83 @@
       }
     },
     "scripts.operator": {
-      "paths": ["tests/scripts"],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "paths": [
+        "tests/scripts"
+      ],
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
-      "execution": {"kind": "pytest-junit"}
+      "execution": {
+        "kind": "pytest-junit"
+      }
     },
     "host-python38.compatibility": {
-      "paths": ["tests/host_python38"],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "paths": [
+        "tests/host_python38"
+      ],
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/sentinel-safety.yml#host-python-38-compatibility",
       "independence": "minimum-host-runtime",
-      "execution": {"kind": "unittest-discovery"}
+      "execution": {
+        "kind": "unittest-discovery"
+      }
     },
     "backup.reliability": {
-      "paths": ["tests/backup"],
-      "scopes": ["synthetic-merge"],
+      "paths": [
+        "tests/backup"
+      ],
+      "scopes": [
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/backup-reliability.yml#media-and-recovery",
-      "execution": {"kind": "pytest-junit"}
+      "execution": {
+        "kind": "pytest-junit"
+      }
     },
     "production-composition.authority": {
-      "paths": ["tests/production_composition"],
-      "scopes": ["synthetic-merge"],
+      "paths": [
+        "tests/production_composition"
+      ],
+      "scopes": [
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/production-composition-harness.yml#composition",
       "independence": "production-composition",
-      "execution": {"kind": "pytest-junit"}
+      "execution": {
+        "kind": "pytest-junit"
+      }
     },
     "internal-state.contract": {
-      "paths": ["tests/internal_state"],
-      "scopes": ["synthetic-merge"],
+      "paths": [
+        "tests/internal_state"
+      ],
+      "scopes": [
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/internal-state-harness.yml#contract",
       "independence": "independent-oracle",
-      "execution": {"kind": "pytest-junit"}
+      "execution": {
+        "kind": "pytest-junit"
+      }
     },
     "internal-state.campaign": {
-      "paths": ["tools/internal_state_harness.py"],
-      "scopes": ["synthetic-merge"],
+      "paths": [
+        "tools/internal_state_harness.py"
+      ],
+      "scopes": [
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/internal-state-harness.yml#lifecycle",
       "independence": "adversarial-generated",
-      "execution": {"kind": "command", "command": "python tools/internal_state_harness.py"}
+      "execution": {
+        "kind": "command",
+        "command": "python tools/internal_state_harness.py"
+      }
     },
     "core.infrastructure": {
       "paths": [
@@ -74,16 +134,13 @@
         "tests/test_high_impact_filesystem_remediation.py",
         "tests/test_postgres_shm.py"
       ],
-      "scopes": ["synthetic-merge"],
+      "scopes": [
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/internal-state-harness.yml#core-infrastructure",
-      "execution": {"kind": "pytest-junit"}
-    },
-    "sharadar.daily-replay": {
-      "paths": ["research/sharadar_replay/tests"],
-      "scopes": ["exact-head", "synthetic-merge"],
-      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
-      "independence": "pit-production-replay",
-      "execution": {"kind": "pytest-junit"}
+      "execution": {
+        "kind": "pytest-junit"
+      }
     },
     "alpaca.contracts": {
       "paths": [
@@ -93,7 +150,10 @@
         "tests/sentinel/test_execution_state_machine_model.py",
         "tests/sentinel/test_guarded_execution_broker.py"
       ],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
       "execution_owner": "sentinel.complete",
       "execution": {
@@ -103,18 +163,32 @@
       }
     },
     "alpaca.native-read-acceptance": {
-      "paths": ["tools/sentinel_native_acceptance.py"],
-      "scopes": ["synthetic-merge"],
+      "paths": [
+        "tools/sentinel_native_acceptance.py"
+      ],
+      "scopes": [
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/alpaca-simulation-harness.yml#alpaca",
       "independence": "offline-native-replay",
-      "execution": {"kind": "command", "command": "python tools/sentinel_native_acceptance.py"}
+      "execution": {
+        "kind": "command",
+        "command": "python tools/sentinel_native_acceptance.py"
+      }
     },
     "alpaca.mutations": {
-      "paths": ["tools/alpaca_harness_mutations.py"],
-      "scopes": ["synthetic-merge"],
+      "paths": [
+        "tools/alpaca_harness_mutations.py"
+      ],
+      "scopes": [
+        "synthetic-merge"
+      ],
       "ci_job": ".github/workflows/alpaca-simulation-harness.yml#alpaca",
       "independence": "mutation",
-      "execution": {"kind": "command", "command": "python tools/alpaca_harness_mutations.py"}
+      "execution": {
+        "kind": "command",
+        "command": "python tools/alpaca_harness_mutations.py"
+      }
     }
   },
   "alpaca": {

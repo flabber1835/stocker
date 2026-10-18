@@ -30,7 +30,6 @@ REQUIRED_OWNERS = {
     "internal-state.contract",
     "internal-state.campaign",
     "core.infrastructure",
-    "sharadar.daily-replay",
     "alpaca.contracts",
     "alpaca.mutations",
 }
@@ -40,7 +39,6 @@ PROTECTED_OWNERS = {
     "wealth-core.prospective",
     "scripts.operator",
     "host-python38.compatibility",
-    "sharadar.daily-replay",
     "alpaca.contracts",
 }
 ADVISORY_OWNERS = REQUIRED_OWNERS - PROTECTED_OWNERS
@@ -500,8 +498,8 @@ def _promotion_pr_view(text: str) -> str:
                     replacement = raw.replace("if: " + condition, "if: " + replacements[condition], 1)
             changed = changed.replace(raw.rstrip("\n"), replacement.rstrip("\n"), 1)
         changed = changed.replace("    if: " + full + "\n", "")
-        changed = changed.replace("needs: [qualification-source, runtime-build, parallel-certification, sharadar-replay]",
-                                  "needs: [runtime-build, parallel-certification, sharadar-replay]")
+        changed = changed.replace("needs: [qualification-source, runtime-build, parallel-certification]",
+                                  "needs: [runtime-build, parallel-certification]")
         changed = changed.replace("needs: [qualification-source, runtime-build]", "needs: [runtime-build]")
         view = view.replace(body, changed, 1)
     return view
@@ -673,12 +671,12 @@ def _require_alpaca_trigger_authority(workflow_text: str) -> dict:
 
 
 def _require_parallel_certification(sentinel: str) -> dict:
-    from sentinel_ci_parallel_evidence import SUITE_LANES, REPLAY_SHARDS
+    from sentinel_ci_parallel_evidence import SUITE_LANES
 
     sentinel = _promotion_pr_view(sentinel)
     carrier = _job_body(sentinel, "certification-and-durability")
     require(_job_scalar(carrier, ("needs",)) ==
-            "[runtime-build, parallel-certification, sharadar-replay]",
+            "[runtime-build, parallel-certification]",
             "parallel certification: mandatory carrier dependencies differ")
     require(_job_scalar(carrier, ("if",)) == "always()",
             "parallel certification: carrier must fail closed after dependency failure")
@@ -687,7 +685,6 @@ def _require_parallel_certification(sentinel: str) -> dict:
     for job_id, dimension, matrix in (
         ("runtime-build", None, None),
         ("parallel-certification", "lane", "[" + ", ".join(SUITE_LANES) + "]"),
-        ("sharadar-replay", "shard", "[" + ", ".join(map(str, range(REPLAY_SHARDS))) + "]"),
     ):
         body = _job_body(sentinel, job_id)
         require(_job_scalar(body, ("if",)) is None,
@@ -720,7 +717,7 @@ def _require_parallel_certification(sentinel: str) -> dict:
             require(not _safe_command_present(body, "docker build", command_start="docker"),
                     f"parallel certification: {job_id} rebuilds rather than loads tested images")
 
-    for job_id in ("runtime-build", "parallel-certification", "sharadar-replay",
+    for job_id in ("runtime-build", "parallel-certification",
                    "certification-and-durability"):
         body = _job_body(sentinel, job_id)
         require(_job_scalar(body, ("continue-on-error",)) is None,
@@ -783,11 +780,6 @@ def _require_parallel_certification(sentinel: str) -> dict:
                                           required_if=condition, allow_tee=True),
                     f"parallel certification: sentinel-{family} lacks shard selection/run: {marker}")
 
-    replay = _job_body(sentinel, "sharadar-replay")
-    for marker in ("-m pytest research/sharadar_replay/tests -q -ra -s",
-                   "SHARADAR_REPLAY_SHARDS=4", "SHARADAR_REPLAY_SHARD=${{ matrix.shard }}"):
-        require(_safe_command_present(replay, marker, command_start="docker"),
-                f"parallel certification: replay lacks executable complete shard selection: {marker}")
     for command, condition in (("verify-needs", None), ("load-bundle", _EXACT_SCOPE_IF),
                                ("assemble", _EXACT_SCOPE_IF)):
         require(_safe_command_present(
@@ -800,25 +792,20 @@ def _require_parallel_certification(sentinel: str) -> dict:
                  command in "\n".join(s)]
         require(len(steps) == 1 and _step_scalar(steps[0], ("env", "CI_NEEDS")) ==
                 "${{ toJSON(needs) }}", "parallel certification: dependency results are not observed")
-    return {"suite_lanes": list(SUITE_LANES), "replay_shards": REPLAY_SHARDS,
+    return {"suite_lanes": list(SUITE_LANES),
             "image_binding": "single-build-checksummed-bundle",
             "dependency_binding": "same-workflow-run-and-attempt"}
 
 
 def _require_merge_authority(*, sentinel_text: str | None = None,
-                             sharadar_text: str | None = None,
                              workflow_texts: dict[str, str] | None = None) -> dict:
     sentinel_path = ".github/workflows/sentinel-safety.yml"
-    sharadar_path = ".github/workflows/sharadar-daily-replay.yml"
     alpaca_path = ".github/workflows/alpaca-simulation-harness.yml"
     overrides = dict(workflow_texts or {})
     if sentinel_text is not None:
         overrides[sentinel_path] = sentinel_text
-    if sharadar_text is not None:
-        overrides[sharadar_path] = sharadar_text
     workflows = _workflow_sources(overrides)
     sentinel = workflows[sentinel_path]
-    sharadar = workflows[sharadar_path]
 
     require("python -m unittest -v tests.host_python38.test_" not in _active_yaml_text(sentinel),
             "host Python 3.8 ownership regressed to a hand-maintained module list")
@@ -837,36 +824,21 @@ def _require_merge_authority(*, sentinel_text: str | None = None,
     }
 
     parallel = _require_parallel_certification(sentinel)
-    command_specs = [
-        ("research/sharadar_replay/verify_evidence.py", "docker"),
-        ("--shards 4", "docker"),
-        ("python tools/verify_test_owner_execution.py --owner sharadar.daily-replay", "python"),
-    ]
-    missing = [marker for marker, start in command_specs
-               if not _safe_command_present(
-                   carrier, marker, command_start=start, required_if=_EXACT_SCOPE_IF)]
-    require(not missing,
-            "Sentinel protected carrier lacks executable exact-head complete Sharadar authority: "
-            f"{missing}")
+    for owner in ("sentinel.complete", "production-champion.regressions", "scripts.operator", "wealth-core.prospective"):
+        require(_safe_command_present(carrier,
+                "python tools/verify_test_owner_execution.py --owner " + owner,
+                command_start="python", required_if=_EXACT_SCOPE_IF),
+                "Sentinel protected owner authority is not executable: " + owner)
     require(not _safe_command_present(carrier, "tools/require_check_run.py"),
             "Sentinel protected carrier regressed to a point-in-time cross-workflow replay bridge")
 
-    diagnostic_triggers = _workflow_triggers(sharadar)
-    require("pull_request" not in diagnostic_triggers,
-            "dedicated Sharadar diagnostic must not create a second PR replay authority")
-    require("merge_group" not in diagnostic_triggers,
-            "dedicated Sharadar diagnostic must not create a second merge-queue replay authority")
     alpaca_trigger = _require_alpaca_trigger_authority(workflows[alpaca_path])
 
     return {
         "carrier_contexts": ["sentinel-exact-head", "sentinel-synthetic-merge"],
         "carrier_job": carrier_job_id,
-        "replay_authority": "same-workflow-required-dependencies",
-        "replay_owner": "sharadar.daily-replay",
-        "diagnostic_workflow": sharadar_path,
-        "diagnostic_triggers": sorted(diagnostic_triggers),
         "protected_context_owners": protected,
-        "temporal_binding": "replay bound to the same workflow run, attempt, source and images",
+        "temporal_binding": "all lanes bound to the same workflow run, attempt, source and images",
         "parallel_certification": parallel,
         "alpaca_trigger": alpaca_trigger,
         "scope_proofs": scope_proofs,

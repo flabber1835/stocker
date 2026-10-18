@@ -93,13 +93,13 @@ def test_directory_owner_discovery_automatically_includes_a_new_test_module(tmp_
     assert owned_test_modules(authority, "host", root=tmp_path) == [first, second]
 
 
-def test_global_test_universe_includes_declared_research_roots():
+def test_global_test_universe_contains_current_owned_tests():
     authority = load_authority()
     roots = {path.relative_to(ROOT).as_posix() for path in _declared_test_roots(authority)}
-    assert "tests" in roots
-    assert "research/sharadar_replay/tests" in roots
+    assert roots == {"tests"}
     modules = {path.relative_to(ROOT).as_posix() for path in _global_test_modules(authority)}
-    assert any(path.startswith("research/sharadar_replay/tests/test_") for path in modules)
+    assert any(path.startswith("tests/sentinel/test_alpaca") for path in modules)
+    assert not any(path.startswith("research/") for path in modules)
 
 
 def test_ci_job_binding_is_scoped_to_the_declared_job():
@@ -247,46 +247,28 @@ def test_host_python_owner_is_statically_bound_to_exact_3815():
         )
 
 
-def test_sharadar_pr_authority_is_bound_to_required_same_workflow_dependencies():
+def test_current_test_authority_keeps_same_workflow_dependency_binding():
     result = _require_merge_authority()
     assert result["carrier_job"] == "certification-and-durability"
-    assert result["replay_authority"] == "same-workflow-required-dependencies"
-    assert result["replay_owner"] == "sharadar.daily-replay"
-    assert result["temporal_binding"] == "replay bound to the same workflow run, attempt, source and images"
-    assert result["parallel_certification"]["replay_shards"] == 4
-    diagnostic = (ROOT / ".github/workflows/sharadar-daily-replay.yml").read_text()
-    assert _workflow_triggers(diagnostic) == {"workflow_dispatch"}
+    assert result["temporal_binding"] == "all lanes bound to the same workflow run, attempt, source and images"
+    assert len(result["parallel_certification"]["suite_lanes"]) == 16
+    assert not (ROOT / ".github/workflows/sharadar-daily-replay.yml").exists()
+    assert "sharadar.daily-replay" not in load_authority()["owners"]
 
 
-def test_merge_authority_rejects_commented_disabled_and_masked_replay_evidence():
+def test_merge_authority_rejects_commented_disabled_and_masked_current_owner_evidence():
     sentinel = _promotion_pr_view((ROOT / ".github/workflows/sentinel-safety.yml").read_text())
-    sharadar = (ROOT / ".github/workflows/sharadar-daily-replay.yml").read_text()
-    marker = "python tools/verify_test_owner_execution.py --owner sharadar.daily-replay"
+    marker = "python tools/verify_test_owner_execution.py --owner sentinel.complete"
     assert marker in sentinel
-
-    commented = sentinel.replace(marker, "# " + marker, 1)
-    with pytest.raises(AssertionError, match="complete Sharadar authority"):
-        _require_merge_authority(sentinel_text=commented, sharadar_text=sharadar)
-
-    header = (
-        "      - name: Re-collect and verify every protected test owner and full replay union\n"
-        "        if: ${{ matrix.scope == 'exact-head' }}\n"
-        "        run: |\n"
-    )
+    header = ("      - name: Re-collect and verify every protected test owner\n"
+              "        if: ${{ matrix.scope == 'exact-head' }}\n"
+              "        run: |\n")
     assert header in sentinel
-    disabled = sentinel.replace(
-        header,
-        "      - name: Re-collect and verify every protected test owner and full replay union\n"
-        "        if: false\n"
-        "        run: |\n",
-        1,
-    )
-    with pytest.raises(AssertionError, match="complete Sharadar authority"):
-        _require_merge_authority(sentinel_text=disabled, sharadar_text=sharadar)
-
-    masked = sentinel.replace(marker, marker + " || true", 1)
-    with pytest.raises(AssertionError, match="complete Sharadar authority"):
-        _require_merge_authority(sentinel_text=masked, sharadar_text=sharadar)
+    for changed in (sentinel.replace(marker, "# " + marker, 1),
+                    sentinel.replace(header, header.replace("${{ matrix.scope == 'exact-head' }}", "false"), 1),
+                    sentinel.replace(marker, marker + " || true", 1)):
+        with pytest.raises(AssertionError, match="protected owner authority"):
+            _require_merge_authority(sentinel_text=changed)
 
 
 def test_protected_contexts_require_unconditional_tree_equivalence_proof():
@@ -308,14 +290,12 @@ def test_protected_contexts_require_unconditional_tree_equivalence_proof():
 
 
 @pytest.mark.parametrize("before,after", [
-    ("needs: [runtime-build, parallel-certification, sharadar-replay]",
-     "needs: [runtime-build, parallel-certification]"),
+    ("needs: [runtime-build, parallel-certification]",
+     "needs: [runtime-build]"),
     ("    if: always()\n", "    if: success()\n"),
-    ("shard: [0, 1, 2, 3]", "shard: [0, 1, 2]"),
     ("sentinel-rolling-3, sentinel-contention", "sentinel-contention"),
     ('python tools/sentinel_ci_shards.py --lane "$CI_LANE"',
      'python tools/sentinel_ci_shards.py --lane sentinel-general-0'),
-    ("        shard: [0, 1, 2, 3]\n", "        shard: [0, 1, 2, 3]\n        exclude: []\n"),
     ("    name: sentinel-suite-${{ matrix.lane }}\n",
      "    name: sentinel-suite-${{ matrix.lane }}\n    if: false\n"),
     ("    name: sentinel-suite-${{ matrix.lane }}\n",
@@ -327,8 +307,6 @@ def test_protected_contexts_require_unconditional_tree_equivalence_proof():
     ("python tools/sentinel_ci_parallel_evidence.py verify-needs",
      "# python tools/sentinel_ci_parallel_evidence.py verify-needs"),
     ("CI_NEEDS: ${{ toJSON(needs) }}", "CI_NEEDS: '{}'"),
-    ("SHARADAR_REPLAY_SHARDS=4", "SHARADAR_REPLAY_SHARDS=1"),
-    ("SHARADAR_REPLAY_SHARD=${{ matrix.shard }}", "SHARADAR_REPLAY_SHARD=0"),
     ("        if: ${{ matrix.lane == 'sentinel-warmup' }}", "        if: false"),
     ("--fail-under=100.00", "--fail-under=0.00"),
     ("set -euo pipefail", "set -eu"),
@@ -384,15 +362,6 @@ jobs:
     })
 
 
-def test_dedicated_sharadar_workflow_cannot_become_second_pr_authority():
-    sentinel = _promotion_pr_view((ROOT / ".github/workflows/sentinel-safety.yml").read_text())
-    sharadar = (ROOT / ".github/workflows/sharadar-daily-replay.yml").read_text()
-    assert _workflow_triggers(sharadar) == {"workflow_dispatch"}
-    mutated = sharadar.replace("on:\n  workflow_dispatch:\n", "on:\n  pull_request:\n    branches: [main]\n  workflow_dispatch:\n")
-    with pytest.raises(AssertionError, match="second PR replay authority"):
-        _require_merge_authority(sentinel_text=sentinel, sharadar_text=mutated)
-
-
 def test_alpaca_pr_filter_covers_material_collection_and_runtime_inputs():
     workflow = (ROOT / ".github/workflows/alpaca-simulation-harness.yml").read_text()
     assert _require_alpaca_trigger_authority(workflow)["complete"] is True
@@ -413,7 +382,6 @@ def test_authority_verifiers_do_not_depend_on_optimization_stripped_asserts():
         ROOT / "tools/validate_test_responsibility.py",
         ROOT / "tools/verify_ci_scope.py",
         ROOT / "tools/verify_internal_state_evidence.py",
-        ROOT / "research/sharadar_replay/verify_evidence.py",
     ]
     for path in paths:
         tree = ast.parse(path.read_text())
@@ -424,13 +392,11 @@ def test_live_test_responsibility_authority_is_valid():
     result = validate_responsibility()
     assert result["verdict"] == "PASS"
     assert result["unowned_tests"] == []
-    assert "research/sharadar_replay/tests" in result["test_roots"]
+    assert result["test_roots"] == ["tests"]
     assert set(result["scope_bindings"]) == set(result["ci_jobs"])
     assert result["alpaca_contract_instances"] > result["alpaca_contracts"]
     merge = result["merge_authority"]
     assert merge["carrier_job"] == "certification-and-durability"
-    assert merge["replay_authority"] == "same-workflow-required-dependencies"
-    assert merge["diagnostic_triggers"] == ["workflow_dispatch"]
     assert merge["alpaca_trigger"]["complete"] is True
     assert merge["protected_context_owners"]["sentinel-exact-head"] == {
         "workflow": ".github/workflows/sentinel-safety.yml",

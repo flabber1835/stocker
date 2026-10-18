@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -89,7 +90,7 @@ def test_missing_wal_checksum_is_a_retryable_restore_horizon_fence(world):
 
 
 def test_production_mutation_surfaces_are_wired_to_full_chain_authority():
-    root = Path(__file__).resolve().parents[2]
+    root = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
     validation = (root / "sentinel" / "paper" / "validation.py").read_text()
     preparation = (root / "sentinel" / "paper" / "preparation.py").read_text()
     execution = (root / "sentinel" / "paper" / "execution.py").read_text()
@@ -161,14 +162,14 @@ def test_feed_mutation_fences_before_reclaim_or_publication_recovery(monkeypatch
 
 
 def test_read_only_recovery_surface_remains_outside_backup_mutation_gate():
-    root = Path(__file__).resolve().parents[2]
+    root = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
     paper_source = (root / "sentinel" / "paper" / "__init__.py").read_text()
     assert "from .recovery import recover_automated_paper_cycle" in paper_source
     assert "async def recover_automated_paper_cycle" not in paper_source
 
 
 def test_retained_wal_is_never_granted_new_integrity_authority_by_initialization():
-    root = Path(__file__).resolve().parents[2]
+    root = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
     backup_lib = (root / "scripts" / "sentinel-backup-lib.sh").read_text()
     archive = (root / "scripts" / "sentinel-archive-wal.sh").read_text()
 
@@ -349,7 +350,7 @@ def test_runtime_preserves_current_archiver_clock_refusal(world):
 
 def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
     import ast
-    root = Path(__file__).resolve().parents[2]
+    root = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
     found = set()
     for path in (root / "sentinel").rglob("*.py"):
         tree = ast.parse(path.read_text())

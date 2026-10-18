@@ -24,9 +24,8 @@ ROLLING_LANES = tuple(f"sentinel-rolling-{index}" for index in range(4))
 MAIN_LANES = (*GENERAL_LANES, *ROLLING_LANES, "sentinel-contention", "sentinel-status")
 SENTINEL_LANES = (*MAIN_LANES, "sentinel-warmup", "sentinel-automation")
 SUITE_LANES = (*SENTINEL_LANES, "champion", "operator", "wealth-core", "mutations")
-REPLAY_SHARDS = 4
-LANES = (*SUITE_LANES, *(f"replay-{index}" for index in range(REPLAY_SHARDS)))
-DEPENDENCIES = {"runtime-build", "parallel-certification", "sharadar-replay"}
+LANES = SUITE_LANES
+DEPENDENCIES = {"runtime-build", "parallel-certification"}
 REQUIRED_FILES = {
     **{lane: {f"{lane}.xml", "summary.txt"} for lane in MAIN_LANES},
     "sentinel-warmup": {"sentinel-warmup.xml", "summary.txt"},
@@ -35,8 +34,6 @@ REQUIRED_FILES = {
     "operator": {"scripts.xml", "summary.txt"},
     "wealth-core": {"wealth-core.xml", "summary.txt"},
     "mutations": {"report.json"},
-    **{f"replay-{index}": {"collection.json", "junit.xml"}
-       for index in range(REPLAY_SHARDS)},
 }
 
 
@@ -169,9 +166,8 @@ def verify_lanes(root: Path, bundle: Path, workers: Path, needs: dict) -> dict[s
 def assemble(root: Path, bundle: Path, workers: Path, needs: dict, output: Path) -> dict:
     lanes = verify_lanes(root, bundle, workers, needs)
     system = output / "sentinel-system-evidence"
-    replay = output / "sharadar-required-evidence"
     mutation = output / "sentinel-mutation-evidence"
-    for directory in (system, replay, mutation):
+    for directory in (system, mutation):
         directory.mkdir(parents=True, exist_ok=False)
     for lane, filename in (("champion", "champion.xml"), ("operator", "scripts.xml"),
                            ("wealth-core", "wealth-core.xml"),
@@ -192,8 +188,6 @@ def assemble(root: Path, bundle: Path, workers: Path, needs: dict, output: Path)
                            ("wealth-core", "wealth-core-prospective.txt")):
         shutil.copyfile(lanes[lane] / "summary.txt", output / filename)
     shutil.copyfile(lanes["mutations"] / "report.json", mutation / "report.json")
-    for index in range(REPLAY_SHARDS):
-        shutil.copytree(lanes[f"replay-{index}"], replay / str(index))
     result = {"verdict": "PASS", "lanes": list(LANES), "sentinel_tests": total,
               "bundle_sha256": sha256_file(bundle / "identity.json")}
     _write_json(system / "parallel-evidence.json", result)
@@ -213,7 +207,7 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "verify-needs":
         require_dependencies(json.loads(os.environ.get("CI_NEEDS", "null")))
-        print("PASS: every mandatory build, suite lane and replay shard succeeded")
+        print("PASS: every mandatory build, suite lane succeeded")
         return 0
     require(args.bundle is not None, "runtime bundle is required")
     if args.command == "build-bundle":

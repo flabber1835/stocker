@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from research.sharadar_replay.model import Corpus, Step
-from research.sharadar_replay.provider import Provider
-from research.sharadar_replay.runtime import simulated_runtime
+from tests.support.market_replay.model import Corpus, Step
+from tests.support.market_replay.provider import Provider
+from tests.support.market_replay.runtime import simulated_runtime
 from sentinel.feed import (coherence, ingest, seed_capture, sharadar, snapshot_source,
                            source_authority, source_probe)
 from test_historical_symbol_identity import HISTORICAL_RENAMES, THROUGH

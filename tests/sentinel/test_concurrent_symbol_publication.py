@@ -5,7 +5,7 @@ import datetime as dt
 
 import pytest
 
-from research.sharadar_replay.runtime import simulated_runtime
+from tests.support.market_replay.runtime import simulated_runtime
 from sentinel.feed import (ingest, publication, seed_coherence, source_aliases,
                            snapshot_source, store, universe)
 from test_concurrent_source_symbols import DAY, source

@@ -5,7 +5,7 @@ import pytest
 from sentinel.feed import acquisition_work as work, operational_source as source
 from sentinel.feed import snapshot_export as export, sharadar
 from tests.sentinel.test_bounded_operational_feed import install_source
-from tests.sentinel.test_sharadar_snapshot_export import _Http, _Response, _status, _zip_tickers
+from tests.support.table_export import _Http, _Response, _status, _zip_tickers
 
 
 def snapshot():
@@ -180,8 +180,8 @@ def test_export_status_distinguishes_authentication_from_transient_exhaustion(mo
 
 def test_expired_export_url_is_renewed_without_changing_provider_generation():
     import httpx
-    from research.sharadar_replay.provider import Provider
-    from research.sharadar_replay.scenarios import FIRST, step
+    from tests.support.market_replay.provider import Provider
+    from tests.support.market_replay.scenarios import FIRST, step
     clock = [0.0]
     provider = Provider(clock=lambda: clock[0], link_lifetime=1800)
     provider.advance(step("expiry", FIRST))
@@ -207,7 +207,7 @@ def test_completed_download_survives_a_new_process(monkeypatch, tmp_path):
         http=_Http([fresh(), _Response(content=_zip_tickers([["SEP", "1", "AAA"]]))]))
     code = """
 from tests.sentinel.test_source_acquisition_lifecycle import snapshot
-from tests.sentinel.test_sharadar_snapshot_export import _Http
+from tests.support.table_export import _Http
 from sentinel.feed import snapshot_export
 rows, proof = snapshot_export.download_snapshot(snapshot(), required={'ticker'}, http=_Http([]))
 assert rows[0]['ticker'] == 'AAA'

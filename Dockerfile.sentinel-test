@@ -30,6 +30,7 @@ COPY pytest.ini /work/pytest.ini
 COPY tests/ /work/tests/
 COPY data/sharadar/ /work/data/sharadar/
 COPY tools/ /work/tools/
+COPY sentinel/requirements.lock /work/sentinel/requirements.lock
 # Audit-only reporters used by economic falsifiers; never runtime code.
 COPY audit/economic_399/postgres_pressure/report.py /work/audit/economic_399/postgres_pressure/report.py
 COPY audit/economic_399/local_closeout/economic_oracle.py /work/audit/economic_399/local_closeout/economic_oracle.py
@@ -38,19 +39,22 @@ COPY audit/economic_399/local_closeout/resource_report.py /work/repo/audit/econo
 COPY audit/economic_399/postgres_pressure/report.py /work/repo/audit/economic_399/postgres_pressure/report.py
 # CI authority plus the shared provider simulator used by feed integration tests.
 COPY .github/workflows/ /work/.github/workflows/
-COPY research/sharadar_replay/ /work/research/sharadar_replay/
 COPY research/bounded_20y/ /work/research/bounded_20y/
+# Host-owned suites execute these source-matched helpers and inspect metadata
+# relative to /work/tests. Sentinel and the installed shared package stay below
+# the runtime layer; no production Python package is added to /work.
+COPY scripts/ /work/scripts/
+# Preserve the explicit runnable-input bindings checked by the image witnesses.
+COPY scripts/sentinel_go_feed_progress.py /work/scripts/sentinel_go_feed_progress.py
+COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
 COPY scripts/sentinel_feed_gate.py /work/scripts/sentinel_feed_gate.py
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
-COPY scripts/sentinel_host_command.py /work/scripts/sentinel_host_command.py
-COPY scripts/sentinel_go_suites.py /work/scripts/sentinel_go_suites.py
-COPY scripts/sentinel_go_feed_progress.py /work/scripts/sentinel_go_feed_progress.py
-COPY scripts/sentinel_reconcile_sep.py /work/scripts/sentinel_reconcile_sep.py
-COPY scripts/sentinel_ci_certification_verify.py /work/scripts/sentinel_ci_certification_verify.py
-COPY scripts/sentinel_ci_promotion.py /work/scripts/sentinel_ci_promotion.py
-COPY scripts/sentinel-backup-verify-chain.py /work/scripts/sentinel-backup-verify-chain.py
-COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
+COPY Dockerfile.sentinel Dockerfile.sentinel-authorized Dockerfile.sentinel-test /work/
+COPY docker-compose.sentinel.yml docker-compose.sentinel-automation.yml docker-compose.sentinel-automation-standby.yml docker-compose.sentinel-backup.yml /work/
+COPY .dockerignore .gitattributes .env.example Makefile README.md /work/
+COPY deploy/sentinel-authorized-runtime-v1 deploy/sentinel-backup-policy-v1 /work/deploy/
+COPY docs/internal-state-harness.md /work/docs/internal-state-harness.md
 COPY scripts/ /work/repo/scripts/
 COPY tools/ /work/repo/tools/
 
@@ -65,6 +69,7 @@ COPY docs/sentinel-reference-implementation/ /work/repo/docs/sentinel-reference-
 COPY sentinel/ /work/repo/sentinel/
 COPY data/sharadar/ /work/repo/data/sharadar/
 COPY shared/ /work/repo/shared/
+COPY tests/requirements.lock /work/repo/tests/requirements.lock
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
 COPY Dockerfile.sentinel-authorized /work/repo/Dockerfile.sentinel-authorized
 COPY deploy/sentinel-authorized-runtime-v1 /work/repo/deploy/sentinel-authorized-runtime-v1
@@ -77,8 +82,7 @@ COPY docker-compose.sentinel-backup.yml /work/repo/docker-compose.sentinel-backu
 COPY .dockerignore /work/repo/.dockerignore
 COPY .gitattributes /work/repo/.gitattributes
 COPY .github/CODEOWNERS /work/repo/.github/CODEOWNERS
-COPY .github/workflows/sentinel-publish.yml /work/repo/.github/workflows/sentinel-publish.yml
-COPY .github/workflows/sentinel-safety.yml /work/repo/.github/workflows/sentinel-safety.yml
+COPY .github/workflows/ /work/repo/.github/workflows/
 COPY .env.example /work/repo/.env.example
 COPY Makefile /work/repo/Makefile
 COPY README.md /work/repo/README.md
@@ -104,6 +108,8 @@ RUN python -c "from pathlib import Path; \
     from scripts import sentinel_forward_run as forward_run; \
     from scripts import sentinel_go_feed_progress as feed_progress; \
     assert sentinel.__file__.startswith('/app/'), sentinel.__file__; \
+    assert {p.relative_to('/work/sentinel').as_posix() for p in Path('/work/sentinel').rglob('*') if p.is_file()} == {'requirements.lock'}, 'only lock metadata may exist below /work/sentinel'; \
+    assert not Path('/work/stock_strategy_shared').exists(), 'shared runtime must remain installed'; \
     assert '/work' not in wc.__file__, wc.__file__; \
     assert str(forward_run.DEFAULT_PRODUCTION).startswith('/app/'), forward_run.DEFAULT_PRODUCTION; \
     assert str(forward_run.DEFAULT_RUNNER).startswith('/work/tools/'), forward_run.DEFAULT_RUNNER; \
@@ -116,8 +122,6 @@ RUN python -c "from pathlib import Path; \
 
 # Catch image-layout and COPY-parser regressions during the build.
 RUN python -m pytest tests/sentinel/test_image_layout.py -q -ra
-# Catch operator/certification regressions before the long Sentinel suite.
-RUN python -m pytest tests/scripts -q -ra
 # Execute the rendered dashboard controller before distributing the CI lens.
 RUN node --version \
  && python -m pytest tests/sentinel/test_panel_browser_refresh.py -q -ra

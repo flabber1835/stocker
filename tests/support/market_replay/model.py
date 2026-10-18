@@ -112,7 +112,7 @@ class Step(Contract):
 
 
 class Scenario(Contract):
-    schema_version: Literal["sharadar-replay/1"] = "sharadar-replay/1"
+    schema_version: Literal["market-fixture/1"] = "market-fixture/1"
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     acquisition_mode: Literal["retained_component", "bounded_operational"]
     variation_seed: int = 0

@@ -1,202 +1,145 @@
-# Testing
+# Testing Sentinel
 
-Use `pytest`. Run from the `tests/` directory after `pip install -e ../shared`.
+The production system uses Alpaca market data and OpenFIGI classification,
+the canonical Wealth Core shadow book, Sentinel exposure control and one
+broker-facing execution membrane. Tests should exercise those contracts.
+Normalized historical fixtures and frozen economic oracles retain their exact
+identities; they are not evidence of current-provider acquisition or deployment
+readiness.
 
-## Test Coverage (current)
+Read [the operational ground truth](sentinel-deployment.md) first. Use targeted
+tests by default, as required by `AGENTS.md`. Do not run `make test` or the
+Wealth Core suite merely because another component changed.
 
-```text
-tests/shared/          27 tests  — StrategyConfig, VetterConfig, FactorEngineConfig,
-                                   UniverseConfig, IntradayConfig schema validation
-tests/llm_vetter/      29 tests  — hallucination detection, auto-override,
-                                   crash isolation, _build_summary, contradiction checks
-tests/av_ingestor/      9 tests  — ticker validation, dollar volume, incremental skip
-tests/portfolio_builder/ 8 tests — greedy selection, sector caps, covariance
-tests/backtester/      28 tests  — simulate.py (7), metrics.py (8), plus edge cases
-```
+## Inventory and ownership
 
-## Priority Test Targets
+[`tests/test-responsibility.json`](../tests/test-responsibility.json) is the
+permanent execution inventory. Its pytest owners cover:
 
-```text
-strategy-validator    ✅ covered via shared/test_strategy_schema.py
-llm-vetter            ✅ covered via llm_vetter/test_vetter.py
-factor-engine         ✅ covered via regression tests
-backtester            ✅ covered via backtester/test_simulate.py + test_metrics.py
-risk-service          ✅ covered via risk_service/test_check.py (21 tests)
-trade-executor        ✅ covered via trade_executor/test_sizing.py + test_endpoints.py (16 tests)
-alpaca-sync           ✅ covered via alpaca_sync/test_parse_helpers.py + test_endpoints.py (16 tests)
-intraday-monitor      ⬜ not yet built
-ranker                ⬜ unit tests pending
-```
+| Owner | Scope |
+|---|---|
+| `sentinel.complete` | Current-provider acquisition, formation, daily transitions, controller, execution, recovery, operator presentation and their boundaries |
+| `production-champion.regressions` | Champion, median5 and V5 economic/ownership regressions |
+| `wealth-core.prospective` | Canonical Wealth Core contracts and the explicitly scoped historical golden quarantine |
+| `scripts.operator` | Installer, command, certification, CI and evidence tooling |
+| `backup.reliability` | Backup media, integrity, lifecycle, recovery and maintenance |
+| `production-composition.authority` | Cross-process operational composition and interruption boundaries |
+| `internal-state.contract` | Independent state/accounting oracles and infrastructure composition |
+| `core.infrastructure` | Shared broker/SQL/filesystem infrastructure |
 
-## Required Test Types
+The separate `host-python38.compatibility` owner executes under Python 3.8.15.
+Command owners run additional mutation and generated campaigns in CI. Delegated
+owners name contracts already exercised by an execution owner; they do not
+repeat that owner's pytest suite.
 
-```text
-valid strategy config passes
-invalid strategy config fails
-unsafe risk limits are rejected
-unknown LLM-generated fields are rejected
-factor calculations are deterministic
-rankings are reproducible
-backtest output is reproducible
-hallucination flags correctly detect contradictions
-crash isolation: one ticker crash does not abort the vetter loop
-risk-service blocks unsafe trades          ✅ tested
-trade-executor sizing math is deterministic ✅ tested
-```
-
-## Test Gaps to Address
-
-```text
-ranker: no unit tests for composite scoring or regime-weight application
-llm-vetter: no test for _format_ticker_message with quantitative context
-llm-vetter: no test for fetch_av_news concurrency / semaphore behaviour
-llm-vetter: no end-to-end agentic loop test (requires mock Ollama client)
-
-api /trade/approve:
-  integration test for full proxy → trade-executor flow (needs DB fixture)
-
-trade-executor (end-to-end):
-  POST /jobs/submit happy path with DB + mocked risk-service + mocked Alpaca
-  POST /jobs/submit risk_rejected end-to-end persistence
-  double-submit protection at the DB unique-index level
-
-risk-service:
-  test that risk_decisions rows are written (needs DB fixture)
-
-alpaca-sync:
-  execution_traces + execution_steps written per sync (needs DB fixture)
-```
-
-## Service Expectations
-
-Every service should have:
-
-```text
-health endpoint
-unit tests
-typed Pydantic models where useful
-```
-
-## Example Commands
+List the current Python 3.12 module inventory without running tests:
 
 ```bash
-cd tests && pip install -e ../shared
-pytest                          # all tests
-pytest shared/ -v               # schema tests only
-pytest llm_vetter/ -v           # vetter tests only
-pytest backtester/ -v           # backtester tests only
-pytest scheduler/ -v            # supervisor state machine + restart recovery
+python tools/local_test_runner.py --list
+python tools/local_test_runner.py --list --owner core.infrastructure
 ```
 
-## Black-box harness (full-system simulation)
+New test modules must have a permanent owner. The local runner refuses unowned
+modules, duplicate ownership and empty owners. CI independently verifies exact
+collection, authorized outcomes and complete same-attempt evidence. See
+[CI sharding](sentinel-ci-sharding.md) and
+[CI hardening](ci-suite-hardening.md).
 
-`tests/harness/` runs the system against simulated AV / Anthropic / Tavily
-APIs (services `av-sim`, `anthropic-sim`, `tavily-sim`) plus `alpaca-sim`
-for broker calls. All four simulators are gated behind the `[test]` profile
-so plain `docker compose up` does NOT start them.
+## Reproduce targeted tests
 
-Activate the harness with the profile plus the overlay file:
+Use Linux containers through Docker, Bash, GNU Make and Git. The runtime and
+test lens pin the interpreter/base image and install hash-checked dependency
+closures from `sentinel/requirements.lock` and `tests/requirements.lock`.
+There is no second floating development dependency list.
+
+Build the local test lens after changing source:
 
 ```bash
-docker compose --profile test \
-  -f docker-compose.yml -f tests/harness/docker-compose.yml up -d --build
-python tests/harness/run.py            # drive the harness
+make test-image
+docker run --rm --network none sentinel-test:local \
+  tests/sentinel/test_fixture_compatibility.py -q -ra
 ```
 
-The overlay redirects `av-ingestor`, `llm-gateway`, `llm-vetter`, and
-`trade-executor`/`alpaca-sync` traffic to the local simulators and slows
-the scheduler tick so the harness drives the pipeline directly.
+The test lens contains the source it was built from. Rebuild after edits; an
+older local image does not test the current checkout. Local image tags and
+results confer no CI, deployment, economic or broker authority. The runner
+passes no broker credentials and mounts only its diagnostic output directory.
 
-## DB query-contract tier (real Postgres)
-
-`tests/integration/` runs the real, type-sensitive service SQL against a real,
-fully-migrated Postgres — the gap that let a production bug ship green:
-
-- vetter held-tickers query selected `id` instead of `run_id`
-  → `operator does not exist: uuid = integer`
-
-The per-service unit tests mock the DB, so they exercise Python logic but never
-the actual SQL. This tier closes that gap.
+To run one complete pytest owner with independent collection and outcome checks:
 
 ```bash
-python -m pytest tests/integration/        # uses an ephemeral local Postgres
-STOCKER_TEST_DSN=postgresql://... python -m pytest tests/integration/  # reuse an existing DB
+bash scripts/run-tests.sh --owner core.infrastructure
 ```
 
-How it works (`tests/integration/conftest.py`):
-1. If `STOCKER_TEST_DSN` is set, that database is used.
-2. Otherwise a throwaway Postgres cluster is created via `initdb`/`pg_ctl`
-   (run as the `postgres` system user when the test runner is root).
-3. `alembic upgrade head` applies the real migrations.
-4. Tests run the queries through async SQLAlchemy + asyncpg (the production stack).
+`SENTINEL_TEST_IMAGE` selects an already built lens. Set
+`SENTINEL_TEST_EVIDENCE` to retain JUnit and `execution.json` in a chosen host
+directory; otherwise the launcher creates a temporary directory and prints it.
+Each owner runs in a fresh interpreter. Temporary source caches, backup-policy
+identity and private PostgreSQL fixtures cannot become deployed authority.
 
-If neither a DSN nor the Postgres binaries are available, the whole tier skips
-cleanly so bare runners stay green. Each recently-fixed bug has both a positive
-test (correct query runs) and a negative test (the old buggy query still raises),
-so the tier is proven to catch that class of regression.
+## Complete local pytest and minimum-host checks
 
-When you add a query that joins tables or compares typed columns (UUID FKs,
-DATE/TIMESTAMP, enums), add a contract test here — a green unit test is not
-enough.
-
-## Browser tier (layout only exists in a browser)
-
-Two suites drive the REAL dashboard assets — no running stack, no database.
-Both skip cleanly when their runtime is absent, so bare runners stay green.
-
-**`tests/dashboard/render_evaluator_tab.js`** (node vm + stub DOM) loads
-`dashboard.js` and calls `_renderEvalReport` across every report and
-config_changes shape. It exists because a leftover `applyUi` reference — in the
-branch taken *only* by a valid single-field recommendation — broke the whole
-Review tab, and the tab's catch reported it as "Evaluator unreachable", blaming
-a healthy service. Its pytest wrapper also RE-INJECTS the bug and requires the
-harness to fail: a guard that passes on broken code is worse than none.
-
-**`tests/ui/`** (Playwright, Chromium) renders the LAB and REVIEW tabs at
-iPhone X (375x812, DPR 3) across every payload variant each tab can show.
-`phone_audit.py` holds all the layout assertions so the tabs cannot drift apart
-in what they are held to; `lab_iphone.py` / `review_iphone.py` supply only
-payloads and tab-specific checks. Asserted: the page never scrolls
-horizontally, nothing overflows the viewport outside a scroll container, no
-TEXT-only container scrolls horizontally (that clips content), the bottom nav
-and sticky bar stay on-screen, no sub-10px text, tap targets >= 36px, no empty
-section headings, no negative relative ages, and even stat-tile rows.
+When a complete Python 3.12 pytest run is explicitly wanted:
 
 ```bash
-pip install playwright                      # chromium is preinstalled at /opt/pw-browsers
-python tests/ui/lab_iphone.py --shots ./screenshots
-python tests/ui/review_iphone.py --shots ./screenshots
-python -m pytest tests/ui/                  # what CI runs (~11s)
+make test
 ```
 
-Six real defects came out of the first runs: an uncaught `_aaStatus.pending is
-not iterable` (a non-200 JSON body wiped a default and killed the refresh
-loop's tail), a bare "Automation" heading with nothing under it, "-746m ago"
-from NAS/phone clock skew, a date wrapping mid-value so one stat tile stood
-taller than its row, the Review tab's evidence text CLIPPED because long dotted
-config paths pushed its text-only `.tbl-scroll` into horizontal scrolling, and
-the Review verdict sitting in a 163px-tall empty box because the `tbl-empty`
-placeholder style was never removed once a report rendered.
+This builds the pinned images and runs every permanent Python 3.12 pytest owner.
+The runner independently collects each complete owner, compares exact JUnit
+instances and rejects omitted tests, empty execution, unauthorized skips,
+unexpected expected failures and stale JUnit. Only the exact settled Wealth
+Core expected failures in the authority may remain non-passes. A repaired
+golden unexpectedly passing also requires an intentional authority change.
+Historical certification scope remains documented in
+[Wealth Core certification](wealth-core-certification.md); do not repin a golden
+to make CI green.
 
-Two of those slipped past an earlier version of the audit, which is worth
-remembering when adding checks: the overflow check EXEMPTS anything inside a
-horizontal scroll container (correct for the Lab's wide leaderboard), and the
-Review tab's entire body sits in one — so the exemption silently disabled the
-check for that whole tab until a "text-only containers must not scroll" rule
-was added. Assertions are also matched against RENDERED text, so CSS
-`text-transform: uppercase` means a heading reads `CONFIG CHANGES APPLIED`.
+For an owner subset while rebuilding current source:
 
-These assertions prove the layout EXECUTES and measures correctly. They do not
-prove it looks good — for that, read the screenshots or use the
-`--profile monitor` playwright-monitor service against a live stack.
+```bash
+make test TEST_RUNNER_ARGS='--owner core.infrastructure -- -vv'
+```
 
-## Testing Philosophy
+Display options may follow `--`. Filtering a complete owner with `-k`, `-m` or
+`--deselect` cannot produce a complete-owner pass; use direct targeted pytest
+commands for partial runs.
 
-Test the safety boundary first, then correctness of deterministic engines.
+Run the distinct minimum-host owner with an installed Python **3.8.15**:
 
-Priority order:
-1. Config validation (strategy schema) — bad configs must be rejected before reaching any service
-2. Risk service safety rules — when built, every hard rule needs a test
-3. Deterministic engines (factor-engine, ranker, backtester) — same inputs → same outputs
-4. Vetter (binding exclusions) — hallucination detection and override logic
-5. Integration paths — end-to-end with mocked external services
+```bash
+make test-host HOST_PYTHON=/path/to/python3.8
+```
+
+The existing owner tool refuses a different interpreter. Python 3.12 execution
+cannot substitute for this compatibility proof. Complete local pytest plus
+host checks still do not replace CI's mutation campaigns, physical process and
+recovery harnesses, protected scope proofs, signed artifact binding or image
+publication checks.
+
+## Fixtures, coverage and performance
+
+New and renamed Sentinel test modules use real schema, source and producer
+validation by default. `tests/sentinel/legacy-fixture-modules.txt` is a finite
+opt-in registry preserving older doubles while they migrate. Do not add new
+modules by default. Dedicated real-guard witnesses and the million-row warmup
+keep their existing validation boundaries. Shared synthetic market/HTTP helpers
+live under `tests/support`; helper reuse is not a second strategy implementation.
+The root backup-policy substitution likewise requires an explicit surviving
+module path in `tests/legacy-backup-policy-modules.txt`. New and renamed tests
+keep the real backup-policy marker. Synthetic cache directories remain isolated.
+
+Automation-service branch coverage remains a mandatory CI gate. The manually
+dispatched repository coverage campaign measures the complete Python 3.12
+pytest owners using the same pinned lens, authenticates source paths and retains
+per-domain branch/statement reports. Unimported source stays in the denominator.
+Its initial result is an advisory baseline; shell and browser execution are
+explicitly unmeasured by Python coverage. Coverage percentages complement
+independent economic oracles, recovery cuts, mutation falsifiers and real SQL.
+
+Use retained JUnit module timings to balance CI work. Keep meaningful independent
+boundary tests even when assertions look alike. Preserve per-test database and
+book isolation; do not share mutable strategy state to obtain a timing gain.
+The million-row fixture remains in one worker so its source acquisition is not
+repeated across shards. Targeted changes require directly relevant checks and a
+falsifier shown to fail when each new guard is broken.

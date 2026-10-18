@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -93,7 +94,8 @@ class _ProbeConn:
 
 
 def _repo_root() -> Path:
-    root = Path(__file__).resolve().parents[2]
+    root = Path(os.environ.get("SENTINEL_REPO_ROOT")
+                or Path(__file__).resolve().parents[2])
     if not (root / "docker-compose.sentinel-automation.yml").is_file():
         root = root / "repo"
     assert (root / "docker-compose.sentinel-automation.yml").is_file()

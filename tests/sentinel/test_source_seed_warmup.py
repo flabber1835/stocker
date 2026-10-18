@@ -16,9 +16,9 @@ import uuid
 
 import pytest
 
-from research.sharadar_replay.model import Corpus, Step
-from research.sharadar_replay.provider import Provider
-from research.sharadar_replay.runtime import simulated_runtime
+from tests.support.market_replay.model import Corpus, Step
+from tests.support.market_replay.provider import Provider
+from tests.support.market_replay.runtime import simulated_runtime
 from sentinel import shadow_runtime
 from sentinel.core import production
 from sentinel.core.session import SessionState

@@ -165,7 +165,6 @@ COMPOSE="bash scripts/sentinel-compose.sh --run"
 export ALPACA_BASE_URL=https://paper-api.alpaca.markets
 : "${ALPACA_API_KEY:?paper key required}"
 : "${ALPACA_SECRET_KEY:?paper secret required}"
-: "${SHARADAR_API_KEY:?Sharadar key required}"
 : "${SENTINEL_POSTGRES_PASSWORD:?database password required}"
 : "${SENTINEL_BACKUP_DIR:?independent backup target required}"
 : "${SENTINEL_GIT_COMMIT:?exact reviewed commit required}"

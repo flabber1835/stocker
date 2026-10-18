@@ -38,6 +38,23 @@ DOCKERFILE = ROOT / "Dockerfile.sentinel"
 COMPOSE = ROOT / "docker-compose.sentinel.yml"
 
 
+def test_lens_contains_host_owner_inspection_inputs_without_runtime_shadowing():
+    test_root = Path(__file__).resolve().parents[2]
+    for relative in (
+        "Dockerfile.sentinel", "Dockerfile.sentinel-authorized", "Dockerfile.sentinel-test",
+        "docker-compose.sentinel.yml", "docker-compose.sentinel-backup.yml",
+        "docker-compose.sentinel-automation.yml", "docker-compose.sentinel-automation-standby.yml",
+        "scripts/sentinel-env-from-stocker.py", "scripts/sentinel-split-sep-bulk.py",
+        "scripts/sentinel-archive-wal.sh", "scripts/sentinel_go_validate.py",
+        "docs/internal-state-harness.md",
+    ):
+        assert (test_root / relative).is_file(), relative
+    if os.environ.get("SENTINEL_IN_IMAGE") == "1":
+        assert {path.relative_to(test_root / "sentinel").as_posix()
+                for path in (test_root / "sentinel").rglob("*") if path.is_file()} == {"requirements.lock"}
+        assert not (test_root / "stock_strategy_shared").exists()
+
+
 def test_host_python_compatibility_collects_inside_the_test_image():
     """Fail the image build if the host test imports cannot resolve there."""
     from tests.host_python38.test_host_compat import HostPythonCompatibilityTests

@@ -37,6 +37,7 @@ def test_all_sentinel_workers_cover_each_module_once_and_propagate_failure(tmp_p
     selector = selector.replace("SPECIAL = AUTOMATION |",
         f"AUTOMATION = AUTOMATION | frozenset({{{future_automation!r}}})\nSPECIAL = AUTOMATION |", 1)
     (tools / "sentinel_ci_shards.py").write_text(selector, encoding="utf-8")
+    shutil.copyfile(root / "tools/sentinel_ci_durations.json", tools / "sentinel_ci_durations.json")
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "add", "tests/sentinel"], cwd=tmp_path, check=True)
     output = tmp_path / "evidence"
@@ -279,7 +280,7 @@ def test_every_unsuccessful_dependency_refuses_certification(campaign, dependenc
 def test_exact_dependency_inventory_is_mandatory(campaign, fault):
     root, bundle, workers, needs, _, _, _ = campaign
     if fault == "missing":
-        del needs["sharadar-replay"]
+        del needs["parallel-certification"]
     else:
         needs["unreviewed-job"] = {"result": "success"}
     with pytest.raises(ValueError, match="dependency inventory"):
@@ -287,7 +288,7 @@ def test_exact_dependency_inventory_is_mandatory(campaign, fault):
 
 
 @pytest.mark.parametrize("lane", evidence.LANES)
-def test_each_lane_and_shard_is_required_even_when_github_needs_succeeded(campaign, lane):
+def test_each_lane_is_required_even_when_github_needs_succeeded(campaign, lane):
     root, bundle, workers, needs, _, _, _ = campaign
     shutil.rmtree(workers / lane)
     with pytest.raises(ValueError, match="missing or extra"):
@@ -323,7 +324,7 @@ def test_receipts_refuse_mixed_or_incomplete_evidence(campaign, fault):
         evidence.verify_lanes(root, bundle, workers, needs)
 
 
-def test_assembly_merges_all_sentinel_partitions_and_preserves_replay_and_mutants(campaign):
+def test_assembly_merges_all_sentinel_partitions_and_preserves_mutants(campaign):
     root, bundle, workers, needs, _, _, _ = campaign
     output = root / "output"
     result = evidence.assemble(root, bundle, workers, needs, output)
@@ -331,8 +332,6 @@ def test_assembly_merges_all_sentinel_partitions_and_preserves_replay_and_mutant
     assert result["lanes"] == list(evidence.LANES)
     assert f"{len(evidence.MAIN_LANES) + 2} passed (complete disjoint Sentinel JUnit union)" in (
         output / "sentinel-complete.txt").read_text()
-    assert sorted(path.name for path in (output / "sharadar-required-evidence").iterdir()) == [
-        "0", "1", "2", "3"]
     assert (output / "sentinel-mutation-evidence/report.json").read_bytes() == (
         workers / "mutations/report.json").read_bytes()
 
@@ -351,3 +350,36 @@ def test_valid_receipt_cannot_hide_duplicate_or_nonpassing_sentinel_junit(campai
     evidence.complete_lane(root, bundle, directory, "sentinel-warmup")
     with pytest.raises(ValueError, match="duplicate|non-passing"):
         evidence.assemble(root, bundle, workers, needs, root / "output")
+
+
+def test_shell_syntax_step_checks_each_tracked_script_and_fails_on_later_file(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/sentinel-safety.yml").read_text())
+    step = next(s for s in workflow["jobs"]["parallel-certification"]["steps"]
+                if s.get("name") == "Validate shell and Compose surfaces")
+    run = step["run"]
+    syntax = run[:run.index('mkdir -p')]
+    (tmp_path / "a-valid.sh").write_text("true\n")
+    (tmp_path / "z-invalid.sh").write_text("if\n")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "a-valid.sh", "z-invalid.sh"], cwd=tmp_path, check=True)
+    result = subprocess.run(["bash", "-c", syntax], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "z-invalid.sh" in result.stderr
+    (tmp_path / "z-invalid.sh").write_text("true\n")
+    assert subprocess.run(["bash", "-c", syntax], cwd=tmp_path, capture_output=True).returncode == 0
+    (tmp_path / "z-invalid.sh").write_text("if\n")
+    broken = syntax.replace('for script in "${shell_scripts[@]}"; do\n  bash -n "$script"\ndone',
+                            'bash -n "${shell_scripts[@]}"')
+    assert broken != syntax
+    assert subprocess.run(["bash", "-c", broken], cwd=tmp_path, capture_output=True).returncode == 0
+
+
+def test_test_lens_build_keeps_smoke_checks_and_runs_operator_owner_once():
+    root = Path(__file__).resolve().parents[2]
+    dockerfile = (root / "Dockerfile.sentinel-test").read_text()
+    assert "RUN python -m pytest tests/scripts" not in dockerfile
+    assert "RUN python -m pytest tests/sentinel/test_image_layout.py" in dockerfile
+    assert "tests/sentinel/test_panel_browser_refresh.py" in dockerfile
+    workflow = (root / ".github/workflows/sentinel-safety.yml").read_text()
+    assert "sentinel-test:ci tests/scripts -q -ra" in workflow
