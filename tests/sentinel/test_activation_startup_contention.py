@@ -204,6 +204,8 @@ async def test_retained_generation_first_tick_completes_actual_post_tick_hooks(
     runtime = object.__new__(ProductionAutomation)
     runtime.holder_id = 'new-generation-worker'
     runtime.automation_config = cfg
+    runtime._idle_attestation = None
+    runtime._idle_attestation_observed_at = None
 
     def signed_fixture(connection, permit):
         store.require_leader(connection, permit)

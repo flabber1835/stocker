@@ -1535,6 +1535,198 @@ def test_composition_requires_exact_signed_automation_authority(
     assert verdicts[-1]["verdict"] == "PASS"
 
 
+@pytest.fixture
+def idle_attestation(monkeypatch):
+    cfg = config()
+    runtime = production(cfg)
+    waiting = cycle(cfg, state=CycleState.WAITING_OPEN)
+    conn = FakeConnection(lease_row=(
+        "worker-a", 17, 3, NOW, NOW + timedelta(seconds=90)))
+    state = dict(now=NOW, control=control(cfg), runtime="reviewed",
+                 publication=1, revoked=False)
+    full_checks, lifecycle_checks, verdicts, blocked = [], [], [], []
+    monkeypatch.setattr(automation_runtime, "_now_utc", lambda: state["now"])
+    monkeypatch.setattr(store, "require_leader", lambda _c, permit: permit)
+    monkeypatch.setattr(store, "load_control", lambda _c: state["control"])
+    monkeypatch.setattr(store, "load_cycle", lambda _c, _id: waiting)
+    monkeypatch.setattr(store, "oldest_nonterminal_cycle", lambda _c: waiting)
+    monkeypatch.setattr(store, "record_authority_verdict",
+                        lambda _c, **kw: verdicts.append(kw))
+    monkeypatch.setattr(automation_runtime, "load_rollout_state", lambda _c:
+                        authority.RolloutState(authority.RolloutMode.PINNED_1_00, 1, None))
+    monkeypatch.setattr(automation_runtime.feed_inputs, "require_current", lambda _c:
+                        SimpleNamespace(version=state["publication"]))
+    monkeypatch.setattr(automation_runtime, "production_strategy", lambda: (None, {}))
+    monkeypatch.setattr(automation_runtime.system_identity, "rehearsal_identity",
+                        lambda: {"runtime": state["runtime"]})
+
+    def lifecycle(_c, **kw):
+        lifecycle_checks.append(kw)
+        if state["revoked"]:
+            raise authority.AuthorityRefused("certificate revoked")
+        return SimpleNamespace(certificate_sha256=CERTIFICATE)
+
+    def full(_c, **kw):
+        full_checks.append(kw)
+        if state["revoked"] or state["runtime"] != "reviewed":
+            raise authority.AuthorityRefused("current authority refused")
+        return SimpleNamespace(certificate_sha256=CERTIFICATE)
+
+    def block(_c, **kw):
+        blocked.append(kw)
+        return waiting.model_copy(update={"state": CycleState.BLOCKED})
+
+    async def notify(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(automation_runtime, "load_active_signed_certificate", lifecycle)
+    monkeypatch.setattr(automation_runtime, "require_current_authority", full)
+    monkeypatch.setattr(store, "transition_cycle", block)
+    monkeypatch.setattr(store, "adopt_cycle", block)
+    monkeypatch.setattr(runtime, "notify", notify)
+    monkeypatch.setattr(runtime, "_broker", lambda *_a, **_k: pytest.fail("idle broker"))
+    return SimpleNamespace(runtime=runtime, conn=conn, state=state,
+                           full=full_checks, lifecycle=lifecycle_checks,
+                           verdicts=verdicts, blocked=blocked, cfg=cfg)
+
+
+@async_test
+async def test_idle_attestation_bounds_full_checks_without_refreshing_pass(idle_attestation):
+    item = idle_attestation
+    for elapsed in range(0, 31, 3):
+        item.state["now"] = NOW + timedelta(seconds=elapsed)
+        await item.runtime.control_wake(item.conn)
+        assert len(item.full) == (1 if elapsed < 30 else 2)
+        # One display write per full check; skips retain original evidence time.
+        assert len(item.verdicts) == len(item.full)
+    assert len(item.lifecycle) == 9
+    assert all(call == {"allow_expired_observation_safety": True}
+               for call in item.lifecycle)
+    assert item.runtime._idle_attestation[0] == NOW + timedelta(seconds=30)
+
+
+@async_test
+async def test_idle_attestation_revocation_immediately_runs_existing_block(idle_attestation):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    item.state.update(now=NOW + timedelta(seconds=3), revoked=True)
+    await item.runtime.control_wake(item.conn)
+    assert len(item.full) == 2
+    assert item.blocked
+    assert item.verdicts[-1]["verdict"] == "FAIL"
+    assert item.runtime._idle_attestation is None
+
+
+@async_test
+async def test_idle_attestation_kill_is_observed_without_another_full_check(idle_attestation):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    item.state["control"] = item.state["control"].model_copy(
+        update={"kill_switch_engaged": True})
+    await item.runtime.control_wake(item.conn)
+    assert len(item.full) == 1
+    assert item.runtime._idle_attestation is None
+
+
+@async_test
+async def test_idle_attestation_read_failure_cannot_resume_old_cadence(idle_attestation, monkeypatch):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+
+    def unavailable(_conn):
+        raise OSError("current control unavailable")
+
+    monkeypatch.setattr(store, "load_control", unavailable)
+    with pytest.raises(OSError, match="current control unavailable"):
+        await item.runtime.control_wake(item.conn)
+    assert item.runtime._idle_attestation is None
+    monkeypatch.setattr(store, "load_control", lambda _c: item.state["control"])
+    item.state["now"] = NOW + timedelta(seconds=3)
+    await item.runtime.control_wake(item.conn)
+    assert len(item.full) == 2
+    assert not item.lifecycle
+
+
+@async_test
+async def test_idle_attestation_detects_rollback_between_skipped_polls(idle_attestation):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    item.state["now"] = NOW + timedelta(seconds=12)
+    await item.runtime.control_wake(item.conn)
+    assert len(item.full) == 1
+    item.state["now"] = NOW + timedelta(seconds=9)
+    await item.runtime.control_wake(item.conn)
+    assert len(item.full) == 2
+    assert len(item.lifecycle) == 1
+
+
+@pytest.mark.parametrize("next_poll", [9, 30])
+@async_test
+async def test_idle_attestation_slow_check_cannot_extend_original_cadence(idle_attestation, monkeypatch, next_poll):
+    item = idle_attestation
+    original = automation_runtime.require_current_authority
+
+    def slow(*args, **kwargs):
+        result = original(*args, **kwargs)
+        item.state["now"] += timedelta(seconds=10)
+        return result
+
+    monkeypatch.setattr(automation_runtime, "require_current_authority", slow)
+    await item.runtime.control_wake(item.conn)
+    assert item.runtime._idle_attestation[0] == NOW
+    if next_poll == 30:
+        item.state["now"] = NOW + timedelta(seconds=29)
+        await item.runtime.control_wake(item.conn)
+        assert len(item.full) == 1
+    # Nine is a rollback relative to the observed ten-second completion;
+    # thirty is the original full-check deadline, regardless of its duration.
+    item.state["now"] = NOW + timedelta(seconds=next_poll)
+    await item.runtime.control_wake(item.conn)
+    assert len(item.full) == 2
+
+
+@pytest.mark.parametrize("change", ["rollback", "owner", "generation", "expired"])
+@async_test
+async def test_idle_attestation_invalidates_on_clock_or_ownership_change(idle_attestation, change):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    item.state["now"] = NOW + timedelta(seconds=3)
+    if change == "rollback":
+        item.state["now"] = NOW - timedelta(seconds=1)
+    elif change == "owner":
+        item.conn.lease_row = ("worker-a", 18, 3, NOW + timedelta(seconds=1),
+                               NOW + timedelta(seconds=90))
+    elif change == "generation":
+        item.state["control"] = control(item.cfg, generation=4)
+        item.conn.lease_row = ("worker-a", 18, 4, NOW + timedelta(seconds=1),
+                               NOW + timedelta(seconds=90))
+    else:
+        item.conn.lease_row = ("worker-a", 17, 3, NOW,
+                               NOW + timedelta(seconds=2))
+    await item.runtime.control_wake(item.conn)
+    assert len(item.full) == 2
+    assert not item.lifecycle
+
+
+@async_test
+async def test_idle_source_drift_rechecked_at_original_deadline_and_execution_boundary(idle_attestation):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    item.state.update(now=NOW + timedelta(seconds=3), runtime="modified")
+    await item.runtime.control_wake(item.conn)
+    assert len(item.full) == 1
+    # Financial authority never consumes the nonfinancial cadence record.
+    with pytest.raises(NonRetryableCallbackRefused, match="current authority refused"):
+        item.runtime._assert_cycle_authority(
+            item.conn, context(item.cfg), operation_scope="EXECUTE")
+    assert len(item.full) == 2
+    item.state["now"] = NOW + timedelta(seconds=30)
+    await item.runtime.control_wake(item.conn)
+    assert len(item.full) == 3
+    assert item.blocked
+    assert item.runtime._idle_attestation is None
+
+
 @pytest.mark.parametrize("boundary", ["control", "cycle"])
 @async_test
 async def test_idle_lease_loss_returns_to_scheduler_without_authority_or_broker(

@@ -8,10 +8,12 @@ database-backed subscription cannot report loss of its own database.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import sys
 import time
+from datetime import datetime
 from uuid import uuid4
 from urllib.parse import urlparse
 
@@ -128,13 +130,145 @@ def _report_transport_failure(exc: BaseException) -> None:
         f"{type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
 
 
+_LEADERSHIP_STATES = frozenset({"WAITING_FOR_LEADER", "SCHEDULER_STALLED"})
+_LEADERSHIP_EPISODE_SCHEMA = "sentinel.alert-leadership-episode/1"
+_LEADERSHIP_RECOVERY_SECONDS = 60
+
+
+def _health_cursor(conn):
+    row = conn.execute(
+        "SELECT active_identity,occurrence,clock_timestamp()"
+        " FROM sentinel_alert_health_cursor WHERE id=1 FOR UPDATE").fetchone()
+    if row is None:
+        raise AutomationRefused(
+            "notification health cursor is missing; explicit migration required")
+    return row
+
+
+def _leadership_identity(health):
+    # A different cycle, process or symptom is not a recovered scheduler.
+    return ["LEADERSHIP", health.control_generation,
+            int(health.broker_outcome_unresolved)]
+
+
+def _leadership_episode(raw):
+    """Read the existing cursor without replacing any historical outbox row."""
+    if raw is None:
+        return None
+    try:
+        value = json.loads(raw)
+        identity = value["identity"]
+        if not isinstance(identity, list):
+            raise ValueError("identity must be an array")
+        if value.get("schema") == _LEADERSHIP_EPISODE_SCHEMA:
+            if (set(value) != {"schema", "identity", "recovery"}
+                    or len(identity) != 3 or identity[0] != "LEADERSHIP"):
+                raise ValueError("invalid leadership episode")
+            recovery = value["recovery"]
+            if recovery is not None:
+                if (set(recovery) != {
+                        "started_at", "last_observed_at", "holder", "fence"}
+                        or not isinstance(recovery["holder"], str)
+                        or not recovery["holder"]
+                        or not isinstance(recovery["fence"], int)):
+                    raise ValueError("invalid leadership recovery")
+                for name in ("started_at", "last_observed_at"):
+                    parsed = datetime.fromisoformat(recovery[name])
+                    if parsed.tzinfo is None or parsed.utcoffset() is None:
+                        raise ValueError("recovery clock must be timezone-aware")
+            return value
+        if set(value) != {"identity"} or len(identity) != 5:
+            raise ValueError("invalid legacy health identity")
+        if identity[0] in _LEADERSHIP_STATES:
+            return {
+                "schema": _LEADERSHIP_EPISODE_SCHEMA,
+                "identity": ["LEADERSHIP", identity[1], int(identity[4])],
+                "recovery": None,
+            }
+        return None
+    except (KeyError, TypeError, ValueError) as exc:
+        raise AutomationRefused("notification health cursor is malformed") from exc
+
+
+def _retain_leadership_episode(conn, *, episode, occurrence):
+    # enqueue() deliberately refuses changed content for an existing key. Keep
+    # the first symptom immutable instead of resending it with a new reason.
+    retained = outbox.load_alert(conn, outbox._alert_id(
+        f"automation-health-occurrence:{occurrence}"))
+    if (retained.event_type != "AUTOMATION_OPERATIONAL_RED"
+            or retained.severity != "CRITICAL"
+            or retained.payload.get("reason") not in _LEADERSHIP_STATES
+            or ["LEADERSHIP", retained.payload.get("control_generation"),
+                int(retained.payload.get("broker_outcome_unresolved", 0))]
+            != episode["identity"]):
+        raise AutomationRefused("leadership episode and immutable alert disagree")
+    conn.execute(
+        "UPDATE sentinel_alert_health_cursor SET active_identity=%s WHERE id=1",
+        (outbox._json(episode),))
+    conn.commit()
+    return retained
+
+
+def _observe_health_recovery(conn, *, health, maximum_observation_gap_seconds,
+                             reset_only=False, observation_interrupted=False):
+    raw, _occurrence, cursor_now = _health_cursor(conn)
+    episode = _leadership_episode(raw)
+    if episode is None:
+        if health.healthy and not reset_only:
+            conn.execute(
+                "UPDATE sentinel_alert_health_cursor SET active_identity=NULL WHERE id=1")
+            conn.commit()
+        else:
+            conn.rollback()
+        return
+    now = health.database_now
+    expires = health.leader_expires_at
+    ready = bool(
+        not reset_only and not observation_interrupted
+        and health.healthy and health.operational_ready
+        and health.policy_state == "LEADER_ACTIVE" and health.leader_active
+        and health.service_heartbeat_fresh and health.leader_holder
+        and health.fencing_token is not None
+        and isinstance(now, datetime) and now.tzinfo is not None
+        and isinstance(expires, datetime) and expires.tzinfo is not None
+        and now <= cursor_now < expires)
+    previous = episode["recovery"]
+    recovery = None
+    if ready:
+        holder, fence = health.leader_holder, health.fencing_token
+        if previous is not None:
+            started = datetime.fromisoformat(previous["started_at"])
+            last = datetime.fromisoformat(previous["last_observed_at"])
+            gap = (now - last).total_seconds()
+            continuous = bool(
+                started <= last <= now
+                and gap <= maximum_observation_gap_seconds
+                and previous["holder"] == holder and previous["fence"] == fence)
+        else:
+            continuous = False
+        if continuous and (now - started).total_seconds() >= _LEADERSHIP_RECOVERY_SECONDS:
+            conn.execute(
+                "UPDATE sentinel_alert_health_cursor SET active_identity=NULL WHERE id=1")
+            conn.commit()
+            return
+        recovery = {
+            "started_at": previous["started_at"] if continuous else now.isoformat(),
+            "last_observed_at": now.isoformat(), "holder": holder, "fence": fence,
+        }
+    episode["recovery"] = recovery
+    conn.execute(
+        "UPDATE sentinel_alert_health_cursor SET active_identity=%s WHERE id=1",
+        (outbox._json(episode),))
+    conn.commit()
+
+
 def _enqueue_health_incident(conn, *, health, max_attempts: int):
     """Converge a health alarm with its authoritative transition event.
 
     BLOCKED/terminal cycle and kill events already have immutable identities.
     Reusing those identities avoids waking the operator twice for one incident.
-    Scheduler/authority failures without such an event get a durable occurrence
-    that is rearmed only by an observed recovery or changed incident identity.
+    Leadership symptoms share one durable episode until stable recovery. Other
+    failures retain their independently actionable incident identity.
     """
     cycle_state = str(health.latest_cycle_state or "").upper()
     if (health.policy_state == "BLOCKED" and health.latest_cycle_id
@@ -157,10 +291,18 @@ def _enqueue_health_incident(conn, *, health, max_attempts: int):
         health.latest_cycle_id, health.latest_cycle_state,
         health.broker_outcome_unresolved)
     key = outbox._json({"identity": identity})
-    row = conn.execute("SELECT active_identity,occurrence FROM sentinel_alert_health_cursor WHERE id=1 FOR UPDATE").fetchone()
-    if row is None:
-        raise AutomationRefused("notification health cursor is missing; explicit migration required")
+    row = _health_cursor(conn)
     occurrence = int(row[1])
+    episode = _leadership_episode(row[0])
+    if health.policy_state in _LEADERSHIP_STATES:
+        leadership_identity = _leadership_identity(health)
+        if episode is not None and episode["identity"] == leadership_identity:
+            episode["recovery"] = None
+            return _retain_leadership_episode(
+                conn, episode=episode, occurrence=occurrence)
+        key = outbox._json({
+            "schema": _LEADERSHIP_EPISODE_SCHEMA,
+            "identity": leadership_identity, "recovery": None})
     if row[0] != key:
         occurrence += 1
         conn.execute("UPDATE sentinel_alert_health_cursor SET active_identity=%s,occurrence=%s WHERE id=1",
@@ -180,18 +322,22 @@ def _enqueue_health_incident(conn, *, health, max_attempts: int):
         max_attempts=max_attempts)
 
 
-def _observe_health(conn, *, health, max_attempts):
+def _observe_health(conn, *, health, max_attempts,
+                    maximum_observation_gap_seconds=10.0,
+                    observation_interrupted=False):
     """Durable occurrence and outbox insertion share the enqueue commit."""
     try:
         if _active_incident(health):
+            if health.policy_state not in _LEADERSHIP_STATES:
+                _observe_health_recovery(
+                    conn, health=health,
+                    maximum_observation_gap_seconds=maximum_observation_gap_seconds,
+                    reset_only=True)
             return _enqueue_health_incident(conn, health=health, max_attempts=max_attempts)
-        if health.healthy:
-            result = conn.execute("UPDATE sentinel_alert_health_cursor SET active_identity=NULL WHERE id=1")
-            if result.rowcount != 1:
-                raise AutomationRefused("notification health cursor is missing; explicit migration required")
-            conn.commit()
-        else:
-            conn.rollback()  # Unknown observations cannot rearm an incident.
+        _observe_health_recovery(
+            conn, health=health,
+            maximum_observation_gap_seconds=maximum_observation_gap_seconds,
+            observation_interrupted=observation_interrupted)
         return None
     except BaseException:
         conn.rollback()
@@ -286,6 +432,9 @@ async def run() -> int:
     database_incident_reported = False
     last_probe_at: float | None = None
     registered = False
+    # A predecessor may have exited after an observation it could not persist.
+    # Restart preserves the incident, but begins a fresh recovery interval.
+    health_observation_interrupted = True
 
     def report_database_failure(*, detail: str) -> None:
         nonlocal database_incident_bucket
@@ -326,6 +475,7 @@ async def run() -> int:
                 registered = True
             health = read_health(conn)
         except Exception as exc:  # noqa: BLE001
+            health_observation_interrupted = True
             report_database_failure(
                 detail=f"{type(exc).__name__}: {exc}")
             if conn is not None:
@@ -334,7 +484,11 @@ async def run() -> int:
             continue
 
         try:
-            _observe_health(conn, health=health, max_attempts=automation.alert_max_attempts)
+            _observe_health(
+                conn, health=health, max_attempts=automation.alert_max_attempts,
+                maximum_observation_gap_seconds=max(10.0, 2 * poll),
+                observation_interrupted=health_observation_interrupted)
+            health_observation_interrupted = False
             result = await outbox.dispatch_once(
                 conn, adapter=adapter, holder_id=holder,
                 claim_seconds=automation.alert_claim_seconds,

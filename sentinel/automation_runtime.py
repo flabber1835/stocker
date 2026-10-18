@@ -11,8 +11,10 @@ from sentinel.execution import feed_inputs
 
 import asyncio
 import errno
+import logging
 import os
 import socket
+import time
 import uuid
 from contextlib import ExitStack
 from datetime import date, datetime, timedelta, timezone
@@ -22,7 +24,8 @@ from typing import Mapping
 from zoneinfo import ZoneInfo
 
 from sentinel import identity as system_identity, paper, schema, trial
-from sentinel.authority import AuthorityRefused, load_rollout_state
+from sentinel.authority import (
+    AuthorityRefused, load_active_signed_certificate, load_rollout_state)
 from sentinel.automation import outbox, schedule, store
 from sentinel.automation.model import (
     AutomationConfig,
@@ -83,6 +86,8 @@ REFRESH_TRANSIENT_FAILURES = (
     feed_authority.FrontierDomainIncomplete,
 )
 BACKUP_FAILURE_DOMAIN = "BACKUP"
+_LOGGER = logging.getLogger(__name__)
+_IDLE_ATTESTATION_SECONDS = 30
 
 
 class BackupTransientFailure(TransientInfrastructureFailure):
@@ -535,6 +540,10 @@ class ProductionAutomation:
         # never broker authority or a duplicate trading command.
         self._fenced_data_next_wake: datetime | None = None
         self._fenced_data_poll_seconds = 300
+        # Cadence for a nonfinancial display observation, never an authority
+        # result or a grant. Mutable lifecycle/control facts are still polled.
+        self._idle_attestation: tuple[datetime, tuple] | None = None
+        self._idle_attestation_observed_at: datetime | None = None
         self.service = AutomationService(
             config=automation_config, holder_id=self.holder_id,
             refresh=self.refresh, prepare=self.prepare,
@@ -577,6 +586,14 @@ class ProductionAutomation:
                 f"{type(exc).__name__}: {exc}") from exc
         raise exc
 
+    def _warn_slow_authority_stage(self, stage, started):
+        elapsed = time.monotonic() - started
+        if elapsed >= self.automation_config.heartbeat_seconds:
+            _LOGGER.warning(
+                "automation authority stage %s took %.3fs "
+                "(heartbeat interval %ss)", stage, elapsed,
+                self.automation_config.heartbeat_seconds)
+
     def _assert_control_authority(self, conn, permit):
         """Verify current signed authority without requiring any cycle row."""
         try:
@@ -589,14 +606,19 @@ class ProductionAutomation:
                 raise RuntimeError("automation control authority is stale")
             rollout = load_rollout_state(conn)
             current = feed_inputs.require_current(conn)
+            started = time.monotonic()
             _controller, strategy = production_strategy()
+            runtime_identity = system_identity.rehearsal_identity()
+            self._warn_slow_authority_stage("runtime-source-packages", started)
+            started = time.monotonic()
             certificate = require_current_authority(
-                conn, runtime_identity=system_identity.rehearsal_identity(),
+                conn, runtime_identity=runtime_identity,
                 strategy_identity=strategy, required_mode=rollout.mode,
                 required_operation="AUTOMATION",
                 paper_base_url=self.sentinel_config.base_url,
                 current_publication_version=current.version,
                 automation_config_sha256=self.automation_config.fingerprint)
+            self._warn_slow_authority_stage("signed-authority-publication", started)
             bound = control.binding
             if (bound is None
                     or certificate.certificate_sha256
@@ -606,6 +628,7 @@ class ProductionAutomation:
                 raise RuntimeError(
                     "current automation binding and signed authority differ")
         except Exception as exc:                              # noqa: BLE001
+            self._idle_attestation = None
             if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
                 conn.rollback()
             else:
@@ -646,6 +669,7 @@ class ProductionAutomation:
                     "old-generation cycle lacks current fenced read-only "
                     "recovery adoption")
         except Exception as exc:                              # noqa: BLE001
+            self._idle_attestation = None
             if isinstance(classify_dependency_failure(exc), TransientInfrastructureFailure):
                 conn.rollback()
             else:
@@ -653,11 +677,62 @@ class ProductionAutomation:
                     conn, context.permit, verdict="FAIL",
                     detail=f"{type(exc).__name__}: {exc}")
             self._raise_authority_refusal(exc)
-        self._record_authority_verdict(
-            conn, context.permit, verdict="PASS",
-            detail=(f"signed certificate {certificate.certificate_sha256} "
-                    f"verified for automation cycle {cycle.cycle_id}"))
+        if verified_control is None:
+            self._record_authority_verdict(
+                conn, context.permit, verdict="PASS",
+                detail=(f"signed certificate {certificate.certificate_sha256} "
+                        f"verified for automation cycle {cycle.cycle_id}"))
         return cycle, control
+
+    @staticmethod
+    def _idle_attestation_key(control, permit):
+        bound = control.binding
+        return (
+            control.enabled, control.kill_switch_engaged, control.generation,
+            tuple(bound.model_dump().items()) if bound is not None else None,
+            permit.holder_id, permit.fence_token, permit.control_generation,
+            permit.acquired_at)
+
+    def _idle_attestation_current(self, conn, control, permit, now):
+        last_observed = getattr(self, "_idle_attestation_observed_at", None)
+        self._idle_attestation_observed_at = now
+        if last_observed is not None and now < last_observed:
+            self._idle_attestation = None
+            return False
+        previous = self._idle_attestation
+        key = self._idle_attestation_key(control, permit)
+        if previous is None:
+            return False
+        started_at, previous_key = previous
+        age = (now - started_at).total_seconds()
+        if (previous_key != key or not 0 <= age < _IDLE_ATTESTATION_SECONDS
+                or now >= permit.expires_at):
+            self._idle_attestation = None
+            return False
+        try:
+            # This authenticates current durable lifecycle and revocation,
+            # including the trust roots, without scanning executable trees.
+            # A skip retains the full check's original checked-at timestamp.
+            store.require_leader(conn, permit)
+            certificate = load_active_signed_certificate(
+                conn, allow_expired_observation_safety=True)
+            rollout = load_rollout_state(conn)
+            bound = control.binding
+            current = (
+                bound is not None
+                and certificate.certificate_sha256 == bound.certificate_sha256
+                and rollout.mode.value == bound.rollout_mode
+                and rollout.version == bound.rollout_version
+                and rollout.certificate_sha256 == (
+                    None if rollout.mode.value == "PINNED_1_00"
+                    else bound.certificate_sha256))
+        except Exception:                                    # noqa: BLE001
+            # The full gate owns classification, persisted refusal and latch.
+            self._idle_attestation = None
+            return False
+        if not current:
+            self._idle_attestation = None
+        return current
 
     def _broker(self, conn, session: str):
         if getattr(self, "_shadow_observation_enabled", False):
@@ -1595,25 +1670,40 @@ class ProductionAutomation:
         """Refresh durable authority truth while no broker callback is due."""
         from sentinel.automation.model import LeaderPermit
 
-        control = store.load_control(conn)
+        try:
+            control = store.load_control(conn)
+        except Exception:
+            self._idle_attestation = None
+            raise
         if not control.enabled or control.kill_switch_engaged:
+            self._idle_attestation = None
             if not control.enabled and control.kill_switch_engaged:
                 return await self._fenced_data_wake(conn)
             return None
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT holder_id,fence_token,control_generation,acquired_at,"
-                " expires_at FROM sentinel_automation_lease WHERE id=1")
-            row = cur.fetchone()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT holder_id,fence_token,control_generation,acquired_at,"
+                    " expires_at FROM sentinel_automation_lease WHERE id=1")
+                row = cur.fetchone()
+        except Exception:
+            self._idle_attestation = None
+            raise
         conn.rollback()
         if (row is None or row[0] != self.holder_id
                 or row[2] != control.generation):
+            self._idle_attestation = None
             return None
         permit = LeaderPermit(
             holder_id=row[0], fence_token=int(row[1]),
             control_generation=int(row[2]), acquired_at=row[3],
             expires_at=row[4])
         try:
+            observed_at = _now_utc()
+            if self._idle_attestation_current(
+                    conn, control, permit, observed_at):
+                return None
+            self._idle_attestation = None
             verified_control = self._assert_control_authority(conn, permit)
             cycle = store.oldest_nonterminal_cycle(conn)
             if cycle is not None and not cycle.state.terminal:
@@ -1621,6 +1711,12 @@ class ProductionAutomation:
                     conn, CycleContext(cycle=cycle, permit=permit),
                     operation_scope="RECOVER",
                     verified_control=verified_control)
+            completed_at = _now_utc()
+            self._idle_attestation_observed_at = completed_at
+            if completed_at >= observed_at and completed_at < permit.expires_at:
+                self._idle_attestation = (
+                    observed_at,
+                    self._idle_attestation_key(verified_control[0], permit))
         except StaleLeaderRefused:
             # Idle validation has no broker callback. Do not resurrect this
             # fence or crash the scheduler; its next tick acquires a new permit.

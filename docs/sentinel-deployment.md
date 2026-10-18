@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Idle leadership resilience](idle-leader-resilience.md) defines main-loop
+progress renewal, bounded nonfinancial idle attestation and durable grouping of
+related leadership alerts, with genuine stalls and financial authority fenced.
+
 [CI suite hardening](ci-suite-hardening.md) retires source-specific research
 replay jobs from production CI, preserves canonical invariants and current
 Alpaca/OpenFIGI witnesses, makes legacy fixture substitutions explicit, and

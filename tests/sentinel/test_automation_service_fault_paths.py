@@ -494,7 +494,9 @@ def test_process_loop_delivers_only_actionable_notifications_and_terminal_record
     terminals = [entry for entry in observed if entry[0] == 'terminal']
     assert notifications == ([('notify', connection, result)] if notify_expected else [])
     assert terminals == ([('terminal', connection, result)] if terminal_expected else [])
-    registration = next(entry[1] for entry in observed if entry[0] == 'instance')
+    registrations = [entry[1] for entry in observed if entry[0] == 'instance']
+    assert registrations[0]['state'] == 'WAITING'
+    registration = registrations[-1]
     assert registration['state'] == action
     assert registration['next_wake_at'] > cycle.execute_at
     assert observed[-1] == ('close',)
@@ -519,7 +521,12 @@ def test_loop_failure_preserves_original_exception_and_closes_connection(
         raise failure
 
     def register(conn, **kwargs):
-        assert conn is connection and kwargs['state'] == 'FAILED'
+        assert conn is connection
+        if kwargs['state'] == 'WAITING':
+            assert kwargs['next_wake_at'] is not None and kwargs['last_error'] is None
+            events.append('initial progress')
+            return
+        assert kwargs['state'] == 'FAILED'
         assert kwargs['next_wake_at'] is None
         assert kwargs['last_error'] == f'OSError: {failure}'
         events.append('failure recorded')
@@ -530,7 +537,7 @@ def test_loop_failure_preserves_original_exception_and_closes_connection(
         asyncio.run(service.run(lambda: connection, stop=Ready(),
             clock=lambda: datetime(2026, 10, 9, tzinfo=timezone.utc), max_ticks=1))
     assert actual.value is failure
-    assert events == (['notified'] if notify_present else []) + ['failure recorded', 'closed']
+    assert events == ['initial progress'] + (['notified'] if notify_present else []) + ['failure recorded', 'closed']
 
 
 @pytest.mark.parametrize('asynchronous', [False, True])
@@ -573,14 +580,16 @@ def test_loop_wakes_for_earliest_control_or_alert_without_extra_trading_tick(
 
     monkeypatch.setattr(service, 'tick', tick)
     monkeypatch.setattr(module.store, 'register_instance',
-        lambda conn, **kwargs: registrations.append(kwargs))
+        lambda conn, **kwargs: registrations.append((conn, kwargs)))
     assert asyncio.run(service.run(connect, stop=Ready(), clock=lambda: now,
         sleep=sleep, alert_wake=async_alert if asynchronous else alert,
         control_wake=async_control if asynchronous else control, max_ticks=2)) == 2
     expected_delay = .5 if hook_available else 2
     assert sleeps == [expected_delay]
-    assert all(row['next_wake_at'] == now + timedelta(seconds=expected_delay)
-               for row in registrations)
+    for connection in connections:
+        progress = [row for owner, row in registrations if owner is connection]
+        assert progress[0]['state'] == 'WAITING'
+        assert progress[-1]['next_wake_at'] == now + timedelta(seconds=expected_delay)
     assert ticks == connections == closed and len(ticks) == 2
 
 
