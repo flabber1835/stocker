@@ -99,6 +99,32 @@ ignoring holder/fence continuity and ignoring rollback. The idle cadence and
 fresh lifecycle checks also have independently observed failing mutations.
 Source-admission guard falsifiers are retained as executable pytest tests.
 
+## Mandatory automation coverage
+
+The complete twelve-module `tools.sentinel_ci_shards.AUTOMATION` owner was run
+with `python -m coverage run --branch --source=sentinel.automation.service -m
+pytest`, followed by `python -m coverage report --precision=2
+--fail-under=100.00`. The initial run passed 493 cases in 377.77 seconds and
+found two `AttributeError: _idle_attestation` failures in an older startup
+fixture that bypasses `ProductionAutomation.__init__` with `object.__new__`.
+The fixture now initializes the two new idle-observation fields to `None`,
+matching the real constructor. No production source or guard changed.
+
+The affected parameterized node and the CI ownership tests were rerun with
+coverage append:
+
+```bash
+python -m coverage run --append --branch --source=sentinel.automation.service -m pytest -q tests/sentinel/test_activation_startup_contention.py::test_retained_generation_first_tick_completes_actual_post_tick_hooks tests/scripts/test_sentinel_ci_shards.py
+python -m coverage report --precision=2 --fail-under=100.00
+```
+
+Result: 23 passed in 20.00 seconds: both corrected startup cases and all 21
+registry cases. Across the campaign all 495 mandatory automation cases passed.
+The final coverage report has 816 statements, zero missed statements, 322
+branches and zero partial branches: **100.00%**. The original failing run and
+corrected-node JUnit/logs are retained separately rather than reporting a
+single uninterrupted green run.
+
 The first measured private-container memory peak was 431,267,840 bytes, with
 zero memory-limit and OOM events. This is a measurement of this isolated test
 workload, not a qualification of laptop capacity or global memory pressure.
