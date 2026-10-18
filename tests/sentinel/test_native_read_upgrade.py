@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import native_read_upgrade as upgrade, runtime_admission as admission
-from sentinel import clock_sampling_upgrade
+from sentinel import clock_sampling_upgrade, idle_leader_upgrade
 from tests.sentinel.test_retained_source_compatibility import closure
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
 
@@ -22,7 +22,8 @@ def test_successor_keeps_historical_descriptor_and_authority_unchanged():
     for name, record in value['files'].items():
         actual = hashlib.sha256((upgrade.PROFILE.parent / name).read_bytes()).hexdigest()
         assert (actual == record['after']
-                or clock_sampling_upgrade.source_allowed(name, record['after'], actual))
+                or clock_sampling_upgrade.source_allowed(name, record['after'], actual)
+                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
         assert all(upgrade.source_allowed(name, before, record['after']) for before in record['before'])
         assert not upgrade.source_allowed(name, 'f' * 64, record['after'])
         assert not upgrade.source_allowed(name, record['before'][0], 'f' * 64)
@@ -126,7 +127,7 @@ def test_admission_predecessor_is_not_a_wildcard_administrative_module(closure):
 
 def test_removing_admission_predecessor_scope_has_a_falsifier(closure, monkeypatch):
     source = inspect.getsource(admission.prove_compatibility)
-    needle = ' - native_read_upgrade.SCOPE - clock_sampling_upgrade.SCOPE'
+    needle = ' - native_read_upgrade.SCOPE - clock_sampling_upgrade.SCOPE - idle_leader_upgrade.SCOPE'
     assert source.count(needle) == 1
     namespace = {}
     exec(compile(source.replace(needle, ''), 'admission-scope-falsifier', 'exec'), admission.__dict__, namespace)

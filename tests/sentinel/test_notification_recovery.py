@@ -266,7 +266,7 @@ def test_missing_authority_flags_cannot_silence_integrity_alarm(db, state):
         'policy_state': 'NOT_INSTALLED', 'installed': False}))
 
 
-def test_health_recurrence_survives_restart_without_duplicate_active_alert(db, issue369_pg):
+def test_health_episode_survives_restart_and_brief_recovery_without_duplicate(db, issue369_pg):
     from sentinel import alert_service
     from sentinel.automation.health import AutomationHealth
     red = AutomationHealth(healthy=True, installed=True, operational_ready=False,
@@ -279,14 +279,17 @@ def test_health_recurrence_survives_restart_without_duplicate_active_alert(db, i
         unknown = red.model_copy(update={'healthy': False, 'policy_state': 'NOT_INSTALLED'})
         alert_service._observe_health(restarted, health=unknown, max_attempts=8)
         assert alert_service._observe_health(restarted, health=red, max_attempts=8).alert_id == first.alert_id
-        green = red.model_copy(update={'operational_ready': True, 'policy_state': 'LEADER_ACTIVE'})
+        green = red.model_copy(update={
+            'operational_ready': True, 'policy_state': 'LEADER_ACTIVE',
+            'leader_active': True, 'service_heartbeat_fresh': True,
+            'leader_holder': 'current-worker', 'fencing_token': 13})
         assert alert_service._observe_health(restarted, health=green, max_attempts=8) is None
     with store.connect(issue369_pg.sync_dsn) as restarted:
         recurrence = alert_service._observe_health(restarted, health=red, max_attempts=8)
-        assert recurrence.alert_id != first.alert_id
+        assert recurrence.alert_id == first.alert_id
         assert recurrence.payload == first.payload
         assert alert_service._observe_health(restarted, health=red, max_attempts=8).alert_id == recurrence.alert_id
-    assert db.execute("SELECT count(*) FROM sentinel_alert_outbox WHERE event_type='AUTOMATION_OPERATIONAL_RED'").fetchone()[0] == 2
+    assert db.execute("SELECT count(*) FROM sentinel_alert_outbox WHERE event_type='AUTOMATION_OPERATIONAL_RED'").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize('committed', [False, True])

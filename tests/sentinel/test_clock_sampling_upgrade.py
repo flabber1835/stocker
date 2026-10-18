@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from sentinel import clock_sampling_upgrade as upgrade, runtime_admission as admission
-from sentinel import native_read_upgrade
+from sentinel import native_read_upgrade, idle_leader_upgrade
 from tests.sentinel.test_retained_source_compatibility import closure
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
 from tests.sentinel.test_rolling_retained_runtime_activation import (
@@ -49,8 +49,9 @@ def test_scope_and_retained_profiles_remain_exact_and_have_no_authority_effect()
     assert hashlib.sha256(Path(native_read_upgrade.__file__).read_bytes()).hexdigest() == upgrade.NATIVE_CHECKER_SHA256
     for name, record in value['files'].items():
         actual = hashlib.sha256((upgrade.PROFILE.parent / name).read_bytes()).hexdigest()
-        assert actual == record['after']
-        assert all(upgrade.source_allowed(name, previous, actual) for previous in record['before'])
+        assert (actual == record['after']
+                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
+        assert all(upgrade.source_allowed(name, previous, record['after']) for previous in record['before'])
         assert not upgrade.source_allowed(name, 'f' * 64, actual)
         assert not upgrade.source_allowed(name, record['before'][0], 'f' * 64)
     assert not upgrade.source_allowed('automation/store.py', 'f' * 64, 'f' * 64)
@@ -182,10 +183,23 @@ def test_addition_presence_guard_has_an_assertion_falsifier(closure, monkeypatch
 def test_current_source_guard_has_an_assertion_falsifier(closure, monkeypatch):
     source = inspect.getsource(admission.prove_compatibility)
     needle = ("any(name in actual and actual[name] != record['after']\n"
+              "                   and not source_allowed(name, record['after'], actual[name], (idle_leader_profile,))\n"
               "                   for name, record in clock_sampling_profile['files'].items())")
     assert source.count(needle) == 1
+    # The new exact idle pin also covers the service. Isolate the historical
+    # clock boundary only inside this in-memory mutant, and prove it still
+    # refuses before removing that boundary. The new pin has its own separate
+    # falsifier using alert_service.py, outside the historical clock scope.
+    idle_pin = ("any(name in actual and actual[name] != record['after']\n"
+                "                   for name, record in idle_leader_profile['files'].items())")
+    assert source.count(idle_pin) == 1
+    isolated = source.replace(idle_pin, 'False')
     namespace = {}
-    exec(compile(source.replace(needle, 'False'), 'clock-current-source-falsifier', 'exec'), admission.__dict__, namespace)
+    exec(compile(isolated, 'clock-boundary-isolated', 'exec'), admission.__dict__, namespace)
+    monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+    test_adjacent_current_source_change_refuses_even_when_already_in_manifest(closure, 'automation/service.py')
+    namespace = {}
+    exec(compile(isolated.replace(needle, 'False'), 'clock-current-source-falsifier', 'exec'), admission.__dict__, namespace)
     monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_adjacent_current_source_change_refuses_even_when_already_in_manifest(closure, 'automation/service.py')

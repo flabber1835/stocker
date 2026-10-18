@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
-from sentinel import open_time_upgrade, close_cycle_upgrade
+from sentinel import open_time_upgrade, close_cycle_upgrade, idle_leader_upgrade
 
 from sentinel import shadow_ui_upgrade as upgrade, runtime_admission as admission
 from sentinel import dashboard_monitor_upgrade as subsequent
@@ -30,7 +30,8 @@ def test_shadow_ui_upgrade_pins_exact_predecessor_and_target_and_rejects_neighbo
             or subsequent.source_allowed(name, record['after'], actual)
             or open_time_upgrade.source_allowed(name, record['after'], actual)
                 or close_cycle_upgrade.source_allowed(name, record['after'], actual)
-                or autonomy_upgrade.source_allowed(name, record['after'], actual))
+                or autonomy_upgrade.source_allowed(name, record['after'], actual)
+                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
     assert all(upgrade.source_allowed(name, before, record['after']) for before in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
@@ -42,7 +43,7 @@ def test_shadow_ui_upgrade_pins_exact_predecessor_and_target_and_rejects_neighbo
     _refresh_current(root, context, source)
     # A reviewed addition is checked by the complete closure before ordinary
     # predecessor transitions; a neighboring edit must retain that refusal.
-    reason = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in upgrade.ADDITIONS
+    reason = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in upgrade.ADDITIONS | idle_leader_upgrade.SCOPE
               else 'RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)
     with pytest.raises(admission.Refused) as refused:
         admission.prove_compatibility(manifest, checkpoint, context, source=source)

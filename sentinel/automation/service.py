@@ -39,6 +39,7 @@ from sentinel.automation.model import (
     ExecuteDisposition,
     ExecuteResult,
     HumanInterventionRequired,
+    LeaderPermit,
     NonRetryableCallbackRefused,
     PermanentOperationalRefusal,
     PrepareResult,
@@ -944,6 +945,17 @@ class AutomationService:
         alerts intentionally do not depend on trading authority.
         """
         now = _utc(now)
+        validated_lineage: dict[str, Mapping[str, Any]] = {}
+
+        def validate_lineage(candidate: CycleRecord) -> None:
+            # Multiple discovery paths can return the exact same materialized
+            # cycle in one tick. A changed row must still prove its events;
+            # no result survives this tick or replaces execution revalidation.
+            observed = candidate.model_dump(mode="json")
+            if validated_lineage.get(candidate.cycle_id) != observed:
+                integrity.validate_cycle_lineage(conn, candidate)
+                validated_lineage[candidate.cycle_id] = observed
+
         control = store.load_control(conn)
         if not control.enabled:
             return TickResult(
@@ -1016,7 +1028,7 @@ class AutomationService:
         blocked = store.blocked_cycle_for_generation(
             conn, control_generation=control.generation)
         if blocked is not None:
-            integrity.validate_cycle_lineage(conn, blocked)
+            validate_lineage(blocked)
             return TickResult(
                 action=TickAction.BLOCKED, cycle=blocked, permit=permit,
                 reason=(
@@ -1026,7 +1038,7 @@ class AutomationService:
         prior = store.latest_cycle(conn)
         conn.rollback()
         if prior is not None:
-            integrity.validate_cycle_lineage(conn, prior)
+            validate_lineage(prior)
         if (prior is not None
                 and prior.decision_session < obligation.decision_session
                 and not prior.state.terminal):
@@ -1081,7 +1093,7 @@ class AutomationService:
             conn, before_session=obligation.decision_session)
         conn.rollback()
         if unresolved is not None:
-            integrity.validate_cycle_lineage(conn, unresolved)
+            validate_lineage(unresolved)
             phase = str(unresolved.diagnostic.get("retry_phase", ""))
             if store.cycle_preflight_recovery_pending(unresolved):
                 return await self._run_preflight_recover(
@@ -1099,7 +1111,7 @@ class AutomationService:
         latest = store.latest_cycle(conn)
         conn.rollback()
         if latest is not None:
-            integrity.validate_cycle_lineage(conn, latest)
+            validate_lineage(latest)
         if (latest is not None and latest.state.terminal
                 and latest.control_generation != control.generation
                 and latest.decision_session == obligation.decision_session
@@ -1122,7 +1134,7 @@ class AutomationService:
             conn.rollback()
             return TickResult(action=TickAction.WAITING, permit=permit,
                               reason=str(exc))
-        integrity.validate_cycle_lineage(conn, cycle)
+        validate_lineage(cycle)
         if cycle.state.terminal:
             return TickResult(
                 action=TickAction.WAITING, cycle=cycle, permit=permit,
@@ -1654,6 +1666,27 @@ class AutomationService:
             action=TickAction.BLOCKED, cycle=cycle, permit=permit,
             reason=result.failure_detail or result.failure_code)
 
+    def _record_main_progress(
+            self, conn, *, permit: LeaderPermit | None, state: str,
+            next_wake_at: datetime | None, last_error: str | None = None
+            ) -> LeaderPermit | None:
+        """Only a reachable main-loop boundary may preserve idle liveness.
+
+        This cannot acquire leadership. A blocked stage has no independent
+        renewal, and an expired, killed or replaced permit is discarded.
+        """
+        store.register_instance(
+            conn, instance_id=self.holder_id, state=state,
+            next_wake_at=next_wake_at, last_error=last_error)
+        if permit is None or permit.holder_id != self.holder_id:
+            return None
+        try:
+            return store.heartbeat_lease(
+                conn, permit=permit, lease_seconds=self.config.lease_seconds)
+        except StaleLeaderRefused:
+            conn.rollback()
+            return None
+
     async def run(
             self, conn_factory, *, stop, clock,
             sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -1664,11 +1697,17 @@ class AutomationService:
             max_ticks: int | None = None) -> int:
         """Persistent bounded-loop primitive with restart-safe wake recompute."""
         ticks = 0
+        idle_permit: LeaderPermit | None = None
         while not stop.is_set() and (max_ticks is None or ticks < max_ticks):
             conn = conn_factory()
             try:
                 now = _utc(clock())
                 try:
+                    idle_permit = self._record_main_progress(
+                        conn, permit=idle_permit, state=TickAction.WAITING.value,
+                        next_wake_at=now + timedelta(seconds=min(
+                            self.config.heartbeat_seconds,
+                            self.config.control_poll_seconds)))
                     result = await self.tick(
                         conn, now=now, heartbeat_conn_factory=conn_factory,
                         clock=clock)
@@ -1680,6 +1719,8 @@ class AutomationService:
                         state="FAILED", next_wake_at=None,
                         last_error=f"{type(exc).__name__}: {exc}"[:4000])
                     raise
+                if result.permit is not None:
+                    idle_permit = result.permit
                 ticks += 1
                 if (self.terminal is not None and result.cycle is not None
                         and result.cycle.state in {
@@ -1724,12 +1765,17 @@ class AutomationService:
                 for hook in (alert_wake, control_wake):
                     if hook is None:
                         continue
+                    idle_permit = self._record_main_progress(
+                        conn, permit=idle_permit, state=result.action.value,
+                        next_wake_at=min(wake_candidates),
+                        last_error=result.reason if result.action in {
+                            TickAction.BLOCKED, TickAction.RETRY_SCHEDULED} else None)
                     candidate = await _resolve(hook(conn))
                     if candidate is not None:
                         wake_candidates.append(_utc(candidate))
                 wake = min(wake_candidates)
-                store.register_instance(
-                    conn, instance_id=self.holder_id,
+                idle_permit = self._record_main_progress(
+                    conn, permit=idle_permit,
                     state=result.action.value, next_wake_at=wake,
                     last_error=result.reason
                     if result.action in {

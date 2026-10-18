@@ -362,4 +362,6 @@ async def test_slow_tick_keeps_a_bounded_poll_gap_instead_of_a_busy_burst(monkey
     await service.run(lambda:SimpleNamespace(close=lambda:None),stop=asyncio.Event(),
         clock=clock,sleep=sleep,max_ticks=2)
     assert sleeps==[5]
-    assert wakes==[AFTER_WEDNESDAY_CLOSE+timedelta(seconds=x) for x in (12,19)]
+    # Initial progress observations also carry a bounded wake; the final
+    # observation still schedules a complete poll gap after the slow tick.
+    assert wakes[-1] == AFTER_WEDNESDAY_CLOSE+timedelta(seconds=19)

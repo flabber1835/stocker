@@ -64,9 +64,12 @@ def profile():
     if (any(not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{64}', sha)
             for sha in (*value['additions'].values(), value['module_sha256'],
                         value['autonomy_checker_normalized_sha256']))
-            or value['module_sha256'] != value['additions']['clock_sampling_upgrade.py']
-            or _normalized(Path(__file__).read_bytes()) != value['module_sha256']):
+            or value['module_sha256'] != value['additions']['clock_sampling_upgrade.py']):
         raise ValueError('CLOCK_SAMPLING_IMPLEMENTATION_CHANGED')
+    normalized_sha = _normalized(Path(__file__).read_bytes())
+    if normalized_sha != value['module_sha256']:
+        from sentinel.idle_leader_upgrade import require_clock_checker_successor
+        require_clock_checker_successor(normalized_sha)
     return value
 
 
@@ -77,9 +80,13 @@ def require_autonomy_successor(module_sha, admission_sha, *, original_module,
     if (original_module != native_read_upgrade.ORIGINAL_NORMALIZED_CHECKER
             or original_admission != native_read_upgrade.ORIGINAL_ADMISSION
             or original_profile != RETAINED_PROFILES['autonomy-runtime-upgrade.json']
-            or module_sha != value['autonomy_checker_normalized_sha256']
-            or admission_sha != value['files']['runtime_admission.py']['after']):
+            or module_sha != value['autonomy_checker_normalized_sha256']):
         raise ValueError('AUTONOMY_RUNTIME_IMPLEMENTATION_CHANGED')
+    if admission_sha != value['files']['runtime_admission.py']['after']:
+        from sentinel.idle_leader_upgrade import source_allowed
+        if not source_allowed('runtime_admission.py',
+                              value['files']['runtime_admission.py']['after'], admission_sha):
+            raise ValueError('AUTONOMY_RUNTIME_IMPLEMENTATION_CHANGED')
 
 
 def source_allowed(name, previous, actual):

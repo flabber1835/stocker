@@ -229,6 +229,7 @@ async def test_real_idle_poll_fence_loss_never_crashes_or_uses_old_token(
     old = store.acquire_lease(conn, holder_id="worker-a", lease_seconds=30)
     runtime = object.__new__(ProductionAutomation)
     runtime.holder_id = "worker-a"
+    runtime._idle_attestation = None
     verified = []
 
     def authority_check(connection, permit):
