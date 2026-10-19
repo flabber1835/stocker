@@ -468,6 +468,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         sends an operator to look at the wrong thing.
         """
         out = []
+        unread = object()
+        observed_account = unread
         restrictions.update(rec.restricted_securities)
         for delta in candidates:
             if delta.security_id in restrictions:
@@ -477,8 +479,11 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             if delta.classification is C.DeltaClass.NONE:
                 continue
             try:
-                C.authorize(delta=delta, runtime=runtime, binding=_binding(conn),
-                            observed_account=await broker.identify_account(),
+                current_binding = _binding(conn)
+                if observed_account is unread:
+                    observed_account = await broker.identify_account()
+                C.authorize(delta=delta, runtime=runtime, binding=current_binding,
+                            observed_account=observed_account,
                             observation=obs, open_commands=commands,
                             capabilities=broker.capabilities)
             except BrokerAuthorityRefused:

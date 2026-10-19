@@ -291,23 +291,35 @@ def _validate_broker_grant(
                         "dual broker guard has no current PAPER plan")
                 from sentinel import dual_reconciliation
                 try:
-                    shadow = dual_reconciliation.verified_shadow_intent(
-                        conn, decision_session=plan.decision_session,
-                        observation_id=str(dual_shadow_observation_id),
-                        starting_cash=dual_shadow_starting_cash)
+                    from sentinel import structural_verification
+                    compact = structural_verification.active()
+                    if compact:
+                        shadow, sizing = dual_plan_authority._rederive_guard_plan(
+                            conn, plan=plan, binding=binding, rollout_state=rollout,
+                            observation_id=str(dual_shadow_observation_id),
+                            starting_cash=dual_shadow_starting_cash)
+                    else:
+                        shadow = dual_reconciliation.verified_shadow_intent(
+                            conn, decision_session=plan.decision_session,
+                            observation_id=str(dual_shadow_observation_id),
+                            starting_cash=dual_shadow_starting_cash)
                 except (
                         dual_reconciliation.DualReconciliationPending,
                         dual_reconciliation.DualReconciliationRefused) as exc:
                     raise PaperActivationRefused(
                         f"dual broker guard shadow authority refused: {exc}") from exc
-                # verified_shadow_intent has just restored canonical state;
-                # this synchronous guard only reads it before returning.
+                except dual_plan_authority.DualPlanAuthorityRefused as exc:
+                    raise PaperActivationRefused(
+                        f"dual broker guard sizing authority refused: {exc}") from exc
+                # The private path returns only fields bound to the canonical
+                # proof; public/unscoped calls retain their full state verifier.
                 state = shadow.state
                 try:
-                    sizing = dual_plan_authority.rederive_plan(
-                        conn, plan=plan, binding=binding,
-                        rollout_state=rollout,
-                        expected_shadow_result=shadow)
+                    if not compact:
+                        sizing = dual_plan_authority.rederive_plan(
+                            conn, plan=plan, binding=binding,
+                            rollout_state=rollout,
+                            expected_shadow_result=shadow)
                 except dual_plan_authority.DualPlanAuthorityRefused as exc:
                     raise PaperActivationRefused(
                         f"dual broker guard sizing authority refused: {exc}") from exc

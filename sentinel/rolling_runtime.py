@@ -20,6 +20,25 @@ class _StatusBinding:
     session: str
     publication: dict
     snapshot: dict
+    state_sha256: str
+
+
+@dataclass(frozen=True)
+class _GuardState:
+    last_processed_session: str
+    data_version: int
+    strategy_identity: dict
+    last_decision: dict
+    concordance_witness_origin: str | None
+
+
+@dataclass(frozen=True)
+class _GuardIntent:
+    session: str
+    state: _GuardState
+    state_sha256: str
+    record_sha256: str
+    runtime_authority_sha256: str | None
 
 
 def selected(conn):
@@ -43,8 +62,51 @@ def _status_closure(conn, context):
     # Historical input has already been authenticated. Fresh status checks need
     # only these bindings; copying its entire origin input per broker guard is
     # unnecessary. The returned strategy state remains detached by the scope.
-    bound = _StatusBinding(checkpoint.session, checkpoint.publication, checkpoint.snapshot)
+    bound = _StatusBinding(checkpoint.session, checkpoint.publication, checkpoint.snapshot,
+                           checkpoint.state_sha256)
     return bound, None, result, attested, previous
+
+
+def _guard_projection(value):
+    checkpoint, _, result, attested, _ = value
+    state = result.state
+    small = _GuardState(state.last_processed_session, state.data_version,
+        state.strategy_identity, state.last_decision, state.concordance_witness_origin)
+    intent = _GuardIntent(result.session, small, checkpoint.state_sha256,
+        result.record_sha256,
+        digest(attested.model_dump(by_alias=True)) if attested is not None else None)
+    return checkpoint, intent, attested
+
+
+def _guard_status(conn, *, observation_id, starting_cash):
+    """Fresh status from private structural inputs; no full state escapes."""
+    from sentinel import structural_verification
+    if not structural_verification.active():
+        raise Refused('ROLLING_GUARD_SCOPE_REQUIRED')
+    try:
+        inputs.require_schemas(conn)
+        context = initial._context(observation_id, starting_cash)
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        with inputs.pinned(conn) as pub:
+            if not inputs.is_rolling(pub):
+                raise Refused('ROLLING_PUBLICATION_REQUIRED')
+            if not conn.execute('SELECT EXISTS (SELECT 1 FROM sentinel_processed_sessions '
+                                'WHERE cursor_name=%s)', (origin.CURSOR,)).fetchone()[0]:
+                origin.require_fresh(conn)
+                return None
+            checkpoint, intent, attested = structural_verification.projected_material(
+                conn, slot='rolling-checkpoint',
+                key={**context, 'controller': context['controller'].to_dict()},
+                load=lambda: _status_closure(conn, context),
+                projection_slot='rolling-guard-inputs', project=_guard_projection)
+            if attested is None:
+                raise Refused('ROLLING_RUNTIME_ATTESTATION_REQUIRED')
+            if isinstance(attested, authority.ReconstructionReceipt):
+                raise Refused('RECONSTRUCTION_IS_NOT_PROSPECTIVE_AUTHORITY')
+            _current(conn, checkpoint, pub)
+            return intent
+    finally:
+        conn.rollback()
 
 
 def _load_closure(conn, context, *, status_only):

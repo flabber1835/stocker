@@ -175,9 +175,11 @@ OPENFIGI_API_KEY is optional; unauthenticated mapping uses smaller paced batches
 Use ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2; explicitly configured older
 Nasdaq or fixed-clock policies must be updated before installation. Closed-session
 availability depends on validated provider coverage, not a wall-clock promise.
-Free execution sizing uses fresh raw IEX bid/ask quotes in the first ten regular
+Execution sizing uses fresh raw SIP bid/ask quotes in the first ten regular
 session minutes, with per-security availability and fresh pre-submit funding
-checks. Formation reuses authenticated calculation work while keeping
+checks. The [selected SIP policy](opening-execution-latency.md#selected-sip-execution-quote-policy)
+requires native access qualification before activation; historical IEX evidence
+keeps its original scope. Formation reuses authenticated calculation work while keeping
 every canonical decision's exact trailing 300-session inputs.
 
 [Large reference storage](rolling-snapshot-storage.md#large-reference-representation)

@@ -1,5 +1,11 @@
 # Alpaca operational completion
 
+Decision: 2026-10-19. New execution quotes follow the
+[selected SIP policy](opening-execution-latency.md#selected-sip-execution-quote-policy),
+which supersedes the older IEX execution-price acquisition below. Native SIP
+access must be verified before activation. The retained historical input corpus
+and earlier IEX evidence keep their original source and scope.
+
 Decision: 2026-10-03. Complete the free operational source and test the actual
 local acquisition, formation and daily continuation before publishing changes.
 The canonical strategy, 300-session decision boundary, 126 formation transitions,

@@ -361,17 +361,24 @@ class CallbackMetrics:
 
     def install(self, stack):
         from sentinel import (dual_plan_authority, dual_reconciliation, identity, rolling_checkpoint,
-            rolling_daily_checkpoint, rolling_runtime, runtime_admission, shadow_runtime, structural_verification)
+            rolling_daily_checkpoint, rolling_runtime, runtime_admission, shadow_runtime, strategy,
+            structural_verification)
         from sentinel.core import rolling_inputs
         from sentinel.feed import readiness_scope, rolling_store
+        from sentinel.paper import validation
         for owner, names in (
             (runtime_admission, ("_retained_checkpoint", "_retained_checkpoint_uncached", "current_context",
                 "bind_context", "retained_publication_strategy", "require_retained_state")),
             (rolling_checkpoint, ("read", "_signature")), (rolling_daily_checkpoint, ("read", "signature")),
             (rolling_inputs, ("readiness_inputs", "_mapped_bars")),
-            (rolling_store, ("_verify_content_uncached",)), (rolling_runtime, ("_load_closure",)),
-            (dual_plan_authority, ("_rederive_plan",)), (shadow_runtime, ("verified_shadow_status",)),
-            (dual_reconciliation, ("verified_shadow_intent",)), (identity, ("rehearsal_identity",)),
+            (rolling_store, ("_verify_content_uncached",)),
+            (rolling_runtime, ("_load_closure", "_guard_status", "_guard_projection")),
+            (dual_plan_authority, ("rederive_plan", "_rederive_plan", "_rederive_guard_plan")),
+            (shadow_runtime, ("verified_shadow_status",)),
+            (dual_reconciliation, ("verified_shadow_intent", "_verified_guard_intent")),
+            (identity, ("rehearsal_identity",)),
+            (validation, ("_validate_broker_grant", "_assert_plan_authorities")),
+            (strategy, ("production_strategy", "runtime_strategy_identity")),
             (readiness_scope, ("material", "verified_snapshot")),
         ):
             for name in names:
@@ -424,6 +431,32 @@ def supervised_callback(args, config, context, phase, body, http, counts):
     finally:
         with connect(args, read_only=False, heartbeat=True) as reader:
             store.register_instance(reader, instance_id=context.permit.holder_id, state="IDLE")
+
+
+def transition_for_callback(conn, **values):
+    """Leave the parent idle while the actual child owns its transactions."""
+    from sentinel.automation import store
+    cycle = store.transition_cycle(conn, **values)
+    conn.rollback()
+    return cycle
+
+
+def cleanup_private(args, *, preserve_failure=False):
+    """Fence only this target through a fresh, independently checked connection."""
+    from sentinel.automation import store
+    try:
+        with connect(args, read_only=False, heartbeat=True) as reader:
+            control = store.load_control(reader)
+            if not control.kill_switch_engaged:
+                control = store.engage_kill(reader, actor="PRIVATE_SIMULATOR", reason="qualification ended")
+            if control.enabled:
+                store.deactivate(reader, actor="PRIVATE_SIMULATOR", reason="qualification ended")
+        print(json.dumps({"stage": "PRIVATE_CLEANUP", "result": "PASS"}), flush=True)
+    except BaseException as exc:
+        print(json.dumps({"stage": "PRIVATE_CLEANUP", "result": "REFUSED",
+                          "error_type": type(exc).__name__}), flush=True)
+        if not preserve_failure:
+            raise
 
 
 EXECUTION_CALENDAR_OWNERS = (
@@ -539,6 +572,7 @@ def qualify(args, stages):
         timing = schedule.for_decision_session(plan.decision_session, config)
         spec = CycleSpec(**timing.model_dump(), **binding_value.model_dump(), control_generation=permit.control_generation)
         cycle = store.create_cycle(conn, permit=permit, spec=spec, now=begin)
+        conn.rollback()
         counts = Counter()
         for owner, name in ((rolling_runtime, "_load_closure"), (rolling_store, "_verify_content_uncached")):
             original = getattr(owner, name)
@@ -554,12 +588,11 @@ def qualify(args, stages):
                 return stages.run(stage, lambda: supervised_callback(args, config, context(), phase, body, http, counts))
 
             callback("RECOVER", "ProductionAutomation.recover:preflight", campaign.recover)
-            cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PREPARING)
+            cycle = transition_for_callback(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PREPARING)
             prepared = callback("PREPARE", "ProductionAutomation.prepare", campaign.prepare)
-            cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PLAN_READY,
+            cycle = transition_for_callback(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PLAN_READY,
                 plan_id=prepared.plan_id, plan_fingerprint=prepared.plan_fingerprint,
                 state_fingerprint=prepared.state_fingerprint)
-            conn.rollback()
             def wait_for_open():
                 next_report = time.monotonic()
                 next_heartbeat = time.monotonic()
@@ -576,8 +609,7 @@ def qualify(args, stages):
                         next_report = time.monotonic() + 30
                     time.sleep(min(1, remaining))
             stages.run("scheduled_open_wait:no_database_locks", wait_for_open)
-            cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.EXECUTING)
-            conn.rollback()
+            cycle = transition_for_callback(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.EXECUTING)
             preparation_counts = dict(counts)
             counts.clear()
             http.started = time.monotonic()
@@ -586,7 +618,7 @@ def qualify(args, stages):
             if not 0 < remaining_budget <= config.maximum_execution_lateness_seconds:
                 raise QualificationRefused("SIMULATED_EXECUTION_DID_NOT_START_IN_FRESH_WINDOW")
             sent = callback("EXECUTE", "ProductionAutomation.execute", campaign.execute)
-            cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.RECONCILING)
+            cycle = transition_for_callback(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.RECONCILING)
             recovered = callback("RECOVER", "ProductionAutomation.recover:terminal", campaign.recover)
             elapsed = time.monotonic() - http.started
             projection = target_reprojection.load_projection(conn, plan_id=prepared.plan_id)
@@ -626,5 +658,4 @@ def qualify(args, stages):
                 "callback_supervision": "UNCHANGED AutomationService._invoke",
                 "limit": "persistent scheduler run loop qualified separately; no native transport"}
         finally:
-            store.engage_kill(conn, actor="PRIVATE_SIMULATOR", reason="qualification ended")
-            store.deactivate(conn, actor="PRIVATE_SIMULATOR", reason="qualification ended")
+            cleanup_private(args, preserve_failure=sys.exc_info()[0] is not None)

@@ -635,6 +635,13 @@ def verified_shadow_intent(
             or result.verification != "VERIFIED"):
         raise DualReconciliationRefused(
             "shadow result is not currently SHADOW_GO/VERIFIED")
+    _require_intent_transport(conn, result, wanted, observation_id,
+        allow_regenesis_handover_pending=allow_regenesis_handover_pending)
+    return result
+
+
+def _require_intent_transport(conn, result, wanted, observation_id, *,
+                              allow_regenesis_handover_pending=False):
     state = result.state
     if state.last_processed_session != wanted:
         raise DualReconciliationRefused(
@@ -651,6 +658,32 @@ def verified_shadow_intent(
                 raise DualReconciliationPending(
                     "post-gap PAPER transport has no durable flat broker handover; "
                     "broker mutation remains fenced")
+
+
+def _verified_guard_intent(conn, *, decision_session, observation_id, starting_cash):
+    """Private structural input plus current readiness and transport approval."""
+    from sentinel import rolling_runtime
+    wanted = str(decision_session)
+    try:
+        result = rolling_runtime._guard_status(conn,
+            observation_id=observation_id, starting_cash=starting_cash)
+    except Exception as exc:
+        from sentinel.dependency_availability import database_unavailable, local_contention
+        if database_unavailable(exc) or local_contention(exc):
+            raise
+        from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
+        if isinstance(exc, RollingSourceFrontierPending):
+            raise DualReconciliationPending(
+                'certified shadow is waiting for the source-final close') from exc
+        raise DualReconciliationRefused(
+            f'certified shadow status is invalid: {exc}') from exc
+    if result is None or result.session < wanted:
+        raise DualReconciliationPending(
+            'certified shadow has not attested the PAPER decision close')
+    if result.session != wanted:
+        raise DualReconciliationRefused(
+            'certified shadow and PAPER intent name different decision closes')
+    _require_intent_transport(conn, result, wanted, observation_id)
     return result
 
 

@@ -1,5 +1,11 @@
 # Separate software completion
 
+Decision: 2026-10-19. The [selected SIP execution quote policy](opening-execution-latency.md#selected-sip-execution-quote-policy)
+supersedes the IEX latest-quote source below for new execution attempts. New
+evidence explicitly identifies raw SIP bid/ask quotes. Historical IEX records
+retain their original source and typed validation. The 60-second freshness
+limit, ten-minute increase cutoff and fresh funding checks are unchanged.
+
 ## Idle authority polling after lease loss
 
 Decision: 2026-10-10. The broker-free idle control poll can lose its lease

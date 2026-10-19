@@ -503,12 +503,40 @@ def rederive_plan(
     expected_state = getattr(expected, 'state', None)
     if expected is not None and expected_state is None:
         return load()  # Preserve the canonical verifier's typed refusal.
-    key = (plan.to_dict(), repr(binding), repr(rollout_state),
-           None if expected is None else (
-               expected_state.state_hash, getattr(expected, 'record_sha256', None),
-               getattr(expected, 'runtime_authority_sha256', None)))
+    key = _sizing_key(plan, binding, rollout_state,
+        None if expected is None else (
+            expected_state.state_hash, getattr(expected, 'record_sha256', None),
+            getattr(expected, 'runtime_authority_sha256', None)))
     return structural_verification.material(conn, slot='dual-sizing', key=key,
         load=load)
+
+
+def _sizing_key(plan, binding, rollout_state, shadow_binding):
+    return plan.to_dict(), repr(binding), repr(rollout_state), shadow_binding
+
+
+def _rederive_guard_plan(conn, *, plan, binding, rollout_state,
+                        observation_id, starting_cash):
+    """Acquire the private commitment ourselves; callers cannot supply one."""
+    from sentinel import dual_reconciliation, structural_verification
+    intent = dual_reconciliation._verified_guard_intent(conn,
+        decision_session=plan.decision_session, observation_id=observation_id,
+        starting_cash=starting_cash)
+    def load():
+        full = dual_reconciliation.verified_shadow_intent(conn,
+            decision_session=plan.decision_session, observation_id=observation_id,
+            starting_cash=starting_cash)
+        proof = _rederive_plan(conn, plan=plan, binding=binding,
+            rollout_state=rollout_state, expected_shadow_result=full)
+        if (proof['state_sha256'] != intent.state_sha256
+                or full.record_sha256 != intent.record_sha256
+                or full.runtime_authority_sha256 != intent.runtime_authority_sha256):
+            raise DualPlanAuthorityRefused('private guard state commitment changed')
+        return proof
+    proof = structural_verification.material(conn, slot='dual-sizing',
+        key=_sizing_key(plan, binding, rollout_state, (intent.state_sha256,
+            intent.record_sha256, intent.runtime_authority_sha256)), load=load)
+    return intent, proof
 
 
 def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result):

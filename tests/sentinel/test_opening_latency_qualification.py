@@ -350,6 +350,75 @@ def test_material_observer_measures_loads_without_replacing_cache_or_values():
     assert metrics.slots == {"retained-runtime-checkpoint": {"calls": 2, "loads": 1}}
 
 
+def test_parent_transition_finishes_read_transaction_before_terminal_callback(monkeypatch):
+    from sentinel.automation import store
+    from sentinel.automation.model import CycleState
+    from tools.opening_gateway_qualification import transition_for_callback
+    events, cycle = [], object()
+    class Parent:
+        idle_transaction = False
+        def rollback(self):
+            events.append("rollback")
+            self.idle_transaction = False
+    parent = Parent()
+    def transition(conn, **values):
+        assert conn is parent and values["to_state"] is CycleState.RECONCILING
+        conn.idle_transaction = True  # The supported transition returns a fresh read.
+        events.append("transition")
+        return cycle
+    monkeypatch.setattr(store, "transition_cycle", transition)
+    assert transition_for_callback(parent, to_state=CycleState.RECONCILING) is cycle
+    assert not parent.idle_transaction and events == ["transition", "rollback"]
+
+
+def test_cleanup_uses_fresh_checked_connection_when_parent_is_closed(monkeypatch, capsys):
+    from contextlib import contextmanager
+    from sentinel.automation import store
+    from tools import opening_gateway_qualification as gateway
+    checked, actions, fresh = [], [], object()
+    args = SimpleNamespace(expected_database="opening_latency_gateway_20261019_10")
+    @contextmanager
+    def connect(target, **options):
+        checked.append((target, options))
+        yield fresh
+    monkeypatch.setattr(gateway, "connect", connect)
+    monkeypatch.setattr(store, "load_control", lambda conn: SimpleNamespace(enabled=True, kill_switch_engaged=False))
+    def kill(conn, **_values):
+        assert conn is fresh
+        actions.append("kill")
+        return SimpleNamespace(enabled=True, kill_switch_engaged=True)
+    def deactivate(conn, **_values):
+        assert conn is fresh
+        actions.append("deactivate")
+    monkeypatch.setattr(store, "engage_kill", kill)
+    monkeypatch.setattr(store, "deactivate", deactivate)
+    gateway.cleanup_private(args)
+    assert checked == [(args, {"read_only": False, "heartbeat": True})]
+    assert actions == ["kill", "deactivate"]
+    assert json.loads(capsys.readouterr().out)["result"] == "PASS"
+
+
+def test_cleanup_failure_preserves_original_refusal_and_hides_sensitive_text(monkeypatch, capsys):
+    from contextlib import contextmanager
+    from tools import opening_gateway_qualification as gateway
+    @contextmanager
+    def unavailable(*_args, **_kwargs):
+        raise RuntimeError("postgresql://private:secret@host/db")
+        yield
+    monkeypatch.setattr(gateway, "connect", unavailable)
+    error = tool.QualificationRefused("SIMULATED_GATEWAY_LATENCY_MARGIN_EXCEEDED")
+    with pytest.raises(tool.QualificationRefused) as caught:
+        try:
+            raise error
+        finally:
+            gateway.cleanup_private(SimpleNamespace(), preserve_failure=True)
+    assert caught.value is error
+    output = capsys.readouterr().out
+    assert "secret" not in output and json.loads(output)["error_type"] == "RuntimeError"
+    with pytest.raises(RuntimeError):
+        gateway.cleanup_private(SimpleNamespace())
+
+
 def test_execution_window_proxy_preserves_real_shadow_and_preopen_witness_calendars():
     from contextlib import ExitStack
     from datetime import date, timedelta, timezone

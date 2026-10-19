@@ -65,6 +65,68 @@ recorded here before implementation and before deployment respectively. A
 passing late-order refusal test alone does not establish that valid orders
 finish in time.
 
+### Account identity within one classification pass
+
+The production-sized gateway exposed repeated account-identification reads in
+the executor's synchronous candidate classification. Each increase is classified
+before settlement and again against the final observation before sending. Keep
+those two passes and all per-candidate command authorization. Within one pass,
+read the broker's account identity once after the first eligible candidate, then
+use that returned identity for the remaining candidates classified against the
+same observation and command snapshot. This is identity evidence, not a cached
+authorization verdict. Read the durable binding and run canonical authorization
+separately for every candidate. Skip the read when every candidate is restricted
+or has no delta.
+
+Keep the first identification inside the existing candidate error boundary.
+Only retain a successful return: an ordinary failed read still refuses that
+candidate and leaves the next candidate able to retry; an authority refusal
+still aborts the operation. A new classification pass, including the pass after
+settlement, performs its own read. Every actual broker call retains its existing
+fresh before/after checks, and every mutation retains the fresh funding, quote,
+control, certificate, lease and execution-clock guards. No account cash or
+position observation is shared by this change.
+
+### Compact structural input for the dual broker guard
+
+Warm guarded reads still restored the complete verified strategy state and
+hashed its feed graph to construct a sizing-cache key. Add a private compact
+projection of the existing `rolling-checkpoint` material. The structural scope
+retains its ordinary authenticated canonical bytes; a separate projection is
+created only from those private bytes and is bound to that exact cache-record
+object. Keep the same fresh publication-pin, writer-lock, database, context and
+row-inventory checks before reuse. Replacing the original record invalidates its
+projection. Each returned projection is detached. Never project from a mutable
+state returned to an earlier caller.
+
+The rolling guard projection contains only the checkpoint-authenticated state
+commitment, session, publication/snapshot and record/attestation bindings, plus
+the small state fields used to compare the plan's cursor, data version, strategy
+and controller decision. Its thin state has no `state_hash` property and carries
+no readiness or authorization verdict. The private guard-status reader still
+derives the current executable context, validates the current publication and
+snapshot with `_current`, and requires prospective attestation on every call.
+The private dual-intent reader also repeats current segment transport approval
+and the existing handover checks on every call.
+
+A private sizing entry point obtains that guard projection itself; it accepts
+neither a caller-supplied state digest nor a claimed proof. It uses the private
+state commitment for the existing deterministic sizing key. A cache miss still
+runs the original full verified shadow intent and canonical sizing derivation.
+The public sizing API continues hashing any supplied mutable state. Select the
+compact path only for dual EXECUTE inside the existing active structural scope;
+all other paths retain the full verifiers. Existing plan-authority comparisons
+consume the small state fields and the sizing verifier's authenticated digest.
+Readiness, actual time/session, control, lease, signed authority, account binding,
+rollout, broker observations, funding, quotes and pre-submit permission checks
+remain fresh. No kernel, strategy calculation, persisted book or source-history
+semantics change.
+
+Falsifiers must cover changed economic rows/context/publication, lost pin/writer
+ownership, detached-result mutation, a swapped original cache record, altered
+state/plan commitments, a newly refused segment/handover, stale readiness and
+caller-supplied mutable-state tampering through the unchanged public API.
+
 ## Feed readiness
 
 Retain the existing 26-hour cached-verdict lifetime and the read-only dashboard.
@@ -83,8 +145,10 @@ execution authority or failed-cycle history.
 ## Retained executable admission
 
 Append one exact opening-latency successor profile with authority effect NONE.
-Pin the changed verification, readiness and execution quote modules, admission wiring, and the
-preceding idle-leader checker's explicit successor delegation. Preserve every
+Pin the changed verification, readiness and execution quote modules, executor
+candidate classification, private dual guard projection/sizing consumers,
+admission wiring, and the preceding idle-leader checker's explicit successor
+delegation. Preserve every
 historical profile byte. Accepted predecessor hashes come only from those
 authenticated descriptors and individually pinned complete historical source
 manifests, including the verified main revision used for this repair.
@@ -190,6 +254,15 @@ prevent `finally` from running, so completed-call records must already be on
 stdout. Do not serialize verification objects, source state, credentials or
 permission results into diagnostic metrics. These observers grant no authority
 and cannot promote a refused or incomplete callback into qualification.
+
+The diagnostic parent ends its read transaction after each cycle transition and
+before entering a supervised callback, including terminal recovery. A long
+callback must not leave an idle parent transaction that reaches the diagnostic's
+existing 120-second idle limit. Keep that limit unchanged. Final diagnostic
+disable/kill runs through a fresh connection with the same private-target and
+physical-identity guards, so a timed-out parent connection cannot leave the
+simulator enabled or erase the original failure. This changes only rehearsal
+orchestration; production supervision and database settings are unchanged.
 
 ## October 19 incident evidence and local qualification
 
@@ -350,10 +423,22 @@ adding that wiring; they must never replace the paper broker credentials.
 
 GET-only checks of the exact known production, Windows and two Linux release
 profiles found one unique Alpaca keypair. That pair still returned SIP HTTP 403
-at 15:27:24 UTC. No credential values or fingerprints were recorded. A location
-for the existing SIP-enabled profile is therefore still required before native
-SIP qualification and activation. Software simulation can proceed independently
-and must state this remaining gate.
+at 15:27:24 UTC. No credential values or fingerprints were recorded. The operator
+subsequently confirmed that the existing `.env` credentials are the intended
+credentials and authorized their use. Native real-time SIP access still needs a
+successful API check before activation; software simulation proceeds independently.
+Earlier successful paper/IEX reads or historical SIP requests do not establish
+latest-quote entitlement. Alpaca's [market-data FAQ](https://docs.alpaca.markets/us/docs/market-data-faq)
+explicitly distinguishes historical SIP queries older than 15 minutes from
+subscription-gated latest endpoints.
+
+A fresh check at 16:09:53 UTC confirmed that the current project `.env` keypair
+matches production. The paper account was ACTIVE, unblocked and matched its
+durable binding; BIL IEX returned usable same-session quote sides and sizes at
+17.57 seconds of age. The same pair's real-time SIP request returned HTTP 403
+with Alpaca's subscription refusal. Credentials were loaded only in memory;
+no secret values or fingerprints were recorded. This distinguishes valid
+authentication from the still-unavailable feed entitlement.
 
 SIP regressions passed: 48 tests in 35.79 seconds, with networking disabled,
 0.5 CPU and 768 MiB. The cohort used the existing test image with exact read-only
@@ -400,3 +485,80 @@ existed only as private compiled function copies. Preserve the earlier failed
 fixture run: it entered the real mutation backup guard without configuring an
 archive. The corrected read-only verifier fixture takes the actual SQL advisory
 writer lock directly; the production mutation backup guard is unchanged.
+
+The preceding exact source/profile (`a7122319...`) covered all 205 cases in the
+five-module admission selection. The first run had 204 passes, no assertion
+failures and one setup error because its read-only container did not expose the
+fixture's `/tmp/stocker_pg_clusters` directory. The exact affected parameter
+then passed in 202.25 seconds with only that private directory made writable;
+no source or descriptor changed between runs. Both runs used 0.5 CPU, 768 MiB
+and no network. Preserve the first run's error alongside the targeted retry.
+
+```bash
+python -B -m pytest \
+  tests/sentinel/test_opening_latency_upgrade.py \
+  tests/sentinel/test_idle_leader_upgrade.py \
+  tests/sentinel/test_retained_source_compatibility.py \
+  tests/sentinel/test_clock_sampling_upgrade.py \
+  tests/sentinel/test_native_read_upgrade.py \
+  -q --tb=short -p no:cacheprovider \
+  --basetemp=/tmp/opening-latency-profile/pytest \
+  --junitxml=/evidence/profile-retained-binding-admission.xml
+
+python -B -m pytest \
+  'tests/sentinel/test_clock_sampling_upgrade.py::test_actual_formed_book_survives_clock_repair_without_reformation_or_reacquisition[clock_sampling_preceding-ready0]' \
+  -q --tb=short -p no:cacheprovider \
+  --basetemp=/tmp/opening-latency-profile/pytest \
+  --junitxml=/evidence/profile-retained-binding-admission-pg-retry.xml
+```
+
+## Candidate classification regression
+
+The account-identity classification change passed 113 tests in 137.72 seconds
+with networking disabled, 0.5 CPU, 768 MiB and exact read-only executor/test
+overlays on the existing test image:
+
+```bash
+python -m pytest \
+  tests/sentinel/test_candidate_account_identity.py \
+  tests/sentinel/test_two_phase.py \
+  tests/sentinel/test_projection_and_executor.py \
+  tests/sentinel/test_issue_180_executor_universe.py \
+  tests/sentinel/test_quote_starvation.py \
+  tests/sentinel/test_regular_quote_submission.py \
+  -q --tb=short -p no:cacheprovider --durations=10 \
+  --junitxml=/evidence/candidate-identity-20261019.xml
+```
+
+Four private baseline cases passed. Removing identity reuse caused the
+15-leg regression to make 30 identification reads instead of two. Reusing the
+durable binding caused its change-detection regression to fail. Swallowing
+`BrokerAuthorityRefused` caused both classification-pass refusal tests to fail.
+These final falsifiers use live fixture globals; preserve the earlier failed
+copied-globals experiment without counting it as guard evidence. No mutant was
+written to tracked source.
+
+## Preserved `efcc47a6` gateway failure
+
+The exact committed `efcc47a6` runtime, local image
+`sha256:aac5515d2ddf48014c3abe483f20aed63088501fc7ce2231f694b1bfae46a0d1`,
+sent the first simulated POST at 300.725868 seconds. Its EXECUTE callback
+returned normally in 534.612393 seconds with all 15 simulated POSTs. Its child
+body consumed 371.455184 seconds of process CPU. Both the 120-second first-order
+and 300-second complete-basket gates had already failed.
+
+The structural slots each loaded only once: retained binding had 720 calls,
+rolling checkpoint 240, and sizing 240. Warm work remained substantial:
+verified shadow status totaled 145.898315 seconds, current executable context
+87.082894 seconds across 720 calls, and executable identity 85.345803 seconds
+across 1201 calls. These nested totals overlap and must not be added. HTTP
+fixture counts included 74 account reads and 45 asset reads. The cold snapshot
+scan took 34.646036 seconds and mapped bars 25.946903 seconds. This measured
+failure motivated compact guard input and per-pass account identity work; it
+does not qualify either later change.
+
+Terminal recovery returned after another 182.0454 seconds, then the diagnostic
+parent's expired idle transaction refused the final query and its original
+cleanup. Preserve that OperationalError and the timing failure. Fresh,
+identity-guarded private cleanup and the revised diagnostic orchestration are
+required; no production or historical backtest operation is part of that repair.

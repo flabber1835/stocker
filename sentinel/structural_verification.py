@@ -54,6 +54,7 @@ class Scope:
         self.owner = owner
         self.pin = readiness_scope.capture(owner)
         self.values = {}
+        self.projections = {}
 
     def require(self, conn):
         readiness_scope.require_token(conn, self.pin)
@@ -96,10 +97,7 @@ def owned(owner):
     return None
 
 
-def material(conn, *, slot, key, load):
-    scope = _current.get()
-    if scope is None:
-        return load()
+def _record(conn, scope, *, slot, key, load):
     scope.require(conn)
     before = _inventory(conn, slot)
     retained = scope.values.get(slot)
@@ -113,6 +111,33 @@ def material(conn, *, slot, key, load):
         # gives each guard an independent graph without recursively copying the
         # large retained book in Python on every broker read.
         scope.values[slot] = (deepcopy(key), before, pickle.dumps(value, protocol=5))
-    result = pickle.loads(scope.values[slot][2])
+    return scope.values[slot]
+
+
+def material(conn, *, slot, key, load):
+    scope = _current.get()
+    if scope is None:
+        return load()
+    record = _record(conn, scope, slot=slot, key=key, load=load)
+    result = pickle.loads(record[2])
+    scope.require(conn)
+    return result
+
+
+def projected_material(conn, *, slot, key, load, projection_slot, project):
+    """Project only private verified bytes, under their exact original record."""
+    scope = _current.get()
+    if scope is None:
+        raise VerificationScopeRefused('STRUCTURAL_PROJECTION_SCOPE_REQUIRED')
+    record = _record(conn, scope, slot=slot, key=key, load=load)
+    name = (slot, projection_slot)
+    retained = scope.projections.get(name)
+    if retained is None or retained[0] is not record or retained[1] is not project:
+        value = project(pickle.loads(record[2]))
+        scope.require(conn)
+        if _inventory(conn, slot) != record[1]:
+            raise VerificationScopeRefused('STRUCTURAL_INPUTS_CHANGED_DURING_PROJECTION')
+        scope.projections[name] = (record, project, pickle.dumps(value, protocol=5))
+    result = pickle.loads(scope.projections[name][2])
     scope.require(conn)
     return result
