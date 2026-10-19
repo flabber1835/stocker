@@ -1,6 +1,6 @@
 {
   "additions": {
-    "opening_latency_upgrade.py": "7b34b8ce89978a196316950d2722683c3b186930e6464f6d74b04455555d3873"
+    "opening_latency_upgrade.py": "6e6e9f949809e10789c6326c4126cbfa7d4c7e8ef61d8dbc7e9ccbe2046d647d"
   },
   "authority_effect": "NONE",
   "base_revision": "1e1db91b878d3073549a1e46337893882c3935b2",
@@ -37,6 +37,12 @@
       "after": "c1fa3937bfc60b36f61f92558dfa1d408e00247397467636392fbb5a48e1b0c2",
       "before": [
         "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0"
+      ]
+    },
+    "identity.py": {
+      "after": "92a2933e4f9c43deee239f7ba16d4897e629e3d7e0c256712f5ff90412b894f7",
+      "before": [
+        "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e"
       ]
     },
     "idle_leader_upgrade.py": {
@@ -85,6 +91,12 @@
         "fcf1228470a7a2a42dbc9534b05e66770a63d123281017aa0ffecfaf62a8f4b8"
       ]
     },
+    "semantic_source_basis.py": {
+      "after": "91eb2f997111ced8f930776a1e40aba3f4230573a5bb52c1a456dddcc25a662a",
+      "before": [
+        "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d"
+      ]
+    },
     "structural_verification.py": {
       "after": "c5cdf7caaa72a899c454cbd6aa45d1f5ff673dfe05ab22196262810ef9352f96",
       "before": [
@@ -94,7 +106,7 @@
     }
   },
   "idle_checker_normalized_sha256": "a3062eeb32386200aa8cab3f6c1173b3457ccd43307bec9c3930178d97238812",
-  "module_sha256": "7b34b8ce89978a196316950d2722683c3b186930e6464f6d74b04455555d3873",
+  "module_sha256": "6e6e9f949809e10789c6326c4126cbfa7d4c7e8ef61d8dbc7e9ccbe2046d647d",
   "predecessor_witnesses": [
     {
       "files": {
@@ -103,9 +115,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "1f3f95d3c8a5ddb81e57a6387536f8376efe7c3ecefeb8a4badf516e8e5491e4",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "7f0cbc9ec13abdd39bda38d1c57d831a5699bd62ba8f621ae4bfcdf5d5d3d5c1",
@@ -118,9 +132,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "adc7be4e82d185dabfff32c8e6f7bd2de0380a09f4d9a35abf64d7cd43deac92",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "67d9c6929921eeee50d5e855edeff8a8a282f8380212141e8bd4b224b2d91705",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "cf04409818079b566a9781c419872ee3f623b069f78eef6405bd8b71c27a985e"
       },
       "manifest_sha256": "68b0a58c77cd0c7b0e49a62ae4b306a679c2c6b3b9938ab4e2fe7e9013a3542d",
@@ -133,9 +149,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "4b629db5827dce482070f2f1271f42894937f087e132286b37d265e565baa968",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "29ec8ee16abc7036e8e82d212cd4e95b1d2d44800a3b2ea566182fb2dca4be9a",
@@ -148,9 +166,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "49d913eaf9d400fbdfb1903c984c7679463f5fb6c9bd4274063d95691bb6d49a",
@@ -163,9 +183,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "bb431383713546db5e75691cdaefbf03aa879d193296afbc66b626fbc772653e",
@@ -178,9 +200,11 @@
         "execution/executor.py": "8ccce8bdcb9baceff687a56bb6b73dfd54af5a28219724c2e816782b780c5923",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "adc7be4e82d185dabfff32c8e6f7bd2de0380a09f4d9a35abf64d7cd43deac92",
         "rolling_runtime.py": "f63e920c79fdd61bb1324ad32758be0dc01b3de4354254d22be2b7467f365da5",
         "runtime_admission.py": "4079cc42b19cd9ecd1629d243794b86d1049a484627fe08bcb135f87104cbb21",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "cf04409818079b566a9781c419872ee3f623b069f78eef6405bd8b71c27a985e"
       },
       "manifest_sha256": "3823592c1618be7a304c60de2f390d80630afa29eab02c81d8629a9c07237c3f",
@@ -193,10 +217,12 @@
         "execution/executor.py": "8ccce8bdcb9baceff687a56bb6b73dfd54af5a28219724c2e816782b780c5923",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "idle_leader_upgrade.py": "7a2199dbd8af0a64528f5fd1e9396bd7d96060e6272f3fdc06d6b88c898327ba",
         "paper/validation.py": "adc7be4e82d185dabfff32c8e6f7bd2de0380a09f4d9a35abf64d7cd43deac92",
         "rolling_runtime.py": "f63e920c79fdd61bb1324ad32758be0dc01b3de4354254d22be2b7467f365da5",
         "runtime_admission.py": "ca9dcc6ff535fe2e90aa38cf8ecf386cfabe0f1aa5c70c94005e69f7d087e407",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "cf04409818079b566a9781c419872ee3f623b069f78eef6405bd8b71c27a985e"
       },
       "manifest_sha256": "81287fa7ece5bf45479b5bd352b9d75dd48bf1772b910030e7afee3be213e2b1",
@@ -209,9 +235,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "096e216e79c9f605a2fa210a6997c8dbecf42af0567e158a41ebb9bcab620d34",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "b03c7d3b02673034705b4bc7818d955639763896f29a3d47c96fa87b34c4671c",
@@ -224,9 +252,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "3f85702f0265e52ea2460f45bc6d804ade6088d7f6e2b700752b121c05531286",
@@ -239,9 +269,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "e8769b62f13287f2733f7ec483bb4ff65677c220ac39c4200af2d463e1886545",
@@ -254,6 +286,7 @@
         "execution/executor.py": "0b1401754600cce4f2fcdd82e431602c37d93907fcd928b062c7223acc4b6874",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "5a1284301dff77ce2da4b147b38167561c5d93ec279cfef855f623c342afd5b5",
         "rolling_runtime.py": "1140c2ff3b0fcf3bd758c4d03a1e4d37402c263102b9fcce16c8dc625191227f",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
@@ -268,9 +301,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "b74d74be6767674f9c186a160e4a0f983a93813e3236981109fae8d049cb96d0",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "020ea190598072c53e7c806ad1da72fc54a0a58de7298467b3469e9c070dcca9",
@@ -283,9 +318,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "49bc719a480bfe2e8e52f430fa0ce07b082adf9ea8069f47d97ef4a06ecde0c6",
@@ -298,9 +335,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "6bd183546c2d8626e5509d6ac043e5670899298c8fae4dcd3b306671588a8674",
@@ -313,9 +352,11 @@
         "execution/executor.py": "8ccce8bdcb9baceff687a56bb6b73dfd54af5a28219724c2e816782b780c5923",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "adc7be4e82d185dabfff32c8e6f7bd2de0380a09f4d9a35abf64d7cd43deac92",
         "rolling_runtime.py": "f63e920c79fdd61bb1324ad32758be0dc01b3de4354254d22be2b7467f365da5",
         "runtime_admission.py": "fcf1228470a7a2a42dbc9534b05e66770a63d123281017aa0ffecfaf62a8f4b8",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "cf04409818079b566a9781c419872ee3f623b069f78eef6405bd8b71c27a985e"
       },
       "manifest_sha256": "f8476bfe8eb8736c40604035522ada091800ad5415131137d6f38d4aafd76226",
@@ -328,9 +369,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "033aafc80d6e391687c4512e5e2bb2f5b846af2ac28819d37c4868a5e68740b1",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "835f2fd3d4f3024fc739df5e2734c3359f5dc03ad06f9fbcbde53827ba989a34",
@@ -343,9 +386,11 @@
         "execution/executor.py": "8ccce8bdcb9baceff687a56bb6b73dfd54af5a28219724c2e816782b780c5923",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "adc7be4e82d185dabfff32c8e6f7bd2de0380a09f4d9a35abf64d7cd43deac92",
         "rolling_runtime.py": "f63e920c79fdd61bb1324ad32758be0dc01b3de4354254d22be2b7467f365da5",
         "runtime_admission.py": "087fe6d1981122054f34aa83fc41c07d9c583cdaf185bf6e9b0f4e54598f6421",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "cf04409818079b566a9781c419872ee3f623b069f78eef6405bd8b71c27a985e"
       },
       "manifest_sha256": "a76df4344a915fda5f598db4b663636602aea4a5319b212dee60ba6cc17c2231",
@@ -358,9 +403,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "b2275d003077e4e2b778477c5877145d4a9187ddba7880212f762561177429cb",
@@ -373,9 +420,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "481cd8997974621f9204979e0d6f63a995460a5871d9952c2a4d8f1e4f85f0a7",
@@ -388,9 +437,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ae76dd995f3ba44769ae933438f7d708783fb0a1a930b6939f29664811072276",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "2e50a93c2ce3f6260c66e860d92b86ca23566ab5c3e9e3d1321c6f99cfac42b0",
@@ -403,9 +454,11 @@
         "execution/executor.py": "f1af5117b4de7b721148023b1687fb48733037ccf4b04c88489dcb8fb72df714",
         "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "paper/validation.py": "7ecc2c883f0f3a39d69fa8820a82efd1f786e7427b004c3a10a5657e14e9ab1a",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "990f8810a1788c68b960f481dd4dbc8c134072b9b1b2af63fd277d37b40de7b6",
+        "semantic_source_basis.py": "856ad438c88b0de25cf80b18b0d7a176949589b544746ceeb4dfdc32780c327d",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
       },
       "manifest_sha256": "a3607d47a07375793f771a118b502a2abde3bc2330acb63ff8cf09deb9a027d7",

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+from functools import lru_cache
 import hashlib
 import importlib
 import json
@@ -49,13 +50,12 @@ def basis():
     return json.loads(raw)
 
 
-def masked_ast(module, raw, *, baseline=False):
-    """Remove only the exact admitted hook, never an economic function body."""
+def _masked_ast_uncached(module, raw, *, baseline=False, _configuration=None):
     tree = ast.parse(raw)
     if module == 'sentinel.core.decision':
         recipe = next(node for node in tree.body
                       if isinstance(node, ast.FunctionDef) and node.name == 'data_semantics_source_identity')
-        expected = ast.parse(RECIPE_HEADER).body[0]
+        expected = ast.parse(RECIPE_HEADER if _configuration is None else _configuration[1]).body[0]
         header = lambda node: _ast_value([[name, value] for name, value in ast.iter_fields(node)
                                          if name != 'body' and not (name == 'type_params' and value == [])])
         if header(recipe) != header(expected):
@@ -63,11 +63,12 @@ def masked_ast(module, raw, *, baseline=False):
         body = recipe.body
         if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
             body = body[1:]
-        if not baseline and ast.dump(ast.Module(body=body, type_ignores=[])) != ast.dump(ast.parse(RECIPE)):
+        if not baseline and ast.dump(ast.Module(body=body, type_ignores=[])) != ast.dump(
+                ast.parse(RECIPE if _configuration is None else _configuration[0])):
             return None
         tree.body.remove(recipe)
-    elif module in HOOKS and not baseline:
-        function, text = HOOKS[module]
+    elif (module in HOOKS if _configuration is None else _configuration[2]) and not baseline:
+        function, text = HOOKS[module] if _configuration is None else _configuration[3]
         node = next(node for node in tree.body
                     if isinstance(node, ast.FunctionDef) and node.name == function)
         offset = int(isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant))
@@ -76,6 +77,29 @@ def masked_ast(module, raw, *, baseline=False):
             return None
         del node.body[offset:offset+len(hook)]
     return _sha(json.dumps(_ast_value(tree), separators=(',', ':'), ensure_ascii=True).encode())
+
+
+@lru_cache(maxsize=32)
+def _masked_ast_calculation(module, raw, baseline, recipe, header, hook_present, hook):
+    return _masked_ast_uncached(module, raw, baseline=baseline,
+                                _configuration=(recipe, header, hook_present, hook))
+
+
+def masked_ast(module, raw, *, baseline=False):
+    """Remove only the exact admitted hook, never an economic function body."""
+    # Retain only immutable calculation inputs/results. Unusual inputs keep the
+    # original parser/configuration behavior, including its exception order.
+    if (type(module) is not str or type(raw) not in (bytes, str)
+            or type(baseline) is not bool or type(RECIPE) is not str
+            or type(RECIPE_HEADER) is not str or type(HOOKS) is not dict):
+        return _masked_ast_uncached(module, raw, baseline=baseline)
+    hook_present = module in HOOKS
+    hook = HOOKS[module] if hook_present else None
+    if hook_present and (type(hook) is not tuple or len(hook) != 2
+                         or any(type(item) is not str for item in hook)):
+        return _masked_ast_uncached(module, raw, baseline=baseline)
+    return _masked_ast_calculation(module, raw, baseline, RECIPE, RECIPE_HEADER,
+                                   hook_present, hook)
 
 
 def canonical_contribution(module, raw):

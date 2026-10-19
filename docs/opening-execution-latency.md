@@ -127,6 +127,47 @@ ownership, detached-result mutation, a swapped original cache record, altered
 state/plan commitments, a newly refused segment/handover, stale readiness and
 caller-supplied mutable-state tampering through the unchanged public API.
 
+### Pure source and package-metadata calculations
+
+The actual `0129f3a2` image's read-only five-call profile confirms repeated pure
+AST conversion within strategy identity, and repeated package-metadata parsing
+within environment identity. Select two bounded computational optimizations.
+Neither retains an environment, strategy identity, source contribution,
+readiness result or authorization verdict.
+
+`semantic_source_basis.masked_ast` may retain only its immutable digest or
+nonmatching `None` result in a 32-entry cache. The key contains the exact freshly
+read source bytes/string, module, baseline flag, recipe text and header, and
+both presence and exact function/text of the selected hook. Keep the existing
+AST normalization and Python 3.8/3.12 compatibility representation unchanged.
+Unusual inputs/configurations that cannot safely form this immutable key use
+the original uncached calculation and retain its exceptions. Exceptions are
+never cached. Every economic source still reads its actual module bytes and
+hashes those bytes on every invocation; every contribution still rereads,
+authenticates and parses the pinned basis file on every invocation. A changed
+basis, source, recipe/header or hook must remain immediately observable.
+
+Within one `identity.environment()` invocation, obtain one fresh direct-pin
+version snapshot and derive both the package record and pin drift from it.
+The next invocation resolves and reads versions again. Public standalone pin
+drift remains a fresh operation. Package discovery and full distribution
+enumeration remain fresh on every call. For standard-library distribution
+metadata access only, retain at most 128 immutable parsed `(Name, Version)`
+tuples keyed by the complete freshly read metadata text. Read the existing
+METADATA/PKG-INFO/legacy fallback afresh on every access, preserve the standard
+parser's header semantics, and use the original access path for custom
+distribution metadata/version overrides. Preserve exception/missing-package
+behavior, duplicate-name ordering and version concatenation. Do not cache
+distribution objects, paths, enumeration, file contents or installed versions.
+Source-tree, environment, lock and artifact reads retain their existing fresh
+boundaries. These are reviewed executable changes with authority effect NONE;
+extend the exact opening successor profile to the two changed modules.
+
+Require equivalence against the unchanged calculations, warm pure-work reuse,
+same-size source/metadata edits, changed configuration and basis refusal,
+fresh file reads/enumeration, and mutation falsifiers before accepting timing
+measurements. The gateway still has to meet both unchanged latency limits.
+
 ## Feed readiness
 
 Retain the existing 26-hour cached-verdict lifetime and the read-only dashboard.
@@ -147,7 +188,8 @@ execution authority or failed-cycle history.
 Append one exact opening-latency successor profile with authority effect NONE.
 Pin the changed verification, readiness and execution quote modules, executor
 candidate classification, private dual guard projection/sizing consumers,
-admission wiring, and the preceding idle-leader checker's explicit successor
+pure source/package-metadata calculation modules, admission wiring, and the
+preceding idle-leader checker's explicit successor
 delegation. Preserve every
 historical profile byte. Accepted predecessor hashes come only from those
 authenticated descriptors and individually pinned complete historical source
@@ -562,3 +604,152 @@ parent's expired idle transaction refused the final query and its original
 cleanup. Preserve that OperationalError and the timing failure. Fresh,
 identity-guarded private cleanup and the revised diagnostic orchestration are
 required; no production or historical backtest operation is part of that repair.
+
+Fresh, physically checked cleanup subsequently confirmed disabled/killed control
+in that private namespace. Its 15 commands were FILLED and had broker order IDs,
+but the original run never reached its exact-basket comparison and remains a
+failed qualification. Five immutable origin/shadow/formation cursor payloads
+matched the copied base exactly; daily checkpoints were absent in both. An
+earlier all-non-PAPER inventory comparison also included the newly created
+runtime admission and database incarnation. Preserve that conservative mismatch
+and the narrower immutable-book clarification rather than claiming the original
+aggregate matched.
+
+The revised diagnostic's 55 targeted tests passed in 17.69 seconds with network
+disabled, 0.5 CPU and 512 MiB:
+
+```bash
+python -m pytest tests/sentinel/test_opening_latency_qualification.py \
+  -q --tb=short -p no:cacheprovider \
+  --junitxml=/evidence/qualification-tools-55.xml
+```
+
+Private compiled-function falsifiers separately caused the transaction-boundary
+and fresh-cleanup tests to fail when their respective guards were removed.
+
+## Final frozen source and retained-admission coverage
+
+The compact-guard candidate is commit
+`0129f3a2d6eacb520878333800c9d3c3ce53014b`, local diagnostic image
+`sha256:0222b37916d8c857f9180f500523e668e240d7b91fdcca927cbb345496b8e211`,
+with exact retained profile
+`0e6dd7349dcf3000f59ca6034995f1b6f320a4f84484427bdc3f6c5b9f8cebcb`.
+The image copies only committed Sentinel bytes over the unchanged deployed
+package image. Supported private admission of the original book passed in
+31.110935 seconds. This local image grants no production execution authority.
+
+The final five-module profile cohort passed all 213 collected cases in
+564.08 seconds with zero failures, errors or skips. The existing formed-book
+restore case passed. All 372 recorded runtime/profile/test file hashes were
+unchanged before/after. The run used network disabled, 0.5 CPU, 768 MiB, current
+read-only source mounts and writable private PostgreSQL/TMPDIR mounts that
+preserved the image's `/tmp/req` lock witness:
+
+```bash
+python -m pytest \
+  tests/sentinel/test_opening_latency_upgrade.py \
+  tests/sentinel/test_idle_leader_upgrade.py \
+  tests/sentinel/test_retained_source_compatibility.py \
+  tests/sentinel/test_clock_sampling_upgrade.py \
+  tests/sentinel/test_native_read_upgrade.py \
+  -q --tb=short -p no:cacheprovider --durations=10 \
+  --junitxml=/evidence/profile-final.xml
+```
+
+The compact projection selection covered all 53 cases with passing results.
+Its original expanded run finished with 50 passes, three test-helper failures,
+zero errors and zero skips in 928.06 seconds. The Windows client wrapper timed
+out at 900 seconds; an already attached daemon-log follower retained actual
+completion and JUnit from the same unchanged container. The three failures were
+copied-globals mutant helpers calling the real sizing loader with a synthetic
+plan. A test-only correction then passed all three exact falsifiers plus their
+three cold commitment baselines in 48.00 seconds. Runtime bytes never changed.
+Preserve both runs; do not describe this as one clean 53-test run.
+
+The real guarded-read fixture, complete open-time module and both retained
+origin/sizing tamper parameters passed in the original expanded run. The tests
+use networking disabled, 0.5 CPU and 768 MiB:
+
+```bash
+python -B -m pytest \
+  tests/sentinel/test_compact_guard_projection.py \
+  tests/sentinel/test_dual_reconciliation.py \
+  tests/sentinel/test_open_time_verification.py \
+  tests/sentinel/test_rolling_paper_inputs.py::test_structural_reuse_preserves_real_shadow_and_sizing_refusals \
+  -q --tb=short -p no:cacheprovider --basetemp=/tmp/compact-projection/pytest \
+  --junitxml=/evidence/compact-projection-expanded.xml
+
+python -B -m pytest \
+  tests/sentinel/test_compact_guard_projection.py::test_private_cold_sizing_refuses_changed_commitments \
+  tests/sentinel/test_compact_guard_projection.py::test_commitment_guard_falsifier_detects_removed_comparison \
+  -q --tb=short -p no:cacheprovider --basetemp=/tmp/compact-projection/pytest \
+  --junitxml=/evidence/compact-projection-falsifier-retry.xml
+```
+
+The admitted actual-image private microbenchmark passed in 151.639746 seconds
+at 0.5 CPU and 768 MiB. Its cold full canonical status took 137.367897 seconds;
+the compact projection took 1.213651 seconds. Three subsequent compact calls
+through fresh connections took 1.066247, 0.698306 and 0.594114 seconds. Each warm
+call performed zero canonical loads, projection rebuilds, complete state hashes
+or full rolling graph restores. Current readiness ran once and runtime identity
+twice per call; all compact commitments matched the canonical full baseline.
+Forced read-only transactions recorded zero writes, before/after table mutation
+counters matched, and no provider/broker calls occurred. All scopes and
+connections ended before starting the separate cold gateway qualification. This
+diagnostic proves pure-work reuse, not native execution readiness or basket SLA.
+
+The unchanged actual-image gateway for this candidate completed its normal
+exact-basket and terminal checks, then explicitly refused qualification: the
+first simulated order took 169.722668 seconds against the 120-second limit;
+the exact basket plus terminal reconciliation took 496.473063 seconds against
+the 300-second limit. EXECUTE took 380.315856 seconds and terminal RECOVER took
+116.086933 seconds. All 15 commands were FILLED and had order IDs. All five
+immutable shadow/origin/formation witness rows matched the retained base;
+daily checkpoints remained absent. Fresh private cleanup verified disabled
+control and an engaged kill switch. Preserve this failed qualification even
+though its financial and cleanup assertions passed.
+
+The trace recorded 183 fresh broker-grant validations, 921 rehearsal-identity
+calculations and 1,472 runtime-strategy identity calculations during EXECUTE.
+These nested timings overlap. Profile the actual identity/source calculations
+before selecting another change; do not replace a live permission check with a
+cached verdict or infer a passing latency result from a microbenchmark.
+
+The pure AST calculation change passed 48 focused cases in 2.89 seconds,
+including nine existing source/configuration/basis compatibility cases and
+private omitted-key/no-reuse falsifiers. The identity calculation change passed
+76 cases in 40.65 seconds with no failures, errors or skips in the canonical
+container layout. Independent review then found that malformed surrogate
+headers can yield mutable parser objects. Both concrete old-source witnesses
+failed as expected. Such results now bypass the cache and use original
+descriptor access, without coercion. The final source passed all 79 cases in
+39.34 seconds, including a private immutability-guard falsifier. Preserve the
+intermediate 78-pass/one-failure run too: its sole failure was the private test
+compiler trying to read `__globals__` from an LRU wrapper, corrected test-only
+with `inspect.unwrap`. The earlier run is preserved separately: 69 passes and five
+failures exposed an incorrect empty-metadata test assumption, a concurrent
+source edit caught by the stability check, and three artifact-import checks
+using the wrong test mount layout. The test-only assumption and layout were
+corrected; runtime bytes were frozen throughout the clean rerun. Six expected
+stdlib deprecation warnings came from explicit missing-header reference cases.
+The passing runs used networking disabled, 0.5 CPU, 768 MiB and read-only source
+mounts, with no PostgreSQL or broker access:
+
+```bash
+python -B -m pytest tests/sentinel/test_semantic_source_calculation.py \
+  tests/sentinel/test_retained_source_compatibility.py::test_forward_policy_changes_economic_identity_and_never_masks_neighbor_mutation \
+  tests/sentinel/test_retained_source_compatibility.py::test_altered_admission_hook_is_not_ignored \
+  tests/sentinel/test_retained_source_compatibility.py::test_source_identity_recipe_header_cannot_hide_executable_changes \
+  tests/sentinel/test_retained_source_compatibility.py::test_baseline_file_is_pinned \
+  -q --tb=short -p no:cacheprovider --durations=10 \
+  --junitxml=/evidence/result.xml
+
+python -B -m pytest tests/sentinel/test_identity_metadata_calculation.py \
+  tests/sentinel/test_dependency_pins.py tests/sentinel/test_runtime_is_the_artifact.py \
+  -q --tb=short -p no:cacheprovider --durations=10 \
+  --basetemp=/tmp/identity-metadata/pytest \
+  --junitxml=/evidence/identity-metadata-final-clean.xml
+```
+
+These pure-work tests do not qualify gateway latency, native SIP access or
+deployment authority.
