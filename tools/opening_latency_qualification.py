@@ -268,6 +268,7 @@ def parser():
     result.add_argument("--mutate-private-rehearsal", action="store_true")
     result.add_argument("--retained-source-manifest", type=Path)
     result.add_argument("--scheduler-profile", type=Path)
+    result.add_argument("--provider-asset-metadata", type=Path)
     result.add_argument("--profile", action="store_true", help="enable cProfile; overhead affects timings")
     result.add_argument("--observation-id", default="primary")
     result.add_argument("--starting-cash", default="50000")

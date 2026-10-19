@@ -15,6 +15,11 @@ def target(**values):
         "runtime_image_digest": "sha256:" + "a" * 64, "repetitions": 3} | values))
 
 
+def fixture_resolver(identities, provider_ids, provider="ALPACA_OPENFIGI"):
+    from sentinel.execution.feed_inputs import BrokerSecurityResolver
+    return BrokerSecurityResolver(provider, lambda symbol, *_: identities.get(symbol), provider_ids)
+
+
 @pytest.mark.parametrize("change", [
     {"private_rehearsal": False}, {"expected_database": "sentinel"},
     {"expected_database": "postgres"}, {"expected_database": "rehearsal;UPDATE x"},
@@ -153,6 +158,96 @@ def test_local_provider_refuses_unimplemented_or_foreign_routes():
         provider.get("https://paper-api.alpaca.markets/unexpected", {})
     with pytest.raises(tool.QualificationRefused, match="UNEXPECTED_MUTATION"):
         provider.post("https://paper-api.alpaca.markets/v2/orders", {})
+
+
+def test_fixture_asset_inventory_uses_real_needed_deltas_and_ignores_zero_unheld_legs():
+    from decimal import Decimal
+    from tools.opening_gateway_qualification import fixture_assets
+    plan = SimpleNamespace(target_basket={"stock": Decimal(2), "defensive": Decimal(0)},
+                           target_exposure=Decimal(1), opening_intents=())
+    proof = {"marks": {"stock": "10", "defensive": "50"},
+             "tickers": {"stock": "CLASS.A", "defensive": "DEFENSIVE"}}
+    assert fixture_assets(plan, proof, fixture_resolver({"CLASS.A": "stock"}, {"stock": "bound-provider-id"})) == {
+        "CLASS.A": {"id": "bound-provider-id", "symbol": "CLASS.A",
+                    "security_id": "stock", "price": Decimal(10), "identity_origin": "authenticated-source"}}
+
+
+@pytest.mark.parametrize("opening_intent", [False, True])
+def test_fixture_missing_needed_positive_or_opening_intent_identity_refuses(opening_intent):
+    from decimal import Decimal
+    from tools.opening_gateway_qualification import fixture_assets
+    plan = SimpleNamespace(target_basket={"needed": Decimal(0 if opening_intent else 2)},
+        target_exposure=Decimal(1), opening_intents=(SimpleNamespace(security_id="needed"),) if opening_intent else ())
+    proof = {"marks": {"needed": "10"}, "tickers": {"needed": "NEEDED"}}
+    with pytest.raises(tool.QualificationRefused, match="MISSING_NEEDED_AUTHENTICATED"):
+        fixture_assets(plan, proof, fixture_resolver({"NEEDED": "needed"}, {}),
+                       {"needed": {"id": "unbound", "symbol": "NEEDED"}})
+
+
+def test_defensive_asset_uses_explicit_provider_metadata_and_retained_price():
+    from decimal import Decimal
+    from tools.opening_gateway_qualification import fixture_assets
+    plan = SimpleNamespace(target_basket={"SENTINEL:BIL": Decimal(2)},
+                           target_exposure=Decimal(1), opening_intents=())
+    proof = {"marks": {"SENTINEL:BIL": "91.12"}, "tickers": {"SENTINEL:BIL": "BIL"}}
+    resolver = fixture_resolver({"BIL": "SENTINEL:BIL"}, {})
+    metadata = {"SENTINEL:BIL": {"id": "d46254d7-ab54-4715-ac7a-4a7bfd640416", "symbol": "BIL"}}
+    with pytest.raises(tool.QualificationRefused, match="MISSING_NEEDED_PROVIDER_METADATA"):
+        fixture_assets(plan, proof, resolver)
+    asset = fixture_assets(plan, proof, resolver, metadata)["BIL"]
+    assert asset["price"] == Decimal("91.12") and asset["id"] == metadata["SENTINEL:BIL"]["id"]
+    assert asset["identity_origin"] == "GET-only-provider-metadata"
+    with pytest.raises(tool.QualificationRefused, match="MISSING_NEEDED_AUTHENTICATED"):
+        fixture_assets(plan, {**proof, "marks": {}}, resolver, metadata)
+
+
+def test_sharadar_metadata_still_requires_canonical_symbol_resolution():
+    from decimal import Decimal
+    from tools.opening_gateway_qualification import fixture_assets
+    plan = SimpleNamespace(target_basket={"canonical": Decimal(2)},
+                           target_exposure=Decimal(1), opening_intents=())
+    proof = {"marks": {"canonical": "10"}, "tickers": {"canonical": "AAA"}}
+    metadata = {"canonical": {"id": "fixture-broker-id", "symbol": "AAA"}}
+    resolver = fixture_resolver({"AAA": "canonical"}, {}, provider="SHARADAR")
+    assert fixture_assets(plan, proof, resolver, metadata)["AAA"]["id"] == "fixture-broker-id"
+    with pytest.raises(tool.QualificationRefused, match="SOURCE_IDENTITY_MISMATCH"):
+        fixture_assets(plan, proof, fixture_resolver({"AAA": "other"}, {}, provider="SHARADAR"), metadata)
+
+
+def test_metadata_cannot_override_source_bound_stock_id():
+    from decimal import Decimal
+    from tools.opening_gateway_qualification import fixture_assets
+    plan = SimpleNamespace(target_basket={"stock": Decimal(2)}, target_exposure=Decimal(1), opening_intents=())
+    proof = {"marks": {"stock": "10"}, "tickers": {"stock": "AAA"}}
+    asset = fixture_assets(plan, proof, fixture_resolver({"AAA": "stock"}, {"stock": "bound"}),
+                           {"stock": {"id": "incorrect", "symbol": "AAA"}})["AAA"]
+    assert asset["id"] == "bound" and asset["identity_origin"] == "authenticated-source"
+
+
+def test_provider_metadata_loader_rejects_invalid_native_asset_metadata(tmp_path):
+    from tools.opening_gateway_qualification import provider_metadata
+    value = {"schema": "sentinel.local-provider-asset-metadata/1", "method": "GET",
+        "endpoint": "https://paper-api.alpaca.markets/v2/assets/BIL", "captured_at": "2026-10-19T14:47:00+00:00",
+        "assets": [{"security_id": "SENTINEL:BIL", "id": "d46254d7-ab54-4715-ac7a-4a7bfd640416",
+                    "symbol": "BIL", "status": "active", "tradable": True}]}
+    path = tmp_path / "metadata.json"
+    path.write_text(json.dumps(value))
+    rows, digest = provider_metadata(path)
+    assert rows["SENTINEL:BIL"]["symbol"] == "BIL" and len(digest) == 64
+    value["assets"][0]["tradable"] = False
+    path.write_text(json.dumps(value))
+    with pytest.raises(tool.QualificationRefused, match="INVALID_PROVIDER_METADATA"):
+        provider_metadata(path)
+
+
+def test_local_clock_preserves_immutable_future_open():
+    from datetime import datetime, timedelta, timezone
+    from tools.opening_gateway_qualification import LocalAlpaca
+    opened = datetime.now(timezone.utc) + timedelta(minutes=5)
+    provider = LocalAlpaca(account="private", cash="1000", assets={},
+                           window=lambda: (opened, opened + timedelta(hours=1)))
+    clock = provider.get("https://paper-api.alpaca.markets/v2/clock", {}).json()
+    assert clock["is_open"] is False and clock["next_open"] == opened.isoformat()
 
 
 def test_local_provider_drives_actual_sealed_asset_adapter_and_rejects_duplicate_post():

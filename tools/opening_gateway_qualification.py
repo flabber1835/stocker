@@ -11,6 +11,7 @@ from collections import Counter
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -100,7 +101,8 @@ class LocalAlpaca:
         if path == "/v2/clock":
             opened, closed = self.window()
             return Response({"timestamp": now.isoformat(), "is_open": opened <= now < closed,
-                "next_open": (opened + timedelta(days=1)).isoformat(), "next_close": closed.isoformat()})
+                "next_open": (opened if now < opened else opened + timedelta(days=1)).isoformat(),
+                "next_close": closed.isoformat()})
         if path == "/v2/stocks/quotes/latest":
             return Response({"quotes": {symbol: {"ap": str(self.assets[symbol]["price"]),
                 "bp": str(self.assets[symbol]["price"] * Decimal("0.9999")),
@@ -186,6 +188,75 @@ def scheduler_profile(path, expected_sha256):
     return config
 
 
+def provider_metadata(path):
+    """Read explicit broker asset metadata; it never supplies financial prices."""
+    if path is None:
+        return {}, None
+    raw = path.read_bytes()
+    value = json.loads(raw)
+    try:
+        rows = value["assets"]
+        if (set(value) != {"schema", "method", "endpoint", "captured_at", "assets"}
+                or value["schema"] != "sentinel.local-provider-asset-metadata/1"
+                or value["method"] != "GET" or not rows
+                or not value["endpoint"].startswith("https://paper-api.alpaca.markets/v2/assets/")
+                or datetime.fromisoformat(value["captured_at"]).tzinfo is None):
+            raise ValueError
+        result = {}
+        for row in rows:
+            if (set(row) != {"security_id", "id", "symbol", "status", "tradable"}
+                    or not isinstance(row["security_id"], str) or not row["security_id"]
+                    or not isinstance(row["symbol"], str) or not row["symbol"]
+                    or row["status"] != "active" or row["tradable"] is not True
+                    or str(uuid.UUID(row["id"])) != row["id"]
+                    or row["security_id"] in result):
+                raise ValueError
+            result[row["security_id"]] = dict(row)
+        if len({row["id"] for row in result.values()}) != len(result):
+            raise ValueError
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise QualificationRefused("INVALID_PROVIDER_METADATA_FIXTURE") from exc
+    return result, hashlib.sha256(raw).hexdigest()
+
+
+def fixture_assets(plan, proof, resolver, metadata=None):
+    """Use source-bound stock IDs or explicit broker metadata, and retained marks."""
+    from sentinel.execution.contract import BrokerObservation, Completeness
+    from sentinel.paper.targets import _plan_deltas
+    metadata = metadata or {}
+    provider_ids = resolver.provider_asset_ids
+    if resolver.source_provider not in {"ALPACA_OPENFIGI", "SHARADAR"}:
+        raise QualificationRefused("UNSUPPORTED_FIXTURE_SOURCE_PROVIDER")
+    flat = BrokerObservation(observed_at=datetime.now(timezone.utc), orders=(), positions=(),
+                             completeness=Completeness.COMPLETE)
+    needed = {delta.security_id for delta in _plan_deltas(target_basket=plan.target_basket,
+        observation=flat, minimum_quantity_increment=Decimal(1)) if delta.remaining != 0}
+    if plan.target_exposure != 0:
+        needed.update(intent.security_id for intent in plan.opening_intents)
+    if needed - set(proof["marks"]) or needed - set(proof["tickers"]):
+        raise QualificationRefused("MISSING_NEEDED_AUTHENTICATED_FIXTURE_ASSET")
+    assets = {}
+    for sid in sorted(needed):
+        symbol = proof["tickers"][sid]
+        if resolver(symbol) != sid:
+            raise QualificationRefused("FIXTURE_SYMBOL_SOURCE_IDENTITY_MISMATCH")
+        if sid in provider_ids:
+            broker_id, origin = provider_ids[sid], "authenticated-source"
+        else:
+            if resolver.source_provider == "ALPACA_OPENFIGI" and sid != "SENTINEL:BIL":
+                raise QualificationRefused("MISSING_NEEDED_AUTHENTICATED_FIXTURE_ASSET")
+            row = metadata.get(sid)
+            if row is None or row["symbol"] != symbol:
+                raise QualificationRefused("MISSING_NEEDED_PROVIDER_METADATA_FIXTURE")
+            broker_id, origin = row["id"], "GET-only-provider-metadata"
+        assets[symbol] = {"id": broker_id, "symbol": symbol, "security_id": sid,
+                          "price": Decimal(proof["marks"][sid]), "identity_origin": origin}
+    if (len(assets) != len(needed) or len({row["id"] for row in assets.values()}) != len(needed)
+            or any(not row["price"].is_finite() or row["price"] <= 0 for row in assets.values())):
+        raise QualificationRefused("AMBIGUOUS_OR_INVALID_NEEDED_FIXTURE_ASSET")
+    return assets
+
+
 def qualify(args, stages):
     import sentinel
     require_environment(os.environ, sentinel.__file__)
@@ -221,9 +292,8 @@ def qualify(args, stages):
             resolver = feed_inputs.resolver(conn, pub, session=plan.effective_session.isoformat())
             proof = __import__("sentinel.dual_plan_authority", fromlist=["load_authority"]).load_authority(
                 conn, plan_id=plan.plan_id)
-            assets = {symbol: {"id": resolver.provider_asset_ids[sid], "symbol": symbol,
-                "security_id": sid, "price": Decimal(proof["marks"][sid])}
-                for sid, symbol in proof["tickers"].items() if sid in proof["marks"]}
+            metadata, metadata_sha = provider_metadata(args.provider_asset_metadata)
+            assets = fixture_assets(plan, proof, resolver, metadata)
         conn.rollback()
         backup_runtime_authority.require(conn, operation="private opening qualification fixture")
         conn.execute("CREATE TABLE sentinel_opening_latency_fixture (run_id TEXT PRIMARY KEY)")
@@ -353,6 +423,8 @@ def qualify(args, stages):
             return {"gateway_qualified": True, "first_order_seconds": round(http.first_order_seconds, 6),
                 "complete_basket_seconds": round(elapsed, 6), "legs": len(expected), "orders": len(http.orders),
                 "bar_count": manifest.bar_count, "scheduler_sha256": config.fingerprint,
+                "source_provider": resolver.source_provider, "provider_metadata_sha256": metadata_sha,
+                "fixture_identity_origins": {row["security_id"]: row["identity_origin"] for row in assets.values()},
                 "invocations": dict(counts), "preparation_invocations": preparation_counts,
                 "execution_start_remaining_budget_seconds": round(remaining_budget, 6),
                 "http_methods": dict(http.requests), "book_preserved": True,
