@@ -19,6 +19,7 @@ import time
 from types import SimpleNamespace
 from urllib.parse import unquote, urlsplit
 import uuid
+import sys
 from unittest.mock import patch
 
 from tools.opening_latency_qualification import (
@@ -295,6 +296,34 @@ def supervised_callback(args, config, context, phase, body, http, counts):
             store.register_instance(reader, instance_id=context.permit.holder_id, state="IDLE")
 
 
+EXECUTION_CALENDAR_OWNERS = (
+    "sentinel.automation.schedule", "sentinel.paper.execution", "sentinel.paper.validation",
+    "sentinel.execution.alpaca", "sentinel.execution.guarded", "sentinel.execution.opening_prices",
+)
+
+
+def execution_window_fixture(stack, session, window):
+    """Bind execution windows without changing immutable source timing authority."""
+    from importlib import import_module
+    import sentinel.feed as feed
+    original = import_module("sentinel.feed.calendar")
+    owners = [import_module(name) for name in EXECUTION_CALENDAR_OWNERS]
+    class ExecutionCalendar:
+        def __getattr__(self, name):
+            return getattr(original, name)
+
+        def session_window(self, value):
+            caller = sys._getframe(1).f_globals.get("__name__")
+            if caller in EXECUTION_CALENDAR_OWNERS and str(value) == str(session):
+                return window
+            return original.session_window(value)
+    proxy = ExecutionCalendar()
+    for owner in owners:
+        stack.enter_context(patch.object(owner, "calendar", proxy, create=True))
+    stack.enter_context(patch.object(feed, "calendar", proxy))
+    return proxy
+
+
 def qualify(args, stages):
     import sentinel
     require_environment(os.environ, sentinel.__file__)
@@ -338,9 +367,7 @@ def qualify(args, stages):
         # including PostgreSQL lease and durable send/recovery checkpoints.
         begin = datetime.now(timezone.utc)
         window = (begin + timedelta(seconds=300), begin + timedelta(hours=1))
-        original_window = calendar.session_window
-        stack.enter_context(patch.object(calendar, "session_window", lambda session:
-            window if str(session) == plan.effective_session.isoformat() else original_window(session)))
+        execution_window_fixture(stack, plan.effective_session, window)
         http = LocalAlpaca(account=bound.broker_account_id, cash=plan.account_cash, assets=assets, window=lambda: window)
         fixture = SimpleNamespace(certificate_sha256=rollout.certificate_sha256,
             authorization_mode="PAPER_OBSERVATION_ONLY", maximum_exposure=Decimal(1))

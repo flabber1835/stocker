@@ -265,6 +265,38 @@ def test_local_clock_preserves_immutable_future_open():
     assert clock["is_open"] is False and clock["next_open"] == opened.isoformat()
 
 
+def test_execution_window_proxy_preserves_real_shadow_and_preopen_witness_calendars():
+    from contextlib import ExitStack
+    from datetime import date, timedelta, timezone
+    from sentinel import shadow_observation
+    from sentinel.automation import schedule
+    from sentinel.automation.model import AutomationConfig
+    from sentinel.feed import calendar
+    from sentinel.paper import targets, validation
+    from tools.opening_gateway_qualification import execution_window_fixture
+    effective = date(2026, 10, 19)
+    original = calendar.session_window(effective)
+    friday = calendar.session_window("2026-10-16")
+    window = (original[1] + timedelta(hours=1), original[1] + timedelta(hours=2))
+    raw = {"schema": "sentinel.shadow-activation-timing/1", "decision_session": "2026-10-16",
+        "execution_session": effective.isoformat(), "observed_at": "2026-10-16T21:00:00Z",
+        "candidate_committed_at": "2026-10-16T21:00:01Z",
+        "execution_open_at": original[0].astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "status": shadow_observation.BEFORE_NEXT_OPEN}
+    with ExitStack() as stack:
+        proxy = execution_window_fixture(stack, effective, window)
+        assert calendar.session_window(effective) == original
+        assert proxy.session_window(effective) == original  # unknown immediate caller
+        assert shadow_observation._timing_proof(raw, decision_session="2026-10-16", committed=True,
+                                              where="shadow activation timing") == raw
+        assert targets._official_preopen_cutoff(SimpleNamespace(effective_session=effective)) == original[0]
+        spec = schedule.for_decision_session("2026-10-16", AutomationConfig())
+        assert spec.execution_open_at == window[0] and spec.execution_close_at == window[1]
+        assert spec.decision_close_at == friday[1]
+        validation._execution_window_or_refuse(effective, window[0] + timedelta(minutes=1))
+    assert schedule.calendar is calendar and calendar.session_window("2026-10-16") == friday
+
+
 def test_canonical_supervisor_renews_registered_callback_and_roundtrips_only_provider_state(monkeypatch):
     import ctypes
     import os
@@ -335,6 +367,7 @@ def test_canonical_supervisor_renews_registered_callback_and_roundtrips_only_pro
 
 def test_local_provider_drives_actual_sealed_asset_adapter_and_rejects_duplicate_post():
     import asyncio
+    from contextlib import ExitStack
     from datetime import datetime, timedelta, timezone
     from decimal import Decimal
     import time
@@ -342,7 +375,7 @@ def test_local_provider_drives_actual_sealed_asset_adapter_and_rejects_duplicate
     from sentinel.config import DEFAULT_BASE_URL, SentinelConfig, build_execution_broker
     from sentinel.execution.contract import Side
     from sentinel.execution.feed_inputs import BrokerSecurityResolver
-    from tools.opening_gateway_qualification import LocalAlpaca
+    from tools.opening_gateway_qualification import LocalAlpaca, execution_window_fixture
     now = datetime.now(timezone.utc)
     provider = LocalAlpaca(account="private", cash="1000", assets={"PBR.A": {
         "id": "asset-class", "symbol": "PBR.A", "security_id": "SEC-CLASS", "price": Decimal("10")}},
@@ -354,6 +387,11 @@ def test_local_provider_drives_actual_sealed_asset_adapter_and_rejects_duplicate
                                    resolve_security_id=resolver)
     broker._http_provider = lambda: provider
     instrument = asyncio.run(broker.resolve_instrument(security_id="SEC-CLASS", symbol="PBR.A"))
+    session = now.date()
+    with ExitStack() as stack:
+        execution_window_fixture(stack, session, provider.window())
+        quotes = asyncio.run(broker.opening_prices(session=session, instruments={"SEC-CLASS": instrument}))
+        assert quotes.opening_at == provider.window()[0] and quotes.prices == {"SEC-CLASS": Decimal("10")}
     provider.started = time.monotonic()
     outcome = asyncio.run(broker.submit(client_key="fixture-key", instrument=instrument,
                                        side=Side.BUY, quantity=Decimal(2)))

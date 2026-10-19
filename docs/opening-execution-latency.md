@@ -101,6 +101,19 @@ Missing legs or a terminal cycle with no orders fail qualification. This proves
 the exercised software path and margin under the measured resource load; it
 cannot certify future opening-auction liquidity or provider latency.
 
+The one synthetic window belongs only to execution boundaries:
+`automation.schedule`, `paper.execution`, `paper.validation`,
+`execution.alpaca`, `execution.guarded` and `execution.opening_prices`.
+Bind their calendar aliases to one proxy. The feed package's import boundary
+also supplies that proxy for the adapter and guard's local imports; its
+`session_window` returns the fixture only for those exact immediate caller
+modules and the named session, delegating every other request to the original
+calendar. Do not replace the original calendar module or its functions.
+Shadow activation/decision timing, feed history and `paper.targets` pre-open
+share-unit witness cutoffs keep their original calendar. Qualify that retained
+shadow authority still authenticates under this proxy before a full gateway
+attempt. Historical Friday windows and other session windows must be identical.
+
 Candidate source changes use `runtime_admission.current_context` and the normal
 compatible retained-runtime admission with the authenticated predecessor source
 manifest. The diagnostic never substitutes a retained runtime identity. Its
@@ -235,3 +248,28 @@ container continued normally. Reattaching to that same container captured the
 was neither restarted nor counted as passing based on partial output. The three
 functional modules in that image match the committed candidate bytes. The
 203-test batch separately uses the final retained-admission implementation.
+
+## Native quote availability is a separate release gate
+
+GET-only checks at 15:10:54–15:10:56 UTC used the deployed adapter's exact
+sorted-symbol query and `feed=iex`. All 15 intended assets were active/tradable;
+all 14 source-bound stock IDs and the separately captured BIL ID matched native
+metadata. Sixteen requests completed in 2.053 seconds with no provider errors.
+All 15 quotes were present. Stock quote ages were 0.071–57.255 seconds, while
+BIL's latest quote was 451.019 seconds old and therefore failed the existing
+60-second submission freshness rule.
+
+A bounded, complete IEX BIL quote-history request for 13:30–13:40 UTC returned
+18 quotes, all between 13:30:00.003404 and 13:30:15.900437. There were no further
+updates in that window. The last quote could satisfy the 60-second rule only
+through 13:31:15.900437, about 16 seconds after the configured execution start.
+Historical availability does not prove real-time delivery, but this response
+does demonstrate an independent obstacle to completing the intended native BIL
+leg with that feed. A latest SIP quote request using the same credentials was
+refused with HTTP 403.
+
+Preserve the 60-second rule and the ten-minute increase cutoff. A full-basket
+simulator PASS proves the software path under its explicitly fresh local quote
+fixture; it cannot establish native full-basket readiness when the available
+feed does not deliver usable quotes. The release must state this distinction
+and retain execution fencing pending the operator's data-access decision.
