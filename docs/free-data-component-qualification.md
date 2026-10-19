@@ -342,3 +342,39 @@ The remaining cold qualification needs a fresh private copy of the normally
 published book and a matching real effective day. No old command is replayed
 to a native broker. Production and the backtest remain unchanged; no production
 price band, merged release or activation is claimed.
+
+## CI fixture and historical successor alignment
+
+Current-head CI at `58410e5d` passed all other workflow suites and Sentinel
+lanes, but ordinary shards 0 and 2 reported 22 failures. The final exact-head
+and synthetic-merge aggregators correctly refused those failed dependencies.
+
+Twelve adapter observation cases shared a legacy native-order fixture without
+the now-required explicit MARKET/DAY terms. Supply those terms in the fixture;
+keep production's missing/contradictory-terms refusal intact. The asset-identity
+journal fixture also needs the new canonical order-terms column so its unchanged
+broker-asset mismatch assertion reaches the intended guard.
+
+Seven historical autonomy transition cases still required the installed bytes
+to equal the original release. Authenticate the original before-to-after edge
+against its unchanged descriptor, then require any installed successor to match
+the exact reviewed opening-latency profile. Two older schema tampering cases
+must expect the newer full-closure refusal, which runs before individual
+economic-source comparison. Their unreviewed-neighbor mutations still must be
+rejected. No historical descriptor, hash fixture or Sentinel runtime source is
+changed by these test repairs.
+
+The targeted cohort passed 298 cases in 171.49 seconds, zero failures, errors
+or skips, in a network-disabled container capped at 0.5 CPU/768 MiB with a
+private temporary Postgres. All Sentinel Python and selected test-file hashes
+were unchanged during the run. This includes the native-terms, private receipt,
+limit-fill, capability and whole-quantity guard-removal falsifiers, plus exact
+historical origin/environment and neighboring-source tampering refusals.
+
+```sh
+python -B -m pytest -q --tb=short -p no:cacheprovider tests/sentinel/test_adapter_and_recovery_drill.py tests/sentinel/test_issue209_asset_identity.py tests/sentinel/test_autonomy_runtime_upgrade.py tests/sentinel/test_callback_liveness_upgrade.py::test_callback_transition_is_exact_and_neighbor_change_refuses tests/sentinel/test_operational_liveness_upgrade.py::test_only_exact_operational_source_transitions_are_allowed tests/sentinel/test_operational_liveness_upgrade.py::test_neighbor_change_in_operational_file_refuses_full_admission tests/sentinel/test_operational_liveness_upgrade.py::test_operational_runtime_transition_is_exact_and_authenticated tests/sentinel/test_limit_day_transport.py --junitxml=/evidence/result.xml
+```
+
+AST checks passed for all five changed Python modules; `git diff --check` passed.
+These results repair CI coverage only. The pending cold timing qualification,
+price-band choice and signed deployment obligations remain unchanged.

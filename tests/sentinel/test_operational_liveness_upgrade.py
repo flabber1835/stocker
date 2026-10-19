@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
-from sentinel import clock_sampling_upgrade, idle_leader_upgrade
+from sentinel import clock_sampling_upgrade, idle_leader_upgrade, opening_latency_upgrade
 from sentinel import open_time_upgrade, close_cycle_upgrade
 
 from sentinel import operational_liveness_upgrade as upgrade, runtime_admission as admission
@@ -41,7 +41,8 @@ def test_only_exact_operational_source_transitions_are_allowed(name):
                 or close_cycle_upgrade.source_allowed(name, record['after'], actual)
                 or autonomy_upgrade.source_allowed(name, record['after'], actual)
                 or clock_sampling_upgrade.source_allowed(name, record['after'], actual)
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
+                or idle_leader_upgrade.source_allowed(name, record['after'], actual)
+                or opening_latency_upgrade.source_allowed(name, record['after'], actual))
     assert upgrade.source_allowed(name, record['before'][0], record['after'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
@@ -109,7 +110,7 @@ def test_neighbor_change_in_operational_file_refuses_full_admission(closure, nam
     path = root/name
     path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_OPERATIONAL_CHANGE = True\n')
     _refresh_current(root, context, source_value)
-    expected = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in clock_sampling_upgrade.SCOPE | idle_leader_upgrade.SCOPE
+    expected = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in clock_sampling_upgrade.SCOPE | idle_leader_upgrade.SCOPE | opening_latency_upgrade.SCOPE
                 else 'RETAINED_ECONOMIC_SOURCE_CHANGED')
     with pytest.raises(admission.Refused, match=expected):
         admission.prove_compatibility(manifest, checkpoint, context, source=source_value)
@@ -188,7 +189,8 @@ def test_operational_runtime_transition_is_exact_and_authenticated(closure, name
                 or close_cycle_upgrade.source_allowed(name, record['after'], actual)
                 or autonomy_upgrade.source_allowed(name, record['after'], actual)
                 or clock_sampling_upgrade.source_allowed(name, record['after'], actual)
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
+                or idle_leader_upgrade.source_allowed(name, record['after'], actual)
+                or opening_latency_upgrade.source_allowed(name, record['after'], actual))
     for previous in record['before']:
         assert (subsequent.source_allowed(name, previous, actual)
                 or callback_upgrade.source_allowed(name, previous, actual)
@@ -200,7 +202,8 @@ def test_operational_runtime_transition_is_exact_and_authenticated(closure, name
                 or close_cycle_upgrade.source_allowed(name, previous, actual)
                 or autonomy_upgrade.source_allowed(name, previous, actual)
                 or clock_sampling_upgrade.source_allowed(name, previous, actual)
-                or idle_leader_upgrade.source_allowed(name, previous, actual))
+                or idle_leader_upgrade.source_allowed(name, previous, actual)
+                or opening_latency_upgrade.source_allowed(name, previous, actual))
         assert not subsequent.source_allowed(name, previous, 'f'*64)
     assert not subsequent.source_allowed(name, 'f'*64, actual)
     root, checkpoint, context, manifest, source_value = _execution_closure(
@@ -211,7 +214,7 @@ def test_operational_runtime_transition_is_exact_and_authenticated(closure, name
     _refresh_current(root, context, source_value)
     # The observer is also an authenticated addition: its exact-pin closure
     # guard rejects tampering before individual economic-source comparison.
-    expected = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in subsequent.ADDITIONS | clock_sampling_upgrade.SCOPE | idle_leader_upgrade.SCOPE
+    expected = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in subsequent.ADDITIONS | clock_sampling_upgrade.SCOPE | idle_leader_upgrade.SCOPE | opening_latency_upgrade.SCOPE
                 else 'RETAINED_ECONOMIC_SOURCE_CHANGED')
     with pytest.raises(admission.Refused, match=expected):
         admission.prove_compatibility(manifest, checkpoint, context, source=source_value)
