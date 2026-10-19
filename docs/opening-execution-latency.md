@@ -120,6 +120,14 @@ timestamps, and first/complete-order timings use monotonic elapsed time without
 cProfile. A fresh private command/cycle namespace and real backup/incarnation
 proofs are prerequisites; the diagnostic cannot initialize or bypass them.
 
+Each direct callback registers its real `<PHASE>_CALLBACK` service-instance row
+with the unchanged configured callback deadline before starting an independent
+heartbeat thread. That thread uses the real callback-aware lease renewal and
+bounded connections/statements below the lease duration. Stop and join it
+before leaving the callback phase. The scheduled-open wait runs without a
+database transaction and renews its idle lease from the foreground loop with
+ordinary, non-callback renewal. Neither lease nor callback limits are widened.
+
 ## October 19 incident evidence and local qualification
 
 The deployed revision was `1e1db91b878d3073549a1e46337893882c3935b2`,

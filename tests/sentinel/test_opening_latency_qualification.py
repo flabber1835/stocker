@@ -80,6 +80,21 @@ def test_connect_forces_read_only_and_closes_wrong_cluster(monkeypatch):
     assert closed == [True]
 
 
+def test_heartbeat_connections_have_bounds_below_deployed_lease(monkeypatch):
+    import psycopg
+    seen = {}
+    conn = SimpleNamespace(close=lambda: None, execute=lambda *_:
+        SimpleNamespace(fetchone=lambda: ("opening_latency_test", "12345678901", "off")))
+    def connect(dsn, **kwargs):
+        seen.update(kwargs)
+        return conn
+    monkeypatch.setattr(psycopg, "connect", connect)
+    tool.connect(target(database="dbname=opening_latency_test", expected_database="opening_latency_test",
+                        mutate_private_rehearsal=True), read_only=False, heartbeat=True)
+    assert seen["connect_timeout"] == 3
+    assert "statement_timeout=3000" in seen["options"] and "lock_timeout=1000" in seen["options"]
+
+
 def test_production_connection_string_refuses_before_connect(monkeypatch):
     import psycopg
     monkeypatch.setattr(psycopg, "connect", lambda *_a, **_k: pytest.fail("connected to primary"))
@@ -248,6 +263,52 @@ def test_local_clock_preserves_immutable_future_open():
                            window=lambda: (opened, opened + timedelta(hours=1)))
     clock = provider.get("https://paper-api.alpaca.markets/v2/clock", {}).json()
     assert clock["is_open"] is False and clock["next_open"] == opened.isoformat()
+
+
+def test_callback_lease_renews_real_registered_callback_past_initial_expiry(monkeypatch):
+    import time
+    import psycopg
+    from sentinel import schema
+    from sentinel.automation import store
+    from sentinel.automation.model import AutomationConfig, ControlBinding, StaleLeaderRefused
+    from tests.support.postgres import _EphemeralPostgres
+    from tools import opening_gateway_qualification as gateway
+    server = _EphemeralPostgres()
+    server.start()
+    try:
+        config = AutomationConfig(lease_seconds=3, heartbeat_seconds=1, callback_deadline_seconds=8)
+        def connection(_args, *, read_only, heartbeat):
+            assert not read_only and heartbeat
+            return psycopg.connect(server.sync_dsn, connect_timeout=3,
+                                  options="-c statement_timeout=3000 -c lock_timeout=1000")
+        monkeypatch.setattr(gateway, "connect", connection)
+        with psycopg.connect(server.sync_dsn) as conn:
+            schema.ensure_schema(conn)
+            binding = ControlBinding(deployment_id="private-fixture", broker="alpaca-paper",
+                broker_account_id="local-only", takeover_epoch=1, certificate_sha256="c" * 64,
+                rollout_mode="PINNED_1_00", rollout_version=1, config_sha256=config.fingerprint)
+            store.activate(conn, binding=binding, actor="test", reason="local-only")
+            store.release_kill(conn, expected_binding=binding, actor="test", reason="local-only")
+            permit = store.acquire_lease(conn, holder_id="private-callback-test", lease_seconds=config.lease_seconds)
+            with gateway.callback_lease(None, config, permit, "RECOVER"):
+                time.sleep(4.1)
+                assert store.require_leader(conn, permit).expires_at > permit.expires_at
+                row = conn.execute("SELECT state,callback_started_at IS NOT NULL,callback_deadline_at IS NOT NULL "
+                                   "FROM sentinel_automation_service_instances WHERE instance_id=%s",
+                                   (permit.holder_id,)).fetchone()
+                assert row == ("RECOVER_CALLBACK", True, True)
+                conn.rollback()
+            assert conn.execute("SELECT state,callback_started_at,callback_deadline_at "
+                "FROM sentinel_automation_service_instances WHERE instance_id=%s",
+                (permit.holder_id,)).fetchone() == ("IDLE", None, None)
+            conn.rollback()
+            with monkeypatch.context() as broken:
+                broken.setattr(store, "register_instance", lambda *_a, **_kw: None)
+                with pytest.raises(StaleLeaderRefused, match="callback instance is missing"):
+                    with gateway.callback_lease(None, config, permit, "RECOVER"):
+                        pytest.fail("missing callback registration admitted")
+    finally:
+        server.stop()
 
 
 def test_local_provider_drives_actual_sealed_asset_adapter_and_rejects_duplicate_post():

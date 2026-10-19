@@ -77,7 +77,7 @@ def require_database(conn, args, *, read_only=True):
         raise QualificationRefused("PRIVATE_READ_ONLY_DATABASE_IDENTITY_MISMATCH")
 
 
-def connect(args, *, read_only=True):
+def connect(args, *, read_only=True, heartbeat=False):
     import psycopg
     from psycopg.conninfo import conninfo_to_dict
     require_target(args)
@@ -90,9 +90,10 @@ def connect(args, *, read_only=True):
     if not read_only and (not args.mutate_private_rehearsal
                          or not args.expected_database.startswith("opening_latency_")):
         raise QualificationRefused("PRIVATE_MUTATION_NAMESPACE_AND_GRANT_REQUIRED")
-    conn = psycopg.connect(args.database, connect_timeout=5,
-        options=f"-c default_transaction_read_only={'on' if read_only else 'off'} -c statement_timeout=120000 "
-                "-c lock_timeout=3000 -c idle_in_transaction_session_timeout=120000")
+    statement_ms, lock_ms = (3000, 1000) if heartbeat else (120000, 3000)
+    conn = psycopg.connect(args.database, connect_timeout=3 if heartbeat else 5,
+        options=f"-c default_transaction_read_only={'on' if read_only else 'off'} -c statement_timeout={statement_ms} "
+                f"-c lock_timeout={lock_ms} -c idle_in_transaction_session_timeout={statement_ms}")
     try:
         require_database(conn, args, read_only=read_only)
     except BaseException:

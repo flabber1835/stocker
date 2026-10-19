@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
@@ -257,6 +257,40 @@ def fixture_assets(plan, proof, resolver, metadata=None):
     return assets
 
 
+@contextmanager
+def callback_lease(args, config, permit, phase):
+    """Use the canonical callback registration and independently bounded renewals."""
+    from sentinel.automation import store
+    stopped, errors = Event(), []
+    with connect(args, read_only=False, heartbeat=True) as reader:
+        store.register_instance(reader, instance_id=permit.holder_id, state=phase + "_CALLBACK",
+                                callback_deadline_seconds=config.callback_deadline_seconds)
+        store.heartbeat_lease(reader, permit=permit, lease_seconds=config.lease_seconds, callback=True)
+
+    def heartbeat():
+        while not stopped.wait(config.heartbeat_seconds):
+            try:
+                with connect(args, read_only=False, heartbeat=True) as reader:
+                    store.heartbeat_lease(reader, permit=permit, lease_seconds=config.lease_seconds, callback=True)
+            except BaseException as exc:
+                errors.append(type(exc).__name__)
+                return
+
+    worker = Thread(target=heartbeat, name="private-latency-heartbeat", daemon=True)
+    worker.start()
+    try:
+        yield
+        if errors:
+            raise QualificationRefused("PRIVATE_LEASE_HEARTBEAT_FAILED", heartbeat_errors=errors)
+    finally:
+        stopped.set()
+        worker.join(timeout=10)
+        if worker.is_alive():
+            raise QualificationRefused("PRIVATE_LEASE_HEARTBEAT_DID_NOT_STOP")
+        with connect(args, read_only=False, heartbeat=True) as reader:
+            store.register_instance(reader, instance_id=permit.holder_id, state="IDLE")
+
+
 def qualify(args, stages):
     import sentinel
     require_environment(os.environ, sentinel.__file__)
@@ -296,9 +330,6 @@ def qualify(args, stages):
             assets = fixture_assets(plan, proof, resolver, metadata)
         conn.rollback()
         backup_runtime_authority.require(conn, operation="private opening qualification fixture")
-        conn.execute("CREATE TABLE sentinel_opening_latency_fixture (run_id TEXT PRIMARY KEY)")
-        conn.execute("INSERT INTO sentinel_opening_latency_fixture VALUES (%s)", (uuid.uuid4().hex,))
-        conn.commit()
         # This is the sole calendar substitution. All timestamps remain real,
         # including PostgreSQL lease and durable send/recovery checkpoints.
         begin = datetime.now(timezone.utc)
@@ -340,19 +371,6 @@ def qualify(args, stages):
         timing = schedule.for_decision_session(plan.decision_session, config)
         spec = CycleSpec(**timing.model_dump(), **binding_value.model_dump(), control_generation=permit.control_generation)
         cycle = store.create_cycle(conn, permit=permit, spec=spec, now=begin)
-        stopped, heartbeat_errors = Event(), []
-
-        def heartbeat():
-            while not stopped.wait(config.heartbeat_seconds):
-                try:
-                    with connect(args, read_only=False) as reader:
-                        store.heartbeat_lease(reader, permit=permit, lease_seconds=config.lease_seconds, callback=True)
-                except BaseException as exc:
-                    heartbeat_errors.append(type(exc).__name__)
-                    stopped.set()
-
-        thread = Thread(target=heartbeat, name="private-latency-heartbeat", daemon=True)
-        thread.start()
         counts = Counter()
         for owner, name in ((rolling_runtime, "_load_closure"), (rolling_store, "_verify_content_uncached")):
             original = getattr(owner, name)
@@ -362,29 +380,34 @@ def qualify(args, stages):
             stack.enter_context(patch.object(owner, name, observed))
         try:
             def context():
-                if heartbeat_errors:
-                    raise QualificationRefused("PRIVATE_LEASE_HEARTBEAT_FAILED")
                 return CycleContext(cycle=cycle, permit=permit)
 
-            stages.run("ProductionAutomation.recover:preflight", lambda: asyncio.run(campaign.recover(context())))
+            def callback(phase, stage, body):
+                with callback_lease(args, config, permit, phase):
+                    return stages.run(stage, lambda: asyncio.run(body(context())))
+
+            callback("RECOVER", "ProductionAutomation.recover:preflight", campaign.recover)
             cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PREPARING)
-            prepared = stages.run("ProductionAutomation.prepare", lambda: asyncio.run(campaign.prepare(context())))
+            prepared = callback("PREPARE", "ProductionAutomation.prepare", campaign.prepare)
             cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PLAN_READY,
                 plan_id=prepared.plan_id, plan_fingerprint=prepared.plan_fingerprint,
                 state_fingerprint=prepared.state_fingerprint)
             conn.rollback()
             def wait_for_open():
                 next_report = time.monotonic()
+                next_heartbeat = time.monotonic()
                 while True:
                     remaining = (cycle.execute_at - datetime.now(timezone.utc)).total_seconds()
-                    if heartbeat_errors:
-                        raise QualificationRefused("PRIVATE_LEASE_HEARTBEAT_FAILED")
                     if remaining <= 0:
                         break
+                    if time.monotonic() >= next_heartbeat:
+                        with connect(args, read_only=False, heartbeat=True) as reader:
+                            store.heartbeat_lease(reader, permit=permit, lease_seconds=config.lease_seconds)
+                        next_heartbeat = time.monotonic() + config.heartbeat_seconds
                     if time.monotonic() >= next_report:
                         print(json.dumps({"stage": "WAITING_OPEN", "remaining_seconds": round(remaining, 1)}), flush=True)
                         next_report = time.monotonic() + 30
-                    stopped.wait(min(1, remaining))
+                    time.sleep(min(1, remaining))
             stages.run("scheduled_open_wait:no_database_locks", wait_for_open)
             cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.EXECUTING)
             conn.rollback()
@@ -395,9 +418,9 @@ def qualify(args, stages):
                                 - datetime.now(timezone.utc)).total_seconds()
             if not 0 < remaining_budget <= config.maximum_execution_lateness_seconds:
                 raise QualificationRefused("SIMULATED_EXECUTION_DID_NOT_START_IN_FRESH_WINDOW")
-            sent = stages.run("ProductionAutomation.execute", lambda: asyncio.run(campaign.execute(context())))
+            sent = callback("EXECUTE", "ProductionAutomation.execute", campaign.execute)
             cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.RECONCILING)
-            recovered = stages.run("ProductionAutomation.recover:terminal", lambda: asyncio.run(campaign.recover(context())))
+            recovered = callback("RECOVER", "ProductionAutomation.recover:terminal", campaign.recover)
             elapsed = time.monotonic() - http.started
             projection = target_reprojection.load_projection(conn, plan_id=prepared.plan_id)
             if projection is None:
@@ -408,7 +431,7 @@ def qualify(args, stages):
             if (not expected or actual != expected or recovered.disposition.value != "SUCCEEDED"
                     or not commands or len(commands) != len(http.orders)
                     or any(command.state.value != "FILLED" for command in commands)
-                    or heartbeat_errors or http.first_order_seconds is None):
+                    or http.first_order_seconds is None):
                 raise QualificationRefused("SIMULATED_GATEWAY_DID_NOT_COMPLETE_EXACT_BASKET",
                     first_order_seconds=http.first_order_seconds, complete_basket_seconds=elapsed,
                     orders=len(http.orders), expected_legs=len(expected))
@@ -434,7 +457,5 @@ def qualify(args, stages):
                 "fresh_broker_guard": "UNCHANGED", "runtime_identity_substituted": False,
                 "limit": "direct callbacks with real lease heartbeat; service process supervision qualified separately"}
         finally:
-            stopped.set()
-            thread.join(timeout=10)
             store.engage_kill(conn, actor="PRIVATE_SIMULATOR", reason="qualification ended")
             store.deactivate(conn, actor="PRIVATE_SIMULATOR", reason="qualification ended")
