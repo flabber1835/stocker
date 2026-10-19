@@ -10,7 +10,7 @@ from sentinel import backup_runtime_authority as backup, rolling_initialization 
 from sentinel import shadow_observation as shadow
 from sentinel.execution.contract import BrokerInstrument
 from sentinel.execution.opening_prices import (
-    LEGACY_QUOTE_SOURCE, QUOTE_SOURCE, OpeningPrices, OpeningPriceUnavailable,
+    LEGACY_QUOTE_SOURCE, QUOTE_SOURCE, SIP_QUOTE_SOURCE, OpeningPrices, OpeningPriceUnavailable,
     OpeningPriceNotReady, RegularQuotes, parse_quotes)
 from sentinel.execution import opening_sizing
 from sentinel.feed import calendar
@@ -38,7 +38,7 @@ def quotes(state, plan, *, available=None, age=0):
 def test_quote_roundtrip_binds_raw_sides_and_session():
     state, plan = case(entries=2, sale=True)
     evidence = quotes(state, plan)
-    assert evidence.source == QUOTE_SOURCE == 'ALPACA_SIP_RAW_REGULAR_QUOTES_V1'
+    assert evidence.source == QUOTE_SOURCE == 'ALPACA_IEX_RAW_REGULAR_QUOTES_V2'
     assert OpeningPrices.from_dict(json.loads(json.dumps(evidence.to_dict()))) == evidence
     assert evidence.prices['SEC-AAA'] == 100 and evidence.bids['SEC-X'] == 99
     raw = evidence.to_dict()
@@ -47,20 +47,21 @@ def test_quote_roundtrip_binds_raw_sides_and_session():
         OpeningPrices.from_dict(raw)
 
 
-def test_legacy_iex_quote_roundtrip_preserves_source_and_typed_validation():
+@pytest.mark.parametrize('source', [LEGACY_QUOTE_SOURCE, SIP_QUOTE_SOURCE])
+def test_historical_quote_roundtrip_preserves_source_and_typed_validation(source):
     state, plan = case()
     raw = quotes(state, plan).to_dict()
-    raw['source'] = LEGACY_QUOTE_SOURCE
+    raw['source'] = source
     evidence = OpeningPrices.from_dict(json.loads(json.dumps(raw)))
     assert isinstance(evidence, RegularQuotes)
-    assert evidence.source == 'ALPACA_IEX_RAW_REGULAR_QUOTES_V2'
+    assert evidence.source == source
     assert evidence.to_dict() == raw
     raw['bids']['SEC-AAA'] = '101'
     with pytest.raises(OpeningPriceUnavailable, match='crossed'):
         OpeningPrices.from_dict(raw)
 
 
-@pytest.mark.parametrize('source', [QUOTE_SOURCE, LEGACY_QUOTE_SOURCE])
+@pytest.mark.parametrize('source', [QUOTE_SOURCE, SIP_QUOTE_SOURCE])
 def test_quote_sources_cannot_forge_bar_only_evidence(source):
     state, plan = case()
     raw = quotes(state, plan).to_dict()
@@ -88,7 +89,7 @@ def test_unrecognized_quote_source_is_never_accepted_as_regular_quotes(source):
 
 
 @pytest.mark.asyncio
-async def test_sip_authority_denial_refuses_without_another_feed_or_request():
+async def test_iex_authority_denial_refuses_without_another_feed_or_request():
     import httpx
     from sentinel.execution.alpaca import AlpacaCredentialsRefused, AlpacaExecutionBroker
     state, plan = case()
@@ -96,7 +97,7 @@ async def test_sip_authority_denial_refuses_without_another_feed_or_request():
     calls = []
     def response(request):
         calls.append(request)
-        return httpx.Response(403, json={'message':'SIP subscription required'})
+        return httpx.Response(403, json={'message':'market data authority denied'})
     client = httpx.AsyncClient
     provider = SimpleNamespace(AsyncClient=lambda **kw:client(
         transport=httpx.MockTransport(response), **kw))
@@ -109,7 +110,7 @@ async def test_sip_authority_denial_refuses_without_another_feed_or_request():
     assert len(calls) == 1
     assert calls[0].url.host == 'data.alpaca.markets'
     assert calls[0].url.path == '/v2/stocks/quotes/latest'
-    assert dict(calls[0].url.params) == {'symbols':'AAA', 'feed':'sip'}
+    assert dict(calls[0].url.params) == {'symbols':'AAA', 'feed':'iex'}
     assert calls[0].headers['APCA-API-KEY-ID'] == 'synthetic-paper-key'
 
 
@@ -120,7 +121,7 @@ def test_future_stale_or_preopen_quotes_cannot_size(age):
         quotes(state, plan, age=age)
 
 
-def test_sip_quote_freshness_boundary_remains_sixty_seconds():
+def test_regular_quote_freshness_boundary_remains_sixty_seconds():
     state, plan = case()
     evidence = quotes(state, plan, age=60)
     assert evidence.source == QUOTE_SOURCE
@@ -128,7 +129,7 @@ def test_sip_quote_freshness_boundary_remains_sixty_seconds():
 
 
 @pytest.mark.parametrize('damage', ['zero_ask_size', 'zero_bid_size', 'crossed', 'zero_ask'])
-def test_sip_quote_requires_positive_raw_sides_and_sizes(damage):
+def test_regular_quote_requires_positive_raw_sides_and_sizes(damage):
     state, plan = case()
     payload, now = quote_payload(plan.effective_session)
     field, value = {'zero_ask_size':('as',0), 'zero_bid_size':('bs',0),

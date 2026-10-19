@@ -84,7 +84,7 @@ def test_rehearsal_quotes_use_actual_endpoint_and_canonical_parser(monkeypatch,d
     def response(request):
         calls.append(str(request.url))
         assert request.url.host=='data.alpaca.markets'
-        assert request.url.params['feed']=='sip' and request.url.params['symbols']=='AAA'
+        assert request.url.params['feed']=='iex' and request.url.params['symbols']=='AAA'
         return httpx.Response(200,json={'quotes':{'AAA':dict(ap=101,bp=100,**{'as':10,'bs':10},t=quoted.isoformat())}})
     client=httpx.AsyncClient
     monkeypatch.setattr(httpx,'AsyncClient',lambda **kw:client(transport=httpx.MockTransport(response),**kw))

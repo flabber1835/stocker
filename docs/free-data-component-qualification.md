@@ -208,3 +208,20 @@ validator accepted all 669 Sentinel test modules under the existing 13 owners;
 the new funding module belongs to the general partition. The independent
 four-partition collection verifier is not claimed here because the canonical
 partition set has six entries. No ownership or partition selection was changed.
+
+## Canonical free-quote contract tests
+
+The general CI shard exposed two obsolete SIP-request expectations after the
+documented restoration of canonical legacy IEX execution quotes. The attended
+service rehearsal had the same stale request expectation. Correct only those
+tests and names, preserve distinct historical SIP and IEX decoding coverage,
+and retain all sixty-second freshness, raw-side, HTTP403 single-request and
+service ownership checks. No runtime source, parser or permission guard changed.
+Both modules passed 32 cases in 32.01 seconds, zero failures/errors/skips:
+
+```sh
+python -B -m pytest tests/sentinel/test_unattended_operating_contract.py tests/sentinel/test_paper_service_rehearsal.py -q --tb=short -p no:cacheprovider --junitxml=/evidence/transport.xml
+```
+
+All 348 Sentinel Python source hashes were unchanged across that cohort. The
+protected policy still forbids every quote GET, independently of legacy decoding.
