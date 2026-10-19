@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 
-PROFILE_SHA256 = 'bdf41bcaceab86047562d37ff905bde0807abe2db54a5ff46ce52f624bf1f640'
+PROFILE_SHA256 = 'a7122319426e657c4178b5c1f222e325a1060c48bdb76f5e0c00d68919325ff1'
 PROFILE = Path(__file__).with_name('opening-latency-runtime-upgrade.json')
 BASE_REVISION = '1e1db91b878d3073549a1e46337893882c3935b2'
 BASE_FILES = {'feed/readers.py': 'e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0', 'rolling_runtime.py': 'f63e920c79fdd61bb1324ad32758be0dc01b3de4354254d22be2b7467f365da5', 'structural_verification.py': 'cf04409818079b566a9781c419872ee3f623b069f78eef6405bd8b71c27a985e', 'runtime_admission.py': 'ca9dcc6ff535fe2e90aa38cf8ecf386cfabe0f1aa5c70c94005e69f7d087e407', 'idle_leader_upgrade.py': '7a2199dbd8af0a64528f5fd1e9396bd7d96060e6272f3fdc06d6b88c898327ba', 'execution/opening_prices.py': 'e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f'}

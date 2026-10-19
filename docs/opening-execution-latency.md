@@ -26,6 +26,40 @@ epoch remain invalidating. Other slots retain their complete inventory. This
 avoids repeating pure sizing when reconciliation writes broker evidence; it
 does not reuse account observations or a successful execution authorization.
 
+The full gateway additionally exposed repeated retained-adapter binding work.
+With a historical publication/strategy, each fresh read's before/after guards
+can call `runtime_admission._retained_checkpoint` through both readiness paths
+and the explicit retained-state check. Those paths bypass the existing shadow
+and sizing material slots and repeatedly decode, HMAC-check and hash the same
+origin and daily checkpoints. Keep that complete canonical proof on the first
+call; reuse only its compact detached binding inside the existing owned
+structural scope under a new `retained-runtime-checkpoint` material slot.
+
+Key that material with the freshly derived actual current executable context,
+including selected strategy, runtime/source identity, observation and starting
+cash. The stored compact binding contains only fields consumed by retained
+publication/state comparisons; do not repeatedly copy historical input payloads.
+Preserve the existing absent-origin behavior. Apply the same exact broker/trial
+namespace exclusions as the two existing economic slots, while origin, daily,
+admission, economic and unknown rows remain invalidating. Keep relation identity,
+transaction epoch, original publication pin and live writer-lock requirements.
+Unscoped calls execute the complete original proof. Every caller still compares
+its current publication or supplied state/strategy/session with that binding;
+no readiness verdict, signed broker permission, clock, control, revocation or
+account observation is cached. Qualify real checkpoint/admission tamper and
+context changes as falsifiers before accepting any speed improvement.
+
+A read-only private measurement, with no broker calls, of the exact frozen
+`563e2c88` runtime confirmed this repeated work. With 0.5 CPU and 768 MiB,
+three `_retained_checkpoint` calls took 4.379 seconds unscoped, 3.307 seconds
+under the writer/publication/structural scope, and 3.004 seconds through a fresh
+connection in that same scope. Every call repeated two origin reads, two daily
+reads and one current-context calculation. The daily checkpoint was absent;
+origin reads alone consumed 3.511, 2.486 and 2.220 seconds respectively. All
+table mutation counters matched before/after and transaction writes were zero.
+This isolates a repeat-work cost; it does not attribute every second of a full
+callback or qualify an optimized successor.
+
 Further selected optimizations and measured qualification results will be
 recorded here before implementation and before deployment respectively. A
 passing late-order refusal test alone does not establish that valid orders
@@ -145,6 +179,18 @@ register idle state. The scheduled-open wait runs without a database transaction
 and renews its idle lease from the foreground loop with ordinary, non-callback
 renewal. Neither lease nor callback limits are widened.
 
+Diagnostics must survive refused callbacks. Emit bounded, flushed child metrics
+for completed pure-method calls and a callback `finally` record containing
+phase, elapsed/process CPU, invocation totals, local order/request counts and
+the monotonic first-order metric. Include retained-checkpoint binding/decoding,
+snapshot verification/readiness, closure loading and sizing derivation; wrappers
+delegate unchanged arguments, results and exceptions. Keep fixed aggregate
+names and sample repeated call logs with an explicit cap. A supervisor kill can
+prevent `finally` from running, so completed-call records must already be on
+stdout. Do not serialize verification objects, source state, credentials or
+permission results into diagnostic metrics. These observers grant no authority
+and cannot promote a refused or incomplete callback into qualification.
+
 ## October 19 incident evidence and local qualification
 
 The deployed revision was `1e1db91b878d3073549a1e46337893882c3935b2`,
@@ -183,6 +229,15 @@ first retained sizing derivation. A warmed fresh guard measured 0.731 seconds
 for status, 0.380 seconds for intent, and 0.357 seconds for the sizing cache hit.
 This benchmark issued no broker requests or database writes. It establishes
 verifier costs, not complete gateway qualification.
+
+The frozen `563e2c88` full gateway attempt 9 subsequently failed qualification:
+preflight recovery took 54.642 seconds, preparation 103.773 seconds and the
+scheduled wait 201.522 seconds, but EXECUTE exceeded the canonical 900-second
+callback deadline. The supervisor returned `CallbackDeadlineExceeded`; final
+private database inspection found zero commands and fills and disabled/killed
+control. No first simulated POST metric returned through IPC. Preserve this
+failure; neither its preparation success nor its partial execution is a gateway
+PASS. It motivated measurement and the additional retained-binding reuse above.
 
 Local regression results and complete gateway timings are recorded below once
 all required runs complete. The unsigned simulator is not production execution
@@ -247,7 +302,7 @@ container continued normally. Reattaching to that same container captured the
 109-pass summary; an independent Docker wait returned exit code zero. The run
 was neither restarted nor counted as passing based on partial output. The three
 functional modules in that image match the committed candidate bytes. The
-203-test batch separately uses the final retained-admission implementation.
+203-test batch separately uses the `563e2c88` retained-admission implementation.
 
 ## Native quote availability is a separate release gate
 
@@ -321,3 +376,27 @@ caused both SIP and legacy IEX forgery cases to fail; forcing IEX caused the
 request policy case to fail. Mutants existed only in private compiled function
 copies. The sealed profile's narrow current-byte check separately passed; full
 expanded retained admission and the final-runtime gateway remain required.
+
+## Additional retained-binding regression
+
+The compact retained-binding successor passed 59 tests in 74.02 seconds with
+networking disabled, 0.5 CPU, 768 MiB and exact read-only source/test overlays:
+
+```bash
+python -m pytest \
+  tests/sentinel/test_retained_binding_reuse.py \
+  tests/sentinel/test_retained_admission_chain.py \
+  tests/sentinel/test_open_time_verification.py::test_only_economic_proofs_ignore_exact_broker_records \
+  tests/sentinel/test_open_time_verification.py::test_economic_inventory_falsifier_detects_broker_invalidation \
+  -q --tb=short -p no:cacheprovider --durations=10 \
+  --junitxml=/evidence/retained-binding-20261019-final.xml
+```
+
+Two baseline cases separately passed. Removing the new slot's exact broker
+namespace exclusion caused the historical/PAPER-write test to fail with 30
+origin reads instead of two. Replacing the fresh runtime-context key with a
+constant caused the existing context-change refusal test to fail. Mutants
+existed only as private compiled function copies. Preserve the earlier failed
+fixture run: it entered the real mutation backup guard without configuring an
+archive. The corrected read-only verifier fixture takes the actual SQL advisory
+writer lock directly; the production mutation backup guard is unchanged.

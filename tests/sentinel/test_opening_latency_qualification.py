@@ -265,6 +265,91 @@ def test_local_clock_preserves_immutable_future_open():
     assert clock["is_open"] is False and clock["next_open"] == opened.isoformat()
 
 
+def test_gateway_requires_sip_and_local_provider_refuses_mismatched_feed():
+    from datetime import datetime, timedelta, timezone
+    from tools.opening_gateway_qualification import LocalAlpaca, require_quote_policy
+    require_quote_policy("sip")
+    with pytest.raises(tool.QualificationRefused, match="CANONICAL_SIP"):
+        require_quote_policy("iex")
+    now = datetime.now(timezone.utc)
+    http = LocalAlpaca(account="local-only", cash="100", assets={},
+                       window=lambda: (now, now + timedelta(hours=1)))
+    with pytest.raises(tool.QualificationRefused, match="QUOTE_FEED_POLICY_MISMATCH"):
+        http.get("https://data.alpaca.markets/v2/stocks/quotes/latest", {"feed": "wrong", "symbols": "AAA"})
+
+
+def test_quote_policy_falsifier_detects_removed_sip_requirement():
+    import inspect
+    import textwrap
+    from tools import opening_gateway_qualification as gateway
+    source = textwrap.dedent(inspect.getsource(gateway.require_quote_policy))
+    broken = source.replace('if feed != "sip":', "if False:")
+    assert source != broken
+    namespace = {}
+    exec(compile(broken, "removed-quote-policy-guard", "exec"), vars(gateway), namespace)
+    with pytest.raises(pytest.fail.Exception):
+        with pytest.raises(tool.QualificationRefused):
+            namespace["require_quote_policy"]("iex")
+
+
+def test_callback_metrics_preserve_error_and_hide_exception_message(capsys):
+    from contextlib import ExitStack
+    from tools.opening_gateway_qualification import CallbackMetrics
+    error = RuntimeError("postgresql://private:secret@host/db")
+    def fail():
+        raise error
+    owner = SimpleNamespace(fail=fail)
+    metrics = CallbackMetrics("EXECUTE")
+    with ExitStack() as stack:
+        metrics.observe(stack, owner, "fail", name="private-pure-method")
+        with pytest.raises(RuntimeError) as caught:
+            owner.fail()
+    assert caught.value is error
+    row = metrics.rows["private-pure-method"]
+    assert row["calls"] == row["failures"] == 1
+    output = capsys.readouterr().out
+    assert "secret" not in output and json.loads(output)["error_type"] == "RuntimeError"
+
+
+def test_callback_metrics_time_generator_consumption_and_bound_call_logs(capsys):
+    from contextlib import ExitStack
+    from tools.opening_gateway_qualification import CallbackMetrics
+    def generate():
+        yield 1
+        yield 2
+    owner = SimpleNamespace(generate=generate)
+    metrics = CallbackMetrics("EXECUTE")
+    metrics.MAX_CALL_LOGS = 2
+    with ExitStack() as stack:
+        metrics.observe(stack, owner, "generate", name="mapped-inputs")
+        pending = owner.generate()
+        assert metrics.rows["mapped-inputs"]["calls"] == 0
+        assert list(pending) == [1, 2]
+        for _ in range(31):
+            assert list(owner.generate()) == [1, 2]
+    assert metrics.rows["mapped-inputs"]["calls"] == 32 and metrics.logged == 2
+    assert len(capsys.readouterr().out.splitlines()) == 2
+
+
+def test_material_observer_measures_loads_without_replacing_cache_or_values():
+    from contextlib import ExitStack
+    from tools.opening_gateway_qualification import CallbackMetrics
+    values = {}
+    def material(conn, *, slot, key, load):
+        if (slot, key) not in values:
+            values[(slot, key)] = load()
+        return values[(slot, key)]
+    structural = SimpleNamespace(material=material)
+    metrics = CallbackMetrics("EXECUTE")
+    value = object()
+    with ExitStack() as stack:
+        metrics.observe_material(stack, structural)
+        assert structural.material(None, slot="retained-runtime-checkpoint", key="same", load=lambda: value) is value
+        assert structural.material(None, slot="retained-runtime-checkpoint", key="same",
+                                   load=lambda: pytest.fail("cache bypassed")) is value
+    assert metrics.slots == {"retained-runtime-checkpoint": {"calls": 2, "loads": 1}}
+
+
 def test_execution_window_proxy_preserves_real_shadow_and_preopen_witness_calendars():
     from contextlib import ExitStack
     from datetime import date, timedelta, timezone
@@ -297,7 +382,7 @@ def test_execution_window_proxy_preserves_real_shadow_and_preopen_witness_calend
     assert schedule.calendar is calendar and calendar.session_window("2026-10-16") == friday
 
 
-def test_canonical_supervisor_renews_registered_callback_and_roundtrips_only_provider_state(monkeypatch):
+def test_canonical_supervisor_renews_registered_callback_and_roundtrips_only_provider_state(monkeypatch, capfd):
     import ctypes
     import os
     from collections import Counter
@@ -307,7 +392,7 @@ def test_canonical_supervisor_renews_registered_callback_and_roundtrips_only_pro
     from sentinel import schema
     from sentinel.automation import store
     from sentinel.automation.model import (AutomationConfig, CancellationAuthority, ControlBinding,
-        ExecuteDisposition, ExecuteResult, StaleLeaderRefused)
+        ExecuteDisposition, ExecuteResult, NonRetryableCallbackRefused, StaleLeaderRefused)
     from tests.support.postgres import _EphemeralPostgres
     from tools import opening_gateway_qualification as gateway
     server = _EphemeralPostgres()
@@ -357,6 +442,15 @@ def test_canonical_supervisor_renews_registered_callback_and_roundtrips_only_pro
                 "FROM sentinel_automation_service_instances WHERE instance_id=%s",
                 (permit.holder_id,)).fetchone() == ("IDLE", None, None)
             conn.rollback()
+            async def refused(_context):
+                raise NonRetryableCallbackRefused("secret-provider-detail")
+            with pytest.raises(NonRetryableCallbackRefused, match="secret-provider-detail"):
+                gateway.supervised_callback(None, config, context(), "RECOVER", refused, http, counts)
+            output = capfd.readouterr().out
+            records = [json.loads(line) for line in output.splitlines() if line.startswith("{")]
+            assert any(row.get("stage") == "CALLBACK_FINALLY" and row.get("result") == "REFUSED"
+                       and row.get("error_type") == "NonRetryableCallbackRefused" for row in records)
+            assert "secret-provider-detail" not in output
             with monkeypatch.context() as broken:
                 broken.setattr(store, "register_instance", lambda *_a, **_kw: None)
                 with pytest.raises(StaleLeaderRefused, match="callback instance is missing"):

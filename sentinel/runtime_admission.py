@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 import hashlib
 import hmac
 import json
@@ -212,13 +213,14 @@ def bind_context(conn, context):
     context['strategy'] = stored
 
 
-def _retained_checkpoint(conn):
+def _retained_checkpoint_uncached(conn, context=None):
     """Authenticate both identities without loading or rewriting a strategy book."""
     checkpoint = origin.read(conn)
     if checkpoint is None:
         return None, None, None
-    context = current_context(observation_id=os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID', 'primary'),
-        starting_cash=os.environ.get('SENTINEL_SHADOW_STARTING_CASH', '50000'))
+    if context is None:
+        context = current_context(observation_id=os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID', 'primary'),
+            starting_cash=os.environ.get('SENTINEL_SHADOW_STARTING_CASH', '50000'))
     selected = context['strategy']
     bind_context(conn, context)
     from sentinel import rolling_daily_checkpoint as daily
@@ -231,6 +233,42 @@ def _retained_checkpoint(conn):
                 and retained.origin_sha256 != digest(checkpoint.model_dump(by_alias=True)))):
         raise Refused('RETAINED_PUBLICATION_CHECKPOINT_BINDING_CHANGED')
     return retained, context, selected
+
+
+@dataclass(frozen=True)
+class _RetainedCheckpointBinding:
+    observation_id: str
+    starting_cash: str
+    runtime_identity: dict
+    strategy_identity: dict
+    state_sha256: str
+    session: str
+    publication: dict
+
+
+def _retained_checkpoint(conn):
+    """Reuse only a canonical binding under the original owned proof scope."""
+    from sentinel import structural_verification
+    if not structural_verification.active():
+        return _retained_checkpoint_uncached(conn)
+    present = conn.execute('SELECT EXISTS (SELECT 1 FROM sentinel_processed_sessions '
+        'WHERE cursor_name=%s)', (origin.CURSOR,)).fetchone()[0]
+    if not present:
+        return None, None, None
+    context = current_context(observation_id=os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID', 'primary'),
+        starting_cash=os.environ.get('SENTINEL_SHADOW_STARTING_CASH', '50000'))
+    def load():
+        retained, bound, selected = _retained_checkpoint_uncached(conn, deepcopy(context))
+        if retained is None:
+            return None, None, None
+        binding = _RetainedCheckpointBinding(
+            observation_id=retained.observation_id, starting_cash=retained.starting_cash,
+            runtime_identity=retained.runtime_identity, strategy_identity=retained.strategy_identity,
+            state_sha256=retained.state_sha256, session=retained.session,
+            publication=retained.publication)
+        return binding, bound, selected
+    return structural_verification.material(conn, slot='retained-runtime-checkpoint',
+        key={**context, 'controller': context['controller'].to_dict()}, load=load)
 
 
 def retained_publication_strategy(conn, pub):

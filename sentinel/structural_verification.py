@@ -19,8 +19,10 @@ class VerificationScopeRefused(ValueError):
 
 
 _current = ContextVar('structural_verification_scope', default=None)
-_ECONOMIC_INPUT_SLOTS: frozenset[Literal['rolling-checkpoint', 'dual-sizing']] = frozenset({
-    'rolling-checkpoint', 'dual-sizing',
+_ECONOMIC_INPUT_SLOTS: frozenset[Literal[
+    'rolling-checkpoint', 'dual-sizing', 'retained-runtime-checkpoint',
+]] = frozenset({
+    'rolling-checkpoint', 'dual-sizing', 'retained-runtime-checkpoint',
 })
 
 

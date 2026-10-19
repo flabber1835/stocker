@@ -16,7 +16,8 @@ from tests.sentinel.test_rolling_paper_inputs import (
 def test_only_economic_proofs_ignore_exact_broker_records(conn, published):
     schema.ensure_schema(conn)
     conn.commit()
-    calls = {'rolling-checkpoint': 0, 'dual-sizing': 0, 'unknown-proof': 0}
+    calls = {'rolling-checkpoint': 0, 'dual-sizing': 0, 'retained-runtime-checkpoint': 0,
+             'unknown-proof': 0}
 
     def read(scope, slot):
         def load():
@@ -50,6 +51,7 @@ def test_only_economic_proofs_ignore_exact_broker_records(conn, published):
                 assert read(scope, slot) == {'value': [expected]}
         assert calls['rolling-checkpoint'] == 1
         assert calls['dual-sizing'] == 1
+        assert calls['retained-runtime-checkpoint'] == 1
         assert calls['unknown-proof'] == 1 + 3 * (len(PAPER_CURSOR_NAMES) + len(PAPER_CURSOR_PREFIXES))
         for name in ('unknown-economic:v1', 'dual-plan-sizing-authority:v1:test', 'rolling-daily-input:v1:test'):
             conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
@@ -71,8 +73,9 @@ def test_only_economic_proofs_ignore_exact_broker_records(conn, published):
     assert verified.owned(conn) is None
 
 
-def test_dual_sizing_inventory_falsifier_detects_broker_invalidation(conn, published, monkeypatch):
-    monkeypatch.setattr(verified, '_ECONOMIC_INPUT_SLOTS', frozenset({'rolling-checkpoint'}))
+@pytest.mark.parametrize('slot', ['dual-sizing', 'retained-runtime-checkpoint'])
+def test_economic_inventory_falsifier_detects_broker_invalidation(conn, published, monkeypatch, slot):
+    monkeypatch.setattr(verified, '_ECONOMIC_INPUT_SLOTS', verified._ECONOMIC_INPUT_SLOTS - {slot})
     with pytest.raises(AssertionError):
         test_only_economic_proofs_ignore_exact_broker_records(conn, published)
 

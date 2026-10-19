@@ -11,7 +11,9 @@ from collections import Counter
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from functools import wraps
 import hashlib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -20,6 +22,7 @@ from types import SimpleNamespace
 from urllib.parse import unquote, urlsplit
 import uuid
 import sys
+import re
 from unittest.mock import patch
 
 from tools.opening_latency_qualification import (
@@ -52,6 +55,8 @@ class LocalAlpaca:
         self.positions, self.orders, self.events = {}, {}, []
         self.requests = Counter()
         self.started, self.first_order_seconds = None, None
+        from sentinel.execution.opening_prices import FEED
+        self.quote_feed = FEED
         owner = self
 
         class Client:
@@ -119,6 +124,8 @@ class LocalAlpaca:
                 "next_open": (opened if now < opened else opened + timedelta(days=1)).isoformat(),
                 "next_close": closed.isoformat()})
         if path == "/v2/stocks/quotes/latest":
+            if params.get("feed") != self.quote_feed:
+                raise QualificationRefused("SIMULATOR_QUOTE_FEED_POLICY_MISMATCH")
             return Response({"quotes": {symbol: {"ap": str(self.assets[symbol]["price"]),
                 "bp": str(self.assets[symbol]["price"] * Decimal("0.9999")),
                 "as": 1000, "bs": 1000, "t": now.isoformat()}
@@ -185,6 +192,8 @@ class LocalAlpaca:
                 "symbol": asset["symbol"], "side": body["side"], "client_order_id": body["client_order_id"]}})
         if self.first_order_seconds is None:
             self.first_order_seconds = time.monotonic() - self.started
+            print(json.dumps({"stage": "FIRST_SIMULATED_POST", "seconds": round(self.first_order_seconds, 6),
+                              "orders": len(self.orders)}), flush=True)
         return Response(order, status=201)
 
 
@@ -272,14 +281,135 @@ def fixture_assets(plan, proof, resolver, metadata=None):
     return assets
 
 
+class CallbackMetrics:
+    """Bounded timing observers; arguments, values and exceptions stay private."""
+    MAX_FUNCTIONS, MAX_CALL_LOGS, MAX_SLOTS = 32, 192, 16
+
+    def __init__(self, phase, *, clock=time.monotonic, cpu=time.process_time):
+        self.phase, self.clock, self.cpu = phase, clock, cpu
+        self.started, self.cpu_started = clock(), cpu()
+        self.rows, self.slots, self.logged = {}, {}, 0
+
+    def completed(self, name, started, cpu_started, error):
+        row = self.rows[name]
+        elapsed, cpu = self.clock() - started, self.cpu() - cpu_started
+        row["seconds"] += elapsed
+        row["cpu_seconds"] += cpu
+        row["failures"] += int(error is not None)
+        count = row["calls"]
+        if self.logged < self.MAX_CALL_LOGS and (count <= 3 or count & (count - 1) == 0):
+            value = {"stage": "PURE_METHOD", "phase": self.phase, "function": name,
+                "calls": count, "seconds": round(elapsed, 6), "cpu_seconds": round(cpu, 6),
+                "result": "PASS" if error is None else "REFUSED"}
+            if error is not None:
+                value["error_type"] = error
+            print(json.dumps(value), flush=True)
+            self.logged += 1
+
+    def observe(self, stack, owner, attribute, *, name=None):
+        original = getattr(owner, attribute, None)
+        if original is None:
+            return
+        label = name or owner.__name__ + "." + attribute
+        if label in self.rows or len(self.rows) >= self.MAX_FUNCTIONS:
+            raise QualificationRefused("INVALID_CALLBACK_METRIC_REGISTRATION")
+        self.rows[label] = {"calls": 0, "seconds": 0.0, "cpu_seconds": 0.0, "failures": 0}
+
+        def begin():
+            self.rows[label]["calls"] += 1
+            return self.clock(), self.cpu()
+
+        if inspect.isgeneratorfunction(original):
+            @wraps(original)
+            def observed(*args, **kwargs):
+                started, cpu_started = begin()
+                error = None
+                try:
+                    yield from original(*args, **kwargs)
+                except BaseException as exc:
+                    error = type(exc).__name__
+                    raise
+                finally:
+                    self.completed(label, started, cpu_started, error)
+        else:
+            @wraps(original)
+            def observed(*args, **kwargs):
+                started, cpu_started = begin()
+                error = None
+                try:
+                    return original(*args, **kwargs)
+                except BaseException as exc:
+                    error = type(exc).__name__
+                    raise
+                finally:
+                    self.completed(label, started, cpu_started, error)
+        stack.enter_context(patch.object(owner, attribute, observed))
+
+    def observe_material(self, stack, structural):
+        original = structural.material
+        def observed(conn, *, slot, key, load):
+            label = slot if isinstance(slot, str) and re.fullmatch(r"[a-z0-9_-]{1,64}", slot) else "OTHER"
+            if label not in self.slots and len(self.slots) >= self.MAX_SLOTS - 1:
+                label = "OTHER"
+            row = self.slots.setdefault(label, {"calls": 0, "loads": 0})
+            row["calls"] += 1
+            def measured_load():
+                row["loads"] += 1
+                return load()
+            return original(conn, slot=slot, key=key, load=measured_load)
+        stack.enter_context(patch.object(structural, "material", observed))
+
+    def install(self, stack):
+        from sentinel import (dual_plan_authority, dual_reconciliation, identity, rolling_checkpoint,
+            rolling_daily_checkpoint, rolling_runtime, runtime_admission, shadow_runtime, structural_verification)
+        from sentinel.core import rolling_inputs
+        from sentinel.feed import readiness_scope, rolling_store
+        for owner, names in (
+            (runtime_admission, ("_retained_checkpoint", "_retained_checkpoint_uncached", "current_context",
+                "bind_context", "retained_publication_strategy", "require_retained_state")),
+            (rolling_checkpoint, ("read", "_signature")), (rolling_daily_checkpoint, ("read", "signature")),
+            (rolling_inputs, ("readiness_inputs", "_mapped_bars")),
+            (rolling_store, ("_verify_content_uncached",)), (rolling_runtime, ("_load_closure",)),
+            (dual_plan_authority, ("_rederive_plan",)), (shadow_runtime, ("verified_shadow_status",)),
+            (dual_reconciliation, ("verified_shadow_intent",)), (identity, ("rehearsal_identity",)),
+            (readiness_scope, ("material", "verified_snapshot")),
+        ):
+            for name in names:
+                self.observe(stack, owner, name)
+        self.observe(stack, rolling_inputs.SnapshotReferences, "__init__",
+                     name="sentinel.core.rolling_inputs.SnapshotReferences.__init__")
+        self.observe_material(stack, structural_verification)
+
+    def finish(self, http, counts, result, error):
+        print(json.dumps({"stage": "CALLBACK_FINALLY", "phase": self.phase,
+            "result": result, "error_type": error, "seconds": round(self.clock() - self.started, 6),
+            "cpu_seconds": round(self.cpu() - self.cpu_started, 6), "invocations": dict(counts),
+            "orders": len(http.orders), "first_order_seconds": http.first_order_seconds,
+            "http_requests": dict(http.requests), "structural_slots": self.slots,
+            "pure_methods": {name: {key: round(value, 6) if isinstance(value, float) else value
+                                     for key, value in row.items()} for name, row in self.rows.items()},
+            "call_logs_emitted": self.logged, "call_log_cap": self.MAX_CALL_LOGS}), flush=True)
+
+
 def supervised_callback(args, config, context, phase, body, http, counts):
     """Use the actual process supervisor; exchange only provider fixture state."""
     from sentinel.automation import store
     from sentinel.automation.model import ExecuteResult, PrepareResult
     from sentinel.automation.service import AutomationService
     async def callback(child_context):
-        result = await body(child_context)
-        return {"result": result.model_dump(mode="json"), "provider": http.state(), "counts": dict(counts)}
+        metrics, outcome, error = CallbackMetrics(phase), "REFUSED", None
+        print(json.dumps({"stage": "CALLBACK_STARTED", "phase": phase}), flush=True)
+        try:
+            with ExitStack() as observers:
+                metrics.install(observers)
+                result = await body(child_context)
+                outcome = "PASS"
+                return {"result": result.model_dump(mode="json"), "provider": http.state(), "counts": dict(counts)}
+        except BaseException as exc:
+            error = type(exc).__name__
+            raise
+        finally:
+            metrics.finish(http, counts, outcome, error)
     supervisor = AutomationService(config=config, holder_id=context.permit.holder_id,
         refresh=callback, prepare=callback, execute=callback, recover=callback)
     try:
@@ -324,6 +454,11 @@ def execution_window_fixture(stack, session, window):
     return proxy
 
 
+def require_quote_policy(feed):
+    if feed != "sip":
+        raise QualificationRefused("CANONICAL_SIP_QUOTE_POLICY_REQUIRED")
+
+
 def qualify(args, stages):
     import sentinel
     require_environment(os.environ, sentinel.__file__)
@@ -337,6 +472,8 @@ def qualify(args, stages):
     from sentinel.execution import feed_inputs, journal, target_reprojection
     from sentinel.feed import calendar, rolling_store
     from sentinel.paper import execution, preparation, recovery, validation
+    from sentinel.execution.opening_prices import FEED
+    require_quote_policy(FEED)
 
     with connect(args, read_only=False) as conn, reviewed_runtime(conn, args), ExitStack() as stack:
         if conn.execute("SELECT (SELECT count(*) FROM sentinel_commands),"
@@ -477,6 +614,7 @@ def qualify(args, stages):
                 "complete_basket_seconds": round(elapsed, 6), "legs": len(expected), "orders": len(http.orders),
                 "bar_count": manifest.bar_count, "scheduler_sha256": config.fingerprint,
                 "source_provider": resolver.source_provider, "provider_metadata_sha256": metadata_sha,
+                "simulated_quote_feed": http.quote_feed,
                 "fixture_identity_origins": {row["security_id"]: row["identity_origin"] for row in assets.values()},
                 "invocations": dict(counts), "preparation_invocations": preparation_counts,
                 "execution_start_remaining_budget_seconds": round(remaining_budget, 6),
