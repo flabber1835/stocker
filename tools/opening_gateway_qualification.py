@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
 import os
 from pathlib import Path
-from threading import Event, Thread
 import time
 from types import SimpleNamespace
 from urllib.parse import unquote, urlsplit
@@ -74,6 +73,21 @@ class LocalAlpaca:
                 raise QualificationRefused("SIMULATOR_UNEXPECTED_CANCELLATION")
 
         self.AsyncClient = Client
+
+    def state(self):
+        """Only simulated provider observations cross callback processes."""
+        return {"cash": str(self.cash), "positions": {key: str(value) for key, value in self.positions.items()},
+            "orders": self.orders, "events": self.events, "requests": dict(self.requests),
+            "started": self.started, "first_order_seconds": self.first_order_seconds}
+
+    def restore(self, value):
+        if set(value) != {"cash", "positions", "orders", "events", "requests", "started", "first_order_seconds"}:
+            raise QualificationRefused("INVALID_LOCAL_PROVIDER_STATE_ROUNDTRIP")
+        self.cash = Decimal(value["cash"])
+        self.positions = {key: Decimal(amount) for key, amount in value["positions"].items()}
+        self.orders, self.events = value["orders"], value["events"]
+        self.requests = Counter(value["requests"])
+        self.started, self.first_order_seconds = value["started"], value["first_order_seconds"]
 
     @staticmethod
     def path(url):
@@ -257,38 +271,28 @@ def fixture_assets(plan, proof, resolver, metadata=None):
     return assets
 
 
-@contextmanager
-def callback_lease(args, config, permit, phase):
-    """Use the canonical callback registration and independently bounded renewals."""
+def supervised_callback(args, config, context, phase, body, http, counts):
+    """Use the actual process supervisor; exchange only provider fixture state."""
     from sentinel.automation import store
-    stopped, errors = Event(), []
-    with connect(args, read_only=False, heartbeat=True) as reader:
-        store.register_instance(reader, instance_id=permit.holder_id, state=phase + "_CALLBACK",
-                                callback_deadline_seconds=config.callback_deadline_seconds)
-        store.heartbeat_lease(reader, permit=permit, lease_seconds=config.lease_seconds, callback=True)
-
-    def heartbeat():
-        while not stopped.wait(config.heartbeat_seconds):
-            try:
-                with connect(args, read_only=False, heartbeat=True) as reader:
-                    store.heartbeat_lease(reader, permit=permit, lease_seconds=config.lease_seconds, callback=True)
-            except BaseException as exc:
-                errors.append(type(exc).__name__)
-                return
-
-    worker = Thread(target=heartbeat, name="private-latency-heartbeat", daemon=True)
-    worker.start()
+    from sentinel.automation.model import ExecuteResult, PrepareResult
+    from sentinel.automation.service import AutomationService
+    async def callback(child_context):
+        result = await body(child_context)
+        return {"result": result.model_dump(mode="json"), "provider": http.state(), "counts": dict(counts)}
+    supervisor = AutomationService(config=config, holder_id=context.permit.holder_id,
+        refresh=callback, prepare=callback, execute=callback, recover=callback)
     try:
-        yield
-        if errors:
-            raise QualificationRefused("PRIVATE_LEASE_HEARTBEAT_FAILED", heartbeat_errors=errors)
+        value = asyncio.run(supervisor._invoke(callback, context, permit=context.permit, phase=phase,
+            heartbeat_conn_factory=lambda: connect(args, read_only=False, heartbeat=True)))
+        if set(value) != {"result", "provider", "counts"}:
+            raise QualificationRefused("INVALID_CALLBACK_FIXTURE_ROUNDTRIP")
+        http.restore(value["provider"])
+        counts.clear()
+        counts.update(value["counts"])
+        return (PrepareResult if phase == "PREPARE" else ExecuteResult).model_validate(value["result"])
     finally:
-        stopped.set()
-        worker.join(timeout=10)
-        if worker.is_alive():
-            raise QualificationRefused("PRIVATE_LEASE_HEARTBEAT_DID_NOT_STOP")
         with connect(args, read_only=False, heartbeat=True) as reader:
-            store.register_instance(reader, instance_id=permit.holder_id, state="IDLE")
+            store.register_instance(reader, instance_id=context.permit.holder_id, state="IDLE")
 
 
 def qualify(args, stages):
@@ -383,8 +387,7 @@ def qualify(args, stages):
                 return CycleContext(cycle=cycle, permit=permit)
 
             def callback(phase, stage, body):
-                with callback_lease(args, config, permit, phase):
-                    return stages.run(stage, lambda: asyncio.run(body(context())))
+                return stages.run(stage, lambda: supervised_callback(args, config, context(), phase, body, http, counts))
 
             callback("RECOVER", "ProductionAutomation.recover:preflight", campaign.recover)
             cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PREPARING)
@@ -455,7 +458,8 @@ def qualify(args, stages):
                 "substitutions": ["unsigned certificate fixture", "local HTTP provider", "one session-window fixture"],
                 "callbacks": "actual ProductionAutomation.prepare/execute/recover and public paper gateways",
                 "fresh_broker_guard": "UNCHANGED", "runtime_identity_substituted": False,
-                "limit": "direct callbacks with real lease heartbeat; service process supervision qualified separately"}
+                "callback_supervision": "UNCHANGED AutomationService._invoke",
+                "limit": "persistent scheduler run loop qualified separately; no native transport"}
         finally:
             store.engage_kill(conn, actor="PRIVATE_SIMULATOR", reason="qualification ended")
             store.deactivate(conn, actor="PRIVATE_SIMULATOR", reason="qualification ended")

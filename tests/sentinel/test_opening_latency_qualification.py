@@ -265,12 +265,17 @@ def test_local_clock_preserves_immutable_future_open():
     assert clock["is_open"] is False and clock["next_open"] == opened.isoformat()
 
 
-def test_callback_lease_renews_real_registered_callback_past_initial_expiry(monkeypatch):
-    import time
+def test_canonical_supervisor_renews_registered_callback_and_roundtrips_only_provider_state(monkeypatch):
+    import ctypes
+    import os
+    from collections import Counter
+    from datetime import datetime, timedelta, timezone
+    from decimal import Decimal
     import psycopg
     from sentinel import schema
     from sentinel.automation import store
-    from sentinel.automation.model import AutomationConfig, ControlBinding, StaleLeaderRefused
+    from sentinel.automation.model import (AutomationConfig, CancellationAuthority, ControlBinding,
+        ExecuteDisposition, ExecuteResult, StaleLeaderRefused)
     from tests.support.postgres import _EphemeralPostgres
     from tools import opening_gateway_qualification as gateway
     server = _EphemeralPostgres()
@@ -290,14 +295,32 @@ def test_callback_lease_renews_real_registered_callback_past_initial_expiry(monk
             store.activate(conn, binding=binding, actor="test", reason="local-only")
             store.release_kill(conn, expected_binding=binding, actor="test", reason="local-only")
             permit = store.acquire_lease(conn, holder_id="private-callback-test", lease_seconds=config.lease_seconds)
-            with gateway.callback_lease(None, config, permit, "RECOVER"):
-                time.sleep(4.1)
-                assert store.require_leader(conn, permit).expires_at > permit.expires_at
-                row = conn.execute("SELECT state,callback_started_at IS NOT NULL,callback_deadline_at IS NOT NULL "
-                                   "FROM sentinel_automation_service_instances WHERE instance_id=%s",
-                                   (permit.holder_id,)).fetchone()
-                assert row == ("RECOVER_CALLBACK", True, True)
-                conn.rollback()
+            now = datetime.now(timezone.utc)
+            http = gateway.LocalAlpaca(account="local-only", cash="100", assets={},
+                                       window=lambda: (now, now + timedelta(hours=1)))
+            counts = Counter()
+            def context():
+                cancellation = CancellationAuthority()
+                return SimpleNamespace(permit=permit, cancellation=cancellation,
+                                       require_active=cancellation.require_active)
+            async def body(_context):
+                # PyDLL deliberately retains the child's GIL beyond the initial
+                # lease; the canonical parent heartbeat must remain independent.
+                ctypes.PyDLL(None).sleep(4)
+                with psycopg.connect(server.sync_dsn) as child_conn:
+                    assert store.require_leader(child_conn, permit).expires_at > permit.expires_at
+                    row = child_conn.execute("SELECT state,callback_started_at IS NOT NULL,callback_deadline_at IS NOT NULL "
+                        "FROM sentinel_automation_service_instances WHERE instance_id=%s", (permit.holder_id,)).fetchone()
+                    assert row == ("RECOVER_CALLBACK", True, True)
+                http.cash -= Decimal("2.50")
+                http.positions["local-asset"] = Decimal(1)
+                http.requests["local-request"] += 1
+                counts["local-invocation"] += 1
+                return ExecuteResult(disposition=ExecuteDisposition.RECONCILE, diagnostic={"child_pid": os.getpid()})
+            result = gateway.supervised_callback(None, config, context(), "RECOVER", body, http, counts)
+            assert result.diagnostic["child_pid"] != os.getpid()
+            assert http.cash == Decimal("97.50") and http.positions == {"local-asset": Decimal(1)}
+            assert http.requests == {"local-request": 1} and counts == {"local-invocation": 1}
             assert conn.execute("SELECT state,callback_started_at,callback_deadline_at "
                 "FROM sentinel_automation_service_instances WHERE instance_id=%s",
                 (permit.holder_id,)).fetchone() == ("IDLE", None, None)
@@ -305,8 +328,7 @@ def test_callback_lease_renews_real_registered_callback_past_initial_expiry(monk
             with monkeypatch.context() as broken:
                 broken.setattr(store, "register_instance", lambda *_a, **_kw: None)
                 with pytest.raises(StaleLeaderRefused, match="callback instance is missing"):
-                    with gateway.callback_lease(None, config, permit, "RECOVER"):
-                        pytest.fail("missing callback registration admitted")
+                    gateway.supervised_callback(None, config, context(), "RECOVER", body, http, counts)
     finally:
         server.stop()
 

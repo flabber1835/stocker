@@ -120,13 +120,17 @@ timestamps, and first/complete-order timings use monotonic elapsed time without
 cProfile. A fresh private command/cycle namespace and real backup/incarnation
 proofs are prerequisites; the diagnostic cannot initialize or bypass them.
 
-Each direct callback registers its real `<PHASE>_CALLBACK` service-instance row
-with the unchanged configured callback deadline before starting an independent
-heartbeat thread. That thread uses the real callback-aware lease renewal and
-bounded connections/statements below the lease duration. Stop and join it
-before leaving the callback phase. The scheduled-open wait runs without a
-database transaction and renews its idle lease from the foreground loop with
-ordinary, non-callback renewal. Neither lease nor callback limits are widened.
+Each callback uses the canonical `AutomationService._invoke` process supervisor,
+including its real `<PHASE>_CALLBACK` registration, configured callback deadline,
+independent parent heartbeat, cancellation and child cleanup. The callback runs
+in a forked child so CPU-bound parsing cannot starve the parent's heartbeat.
+The fixture wrapper returns only its callback result, local provider state and
+invocation counts through that existing JSON IPC; restore those fixture values
+in the parent before the next callback. Heartbeat connections and statements
+are bounded below the lease duration. After the supervisor joins its heartbeat,
+register idle state. The scheduled-open wait runs without a database transaction
+and renews its idle lease from the foreground loop with ordinary, non-callback
+renewal. Neither lease nor callback limits are widened.
 
 ## October 19 incident evidence and local qualification
 
