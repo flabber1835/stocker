@@ -1,14 +1,24 @@
 # Sentinel — the execution and recovery contract
 
+[Opening execution latency](opening-execution-latency.md) scopes retained sizing
+to its economic inputs while retaining every fresh broker and signed-authority
+boundary and the existing ten-minute increase cutoff. Opening readiness requires
+measured full-gateway evidence; a passing late-submission refusal is insufficient.
+
 [Late cash distributions](late-cash-distributions.md) defines point-in-time
 forward entitlement reconciliation and automatic retirement of a cleanly
 reconciled execution plan whose native cash activity set has changed.
 
 [Unattended operation](unattended-operating-contract.md) defines the current
-Alpaca execution price evidence: fresh raw IEX bid/ask quotes, partial per-security
+installed Alpaca execution price evidence: fresh raw IEX bid/ask quotes, partial per-security
 availability, a ten-minute increase window, and a new quote/cash check before
 each BUY. Dollar intents and durable whole-share projections are unchanged;
-older opening-minute records keep their historical scope.
+older opening-minute quote records keep their historical scope. The unpublished
+SIP-only candidate is not selected after the operator's no-subscription constraint.
+The [free-data execution contract](free-data-execution-proposal.md) defines the
+selected protected LIMIT/DAY redesign and durable funding. Implementation is
+under qualification; it grants no execution authority before the ordinary
+review, release and activation gates pass.
 
 [Current-window book formation](current-window-formation.md) restores 126
 broker-free ownership/controller transitions after 299 feature sessions. The
@@ -946,6 +956,13 @@ documents the paper endpoint. Endpoint existence does not establish accepted
 account completeness or finality. Its SSE decoder remains a quarantined acceptance-harness candidate; method
 presence cannot make the production guard call it or earn the identity scheme.
 A reviewed, reachable, account-bound integration is required first.
+
+The protected paper BUY profile therefore distinguishes activity-backed funding
+from its separately tagged plan-cash funding basis. The latter uses the existing
+no-activity cash-and-durable-fill equation, a fixed ceiling and unreleased gross
+order promises. It does not claim cash-activity completeness or promote this
+candidate feed. Its exact certified-adapter selection and limitations are
+specified in [the free-data execution design](free-data-execution-proposal.md#conservative-funding-cohort).
 
 For Alpaca financial activities, `ref_id` is the durable idempotency key for the
 economic row and `event_id` is the durable replay cursor. `event_id` is persisted

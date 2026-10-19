@@ -41,7 +41,7 @@ from fractions import Fraction
 from typing import Iterable, Optional, Sequence
 
 from sentinel.execution.contract import (
-    BrokerInstrument, BrokerObservation, BrokerOrder, Side)
+    BrokerInstrument, BrokerObservation, BrokerOrder, OrderTerms, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.numeric import exact_decimal
 from sentinel.execution.states import (
@@ -96,8 +96,12 @@ class Command:
     #: command must be recognisable as one, and `client_key` must never silently
     #: return a value the broker would not recognise.
     recovered_key: Optional[str] = None
+    order_terms: OrderTerms = OrderTerms()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.order_terms, OrderTerms):
+            raise TypeError("Command.order_terms must be OrderTerms")
+        self.order_terms.require_owned_submission(self.side)
         if not isinstance(self.quantity, Decimal):
             raise TypeError("Command.quantity must be Decimal")
         if not self.quantity.is_finite() or self.quantity <= 0:
@@ -332,6 +336,7 @@ def authorize(*, delta: Delta, runtime: RuntimeState,
 
 def build(*, delta: Delta, identity: CommandIdentity,
           instrument: BrokerInstrument, created_at: Optional[datetime] = None,
+          order_terms: OrderTerms = OrderTerms(),
           ) -> Command:
     """Turn an authorised delta into a PLANNED command.
 
@@ -344,4 +349,4 @@ def build(*, delta: Delta, identity: CommandIdentity,
         raise CommandRefused(f"{delta.security_id}: no side for a zero delta")
     return Command(identity=identity, instrument=instrument, side=side,
                    quantity=delta.quantity, state=CommandState.PLANNED,
-                   created_at=created_at)
+                   created_at=created_at, order_terms=order_terms)

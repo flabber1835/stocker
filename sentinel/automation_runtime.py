@@ -479,12 +479,26 @@ def _actionable_projection_deltas(
     target_reprojection.assert_projection(
         conn, plan=plan, projection=projection,
         through_session=effective_session)
+    from sentinel.execution import protected_limits
+    unavailable = protected_limits.unavailable_opening_intents(projection)
+    if unavailable:
+        raise protected_limits.ProtectedReferenceUnavailable(
+            "opening reference calculations remain unavailable: "
+            + ", ".join(sorted(unavailable)))
     return _actionable_target_deltas(
         projection.target_basket, observation,
         minimum_quantity_increment=minimum_quantity_increment)
 
 
 def _projection_refusal_result(*, result, observation_id, exc) -> ExecuteResult:
+    from sentinel.execution.protected_limits import ProtectedReferenceUnavailable
+    if isinstance(exc, ProtectedReferenceUnavailable):
+        return ExecuteResult(
+            disposition=ExecuteDisposition.SUPERSEDED,
+            last_clean_reconciliation_id=str(observation_id),
+            failure_code="PROTECTED_REFERENCE_UNAVAILABLE",
+            failure_detail=str(exc),
+            diagnostic={**result.to_dict(), "incomplete_protected_projection": True})
     detail = (
         "automation convergence cannot validate the durable effective-session "
         f"target projection: {exc}")

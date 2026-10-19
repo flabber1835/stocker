@@ -40,7 +40,7 @@ def test_compact_witness_reconstructs_full_recovery_payload_and_saves_bytes(conn
     full = alpaca.load_provenance(conn, seq)
     witness = conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s',
         (f'broker-observation:v4:{seq}',)).fetchone()[0]
-    assert full['kind'] == 'broker-observation/v4'
+    assert full['kind'] == journal.OBSERVATION_PAYLOAD_KIND
     assert witness['kind'] == journal.OBSERVATION_WITNESS_KIND
     assert 'positions' not in witness and 'orders' not in witness
     assert len(full['positions']) == 14

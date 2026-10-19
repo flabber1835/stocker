@@ -101,6 +101,10 @@ GENERATE = {
 #: classified here or in CARRY, rather than silently defaulting.
 #:
 DELIBERATELY_UNSET = {
+    "SENTINEL_PAPER_BUY_POLICY":
+        "selected explicitly in the new reviewed execution configuration; never inherit a stale legacy policy",
+    "SENTINEL_PAPER_BUY_CAP_BPS":
+        "selected explicitly in the new reviewed execution configuration; never inherit a stale legacy price band",
     "SHARADAR_API_KEY":
         "historical research only; never copy into deployed Sentinel environment",
     "SHARADAR_FETCH_TIMEOUT": "historical research tuning only",

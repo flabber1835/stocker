@@ -215,7 +215,7 @@ def test_projection_json_round_trip_and_tamper_refusal():
 
 
 @pytest.mark.asyncio
-async def test_alpaca_reads_free_raw_iex_regular_quotes():
+async def test_legacy_alpaca_market_policy_reads_raw_iex_regular_quotes():
     from sentinel.execution.alpaca import AlpacaExecutionBroker
     opened, _ = calendar.session_window(EFFECTIVE_SESSION)
     calls = []
@@ -235,9 +235,10 @@ async def test_alpaca_reads_free_raw_iex_regular_quotes():
     result = await broker.opening_prices(session=EFFECTIVE_SESSION,
         instruments={"SEC-AAA": BrokerInstrument("SEC-AAA", "AAA", "asset")})
     assert result.prices["SEC-AAA"] == 50
-    from sentinel.execution.opening_prices import QUOTE_ENDPOINT
+    from sentinel.execution.opening_prices import QUOTE_ENDPOINT, QUOTE_SOURCE
     assert calls[0][0] == QUOTE_ENDPOINT
     assert calls[0][1] == {"symbols": "AAA", "feed": "iex"}
+    assert result.source == QUOTE_SOURCE == "ALPACA_IEX_RAW_REGULAR_QUOTES_V2"
     broker._clock_provider = lambda: opened+timedelta(minutes=10)
     with pytest.raises(OpeningPriceUnavailable):
         await broker.opening_prices(session=EFFECTIVE_SESSION,

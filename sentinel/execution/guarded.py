@@ -33,6 +33,7 @@ from sentinel.execution.contract import (
     BrokerOrder,
     CommandOutcome,
     ExecutionBroker,
+    OrderTerms,
     Side,
 )
 
@@ -237,7 +238,7 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     def __init__(
             self, *, inner: ExecutionBroker, grant: ExecutionGrant,
-            guard: ExecutionBrokerGuard) -> None:
+            guard: ExecutionBrokerGuard, protected_funding=None) -> None:
         if not isinstance(grant, (PaperPreparationGrant, ManualExecutionGrant,
                                   AutomationExecutionGrant, AttendedPaperExecutionGrant)):
             raise TypeError("grant must be a typed execution grant")
@@ -249,6 +250,9 @@ class GuardedExecutionBroker(ExecutionBroker):
         self._grant = grant
         self._guard = guard
         self._unsent_proofs = {}
+        if protected_funding is not None and not callable(protected_funding):
+            raise TypeError("protected_funding must be a canonical funding callback")
+        self._protected_funding = protected_funding
         self.capabilities = inner.capabilities
         self.certification_name = getattr(inner, "certification_name", None)
         if isinstance(grant, AttendedPaperExecutionGrant):
@@ -458,36 +462,70 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     async def submit(
             self, *, client_key: str, instrument: BrokerInstrument,
-            side: Side, quantity: Decimal) -> CommandOutcome:
+            side: Side, quantity: Decimal,
+            order_terms: OrderTerms = OrderTerms()) -> CommandOutcome:
         # A proof is valid only for the immediately preceding guarded attempt.
         # It cannot survive a later attempt that might cross transport.
         self._unsent_proofs.clear()
         try:
-            await self._prepare_submit(instrument=instrument, side=side,
-                                       quantity=quantity)
+            await self._prepare_submit(client_key=client_key,
+                                       instrument=instrument, side=side,
+                                       quantity=quantity, order_terms=order_terms)
         except PreTransportAuthorityRefused as exc:
             # Issued only before the inner submit call. An inner transport
             # exception, even one with the same class, cannot acquire a proof.
             nonce = object()
-            self._unsent_proofs[nonce] = (client_key, instrument, side, quantity)
+            self._unsent_proofs[nonce] = (client_key, instrument, side, quantity,
+                                         order_terms)
             exc._not_transported = nonce
             raise
-        return await self._inner.submit(
-            client_key=client_key, instrument=instrument,
-            side=side, quantity=quantity)
+        kwargs = dict(client_key=client_key, instrument=instrument,
+                      side=side, quantity=quantity)
+        if order_terms != OrderTerms():
+            kwargs["order_terms"] = order_terms
+        return await self._inner.submit(**kwargs)
 
     def consume_not_transported(self, exc, command) -> None:
         """Validate a single-use, exact-command proof before journal restoration."""
         nonce = getattr(exc, '_not_transported', None)
         actual = self._unsent_proofs.pop(nonce, None)
         expected = (command.client_key, command.instrument, command.side,
-                    command.quantity)
+                    command.quantity, command.order_terms)
         if (not isinstance(exc, PreTransportAuthorityRefused)
                 or actual is None or actual != expected):
             raise ValueError('no matching unused pre-transport submission proof')
 
-    async def _prepare_submit(self, *, instrument: BrokerInstrument,
-                              side: Side, quantity: Decimal) -> None:
+    @staticmethod
+    def _require_selected_buy_terms(*, side: Side, order_terms: OrderTerms) -> None:
+        if side is not Side.BUY:
+            return
+        from sentinel.execution.protected_limits import ProtectedLimitPolicy
+        from sentinel.execution.target_reprojection import TargetProjectionRefused
+        try:
+            selected = ProtectedLimitPolicy.from_env()
+        except TargetProjectionRefused as exc:
+            raise PreTransportAuthorityRefused(f"BUY policy configuration refused: {exc}") from exc
+        if selected is not None and order_terms.order_type != "limit":
+            raise PreTransportAuthorityRefused(
+                "selected protected BUY policy requires immutable LIMIT/DAY terms")
+
+    async def _prepare_submit(self, *, client_key: str,
+                              instrument: BrokerInstrument, side: Side,
+                              quantity: Decimal, order_terms: OrderTerms) -> None:
+        try:
+            if not isinstance(order_terms, OrderTerms):
+                raise TypeError("submission requires typed immutable order terms")
+            order_terms.require_owned_submission(side)
+        except (TypeError, ValueError) as exc:
+            raise PreTransportAuthorityRefused(str(exc)) from exc
+        self._require_selected_buy_terms(side=side, order_terms=order_terms)
+        protected = order_terms.order_type == "limit"
+        if protected:
+            if (self.capabilities.protected_limit_day is not True
+                    or not self.supports_market_clock
+                    or self._protected_funding is None):
+                raise PreTransportAuthorityRefused(
+                    "protected LIMIT/DAY capability, clock or funding authority is absent")
         if (isinstance(self._grant, PaperPreparationGrant)
                 or (isinstance(self._grant, AutomationExecutionGrant)
                     and self._grant.operation_scope != "EXECUTE")):
@@ -540,7 +578,22 @@ class GuardedExecutionBroker(ExecutionBroker):
 
         from sentinel.execution.opening_prices import OpeningPriceNotReady, RegularQuotes
         quote = None
-        if side is Side.BUY and self.capabilities.regular_session_quote_prices:
+        if protected:
+            try:
+                account = await self.account_snapshot()
+                await self._protected_funding(
+                    client_key=client_key, instrument=instrument,
+                    quantity=quantity, order_terms=order_terms, account=account)
+            except BrokerAuthorityRefused as exc:
+                raise PreTransportAuthorityRefused(str(exc)) from exc
+            except Exception as exc:
+                from sentinel.execution.protected_funding import ProtectedFundingNotReady
+                if isinstance(exc, ProtectedFundingNotReady):
+                    raise OrderEvidenceNotReady(str(exc)) from exc
+                raise PreTransportAuthorityRefused(
+                    "protected maximum-cost proof unavailable: "
+                    f"{type(exc).__name__}: {exc}") from exc
+        elif side is Side.BUY and self.capabilities.regular_session_quote_prices:
             try:
                 quote = await self.opening_prices(session=clock.timestamp.date(),
                     instruments={instrument.security_id:instrument})
@@ -576,7 +629,8 @@ class GuardedExecutionBroker(ExecutionBroker):
                     if now.date() != self._grant.effective_session:
                         raise ValueError('attended plan belongs to another session')
                 else:
-                    earliest, latest = opened, min(closed, opened + timedelta(seconds=600))
+                    earliest = opened + (timedelta(seconds=60) if protected else timedelta(0))
+                    latest = min(closed, opened + timedelta(seconds=600))
                 if not earliest <= now < latest:
                     raise ValueError(
                         f"increase freshness expired at {latest.isoformat()}; "
@@ -593,6 +647,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                 raise PreTransportAuthorityRefused(
                     "increase refused at final next-open freshness boundary: "
                     f"{type(exc).__name__}: {exc}") from exc
+        self._require_selected_buy_terms(side=side, order_terms=order_terms)
 
     async def cancel(self, broker_order_id: str) -> CommandOutcome:
         if (isinstance(self._grant, PaperPreparationGrant)

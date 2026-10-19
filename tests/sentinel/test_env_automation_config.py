@@ -86,6 +86,102 @@ def service_environment(service, overrides, *, configured=None):
     return result
 
 
+
+
+@pytest.mark.parametrize("policy,cap,accepted", [
+    (None, None, True), ("", "", True),
+    ("PROTECTED_LIMIT_DAY_V1", "0", True), ("PROTECTED_LIMIT_DAY_V1", "100", True),
+    ("PROTECTED_LIMIT_DAY_V1", "500", True), ("PROTECTED_LIMIT_DAY_V1", " 100 ", True),
+    ("PROTECTED_LIMIT_DAY_V1", "", False), ("PROTECTED_LIMIT_DAY_V1", "501", False),
+    ("PROTECTED_LIMIT_DAY_V1", "01", False), ("PROTECTED_LIMIT_DAY_V1", "+1", False),
+    ("PROTECTED_LIMIT_DAY_V1", "1.5", False), ("PROTECTED_LIMIT_DAY_V1", "-1", False),
+    ("UNKNOWN", "100", False), (None, "100", False), ("", "0", False),
+])
+def test_protected_policy_host_runtime_differential(policy, cap, accepted):
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
+    values = {}
+    if policy is not None: values["SENTINEL_PAPER_BUY_POLICY"] = policy
+    if cap is not None: values["SENTINEL_PAPER_BUY_CAP_BPS"] = cap
+    if accepted:
+        preflight._validate_semantics(values, alert_dispatcher=False)
+    else:
+        with pytest.raises(preflight.EnvRefused):
+            preflight._validate_semantics(values, alert_dispatcher=False)
+    with mock.patch.dict(os.environ, values, clear=True):
+        if accepted:
+            selected = ProtectedLimitPolicy.from_env()
+            assert (selected is None) == (not policy)
+            if selected is not None: assert selected.cap_bps == int(cap)
+        else:
+            with pytest.raises(TargetProjectionRefused):
+                ProtectedLimitPolicy.from_env()
+
+
+@pytest.mark.parametrize("selected,cap", [("", ""), ("PROTECTED_LIMIT_DAY_V1", "0"),
+                                         ("PROTECTED_LIMIT_DAY_V1", "100"),
+                                         ("PROTECTED_LIMIT_DAY_V1", "500")])
+def test_primary_and_standby_broker_services_receive_exact_selected_policy(selected, cap):
+    expected = {"SENTINEL_PAPER_BUY_POLICY": selected, "SENTINEL_PAPER_BUY_CAP_BPS": cap}
+    primary = compose_model()["services"]
+    services = {name: service for name, service in primary.items()
+                if (service.get("environment") or {}).get("SENTINEL_AUTHORIZED_RUNTIME")
+                == "SIGNED_DIGEST_SERVICE_V1"}
+    standby = yaml.safe_load((ROOT / "docker-compose.sentinel-automation-standby.yml").read_text())
+    services["sentinel-automation-standby"] = standby["services"]["sentinel-automation-standby"]
+    assert {"sentinel-automation", "sentinel-authorized-cli", "sentinel-automation-standby"} <= set(services)
+    for name, service in services.items():
+        for key, value in expected.items():
+            assert service["environment"][key] == "${" + key + ":-}", name
+        if name != "sentinel-automation-standby":
+            deployed = service_environment(name, expected)
+            assert {key: deployed[key] for key in expected} == expected
+
+
+@pytest.mark.parametrize("selected,cap", [("", ""), ("PROTECTED_LIMIT_DAY_V1", "0"),
+                                         ("PROTECTED_LIMIT_DAY_V1", "100"),
+                                         ("PROTECTED_LIMIT_DAY_V1", "500")])
+def test_ordinary_cli_and_authorized_cli_share_execution_policy_identity(selected, cap):
+    from sentinel import authority
+    values = {"SENTINEL_PAPER_BUY_POLICY": selected, "SENTINEL_PAPER_BUY_CAP_BPS": cap}
+    ordinary = yaml.safe_load((ROOT / "docker-compose.sentinel.yml").read_text())["services"]["sentinel"]["environment"]
+    authorized = service_environment("sentinel-authorized-cli", values)
+    for key in values:
+        assert ordinary.get(key) == "${" + key + ":-}"
+    assert not {"ALPACA_API_KEY", "ALPACA_SECRET_KEY", "SENTINEL_AUTHORIZED_RUNTIME"} & ordinary.keys()
+    identities = []
+    for environment in (values, {key: authorized[key] for key in values}):
+        with mock.patch.dict(os.environ, environment):
+            identities.append(authority.execution_config_identity(paper_base_url=authority.PAPER_BASE_URL))
+    assert identities[0] == identities[1]
+    assert identities[0]["schema"] == "sentinel.paper-execution-config/" + ("2" if selected else "1")
+
+
+def test_missing_ordinary_cli_policy_propagation_is_detected():
+    load = yaml.safe_load
+    def missing(value):
+        model = load(value)
+        if "sentinel" in model.get("services", {}):
+            model["services"]["sentinel"]["environment"].pop("SENTINEL_PAPER_BUY_CAP_BPS", None)
+        return model
+    with mock.patch.object(yaml, "safe_load", side_effect=missing):
+        with pytest.raises(AssertionError):
+            test_ordinary_cli_and_authorized_cli_share_execution_policy_identity("PROTECTED_LIMIT_DAY_V1", "100")
+
+
+def test_host_protected_cap_guard_removal_is_detected():
+    import inspect
+    source = inspect.getsource(preflight._validate_semantics)
+    needle = 'if re.fullmatch(r"0|[1-9][0-9]*", buy_cap) is None or len(buy_cap) > 3 or int(buy_cap) > 500:'
+    assert source.count(needle) == 1
+    local = {}
+    exec(compile(source.replace(needle, "if False:"), "<private-host-protected-cap>", "exec"),
+         vars(preflight), local)
+    with mock.patch.object(preflight, "_validate_semantics", local["_validate_semantics"]):
+        with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+            test_protected_policy_host_runtime_differential("PROTECTED_LIMIT_DAY_V1", "501", False)
+
+
 def test_required_service_inputs_have_preflight_or_provisioning_authority():
     required = set()
     for service in compose_model()["services"].values():

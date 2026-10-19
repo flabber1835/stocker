@@ -18,12 +18,15 @@ from sentinel.execution.alpaca import (
     AlpacaExecutionBroker,
     IncompleteBrokerPayload,
     MalformedBrokerPayload,
+    MalformedOrderTerms,
+    _submit_body,
     _submit_error_outcome,
     _submit_outcome,
 )
 from sentinel.execution.contract import (
     BrokerInstrument,
     CommandOutcome,
+    OrderTerms,
     Side,
 )
 from sentinel.execution.states import CommandState as S
@@ -39,6 +42,7 @@ class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
         instrument: BrokerInstrument,
         side: Side,
         quantity: Decimal,
+        order_terms: OrderTerms = OrderTerms(),
     ) -> CommandOutcome:
         asset_id = str(instrument.broker_id or "").strip()
         if not asset_id:
@@ -48,19 +52,8 @@ class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
                 "to a mutable ticker spelling at the transport boundary."
             )
 
-        body = {
-            # Alpaca documents this request field as accepting either a symbol
-            # or an asset ID. Use the stable ID so ticker reuse cannot redirect
-            # a previously-authorized command to another listing.
-            "symbol": asset_id,
-            "qty": str(quantity),
-            "side": "buy" if side is Side.BUY else "sell",
-            "type": "market",
-            "time_in_force": "day",
-            "client_order_id": client_key,
-            "order_class": "simple",
-            "extended_hours": False,
-        }
+        body = _submit_body(symbol=asset_id, client_key=client_key, side=side,
+            quantity=quantity, order_terms=order_terms, capabilities=self.capabilities)
         try:
             async with self._httpx.AsyncClient(timeout=20.0) as client:
                 resp = await client.post(
@@ -92,8 +85,9 @@ class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
                     instrument=instrument,
                     side=side,
                     quantity=quantity,
+                    order_terms=order_terms,
                 )
-            except IncompleteBrokerPayload as exc:
+            except (IncompleteBrokerPayload, MalformedOrderTerms) as exc:
                 broker_order_id = (
                     str(payload.get("id") or "")
                     if isinstance(payload, dict)

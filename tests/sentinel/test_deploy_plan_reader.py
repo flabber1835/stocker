@@ -79,6 +79,8 @@ def test_actual_host_envelope_selects_dual_cli_reader_without_broker(monkeypatch
             "SENTINEL_GIT_COMMIT": COMMIT,
             "SENTINEL_RUNTIME_IMAGE_DIGEST": DIGEST,
             "SENTINEL_TEST_IMAGE_DIGEST": TEST_DIGEST,
+            "SENTINEL_PAPER_BUY_POLICY": "",
+            "SENTINEL_PAPER_BUY_CAP_BPS": "",
             "SENTINEL_SHADOW_OBSERVATION_ENABLED": "1",
             "SENTINEL_SHADOW_OBSERVATION_ID": "reviewed-book",
             "SENTINEL_SHADOW_STARTING_CASH": "12345.67",
@@ -116,7 +118,59 @@ def test_unreviewed_and_other_modes_never_select_dual(mode):
     obj._base_cli(["current-paper-plan"])
     assert forwarded(calls[0]) == {"SENTINEL_GIT_COMMIT": COMMIT,
                                  "SENTINEL_RUNTIME_IMAGE_DIGEST": DIGEST,
-                                 "SENTINEL_TEST_IMAGE_DIGEST": TEST_DIGEST}
+                                 "SENTINEL_TEST_IMAGE_DIGEST": TEST_DIGEST,
+                                 "SENTINEL_PAPER_BUY_POLICY": "",
+                                 "SENTINEL_PAPER_BUY_CAP_BPS": ""}
+
+
+@pytest.mark.parametrize("mode", [None, "paper", "shadow", "dual"])
+@pytest.mark.parametrize("selected,cap", [("", ""), ("PROTECTED_LIMIT_DAY_V1", "0"),
+                                         ("PROTECTED_LIMIT_DAY_V1", "100"),
+                                         ("PROTECTED_LIMIT_DAY_V1", "500")])
+def test_plan_reader_recomputes_exact_selected_execution_identity(monkeypatch, mode, selected, cap):
+    from sentinel import authority
+    values = {"SENTINEL_PAPER_BUY_POLICY": selected, "SENTINEL_PAPER_BUY_CAP_BPS": cap}
+    obj = instance(mode, **values, ALPACA_API_KEY="DO-NOT-FORWARD",
+                   ALPACA_SECRET_KEY="DO-NOT-FORWARD", SENTINEL_AUTHORIZED_RUNTIME="DO-NOT-FORWARD")
+    calls = []
+    obj.runner.run = lambda argv, **kwargs: calls.append(argv) or subprocess.CompletedProcess(argv, 0)
+    obj._base_cli(["current-paper-plan"])
+    received = forwarded(calls[0])
+    assert {key: received.get(key) for key in values} == values
+    assert not {"ALPACA_API_KEY", "ALPACA_SECRET_KEY", "SENTINEL_AUTHORIZED_RUNTIME"} & received.keys()
+    with monkeypatch.context() as scoped:
+        for key, value in values.items():
+            scoped.setenv(key, value)
+        expected = authority.execution_config_identity(paper_base_url=authority.PAPER_BASE_URL)
+        # An ordinary container inherits only the explicit Compose/reader values.
+        for key in values:
+            scoped.delenv(key)
+        for key in values:
+            if key in received:
+                scoped.setenv(key, received[key])
+        actual = authority.execution_config_identity(paper_base_url=authority.PAPER_BASE_URL)
+    assert actual == expected
+    assert authority.canonical_sha256(actual) == authority.canonical_sha256(expected)
+    assert actual["schema"] == "sentinel.paper-execution-config/" + ("2" if selected else "1")
+
+
+def test_missing_plan_reader_policy_propagation_is_detected(monkeypatch):
+    import inspect
+    import textwrap
+    function = install.core.AutonomousDeploy._current_plan_reader_args
+    source = textwrap.dedent(inspect.getsource(function))
+    needle = ('    args += [item for key, value in policy_values.items()\n'
+              '             for item in ("--env", key + "=" + value)]\n')
+    assert source.count(needle) == 1
+    local = {}
+    exec(compile(source.replace(needle, ""), "<private-reader-policy-omission>", "exec"),
+         function.__globals__, local)
+    with monkeypatch.context() as scoped:
+        scoped.setattr(install.core.AutonomousDeploy, "_current_plan_reader_args",
+                       local["_current_plan_reader_args"])
+        with pytest.raises(AssertionError):
+            test_plan_reader_recomputes_exact_selected_execution_identity(
+                scoped, "dual", "PROTECTED_LIMIT_DAY_V1", "100")
 
 
 @pytest.mark.parametrize("command", ["status", "automation-status", "deactivate-paper-automation"])

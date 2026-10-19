@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[Opening execution latency](opening-execution-latency.md) records the October 19
+missed opening window, dependency-correct reuse of retained sizing, measured
+gateway qualification and renewal of actual publication-bound readiness evidence.
+The original failed cycle and proven-unsent command remain retained.
+
 [Idle leadership resilience](idle-leader-resilience.md) defines main-loop
 progress renewal, bounded nonfinancial idle attestation and durable grouping of
 related leadership alerts, with genuine stalls and financial authority fenced.
@@ -170,9 +175,13 @@ OPENFIGI_API_KEY is optional; unauthenticated mapping uses smaller paced batches
 Use ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2; explicitly configured older
 Nasdaq or fixed-clock policies must be updated before installation. Closed-session
 availability depends on validated provider coverage, not a wall-clock promise.
-Free execution sizing uses fresh raw IEX bid/ask quotes in the first ten regular
+Installed execution sizing uses fresh raw IEX bid/ask quotes in the first ten regular
 session minutes, with per-security availability and fresh pre-submit funding
-checks. Formation reuses authenticated calculation work while keeping
+checks. The operator's no-subscription constraint supersedes the unpublished
+SIP-only candidate. The [free-data execution proposal](free-data-execution-proposal.md)
+defines the selected protected LIMIT/DAY redesign under qualification; it is
+not a deployed policy or activation authority. Formation
+reuses authenticated calculation work while keeping
 every canonical decision's exact trailing 300-session inputs.
 
 [Large reference storage](rolling-snapshot-storage.md#large-reference-representation)

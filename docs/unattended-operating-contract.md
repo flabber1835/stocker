@@ -1,5 +1,13 @@
 # Separate software completion
 
+Investigation: 2026-10-19. The operator requires no SIP subscription. The
+unpublished SIP-only latency candidate is not a selected release. The installed
+IEX contract below remains in force; the [free-data execution proposal](free-data-execution-proposal.md)
+defines the selected protected LIMIT/DAY policy, currently under qualification.
+No quote freshness, funding or execution-window safeguard has been changed in
+production. The approved DAY lifetime and unchanged new-submit cutoff are
+documented there; installed behavior changes only through the release gates.
+
 ## Idle authority polling after lease loss
 
 Decision: 2026-10-10. The broker-free idle control poll can lose its lease

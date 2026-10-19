@@ -52,7 +52,10 @@ def requires_initial_projection(conn, *, plan, deployment):
     mode = projection.opening_sizing.get("mode")
     if mode in {ZERO_MODE, UNAVAILABLE_MODE}:
         return False
-    if mode != FINAL_MODE:
+    from sentinel.execution.protected_limits import PROTECTED_MODE, validate_projection
+    if mode == PROTECTED_MODE:
+        validate_projection(projection)
+    elif mode != FINAL_MODE:
         raise TargetProjectionRefused("stored opening sizing mode is unknown")
     opening_ids = {item.security_id for item in plan.opening_intents}
     if all(projection.target_basket.get(sid, Decimal(0)) == 0
@@ -83,6 +86,11 @@ def _unavailable(plan, instruments, exc):
 
 
 async def prices_for_plan(conn, *, state, plan, broker):
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
+    if ProtectedLimitPolicy.from_env() is not None:
+        # Historical references are read by the action-bound target projection,
+        # never by this executable-price port or by a provider quote request.
+        return None
     if not plan.opening_intents or plan.target_exposure == 0:
         return None
     stored = load_projection(conn, plan_id=plan.plan_id)
@@ -154,6 +162,13 @@ def resolve(state, plan, projection,
     This is an intent calculation. The caller retains the canonical state, and
     the executor owns actual reductions, settlement, fills and account funding.
     """
+    from sentinel.execution.protected_limits import (
+        PriorCloseReferences, ProtectedLimitPolicy, resolve_protected)
+    if isinstance(prices, PriorCloseReferences):
+        policy = ProtectedLimitPolicy.from_env()
+        if policy is None:
+            raise TargetProjectionRefused("historical RAW references require the protected BUY policy")
+        return resolve_protected(state, plan, projection, prices, policy)
     from sentinel.controller.ex3_v6 import enabled
     from sentinel.core.decision import shadow_target, _shadow_equity
     if (not enabled(state.strategy_identity) or not plan.opening_intents

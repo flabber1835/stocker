@@ -193,7 +193,7 @@ _CONFORMANCE_SUITES = {
 _WRAPPER_SPECS = {
     "generation-fenced-execution": (
         "sentinel.execution.guarded.GuardedExecutionBroker",
-        "_inner", ("_grant", "_guard")),
+        "_inner", ("_grant", "_guard", "_protected_funding")),
     "administrative-read": (
         "sentinel.guarded_administration.GuardedAdministrativeExecutionBroker",
         "_inner", ("_grant", "_guard")),

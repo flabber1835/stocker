@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import autonomy_runtime_upgrade as upgrade, runtime_admission as admission
+from sentinel import opening_latency_upgrade
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
@@ -36,8 +37,9 @@ def test_profile_has_closed_scope_and_named_additions():
 def test_exact_predecessors_and_full_authenticated_closure(closure, name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent / name).read_bytes()).hexdigest()
-    assert actual == record['after']
-    assert all(upgrade.source_allowed(name, old, actual) for old in record['before'])
+    assert (actual == record['after']
+            or opening_latency_upgrade.source_allowed(name, record['after'], actual))
+    assert all(upgrade.source_allowed(name, old, record['after']) for old in record['before'])
     assert not upgrade.source_allowed(name, 'f' * 64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f' * 64)
     assert not upgrade.source_allowed('core/kernel.py', record['before'][0], actual)

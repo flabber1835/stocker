@@ -202,7 +202,7 @@ def _advance_current_schema_to_controller(conn, *, reason: str) -> None:
 @pytest.mark.parametrize("feed_only", [False, True], ids=["empty", "feed-only"])
 def test_brand_new_behavioral_database_seeds_once(database, feed_only):
     if feed_only:
-        feed_store.require_feed_schema(database)
+        feed_store.migrate_schema(database)
         with database.cursor() as cur:
             cur.execute(
                 "SELECT COUNT(*) FROM pg_tables"
@@ -214,7 +214,8 @@ def test_brand_new_behavioral_database_seeds_once(database, feed_only):
     assert _rollout_rows(database) == [(1, "PINNED_1_00", 1, None)]
     ledger = _ledger_rows(database)
     assert [(row[0], row[1], row[2], row[3]) for row in ledger] == [
-        (1, MIGRATION_NAME, "NEW", None)]
+        (1, MIGRATION_NAME, "NEW", None),
+        (2, schema._ORDER_TERMS_NAME, "NEW", None)]
     assert _plan_rollout_columns(database) == [
         ("rollout_certificate_sha256", "YES", None),
         ("rollout_mode", "NO", None),
@@ -320,7 +321,8 @@ def test_real_pre_rollout_upgrade_seeds_but_leaves_old_plan_unstamped(database):
     assert _rollout_rows(database) == [(1, "PINNED_1_00", 1, None)]
     ledger = _ledger_rows(database)
     assert [(row[0], row[1], row[2], row[3]) for row in ledger] == [
-        (1, MIGRATION_NAME, "LEGACY", None)]
+        (1, MIGRATION_NAME, "LEGACY", None),
+        (2, schema._ORDER_TERMS_NAME, "LEGACY", None)]
     with database.cursor() as cur:
         cur.execute(
             "SELECT rollout_mode,rollout_version,"
@@ -424,7 +426,8 @@ def test_exact_fb97372_upgrade_backfills_command_identity_without_rewrite(
     assert _rollout_rows(database) == [(1, "PINNED_1_00", 1, None)]
     ledger = _ledger_rows(database)
     assert [(row[0], row[1], row[2], row[3]) for row in ledger] == [
-        (1, MIGRATION_NAME, "LEGACY", None)]
+        (1, MIGRATION_NAME, "LEGACY", None),
+        (2, schema._ORDER_TERMS_NAME, "LEGACY", None)]
     with database.cursor() as cur:
         cur.execute(legacy_command)
         assert cur.fetchall() == command_before
@@ -596,7 +599,8 @@ def test_exact_6113_bridge_preserves_all_durable_operational_intent(database):
     assert _preserved_snapshot(database) == before
     ledger = _ledger_rows(database)
     assert [(row[0], row[1], row[2], row[3]) for row in ledger] == [
-        (1, MIGRATION_NAME, "PR84_HEAD_BRIDGE", REVIEWED_HEAD)]
+        (1, MIGRATION_NAME, "PR84_HEAD_BRIDGE", REVIEWED_HEAD),
+        (2, schema._ORDER_TERMS_NAME, "PR84_HEAD_BRIDGE", REVIEWED_HEAD)]
     assert _plan_rollout_columns(database) == [
         ("rollout_certificate_sha256", "YES", None),
         ("rollout_mode", "NO", None),
@@ -914,15 +918,13 @@ def test_missing_or_corrupt_migration_authority_refuses_without_repair(
             if damage == "gapped":
                 # A ledger that starts at version 2 has no contiguous v1 base.
                 cur.execute(
-                    "UPDATE sentinel_behavioral_schema_migrations"
-                    " SET version=2,name='rollout-authority-v2'"
-                    " WHERE version=1")
+                    "DELETE FROM sentinel_behavioral_schema_migrations WHERE version=1")
             else:
-                # Contiguous, but this binary knows no behavioral version 2.
+                # Contiguous, but this binary knows no behavioral version 3.
                 cur.execute(
                     "INSERT INTO sentinel_behavioral_schema_migrations"
                     " (version,name,migration_sha256,bootstrap_kind,source_git_oid)"
-                    " SELECT 2,'unsupported-authority-v2',migration_sha256,"
+                    " SELECT 3,'unsupported-authority-v3',migration_sha256,"
                     "        bootstrap_kind,source_git_oid"
                     " FROM sentinel_behavioral_schema_migrations"
                     " WHERE version=1")
@@ -931,7 +933,9 @@ def test_missing_or_corrupt_migration_authority_refuses_without_repair(
     database.commit()
     before = _ledger_shape(database)
 
-    _assert_operator_refusal(database, reason="migration")
+    # V2 without its ledger cannot be the recognized v1/6113 predecessor:
+    # the immutable terms column is positive evidence of the later schema.
+    _assert_operator_refusal(database, reason="order_terms" if damage == "missing" else "migration")
 
     assert _ledger_shape(database) == before
     assert _rollout_rows(database) == [
@@ -969,7 +973,7 @@ def test_four_concurrent_first_initializers_serialize_to_one_seed(database, pg):
     assert _rollout_rows(database) == [(1, "PINNED_1_00", 1, None)]
     ledger = _ledger_rows(database)
     assert [(row[0], row[1]) for row in ledger] == [
-        (1, MIGRATION_NAME)]
+        (1, MIGRATION_NAME), (2, schema._ORDER_TERMS_NAME)]
     with database.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM sentinel_rollout_events")
         assert cur.fetchone()[0] == 0

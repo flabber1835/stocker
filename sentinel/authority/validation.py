@@ -57,7 +57,7 @@ def execution_config_identity(*, paper_base_url: str,
         roots_sha = _sha256(Path(trust_roots_path).read_bytes())
     except OSError as exc:
         raise AuthorityRefused("trusted-root file is unreadable") from exc
-    return {
+    identity = {
         "schema": "sentinel.paper-execution-config/1",
         "scope": PAPER_SCOPE,
         "paper_base_url": paper_base_url,
@@ -65,6 +65,13 @@ def execution_config_identity(*, paper_base_url: str,
         "adapter": "sentinel.execution.alpaca_asset_id.AssetIdAlpacaExecutionBroker",
         "trust_roots_sha256": roots_sha,
     }
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
+    policy = ProtectedLimitPolicy.from_env()
+    if policy is not None:
+        identity["schema"] = "sentinel.paper-execution-config/2"
+        identity["protected_buy_policy"] = policy.to_dict()
+        identity["protected_buy_policy_sha256"] = policy.fingerprint()
+    return identity
 
 
 def runtime_artifact_identity(runtime_identity: Mapping) -> Mapping:

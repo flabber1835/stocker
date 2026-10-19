@@ -244,6 +244,18 @@ def test_readiness_cache_is_bound_to_authenticated_publication(conn, published):
     assert readers.status_snapshot(conn) == ("2026-09-14", None)
 
 
+def test_binding_a_measured_report_cannot_promote_failure_or_modify_measurement():
+    from types import SimpleNamespace
+    pub = SimpleNamespace(evidence={'rolling_snapshot': {}}, to_dict=lambda: {'version': 7})
+    report = readiness.Readiness()
+    report.add('rolling source-final frontier', readiness.FAIL, 'one required session missing')
+    bound = readers.bound_readiness(pub, report)
+    assert not bound.ready
+    assert [check.name for check in report.checks] == ['rolling source-final frontier']
+    assert bound.failures == report.failures
+    assert bound.checks[-1].detail == publication_fingerprint(pub)
+
+
 def test_informational_paper_panel_receives_the_rolling_frontier(conn, published, monkeypatch):
     from sentinel import informational_paper_mirror as mirror
     from sentinel.feed import store

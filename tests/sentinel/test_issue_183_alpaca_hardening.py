@@ -229,6 +229,13 @@ def test_2xx_non_acknowledging_lifecycle_requires_exact_recovery(status):
 ])
 def test_success_response_contradiction_fails_closed(field, value):
     broker, _ = adapter(post=Response(full_order(**{field: value}), 200))
+    if field in {'type', 'time_in_force', 'order_class', 'extended_hours'}:
+        outcome = run(broker.submit(
+            client_key="key-1", instrument=INSTRUMENT,
+            side=Side.BUY, quantity=Decimal(2)))
+        assert outcome.state is S.UNKNOWN
+        assert outcome.broker_order_id == 'order-1'
+        return
     with pytest.raises(MalformedBrokerPayload):
         run(broker.submit(
             client_key="key-1", instrument=INSTRUMENT,

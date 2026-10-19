@@ -58,6 +58,8 @@ import json
 import os
 import platform
 import re
+from functools import lru_cache
+from importlib.metadata import Distribution
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -165,10 +167,67 @@ def installed_versions(names: Iterable[str]) -> dict[str, Optional[str]]:
     out: dict[str, Optional[str]] = {}
     for n in names:
         try:
-            out[n] = md.version(n)
+            dist = md.distribution(n)
+            fields = _distribution_headers(dist)
+            out[n] = (fields[1] if fields is not None and fields[1] is not None
+                      else dist.version)
         except Exception:                                  # noqa: BLE001
             out[n] = None
     return out
+
+
+_STANDARD_METADATA = Distribution.metadata
+_STANDARD_VERSION = Distribution.version
+_STANDARD_GETATTRIBUTE = Distribution.__getattribute__
+_STANDARD_GETATTR = getattr(Distribution, '__getattr__', None)
+
+
+class _MetadataText(Distribution):
+    """Use the interpreter's original metadata parser on already-read text."""
+    def __init__(self, text: Optional[str]):
+        self.text = text
+
+    def read_text(self, filename):
+        return self.text if filename == '' else None
+
+    def locate_file(self, path):
+        raise NotImplementedError('metadata parsing has no filesystem location')
+
+
+def _metadata_fields(text) -> tuple[object, object]:
+    # Never retain the mutable Message or a distribution/path/version lookup.
+    metadata = _STANDARD_METADATA.__get__(_MetadataText(text))
+    return metadata.get('Name'), metadata.get('Version')
+
+
+class _MutableMetadataFields(Exception):
+    """A standard parser result that must use original uncached access."""
+
+
+@lru_cache(maxsize=128)
+def _parse_metadata_text(text: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    fields = _metadata_fields(text)
+    if any(value is not None and type(value) is not str for value in fields):
+        # Raised outcomes never enter lru_cache; use fresh original access.
+        raise _MutableMetadataFields
+    return fields
+
+
+def _distribution_headers(dist: Distribution) -> tuple[Optional[str], Optional[str]] | None:
+    """Read every time; reuse only pure parsing for standard descriptors."""
+    if (getattr(type(dist), 'metadata', None) is not _STANDARD_METADATA
+            or getattr(type(dist), 'version', None) is not _STANDARD_VERSION
+            or getattr(type(dist), '__getattribute__', None) is not _STANDARD_GETATTRIBUTE
+            or getattr(type(dist), '__getattr__', None) is not _STANDARD_GETATTR):
+        return None
+    text = (dist.read_text('METADATA') or dist.read_text('PKG-INFO')
+            or dist.read_text(''))
+    if text is not None and type(text) is not str:
+        return None
+    try:
+        return _parse_metadata_text(text)
+    except _MutableMetadataFields:
+        return None
 
 
 def installed_distributions() -> list[list[str]]:
@@ -192,8 +251,13 @@ def installed_distributions() -> list[list[str]]:
     seen: dict[str, str] = {}
     for dist in md.distributions():
         try:
-            name = (dist.metadata["Name"] or "").lower().replace("_", "-")
-            version = dist.version or ""
+            fields = _distribution_headers(dist)
+            if fields is None or None in fields:
+                name = (dist.metadata["Name"] or "").lower().replace("_", "-")
+                version = dist.version or ""
+            else:
+                name = (fields[0] or '').lower().replace('_', '-')
+                version = fields[1] or ''
         except Exception:                                    # noqa: BLE001
             continue
         if name:
@@ -215,6 +279,10 @@ def pin_drift() -> dict[str, dict]:
     """
     pinned = pinned_requirements()
     have = installed_versions(pinned)
+    return _pin_drift(pinned, have)
+
+
+def _pin_drift(pinned: dict[str, str], have: dict[str, Optional[str]]) -> dict[str, dict]:
     return {k: {"pinned": v, "installed": have.get(k)}
             for k, v in pinned.items() if have.get(k) != v}
 
@@ -247,7 +315,9 @@ def environment() -> dict:
     from sentinel.feed import calendar as cal                # noqa: PLC0415
 
     py = platform.python_version()
-    drift = pin_drift()
+    pinned = pinned_requirements()
+    have = installed_versions(pinned)
+    drift = _pin_drift(pinned, have)
     try:
         calendar_version = cal.calendar_version()
     except Exception as exc:                                  # noqa: BLE001
@@ -272,7 +342,7 @@ def environment() -> dict:
         "postgres_image_digest_pinned": CERTIFIED_POSTGRES_DIGEST,
         "calendar_exchange": cal.EXCHANGE,
         "calendar_version": calendar_version,
-        "packages": installed_versions(pinned_requirements()),
+        "packages": have,
         "pin_drift": drift,
         "pins_match": not drift,
         # THE WHOLE CLOSURE, not only the direct pins. Two images with

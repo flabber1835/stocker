@@ -163,8 +163,8 @@ MUTANTS = (
     Mutant(
         name="alpaca-submit-falls-back-to-mutable-symbol",
         relative_path="sentinel/execution/alpaca.py",
-        original='            "symbol": str(instrument.broker_id),\n',
-        replacement='            "symbol": str(instrument.symbol),\n',
+        original='        body = _submit_body(symbol=str(instrument.broker_id), client_key=client_key,\n',
+        replacement='        body = _submit_body(symbol=str(instrument.symbol), client_key=client_key,\n',
         test=(
             "tests/sentinel/test_alpaca_certification_boundary.py::"
             "test_every_certified_alpaca_variant_submits_by_stable_asset_id"

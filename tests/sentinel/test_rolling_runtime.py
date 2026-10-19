@@ -71,12 +71,81 @@ def test_same_session_service_verifies_without_account_writer(conn, published, m
         other.close()
 
 
+def test_same_session_service_renews_measured_feed_evidence(conn, published, monkeypatch):
+    from sentinel.feed import readers, readiness
+    from sentinel.panel import model
+
+    expected = advance(conn)
+    readiness.save_snapshot(conn, readers.readiness(conn))
+    conn.execute("UPDATE sentinel_readiness_snapshots SET computed_at=NOW()-INTERVAL '3 days'")
+    conn.commit()
+    assert readers.status_snapshot(conn)[1].stale
+    authority_before = authority.latest(conn, OBS)
+    conn.rollback()
+    validations = []
+    original = runtime._current
+
+    def measured(*args, **kwargs):
+        validations.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(runtime, '_current', measured)
+    result = runtime.service_advance(
+        conn, through=expected.session, observation_id=OBS, starting_cash=100_000)
+    frontier, fresh = readers.status_snapshot(conn)
+    assert len(validations) == 1, "display refresh must reuse the current canonical measurement"
+    assert fresh.trustworthy and not fresh.stale
+    assert readers.snapshot_matches(readers.current(conn), fresh)
+    assert any(check['name'] == 'rolling immutable input closure' for check in fresh.checks)
+    now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+    row = model.feed_row(frontier=frontier, sessions_behind=0, ready=fresh.ready,
+        checks_passed=fresh.checks_passed, checks_total=fresh.checks_total,
+        as_of=fresh.computed_at, checked_at=fresh.computed_at)
+    assert row.effective_status(now) == model.OK
+    assert result.record_sha256 == expected.record_sha256
+    assert authority.latest(conn, OBS) == authority_before
+    for table in ('sentinel_execution_plans', 'sentinel_commands', 'sentinel_fills'):
+        assert conn.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('defect', ['missing_source_session', 'corrupt_content'])
+def test_failed_same_session_verification_cannot_renew_feed_pass(conn, published, monkeypatch, defect):
+    from sentinel.feed import readers, readiness, rolling_store
+
+    expected = advance(conn)
+    readiness.save_snapshot(conn, readers.readiness(conn))
+    conn.execute("UPDATE sentinel_readiness_snapshots SET computed_at=NOW()-INTERVAL '3 days'")
+    conn.commit()
+    prior = readiness.latest_snapshot(conn)
+    count = conn.execute('SELECT COUNT(*) FROM sentinel_readiness_snapshots').fetchone()[0]
+    conn.rollback()
+    if defect == 'missing_source_session':
+        monkeypatch.setattr(inputs.snapshots, 'source_final_session', lambda *_: '2026-09-15')
+        error = inputs.RollingSourceFrontierPending
+    else:
+        conn.execute('SET LOCAL session_replication_role=replica')
+        conn.execute('UPDATE sentinel_snapshot_bars SET volume=volume+1 WHERE candidate_id=%s',
+                     (published['candidate_id'],))
+        conn.commit()
+        error = rolling_store.SnapshotStorageRefused
+    with pytest.raises(error):
+        runtime.service_advance(
+            conn, through=expected.session, observation_id=OBS, starting_cash=100_000)
+    latest = readiness.latest_snapshot(conn)
+    assert latest.computed_at == prior.computed_at and latest.stale
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_readiness_snapshots').fetchone()[0] == count
+
+
 def test_removed_same_session_read_path_is_detected(conn, monkeypatch):
     import inspect
     from sentinel.execution import journal
     marker = object()
+    from sentinel.feed import readiness
+    report = readiness.Readiness()
+    report.add('rolling publication binding', readiness.PASS, 'b' * 64)
     monkeypatch.setattr(runtime, 'classify', lambda *_a, **_k:
-        {'status':'VERIFIED_UNCHANGED','result':marker,'inventory_sha256':'a'*64})
+        {'status':'VERIFIED_UNCHANGED','result':marker,'inventory_sha256':'a'*64,
+         '_readiness_snapshot':report})
     monkeypatch.setattr(runtime, '_refresh_unchanged_health', lambda *_a, **_k: None)
     monkeypatch.setattr(initial, '_now', lambda _: NOW)
     source = inspect.getsource(runtime.service_advance)

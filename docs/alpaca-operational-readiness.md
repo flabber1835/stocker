@@ -1,5 +1,12 @@
 # Alpaca operational completion
 
+Investigation: 2026-10-19. The operator requires no SIP subscription. The
+unpublished SIP-only execution candidate is not selected for release. Installed
+execution still uses the IEX policy below. The [free-data execution proposal](free-data-execution-proposal.md)
+defines the selected protected LIMIT/DAY redesign, currently under qualification,
+and grants no activation authority. Retained historical inputs and execution
+evidence keep their original source and scope.
+
 Decision: 2026-10-03. Complete the free operational source and test the actual
 local acquisition, formation and daily continuation before publishing changes.
 The canonical strategy, 300-session decision boundary, 126 formation transitions,

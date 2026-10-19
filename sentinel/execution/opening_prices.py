@@ -11,6 +11,9 @@ from sentinel.feed import calendar
 
 SOURCE = "ALPACA_IEX_RAW_OPENING_MINUTE_V1"
 QUOTE_SOURCE = "ALPACA_IEX_RAW_REGULAR_QUOTES_V2"
+LEGACY_QUOTE_SOURCE = QUOTE_SOURCE
+SIP_QUOTE_SOURCE = "ALPACA_SIP_RAW_REGULAR_QUOTES_V1"
+_QUOTE_SOURCES = frozenset({QUOTE_SOURCE, SIP_QUOTE_SOURCE})
 QUOTE_ENDPOINT = "https://data.alpaca.markets/v2/stocks/quotes/latest"
 FEED = "iex"
 UNAVAILABLE_SOURCE = "ALPACA_OPENING_EVIDENCE_UNAVAILABLE_V1"
@@ -88,9 +91,9 @@ class OpeningPrices:
 
     def __post_init__(self):
         opened, closed = calendar.session_window(self.session)
-        if self.source == QUOTE_SOURCE and not isinstance(self, RegularQuotes):
+        if self.source in _QUOTE_SOURCES and not isinstance(self, RegularQuotes):
             raise OpeningPriceUnavailable('regular quotes require authenticated sides and timestamps')
-        if (self.source not in {SOURCE, QUOTE_SOURCE} or self.opening_at != opened
+        if (self.source not in {SOURCE, *_QUOTE_SOURCES} or self.opening_at != opened
                 or self.observed_at.tzinfo is None
                 or not opened + (timedelta(minutes=1) if self.source == SOURCE else timedelta(0)) <= self.observed_at < closed):
             raise OpeningPriceUnavailable("opening prices have invalid source or session timestamps")
@@ -123,7 +126,8 @@ class OpeningPrices:
 
     @classmethod
     def from_dict(cls, raw):
-        if isinstance(raw, dict) and raw.get('source') == QUOTE_SOURCE:
+        if (isinstance(raw, dict) and isinstance(raw.get('source'), str)
+                and raw['source'] in _QUOTE_SOURCES):
             return RegularQuotes.from_dict(raw)
         if isinstance(raw, dict) and raw.get("source") == UNAVAILABLE_SOURCE:
             return OpeningPriceUnavailability.from_dict(raw)
@@ -148,7 +152,7 @@ class RegularQuotes(OpeningPrices):
 
     def __post_init__(self):
         super().__post_init__()
-        if (self.source != QUOTE_SOURCE or self.bids is None or self.quoted_at is None
+        if (self.source not in _QUOTE_SOURCES or self.bids is None or self.quoted_at is None
                 or set(self.bids) != set(self.prices) or set(self.quoted_at) != set(self.prices)):
             raise OpeningPriceUnavailable('regular quote evidence has incomplete sides or timestamps')
         for sid, ask in self.prices.items():

@@ -127,7 +127,7 @@ def test_admission_predecessor_is_not_a_wildcard_administrative_module(closure):
 
 def test_removing_admission_predecessor_scope_has_a_falsifier(closure, monkeypatch):
     source = inspect.getsource(admission.prove_compatibility)
-    needle = ' - native_read_upgrade.SCOPE - clock_sampling_upgrade.SCOPE - idle_leader_upgrade.SCOPE'
+    needle = ' - native_read_upgrade.SCOPE - clock_sampling_upgrade.SCOPE - idle_leader_upgrade.SCOPE - opening_latency_upgrade.SCOPE'
     assert source.count(needle) == 1
     namespace = {}
     exec(compile(source.replace(needle, ''), 'admission-scope-falsifier', 'exec'), admission.__dict__, namespace)

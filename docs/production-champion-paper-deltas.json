@@ -77,7 +77,7 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "71daedf243da22fdcb3e3c8f6f4838c6c601b32621199cf78651a7f9427c72b8",
+      "generated_ast_sha256": "37fce9001e94f51e8d2999c2e38becd86016e1a12f62ee6c00a9357ace67c2f2",
       "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
       "module": "execution",
       "open_time_acceptance": [
@@ -86,6 +86,14 @@
         "tools/sentinel_open_time_falsifiers.py"
       ],
       "open_time_design": "docs/open-time-verification-and-alerts.md",
+      "protected_buy_acceptance": [
+        "tests/sentinel/test_limit_day_execution_wiring.py",
+        "tests/sentinel/test_limit_day_policy_guard.py",
+        "tests/sentinel/test_limit_day_plan_cash_funding.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "protected_buy_design": "docs/free-data-execution-proposal.md",
+      "protected_buy_reason": "Require exact fresh reconciliation and ordinary quiescent account/cash proof for the immutable protected funding basis; preserve restrictions, settled recovery, legacy increases and incomplete-price nonconvergence.",
       "reason": "Admit the sealed bare transport before composition and preserve reviewed informational current-book scope through execution preflight and settlement. PR #491: Pass independently verified dual scope to the exact retained-state plan guard; all existing sizing, reconciliation, opening-window and broker authority guards remain. PR #511: Warm the immutable proof scope inside the existing writer and publication pin before the gateway verifies the retained book; do not extend its locks, callback deadline or opening-increase window.",
       "retained_acceptance": [
         "tests/sentinel/test_retained_admission_chain.py",
@@ -106,7 +114,7 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "f832dc1d6b28d18fb6c418484b0c3aa396a68db3f586b3ec29ca961cb0eb033e",
+      "generated_ast_sha256": "678047439f4e65e77a2c7cc3fbb0db2651fa8c5ed7e06004b8f3954cd5fab61e",
       "historical_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
       "module": "validation",
       "open_time_acceptance": [
@@ -115,6 +123,14 @@
         "tools/sentinel_open_time_falsifiers.py"
       ],
       "open_time_design": "docs/open-time-verification-and-alerts.md",
+      "protected_buy_acceptance": [
+        "tests/sentinel/test_limit_day_execution_wiring.py",
+        "tests/sentinel/test_limit_day_policy_guard.py",
+        "tests/sentinel/test_limit_day_plan_cash_funding.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "protected_buy_design": "docs/free-data-execution-proposal.md",
+      "protected_buy_reason": "Keep all fresh broker-read brackets and derive protected funding internally from committed rows and the actual certified wrapper; no caller-provided funding proof or fallback from missing activity.",
       "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation. PR #511: Reuse only the exact live gateway owner scope; retain fresh signed authority, grant, lease, plan, time and mutation checks around every broker operation."
     },
     "_informational_active_symbols": {
@@ -123,14 +139,22 @@
       "module": "targets"
     },
     "_instrument_map": {
-      "generated_ast_sha256": "f973e496a89d999288965699af96f8ab7bc26be874ebea062fad9e31d55ea1bb",
+      "generated_ast_sha256": "6869263be0bca3b80446fac48c382070a3b6621cd56e5be1a04ea469fa610d8f",
       "historical_ast_sha256": "901822d197c2e7745701f79b95096887b3dd3e3e02dead3160013fe356bbdc30",
       "module": "targets",
-      "production_path_design": "docs/production-path-qualification.md",
       "production_path_acceptance": [
         "tests/sentinel/test_alpaca_source_codec.py",
         "tests/sentinel/test_rolling_paper_inputs.py"
-      ]
+      ],
+      "production_path_design": "docs/production-path-qualification.md",
+      "protected_buy_acceptance": [
+        "tests/sentinel/test_limit_day_execution_wiring.py",
+        "tests/sentinel/test_limit_day_policy_guard.py",
+        "tests/sentinel/test_limit_day_plan_cash_funding.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "protected_buy_design": "docs/free-data-execution-proposal.md",
+      "protected_buy_reason": "Bind protected instruments to retained plan/projection/source-native identities, defer unavailable BUYs only and retain exact observed reductions and pre-submit revalidation."
     },
     "_latest_plan_or_refuse": {
       "generated_ast_sha256": "8ae8415d255fcca8a8010d0d175de6ff45cff00156424e22294fae8d4f9963c0",
@@ -148,9 +172,17 @@
       "module": "cash"
     },
     "_opening_prices_or_retry": {
-      "generated_ast_sha256": "56ea66b7de160942479d188410090abfd4aac2f1e0a4900366afdab046190d06",
+      "generated_ast_sha256": "85ee469fc0762fd92b851c5a189fdc8d842e6018a5724ad597bd4bf497a9e43d",
       "historical_ast_sha256": null,
-      "module": "execution"
+      "module": "execution",
+      "protected_buy_acceptance": [
+        "tests/sentinel/test_limit_day_execution_wiring.py",
+        "tests/sentinel/test_limit_day_policy_guard.py",
+        "tests/sentinel/test_limit_day_plan_cash_funding.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "protected_buy_design": "docs/free-data-execution-proposal.md",
+      "protected_buy_reason": "Bypass quotes only for explicitly selected protected BUY policy; authenticate historical RAW references in the separate projection factory and retain the legacy quote path."
     },
     "_opening_resolution_freshness_or_refuse": {
       "acceptance": "docs/unattended-operation-qualification.md",
@@ -164,6 +196,19 @@
       "generated_ast_sha256": "f4d0d48fa4bb9e34a62b185b5191e54ba9a11a9352ee0f5cf7af949760431204",
       "historical_ast_sha256": "6729525b285bc3f9b067b713a9262232f7f66af8f33fb821b309983fe7cf5764",
       "module": "targets"
+    },
+    "_protected_allocation_or_refuse": {
+      "generated_ast_sha256": "82a549606e71194be49cf0b2675fd0f518e6c682045934b3b9b405550b7dc06a",
+      "historical_ast_sha256": null,
+      "module": "validation",
+      "protected_buy_acceptance": [
+        "tests/sentinel/test_limit_day_execution_wiring.py",
+        "tests/sentinel/test_limit_day_policy_guard.py",
+        "tests/sentinel/test_limit_day_plan_cash_funding.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "protected_buy_design": "docs/free-data-execution-proposal.md",
+      "protected_buy_reason": "Require selected-policy SEND_PENDING BUY allocations to bind the canonical shadow equity and recompute their budget arithmetic; no caller-chosen scaling denominator."
     },
     "_provably_clean_empty_noop": {
       "generated_ast_sha256": "2b05d9b81659b3bfc4dcb5dd2286f60ad6c0e59ee619e641c63fdc47308d3bea",
@@ -239,9 +284,17 @@
       "module": "targets"
     },
     "_target_projection_or_refuse": {
-      "generated_ast_sha256": "f63e50ff978e6b661d83b3dbcd59364fa5460ce4daa65673ac9c14aa2a0219b3",
+      "generated_ast_sha256": "9d9927cb9ed0c16d824a20c579d78d6d1f35e2bf9105b216b298bc81e1fdd915",
       "historical_ast_sha256": "23dfec886b25ef9cb2ad3cb210347e115dd5a2eb4ecc60a7f9febe0bd4935a46",
-      "module": "targets"
+      "module": "targets",
+      "protected_buy_acceptance": [
+        "tests/sentinel/test_limit_day_execution_wiring.py",
+        "tests/sentinel/test_limit_day_policy_guard.py",
+        "tests/sentinel/test_limit_day_plan_cash_funding.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "protected_buy_design": "docs/free-data-execution-proposal.md",
+      "protected_buy_reason": "Resolve immutable protected terms from authenticated historical RAW/action evidence under explicit policy, retaining canonical quantities and legacy opening sizing."
     },
     "_transport_observation_or_refuse": {
       "generated_ast_sha256": "1d6718127e067bfe59b53b292f20363bb5e09c2c833b1fb015e1b059373ba139",
@@ -249,9 +302,17 @@
       "module": "reconciliation_evidence"
     },
     "_validate_broker_grant": {
-      "generated_ast_sha256": "d98be38c794ce535e1e43bc4d8e9089b4df423c81d417dfb0faada6c3c2769cf",
+      "generated_ast_sha256": "9434164b9c2c06c9af428e19643d1158c40100def5a5d20bd78ea1595f2d9848",
       "historical_ast_sha256": "a10cb381c28e916db84d14fe6fbc617043ac4e1beaaf165a2287250fdc4ce282",
       "module": "validation",
+      "protected_buy_acceptance": [
+        "tests/sentinel/test_limit_day_execution_wiring.py",
+        "tests/sentinel/test_limit_day_policy_guard.py",
+        "tests/sentinel/test_limit_day_plan_cash_funding.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "protected_buy_design": "docs/free-data-execution-proposal.md",
+      "protected_buy_reason": "Use only the private scoped verified state commitment while retaining every fresh authority/readiness/window/plan/account check; before BUY submission recompute protected allocation against canonical equity.",
       "reason": "PR #491: Recheck exact authenticated retained dual-shadow checkpoint state during each fresh automation broker guard; standalone and manual paths remain strict.",
       "retained_acceptance": [
         "tests/sentinel/test_retained_admission_chain.py",
@@ -281,7 +342,6 @@
       "design": "docs/unattended-operating-contract.md",
       "generated_ast_sha256": "e5f8cd9ca0071260e7403202ec367e57d03f05df54940888a35e681bf651f879",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
-      "module": "preparation",
       "initial_paper_recovery_acceptance": [
         "tests/sentinel/test_initial_paper_recovery.py",
         "tests/sentinel/test_rolling_paper_inputs.py::test_production_alpaca_dual_preparation_uses_current_book_without_fill_history",
@@ -290,6 +350,12 @@
       ],
       "initial_paper_recovery_design": "docs/sentinel-execution-contract.md",
       "initial_paper_recovery_qualification": "docs/readiness-workflow-qualification.md",
+      "module": "preparation",
+      "production_path_acceptance": [
+        "tests/sentinel/test_alpaca_source_codec.py",
+        "tests/sentinel/test_rolling_paper_inputs.py"
+      ],
+      "production_path_design": "docs/production-path-qualification.md",
       "reason": "PR #480 replaces obsolete 23:45 wording with exchange-close and validated-provider readiness; the unit-revalidation wait guard remains unchanged. Admit the sealed bare transport before composition and select current-book reconciliation only for reviewed informational dual preparation and restart. PR #491: Authenticate differing retained dual-shadow strategy for preparation and existing-plan restart without rewriting the book or plan; standalone preparation retains strict equality. PR #492: Authenticate monotonic same-mode certificate renewal against immutable rollout history; replace only unsent dual plans through existing account/cash/reconciliation sizing and atomic proof adoption, preserving ordinary retry and stale execution guards. PR #521: Add only the explicitly requested, attended initial paper anchor repair under the existing writer/publication scope and read-only preparation grant. Preserve current paper keys, binding/epoch, shadow book and cycles; zero commands/fills and two fresh complete stable flat observations are mandatory. Ordinary and daily preparation never infer permission; restored/UNKNOWN and execution-window guards remain unchanged.",
       "renewal_acceptance": [
         "tests/sentinel/test_dual_plan_renewal.py",
@@ -300,12 +366,7 @@
         "tests/sentinel/test_retained_admission_chain.py",
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
       ],
-      "retained_design": "docs/retained-state-activation.md",
-      "production_path_design": "docs/production-path-qualification.md",
-      "production_path_acceptance": [
-        "tests/sentinel/test_alpaca_source_codec.py",
-        "tests/sentinel/test_rolling_paper_inputs.py"
-      ]
+      "retained_design": "docs/retained-state-activation.md"
     },
     "recover_automated_paper_cycle": {
       "acceptance": "docs/unattended-operation-qualification.md",

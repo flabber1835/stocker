@@ -595,10 +595,13 @@ def test_fresh_dual_guard_reuses_only_its_verified_state_digest(conn, gateway, m
         # authorization bypass, even when all other inputs remain unchanged.
         with monkeypatch.context() as patch:
             patch.setattr(validation, '_assert_plan_authorities', original)
-            rederive = dual_plan_authority.rederive_plan
+            rederive = dual_plan_authority._rederive_guard_plan
+            corrupted = []
             def corrupt(*args, **kwargs):
-                return {**rederive(*args, **kwargs), 'state_sha256': '0' * 64}
-            patch.setattr(dual_plan_authority, 'rederive_plan', corrupt)
+                intent, proof = rederive(*args, **kwargs)
+                corrupted.append(proof['state_sha256'])
+                return intent, {**proof, 'state_sha256': '0' * 64}
+            patch.setattr(dual_plan_authority, '_rederive_guard_plan', corrupt)
             with psycopg.connect(conn.info.dsn) as fresh, scope.guard(fresh):
                 with pytest.raises(validation.PaperActivationRefused,
                                    match='state fingerprint is stale'):
@@ -608,6 +611,7 @@ def test_fresh_dual_guard_reuses_only_its_verified_state_digest(conn, gateway, m
                         strategy_provider=lambda: production_strategy()[1],
                         dual_shadow_observation_id=OBS,
                         dual_shadow_starting_cash=100000)
+            assert corrupted == [plan.shadow_snapshot_hash]
     assert checked == [plan.shadow_snapshot_hash]
 
 

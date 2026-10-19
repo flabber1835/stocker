@@ -352,6 +352,15 @@ def automation_requires_alerts(arguments: Sequence[str]) -> bool:
 
 
 def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> None:
+    buy_policy = str(env.get("SENTINEL_PAPER_BUY_POLICY", "")).strip()
+    buy_cap = str(env.get("SENTINEL_PAPER_BUY_CAP_BPS", "")).strip()
+    if buy_policy not in {"", "PROTECTED_LIMIT_DAY_V1"}:
+        _fail("INVALID_PAPER_BUY_POLICY", key="SENTINEL_PAPER_BUY_POLICY")
+    if buy_policy:
+        if re.fullmatch(r"0|[1-9][0-9]*", buy_cap) is None or len(buy_cap) > 3 or int(buy_cap) > 500:
+            _fail("INVALID_PAPER_BUY_CAP_BPS", key="SENTINEL_PAPER_BUY_CAP_BPS")
+    elif buy_cap:
+        _fail("PAPER_BUY_POLICY_REQUIRED", key="SENTINEL_PAPER_BUY_POLICY")
     # Exact runtime conversion boundaries.
     if "SENTINEL_MAX_CYCLES" in env:
         _integer(env["SENTINEL_MAX_CYCLES"], key="SENTINEL_MAX_CYCLES", minimum=1)

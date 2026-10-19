@@ -148,7 +148,9 @@ def order_payload(oid="o-1", status="new", qty="10", filled="0",
     return {"id": oid, "client_order_id": key, "symbol": symbol, "side": "buy",
             "status": status, "qty": qty, "filled_qty": filled,
             "filled_avg_price": "100" if D(filled) else None,
-            "submitted_at": submitted_at, "asset_id": "asset-1"}
+            "submitted_at": submitted_at, "asset_id": "asset-1",
+            "type": "market", "time_in_force": "day", "limit_price": None,
+            "order_class": "simple", "extended_hours": False}
 
 
 class TestAlpacaStatusMapping:

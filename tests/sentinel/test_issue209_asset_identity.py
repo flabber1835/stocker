@@ -8,7 +8,7 @@ from sentinel.execution import journal
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerInstrument, BrokerObservation, BrokerOrder, BrokerPosition,
-    Completeness, Side,
+    Completeness, OrderTerms, Side,
 )
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.reconcile import (
@@ -83,7 +83,7 @@ class _Cursor:
     def fetchone(self):
         return (
             "SEC-AAA", "BUY", Decimal("2"), "AAA", "asset-a",
-            "deploy", "alpaca", "paper-1", 1)
+            "deploy", "alpaca", "paper-1", 1, OrderTerms().to_dict())
 
 
 def test_command_client_key_economics_include_asset_id():

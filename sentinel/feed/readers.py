@@ -67,10 +67,18 @@ def readiness(conn, *, today=None):
         if is_rolling(pub):
             now = None if today is None else datetime.fromisoformat(today)
             report = rolling_go_inputs.assessment(conn, pub, now=now)
-            report.add("rolling publication binding", legacy_readiness.PASS,
-                       publication_fingerprint(pub))
-            return report
+            return bound_readiness(pub, report)
         return legacy_readiness.check_readiness(conn, today=today)
+
+
+def bound_readiness(pub, report):
+    """Copy a measured rolling report with its exact display-cache binding."""
+    if not is_rolling(pub):
+        raise ValueError("rolling readiness requires a rolling publication")
+    bound = legacy_readiness.Readiness(checks=list(report.checks))
+    bound.add("rolling publication binding", legacy_readiness.PASS,
+              publication_fingerprint(pub))
+    return bound
 
 
 def status_snapshot(conn):
