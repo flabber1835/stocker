@@ -310,3 +310,35 @@ selection test and the inherited-policy falsifier:
 ```sh
 python -m pytest -q -p no:cacheprovider tests/scripts/test_env_from_stocker.py --junitxml=/evidence/result.xml
 ```
+
+## Source-day refusal after the market close
+
+The next exact candidate, `b8ec6329`
+(`sha256:7a35a11316185c787aec9ff35e95c3b010e4106e9a3a715bf8625266a01c1b73`),
+passed explicit private migration and actual retained admission in namespace 17.
+Its cold run passed recovery preflight but refused during PREPARE after the real
+market close: `RollingSourceFrontierPending: ROLLING_INPUTS_NOT_READY: rolling
+source-final frontier`. The retained Friday source snapshot was no longer the
+source-final frontier. The supervisor surfaced the unreviewed exception as
+`SoftwareDefect`; no production classification was changed to admit this stale
+campaign. No execution callback or simulated order occurred. Cleanup passed;
+all failed evidence remains preserved. This is not a new timing pass.
+
+The qualification tool now requires the real source-final decision frontier
+before campaign setup, in addition to its existing current-effective-day check.
+Its execution-window fixture does not change that source clock. This diagnostic
+precondition refuses expired input explicitly before any phase callbacks,
+without weakening ordinary source readiness or substituting historical data.
+The 72-case tool module passed in 4.35 seconds, zero failures/errors/skips,
+including removal of the new precondition:
+
+```sh
+python -m pytest -q -p no:cacheprovider tests/sentinel/test_limit_day_gateway_qualification.py --junitxml=/evidence/result.xml
+```
+
+Sentinel runtime source remains at seal
+`c15470418da30f2b842481eb605305f750d17cbaec94d72796aa00f44849f73d`.
+The remaining cold qualification needs a fresh private copy of the normally
+published book and a matching real effective day. No old command is replayed
+to a native broker. Production and the backtest remain unchanged; no production
+price band, merged release or activation is claimed.

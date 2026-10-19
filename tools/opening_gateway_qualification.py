@@ -587,6 +587,16 @@ def require_quote_policy(feed):
         raise QualificationRefused("CANONICAL_FREE_IEX_LEGACY_POLICY_REQUIRED")
 
 
+def require_source_frontier(plan):
+    """The execution-window fixture cannot re-age the source publication."""
+    from sentinel.feed import operational_snapshot
+    target = str(operational_snapshot.source_final_session(datetime.now(timezone.utc)))
+    available = str(plan.decision_session)
+    if available != target:
+        raise QualificationRefused("CURRENT_SOURCE_FINAL_FRONTIER_REQUIRED",
+                                   available_frontier=available, required_frontier=target)
+
+
 def require_protected_policy():
     from sentinel.execution.protected_limits import ProtectedLimitPolicy
     policy = ProtectedLimitPolicy.from_env()
@@ -693,6 +703,7 @@ def qualify(args, stages):
         if plan is None or plan.effective_session != datetime.now(timezone.utc).astimezone(
                 __import__("zoneinfo").ZoneInfo(calendar.EXCHANGE_TZ)).date():
             raise QualificationRefused("CURRENT_EFFECTIVE_DAY_RETAINED_PLAN_REQUIRED")
+        require_source_frontier(plan)
         before = [reader.read(conn) for reader in (rolling_checkpoint, rolling_daily_checkpoint)]
         with feed_inputs.pinned(conn, commit=False) as pub:
             evidence = pub.evidence["rolling_snapshot"]

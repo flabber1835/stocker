@@ -296,3 +296,25 @@ def test_callback_result_preserves_deferral_reason_before_timing_refusal(capsys)
     assert row["execution"]["deferred"] == ["SEC-AAA"]
     assert row["execution"]["deferral_reasons"] == {"SEC-AAA": "funding basis missing"}
     assert "reconciliation" not in row["execution"]
+
+
+def test_campaign_requires_current_source_frontier_before_phase_callbacks(monkeypatch):
+    from datetime import date
+    from sentinel.feed import operational_snapshot
+    seen = []
+    def source_final(instant):
+        assert instant.tzinfo is not None
+        seen.append(instant)
+        return "2026-10-19"
+    monkeypatch.setattr(operational_snapshot, "source_final_session", source_final)
+    gateway.require_source_frontier(SimpleNamespace(decision_session=date(2026, 10, 19)))
+    with pytest.raises(gateway.QualificationRefused, match="CURRENT_SOURCE_FINAL_FRONTIER_REQUIRED"):
+        gateway.require_source_frontier(SimpleNamespace(decision_session=date(2026, 10, 16)))
+    assert len(seen) == 2
+
+
+def test_removed_source_frontier_precondition_is_detected(monkeypatch):
+    monkeypatch.setattr(gateway, "require_source_frontier", broken(gateway.require_source_frontier,
+        "if available != target:", "if False:"))
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_campaign_requires_current_source_frontier_before_phase_callbacks(monkeypatch)

@@ -534,3 +534,16 @@ using the canonical provider-identity resolver separately, reread every required
 RAW row on every invocation, and retain all per-broker authority brackets.
 No new source module, Core computation, financial formula or timing allowance
 is introduced. These changes require a new seal and fresh cold qualification.
+
+### Cold-campaign source-day precondition
+
+A cold gateway campaign needs both the actual current effective day and the
+currently source-final decision frontier. Its one execution-window fixture does
+not change the source calendar or freshness authority. Check the real source
+frontier before constructing the campaign so a retained prior-close plan cannot
+start a misleading after-close rehearsal. Recheck through the unchanged public
+gateways during the campaign. Refuse an expired frontier explicitly; never
+substitute historical readiness, shift the source clock or skip PREPARE. A new
+source day requires a fresh private copy of the normally published book, with
+previous failed namespaces preserved. This is a qualification precondition;
+production dependency classification and execution authority remain unchanged.
