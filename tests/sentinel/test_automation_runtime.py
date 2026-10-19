@@ -470,6 +470,67 @@ def install_runtime_seams(monkeypatch, runtime, conn, ctx, broker) -> None:
         automation_runtime.schema, "ensure_schema", lambda _conn: None)
 
 
+
+
+@async_test
+@pytest.mark.parametrize("phase", ["execute", "recover"])
+async def test_unavailable_protected_zero_target_never_reports_automation_convergence(monkeypatch, phase):
+    from sentinel.execution import protected_limits
+    cfg = config()
+    current_plan = plan(target="0")
+    ctx = context(cfg, state=(CycleState.EXECUTING if phase == "execute" else CycleState.RECONCILING),
+                  plan=current_plan)
+    conn = FakeConnection()
+    broker = SimulatedBroker()
+    runtime = production(cfg)
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    install_durable_projection(monkeypatch, current_plan)
+    monkeypatch.setattr(protected_limits, "unavailable_opening_intents",
+                        lambda projection: {INSTRUMENT.security_id: "REFERENCE_UNAVAILABLE"})
+    async def clean(**kwargs):
+        rec = reconciliation(await kwargs["broker"].observe())
+        if phase == "recover":
+            return rec
+        return paper.ExecutionResult(plan=current_plan, preflight=DictEvidence(),
+            session=SessionResult(runtime_state=RuntimeState.RUNNING,
+                                  reconciliation=rec, detail="zero projected shares"))
+    monkeypatch.setattr(paper, "recover_automated_paper_cycle" if phase == "recover"
+                        else "execute_automated_paper_plan", clean)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_args: ())
+    monkeypatch.setattr(journal, "latest_plan", lambda _conn: current_plan)
+    result = await getattr(runtime, phase)(ctx)
+    assert result.disposition is ExecuteDisposition.SUPERSEDED
+    assert result.failure_code == "PROTECTED_REFERENCE_UNAVAILABLE"
+    assert result.last_clean_reconciliation_id == "11"
+    assert result.diagnostic["incomplete_protected_projection"] is True
+    assert not any(call.startswith("submit:") for call in broker.calls)
+
+
+def test_removing_automation_unavailable_reference_guard_is_detected(monkeypatch):
+    import inspect
+    from sentinel.execution import protected_limits
+    current_plan = plan(target="0")
+    projection = install_durable_projection(monkeypatch, current_plan)
+    monkeypatch.setattr(protected_limits, "unavailable_opening_intents",
+                        lambda _projection: {INSTRUMENT.security_id: "REFERENCE_UNAVAILABLE"})
+    observed = asyncio.run(SimulatedBroker().observe())
+    def checked():
+        with pytest.raises(protected_limits.ProtectedReferenceUnavailable):
+            automation_runtime._actionable_projection_deltas(object(), plan=current_plan,
+                effective_session=EFFECTIVE, observation=observed,
+                minimum_quantity_increment=Decimal(1))
+    checked()
+    source = inspect.getsource(automation_runtime._actionable_projection_deltas)
+    assert source.count("if unavailable:") == 1
+    local = {}
+    exec(compile(source.replace("if unavailable:", "if False:"),
+                 "<private-automation-protected-reference>", "exec"), vars(automation_runtime), local)
+    monkeypatch.setattr(automation_runtime, "_actionable_projection_deltas",
+                        local["_actionable_projection_deltas"])
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        checked()
+
+
 def install_durable_projection(monkeypatch, current_plan, *, multiplier="1"):
     multipliers = (
         {} if Decimal(multiplier) == 1

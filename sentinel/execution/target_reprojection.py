@@ -529,7 +529,15 @@ def assert_projection(
     """Bind the executor input to the original plan and its durable record."""
     if projection.plan_id != plan.plan_id:
         raise TargetProjectionRefused("target projection names another plan")
-    if bool(plan.opening_intents) != (projection.opening_sizing is not None):
+    protected = False
+    if projection.opening_sizing is not None:
+        if not isinstance(projection.opening_sizing, Mapping):
+            raise TargetProjectionRefused("opening sizing evidence must be a mapping")
+        from sentinel.execution.protected_limits import PROTECTED_MODE, validate_projection
+        if projection.opening_sizing.get("mode") == PROTECTED_MODE:
+            validate_projection(projection)
+            protected = True
+    if not protected and bool(plan.opening_intents) != (projection.opening_sizing is not None):
         raise TargetProjectionRefused("opening intents require their durable sizing evidence")
     if projection.plan_fingerprint != plan.fingerprint():
         raise TargetProjectionRefused(

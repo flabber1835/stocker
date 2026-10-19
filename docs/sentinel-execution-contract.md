@@ -10,12 +10,15 @@ forward entitlement reconciliation and automatic retirement of a cleanly
 reconciled execution plan whose native cash activity set has changed.
 
 [Unattended operation](unattended-operating-contract.md) defines the current
-Alpaca execution price evidence: fresh raw SIP bid/ask quotes, partial per-security
+installed Alpaca execution price evidence: fresh raw IEX bid/ask quotes, partial per-security
 availability, a ten-minute increase window, and a new quote/cash check before
 each BUY. Dollar intents and durable whole-share projections are unchanged;
-older opening-minute and IEX quote records keep their historical scope.
-The [selected SIP policy](opening-execution-latency.md#selected-sip-execution-quote-policy)
-requires verified native access and permits no fallback to another feed.
+older opening-minute quote records keep their historical scope. The unpublished
+SIP-only candidate is not selected after the operator's no-subscription constraint.
+The [free-data execution contract](free-data-execution-proposal.md) defines the
+selected protected LIMIT/DAY redesign and durable funding. Implementation is
+under qualification; it grants no execution authority before the ordinary
+review, release and activation gates pass.
 
 [Current-window book formation](current-window-formation.md) restores 126
 broker-free ownership/controller transitions after 299 feature sessions. The

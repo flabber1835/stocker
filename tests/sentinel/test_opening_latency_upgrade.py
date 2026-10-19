@@ -49,15 +49,48 @@ def test_adjacent_current_source_tamper_refuses_even_in_manifest(closure, name):
         admission.prove_compatibility(manifest, checkpoint, context, source=source)
 
 
-def test_missing_checker_cannot_keep_a_current_source_closure(closure):
+@pytest.mark.parametrize('name', sorted(upgrade.ADDITIONS))
+def test_missing_addition_cannot_keep_a_current_source_closure(closure, name):
     root, checkpoint, context, manifest, source = closure
-    (root / 'opening_latency_upgrade.py').unlink()
+    (root / name).unlink()
     _refresh_current(root, context, source)
     with pytest.raises(admission.Refused, match='RETAINED_SOURCE_CLOSURE_CHANGED'):
         admission.prove_compatibility(manifest, checkpoint, context, source=source)
 
 
-@pytest.mark.parametrize('defect', ['profile', 'module', 'retained_profile', 'predecessor', 'authority', 'witness'])
+@pytest.mark.parametrize('name', sorted(upgrade.ADDITIONS))
+@pytest.mark.parametrize('already_present', [False, True])
+def test_addition_tamper_refuses_even_when_claimed_in_prior_manifest(closure, name, already_present):
+    root, checkpoint, context, manifest, source = closure
+    path = root / name
+    if already_present:
+        manifest['files'][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    path.write_bytes(path.read_bytes() + b'\nUNREVIEWED = True\n')
+    _refresh_current(root, context, source)
+    _prior_binding(checkpoint, manifest, source)
+    with pytest.raises(admission.Refused, match='RETAINED_SOURCE_CLOSURE_CHANGED'):
+        admission.prove_compatibility(manifest, checkpoint, context, source=source)
+
+
+def test_atomic_additions_do_not_permit_a_missing_existing_source(closure):
+    root, checkpoint, context, manifest, source = closure
+    (root / 'strategy.py').unlink()
+    _refresh_current(root, context, source)
+    with pytest.raises(admission.Refused, match='RETAINED_SOURCE_CLOSURE_CHANGED'):
+        admission.prove_compatibility(manifest, checkpoint, context, source=source)
+
+
+def test_new_neighbor_is_not_part_of_the_atomic_addition_set(closure):
+    root, checkpoint, context, manifest, source = closure
+    (root / 'execution/protected_neighbor.py').write_text('# unreviewed addition\n')
+    _refresh_current(root, context, source)
+    with pytest.raises(admission.Refused, match='RETAINED_SOURCE_CLOSURE_CHANGED'):
+        admission.prove_compatibility(manifest, checkpoint, context, source=source)
+
+
+@pytest.mark.parametrize('defect', ['profile', 'module', 'retained_profile', 'predecessor', 'authority', 'witness',
+                                  'missing_file', 'missing_addition', 'extra_file',
+                                  'existing_as_addition', 'addition_as_existing'])
 def test_new_digest_cannot_widen_profile(tmp_path, monkeypatch, defect):
     for name in (*upgrade.RETAINED_PROFILES, upgrade.PROFILE.name):
         (tmp_path / name).write_bytes(upgrade.PROFILE.with_name(name).read_bytes())
@@ -77,6 +110,17 @@ def test_new_digest_cannot_widen_profile(tmp_path, monkeypatch, defect):
             value['files']['rolling_runtime.py']['before'] = ['f' * 64]
         elif defect == 'authority':
             value['authority_effect'] = 'LIVE'
+        elif defect == 'missing_file':
+            value['files'].pop('execution/executor.py')
+        elif defect == 'missing_addition':
+            value['additions'].pop('execution/protected_limits.py')
+        elif defect == 'extra_file':
+            value['files']['core/unreviewed.py'] = value['files']['execution/executor.py']
+        elif defect == 'existing_as_addition':
+            value['additions']['execution/executor.py'] = value['files'].pop('execution/executor.py')['after']
+        elif defect == 'addition_as_existing':
+            added = value['additions'].pop('execution/protected_limits.py')
+            value['files']['execution/protected_limits.py'] = {'before': [added], 'after': added}
         else:
             value['predecessor_witnesses'][0]['manifest_sha256'] = 'f' * 64
         raw = json.dumps(value).encode()
@@ -98,7 +142,11 @@ def test_complete_predecessor_manifests_are_independently_pinned(closure, monkey
         _historical(closure, monkeypatch, revision, witness['manifest_sha256'])
 
 
-def test_required_checker_has_behavioral_falsifier(closure, monkeypatch):
+@pytest.mark.parametrize('name', sorted(upgrade.ADDITIONS))
+def test_required_addition_has_behavioral_falsifier(closure, monkeypatch, name):
+    # Isolate the admission backstop from the independently tested atomic
+    # checker; either intact guard is sufficient to reject a missing member.
+    monkeypatch.setattr(upgrade, 'additions_allowed', lambda actual: set(upgrade.ADDITIONS) & set(actual))
     source = inspect.getsource(admission.prove_compatibility)
     needle = '            or opening_latency_upgrade.ADDITIONS - set(actual)\n'
     assert source.count(needle) == 1
@@ -106,7 +154,35 @@ def test_required_checker_has_behavioral_falsifier(closure, monkeypatch):
     exec(compile(source.replace(needle, ''), 'opening-checker-falsifier', 'exec'), admission.__dict__, namespace)
     monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
-        test_missing_checker_cannot_keep_a_current_source_closure(closure)
+        test_missing_addition_cannot_keep_a_current_source_closure(closure, name)
+
+
+@pytest.mark.parametrize('name', sorted(upgrade.ADDITIONS))
+@pytest.mark.parametrize('damage', ['missing', 'changed'])
+def test_atomic_additions_unit_requires_all_exact_members(monkeypatch, name, damage):
+    actual = {item: hashlib.sha256((Path(upgrade.__file__).parent / item).read_bytes()).hexdigest()
+              for item in upgrade.ADDITIONS}
+    expected = dict(actual)
+    expected['opening_latency_upgrade.py'] = upgrade._normalized(Path(upgrade.__file__).read_bytes())
+    monkeypatch.setattr(upgrade, 'profile', lambda: {'additions': expected})
+    assert upgrade.additions_allowed(actual) == set(upgrade.ADDITIONS)
+    if damage == 'missing':
+        actual.pop(name)
+    else:
+        actual[name] = 'f' * 64
+    assert upgrade.additions_allowed(actual) == set()
+
+
+def test_atomic_additions_unit_falsifier(monkeypatch):
+    source = inspect.getsource(upgrade.additions_allowed)
+    before = "return set(ADDITIONS) if all(actual.get(name) == expected[name] for name in ADDITIONS) else set()"
+    after = "return {name for name in ADDITIONS if actual.get(name) == expected[name]}"
+    assert source.count(before) == 1
+    namespace = {}
+    exec(compile(source.replace(before, after), 'partial-addition-falsifier', 'exec'), upgrade.__dict__, namespace)
+    monkeypatch.setattr(upgrade, 'additions_allowed', namespace['additions_allowed'])
+    with pytest.raises(AssertionError):
+        test_atomic_additions_unit_requires_all_exact_members(monkeypatch, 'execution/protected_limits.py', 'missing')
 
 
 __all__ = ['closure']

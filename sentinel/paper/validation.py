@@ -337,6 +337,10 @@ def _validate_broker_grant(
                 runtime_identity=runtime_strategy, rollout=rollout,
                 verified_state_sha256=sizing["state_sha256"] if dual_mode else None,
                 retained_shadow=dual_mode)
+            if _operation is BrokerOperation.SUBMIT:
+                _protected_allocation_or_refuse(
+                    conn, plan=plan, shadow_equity=(
+                        sizing.get("shadow_equity") if dual_mode else None), state=state)
             return
         if grant.operation_scope == "RECOVER":
             feed_inputs.coherent(conn)
@@ -359,6 +363,8 @@ def _validate_broker_grant(
             conn, state=state, plan=plan, binding=binding, pinned=current,
             frontier=str(frontier), today=now_et.date(),
             runtime_identity=runtime_strategy, rollout=rollout)
+        if _operation is BrokerOperation.SUBMIT:
+            _protected_allocation_or_refuse(conn, plan=plan, state=state)
         return
     else:                                                       # pragma: no cover
         raise PaperActivationRefused("unknown guarded broker grant")
@@ -375,6 +381,31 @@ def _validate_broker_grant(
         raise PaperActivationRefused(
             "preparation grant no longer names the latest closed published "
             "XNYS session")
+
+def _protected_allocation_or_refuse(conn, *, plan, state, shadow_equity=None):
+    from sentinel.execution import protected_limits, target_reprojection
+    policy = protected_limits.ProtectedLimitPolicy.from_env()
+    if policy is None:
+        return
+    from sentinel.execution.states import CommandState
+    current_binding = binding_mod.require(conn)
+    pending = journal.load_commands(
+        conn, current_binding.identity, plan_id=plan.plan_id,
+        states=(CommandState.SEND_PENDING,))
+    if not any(command.side.value == "BUY" for command in pending):
+        return
+    projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+    if projection is None:
+        raise PaperActivationRefused("protected BUY allocation is absent")
+    protected_limits.validate_projection(projection, require_current_policy=True)
+    from sentinel.core.decision import _shadow_equity
+    expected = Decimal(str(shadow_equity)) if shadow_equity is not None else _shadow_equity(state)
+    if Decimal(projection.opening_sizing["shadow_equity"]) != expected:
+        raise PaperActivationRefused("protected allocation scale differs from canonical equity")
+    protected_limits._validate_allocation(projection,
+        protected_limits.PriorCloseReferences.from_dict(projection.opening_sizing["references"]),
+        policy, plan=plan)
+
 
 def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
                   now_provider, strategy_provider,
@@ -403,7 +434,21 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
         validate_grant=validate,
         automation_config_sha256=automation_config_sha256,
         authority_check=require_current_authority)
-    wrapped = GuardedExecutionBroker(inner=broker, grant=grant, guard=guard)
+    async def protected_funding(**kwargs):
+        # The canonical membrane derives its own ceiling from committed rows.
+        # Callers cannot supply a balance/proof that grants spend permission.
+        from sentinel.execution import protected_funding as funding
+        from .cash import _broker_cash_state_or_refuse
+        current_binding = binding_mod.require(conn)
+        try:
+            activity = await _broker_cash_state_or_refuse(
+                conn, broker=wrapped, binding=current_binding, through=now_provider())
+        except PaperRetryableRefused as exc:
+            raise funding.ProtectedFundingNotReady(str(exc)) from exc
+        funding.validate_submission(conn, activity_state=activity, **kwargs)
+
+    wrapped = GuardedExecutionBroker(
+        inner=broker, grant=grant, guard=guard, protected_funding=protected_funding)
     from .inspection import _require_certified_paper_broker
     _require_certified_paper_broker(wrapped)
     return wrapped

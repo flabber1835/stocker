@@ -35,18 +35,82 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from fractions import Fraction
 from typing import Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 from sentinel.execution.states import CommandState
-from sentinel.execution.numeric import exact_decimal
+from sentinel.execution.numeric import decimal_text, exact_decimal
 
 
 class Side(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
+
+
+@dataclass(frozen=True)
+class OrderTerms:
+    """Immutable wire economics; unsupported foreign terms remain evidence."""
+
+    order_type: str = 'market'
+    time_in_force: str = 'day'
+    limit_price: Decimal | None = None
+    order_class: str = 'simple'
+    extended_hours: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ('order_type', 'time_in_force', 'order_class'):
+            value = getattr(self, name)
+            if type(value) is not str or not value.strip():
+                raise ValueError(f'OrderTerms.{name} must be a nonempty string')
+        if self.limit_price is not None and (
+                not isinstance(self.limit_price, Decimal)
+                or not self.limit_price.is_finite() or self.limit_price <= 0):
+            raise ValueError('OrderTerms.limit_price must be a positive finite Decimal or None')
+        if type(self.extended_hours) is not bool:
+            raise TypeError('OrderTerms.extended_hours must be boolean')
+
+    def to_dict(self) -> dict:
+        return {'schema': 'sentinel.order-terms/1', 'order_type': self.order_type,
+                'time_in_force': self.time_in_force,
+                'limit_price': None if self.limit_price is None else decimal_text(self.limit_price),
+                'order_class': self.order_class, 'extended_hours': self.extended_hours}
+
+    @classmethod
+    def from_dict(cls, raw: Mapping) -> 'OrderTerms':
+        fields = {'schema', 'order_type', 'time_in_force', 'limit_price',
+                  'order_class', 'extended_hours'}
+        if (not isinstance(raw, Mapping) or set(raw) != fields
+                or raw['schema'] != 'sentinel.order-terms/1'):
+            raise ValueError('order terms have an unknown schema or fields')
+        price = raw['limit_price']
+        if price is not None:
+            if type(price) is not str:
+                raise TypeError('serialized order limit must be a canonical Decimal string')
+            try:
+                parsed = Decimal(price)
+                if decimal_text(parsed) != price:
+                    raise ValueError('serialized order limit is not canonical')
+            except (InvalidOperation, ValueError) as exc:
+                raise ValueError('serialized order limit is not a finite canonical Decimal') from exc
+            price = parsed
+        return cls(raw['order_type'], raw['time_in_force'], price,
+                   raw['order_class'], raw['extended_hours'])
+
+    def require_owned_submission(self, side: Side) -> None:
+        if not isinstance(side, Side):
+            raise TypeError('owned submission side must be typed')
+        if self == OrderTerms():
+            return
+        if (side is Side.BUY and self.order_type == 'limit'
+                and self.time_in_force == 'day' and self.limit_price is not None
+                and self.order_class == 'simple' and self.extended_hours is False):
+            tick = Decimal('0.01') if self.limit_price >= 1 else Decimal('0.0001')
+            if (Fraction(self.limit_price) / Fraction(tick)).denominator != 1:
+                raise ValueError('owned limit price violates USD price increments')
+            return
+        raise ValueError('owned submissions require MARKET/DAY or BUY LIMIT/DAY simple regular-hours terms')
 
 
 class Completeness(str, Enum):
@@ -130,8 +194,11 @@ class BrokerCapabilities:
     market_on_open: bool = False
     regular_session_open_prices: bool = False
     regular_session_quote_prices: bool = False
+    protected_limit_day: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.protected_limit_day) is not bool:
+            raise TypeError('protected_limit_day must be boolean')
         if (not isinstance(self.minimum_quantity_increment, Decimal)
                 or not self.minimum_quantity_increment.is_finite()
                 or self.minimum_quantity_increment <= 0):
@@ -161,7 +228,8 @@ class BrokerCapabilities:
 @runtime_checkable
 class OrderSubmitter(Protocol):
     async def submit(self, *, client_key: str, instrument: "BrokerInstrument",
-                     side: "Side", quantity: Decimal) -> "CommandOutcome": ...
+                     side: "Side", quantity: Decimal,
+                     order_terms: OrderTerms = OrderTerms()) -> "CommandOutcome": ...
 
 
 @runtime_checkable
@@ -554,8 +622,11 @@ class BrokerOrder:
     replaced_by: Optional[str] = None
     replaces: Optional[str] = None
     raw: dict = field(default_factory=dict)
+    order_terms: OrderTerms | None = OrderTerms()
 
     def __post_init__(self) -> None:
+        if self.order_terms is not None and not isinstance(self.order_terms, OrderTerms):
+            raise TypeError('BrokerOrder.order_terms must be typed or explicitly unreported')
         if type(self.external_replacement) is not bool:
             raise TypeError("BrokerOrder.external_replacement must be boolean")
         for name in ("replaced_by", "replaces"):
@@ -848,8 +919,11 @@ class CommandOutcome:
     state: CommandState
     broker_order_id: Optional[str] = None
     detail: str = ""
+    receipt: BrokerOrder | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
+        if self.receipt is not None and not isinstance(self.receipt, BrokerOrder):
+            raise TypeError("CommandOutcome.receipt must be typed or absent")
         allowed = {CommandState.ACKNOWLEDGED, CommandState.REJECTED,
                    CommandState.UNKNOWN}
         if self.state not in allowed:
@@ -986,7 +1060,8 @@ class ExecutionBroker(abc.ABC):
 
     @abc.abstractmethod
     async def submit(self, *, client_key: str, instrument: BrokerInstrument,
-                     side: Side, quantity: Decimal) -> CommandOutcome:
+                     side: Side, quantity: Decimal,
+                     order_terms: OrderTerms = OrderTerms()) -> CommandOutcome:
         """Place an order under OUR identity. Never mints one of its own."""
 
     @abc.abstractmethod

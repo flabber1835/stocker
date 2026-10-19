@@ -1,10 +1,12 @@
 # Separate software completion
 
-Decision: 2026-10-19. The [selected SIP execution quote policy](opening-execution-latency.md#selected-sip-execution-quote-policy)
-supersedes the IEX latest-quote source below for new execution attempts. New
-evidence explicitly identifies raw SIP bid/ask quotes. Historical IEX records
-retain their original source and typed validation. The 60-second freshness
-limit, ten-minute increase cutoff and fresh funding checks are unchanged.
+Investigation: 2026-10-19. The operator requires no SIP subscription. The
+unpublished SIP-only latency candidate is not a selected release. The installed
+IEX contract below remains in force; the [free-data execution proposal](free-data-execution-proposal.md)
+defines the selected protected LIMIT/DAY policy, currently under qualification.
+No quote freshness, funding or execution-window safeguard has been changed in
+production. The approved DAY lifetime and unchanged new-submit cutoff are
+documented there; installed behavior changes only through the release gates.
 
 ## Idle authority polling after lease loss
 

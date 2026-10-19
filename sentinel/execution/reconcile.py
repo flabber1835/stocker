@@ -175,8 +175,13 @@ def _live_position_lag_capacity(
                 "signed_capacity": str(episode["signed_capacity"]),
             }
             cursor = scope_prefix + _position_lag_digest(identity)
+            first_observed_at = episode.get("first_observed_at", observed_at)
+            if (not isinstance(first_observed_at, datetime)
+                    or first_observed_at.tzinfo is None
+                    or first_observed_at > observed_at):
+                raise RuntimeError("broker receipt lag clock is invalid")
             candidate = dict(
-                identity, first_observed_at=observed_at.isoformat())
+                identity, first_observed_at=first_observed_at.isoformat())
             cur.execute(
                 "INSERT INTO sentinel_processed_sessions"
                 " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
@@ -313,6 +318,12 @@ def _order_command_conflict(order, command) -> Optional[str]:
     if order.quantity != command.quantity:
         return (f"{prefix} changed durable quantity {command.quantity} to "
                 f"{order.quantity}")
+    if order.order_terms != command.order_terms:
+        return f"{prefix} changed durable order terms"
+    if (command.order_terms.limit_price is not None
+            and order.filled_average_price is not None
+            and order.filled_average_price > command.order_terms.limit_price):
+        return f"{prefix} average fill exceeds durable BUY limit"
     if order.filled_quantity < command.filled_quantity:
         return (f"{prefix} regressed durable fill {command.filled_quantity} "
                 f"to {order.filled_quantity}")
@@ -338,10 +349,39 @@ def _order_observation_fingerprint(order) -> tuple:
     return (
         order.broker_order_id, order.client_key,
         order.instrument.security_id, order.instrument.broker_id,
-        order.side, order.quantity,
+        order.side, order.quantity, order.order_terms,
         order.state, order.filled_quantity, order.filled_average_price,
         order.submitted_at, bool(order.external_replacement),
         order.replaced_by, order.replaces)
+
+
+def _receipt_fill_episode(conn, *, command, order, actions, observed_at):
+    """Recover one exact receipt generation without restarting its lag clock."""
+    if (command.state is not CommandState.ACKNOWLEDGED
+            or command.side.value != "BUY" or command.filled_quantity <= 0
+            or command.order_terms.order_type != "limit"
+            or not command.broker_order_id or order is None
+            or _order_command_conflict(order, command) is not None):
+        return None
+    with conn.cursor() as cur:
+        cur.execute("SELECT filled_quantity,at FROM sentinel_command_events"
+            " WHERE client_key=%s AND from_state='SEND_PENDING'"
+            " AND to_state='ACKNOWLEDGED' AND filled_quantity>0"
+            " ORDER BY seq LIMIT 2", (command.client_key,))
+        rows = cur.fetchall()
+    if len(rows) != 1:
+        return None
+    filled, first_seen = rows[0]
+    if (not isinstance(filled, Decimal) or not filled.is_finite()
+            or filled != command.filled_quantity or filled > command.quantity
+            or not isinstance(first_seen, datetime) or first_seen.tzinfo is None
+            or first_seen > observed_at):
+        return None
+    multiplier = _command_action_multiplier(command, actions)
+    return {"kind": "ORDER_LEADS_POSITION", "client_key": command.client_key,
+        "generation": {"side": command.side.value, "filled_before": "0",
+            "filled_after": str(filled), "action_multiplier": str(multiplier)},
+        "signed_capacity": filled * multiplier, "first_observed_at": first_seen}
 
 
 def _has_external_replacement(order) -> bool:
@@ -756,6 +796,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     resolved = []
     recognized_fill_episodes: dict[str, list[dict]] = {}
     for command in stored:
+        before_command = command
         before_state = command.state
         before_filled = command.filled_quantity
         before_average = command.filled_average_price
@@ -931,6 +972,11 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                     },
                     "signed_capacity": signed_delta,
                 })
+        receipt_episode = _receipt_fill_episode(conn, command=before_command,
+            order=observation.by_client_key(command.client_key), actions=actions,
+            observed_at=observation.observed_at)
+        if receipt_episode is not None:
+            recognized_fill_episodes.setdefault(command.security_id, []).append(receipt_episode)
         resolved.append(command)
 
     unresolved = tuple(c for c in resolved if c.state is CommandState.UNKNOWN)

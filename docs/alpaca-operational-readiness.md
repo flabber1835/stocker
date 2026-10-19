@@ -1,10 +1,11 @@
 # Alpaca operational completion
 
-Decision: 2026-10-19. New execution quotes follow the
-[selected SIP policy](opening-execution-latency.md#selected-sip-execution-quote-policy),
-which supersedes the older IEX execution-price acquisition below. Native SIP
-access must be verified before activation. The retained historical input corpus
-and earlier IEX evidence keep their original source and scope.
+Investigation: 2026-10-19. The operator requires no SIP subscription. The
+unpublished SIP-only execution candidate is not selected for release. Installed
+execution still uses the IEX policy below. The [free-data execution proposal](free-data-execution-proposal.md)
+defines the selected protected LIMIT/DAY redesign, currently under qualification,
+and grants no activation authority. Retained historical inputs and execution
+evidence keep their original source and scope.
 
 Decision: 2026-10-03. Complete the free operational source and test the actual
 local acquisition, formation and daily continuation before publishing changes.

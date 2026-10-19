@@ -8,7 +8,7 @@ from typing import Tuple
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerExactOrderLookup, BrokerObservation, BrokerOrder, CommandOutcome,
-    ExecutionBroker)
+    ExecutionBroker, OrderTerms)
 from sentinel.execution.guarded import (
     BrokerAuthorityRefused, PreTransportAuthorityRefused)
 from sentinel.execution.states import CommandState, CommandState as S
@@ -65,6 +65,12 @@ def _assert_order_matches_command(command: Command, found: BrokerOrder,
     if found.quantity != command.quantity:
         mismatches.append(
             f"quantity={found.quantity} expected={command.quantity}")
+    if found.order_terms != command.order_terms:
+        mismatches.append("order_terms differ from the immutable command")
+    if (command.order_terms.limit_price is not None
+            and found.filled_average_price is not None
+            and found.filled_average_price > command.order_terms.limit_price):
+        mismatches.append("average fill exceeds the immutable BUY limit")
     if mismatches:
         raise BrokerAuthorityRefused(
             f"{where} returned contradictory economics under durable client "
@@ -169,7 +175,8 @@ async def _retry_rate_limited_submit(
     try:
         retried: CommandOutcome = await broker.submit(
             client_key=command.client_key, instrument=command.instrument,
-            side=command.side, quantity=command.quantity)
+            side=command.side, quantity=command.quantity,
+            **_submit_terms(command))
     except (BrokerAuthorityRefused, PreTransportAuthorityRefused):
         raise
     except Exception as exc:  # noqa: BLE001
@@ -181,9 +188,49 @@ async def _retry_rate_limited_submit(
     # A second 429 remains UNKNOWN.  One bounded retry is enough to distinguish
     # a transient throttle from a persistent broker condition without building
     # an unbounded submit loop inside the financial state machine.
-    return command.transition(
-        retried.state, broker_order_id=retried.broker_order_id,
-        detail=("same-key retry after proven absence: " + retried.detail))
+    return _command_from_submit_outcome(command, retried,
+        detail="same-key retry after proven absence: " + retried.detail)
+
+
+def _submit_terms(command: Command) -> dict:
+    # Existing simulator/custom adapters may retain the original MARKET/DAY
+    # signature. A protected order always carries its exact terms; it can never
+    # be retried by dropping an unsupported keyword and becoming a market order.
+    return ({} if command.order_terms == OrderTerms()
+            else {"order_terms": command.order_terms})
+
+
+def _command_from_submit_outcome(command: Command, outcome: CommandOutcome,
+                                 *, detail: str | None = None) -> Command:
+    """Persist positive protected fill counters without declaring settlement."""
+    changes = {}
+    receipt = getattr(outcome, "receipt", None)
+    if receipt is not None:
+        try:
+            if (not isinstance(receipt, BrokerOrder)
+                    or outcome.state is not S.ACKNOWLEDGED
+                    or command.side.value != "BUY"
+                    or command.order_terms.order_type != "limit"):
+                raise ValueError("receipt is not an acknowledged protected BUY")
+            _assert_order_matches_command(command, receipt, where="submit receipt")
+            if (not outcome.broker_order_id
+                    or receipt.broker_order_id != outcome.broker_order_id
+                    or receipt.external_replacement or receipt.replaced_by or receipt.replaces
+                    or receipt.state not in {S.ACKNOWLEDGED, S.PARTIALLY_FILLED, S.FILLED}
+                    or receipt.filled_quantity < command.filled_quantity
+                    or (receipt.filled_quantity == 0 and receipt.filled_average_price is not None)):
+                raise ValueError("receipt lifecycle, native identity or cumulative fill is contradictory")
+            changes = {"filled_quantity": receipt.filled_quantity,
+                       "filled_average_price": receipt.filled_average_price}
+        except (BrokerAuthorityRefused, ValueError, TypeError, AttributeError):
+            # Transport already happened. Contradictory evidence never earns a
+            # no-transport proof or releases any part of the old reservation.
+            return command.transition(S.UNKNOWN,
+                broker_order_id=(outcome.broker_order_id
+                    or getattr(receipt, "broker_order_id", None)),
+                detail="submit receipt contradicts immutable command; exact-key recovery required")
+    return command.transition(outcome.state, broker_order_id=outcome.broker_order_id,
+        detail=outcome.detail if detail is None else detail, **changes)
 
 
 async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
@@ -195,7 +242,8 @@ async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
     try:
         outcome: CommandOutcome = await broker.submit(
             client_key=command.client_key, instrument=command.instrument,
-            side=command.side, quantity=command.quantity)
+            side=command.side, quantity=command.quantity,
+            **_submit_terms(command))
     except PreTransportAuthorityRefused:
         raise
     except BrokerAuthorityRefused:
@@ -207,9 +255,7 @@ async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
 
     if getattr(outcome, "retry_after_seconds", None) is not None:
         return await _retry_rate_limited_submit(broker, command, outcome)
-    return command.transition(
-        outcome.state, broker_order_id=outcome.broker_order_id,
-        detail=outcome.detail)
+    return _command_from_submit_outcome(command, outcome)
 
 
 INDETERMINATE = frozenset({CommandState.UNKNOWN, CommandState.SEND_PENDING})

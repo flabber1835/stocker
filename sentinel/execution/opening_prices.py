@@ -10,11 +10,12 @@ from typing import Mapping
 from sentinel.feed import calendar
 
 SOURCE = "ALPACA_IEX_RAW_OPENING_MINUTE_V1"
-QUOTE_SOURCE = "ALPACA_SIP_RAW_REGULAR_QUOTES_V1"
-LEGACY_QUOTE_SOURCE = "ALPACA_IEX_RAW_REGULAR_QUOTES_V2"
-_QUOTE_SOURCES = frozenset({QUOTE_SOURCE, LEGACY_QUOTE_SOURCE})
+QUOTE_SOURCE = "ALPACA_IEX_RAW_REGULAR_QUOTES_V2"
+LEGACY_QUOTE_SOURCE = QUOTE_SOURCE
+SIP_QUOTE_SOURCE = "ALPACA_SIP_RAW_REGULAR_QUOTES_V1"
+_QUOTE_SOURCES = frozenset({QUOTE_SOURCE, SIP_QUOTE_SOURCE})
 QUOTE_ENDPOINT = "https://data.alpaca.markets/v2/stocks/quotes/latest"
-FEED = "sip"
+FEED = "iex"
 UNAVAILABLE_SOURCE = "ALPACA_OPENING_EVIDENCE_UNAVAILABLE_V1"
 ENDPOINT = "https://data.alpaca.markets/v2/stocks/bars"
 
@@ -211,7 +212,7 @@ def parse_quotes(payload, *, session, instruments, observed_at, broker_symbols):
             continue
         asks[sid], bids[sid], stamps[sid] = ask, bid, stamp
     if not asks:
-        raise OpeningPriceNotReady('no fresh regular-session SIP quotes; retry within execution window')
+        raise OpeningPriceNotReady('no fresh regular-session IEX quotes; retry within execution window')
     return RegularQuotes(session=session, opening_at=opened, observed_at=observed_at,
         prices=asks, symbols=symbols, broker_ids={sid:item.broker_id for sid,item in instruments.items()},
         bids=bids, quoted_at=stamps)

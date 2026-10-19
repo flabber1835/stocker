@@ -265,12 +265,12 @@ def test_local_clock_preserves_immutable_future_open():
     assert clock["is_open"] is False and clock["next_open"] == opened.isoformat()
 
 
-def test_gateway_requires_sip_and_local_provider_refuses_mismatched_feed():
+def test_gateway_preserves_free_iex_legacy_policy_and_refuses_mismatched_feed():
     from datetime import datetime, timedelta, timezone
     from tools.opening_gateway_qualification import LocalAlpaca, require_quote_policy
-    require_quote_policy("sip")
-    with pytest.raises(tool.QualificationRefused, match="CANONICAL_SIP"):
-        require_quote_policy("iex")
+    require_quote_policy("iex")
+    with pytest.raises(tool.QualificationRefused, match="CANONICAL_FREE_IEX"):
+        require_quote_policy("sip")
     now = datetime.now(timezone.utc)
     http = LocalAlpaca(account="local-only", cash="100", assets={},
                        window=lambda: (now, now + timedelta(hours=1)))
@@ -278,18 +278,18 @@ def test_gateway_requires_sip_and_local_provider_refuses_mismatched_feed():
         http.get("https://data.alpaca.markets/v2/stocks/quotes/latest", {"feed": "wrong", "symbols": "AAA"})
 
 
-def test_quote_policy_falsifier_detects_removed_sip_requirement():
+def test_legacy_quote_policy_falsifier_detects_removed_iex_requirement():
     import inspect
     import textwrap
     from tools import opening_gateway_qualification as gateway
     source = textwrap.dedent(inspect.getsource(gateway.require_quote_policy))
-    broken = source.replace('if feed != "sip":', "if False:")
+    broken = source.replace('if feed != "iex":', "if False:")
     assert source != broken
     namespace = {}
     exec(compile(broken, "removed-quote-policy-guard", "exec"), vars(gateway), namespace)
     with pytest.raises(pytest.fail.Exception):
         with pytest.raises(tool.QualificationRefused):
-            namespace["require_quote_policy"]("iex")
+            namespace["require_quote_policy"]("sip")
 
 
 def test_callback_metrics_preserve_error_and_hide_exception_message(capsys):
@@ -564,7 +564,8 @@ def test_local_provider_drives_actual_sealed_asset_adapter_and_rejects_duplicate
     assert len(provider.events) == 1 and provider.first_order_seconds is not None
     with pytest.raises(tool.QualificationRefused, match="DUPLICATE_POST"):
         provider.post("https://paper-api.alpaca.markets/v2/orders", {
-            "symbol": "asset-class", "qty": "2", "side": "buy", "client_order_id": "fixture-key"})
+            "symbol": "asset-class", "qty": "2", "side": "buy", "client_order_id": "fixture-key",
+            "type": "market", "time_in_force": "day", "order_class": "simple", "extended_hours": False})
 
 
 @pytest.mark.parametrize("function,guard,invoke", [

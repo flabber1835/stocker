@@ -43,7 +43,7 @@ from typing import Iterable, Optional, Sequence
 from sentinel import backup_runtime_authority
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
-    BrokerFill, BrokerInstrument, BrokerObservation, Side)
+    BrokerFill, BrokerInstrument, BrokerObservation, OrderTerms, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.plan import ExecutionPlan, OpeningIntent
 from sentinel.execution.states import CommandState, IN_FLIGHT
@@ -469,13 +469,13 @@ class CommandEconomicsChanged(RuntimeError):
 _IMMUTABLE = ("security_id", "side", "quantity", "symbol",
               "broker_instrument_id",
               "deployment_id", "broker", "broker_account_id",
-              "takeover_epoch")
+              "takeover_epoch", "order_terms")
 
 
 def _assert_economics_unchanged(cur, command: Command) -> None:
     cur.execute("SELECT security_id, side, quantity, symbol,"
                 " broker_instrument_id, deployment_id, broker,"
-                " broker_account_id, takeover_epoch"
+                " broker_account_id, takeover_epoch, order_terms"
                 " FROM sentinel_commands"
                 " WHERE client_key = %s", (command.client_key,))
     row = cur.fetchone()
@@ -487,12 +487,14 @@ def _assert_economics_unchanged(cur, command: Command) -> None:
                   str(row[4]) if row[4] is not None else None),
               "deployment_id": str(row[5]), "broker": str(row[6]),
               "broker_account_id": str(row[7]),
-              "takeover_epoch": int(row[8])}
+              "takeover_epoch": int(row[8]),
+              "order_terms": OrderTerms.from_dict(row[9])}
     incoming = {"security_id": command.security_id, "side": command.side.value,
                 "quantity": command.quantity,
                 "symbol": command.instrument.symbol,
                 "broker_instrument_id": command.instrument.broker_id,
-                **command.identity.deployment.to_dict()}
+                **command.identity.deployment.to_dict(),
+                "order_terms": command.order_terms}
     differs = {k: (stored[k], incoming[k]) for k in _IMMUTABLE
                if stored[k] != incoming[k]}
     if differs:
@@ -523,8 +525,8 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
             "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
             " revision, deployment_id, broker, broker_account_id,"
             " takeover_epoch, symbol, broker_instrument_id, side, quantity, state,"
-            " broker_order_id, filled_quantity, filled_average_price, detail)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            " broker_order_id, filled_quantity, filled_average_price, detail, order_terms)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb)"
             " ON CONFLICT (client_key) DO UPDATE SET"
             " state = EXCLUDED.state,"
             " broker_order_id = COALESCE(EXCLUDED.broker_order_id,"
@@ -546,7 +548,7 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
              command.broker_order_id, str(command.filled_quantity),
              (str(command.filled_average_price)
               if command.filled_average_price is not None else None),
-             command.detail))
+             command.detail, json.dumps(command.order_terms.to_dict(), sort_keys=True)))
         cur.execute(
             "INSERT INTO sentinel_command_events (client_key, from_state,"
             " to_state, filled_quantity, detail) VALUES (%s,%s,%s,%s,%s)",
@@ -588,6 +590,17 @@ def restore_proven_unsent(conn, command: Command, *, broker, refusal) -> None:
     conn.commit()
 
 
+def _owned_order_terms(order) -> OrderTerms:
+    if not isinstance(order.order_terms, OrderTerms):
+        raise ValueError("owned broker order omitted exact order terms")
+    order.order_terms.require_owned_submission(order.side)
+    if (order.order_terms.limit_price is not None
+            and order.filled_average_price is not None
+            and order.filled_average_price > order.order_terms.limit_price):
+        raise ValueError("recovered average fill exceeds its immutable BUY limit")
+    return order.order_terms
+
+
 def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> None:
     """Write a Sentinel-keyed broker order the journal has never heard of.
 
@@ -622,14 +635,19 @@ def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> Non
     try:
         with conn.cursor() as cur:
             cur.execute("SAVEPOINT adopt_recovered")
+            terms = _owned_order_terms(order)
+            cur.execute("SELECT order_terms FROM sentinel_commands WHERE client_key=%s", (order.client_key,))
+            existing = cur.fetchone()
+            if existing is not None and OrderTerms.from_dict(existing[0]) != terms:
+                raise ValueError("recovered client key contradicts immutable order terms")
             cur.execute(
                 "INSERT INTO sentinel_commands (client_key, plan_id, security_id,"
                 " revision, deployment_id, broker, broker_account_id,"
                 " takeover_epoch, symbol, broker_instrument_id, side, quantity, state,"
                 " broker_order_id, filled_quantity, filled_average_price, detail,"
-                " recovered, created_at)"
+                " recovered, created_at, order_terms)"
                 " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,"
-                " COALESCE(%s,NOW()))"
+                " COALESCE(%s,NOW()),%s::jsonb)"
                 " ON CONFLICT (client_key) DO NOTHING",
                 (order.client_key, RECOVERED_PLAN_ID,
                  order.instrument.security_id, 0,
@@ -642,7 +660,8 @@ def adopt_recovered_order(conn, order, *, deployment: DeploymentIdentity) -> Non
                  (str(order.filled_average_price)
                   if order.filled_average_price is not None else None),
                  "adopted from the broker after a restore",
-                 order.submitted_at))
+                 order.submitted_at,
+                 json.dumps(terms.to_dict(), sort_keys=True)))
             cur.execute(
                 "INSERT INTO sentinel_command_events (client_key, from_state,"
                 " to_state, filled_quantity, detail) VALUES (%s,NULL,%s,%s,%s)",
@@ -675,7 +694,7 @@ def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
     (client_key, plan_id, security_id, revision, deployment_id, broker,
      broker_account_id, takeover_epoch, symbol, broker_instrument_id,
      side, quantity, state, broker_order_id, filled, filled_average_price,
-     detail, recovered, created_at) = row
+     detail, recovered, created_at, order_terms) = row
     stored_deployment = DeploymentIdentity(
         deployment_id=str(deployment_id), broker=str(broker),
         broker_account_id=str(broker_account_id),
@@ -706,7 +725,7 @@ def _row_to_command(row, deployment: DeploymentIdentity) -> Command:
         filled_average_price=(Decimal(str(filled_average_price))
                               if filled_average_price is not None else None),
         detail=str(detail or ""),
-        created_at=created_at)
+        created_at=created_at, order_terms=OrderTerms.from_dict(order_terms))
     if recovered:
         # ADOPTED, so the key is not regenerable by construction and the check
         # below would reject every recovered row. The stored key is carried
@@ -732,7 +751,7 @@ _COMMAND_COLUMNS = ("client_key, plan_id, security_id, revision, deployment_id,"
                     " broker, broker_account_id, takeover_epoch, symbol,"
                     " broker_instrument_id, side, quantity, state,"
                     " broker_order_id, filled_quantity, filled_average_price,"
-                    " detail, recovered, created_at")
+                    " detail, recovered, created_at, order_terms")
 
 
 def load_commands(conn, deployment: DeploymentIdentity, *,
@@ -940,12 +959,32 @@ def _canonical_observation_digest(payload: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-OBSERVATION_WITNESS_KIND = 'broker-observation-witness/v5'
+LEGACY_OBSERVATION_PAYLOAD_KIND = 'broker-observation/v4'
+LEGACY_OBSERVATION_WITNESS_KIND = 'broker-observation-witness/v5'
+OBSERVATION_PAYLOAD_KIND = 'broker-observation/v5'
+OBSERVATION_WITNESS_KIND = 'broker-observation-witness/v6'
+_OBSERVATION_PAYLOAD_KINDS = frozenset({LEGACY_OBSERVATION_PAYLOAD_KIND, OBSERVATION_PAYLOAD_KIND})
+_OBSERVATION_WITNESS_KINDS = frozenset({LEGACY_OBSERVATION_WITNESS_KIND, OBSERVATION_WITNESS_KIND})
+
+
+def _reported_terms(terms):
+    return None if terms is None else terms.to_dict()
+
+
+def _valid_reported_terms(raw):
+    if raw is None:
+        return True  # Visible foreign evidence, never owned-command authority.
+    try:
+        return OrderTerms.from_dict(raw).to_dict() == raw
+    except (ValueError, TypeError, KeyError):
+        return False
 
 
 def _observation_witness(payload: dict, digest: str) -> dict:
     return {
-        'kind': OBSERVATION_WITNESS_KIND,
+        'kind': (LEGACY_OBSERVATION_WITNESS_KIND
+                 if payload['kind'] == LEGACY_OBSERVATION_PAYLOAD_KIND
+                 else OBSERVATION_WITNESS_KIND),
         **{key: payload[key] for key in (
             'observation_seq', 'broker', 'account_id', 'started_at',
             'observed_at', 'terminal_recovery_through', 'completeness')},
@@ -958,9 +997,11 @@ def _canonical_observation_payload(
         started_at: datetime | None, observed_at: datetime,
         terminal_recovery_through: datetime | None, completeness: str,
         positions: list[dict], orders: list[dict],
-        exact_evidence: list[dict]) -> dict:
+        exact_evidence: list[dict], kind: str = OBSERVATION_PAYLOAD_KIND) -> dict:
+    if kind not in _OBSERVATION_PAYLOAD_KINDS:
+        raise ValueError('unknown broker observation payload version')
     return {
-        "kind": "broker-observation/v4",
+        "kind": kind,
         "observation_seq": int(seq),
         "broker": str(broker),
         "account_id": str(account_id),
@@ -1025,6 +1066,7 @@ def record_observation(conn, observation: BrokerObservation,
         "external_replacement": bool(order.external_replacement),
         "replaced_by": order.replaced_by,
         "replaces": order.replaces,
+        "order_terms": _reported_terms(order.order_terms),
     } for order in observation.orders]
     exact_evidence = []
     for exact in observation.exact_order_evidence:
@@ -1065,6 +1107,7 @@ def record_observation(conn, observation: BrokerObservation,
                 "external_replacement": bool(order.external_replacement),
                 "replaced_by": order.replaced_by,
                 "replaces": order.replaces,
+                "order_terms": _reported_terms(order.order_terms),
             },
         })
 
@@ -1104,6 +1147,7 @@ def record_observation(conn, observation: BrokerObservation,
                 "external_replacement": item["external_replacement"],
                 "replaced_by": item["replaced_by"],
                 "replaces": item["replaces"],
+                "order_terms": item["order_terms"],
             } for item in normalized_orders]
             payload = _canonical_observation_payload(
                 seq=seq, broker=account_identity.broker,
@@ -1216,7 +1260,7 @@ def _orphaned_observation_issues(conn, account_binding):
             except (TypeError, ValueError):
                 started_at = None
             if (started_at is None or observed_at is None or started_at > observed_at
-                    or kind not in ('broker-observation/v4', OBSERVATION_WITNESS_KIND)):
+                    or kind not in _OBSERVATION_PAYLOAD_KINDS | _OBSERVATION_WITNESS_KINDS):
                 if 'MALFORMED_CANONICAL_EVIDENCE' not in reasons:
                     reasons.append('MALFORMED_CANONICAL_EVIDENCE')
             if observed_at is not None and str(session) != observed_at.date().isoformat():
@@ -1316,7 +1360,7 @@ def _verify_observation_integrity_row(row):
     elif evidence is None:
         reasons.append("MALFORMED_CANONICAL_EVIDENCE")
     else:
-        compact = evidence.get('kind') == OBSERVATION_WITNESS_KIND
+        compact = evidence.get('kind') in _OBSERVATION_WITNESS_KINDS
         required = {
             "kind", "observation_seq", "broker", "account_id",
             "started_at", "observed_at", "terminal_recovery_through",
@@ -1332,8 +1376,7 @@ def _verify_observation_integrity_row(row):
                 evidence_seq = int(evidence.get("observation_seq", -1))
             except (TypeError, ValueError):
                 evidence_seq = -1
-            if (evidence.get("kind") not in (
-                    "broker-observation/v4", OBSERVATION_WITNESS_KIND)
+            if (evidence.get("kind") not in _OBSERVATION_PAYLOAD_KINDS | _OBSERVATION_WITNESS_KINDS
                     or evidence_seq != int(seq)
                     or evidence.get("broker") != bound_broker
                     or evidence.get("account_id") != bound_account):
@@ -1362,12 +1405,17 @@ def _verify_observation_integrity_row(row):
         reasons.append("MISSING_OBSERVATION_STARTED_AT")
     expected_payload = None
     expected_digest = None
+    evidence_kind = evidence.get('kind') if evidence is not None else None
+    with_terms = evidence_kind in {OBSERVATION_PAYLOAD_KIND, OBSERVATION_WITNESS_KIND}
+    payload_kind = (OBSERVATION_PAYLOAD_KIND if with_terms else LEGACY_OBSERVATION_PAYLOAD_KIND)
     position_fields = {
         "security_id", "symbol", "broker_instrument_id", "quantity"}
     order_fields = {
         "id", "key", "security_id", "symbol", "broker_instrument_id",
         "side", "state", "qty", "filled", "filled_average_price",
         "submitted_at", "external_replacement", "replaced_by", "replaces"}
+    if with_terms:
+        order_fields.add("order_terms")
     exact_fields = {
         "client_key", "request_started_at", "request_completed_at",
         "identity_before", "identity_after", "initial_order_id", "order"}
@@ -1390,7 +1438,12 @@ def _verify_observation_integrity_row(row):
                 and position_fields.issubset(item)
                 for item in provenance_positions)
         and all(isinstance(item, dict) and order_fields.issubset(item)
+                and (not with_terms or _valid_reported_terms(item["order_terms"]))
                 for item in normalized_orders)
+        and all(not with_terms or item.get("order") is None
+                or (isinstance(item["order"], dict) and "order_terms" in item["order"]
+                    and _valid_reported_terms(item["order"]["order_terms"]))
+                for item in provenance_exact_evidence)
     )
     if sufficient:
         try:
@@ -1429,6 +1482,7 @@ def _verify_observation_integrity_row(row):
             "external_replacement": item["external_replacement"],
             "replaced_by": item["replaced_by"],
             "replaces": item["replaces"],
+            **({"order_terms": item["order_terms"]} if with_terms else {}),
         } for item in normalized_orders]
         expected_payload = _canonical_observation_payload(
             seq=int(seq), broker=str(provenance_broker),
@@ -1437,11 +1491,11 @@ def _verify_observation_integrity_row(row):
             terminal_recovery_through=terminal_recovery_through,
             completeness=str(completeness),
             positions=canonical_positions, orders=canonical_orders,
-            exact_evidence=provenance_exact_evidence)
+            exact_evidence=provenance_exact_evidence, kind=payload_kind)
         expected_digest = _canonical_observation_digest(expected_payload)
         expected_evidence = (
             _observation_witness(expected_payload, expected_digest)
-            if evidence is not None and evidence.get('kind') == OBSERVATION_WITNESS_KIND
+            if evidence is not None and evidence.get('kind') in _OBSERVATION_WITNESS_KINDS
             else expected_payload)
         if evidence is not None and evidence != expected_evidence:
             reasons.append("CANONICAL_ECONOMICS_DISAGREEMENT")
@@ -1456,7 +1510,7 @@ def _verify_observation_integrity_row(row):
     elif expected_payload is not None:
         evidence_digest = (None if evidence is None else
             evidence.get('canonical_payload_sha256')
-            if evidence.get('kind') == OBSERVATION_WITNESS_KIND
+            if evidence.get('kind') in _OBSERVATION_WITNESS_KINDS
             else _canonical_observation_digest(evidence))
         if (payload_digest != expected_digest
                 or evidence_digest != payload_digest):

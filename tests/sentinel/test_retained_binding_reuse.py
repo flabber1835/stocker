@@ -106,6 +106,46 @@ def state_binding(retained):
         state_sha256=retained.checkpoint.state_sha256, session=retained.checkpoint.session)
 
 
+
+
+def test_funding_cursor_reuses_signed_binding_but_unknown_lookalikes_are_economic(conn, retained):
+    from sentinel.execution import protected_funding as funding
+    from tests.sentinel.test_limit_day_funding import funding_basis
+    basis = funding_basis()
+    value = basis.model_dump(mode="json")
+    value["funding_sha256"] = funding._sha(value)
+    with proof_scope(conn):
+        admission.require_retained_state(conn, **state_binding(retained))
+        baseline = dict(retained.calls)
+        conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
+                     "VALUES (%s,%s,%s::jsonb)",
+                     (funding.PREFIX + basis.plan_id, basis.effective_session, canonical_json(value)))
+        conn.commit()
+        assert funding.load_basis(conn, plan_id=basis.plan_id) == basis
+        admission.require_retained_state(conn, **state_binding(retained))
+        assert retained.calls["origin"] == baseline["origin"]
+        assert retained.calls["daily"] == baseline["daily"]
+        assert retained.calls["context"] == baseline["context"] + 1
+        for name in ("protected-buy-funding:v1-lookalike:plan", "protected-buy-funding:v2:plan"):
+            before = dict(retained.calls)
+            conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
+                         "VALUES (%s,'2026-09-15','{}')", (name,))
+            conn.commit()
+            admission.require_retained_state(conn, **state_binding(retained))
+            assert retained.calls["origin"] > before["origin"]
+            assert retained.calls["daily"] > before["daily"]
+            assert retained.calls["context"] == before["context"] + 1
+
+
+def test_removing_funding_cursor_classification_is_detected(conn, retained, monkeypatch):
+    from sentinel.execution.protected_funding import PREFIX
+    assert PREFIX in verified.PAPER_CURSOR_PREFIXES
+    monkeypatch.setattr(verified, "PAPER_CURSOR_PREFIXES",
+                        tuple(prefix for prefix in verified.PAPER_CURSOR_PREFIXES if prefix != PREFIX))
+    with pytest.raises(AssertionError):
+        test_funding_cursor_reuses_signed_binding_but_unknown_lookalikes_are_economic(conn, retained)
+
+
 def test_historical_binding_reuses_real_proof_across_exact_paper_writes(conn, retained):
     assert retained.context['strategy'] != retained.checkpoint.strategy_identity != retained.initial.strategy_identity
     with proof_scope(conn) as scope:

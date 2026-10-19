@@ -11,5 +11,6 @@ PAPER_CURSOR_PREFIXES = (
     'plan-target-projection:v2:', 'dual-regenesis-broker-handover:v2:',
     'trial-account:v2:', 'trial-verification:v3:', 'trial-fill-interval:v1:',
     'trial-close-nav:v1:', 'paper-performance-invalid:v1:',
+    'protected-buy-funding:v1:',
 )
 PAPER_CURSOR_NAMES = ('broker-recovery-db-incarnation:v1',)

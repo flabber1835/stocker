@@ -26,7 +26,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Mapping
 
-from sentinel.core.decision import build_execution_plan
+from sentinel.core.decision import _shadow_equity, build_execution_plan
 from sentinel.core.production import SessionState
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
@@ -602,6 +602,7 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
         "state_sha256": state_sha256,
         "plan_fingerprint": plan.fingerprint(),
         "canonical_symbols": dict(sorted(tickers.items())),
+        "shadow_equity": decimal_text(_shadow_equity(state)),
         "verdict": "MATCH",
     }
 

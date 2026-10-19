@@ -255,6 +255,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           min_increment: Decimal = Decimal(1),
                           settle_cycles: int = DEFAULT_SETTLE_CYCLES,
                           increase_authority=None,
+                          increase_reconciliation_authority=None,
                           mutation_authority=None,
                           security_restrictions: Optional[Mapping[str, str]] = None,
                           informational_current_book: bool = False,
@@ -372,6 +373,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
             target_projection=target_projection,
             min_increment=min_increment, settle_cycles=settle_cycles,
             increase_authority=increase_authority,
+            increase_reconciliation_authority=increase_reconciliation_authority,
             mutation_authority=mutation_authority,
             security_restrictions=security_restrictions,
             informational_current_book=informational_current_book)
@@ -387,6 +389,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   min_increment: Decimal,
                                   settle_cycles: int = DEFAULT_SETTLE_CYCLES,
                                   increase_authority=None,
+                                  increase_reconciliation_authority=None,
                                   mutation_authority=None,
                                   security_restrictions: Optional[Mapping[str, str]] = None,
                                   informational_current_book: bool = False,
@@ -450,6 +453,11 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     deferred: list = []
     deferral_reasons: dict = {}
     restrictions = dict(security_restrictions or {})
+    from sentinel.execution import protected_limits
+    if target_projection is not None:
+        unavailable = protected_limits.unavailable_opening_intents(target_projection)
+        deferred.extend(unavailable)
+        deferral_reasons.update(unavailable)
     from sentinel.execution.share_units import material_restrictions
     restrictions.update(material_restrictions(actions, {
         sid: getattr(instruments.get(sid), "symbol", sid)
@@ -506,9 +514,31 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             # preflight.
             await mutation_authority(rec)
         for index, delta in enumerate(authorized_candidates):
+            from sentinel.execution.contract import OrderTerms
+            from sentinel.execution import protected_limits
+            order_terms = OrderTerms()
+            if delta.is_increase:
+                selected = protected_limits.ProtectedLimitPolicy.from_env()
+                protected_projection = (
+                    target_projection is not None
+                    and target_projection.opening_sizing is not None
+                    and target_projection.opening_sizing.get("mode")
+                    == protected_limits.PROTECTED_MODE)
+                if selected is not None or protected_projection:
+                    if not protected_projection:
+                        raise C.CommandRefused("protected BUY requires its immutable limit projection")
+                    try:
+                        order_terms = protected_limits.order_terms_for(
+                            target_projection, delta.security_id)
+                    except protected_limits.ProtectedReferenceUnavailable as exc:
+                        if delta.security_id not in deferred:
+                            deferred.append(delta.security_id)
+                        deferral_reasons[delta.security_id] = str(exc)
+                        continue
             command, already_planned = _command_for_delta(
                 conn=conn, deployment=deployment, plan_id=plan.plan_id,
-                delta=delta, instrument=instruments[delta.security_id])
+                delta=delta, instrument=instruments[delta.security_id],
+                order_terms=order_terms)
             sent = await _persist_and_send(
                 conn, broker, command, already_planned=already_planned)
             if sent.state is CommandState.PLANNED:
@@ -654,9 +684,13 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     # The strict paper gateway supplies its account-cash authority here, at the
     # last read-only boundary before any increase. It runs for pure buys too;
     # cash can change after preflight even when there was no sale to settle.
-    if increases and increase_authority is not None:
+    if increases and (increase_authority is not None
+                      or increase_reconciliation_authority is not None):
         try:
-            await increase_authority(observation)
+            if increase_authority is not None:
+                await increase_authority(observation)
+            if increase_reconciliation_authority is not None:
+                await increase_reconciliation_authority(rec)
         except BrokerAuthorityRefused:
             raise
         except Exception as exc:                              # noqa: BLE001
@@ -762,13 +796,14 @@ def _same_command_economics(left: C.Command, right: C.Command) -> bool:
         and left.instrument.broker_id == right.instrument.broker_id
         and left.side is right.side
         and left.quantity == right.quantity
+        and left.order_terms == right.order_terms
         and left.filled_quantity == right.filled_quantity == Decimal(0)
         and left.broker_order_id is None
     )
 
 
 def _command_for_delta(*, conn, deployment: DeploymentIdentity, plan_id: str,
-                       delta: C.Delta, instrument) -> tuple[C.Command, bool]:
+                       delta: C.Delta, instrument, order_terms=None) -> tuple[C.Command, bool]:
     """Build a command without ever re-opening a durable terminal identity.
 
     Revision zero is deterministic for the first command. A crash may leave its
@@ -796,7 +831,8 @@ def _command_for_delta(*, conn, deployment: DeploymentIdentity, plan_id: str,
         deployment=deployment, plan_id=plan_id,
         security_id=delta.security_id, revision=revision)
     candidate = C.build(
-        delta=delta, identity=identity, instrument=instrument)
+        delta=delta, identity=identity, instrument=instrument,
+        **({} if order_terms is None else {"order_terms": order_terms}))
 
     if not previous:
         return candidate, False
@@ -820,7 +856,8 @@ def _command_for_delta(*, conn, deployment: DeploymentIdentity, plan_id: str,
     identity = CommandIdentity(
         deployment=deployment, plan_id=plan_id,
         security_id=delta.security_id, revision=revision + 1)
-    return C.build(delta=delta, identity=identity, instrument=instrument), False
+    return C.build(delta=delta, identity=identity, instrument=instrument,
+                   **({} if order_terms is None else {"order_terms": order_terms})), False
 
 
 async def _persist_and_send(conn, broker, command: C.Command, *,

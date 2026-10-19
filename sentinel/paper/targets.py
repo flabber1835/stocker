@@ -360,7 +360,14 @@ def _target_projection_or_refuse(
             pending_close_shares=target.pending_close_shares,
             minimum_quantity_increment=(
                 broker.capabilities.minimum_quantity_increment))
-        if plan.opening_intents:
+        from sentinel.execution import protected_limits
+        policy = protected_limits.ProtectedLimitPolicy.from_env()
+        if policy is not None:
+            references = protected_limits.build_references(
+                conn, plan=plan, projection=projected, policy=policy)
+            projected = protected_limits.resolve_protected(
+                state, plan, projected, references, policy)
+        elif plan.opening_intents:
             from sentinel.execution import opening_sizing
             from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable
             if opening_prices is None and plan.target_exposure > 0:
@@ -405,15 +412,28 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     symbols = dict(target.tickers)
     symbols[DEFENSIVE_SECURITY_ID] = DEFENSIVE_SYMBOL
     opening_prices = None
-    if not preparation and plan.opening_intents and plan.target_exposure != 0:
+    protected_references = None
+    protected_projection = None
+    if not preparation:
         from sentinel.execution.opening_prices import OpeningPrices
         projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
-        if (projection is None or projection.plan_fingerprint != plan.fingerprint()
-                or projection.opening_sizing is None
-                or projection.target_basket != desired):
-            raise PaperActivationRefused("opening instrument map requires the retained sizing projection")
-        opening_prices = OpeningPrices.from_dict(projection.opening_sizing.get("prices"))
-        symbols.update(opening_prices.symbols)
+        from sentinel.execution import protected_limits
+        if (projection is not None and isinstance(projection.opening_sizing, dict)
+                and projection.opening_sizing.get("mode") == protected_limits.PROTECTED_MODE):
+            if (projection.plan_fingerprint != plan.fingerprint()
+                    or projection.target_basket != desired):
+                raise PaperActivationRefused("protected instrument map differs from its retained projection")
+            _policy, references = protected_limits.validate_projection(projection, require_current_policy=True)
+            symbols.update(references.symbols)
+            protected_references = references
+            protected_projection = projection
+        elif plan.opening_intents and plan.target_exposure != 0:
+            if (projection is None or projection.plan_fingerprint != plan.fingerprint()
+                    or projection.opening_sizing is None
+                    or projection.target_basket != desired):
+                raise PaperActivationRefused("opening instrument map requires the retained sizing projection")
+            opening_prices = OpeningPrices.from_dict(projection.opening_sizing.get("prices"))
+            symbols.update(opening_prices.symbols)
     from sentinel.execution import feed_inputs
     meta = feed_inputs.metadata(conn)
     for security_id in desired:
@@ -448,6 +468,13 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         current = instruments.get(security_id)
         increasing = (desired.get(security_id, Decimal(0))
                       > effective_current[security_id])
+        if increasing and protected_projection is not None:
+            try:
+                protected_limits.order_terms_for(protected_projection, security_id)
+            except protected_limits.ProtectedReferenceUnavailable:
+                # The executor records a BUY-only deferral before reservation.
+                # Its SELL path still uses the observed exact native identity.
+                continue
         # An observed broker asset id is already the strongest mapping the
         # adapter can provide for a REDUCTION. An increase revalidates active /
         # tradable status even when the asset is already held; yesterday's
@@ -481,6 +508,11 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                 "did not return the requested permanent identity, symbol and "
                 "stable broker asset id")
         instruments[security_id] = resolved
+        if protected_references is not None:
+            source_asset = protected_references.provider_asset_ids.get(security_id)
+            if (resolved.symbol != protected_references.symbols.get(security_id)
+                    or source_asset is not None and resolved.broker_id != source_asset):
+                raise PaperActivationRefused("protected submission instrument differs from authenticated source identity")
         if (opening_prices is not None and security_id in opening_prices.broker_ids
                 and resolved.broker_id != opening_prices.broker_ids[security_id]):
             raise PaperActivationRefused("submission instrument differs from opening broker asset identity")

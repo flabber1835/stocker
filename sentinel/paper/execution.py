@@ -159,6 +159,11 @@ def _opening_resolution_freshness_or_refuse(
 
 async def _opening_prices_or_retry(conn, *, state, plan, broker):
     import httpx
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
+    if ProtectedLimitPolicy.from_env() is not None:
+        # The separate projection factory authenticates historical RAW rows.
+        # Do not request a quote or label that reference as an opening price.
+        return None
     from sentinel.execution.opening_sizing import prices_for_plan
     from sentinel.execution.opening_prices import OpeningPriceUnavailable
     from sentinel.execution.target_reprojection import TargetProjectionRefused
@@ -466,8 +471,10 @@ async def _execute_current_paper_plan(
             restrictions = material_restrictions(target_actions, target_symbols)
             restrictions.update(preflight.restricted_securities)
 
-            if not restrictions and all(delta.classification is execution_commands.DeltaClass.NONE
-                   for delta in projected_deltas):
+            from sentinel.execution.protected_limits import unavailable_opening_intents
+            if (not restrictions and not unavailable_opening_intents(target_projection)
+                    and all(delta.classification is execution_commands.DeltaClass.NONE
+                            for delta in projected_deltas)):
                 session = executor.SessionResult(
                     runtime_state=RuntimeState.RUNNING,
                     reconciliation=preflight,
@@ -480,7 +487,7 @@ async def _execute_current_paper_plan(
                         else target_projection.target_basket),
                     restricted_security_ids=restrictions)
 
-                async def authorize_increases(fresh_observation):
+                async def authorize_increases(fresh_observation, fresh_reconciliation=None):
                     if not _account_evidence_is_quiescent(
                             conn, deployment=binding.identity,
                             observation=fresh_observation):
@@ -499,17 +506,37 @@ async def _execute_current_paper_plan(
                         account=fresh_account, observation=fresh_observation,
                         activity_state=fresh_activity_state,
                         endpoint_lag_observed_at=fresh_cash_at)
+                    from sentinel.execution.protected_limits import ProtectedLimitPolicy
+                    if ProtectedLimitPolicy.from_env() is not None:
+                        from sentinel.execution import protected_funding
+                        if (fresh_reconciliation is None
+                                or fresh_reconciliation.observation is not fresh_observation):
+                            raise PaperActivationRefused("protected cash requires the executor's exact reconciliation")
+                        protected_funding.record_quiescent_basis(
+                            conn, plan=plan, projection=target_projection,
+                            binding=binding, reconciliation=fresh_reconciliation,
+                            account=fresh_account, activity_state=fresh_activity_state,
+                            observed_at=fresh_cash_at, paper_base_url=base_url)
 
                 async def authorize_dual_mutations(fresh_reconciliation):
                     _dual_mutation_observation_or_refuse(
                         fresh_reconciliation)
+
+                from sentinel.execution.protected_limits import ProtectedLimitPolicy
+                protected_selected = ProtectedLimitPolicy.from_env() is not None
+
+                async def authorize_protected_cohort(fresh_reconciliation):
+                    await authorize_increases(
+                        fresh_reconciliation.observation, fresh_reconciliation)
 
                 session = await executor.execute_session(
                     broker=broker, conn=conn, deployment=binding.identity,
                     plan=plan, instruments=instruments, today=today,
                     actions=actions, target_projection=target_projection,
                     min_increment=minimum_increment,
-                    increase_authority=authorize_increases,
+                    increase_authority=(None if protected_selected else authorize_increases),
+                    increase_reconciliation_authority=(
+                        authorize_protected_cohort if protected_selected else None),
                     mutation_authority=(
                         authorize_dual_mutations
                         if dual_mode else None),

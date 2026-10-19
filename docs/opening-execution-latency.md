@@ -444,9 +444,19 @@ fixture; it cannot establish native full-basket readiness when the available
 feed does not deliver usable quotes. The release must state this distinction
 and retain execution fencing until native data access is verified.
 
-## Selected SIP execution quote policy
+## Unpublished SIP candidate — superseded by the no-subscription constraint
 
-The operator selected existing SIP access. Make SIP the single canonical source
+The operator subsequently clarified that no SIP subscription is purchased and
+requested investigation of a [free-data execution redesign](free-data-execution-proposal.md).
+The SIP-only candidate described below remains historical diagnostic work and
+is not selected for deployment. The installed IEX policy is unchanged. Native
+checks at 17:32:24 UTC again found valid ACTIVE/unblocked paper authentication
+and the explicit SIP subscription refusal. Do not purchase SIP, activate the
+unpublished candidate. The subsequently selected free-data contract and approved
+DAY lifetime are documented in the linked design; price-band selection and
+ordinary release qualification remain outstanding.
+
+The earlier candidate assumed existing SIP access and made SIP the single source
 for the execution adapter's latest-quote GET, with an explicit `feed=sip` query
 and a new `ALPACA_SIP_RAW_REGULAR_QUOTES_V1` evidence source. The reviewed
 runtime/source identity binds this policy; there is no environment feed selector
@@ -753,3 +763,60 @@ python -B -m pytest tests/sentinel/test_identity_metadata_calculation.py \
 
 These pure-work tests do not qualify gateway latency, native SIP access or
 deployment authority.
+
+The exact source-calculation candidate is
+`ce3083025b07c3447ac6319cefabadfa8f20d667`, local diagnostic image
+`sha256:5777af7a01883a1eb4069a56c4208c55b38a61a6372450dace53108bc41c297c`,
+with profile `7c182e320f3d3be01af273fbb51e1bb9ce61edff2ce55b50fb4ac0c157846b38`.
+The narrow successor cohort independently collected and passed all 63 cases in
+386.10 seconds with no failures, errors or skips; all 370 recorded file hashes
+were unchanged. It included the actual formed-book admission/restore case
+(175.55 seconds plus 27.22 seconds setup) and all 21 historical witnesses. The
+run used the same network-disabled, 0.5 CPU, 768 MiB test envelope:
+
+```bash
+python -B -m pytest tests/sentinel/test_opening_latency_upgrade.py \
+  tests/sentinel/test_retained_source_compatibility.py \
+  tests/sentinel/test_clock_sampling_upgrade.py::test_actual_formed_book_survives_clock_repair_without_reformation_or_reacquisition \
+  -q --tb=short -p no:cacheprovider --durations=10 \
+  --junitxml=/evidence/successor-profile.xml
+```
+
+Supported admission in fresh private namespace 12 passed in 33.763734 seconds.
+Its separate validator-only diagnostic then refused with `StaleLeaderRefused`
+after 36.802703 seconds under the actual callback supervisor (47.464138 seconds
+total), before either clone comparison or warm validator measurement. Preserve
+this failure: the original type-only diagnostic report did not retain enough
+detail to prove which heartbeat condition failed. Supported cycle/plan setup
+had consumed 10.661435 seconds before the supervisor started, creating a
+possible race with the unchanged 12-second lease. A subsequent diagnostic must
+record stage/heartbeat timing and perform a normal unexpired-lease renewal
+before starting the supervisor; expired leadership must still refuse. Fresh
+cleanup passed. Control was disabled/killed, the diagnostic cycle remained
+recorded, and commands, fills and observations remained zero. This diagnostic
+does not establish gateway readiness.
+
+Fresh private namespace 13 admitted the same exact candidate in 19.940486
+seconds. Its validator-only diagnostic completed in 144.154929 seconds under
+the unchanged actual supervisor (133.977259-second callback); all 41 observed
+heartbeats passed, with an ordinary successful pre-invoke renewal. Recorded
+lease-owned setup took less than 0.05 seconds, weakening the earlier setup-race
+hypothesis. Namespace 12's unrecorded failure condition remains unknown.
+
+At 0.5 CPU and 2 GiB, cold full status took 116.489073 seconds; the unprofiled
+warm complete database-only broker-grant validator took 1.203027 seconds wall
+and 0.352145 seconds CPU. Wall-clock and CPU-clock profiles took 1.385094 and
+5.215119 seconds respectively; the latter has substantial profiler overhead.
+The warm trace contains 92 uncategorized SQL calls consuming 0.737375 seconds,
+repeated manifest/source reads and pure SQL normalization. No warm full-state
+restore bottleneck remained. The existing canonical adapter saved only
+0.509677 seconds wall versus full serialization in one separately timed clone
+comparison; equal state commitments were checked outside clone timing. No
+gateway clone change was selected on that evidence.
+
+Journal/book inventories matched, validation writes and provider calls were
+zero, and fresh cleanup verified disabled/killed control, IDLE registration and
+zero commands/fills/observations. All diagnostic processes and scopes ended.
+The report is explicitly DIAGNOSTIC_ONLY, not native order or gateway timing
+qualification. The subsequent free-data order-policy investigation does not
+inherit a passing release claim from these measurements.

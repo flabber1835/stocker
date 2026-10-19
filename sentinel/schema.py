@@ -46,6 +46,48 @@ _MIGRATION_SHA256 = hashlib.sha256(
     _MIGRATION_CONTRACT.encode("ascii")).hexdigest()
 _REVIEWED_HEAD = "6113bffd896824ee24891b0c1aeada60c2b73ef5"
 
+# V1 remains an independently recognized predecessor. Never replace its row,
+# hashes or bootstrap DDL when adding a behavioral migration.
+_ORDER_TERMS_VERSION = 2
+_ORDER_TERMS_NAME = "immutable-order-terms-v2"
+_ORDER_TERMS_CONTRACT = (
+    "sentinel.behavioral-schema/2;append-v1-ledger;exact-v1-core-and-stage4;"
+    "fenced-no-live-current-leader;immutable-jsonb-order-terms/1;"
+    "legacy-market-day-simple-regular-null-limit;buy-limit-day-only;"
+    "preserve-command-keys-economics-events-and-all-operational-state")
+_ORDER_TERMS_SHA256 = hashlib.sha256(_ORDER_TERMS_CONTRACT.encode("ascii")).hexdigest()
+_LEGACY_ORDER_TERMS = {
+    "schema": "sentinel.order-terms/1", "order_type": "market",
+    "time_in_force": "day", "limit_price": None,
+    "order_class": "simple", "extended_hours": False,
+}
+_ORDER_TERMS_DEFAULT = json.dumps(_LEGACY_ORDER_TERMS, sort_keys=True, separators=(",", ":"))
+_ORDER_TERMS_CHECK = "sentinel_command_order_terms_ck"
+_ORDER_TERMS_DDL = (
+    "ALTER TABLE sentinel_commands ADD COLUMN order_terms JSONB NOT NULL DEFAULT '"
+    + _ORDER_TERMS_DEFAULT + "'::jsonb",
+    """ALTER TABLE sentinel_commands ADD CONSTRAINT sentinel_command_order_terms_ck CHECK ((
+        jsonb_typeof(order_terms)='object'
+        AND order_terms ?& ARRAY['schema','order_type','time_in_force','limit_price','order_class','extended_hours']
+        AND order_terms - ARRAY['schema','order_type','time_in_force','limit_price','order_class','extended_hours']='{}'::jsonb
+        AND order_terms->>'schema'='sentinel.order-terms/1'
+        AND order_terms->>'order_type' IN ('market','limit')
+        AND order_terms->>'time_in_force'='day'
+        AND order_terms->>'order_class'='simple'
+        AND order_terms->'extended_hours'='false'::jsonb
+        AND CASE WHEN order_terms->>'order_type'='market'
+            THEN order_terms->'limit_price'='null'::jsonb
+            ELSE side='BUY' AND jsonb_typeof(order_terms->'limit_price')='string'
+                AND CASE WHEN order_terms->>'limit_price' ~ '^[0-9]+(\\.[0-9]+)?$'
+                    THEN (order_terms->>'limit_price')::numeric>0 ELSE false END
+            END) IS TRUE)""",
+)
+_ORDER_TERMS_TARGET_CATALOG_SHA256 = {
+    "NEW": "74b2373d87ecef37887a3a39fc89e318b2711eace027d3a888e979c5a80e593b",
+    "PR84_HEAD_BRIDGE": "74b2373d87ecef37887a3a39fc89e318b2711eace027d3a888e979c5a80e593b",
+    "LEGACY": "2d5bf95afc166369f97fe4fd4ce1c5572b0517ab0a8b2e3e450da43e21d5ee21",
+}
+
 _INITIAL_ROLLOUT_STATE = """INSERT INTO sentinel_rollout_state
     (id,mode,version) VALUES (1,'PINNED_1_00',1)"""
 
@@ -1519,10 +1561,12 @@ def _semantic_catalog_sha256(
     return hashlib.sha256(payload.encode("ascii")).hexdigest()
 
 
-def _expected_current_columns(*, ledger: bool) -> dict[str, frozenset[str]]:
+def _expected_current_columns(*, ledger: bool, version: int = 1) -> dict[str, frozenset[str]]:
     expected = dict(_PRE_ROLLOUT_COLUMNS)
     expected["sentinel_commands"] = (
         expected["sentinel_commands"] | _COMMAND_AUTHORITY_COLUMNS)
+    if version == _ORDER_TERMS_VERSION:
+        expected["sentinel_commands"] |= {"order_terms"}
     expected["sentinel_execution_plans"] = (
         expected["sentinel_execution_plans"] | _ROLLOUT_PLAN_COLUMNS)
     expected.update(_ROLLOUT_COLUMNS)
@@ -1855,13 +1899,13 @@ def _validate_rollout_history(cur) -> None:
                 "does not exist in durable history")
 
 
-def _read_and_validate_ledger(cur) -> str:
+def _read_and_validate_ledger(cur) -> tuple[str, int]:
     cur.execute(
         "SELECT version,name,migration_sha256,bootstrap_kind,source_git_oid"
         " FROM public.sentinel_behavioral_schema_migrations"
         " ORDER BY version")
     rows = cur.fetchall()
-    if len(rows) != 1:
+    if [int(row[0]) for row in rows] not in ([1], [1, 2]):
         raise _operator_refusal(
             "behavioral migration authority is empty, gapped, future, or "
             f"duplicated (observed versions {[row[0] for row in rows]})")
@@ -1880,7 +1924,13 @@ def _read_and_validate_ledger(cur) -> str:
             or (kind != "PR84_HEAD_BRIDGE" and source is not None)):
         raise _operator_refusal(
             "behavioral migration authority has an invalid source fingerprint")
-    return kind
+    if len(rows) == 2:
+        version2, name2, sha2, kind2, source2 = rows[1]
+        if (int(version2) != _ORDER_TERMS_VERSION
+                or name2 != _ORDER_TERMS_NAME or sha2 != _ORDER_TERMS_SHA256
+                or kind2 != kind or source2 != source_oid):
+            raise _operator_refusal("behavioral v2 migration name, checksum or lineage is unknown")
+    return kind, int(rows[-1][0])
 
 
 def _classify_markerless(
@@ -1946,7 +1996,7 @@ def _validate_common_legacy_command_columns(columns) -> None:
             columns, "sentinel_commands", name, type_name, not_null=True)
 
 
-def _validate_ledgered(cur, catalog) -> None:
+def _validate_ledgered(cur, catalog, *, allow_previous: bool = False) -> int:
     relations, columns, constraints, indexes, triggers = catalog
     observed = _behavioral_relations(relations)
     if observed != _CURRENT_TABLES:
@@ -1957,20 +2007,81 @@ def _validate_ledgered(cur, catalog) -> None:
         raise _operator_refusal(
             "migration ledger and physical behavioral schema disagree: "
             f"missing={missing}, unexpected={sorted(observed - _CURRENT_TABLES)}")
-    expected = _expected_current_columns(ledger=True)
+    _validate_ledger_catalog(columns, constraints)
+    bootstrap_kind, version = _read_and_validate_ledger(cur)
+    expected = _expected_current_columns(ledger=True, version=version)
     _require_exact_columns(
         relations, columns, expected, label="ledgered behavioral schema")
-    _validate_ledger_catalog(columns, constraints)
-    bootstrap_kind = _read_and_validate_ledger(cur)
     _validate_target_catalog(
         columns, constraints, indexes, bootstrap_kind=bootstrap_kind)
     catalog_sha = _semantic_catalog_sha256(
         relations, columns, constraints, indexes, triggers, _CURRENT_TABLES)
-    if catalog_sha != _TARGET_CATALOG_SHA256[bootstrap_kind]:
+    targets = (_TARGET_CATALOG_SHA256 if version == 1
+               else _ORDER_TERMS_TARGET_CATALOG_SHA256)
+    if catalog_sha != targets[bootstrap_kind]:
         raise _operator_refusal(
             "migration ledger and complete behavioral catalog fingerprint "
             f"disagree (observed {catalog_sha})")
     _validate_rollout_history(cur)
+    if version == _ORDER_TERMS_VERSION:
+        _validate_order_terms_catalog(columns, constraints)
+    elif not allow_previous:
+        raise _operator_refusal("behavioral v2 order-terms migration is required; runtime never migrates")
+    return version
+
+
+def _validate_order_terms_catalog(columns, constraints) -> None:
+    field = _require_column(columns, "sentinel_commands", "order_terms", "jsonb", not_null=True)
+    default = field[2]
+    try:
+        if not isinstance(default, str) or not default.startswith("'") or not default.endswith("'::jsonb"):
+            raise ValueError("order-terms default is not a JSONB literal")
+        value = json.loads(default[1:-8].replace("''", "'"))
+    except (ValueError, TypeError) as exc:
+        raise _operator_refusal("behavioral order-terms default is malformed") from exc
+    if value != _LEGACY_ORDER_TERMS:
+        raise _operator_refusal("behavioral order-terms legacy default is unknown")
+    witness = [item for item in constraints.get("sentinel_commands", [])
+               if item[0] == _ORDER_TERMS_CHECK]
+    if len(witness) != 1 or witness[0][1] != "c" or not witness[0][3]:
+        raise _operator_refusal("behavioral order-terms constraint is missing or unvalidated")
+
+
+def _migrate_order_terms(cur, catalog) -> None:
+    if _validate_ledgered(cur, catalog, allow_previous=True) != 1:
+        raise _operator_refusal("order-terms migration requires the exact v1 predecessor")
+    _validate_stage4_runtime(cur, catalog)
+    cur.execute(
+        "SELECT c.enabled,c.kill_switch_engaged,c.generation,"
+        " l.control_generation,l.holder_id,l.expires_at>clock_timestamp() "
+        "FROM sentinel_automation_control c JOIN sentinel_automation_lease l "
+        "ON l.id=c.id WHERE c.id=1 FOR UPDATE OF c,l")
+    row = cur.fetchone()
+    if row is None:
+        raise _operator_refusal("order-terms migration requires existing control and lease singletons")
+    enabled, killed, generation, lease_generation, holder, live = row
+    if ((enabled and not killed)
+            or (holder is not None and live and lease_generation == generation)):
+        raise _operator_refusal("order-terms migration requires fenced automation and no live current leader")
+    for statement in _ORDER_TERMS_DDL:
+        cur.execute(statement)
+    cur.execute(
+        "INSERT INTO sentinel_behavioral_schema_migrations"
+        " (version,name,migration_sha256,bootstrap_kind,source_git_oid)"
+        " SELECT %s,%s,%s,bootstrap_kind,source_git_oid"
+        " FROM sentinel_behavioral_schema_migrations WHERE version=1",
+        (_ORDER_TERMS_VERSION, _ORDER_TERMS_NAME, _ORDER_TERMS_SHA256))
+
+
+def _finish_behavioral_version(cur) -> None:
+    catalog = _read_catalog(cur)
+    version = _validate_ledgered(cur, catalog, allow_previous=True)
+    _validate_stage4_runtime(cur, catalog)
+    if version == 1:
+        _migrate_order_terms(cur, catalog)
+        catalog = _read_catalog(cur)
+    _validate_ledgered(cur, catalog)
+    _validate_stage4_runtime(cur, catalog)
 
 
 def _validate_stage4_runtime(cur, catalog, *, expected_catalog=None) -> None:
@@ -2142,7 +2253,7 @@ def ensure_schema(conn) -> None:
                 "sentinel_notification_policy" in relations)
 
             if _LEDGER_TABLE in relations:
-                _validate_ledgered(cur, catalog)
+                _validate_ledgered(cur, catalog, allow_previous=True)
                 stage4_sha = _semantic_catalog_sha256(
                         relations, columns, constraints, indexes, triggers,
                         _STAGE4_TABLES)
@@ -2153,6 +2264,7 @@ def ensure_schema(conn) -> None:
                     _migrate_generation_cycles(cur, _read_catalog(cur))
                     _migrate_backup_progress(cur, _read_catalog(cur))
                     _validate_stage4_runtime(cur, _read_catalog(cur))
+                    _finish_behavioral_version(cur)
                     conn.commit()
                     return
                 if stage4_sha == _PRE_RECIPIENT_CATALOG_SHA256:
@@ -2161,19 +2273,22 @@ def ensure_schema(conn) -> None:
                                 or statement.startswith('UPDATE sentinel_web_push_subscriptions')):
                             cur.execute(statement)
                     _validate_stage4_runtime(cur, _read_catalog(cur))
+                    _finish_behavioral_version(cur)
                     conn.commit()
                     return
                 if stage4_sha == _PRE_GENERATION_CATALOG_SHA256:
                     _migrate_generation_cycles(cur, catalog)
                     _migrate_backup_progress(cur, _read_catalog(cur))
                     final_catalog = _read_catalog(cur)
-                    _validate_ledgered(cur, final_catalog)
+                    _validate_ledgered(cur, final_catalog, allow_previous=True)
                     _validate_stage4_runtime(cur, final_catalog)
+                    _finish_behavioral_version(cur)
                     conn.commit()
                     return
                 if stage4_sha == _PRE_BACKUP_PROGRESS_CATALOG_SHA256:
                     _migrate_backup_progress(cur, catalog)
                     _validate_stage4_runtime(cur, _read_catalog(cur))
+                    _finish_behavioral_version(cur)
                     conn.commit()
                     return
                 if stage4_sha == _STAGE4_CATALOG_SHA256:
@@ -2181,6 +2296,7 @@ def ensure_schema(conn) -> None:
                     # Exact current shape and authority singletons proved.
                     # Reissuing IF NOT EXISTS still takes exclusive table
                     # locks; a no-op installer must not contend with readers.
+                    _finish_behavioral_version(cur)
                     conn.commit()
                     return
                 if 'sentinel_alert_health_cursor' not in relations:
@@ -2210,13 +2326,14 @@ def ensure_schema(conn) -> None:
                     " VALUES (1,clock_timestamp())")
             final_catalog = _read_catalog(cur)
             _validate_backup_infrastructure(*final_catalog)
-            _validate_ledgered(cur, final_catalog)
+            _validate_ledgered(cur, final_catalog, allow_previous=True)
             if _semantic_catalog_sha256(
                     *final_catalog, _STAGE4_TABLES) == _PRE_GENERATION_CATALOG_SHA256:
                 _migrate_generation_cycles(cur, final_catalog)
                 _migrate_backup_progress(cur, _read_catalog(cur))
                 final_catalog = _read_catalog(cur)
             _validate_stage4_runtime(cur, final_catalog)
+            _finish_behavioral_version(cur)
         conn.commit()
     except BaseException:
         # PostgreSQL DDL is transactional. Explicit rollback also releases the

@@ -47,9 +47,18 @@ class Response:
 
 
 class LocalAlpaca:
-    """Deterministic immediate fills through the real adapter's HTTP parser."""
-    def __init__(self, *, account, cash, assets, window):
+    """Local native-shaped fills or resting DAY orders; never exchange evidence."""
+    def __init__(self, *, account, cash, assets, window, forbid_quotes=False,
+                 marketable_limit_fills=False):
+        if (type(cash) not in {str, Decimal} or type(forbid_quotes) is not bool
+                or type(marketable_limit_fills) is not bool):
+            raise QualificationRefused("SIMULATOR_INVALID_CASH_OR_SCENARIO_TYPE")
         self.account, self.cash, self.assets, self.window = account, Decimal(cash), assets, window
+        if (not self.cash.is_finite() or self.cash < 0
+                or any(not isinstance(row.get("price"), Decimal)
+                       or not row["price"].is_finite() or row["price"] <= 0 for row in assets.values())
+                or len({row["id"] for row in assets.values()}) != len(assets)):
+            raise QualificationRefused("SIMULATOR_INVALID_CASH_OR_ASSET")
         self.account_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, "opening-latency:" + account))
         self.by_id = {row["id"]: row for row in assets.values()}
         self.positions, self.orders, self.events = {}, {}, []
@@ -57,6 +66,10 @@ class LocalAlpaca:
         self.started, self.first_order_seconds = None, None
         from sentinel.execution.opening_prices import FEED
         self.quote_feed = FEED
+        self.forbid_quotes = forbid_quotes
+        self.marketable_limit_fills = marketable_limit_fills
+        if marketable_limit_fills and not forbid_quotes:
+            raise QualificationRefused("WORST_LIMIT_FILL_SCENARIO_REQUIRES_PROTECTED_POLICY")
         owner = self
 
         class Client:
@@ -89,6 +102,9 @@ class LocalAlpaca:
     def restore(self, value):
         if set(value) != {"cash", "positions", "orders", "events", "requests", "started", "first_order_seconds"}:
             raise QualificationRefused("INVALID_LOCAL_PROVIDER_STATE_ROUNDTRIP")
+        if (value["started"] != self.started or self.first_order_seconds is not None
+                and value["first_order_seconds"] != self.first_order_seconds):
+            raise QualificationRefused("LOCAL_PROVIDER_RESET_QUALIFICATION_CLOCK")
         self.cash = Decimal(value["cash"])
         self.positions = {key: Decimal(amount) for key, amount in value["positions"].items()}
         self.orders, self.events = value["orders"], value["events"]
@@ -99,20 +115,28 @@ class LocalAlpaca:
     def path(url):
         parsed = urlsplit(url)
         if parsed.scheme != "https" or parsed.hostname not in {
-                "paper-api.alpaca.markets", "data.alpaca.markets"}:
+                "paper-api.alpaca.markets", "data.alpaca.markets"} or (
+                parsed.username is not None or parsed.password is not None
+                or parsed.port is not None or parsed.query or parsed.fragment):
             raise QualificationRefused("SIMULATOR_UNKNOWN_ENDPOINT")
         return unquote(parsed.path)
 
     def get(self, url, params):
         path = self.path(url)
+        quote = path == "/v2/stocks/quotes/latest"
+        if urlsplit(url).hostname != ("data.alpaca.markets" if quote else "paper-api.alpaca.markets"):
+            raise QualificationRefused("SIMULATOR_WRONG_ENDPOINT_HOST")
         self.requests["GET " + path] += 1
         now = datetime.now(timezone.utc)
         if path == "/v2/account":
             equity = self.cash + sum((quantity * self.by_id[asset]["price"]
                                       for asset, quantity in self.positions.items()), Decimal(0))
+            reserved = sum((Decimal(row["qty"]) * Decimal(row["limit_price"])
+                            for row in self.orders.values()
+                            if row["side"] == "buy" and row["status"] == "new"), Decimal(0))
             return Response({"id": self.account_uuid, "account_number": self.account,
                 "cash": str(self.cash), "equity": str(equity), "last_equity": str(equity),
-                "buying_power": str(self.cash), "multiplier": "1", "status": "ACTIVE",
+                "buying_power": str(max(Decimal(0), self.cash-reserved)), "multiplier": "1", "status": "ACTIVE",
                 "trading_blocked": False, "account_blocked": False, "trade_suspended_by_user": False})
         if path.startswith("/v2/assets/"):
             asset = self.assets[path.rsplit("/", 1)[1]]
@@ -124,6 +148,8 @@ class LocalAlpaca:
                 "next_open": (opened if now < opened else opened + timedelta(days=1)).isoformat(),
                 "next_close": closed.isoformat()})
         if path == "/v2/stocks/quotes/latest":
+            if self.forbid_quotes:
+                raise QualificationRefused("PROTECTED_POLICY_QUOTE_GET_FORBIDDEN")
             if params.get("feed") != self.quote_feed:
                 raise QualificationRefused("SIMULATOR_QUOTE_FEED_POLICY_MISMATCH")
             return Response({"quotes": {symbol: {"ap": str(self.assets[symbol]["price"]),
@@ -134,7 +160,12 @@ class LocalAlpaca:
             return Response([{"asset_id": asset, "symbol": self.by_id[asset]["symbol"], "qty": str(quantity)}
                              for asset, quantity in self.positions.items() if quantity])
         if path == "/v2/orders":
-            rows = list(reversed(list(self.orders.values()))) if params.get("status") == "closed" else []
+            rows = list(reversed(list(self.orders.values())))
+            status = params.get("status", "open")
+            if status not in {"open", "closed", "all"}:
+                raise QualificationRefused("SIMULATOR_UNSUPPORTED_ORDER_STATUS")
+            if status != "all":
+                rows = [row for row in rows if (row["status"] == "filled") == (status == "closed")]
             before = params.get("before_order_id")
             if before:
                 rows = rows[next(index + 1 for index, row in enumerate(rows) if row["id"] == before):]
@@ -162,32 +193,82 @@ class LocalAlpaca:
         raise QualificationRefused("SIMULATOR_UNIMPLEMENTED_READ")
 
     def post(self, url, body):
-        if self.path(url) != "/v2/orders" or self.started is None:
+        if (self.path(url) != "/v2/orders" or self.started is None
+                or urlsplit(url).hostname != "paper-api.alpaca.markets"):
             raise QualificationRefused("SIMULATOR_UNEXPECTED_MUTATION")
         self.requests["POST /v2/orders"] += 1
+        required = {"symbol", "qty", "side", "type", "time_in_force", "client_order_id",
+                    "order_class", "extended_hours"}
+        try:
+            from sentinel.execution.contract import OrderTerms, Side
+            if (set(body) != required | ({"limit_price"} if body.get("type") == "limit" else set())
+                    or any(type(body[name]) is not str or not body[name] for name in
+                           required - {"extended_hours"})
+                    or body["side"] not in {"buy", "sell"}
+                    or body["symbol"] not in self.by_id):
+                raise ValueError
+            quantity = Decimal(body["qty"])
+            if not quantity.is_finite() or quantity <= 0:
+                raise ValueError
+            raw_limit = body.get("limit_price")
+            if raw_limit is not None and (type(raw_limit) is not str or not raw_limit):
+                raise ValueError
+            terms = OrderTerms(order_type=body["type"], time_in_force=body["time_in_force"],
+                limit_price=None if raw_limit is None else Decimal(raw_limit),
+                order_class=body["order_class"], extended_hours=body["extended_hours"])
+            terms.require_owned_submission(Side.BUY if body["side"] == "buy" else Side.SELL)
+            if terms.order_type == "limit" and quantity != quantity.to_integral_value():
+                raise ValueError
+        except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+            raise QualificationRefused("SIMULATOR_INVALID_ORDER_TERMS") from exc
         if any(row["client_order_id"] == body["client_order_id"] for row in self.orders.values()):
             raise QualificationRefused("SIMULATOR_DUPLICATE_POST")
         asset = self.by_id[body["symbol"]]
-        quantity = Decimal(body["qty"])
+        if self.forbid_quotes and body["side"] == "buy":
+            if (body.get("type") != "limit" or body.get("time_in_force") != "day"
+                    or body.get("extended_hours") is not False
+                    or body.get("order_class") != "simple"
+                    or "limit_price" not in body):
+                raise QualificationRefused("SIMULATOR_UNPROTECTED_BUY")
+        protected_buy = body.get("type") == "limit" and body["side"] == "buy"
+        trade_price = (Decimal(body["limit_price"])
+                       if protected_buy and self.marketable_limit_fills else asset["price"])
+        marketable = not (protected_buy
+                          and not self.marketable_limit_fills
+                          and asset["price"] > Decimal(body["limit_price"]))
         delta = quantity if body["side"] == "buy" else -quantity
-        new_cash = self.cash - delta * asset["price"]
+        new_cash = self.cash - delta * trade_price
         new_shares = self.positions.get(asset["id"], Decimal(0)) + delta
-        if quantity <= 0 or new_cash < 0 or new_shares < 0:
+        if quantity <= 0 or (marketable and new_cash < 0) or new_shares < 0:
             raise QualificationRefused("SIMULATOR_LONG_ONLY_CASH_ENVELOPE")
-        self.cash, self.positions[asset["id"]] = new_cash, new_shares
+        if body["side"] == "buy":
+            reserved = sum((Decimal(row["qty"]) * Decimal(row["limit_price"])
+                            for row in self.orders.values()
+                            if row["side"] == "buy" and row["status"] == "new"), Decimal(0))
+            ceiling = quantity * (Decimal(body["limit_price"])
+                                  if body.get("type") == "limit" else asset["price"])
+            if ceiling > self.cash-reserved:
+                raise QualificationRefused("SIMULATOR_BUY_EXCEEDS_UNRESERVED_CASH")
+        if marketable:
+            self.cash, self.positions[asset["id"]] = new_cash, new_shares
         stamp = datetime.now(timezone.utc).isoformat()
         index = len(self.orders) + 1
         order_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "opening-order:" + body["client_order_id"]))
-        order = {**body, "id": order_id, "symbol": asset["symbol"], "asset_id": asset["id"],
-            "status": "filled", "filled_qty": str(quantity), "filled_avg_price": str(asset["price"]),
+        order = {**body, "order_class": body.get("order_class", "simple"),
+            "extended_hours": body.get("extended_hours", False),
+            "id": order_id, "symbol": asset["symbol"], "asset_id": asset["id"],
+            "status": "filled" if marketable else "new",
+            "filled_qty": str(quantity) if marketable else "0",
+            "filled_avg_price": str(trade_price) if marketable else None,
             "submitted_at": stamp}
         self.orders[order_id] = order
-        self.events.append({"account_id": self.account_uuid, "at": stamp,
+        if marketable:
+            self.events.append({"account_id": self.account_uuid, "at": stamp,
             "event_id": f"01OPENING{index:018d}", "ref_id": str(uuid.uuid5(uuid.NAMESPACE_URL, order_id)),
             "status": "executed", "executed_at": stamp, "settle_date": stamp[:10],
             "activity_type": "TRD", "activity_subtype": None, "previous_id": None,
-            "qty": str(quantity), "price": str(asset["price"]),
-            "net_amount": str(-delta * asset["price"]), "currency": "USD",
+            "qty": str(quantity), "price": str(trade_price),
+            "net_amount": str(-delta * trade_price), "currency": "USD",
             "details": {"execution_type": "fill", "order_id": order_id, "asset_id": asset["id"],
                 "symbol": asset["symbol"], "side": body["side"], "client_order_id": body["client_order_id"]}})
         if self.first_order_seconds is None:
@@ -488,8 +569,85 @@ def execution_window_fixture(stack, session, window):
 
 
 def require_quote_policy(feed):
-    if feed != "sip":
-        raise QualificationRefused("CANONICAL_SIP_QUOTE_POLICY_REQUIRED")
+    if feed != "iex":
+        raise QualificationRefused("CANONICAL_FREE_IEX_LEGACY_POLICY_REQUIRED")
+
+
+def require_protected_policy():
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
+    policy = ProtectedLimitPolicy.from_env()
+    if policy is None:
+        raise QualificationRefused("PROTECTED_LIMIT_DAY_POLICY_REQUIRED")
+    return policy
+
+
+def require_no_quotes(http):
+    if any(count for key, count in http.requests.items() if "quotes" in key):
+        raise QualificationRefused("PROTECTED_POLICY_USED_QUOTE_GET")
+
+
+def require_callback_progress(result, *, phase):
+    """A later callback must never hide a returned financial refusal."""
+    allowed = {"RECONCILE", "SUCCEEDED"} if phase == "EXECUTE" else {"SUCCEEDED", "READY_TO_EXECUTE"}
+    if result.disposition.value not in allowed:
+        raise QualificationRefused("SIMULATED_CALLBACK_REFUSED", phase=phase,
+                                  disposition=result.disposition.value)
+    execution = result.diagnostic.get("execution", {})
+    if execution.get("refused") or result.failure_code == "TERMINAL_COMMAND_REFUSAL":
+        raise QualificationRefused("SIMULATED_CALLBACK_HAS_FINANCIAL_REFUSAL", phase=phase)
+
+
+def require_command_progress(conn, *, deployment, plan_id):
+    from sentinel.execution import journal
+    if any(command.state.value in {"SEND_PENDING", "UNKNOWN", "REJECTED", "CANCELLED", "CANCEL_PENDING"}
+           for command in journal.load_commands(conn, deployment, plan_id=plan_id)):
+        raise QualificationRefused("SIMULATED_CALLBACK_HAS_UNRESOLVED_OR_REFUSED_COMMAND")
+
+
+def require_latency_progress(http, *, maximum_lateness):
+    elapsed = time.monotonic() - http.started
+    if (elapsed < 0 or elapsed > min(300, maximum_lateness)
+            or http.first_order_seconds is None and elapsed > 120
+            or http.first_order_seconds is not None and http.first_order_seconds > 120):
+        raise QualificationRefused("SIMULATED_GATEWAY_LATENCY_MARGIN_EXCEEDED",
+            first_order_seconds=http.first_order_seconds, complete_basket_seconds=elapsed,
+            orders=len(http.orders))
+
+
+def execute_to_completion(*, conn, permit, cycle, deployment, plan_id, asset_count,
+                          callback, execute, recover, http, maximum_lateness):
+    """Exercise legal scheduler retries within the original 120/300s clock."""
+    from sentinel.automation.model import CycleState
+    execution_passes = 0
+    while True:
+        require_latency_progress(http, maximum_lateness=maximum_lateness)
+        prior_orders = len(http.orders)
+        execution_passes += 1
+        suffix = "" if execution_passes == 1 else f":{execution_passes}"
+        sent = callback("EXECUTE", f"ProductionAutomation.execute{suffix}", execute, current_cycle=cycle)
+        require_callback_progress(sent, phase="EXECUTE")
+        require_command_progress(conn, deployment=deployment, plan_id=plan_id)
+        require_latency_progress(http, maximum_lateness=maximum_lateness)
+        cycle = transition_for_callback(conn, permit=permit, cycle_id=cycle.cycle_id,
+                                        to_state=CycleState.RECONCILING)
+        recovered = callback("RECOVER", f"ProductionAutomation.recover:terminal{suffix}",
+                             recover, current_cycle=cycle)
+        require_callback_progress(recovered, phase="RECOVER")
+        require_command_progress(conn, deployment=deployment, plan_id=plan_id)
+        require_latency_progress(http, maximum_lateness=maximum_lateness)
+        if len(http.orders) <= prior_orders:
+            raise QualificationRefused("SIMULATED_GATEWAY_NO_FORWARD_PROGRESS",
+                orders=len(http.orders), execution_passes=execution_passes)
+        if recovered.disposition.value != "READY_TO_EXECUTE":
+            return cycle, recovered, execution_passes
+        if execution_passes >= max(1, asset_count):
+            raise QualificationRefused("SIMULATED_GATEWAY_NO_COMPLETE_BASKET",
+                orders=len(http.orders), execution_passes=execution_passes)
+        cycle = transition_for_callback(conn, permit=permit, cycle_id=cycle.cycle_id,
+            to_state=CycleState.RETRY_WAIT, next_wake_at=datetime.now(timezone.utc),
+            diagnostic={"retry_phase": "EXECUTE", "private_qualification": True})
+        cycle = transition_for_callback(conn, permit=permit, cycle_id=cycle.cycle_id,
+                                        to_state=CycleState.EXECUTING)
 
 
 def qualify(args, stages):
@@ -507,6 +665,7 @@ def qualify(args, stages):
     from sentinel.paper import execution, preparation, recovery, validation
     from sentinel.execution.opening_prices import FEED
     require_quote_policy(FEED)
+    protected_policy = require_protected_policy()
 
     with connect(args, read_only=False) as conn, reviewed_runtime(conn, args), ExitStack() as stack:
         if conn.execute("SELECT (SELECT count(*) FROM sentinel_commands),"
@@ -538,7 +697,9 @@ def qualify(args, stages):
         begin = datetime.now(timezone.utc)
         window = (begin + timedelta(seconds=300), begin + timedelta(hours=1))
         execution_window_fixture(stack, plan.effective_session, window)
-        http = LocalAlpaca(account=bound.broker_account_id, cash=plan.account_cash, assets=assets, window=lambda: window)
+        http = LocalAlpaca(account=bound.broker_account_id, cash=plan.account_cash,
+                          assets=assets, window=lambda: window, forbid_quotes=True,
+                          marketable_limit_fills=True)
         fixture = SimpleNamespace(certificate_sha256=rollout.certificate_sha256,
             authorization_mode="PAPER_OBSERVATION_ONLY", maximum_exposure=Decimal(1))
 
@@ -584,10 +745,12 @@ def qualify(args, stages):
             def context():
                 return CycleContext(cycle=cycle, permit=permit)
 
-            def callback(phase, stage, body):
-                return stages.run(stage, lambda: supervised_callback(args, config, context(), phase, body, http, counts))
+            def callback(phase, stage, body, *, current_cycle=None):
+                value = context() if current_cycle is None else CycleContext(cycle=current_cycle, permit=permit)
+                return stages.run(stage, lambda: supervised_callback(args, config, value, phase, body, http, counts))
 
-            callback("RECOVER", "ProductionAutomation.recover:preflight", campaign.recover)
+            preflight = callback("RECOVER", "ProductionAutomation.recover:preflight", campaign.recover)
+            require_callback_progress(preflight, phase="PREFLIGHT")
             cycle = transition_for_callback(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PREPARING)
             prepared = callback("PREPARE", "ProductionAutomation.prepare", campaign.prepare)
             cycle = transition_for_callback(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PLAN_READY,
@@ -617,9 +780,11 @@ def qualify(args, stages):
                                 - datetime.now(timezone.utc)).total_seconds()
             if not 0 < remaining_budget <= config.maximum_execution_lateness_seconds:
                 raise QualificationRefused("SIMULATED_EXECUTION_DID_NOT_START_IN_FRESH_WINDOW")
-            sent = callback("EXECUTE", "ProductionAutomation.execute", campaign.execute)
-            cycle = transition_for_callback(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.RECONCILING)
-            recovered = callback("RECOVER", "ProductionAutomation.recover:terminal", campaign.recover)
+            cycle, recovered, execution_passes = execute_to_completion(
+                conn=conn, permit=permit, cycle=cycle, deployment=bound.identity,
+                plan_id=prepared.plan_id, asset_count=len(assets), callback=callback,
+                execute=campaign.execute, recover=campaign.recover, http=http,
+                maximum_lateness=config.maximum_execution_lateness_seconds)
             elapsed = time.monotonic() - http.started
             projection = target_reprojection.load_projection(conn, plan_id=prepared.plan_id)
             if projection is None:
@@ -638,15 +803,19 @@ def qualify(args, stages):
                 raise QualificationRefused("SIMULATED_GATEWAY_LATENCY_MARGIN_EXCEEDED",
                     first_order_seconds=http.first_order_seconds, complete_basket_seconds=elapsed,
                     orders=len(http.orders), invocations=dict(counts))
+            require_no_quotes(http)
             if before != [reader.read(conn) for reader in (rolling_checkpoint, rolling_daily_checkpoint)]:
                 raise QualificationRefused("RETAINED_BOOK_CHANGED")
             cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.SUCCEEDED,
                 last_clean_reconciliation_id=recovered.last_clean_reconciliation_id)
             return {"gateway_qualified": True, "first_order_seconds": round(http.first_order_seconds, 6),
                 "complete_basket_seconds": round(elapsed, 6), "legs": len(expected), "orders": len(http.orders),
+                "execution_passes": execution_passes,
                 "bar_count": manifest.bar_count, "scheduler_sha256": config.fingerprint,
                 "source_provider": resolver.source_provider, "provider_metadata_sha256": metadata_sha,
-                "simulated_quote_feed": http.quote_feed,
+                "legacy_quote_feed": http.quote_feed, "protected_buy_policy": protected_policy.to_dict(),
+                "protected_buy_policy_sha256": protected_policy.fingerprint(), "quote_get_count": 0,
+                "simulated_fill_scenario": "MARKETABLE_BUY_AT_SUBMITTED_LIMIT",
                 "fixture_identity_origins": {row["security_id"]: row["identity_origin"] for row in assets.values()},
                 "invocations": dict(counts), "preparation_invocations": preparation_counts,
                 "execution_start_remaining_budget_seconds": round(remaining_budget, 6),
