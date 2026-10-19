@@ -225,3 +225,38 @@ python -B -m pytest tests/sentinel/test_unattended_operating_contract.py tests/s
 
 All 348 Sentinel Python source hashes were unchanged across that cohort. The
 protected policy still forbids every quote GET, independently of legacy decoding.
+
+## Reviewed paper lifecycle deltas
+
+Review the seven changed paper lifecycle definitions against the documented
+protected-order contract before updating their explicit delta registry. The
+opening reader bypasses quotes only for the selected protected policy; target
+projection authenticates historical RAW references and retains legacy sizing.
+The instrument map checks immutable projection/native identities and preserves
+reductions. Execution retains quiescent cash and exact reconciliation gates,
+records the selected funding basis and does not report missing-price convergence.
+The fresh broker validator preserves all account, certificate, lease, source,
+readiness, session and plan checks while consuming only privately verified
+structural state; submission additionally rechecks canonical allocation equity.
+The guarded broker owns funding derivation from committed rows and the actual
+certified composition. It accepts no caller-chosen funding permission.
+
+Record these intentional reviewed deltas and their direct acceptance tests in
+`production-champion-paper-deltas.json`; leave the historical extraction manifest,
+its original source hash and every historical AST unchanged. The structural
+falsifier must continue rejecting an arbitrary unreviewed function fingerprint.
+This registry update grants no execution authority.
+
+The complete structural lifecycle module, both native pre-transport fixture
+branches and the actual scoped dual-digest corruption test passed 12 cases in
+114.68 seconds, zero failures/errors/skips:
+
+```sh
+python -m pytest -q -p no:cacheprovider tests/sentinel/test_paper_package_architecture.py tests/sentinel/test_native_paper_rehearsal.py::test_native_checks_run_before_inner_submit_and_prove_no_transport tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest --junitxml=/evidence/result.xml
+```
+
+The native fixture now supplies its exact default MARKET/DAY terms. The scoped
+guard test corrupts the real private proof return, asserts that injection ran,
+and requires the unchanged stale-state refusal. It no longer patches an unused
+public hook. The lifecycle registry's unreviewed-fingerprint falsifier still
+passes. These repairs change no Sentinel runtime source.

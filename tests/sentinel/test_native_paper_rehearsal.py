@@ -45,11 +45,11 @@ def test_http_transport_requires_exact_unused_ticket(monkeypatch,damage):
 @pytest.mark.parametrize('refused',[False,True])
 def test_native_checks_run_before_inner_submit_and_prove_no_transport(monkeypatch,refused):
     import tools.native_paper_rehearsal as module
-    from sentinel.execution.contract import BrokerCapabilities,BrokerInstrument,CommandOutcome,Side
+    from sentinel.execution.contract import BrokerCapabilities,BrokerInstrument,CommandOutcome,OrderTerms,Side
     from sentinel.execution.guarded import PreTransportAuthorityRefused
     instrument=BrokerInstrument('security','SPY','asset')
     command=SimpleNamespace(client_key='owned',state=CommandState.SEND_PENDING,
-        instrument=instrument,side=Side.BUY,quantity=Decimal(1))
+        instrument=instrument,side=Side.BUY,quantity=Decimal(1),order_terms=OrderTerms())
     run=object.__new__(NativeRun)
     from datetime import datetime,timedelta,timezone
     instant=datetime(2026,10,15,17,30,tzinfo=timezone.utc)
