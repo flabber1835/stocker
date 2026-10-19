@@ -183,7 +183,7 @@ def test_addition_presence_guard_has_an_assertion_falsifier(closure, monkeypatch
 def test_current_source_guard_has_an_assertion_falsifier(closure, monkeypatch):
     source = inspect.getsource(admission.prove_compatibility)
     needle = ("any(name in actual and actual[name] != record['after']\n"
-              "                   and not source_allowed(name, record['after'], actual[name], (idle_leader_profile,))\n"
+              "                   and not source_allowed(name, record['after'], actual[name], (idle_leader_profile, opening_latency_profile))\n"
               "                   for name, record in clock_sampling_profile['files'].items())")
     assert source.count(needle) == 1
     # The new exact idle pin also covers the service. Isolate the historical
@@ -191,6 +191,7 @@ def test_current_source_guard_has_an_assertion_falsifier(closure, monkeypatch):
     # refuses before removing that boundary. The new pin has its own separate
     # falsifier using alert_service.py, outside the historical clock scope.
     idle_pin = ("any(name in actual and actual[name] != record['after']\n"
+                "                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile,))\n"
                 "                   for name, record in idle_leader_profile['files'].items())")
     assert source.count(idle_pin) == 1
     isolated = source.replace(idle_pin, 'False')

@@ -68,9 +68,9 @@ def closure(tmp_path, monkeypatch):
     old_files['shadow_supervisor.py'] = worker_upgrade.profile()['files']['shadow_supervisor.py']['before'][0]
     current = {**original,
                 'runtime_admission.py': Path(admission.__file__).read_bytes()}
-    from sentinel import native_read_upgrade, clock_sampling_upgrade, idle_leader_upgrade
+    from sentinel import native_read_upgrade, clock_sampling_upgrade, idle_leader_upgrade, opening_latency_upgrade
     current.update({name: (Path(admission.__file__).parent / name).read_bytes()
-                    for name in native_read_upgrade.ADDITIONS | clock_sampling_upgrade.ADDITIONS | idle_leader_upgrade.ADDITIONS})
+                    for name in native_read_upgrade.ADDITIONS | clock_sampling_upgrade.ADDITIONS | idle_leader_upgrade.ADDITIONS | opening_latency_upgrade.ADDITIONS})
     for name, raw in current.items():
         path = root/name
         path.parent.mkdir(parents=True, exist_ok=True)

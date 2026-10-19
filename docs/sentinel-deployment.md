@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[Opening execution latency](opening-execution-latency.md) records the October 19
+missed opening window, dependency-correct reuse of retained sizing, measured
+gateway qualification and renewal of actual publication-bound readiness evidence.
+The original failed cycle and proven-unsent command remain retained.
+
 [Idle leadership resilience](idle-leader-resilience.md) defines main-loop
 progress renewal, bounded nonfinancial idle attestation and durable grouping of
 related leadership alerts, with genuine stalls and financial authority fenced.

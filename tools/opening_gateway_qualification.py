@@ -1,0 +1,368 @@
+"""Private-only full production callbacks with a local Alpaca HTTP simulator.
+
+The simulator is a software timing fixture, never native exchange evidence.
+Every financial verifier and fresh broker guard runs unchanged. No transport
+has a network fallback and no provider credentials are read from the process.
+"""
+from __future__ import annotations
+
+import asyncio
+from collections import Counter
+from contextlib import ExitStack
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+import json
+import os
+from pathlib import Path
+from threading import Event, Thread
+import time
+from types import SimpleNamespace
+from urllib.parse import unquote, urlsplit
+import uuid
+from unittest.mock import patch
+
+from tools.opening_latency_qualification import (
+    QualificationRefused, connect, require_database, require_environment,
+    require_target, reviewed_runtime,
+)
+
+
+class Response:
+    def __init__(self, payload=None, *, text="", status=200):
+        self.payload, self.text, self.status_code = payload, text, status
+        self.headers = {}
+
+    def json(self, **_kwargs):
+        return self.payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            error = RuntimeError("local simulator HTTP refusal")
+            error.response = self
+            raise error
+
+
+class LocalAlpaca:
+    """Deterministic immediate fills through the real adapter's HTTP parser."""
+    def __init__(self, *, account, cash, assets, window):
+        self.account, self.cash, self.assets, self.window = account, Decimal(cash), assets, window
+        self.account_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, "opening-latency:" + account))
+        self.by_id = {row["id"]: row for row in assets.values()}
+        self.positions, self.orders, self.events = {}, {}, []
+        self.requests = Counter()
+        self.started, self.first_order_seconds = None, None
+        owner = self
+
+        class Client:
+            def __init__(self, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+            async def get(self, url, headers=None, params=None):
+                return owner.get(url, dict(params or {}))
+
+            async def post(self, url, headers=None, json=None):
+                return owner.post(url, dict(json or {}))
+
+            async def delete(self, *_args, **_kwargs):
+                raise QualificationRefused("SIMULATOR_UNEXPECTED_CANCELLATION")
+
+        self.AsyncClient = Client
+
+    @staticmethod
+    def path(url):
+        parsed = urlsplit(url)
+        if parsed.scheme != "https" or parsed.hostname not in {
+                "paper-api.alpaca.markets", "data.alpaca.markets"}:
+            raise QualificationRefused("SIMULATOR_UNKNOWN_ENDPOINT")
+        return unquote(parsed.path)
+
+    def get(self, url, params):
+        path = self.path(url)
+        self.requests["GET " + path] += 1
+        now = datetime.now(timezone.utc)
+        if path == "/v2/account":
+            equity = self.cash + sum((quantity * self.by_id[asset]["price"]
+                                      for asset, quantity in self.positions.items()), Decimal(0))
+            return Response({"id": self.account_uuid, "account_number": self.account,
+                "cash": str(self.cash), "equity": str(equity), "last_equity": str(equity),
+                "buying_power": str(self.cash), "multiplier": "1", "status": "ACTIVE",
+                "trading_blocked": False, "account_blocked": False, "trade_suspended_by_user": False})
+        if path.startswith("/v2/assets/"):
+            asset = self.assets[path.rsplit("/", 1)[1]]
+            return Response({key: asset[key] for key in ("id", "symbol")} |
+                            {"status": "active", "tradable": True, "fractionable": False})
+        if path == "/v2/clock":
+            opened, closed = self.window()
+            return Response({"timestamp": now.isoformat(), "is_open": opened <= now < closed,
+                "next_open": (opened + timedelta(days=1)).isoformat(), "next_close": closed.isoformat()})
+        if path == "/v2/stocks/quotes/latest":
+            return Response({"quotes": {symbol: {"ap": str(self.assets[symbol]["price"]),
+                "bp": str(self.assets[symbol]["price"] * Decimal("0.9999")),
+                "as": 1000, "bs": 1000, "t": now.isoformat()}
+                for symbol in params["symbols"].split(",")}})
+        if path == "/v2/positions":
+            return Response([{"asset_id": asset, "symbol": self.by_id[asset]["symbol"], "qty": str(quantity)}
+                             for asset, quantity in self.positions.items() if quantity])
+        if path == "/v2/orders":
+            rows = list(reversed(list(self.orders.values()))) if params.get("status") == "closed" else []
+            before = params.get("before_order_id")
+            if before:
+                rows = rows[next(index + 1 for index, row in enumerate(rows) if row["id"] == before):]
+            return Response(rows[:int(params.get("limit", 500))])
+        if path == "/v2/orders:by_client_order_id":
+            row = next((row for row in self.orders.values()
+                        if row["client_order_id"] == params["client_order_id"]), None)
+            return Response(row, status=200 if row else 404)
+        if path.startswith("/v2/orders/"):
+            return Response(self.orders[path.rsplit("/", 1)[1]])
+        if path == "/v2beta1/events/activities":
+            rows = self.events
+            for field, comparison in (("since_id", lambda value, bound: value > bound),
+                                      ("until_id", lambda value, bound: value <= bound)):
+                if params.get(field):
+                    rows = [row for row in rows if comparison(row["event_id"], params[field])]
+            for field, comparison in (("since", lambda value, bound: value >= bound),
+                                      ("until", lambda value, bound: value <= bound)):
+                if params.get(field):
+                    bound = datetime.fromisoformat(params[field].replace("Z", "+00:00"))
+                    rows = [row for row in rows if comparison(datetime.fromisoformat(row["at"]), bound)]
+            return Response(text="".join("data: " + json.dumps(row) + "\n\n" for row in rows))
+        if path.startswith("/v2/account/activities"):
+            return Response([])
+        raise QualificationRefused("SIMULATOR_UNIMPLEMENTED_READ")
+
+    def post(self, url, body):
+        if self.path(url) != "/v2/orders" or self.started is None:
+            raise QualificationRefused("SIMULATOR_UNEXPECTED_MUTATION")
+        self.requests["POST /v2/orders"] += 1
+        if any(row["client_order_id"] == body["client_order_id"] for row in self.orders.values()):
+            raise QualificationRefused("SIMULATOR_DUPLICATE_POST")
+        asset = self.by_id[body["symbol"]]
+        quantity = Decimal(body["qty"])
+        delta = quantity if body["side"] == "buy" else -quantity
+        new_cash = self.cash - delta * asset["price"]
+        new_shares = self.positions.get(asset["id"], Decimal(0)) + delta
+        if quantity <= 0 or new_cash < 0 or new_shares < 0:
+            raise QualificationRefused("SIMULATOR_LONG_ONLY_CASH_ENVELOPE")
+        self.cash, self.positions[asset["id"]] = new_cash, new_shares
+        stamp = datetime.now(timezone.utc).isoformat()
+        index = len(self.orders) + 1
+        order_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "opening-order:" + body["client_order_id"]))
+        order = {**body, "id": order_id, "symbol": asset["symbol"], "asset_id": asset["id"],
+            "status": "filled", "filled_qty": str(quantity), "filled_avg_price": str(asset["price"]),
+            "submitted_at": stamp}
+        self.orders[order_id] = order
+        self.events.append({"account_id": self.account_uuid, "at": stamp,
+            "event_id": f"01OPENING{index:018d}", "ref_id": str(uuid.uuid5(uuid.NAMESPACE_URL, order_id)),
+            "status": "executed", "executed_at": stamp, "settle_date": stamp[:10],
+            "activity_type": "TRD", "activity_subtype": None, "previous_id": None,
+            "qty": str(quantity), "price": str(asset["price"]),
+            "net_amount": str(-delta * asset["price"]), "currency": "USD",
+            "details": {"execution_type": "fill", "order_id": order_id, "asset_id": asset["id"],
+                "symbol": asset["symbol"], "side": body["side"], "client_order_id": body["client_order_id"]}})
+        if self.first_order_seconds is None:
+            self.first_order_seconds = time.monotonic() - self.started
+        return Response(order, status=201)
+
+
+def scheduler_profile(path, expected_sha256):
+    from sentinel.automation.model import AutomationConfig
+    if path is None:
+        raise QualificationRefused("DEPLOYED_SCHEDULER_PROFILE_REQUIRED")
+    value = json.loads(path.read_text())
+    config = AutomationConfig.model_validate(value["scheduler"])
+    if (set(value) != {"schema", "scheduler", "config_sha256"}
+            or value["schema"] != "sentinel.attended-scheduler-profile/1"
+            or value["config_sha256"] != config.fingerprint or config.fingerprint != expected_sha256
+            or (config.lease_seconds, config.heartbeat_seconds, config.control_poll_seconds,
+                config.execution_delay_seconds, config.maximum_execution_lateness_seconds) != (12, 3, 3, 60, 540)):
+        raise QualificationRefused("DEPLOYED_SCHEDULER_PROFILE_MISMATCH")
+    return config
+
+
+def qualify(args, stages):
+    import sentinel
+    require_environment(os.environ, sentinel.__file__)
+    require_target(args)
+    from sentinel import automation_runtime, backup_runtime_authority, binding
+    from sentinel import rolling_checkpoint, rolling_daily_checkpoint, rolling_runtime
+    from sentinel.automation import schedule, store
+    from sentinel.automation.model import ControlBinding, CycleContext, CycleSpec, CycleState
+    from sentinel.authority import load_rollout_state
+    from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
+    from sentinel.execution import feed_inputs, journal, target_reprojection
+    from sentinel.feed import calendar, rolling_store
+    from sentinel.paper import execution, preparation, recovery, validation
+
+    with connect(args, read_only=False) as conn, reviewed_runtime(conn, args), ExitStack() as stack:
+        if conn.execute("SELECT (SELECT count(*) FROM sentinel_commands),"
+                        "(SELECT count(*) FROM sentinel_automation_cycles)").fetchone() != (0, 0):
+            raise QualificationRefused("FRESH_PRIVATE_COMMAND_AND_CYCLE_NAMESPACE_REQUIRED")
+        control = store.load_control(conn)
+        if control.enabled or not control.kill_switch_engaged:
+            raise QualificationRefused("PRIVATE_FIXTURE_MUST_START_DISABLED_AND_KILLED")
+        config = scheduler_profile(args.scheduler_profile, control.config_sha256)
+        bound, rollout, plan = binding.require(conn), load_rollout_state(conn), journal.latest_plan(conn)
+        if plan is None or plan.effective_session != datetime.now(timezone.utc).astimezone(
+                __import__("zoneinfo").ZoneInfo(calendar.EXCHANGE_TZ)).date():
+            raise QualificationRefused("CURRENT_EFFECTIVE_DAY_RETAINED_PLAN_REQUIRED")
+        before = [reader.read(conn) for reader in (rolling_checkpoint, rolling_daily_checkpoint)]
+        with feed_inputs.pinned(conn, commit=False) as pub:
+            evidence = pub.evidence["rolling_snapshot"]
+            manifest = rolling_store.manifest(conn, evidence["candidate_id"])
+            if manifest.bar_count < args.minimum_bars:
+                raise QualificationRefused("PRODUCTION_SIZE_INPUT_REQUIRED")
+            resolver = feed_inputs.resolver(conn, pub, session=plan.effective_session.isoformat())
+            proof = __import__("sentinel.dual_plan_authority", fromlist=["load_authority"]).load_authority(
+                conn, plan_id=plan.plan_id)
+            assets = {symbol: {"id": resolver.provider_asset_ids[sid], "symbol": symbol,
+                "security_id": sid, "price": Decimal(proof["marks"][sid])}
+                for sid, symbol in proof["tickers"].items() if sid in proof["marks"]}
+        conn.rollback()
+        backup_runtime_authority.require(conn, operation="private opening qualification fixture")
+        conn.execute("CREATE TABLE sentinel_opening_latency_fixture (run_id TEXT PRIMARY KEY)")
+        conn.execute("INSERT INTO sentinel_opening_latency_fixture VALUES (%s)", (uuid.uuid4().hex,))
+        conn.commit()
+        # This is the sole calendar substitution. All timestamps remain real,
+        # including PostgreSQL lease and durable send/recovery checkpoints.
+        begin = datetime.now(timezone.utc)
+        window = (begin + timedelta(seconds=300), begin + timedelta(hours=1))
+        original_window = calendar.session_window
+        stack.enter_context(patch.object(calendar, "session_window", lambda session:
+            window if str(session) == plan.effective_session.isoformat() else original_window(session)))
+        http = LocalAlpaca(account=bound.broker_account_id, cash=plan.account_cash, assets=assets, window=lambda: window)
+        fixture = SimpleNamespace(certificate_sha256=rollout.certificate_sha256,
+            authorization_mode="PAPER_OBSERVATION_ONLY", maximum_exposure=Decimal(1))
+
+        def authority(reader, **_kwargs):
+            require_database(reader, args, read_only=False)
+            return fixture
+
+        for owner in (automation_runtime, preparation, execution, recovery, validation):
+            stack.enter_context(patch.object(owner, "require_current_authority", authority))
+        stack.enter_context(patch.dict(os.environ, SENTINEL_SHADOW_OBSERVATION_ENABLED="0",
+            SENTINEL_REVIEWED_DEPLOYMENT_MODE="dual", SENTINEL_FEED_SERVICE_MODE="AUTOMATION"))
+
+        class Campaign(automation_runtime.ProductionAutomation):
+            def _broker(self, reader, session):
+                broker = super()._broker(reader, session)
+                broker._http_provider = lambda: http
+                return broker
+
+        campaign = Campaign(sentinel_config=SentinelConfig(database_url=args.database,
+            alpaca_key="opening-latency-fixture", alpaca_secret="local-only", base_url=DEFAULT_BASE_URL,
+            state_dir=Path("/tmp/opening-latency"), max_cycles=1, poll_seconds=0),
+            automation_config=config, holder_id="opening-latency-" + uuid.uuid4().hex)
+        campaign._shadow_observation_id, campaign._shadow_starting_cash = args.observation_id, args.starting_cash
+        binding_value = ControlBinding(deployment_id=bound.deployment_id, broker=bound.broker,
+            broker_account_id=bound.broker_account_id, takeover_epoch=bound.takeover_epoch,
+            certificate_sha256=fixture.certificate_sha256, rollout_mode=rollout.mode.value,
+            rollout_version=rollout.version, config_sha256=config.fingerprint)
+        store.activate(conn, binding=binding_value, actor="PRIVATE_SIMULATOR", reason="unsigned latency fixture")
+        store.release_kill(conn, expected_binding=binding_value, actor="PRIVATE_SIMULATOR", reason="local HTTP only")
+        permit = store.acquire_lease(conn, holder_id=campaign.holder_id, lease_seconds=config.lease_seconds)
+        timing = schedule.for_decision_session(plan.decision_session, config)
+        spec = CycleSpec(**timing.model_dump(), **binding_value.model_dump(), control_generation=permit.control_generation)
+        cycle = store.create_cycle(conn, permit=permit, spec=spec, now=begin)
+        stopped, heartbeat_errors = Event(), []
+
+        def heartbeat():
+            while not stopped.wait(config.heartbeat_seconds):
+                try:
+                    with connect(args, read_only=False) as reader:
+                        store.heartbeat_lease(reader, permit=permit, lease_seconds=config.lease_seconds, callback=True)
+                except BaseException as exc:
+                    heartbeat_errors.append(type(exc).__name__)
+                    stopped.set()
+
+        thread = Thread(target=heartbeat, name="private-latency-heartbeat", daemon=True)
+        thread.start()
+        counts = Counter()
+        for owner, name in ((rolling_runtime, "_load_closure"), (rolling_store, "_verify_content_uncached")):
+            original = getattr(owner, name)
+            def observed(*values, _name=name, _original=original, **kwargs):
+                counts[_name] += 1
+                return _original(*values, **kwargs)
+            stack.enter_context(patch.object(owner, name, observed))
+        try:
+            def context():
+                if heartbeat_errors:
+                    raise QualificationRefused("PRIVATE_LEASE_HEARTBEAT_FAILED")
+                return CycleContext(cycle=cycle, permit=permit)
+
+            stages.run("ProductionAutomation.recover:preflight", lambda: asyncio.run(campaign.recover(context())))
+            cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PREPARING)
+            prepared = stages.run("ProductionAutomation.prepare", lambda: asyncio.run(campaign.prepare(context())))
+            cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.PLAN_READY,
+                plan_id=prepared.plan_id, plan_fingerprint=prepared.plan_fingerprint,
+                state_fingerprint=prepared.state_fingerprint)
+            conn.rollback()
+            def wait_for_open():
+                next_report = time.monotonic()
+                while True:
+                    remaining = (cycle.execute_at - datetime.now(timezone.utc)).total_seconds()
+                    if heartbeat_errors:
+                        raise QualificationRefused("PRIVATE_LEASE_HEARTBEAT_FAILED")
+                    if remaining <= 0:
+                        break
+                    if time.monotonic() >= next_report:
+                        print(json.dumps({"stage": "WAITING_OPEN", "remaining_seconds": round(remaining, 1)}), flush=True)
+                        next_report = time.monotonic() + 30
+                    stopped.wait(min(1, remaining))
+            stages.run("scheduled_open_wait:no_database_locks", wait_for_open)
+            cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.EXECUTING)
+            conn.rollback()
+            preparation_counts = dict(counts)
+            counts.clear()
+            http.started = time.monotonic()
+            remaining_budget = (cycle.execute_at + timedelta(seconds=config.maximum_execution_lateness_seconds)
+                                - datetime.now(timezone.utc)).total_seconds()
+            if not 0 < remaining_budget <= config.maximum_execution_lateness_seconds:
+                raise QualificationRefused("SIMULATED_EXECUTION_DID_NOT_START_IN_FRESH_WINDOW")
+            sent = stages.run("ProductionAutomation.execute", lambda: asyncio.run(campaign.execute(context())))
+            cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.RECONCILING)
+            recovered = stages.run("ProductionAutomation.recover:terminal", lambda: asyncio.run(campaign.recover(context())))
+            elapsed = time.monotonic() - http.started
+            projection = target_reprojection.load_projection(conn, plan_id=prepared.plan_id)
+            if projection is None:
+                raise QualificationRefused("SIMULATED_BASKET_HAS_NO_DURABLE_PROJECTION")
+            expected = {sid: value for sid, value in projection.target_basket.items() if value}
+            actual = {http.by_id[asset]["security_id"]: quantity for asset, quantity in http.positions.items() if quantity}
+            commands = journal.load_commands(conn, bound.identity, plan_id=prepared.plan_id)
+            if (not expected or actual != expected or recovered.disposition.value != "SUCCEEDED"
+                    or not commands or len(commands) != len(http.orders)
+                    or any(command.state.value != "FILLED" for command in commands)
+                    or heartbeat_errors or http.first_order_seconds is None):
+                raise QualificationRefused("SIMULATED_GATEWAY_DID_NOT_COMPLETE_EXACT_BASKET",
+                    first_order_seconds=http.first_order_seconds, complete_basket_seconds=elapsed,
+                    orders=len(http.orders), expected_legs=len(expected))
+            if http.first_order_seconds > 120 or elapsed > 300 or elapsed > config.maximum_execution_lateness_seconds:
+                raise QualificationRefused("SIMULATED_GATEWAY_LATENCY_MARGIN_EXCEEDED",
+                    first_order_seconds=http.first_order_seconds, complete_basket_seconds=elapsed,
+                    orders=len(http.orders), invocations=dict(counts))
+            if before != [reader.read(conn) for reader in (rolling_checkpoint, rolling_daily_checkpoint)]:
+                raise QualificationRefused("RETAINED_BOOK_CHANGED")
+            cycle = store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=CycleState.SUCCEEDED,
+                last_clean_reconciliation_id=recovered.last_clean_reconciliation_id)
+            return {"gateway_qualified": True, "first_order_seconds": round(http.first_order_seconds, 6),
+                "complete_basket_seconds": round(elapsed, 6), "legs": len(expected), "orders": len(http.orders),
+                "bar_count": manifest.bar_count, "scheduler_sha256": config.fingerprint,
+                "invocations": dict(counts), "preparation_invocations": preparation_counts,
+                "execution_start_remaining_budget_seconds": round(remaining_budget, 6),
+                "http_methods": dict(http.requests), "book_preserved": True,
+                "production_admission": False, "native_broker_calls": 0, "authority_effect": "NONE",
+                "substitutions": ["unsigned certificate fixture", "local HTTP provider", "one session-window fixture"],
+                "callbacks": "actual ProductionAutomation.prepare/execute/recover and public paper gateways",
+                "fresh_broker_guard": "UNCHANGED", "runtime_identity_substituted": False,
+                "limit": "direct callbacks with real lease heartbeat; service process supervision qualified separately"}
+        finally:
+            stopped.set()
+            thread.join(timeout=10)
+            store.engage_kill(conn, actor="PRIVATE_SIMULATOR", reason="qualification ended")
+            store.deactivate(conn, actor="PRIVATE_SIMULATOR", reason="qualification ended")

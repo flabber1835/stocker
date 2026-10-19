@@ -25,7 +25,8 @@ def test_scope_predecessors_and_current_bytes_are_exact():
     assert value['base_revision'] == 'c0be72ed708b20cc8fff25b0cd8e1796889377f0'
     for name, record in value['files'].items():
         actual = hashlib.sha256((upgrade.PROFILE.parent / name).read_bytes()).hexdigest()
-        assert actual == record['after']
+        from sentinel import opening_latency_upgrade
+        assert actual == record['after'] or opening_latency_upgrade.source_allowed(name, record['after'], actual)
         assert upgrade.BASE_FILES[name] in record['before']
         assert all(upgrade.source_allowed(name, previous, actual)
                    for previous in record['before'])
@@ -137,6 +138,7 @@ def test_checker_presence_guard_has_behavioral_falsifier(closure, monkeypatch):
 def test_current_source_guard_has_behavioral_falsifier(closure, monkeypatch):
     source = inspect.getsource(admission.prove_compatibility)
     needle = ("any(name in actual and actual[name] != record['after']\n"
+              "                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile,))\n"
               "                   for name, record in idle_leader_profile['files'].items())")
     assert source.count(needle) == 1
     namespace = {}

@@ -13,10 +13,10 @@ from tests.sentinel.test_rolling_paper_inputs import (
 )
 
 
-def test_only_rolling_proof_ignores_exact_broker_records(conn, published):
+def test_only_economic_proofs_ignore_exact_broker_records(conn, published):
     schema.ensure_schema(conn)
     conn.commit()
-    calls = {'rolling-checkpoint': 0, 'dual-sizing': 0}
+    calls = {'rolling-checkpoint': 0, 'dual-sizing': 0, 'unknown-proof': 0}
 
     def read(scope, slot):
         def load():
@@ -26,28 +26,55 @@ def test_only_rolling_proof_ignores_exact_broker_records(conn, published):
             return verified.material(fresh, slot=slot, key='current', load=load)
 
     with journal.writer_lock(conn), feed_inputs.pinned(conn, commit=False), verified.callback(conn) as scope:
-        read(scope, 'rolling-checkpoint')['value'].clear()
-        read(scope, 'dual-sizing')
+        for slot in calls:
+            read(scope, slot)['value'].clear()
         for name in (*PAPER_CURSOR_NAMES, *(prefix + 'test' for prefix in PAPER_CURSOR_PREFIXES)):
             conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
                          "VALUES (%s,'2026-09-14','{}')", (name,))
             conn.commit()
-            assert read(scope, 'rolling-checkpoint') == {'value': [1]}
-            read(scope, 'dual-sizing')
+            for slot in calls:
+                before = calls[slot]
+                expected = before + (slot == 'unknown-proof')
+                assert read(scope, slot) == {'value': [expected]}
             conn.execute("UPDATE sentinel_processed_sessions SET state='{}' WHERE cursor_name=%s", (name,))
             conn.commit()
-            assert read(scope, 'rolling-checkpoint') == {'value': [1]}
-            read(scope, 'dual-sizing')
+            for slot in calls:
+                before = calls[slot]
+                expected = before + (slot == 'unknown-proof')
+                assert read(scope, slot) == {'value': [expected]}
+            conn.execute("DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s", (name,))
+            conn.commit()
+            for slot in calls:
+                before = calls[slot]
+                expected = before + (slot == 'unknown-proof')
+                assert read(scope, slot) == {'value': [expected]}
         assert calls['rolling-checkpoint'] == 1
-        assert calls['dual-sizing'] == 1 + 2 * (len(PAPER_CURSOR_NAMES) + len(PAPER_CURSOR_PREFIXES))
-        for name in ('unknown-economic:v1', 'dual-plan-sizing:v1:test', 'rolling-daily-input:v1:test'):
-            before = calls['rolling-checkpoint']
+        assert calls['dual-sizing'] == 1
+        assert calls['unknown-proof'] == 1 + 3 * (len(PAPER_CURSOR_NAMES) + len(PAPER_CURSOR_PREFIXES))
+        for name in ('unknown-economic:v1', 'dual-plan-sizing-authority:v1:test', 'rolling-daily-input:v1:test'):
             conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
                          "VALUES (%s,'2026-09-14','{}')", (name,))
             conn.commit()
-            read(scope, 'rolling-checkpoint')
-            assert calls['rolling-checkpoint'] == before + 1
+            for slot in calls:
+                before = calls[slot]
+                assert read(scope, slot) == {'value': [before + 1]}
+            conn.execute("UPDATE sentinel_processed_sessions SET state='{}' WHERE cursor_name=%s", (name,))
+            conn.commit()
+            for slot in calls:
+                before = calls[slot]
+                assert read(scope, slot) == {'value': [before + 1]}
+            conn.execute("DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s", (name,))
+            conn.commit()
+            for slot in calls:
+                before = calls[slot]
+                assert read(scope, slot) == {'value': [before + 1]}
     assert verified.owned(conn) is None
+
+
+def test_dual_sizing_inventory_falsifier_detects_broker_invalidation(conn, published, monkeypatch):
+    monkeypatch.setattr(verified, '_ECONOMIC_INPUT_SLOTS', frozenset({'rolling-checkpoint'}))
+    with pytest.raises(AssertionError):
+        test_only_economic_proofs_ignore_exact_broker_records(conn, published)
 
 
 def test_gateway_owner_can_warm_actual_retained_proof_once(conn, published, monkeypatch):
@@ -179,7 +206,7 @@ def test_gateway_guarded_reads_reuse_first_canonical_proof(conn, gateway, monkey
     """Real gateway and ten fresh guard checks; signing/control are named fixtures."""
     import asyncio
     from types import SimpleNamespace
-    from sentinel import paper, rolling_runtime
+    from sentinel import dual_plan_authority, paper, rolling_runtime
     from sentinel.automation import store as automation_store
     from sentinel.feed import calendar
     from sentinel.paper import execution, validation
@@ -196,12 +223,17 @@ def test_gateway_guarded_reads_reuse_first_canonical_proof(conn, gateway, monkey
     for owner in (execution, validation):
         monkeypatch.setattr(owner, '_validate_automation_grant', lambda *_: (None, cycle))
     monkeypatch.setattr(automation_store, 'record_authority_verdict', lambda *_a, **_k: None)
-    load, construct = rolling_runtime._load_closure, execution._guard_broker
-    calls, reads = [], []
+    load, size = rolling_runtime._load_closure, dual_plan_authority._rederive_plan
+    construct = execution._guard_broker
+    calls, reads = {'checkpoint': 0, 'sizing': 0}, []
     def counted(*args, **kwargs):
-        calls.append(1)
+        calls['checkpoint'] += 1
         return load(*args, **kwargs)
+    def sized(*args, **kwargs):
+        calls['sizing'] += 1
+        return size(*args, **kwargs)
     monkeypatch.setattr(rolling_runtime, '_load_closure', counted)
+    monkeypatch.setattr(dual_plan_authority, '_rederive_plan', sized)
     # Stop the test before mutation; an ordinary broker exception is correctly
     # converted into degraded reconciliation by the canonical reader.
     class ReadBoundaryReached(BaseException):
@@ -210,7 +242,12 @@ def test_gateway_guarded_reads_reuse_first_canonical_proof(conn, gateway, monkey
         wrapped = construct(**kwargs)
         observe = wrapped.observe
         async def observed():
-            for _ in range(5):
+            for index in range(5):
+                conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
+                             "VALUES ('broker-observation:v4:guarded-read-proof',%s,jsonb_build_object('read_index',%s::integer)) "
+                             "ON CONFLICT (cursor_name) DO UPDATE SET state=EXCLUDED.state",
+                             (plan.decision_session, index))
+                conn.commit()
                 reads.append(await observe())
             raise ReadBoundaryReached
         wrapped.observe = observed
@@ -222,6 +259,6 @@ def test_gateway_guarded_reads_reuse_first_canonical_proof(conn, gateway, monkey
             grant=grant, automation_config_sha256='f' * 64,
             today=opened+timedelta(seconds=60),
             dual_shadow_observation_id=OBS, dual_shadow_starting_cash=100000))
-    assert len(reads) == 5 and len(calls) == 1
+    assert len(reads) == 5 and calls == {'checkpoint': 1, 'sizing': 1}
     assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
     assert verified.owned(conn) is None

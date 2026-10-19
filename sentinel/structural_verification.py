@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 import pickle
+from typing import Literal
 
 from sentinel.execution.journal import WRITER_LOCK_KEY
 from sentinel.feed import readiness_scope
@@ -18,6 +19,9 @@ class VerificationScopeRefused(ValueError):
 
 
 _current = ContextVar('structural_verification_scope', default=None)
+_ECONOMIC_INPUT_SLOTS: frozenset[Literal['rolling-checkpoint', 'dual-sizing']] = frozenset({
+    'rolling-checkpoint', 'dual-sizing',
+})
 
 
 def active():
@@ -37,7 +41,7 @@ def _inventory(conn, slot):
         "FROM sentinel_processed_sessions "
         "WHERE %s OR (cursor_name <> ALL(%s) AND NOT (cursor_name LIKE ANY(%s))) "
         "ORDER BY cursor_name",
-        (slot != 'rolling-checkpoint', list(PAPER_CURSOR_NAMES),
+        (slot not in _ECONOMIC_INPUT_SLOTS, list(PAPER_CURSOR_NAMES),
          [prefix + '%' for prefix in PAPER_CURSOR_PREFIXES]),
     ).fetchall()
     return relation, rows

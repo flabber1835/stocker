@@ -115,13 +115,16 @@ def classify(conn, *, observation_id, starting_cash, structural_only=False, cloc
             if structural_only:
                 status = "RECONSTRUCTED_STRUCTURAL" if isinstance(attested, authority.ReconstructionReceipt) else "ATTESTED_STRUCTURAL"
                 if status == "ATTESTED_STRUCTURAL" and checkpoint.session == unchanged_through:
-                    _current(conn, checkpoint, pub, now=clock() if clock else None)
+                    report = _current(conn, checkpoint, pub, now=clock() if clock else None)
+                    from sentinel.feed import readers
+                    measured = readers.bound_readiness(pub, report)
                     from sentinel import shadow_health_projection
                     inventory, present = shadow_health_projection._inventory(conn)
                     if not present:
                         raise Refused('verified unchanged session has no origin inventory')
                     return {"status": "VERIFIED_UNCHANGED", "result": _result(result, attested),
-                            "inventory_sha256": inventory}
+                            "inventory_sha256": inventory,
+                            "_readiness_snapshot": measured}
                 return {"status": status, "latest_session": checkpoint.session}
             _current(conn, checkpoint, pub, now=clock() if clock else None)
             return {"status": "VERIFIED", "result": _result(result, attested)}
@@ -237,6 +240,10 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
                           structural_only=True, unchanged_through=through)
     if classified["status"] == "VERIFIED_UNCHANGED":
         result = classified['result']
+        # The canonical report was measured under the completed read-only pin.
+        # This auxiliary INSERT renews evidence, never the life of an old PASS.
+        from sentinel.feed import readiness
+        readiness.save_snapshot(conn, classified['_readiness_snapshot'])
         _refresh_unchanged_health(conn, result, classified['inventory_sha256'])
         from sentinel.feed import retention
         retention.maintain(conn)
