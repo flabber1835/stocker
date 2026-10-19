@@ -452,4 +452,3 @@ def test_removing_canonical_funding_guard_is_detected(
 
 
 from tests.sentinel.test_guarded_execution_broker import conn, pg  # noqa: E402,F401
-

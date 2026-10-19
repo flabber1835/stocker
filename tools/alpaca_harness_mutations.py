@@ -18,8 +18,8 @@ MUTANTS = (
            "tests/sentinel/test_alpaca_simulation_harness.py::"
            "test_empty_successful_exact_lookup_is_corruption_not_absence"),
     Mutant("stable-asset-id-is-replaced-by-symbol", "sentinel/execution/alpaca.py",
-           '            "symbol": str(instrument.broker_id),\n',
-           '            "symbol": str(instrument.symbol),\n',
+           '        body = _submit_body(symbol=str(instrument.broker_id), client_key=client_key,\n',
+           '        body = _submit_body(symbol=str(instrument.symbol), client_key=client_key,\n',
            "tests/sentinel/test_alpaca_simulation_harness.py::"
            "test_stable_asset_handle_is_used_at_post"),
     Mutant("order-race-detector-disabled", "sentinel/execution/alpaca.py",

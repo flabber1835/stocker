@@ -39,6 +39,7 @@ from sentinel.execution.contract import (
     Side,
 )
 from sentinel.execution.states import CommandState, IN_FLIGHT
+from sentinel.execution.numeric import decimal_text
 
 
 SCHEMA = "sentinel.dual-plan-sizing-authority/1"

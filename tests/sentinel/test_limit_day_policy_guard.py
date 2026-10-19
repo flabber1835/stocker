@@ -306,4 +306,3 @@ def test_removing_canonical_equity_binding_is_detected(grant_case, monkeypatch, 
     monkeypatch.setattr(validation, "_protected_allocation_or_refuse", local["_protected_allocation_or_refuse"])
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_actual_submit_grant_refuses_noncanonical_allocation_denominator(grant_case, kind)
-

@@ -41,4 +41,3 @@ class ProtectedPolicyHostTests(unittest.TestCase):
     def test_changed_host_module_parses_as_python38(self):
         ast.parse((ROOT / "scripts/sentinel_env.py").read_text(encoding="utf-8"),
                   filename="scripts/sentinel_env.py", feature_version=8)
-

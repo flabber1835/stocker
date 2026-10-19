@@ -190,7 +190,7 @@ def run():
         ("opening_evidence_requirement_removed",
          opening_checks.test_persisted_unit_only_projection_is_insufficient_for_dollar_intent,
          target_reprojection, "assert_projection", rewritten(target_reprojection.assert_projection,
-             "if bool(plan.opening_intents) != (projection.opening_sizing is not None):", "if False:")),
+             "if not protected and bool(plan.opening_intents) != (projection.opening_sizing is not None):", "if False:")),
         ("dual_opening_convergence_uses_provisional_zero",
          lambda: checked(review_checks.test_filled_open_sized_entry_converges, True),
          automation_runtime.ProductionAutomation, "_actionable_current_plan_deltas",

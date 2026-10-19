@@ -217,4 +217,3 @@ def test_paper_opening_evidence_uses_separate_historical_route_without_quote_get
         None, state=object(), plan=object(), broker=object()))
     assert result is (None if selected else evidence)
     assert len(calls) == (not selected)
-
