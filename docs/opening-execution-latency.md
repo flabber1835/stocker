@@ -49,7 +49,7 @@ execution authority or failed-cycle history.
 ## Retained executable admission
 
 Append one exact opening-latency successor profile with authority effect NONE.
-Pin the changed verification and readiness modules, admission wiring, and the
+Pin the changed verification, readiness and execution quote modules, admission wiring, and the
 preceding idle-leader checker's explicit successor delegation. Preserve every
 historical profile byte. Accepted predecessor hashes come only from those
 authenticated descriptors and individually pinned complete historical source
@@ -272,4 +272,52 @@ Preserve the 60-second rule and the ten-minute increase cutoff. A full-basket
 simulator PASS proves the software path under its explicitly fresh local quote
 fixture; it cannot establish native full-basket readiness when the available
 feed does not deliver usable quotes. The release must state this distinction
-and retain execution fencing pending the operator's data-access decision.
+and retain execution fencing until native data access is verified.
+
+## Selected SIP execution quote policy
+
+The operator selected existing SIP access. Make SIP the single canonical source
+for the execution adapter's latest-quote GET, with an explicit `feed=sip` query
+and a new `ALPACA_SIP_RAW_REGULAR_QUOTES_V1` evidence source. The reviewed
+runtime/source identity binds this policy; there is no environment feed selector
+or automatic fallback. The historical Sharadar/Alpaca input corpus, opening-bar
+source, and immutable strategy book are unchanged. Preserve explicit decoding
+and typed validation of the old IEX quote source for retained evidence, while
+new quote parsing emits only the SIP source.
+
+Keep raw bid/ask prices, instrument identities, positive quote sizes, session
+boundaries, the 60-second freshness limit, fresh affordability checks and the
+ten-minute increase cutoff. A denied SIP request must refuse; it must never
+become permission to use delayed or stale data. Paper account, asset, order and
+stream credentials remain bound to the existing paper account. If separate
+SIP credentials are needed, document and qualify their data-only routing before
+adding that wiring; they must never replace the paper broker credentials.
+
+GET-only checks of the exact known production, Windows and two Linux release
+profiles found one unique Alpaca keypair. That pair still returned SIP HTTP 403
+at 15:27:24 UTC. No credential values or fingerprints were recorded. A location
+for the existing SIP-enabled profile is therefore still required before native
+SIP qualification and activation. Software simulation can proceed independently
+and must state this remaining gate.
+
+SIP regressions passed: 48 tests in 35.79 seconds, with networking disabled,
+0.5 CPU and 768 MiB. The cohort used the existing test image with exact read-only
+source/test overlays:
+
+```bash
+python -m pytest \
+  tests/sentinel/test_unattended_operating_contract.py \
+  tests/v5/test_opening.py::test_alpaca_reads_raw_sip_regular_quotes \
+  tests/sentinel/test_paper_service_rehearsal.py::test_rehearsal_quotes_use_actual_endpoint_and_canonical_parser \
+  tests/sentinel/test_regular_quote_submission.py \
+  tests/sentinel/test_opening_submit_freshness_boundary.py \
+  tests/sentinel/test_quote_starvation.py \
+  -q --tb=short -p no:cacheprovider --durations=10 \
+  --junitxml=/evidence/sip-quotes-20261019.xml
+```
+
+Three baseline falsifier cases passed. Removing the typed quote-source guard
+caused both SIP and legacy IEX forgery cases to fail; forcing IEX caused the
+request policy case to fail. Mutants existed only in private compiled function
+copies. The sealed profile's narrow current-byte check separately passed; full
+expanded retained admission and the final-runtime gateway remain required.

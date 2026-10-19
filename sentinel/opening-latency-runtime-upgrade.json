@@ -1,10 +1,16 @@
 {
   "additions": {
-    "opening_latency_upgrade.py": "a9ffc31a4d8000c5a0d19005043e5d03d5174490c48c7c171b880f543ec31595"
+    "opening_latency_upgrade.py": "71961115129f071d73be60bf2c372c85657f53cf986142c23f84633f8950b5cf"
   },
   "authority_effect": "NONE",
   "base_revision": "1e1db91b878d3073549a1e46337893882c3935b2",
   "files": {
+    "execution/opening_prices.py": {
+      "after": "550f1a92ff1884cab7fa8a2b44283750bed1bd884c7ef06bfc059001ea28f839",
+      "before": [
+        "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f"
+      ]
+    },
     "feed/readers.py": {
       "after": "c1fa3937bfc60b36f61f92558dfa1d408e00247397467636392fbb5a48e1b0c2",
       "before": [
@@ -57,10 +63,11 @@
     }
   },
   "idle_checker_normalized_sha256": "a3062eeb32386200aa8cab3f6c1173b3457ccd43307bec9c3930178d97238812",
-  "module_sha256": "a9ffc31a4d8000c5a0d19005043e5d03d5174490c48c7c171b880f543ec31595",
+  "module_sha256": "71961115129f071d73be60bf2c372c85657f53cf986142c23f84633f8950b5cf",
   "predecessor_witnesses": [
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "1f3f95d3c8a5ddb81e57a6387536f8376efe7c3ecefeb8a4badf516e8e5491e4",
@@ -71,6 +78,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "67d9c6929921eeee50d5e855edeff8a8a282f8380212141e8bd4b224b2d91705",
@@ -81,6 +89,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "4b629db5827dce482070f2f1271f42894937f087e132286b37d265e565baa968",
@@ -91,6 +100,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
@@ -101,6 +111,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
@@ -111,6 +122,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "f63e920c79fdd61bb1324ad32758be0dc01b3de4354254d22be2b7467f365da5",
         "runtime_admission.py": "4079cc42b19cd9ecd1629d243794b86d1049a484627fe08bcb135f87104cbb21",
@@ -121,6 +133,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "idle_leader_upgrade.py": "7a2199dbd8af0a64528f5fd1e9396bd7d96060e6272f3fdc06d6b88c898327ba",
         "rolling_runtime.py": "f63e920c79fdd61bb1324ad32758be0dc01b3de4354254d22be2b7467f365da5",
@@ -132,6 +145,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "096e216e79c9f605a2fa210a6997c8dbecf42af0567e158a41ebb9bcab620d34",
@@ -142,6 +156,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
@@ -152,6 +167,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
@@ -162,6 +178,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "1140c2ff3b0fcf3bd758c4d03a1e4d37402c263102b9fcce16c8dc625191227f",
         "structural_verification.py": "ccc12ac2a478a32676b8a19530d3758b2d75ea2d3a01efbf5a84effbdcc386c3"
@@ -171,6 +188,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "b74d74be6767674f9c186a160e4a0f983a93813e3236981109fae8d049cb96d0",
@@ -181,6 +199,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
@@ -191,6 +210,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
@@ -201,6 +221,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "f63e920c79fdd61bb1324ad32758be0dc01b3de4354254d22be2b7467f365da5",
         "runtime_admission.py": "fcf1228470a7a2a42dbc9534b05e66770a63d123281017aa0ffecfaf62a8f4b8",
@@ -211,6 +232,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "033aafc80d6e391687c4512e5e2bb2f5b846af2ac28819d37c4868a5e68740b1",
@@ -221,6 +243,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "f63e920c79fdd61bb1324ad32758be0dc01b3de4354254d22be2b7467f365da5",
         "runtime_admission.py": "087fe6d1981122054f34aa83fc41c07d9c583cdaf185bf6e9b0f4e54598f6421",
@@ -231,6 +254,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
@@ -241,6 +265,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ba2f4da0c777aff553cbd8c6d83381cd26deeb4a4d3168baeaf3a4e0e1cf610e",
@@ -251,6 +276,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "ae76dd995f3ba44769ae933438f7d708783fb0a1a930b6939f29664811072276",
@@ -261,6 +287,7 @@
     },
     {
       "files": {
+        "execution/opening_prices.py": "e6d51d8f949cacf9903dd4afd7c65917bf0e89f3fcb7d4f84152fdf3fa23675f",
         "feed/readers.py": "e5be04df5104efbd3ad98f0b5f5fdf165c7f9ed8f65387485566772a54f786a0",
         "rolling_runtime.py": "fab0ecb14e2ffbcb09c27a667277ef5161111d3762084b37c82091655b77f777",
         "runtime_admission.py": "990f8810a1788c68b960f481dd4dbc8c134072b9b1b2af63fd277d37b40de7b6",
