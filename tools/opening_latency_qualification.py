@@ -80,6 +80,7 @@ def require_database(conn, args, *, read_only=True):
 def connect(args, *, read_only=True):
     import psycopg
     from psycopg.conninfo import conninfo_to_dict
+    require_target(args)
     # A typo must not even open the ordinary primary database for identity
     # inspection. The server independently rechecks this name and cluster ID.
     if conninfo_to_dict(args.database).get("dbname") != args.expected_database:

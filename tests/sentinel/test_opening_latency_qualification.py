@@ -186,3 +186,25 @@ def test_local_provider_drives_actual_sealed_asset_adapter_and_rejects_duplicate
     with pytest.raises(tool.QualificationRefused, match="DUPLICATE_POST"):
         provider.post("https://paper-api.alpaca.markets/v2/orders", {
             "symbol": "asset-class", "qty": "2", "side": "buy", "client_order_id": "fixture-key"})
+
+
+@pytest.mark.parametrize("function,guard,invoke", [
+    ("require_target", "if args.expected_system_id == args.production_system_id:",
+     lambda broken: broken(target(expected_system_id="98765432101"))),
+    ("require_environment", 'if Path(sentinel_file).resolve().parent != Path("/app/sentinel"):',
+     lambda broken: broken({"SENTINEL_IMAGE_SOURCE_REVISION": "a" * 40}, "/candidate/sentinel/__init__.py")),
+    ("require_database", 'if actual != (args.expected_database, args.expected_system_id, "on" if read_only else "off"):',
+     lambda broken: broken(SimpleNamespace(execute=lambda *_:
+         SimpleNamespace(fetchone=lambda: ("sentinel", "98765432101", "on"))), target())),
+])
+def test_falsifier_detects_removed_private_target_runtime_and_read_only_guards(function, guard, invoke):
+    import inspect
+    import textwrap
+    source = textwrap.dedent(inspect.getsource(getattr(tool, function)))
+    broken = source.replace(guard, "if False:")
+    assert broken != source
+    namespace = {}
+    exec(compile(broken, "removed-private-qualification-guard", "exec"), vars(tool), namespace)
+    with pytest.raises(pytest.fail.Exception):
+        with pytest.raises(tool.QualificationRefused):
+            invoke(namespace[function])
