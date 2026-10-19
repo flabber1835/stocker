@@ -224,8 +224,8 @@ def build_references(conn, *, plan, projection, policy=None):
                 or projection.plan_fingerprint != plan.fingerprint()
                 or projection.through_session != plan.effective_session):
             raise TargetProjectionRefused("prior RAW reference publication differs from plan")
-        refs = feed_inputs.references(conn, pub)
-        resolver = feed_inputs.opening_resolver(conn, session=str(plan.effective_session))
+        refs, _requested, _end, resolver = feed_inputs._snapshot_identity_authorities(
+            conn, pub, session=str(plan.effective_session))
         symbols = {}
         for sid in sorted(wanted):
             symbol = ("BIL" if sid == DEFENSIVE_SECURITY_ID else

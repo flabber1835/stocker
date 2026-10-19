@@ -197,3 +197,23 @@ def test_migration_fence_falsifier_detects_removed_authority_check(database, mon
         "if False:"))
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_v1_upgrade_requires_fenced_automation(database, fence)
+
+
+@pytest.mark.parametrize("source,expected", [(None, ""), ("  SELECT   X  ", "select x"),
+    ("CHECK (mode = 'A  B')", "check (mode = 'A  B')"),
+    ('DEFAULT "Mixed  Case"', 'default "Mixed  Case"'),
+    ("DEFAULT 'It''s  A'", "default 'It''s  A'")])
+def test_exact_sql_text_reuse_preserves_quoted_semantics(source, expected):
+    assert schema._normal_sql(source) == expected
+    assert schema._normal_sql(source) == expected
+
+
+def test_sql_normalization_reads_mutable_input_again_before_text_reuse():
+    class CurrentSQL:
+        text = "DEFAULT 'OLD'"
+        def __str__(self):
+            return self.text
+    current = CurrentSQL()
+    assert schema._normal_sql(current) == "default 'OLD'"
+    current.text = "DEFAULT 'NEW'"
+    assert schema._normal_sql(current) == "default 'NEW'"

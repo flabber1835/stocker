@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from functools import lru_cache
 
 _SCHEMA_LOCK = (1_397_050_964, 1_380_928_588)  # ASCII SENT / ROLL.
 _SCHEMA_LOCK_TIMEOUT_MS = 2_000
@@ -1362,8 +1363,13 @@ def _operator_refusal(detail: str) -> SchemaMigrationRefused:
 
 
 def _normal_sql(value: object) -> str:
+    """Read the current value; reuse only identical immutable SQL text."""
+    return _normal_sql_text(str(value or "").strip())
+
+
+@lru_cache(maxsize=512)
+def _normal_sql_text(source: str) -> str:
     """Normalize keywords/spacing without changing quoted SQL semantics."""
-    source = str(value or "").strip()
     output: list[str] = []
     quote: str | None = None
     pending_space = False

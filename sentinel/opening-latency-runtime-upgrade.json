@@ -1,7 +1,7 @@
 {
   "additions": {
     "execution/protected_funding.py": "87b8d4b3146db5b41b5a010872f22d96ecedbc3bbaaa4180b709c9223676f2bc",
-    "execution/protected_limits.py": "e0ed52063d9aabe638a9122d164bc0ce19dc210c11937dad4c03d4011f50814a",
+    "execution/protected_limits.py": "c441b552fa7f29c45ef5df1414a07d824c43adea29a32d54cb0fccb2a44a7d1e",
     "opening_latency_upgrade.py": "ce3b1a5fce64714d44ac1e9a2d027d36917dc02ed0772e81d127751df9ce95ec"
   },
   "authority_effect": "NONE",
@@ -213,7 +213,7 @@
       ]
     },
     "schema.py": {
-      "after": "83121d7ab40b74b7bebd03aaf0d0592dc4932e1d48c4b3211609383129c62e79",
+      "after": "c9d648ae877884bdd410d1b97b602d9eeb40734433715d0432e754c6d1243765",
       "before": [
         "0c4182749d9df0ae7d772bd6c1cc44bbfc95bf2d1c38a3fbd5a072513fa0132a",
         "1345dba552f0ce785885eb32fd60d39d389347d0db0469e7affc90b173367012",

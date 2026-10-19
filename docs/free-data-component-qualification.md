@@ -260,3 +260,53 @@ guard test corrupts the real private proof return, asserts that injection ran,
 and requires the unchanged stale-state refusal. It no longer patches an unused
 public hook. The lifecycle registry's unreviewed-fingerprint falsifier still
 passes. These repairs change no Sentinel runtime source.
+
+## Complete-basket timing refusal and pure-work correction
+
+Exact image `36993b6b` (`sha256:35a5eec67db0ea18df32fd16dee923c6f6aaa5a4912396cd41ced885bb7d6cfb`)
+in fresh private namespace 16 submitted 15 simulated protected orders without
+refusals or deferrals. PREPARE took 96.29 seconds; EXECUTE took 225.04 seconds,
+and terminal RECOVER returned successfully in 86.69 seconds. The first POST
+was 119.60 seconds, but complete-basket time was 311.89 seconds. The unchanged
+300-second gate therefore REFUSED qualification. Final success/book assertions
+after that gate are not claimed. Private cleanup passed and the failed cycle
+was preserved. Native broker calls remained zero.
+
+The next candidate reduces only exact-text SQL normalization and duplicate
+canonical reference construction as documented before implementation. The
+pricing/schema cohort passed 77 cases in 60.23 seconds:
+
+```sh
+python -m pytest -q -p no:cacheprovider tests/sentinel/test_order_terms_schema.py tests/sentinel/test_limit_day_sizing.py --junitxml=/evidence/result.xml
+```
+
+After restoring original UTF-8 comments/DDL literals from an edit-encoding
+error, the final schema module and current source-seal check passed 23 cases
+in 22.27 seconds, zero failures/errors/skips:
+
+```sh
+python -m pytest -q -p no:cacheprovider tests/sentinel/test_order_terms_schema.py tests/sentinel/test_opening_latency_upgrade.py::test_profile_scope_predecessors_and_current_bytes_are_exact --junitxml=/evidence/result.xml
+```
+
+All historical DDL assignment literals match the preceding commit's AST exactly.
+Catalog fingerprints and historical fixtures are unchanged; existing post-warmup
+catalog-damage refusals still run. Pure normalization tests preserve SQL quoted
+semantics and re-read mutable input text before cache lookup. The pricing tests
+still authenticate a fresh canonical reference context and reread RAW rows on
+each invocation, rejecting changed prices.
+
+The new 29+3 source seal is
+`c15470418da30f2b842481eb605305f750d17cbaec94d72796aa00f44849f73d`.
+All 16 historical descriptors and 21 complete predecessor manifests are retained.
+Fresh namespace 17 has zero commands/cycles and the unchanged private base book.
+A new actual-image admission and cold run remain required.
+
+The operator CI lane also caught two unclassified legacy-converter settings.
+The retired-Stocker converter now deliberately leaves policy/cap unset, with
+reasons; ordinary reviewed Sentinel release-file copying is unchanged. Its
+module passed 31 cases in 12.02 seconds, including an actual converted-file
+selection test and the inherited-policy falsifier:
+
+```sh
+python -m pytest -q -p no:cacheprovider tests/scripts/test_env_from_stocker.py --junitxml=/evidence/result.xml
+```

@@ -399,3 +399,24 @@ class TestTheWhitelistIsCOMPLETEAgainstCompose:
             reason = mod.DELIBERATELY_UNSET[name]
             assert owner in reason
             assert "stale" in reason
+
+
+def _assert_legacy_execution_policy_is_not_selected(directory, mod):
+    directory.mkdir()
+    source, destination = directory / "old.env", directory / "new.env"
+    source.write_text(OLD + "SENTINEL_PAPER_BUY_POLICY=PROTECTED_LIMIT_DAY_V1\n"
+                      "SENTINEL_PAPER_BUY_CAP_BPS=500\n")
+    assert mod.main(["--from", str(source), "--to", str(destination)]) == 0
+    assert not {"SENTINEL_PAPER_BUY_POLICY", "SENTINEL_PAPER_BUY_CAP_BPS"} & set(mod.parse_env(destination))
+
+
+def test_legacy_conversion_requires_fresh_execution_policy_selection(tmp_path, mod):
+    _assert_legacy_execution_policy_is_not_selected(tmp_path / "selected", mod)
+
+
+def test_inheriting_legacy_execution_policy_is_detected(tmp_path, mod, monkeypatch):
+    _assert_legacy_execution_policy_is_not_selected(tmp_path / "baseline", mod)
+    for key in ("SENTINEL_PAPER_BUY_POLICY", "SENTINEL_PAPER_BUY_CAP_BPS"):
+        monkeypatch.setitem(mod.CARRY, key, "incorrect inherited policy")
+    with pytest.raises(AssertionError):
+        _assert_legacy_execution_policy_is_not_selected(tmp_path / "mutated", mod)

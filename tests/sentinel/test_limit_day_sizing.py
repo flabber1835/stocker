@@ -405,8 +405,12 @@ def source_fixture(monkeypatch, plan):
     manifest = SimpleNamespace(snapshot_id="a"*64, provider="ALPACA_OPENFIGI", model_dump=lambda **_: {"source": "bound"})
     monkeypatch.setattr(feed_inputs, "pinned", pinned)
     monkeypatch.setattr(feed_inputs, "is_rolling", lambda _: True)
-    monkeypatch.setattr(feed_inputs, "references", lambda *_: SimpleNamespace(candidate_id="candidate", manifest=manifest, resolver=resolver))
-    monkeypatch.setattr(feed_inputs, "opening_resolver", lambda *_args, **_kwargs: resolver)
+    pub.authority_reads = []
+    def authorities(connection, current, *, session):
+        assert current is pub and session == str(plan.effective_session)
+        pub.authority_reads.append((connection, session))
+        return SimpleNamespace(candidate_id="candidate", manifest=manifest, resolver=resolver), session, str(plan.decision_session), resolver
+    monkeypatch.setattr(feed_inputs, "_snapshot_identity_authorities", authorities)
     monkeypatch.setattr(feed_inputs, "resolver", lambda *_args, **_kwargs: SimpleNamespace(provider_asset_ids={"SEC-AAA": "asset-a", "SEC-BBB": "asset-b"}))
     monkeypatch.setattr(decision, "publication_fingerprint", lambda _: plan.publication_fingerprint)
     return pub
@@ -414,13 +418,14 @@ def source_fixture(monkeypatch, plan):
 
 def test_source_factory_re_reads_raw_rows_and_revalidation_detects_price_edit(monkeypatch):
     state, plan, projection, _refs = protected_case()
-    source_fixture(monkeypatch, plan)
+    pub = source_fixture(monkeypatch, plan)
     conn = ReferenceConnection([("SEC-AAA", "AAA", 100), ("SEC-BBB", "BBB", 100)])
     refs = limits.build_references(conn, plan=plan, projection=projection)
     result = limits.resolve_protected(state, plan, projection, refs, limits.ProtectedLimitPolicy(100))
     select(monkeypatch)
     assert limits.revalidate_references(conn, plan=plan, projection=result) == refs
     assert len(conn.calls) == 4
+    assert len(pub.authority_reads) == 2  # Fresh canonical context on each invocation.
     conn.stock_rows[0] = ("SEC-AAA", "AAA", 101)
     with pytest.raises(projections.TargetProjectionRefused, match="changed"):
         limits.revalidate_references(conn, plan=plan, projection=result)

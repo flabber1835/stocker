@@ -130,6 +130,13 @@ before sealing an activation request. The separately supervised activation owner
 reloads that file; a temporary installer-shell override is not durable release
 configuration. A changed `.env` requires a new reviewed activation request.
 
+The one-time retired-Stocker environment converter deliberately leaves both
+BUY-policy inputs unset, with an explicit reason in its complete whitelist.
+A legacy file cannot select a financial execution policy or price band for a
+new deployment. This converter is not the existing Sentinel release `.env`
+copy path; ordinary upgrades preserve an already reviewed selection. The
+operator must explicitly select the new release policy/cap before activation.
+
 The ordinary `sentinel` CLI receives the same nonsecret
 `SENTINEL_PAPER_BUY_POLICY` and `SENTINEL_PAPER_BUY_CAP_BPS` Compose inputs as the
 authorized CLI and automation services. The installer's `current-paper-plan`
@@ -508,3 +515,22 @@ free-data redesign for the installed account.
 Keeping free IEX preserves today's quote-dependent policy and possible missed
 entries. Delayed SIP cannot satisfy its 60-second freshness rule. No redesign
 can guarantee every fill while simultaneously imposing a strict price cap.
+
+### Repeated pure work after the complete-basket rehearsal
+
+The first full protected basket completed recovery at 311.9 seconds and failed
+the unchanged 300-second gate. Reduce repeated pure work without sharing a
+permission verdict: normalize freshly read catalog SQL through a bounded
+512-entry cache keyed only by its exact stripped text. Convert arbitrary caller
+objects to text on every call, preserve quoted SQL semantics byte for byte,
+and retain every fresh catalog query and comparison. A changed catalog supplies
+a new key and must still refuse; no schema identity or verdict is cached.
+
+For protected historical-reference construction, obtain references and the
+effective resolver together from the existing canonical
+`feed_inputs._snapshot_identity_authorities` under the already authenticated
+publication pin. This replaces two duplicate constructions with one. Continue
+using the canonical provider-identity resolver separately, reread every required
+RAW row on every invocation, and retain all per-broker authority brackets.
+No new source module, Core computation, financial formula or timing allowance
+is introduced. These changes require a new seal and fresh cold qualification.
