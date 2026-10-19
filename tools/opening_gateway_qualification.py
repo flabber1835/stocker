@@ -491,6 +491,7 @@ def supervised_callback(args, config, context, phase, body, http, counts):
             with ExitStack() as observers:
                 metrics.install(observers)
                 result = await body(child_context)
+                report_callback_result(result, phase=phase)
                 outcome = "PASS"
                 return {"result": result.model_dump(mode="json"), "provider": http.state(), "counts": dict(counts)}
         except BaseException as exc:
@@ -512,6 +513,19 @@ def supervised_callback(args, config, context, phase, body, http, counts):
     finally:
         with connect(args, read_only=False, heartbeat=True) as reader:
             store.register_instance(reader, instance_id=context.permit.holder_id, state="IDLE")
+
+
+def report_callback_result(result, *, phase):
+    """Keep returned deferral evidence when the next timing check refuses."""
+    value = result.model_dump(mode="json")
+    execution = value.get("diagnostic", {}).get("execution", {})
+    print(json.dumps({"stage": "CALLBACK_RESULT", "phase": phase,
+        "disposition": value.get("disposition"),
+        "failure_code": value.get("failure_code"),
+        "failure_detail": value.get("failure_detail"),
+        "execution": {key: execution.get(key) for key in (
+            "runtime_state", "submitted", "refused", "deferred",
+            "deferral_reasons", "detail", "restricted_securities")}}), flush=True)
 
 
 def transition_for_callback(conn, **values):

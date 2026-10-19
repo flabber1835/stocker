@@ -125,3 +125,86 @@ baselines pass and all three actual mutants are killed by the existing verifiers
 Normalize only the new SQL fixture's CRLFs and extra EOF blank lines in four new
 tests: SQL `Path.read_text()` content and Python ASTs remain identical. No fixture
 expectation, golden hash, workflow or whitespace rule changes.
+
+## Funding integration and release-reader correction
+
+The second exact committed-image gateway (`9791d1fa`, private namespace 15)
+passed PREPARE but failed the unchanged timing gate: EXECUTE returned after
+139.035 seconds with zero orders. Read-only inspection found all 15 protected
+reference limits and allocations READY, but no commands or funding basis.
+The new funding path unconditionally required a native cash-activity interval;
+the actual Alpaca adapter intentionally quarantines that unaccepted capability.
+The returned callback detail was not retained, so this is a code-path blocker
+corroborated by durable state, not a stored exception claim. The failed cycle
+and evidence remain preserved. No broker order was submitted.
+
+The qualification tool now records returned dispositions, financial deferrals
+and refusal reasons before a following timing check can fail. Its 70 focused
+cases passed in 3.77 seconds, with zero failures/errors/skips:
+
+```sh
+python -m pytest -q -p no:cacheprovider tests/sentinel/test_limit_day_gateway_qualification.py --junitxml=/evidence/result.xml
+```
+
+The release current-plan reader and ordinary CLI now receive the same explicit
+policy/cap as the signed configuration issuer and authorized services. This
+prevents a legacy `/1` identity from contradicting selected `/2` execution
+configuration during activation. The two directly relevant host/configuration
+modules passed 126 cases in 15.01 seconds, including both omitted-forwarding
+falsifiers, with zero failures/errors/skips:
+
+```sh
+python -m pytest -q -p no:cacheprovider tests/sentinel/test_deploy_plan_reader.py tests/sentinel/test_env_automation_config.py --junitxml=/evidence/result.xml
+```
+
+These cohorts used the same bounded, network-disabled test image and read-only
+source mounts. Neither is full-gateway qualification or production activation.
+The separately tagged no-activity plan-cash funding design required separate
+implementation tests and a new seal, recorded below. Its fresh committed-image
+cold run remains a distinct gate.
+
+The new no-activity `/2` variant passed 40 focused cases in 26.40 seconds:
+
+```sh
+python -B -m pytest tests/sentinel/test_limit_day_plan_cash_funding.py -q --tb=short -p no:cacheprovider --durations=10 --basetemp=/tmp/protected-sizing/pytest --junitxml=/evidence/protected-sizing.xml
+```
+
+These execute the actual sealed AssetId Alpaca composition and canonical guarded
+funding callback, persisted typed basis, restart identity, disabled activity
+capability, strict cash/quiescence, no-credit ceiling, deposit/withdrawal bounds,
+all live/terminal promise states and executable guard-removal falsifiers. The
+retained activity-backed funding module also passed 52 cases in 20.11 seconds,
+including its existing six canonical guard-removal falsifiers:
+
+```sh
+python -B -m pytest tests/sentinel/test_limit_day_funding.py -q --tb=short -p no:cacheprovider --durations=10 --basetemp=/tmp/protected-sizing/pytest --junitxml=/evidence/protected-sizing.xml
+```
+
+The source seal for this funding correction is
+`6415a51c222e5eff3ec28a84cc528ebf738e7199c1c61be67fb7b7bd40b0fcd5`.
+The 29+3 source scope, 16 historical descriptors and 21 complete predecessor
+witnesses remain unchanged. The isolated private PostgreSQL cgroup was corrected
+from 0.5 CPU/768 MiB to the installed 1.5 CPU/1 GiB without restart, settings or
+SQL changes; remaining conservative configuration differences are documented in
+the design. This neither changes production/backtest resources nor supplies a
+gateway pass.
+
+The exact current-profile byte/witness check passed one case in 14.16 seconds:
+
+```sh
+python -m pytest -q -p no:cacheprovider tests/sentinel/test_opening_latency_upgrade.py::test_profile_scope_predecessors_and_current_bytes_are_exact --junitxml=/evidence/result.xml
+```
+
+The direct execution-wiring and selected-policy guard modules passed 42 cases
+in 20.64 seconds, zero failures/errors/skips:
+
+```sh
+python -B -m pytest tests/sentinel/test_limit_day_execution_wiring.py tests/sentinel/test_limit_day_policy_guard.py -q --tb=short -p no:cacheprovider --durations=10 --basetemp=/tmp/protected-sizing/pytest --junitxml=/evidence/protected-sizing.xml
+```
+
+All three funding/wiring cohorts used fresh bounded disposable PostgreSQL
+clusters, and their recorded source hashes remained unchanged. The ownership
+validator accepted all 669 Sentinel test modules under the existing 13 owners;
+the new funding module belongs to the general partition. The independent
+four-partition collection verifier is not claimed here because the canonical
+partition set has six entries. No ownership or partition selection was changed.

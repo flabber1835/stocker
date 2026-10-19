@@ -134,6 +134,9 @@ services:
       # bound the selected image to clean HEAD; broker/admin commands remain
       # restricted to the marker-bearing, digest-qualified authorized overlay.
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      # Public policy identity is also required by broker-free plan inspection.
+      SENTINEL_PAPER_BUY_POLICY: ${SENTINEL_PAPER_BUY_POLICY:-}
+      SENTINEL_PAPER_BUY_CAP_BPS: ${SENTINEL_PAPER_BUY_CAP_BPS:-}
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_MAX_CYCLES: ${SENTINEL_MAX_CYCLES:-40}
       SENTINEL_POLL_SECONDS: ${SENTINEL_POLL_SECONDS:-5}

@@ -445,7 +445,7 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
                 conn, broker=wrapped, binding=current_binding, through=now_provider())
         except PaperRetryableRefused as exc:
             raise funding.ProtectedFundingNotReady(str(exc)) from exc
-        funding.validate_submission(conn, activity_state=activity, **kwargs)
+        funding.validate_submission(conn, activity_state=activity, broker=wrapped, **kwargs)
 
     wrapped = GuardedExecutionBroker(
         inner=broker, grant=grant, guard=guard, protected_funding=protected_funding)

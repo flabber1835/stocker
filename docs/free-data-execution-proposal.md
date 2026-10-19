@@ -123,6 +123,27 @@ price-band answer is required before selecting the release configuration.
 Retain the legacy market policy and its IEX evidence decoding for historical
 commands. A profile change cannot reinterpret an already transported command.
 
+### Release configuration channels
+
+Persist the selected policy and cap in the release checkout's literal `.env`
+before sealing an activation request. The separately supervised activation owner
+reloads that file; a temporary installer-shell override is not durable release
+configuration. A changed `.env` requires a new reviewed activation request.
+
+The ordinary `sentinel` CLI receives the same nonsecret
+`SENTINEL_PAPER_BUY_POLICY` and `SENTINEL_PAPER_BUY_CAP_BPS` Compose inputs as the
+authorized CLI and automation services. The installer's `current-paper-plan`
+reader also passes both values explicitly from its selected environment,
+including empty legacy values. That broker-free reader verifies the newly
+signed execution configuration and must compute the same
+`sentinel.paper-execution-config/2` identity and cap as certificate creation,
+installation, activation and execution. This propagation grants no broker
+credentials, runtime marker, signing key or execution permission. The panel and
+shadow worker do not verify execution-policy identity and receive no new
+execution-policy inputs; Wealth Core and the controller remain independent.
+The offline issuer signs the exact candidate's authenticated bindings and does
+not infer a different policy from its own credential-free process environment.
+
 The policy's canonical fingerprint binds the cap, whole-share rounding, DAY TIF,
 simple order class, extended-hours false, 60-second start delay, 600-second new
 submission cutoff, historical raw reference recipe and a fixed USD 1.00 cash
@@ -300,8 +321,9 @@ declare an arbitrary buying-power deficit to be an explained broker reservation.
 Before the first protected BUY, earn one immutable funding basis for this plan
 using the existing clean, COMPLETE, quiescent cash evidence after every necessary
 reduction is positively FILLED. Bind deployment, plan/projection/policy, account
-identity, cash/BP/multiplier, observation identity and cash-activity evidence.
-Persist it under the existing writer lock before any protected transport.
+identity, cash/BP/multiplier, observation identity and the explicit evidence
+variant below. Persist it under the existing writer lock before any protected
+transport.
 
 The exact `protected-buy-funding:v1:` processed-session prefix is execution
 evidence, alongside the existing broker and target-projection namespaces. Exclude
@@ -326,14 +348,52 @@ max(0,basis_cash-other_charges)). Positive terminal evidence removes the live
 remainder, while its original gross charge stays. A fill reflected in cash but
 not yet positively reconciled can temporarily make this bound too conservative;
 defer and recover rather than assume that the order filled. Never subtract local
-reservations from native BP again. Before each protected submission,
-ingest a fresh complete native cash-activity interval and require the same
-accepted activity-set identity, scheme and balance as at the funding basis.
-Any later activity, positive or negative, refuses this cohort rather than being
-netted into its budget. This preserves the existing prohibition on unexplained
-cash changes while avoiding double-counting fills and broker holds. Keep the
-ordinary complete clean reconciliation before the basket and native 1x cash
-availability checks at each order. Do not subtract local reservations from BP
+reservations from native BP again.
+
+There are two explicit durable funding evidence variants. The existing
+`sentinel.protected-buy-funding/1` activity-backed variant retains its exact
+shape and semantics: before each submission ingest a fresh complete accepted
+native activity interval and require its identity, scheme and balance to match
+the basis. An activity-capable adapter with an unavailable, incomplete or
+contradictory interval cannot fall back to another variant.
+
+The supported, composition-certified `ALPACA_PAPER` adapter deliberately has no
+accepted account-cash activity capability (execution contract section 5.4).
+For that exact certified composition only, use a separately tagged
+`sentinel.protected-buy-funding/2` plan-cash variant. It grants no cash-activity
+capability, no event-set identity and no finality claim. Select it from the
+actual certified broker and its disabled activity capability, never from a
+caller-supplied mode or a failed activity request. Bind this selection to the
+basis and verify the same composition/capability before every submission.
+
+Earn this basis with the unchanged clean COMPLETE quiescent observation,
+strict account check and `_cash_authority_or_refuse(activity_state=None)`.
+Require no prior nonsuperseded BUY. Its fixed cash ceiling is no greater than
+both actual cash and the exact immutable plan cash plus positively reported,
+durable same-plan SELL fill principal. Do not credit the ordinary USD 1.00 cash
+comparison tolerance into this ceiling. No new deposit, later sale, balance
+increase, cancellation or fill saving can increase or renew it. Every original
+BUY maximum keeps the gross charge described above through terminal states.
+Before every POST retain fresh account cash, buying power, flags and 1x checks,
+the remaining-live-promise bound and the fixed gross cohort ceiling. Cash above
+the basis by more than the existing USD 1.00 tolerance refuses; lower cash can
+only restrict spending. This check does not infer an attributed withdrawal or
+fill, and the ordinary settled cash equation remains mandatory in recovery and
+before a future plan earns a basis. A restart with working orders still fails
+the existing quiescent increase gate.
+
+Without accepted native activity identities, offsetting deposits and withdrawals
+are not detectable as an event-set change. This is the existing Alpaca
+no-activity cash contract, not a claim of account-activity completeness. A stale
+account endpoint cannot release a same-plan promise because its gross charge
+survives independently of that endpoint. Complete foreign-order reconciliation
+and fresh broker checks remain required; concurrent external actors have the
+same limits as the existing Alpaca cash path. The broker enforces its native
+available funds independently. Do not infer atomic account completeness or
+promote the quarantined SSE decoder from these monetary bounds.
+
+Keep the ordinary complete clean reconciliation before the basket and native
+1x cash availability checks at each order. Do not subtract local reservations from BP
 again. Keep fresh identity/status/flags/multiplier checks and forbid BP above
 cash under the existing tolerance. Any other-plan in-flight obligation or an
 unbounded legacy BUY refuses new protected transport. Never credit subsequent
@@ -414,8 +474,20 @@ later legs. Every callback remains under the real process supervisor and fresh
 guards. Measure the first POST and the complete positively recovered simulated
 basket from the SAME initial execution clock across all such callbacks. Retain
 the 120-second first-order and 300-second complete-basket gates, the existing
-540-second maximum execution lateness, and production resource limits. A new
-callback is not a fresh timing budget. Fail on no forward progress, a quote GET,
+540-second maximum execution lateness, and production resource limits. Match
+both the application and database envelope: installed automation is 1 CPU/2 GiB
+and installed PostgreSQL is 1.5 CPU/1 GiB. The earlier private database used
+0.5 CPU/768 MiB, so its failed run is diagnostic and cannot establish whether
+the installed resource envelope meets the gate. Correct only the private
+qualification database limits to the installed envelope before the next run;
+retain its independent system identifier, volumes, failed namespaces and source
+history. No production/backtest resources change. Record both database and app
+limits with the timing evidence. The private PostgreSQL retains smaller
+shared buffers (96 versus 128 MiB), smaller `/dev/shm` (64 MiB versus 1 GiB)
+and two versus ten WAL senders. These are recorded conservative differences,
+not a claim of identical database configuration; any shared-memory error fails
+the run. The application remains at the installed 1 CPU/2 GiB. A new callback
+is not a fresh timing budget. Fail on no forward progress, a quote GET,
 an unprotected BUY, a wrong basket or an unresolved broker outcome. These are
 local provider timing fixtures, not native execution or subscription evidence.
 

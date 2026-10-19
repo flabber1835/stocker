@@ -429,7 +429,7 @@ def test_canonical_submission_rechecks_committed_rows_activity_and_writer(conn, 
 @pytest.mark.parametrize("guard,damage,needle,replacement", [
     ("writer", "writer", "_require_writer(conn)", "pass"),
     ("activity", "activity-id", "if (activity_state is None or activity_state.processed_through < basis.observed_at\n"
-     "            or _sha(_activity_identity(activity_state)) != basis.cash_activity_sha256):", "if False:"),
+     "                or _sha(_activity_identity(activity_state)) != basis.cash_activity_sha256):", "if False:"),
     ("source-symbol", "source-symbol",
      "if references.symbols.get(instrument.security_id) != instrument.symbol:", "if False:"),
     ("source-asset", "source-asset",

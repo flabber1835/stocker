@@ -33,10 +33,9 @@ class ProtectedFundingNotReady(ProtectedFundingRefused):
     """The fixed promise does not currently fit its conservative allowance."""
 
 
-class FundingBasis(BaseModel):
+class _FundingBasis(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    schema: Literal["sentinel.protected-buy-funding/1"] = "sentinel.protected-buy-funding/1"
     deployment: tuple[str, str, str, StrictInt]
     plan_id: str
     plan_fingerprint: str
@@ -47,7 +46,6 @@ class FundingBasis(BaseModel):
     observed_at: AwareDatetime
     observation_id: StrictInt = Field(gt=0)
     observation_sha256: str
-    cash_activity_sha256: str
     cash: Decimal
     buying_power: Decimal
     multiplier: Decimal = Decimal("1")
@@ -70,12 +68,82 @@ class FundingBasis(BaseModel):
         return Decimal(1)
 
     @field_validator("plan_fingerprint", "projection_fingerprint", "policy_sha256",
-                     "observation_sha256", "cash_activity_sha256")
+                     "observation_sha256")
     @classmethod
     def digest(cls, value):
         if len(value) != 64 or any(ch not in "0123456789abcdef" for ch in value):
             raise ValueError("funding evidence requires an exact SHA256")
         return value
+
+
+class FundingBasis(_FundingBasis):
+    """The unchanged accepted-activity-backed evidence variant."""
+
+    schema: Literal["sentinel.protected-buy-funding/1"] = "sentinel.protected-buy-funding/1"
+    cash_activity_sha256: str
+
+    _activity_digest = field_validator("cash_activity_sha256")(_FundingBasis.digest.__func__)
+
+
+class PlanCashFundingBasis(_FundingBasis):
+    """A fixed plan-cash ceiling; no native activity identity is claimed."""
+
+    schema: Literal["sentinel.protected-buy-funding/2"] = "sentinel.protected-buy-funding/2"
+    broker_composition_sha256: str
+    plan_cash_ceiling: Decimal
+
+    _composition_digest = field_validator("broker_composition_sha256")(_FundingBasis.digest.__func__)
+    _ceiling_amount = field_validator("plan_cash_ceiling", mode="before")(_FundingBasis.exact_nonnegative.__func__)
+
+
+def _plan_cash_composition(broker) -> str | None:
+    """Select only the sealed paper composition's deliberately absent capability.
+
+    The issued composition hash includes process object identities. Bind its
+    certified semantic fields instead, after revalidating the actual instance
+    and its current sealed composition, so durable evidence survives restart.
+    """
+    if broker is None:
+        return None  # Retained activity-backed callers cannot select /2.
+    if (getattr(getattr(broker, "capabilities", None), "account_cash_activity_evidence", None) is not False
+            or getattr(broker, "supports_account_cash_activities", None) is not False):
+        return None
+    from sentinel.execution.certification import require_certified_adapter
+    try:
+        from sentinel.config import assert_paper_url
+        identity = require_certified_adapter(broker, expected="alpaca")
+        if (identity.mode != "ALPACA_PAPER"
+                or identity.wrapper_kind != "generation-fenced-execution"):
+            raise ValueError("unsupported paper composition")
+        inner = require_certified_adapter(broker._inner, expected="alpaca")
+        if inner.mode != "ALPACA_PAPER" or inner.wrapper_kind is not None:
+            raise ValueError("unsupported inner paper composition")
+        if broker._inner.capabilities.account_cash_activity_evidence is not False:
+            raise ValueError("inner cash capability changed")
+        assert_paper_url(broker._inner.base_url)
+    except Exception as exc:
+        raise ProtectedFundingRefused("plan-cash funding requires the certified Alpaca paper composition") from exc
+    def semantics(value):
+        fields = value.to_dict()
+        fields.pop("composition_sha256")
+        return fields
+    return _sha({"wrapper": semantics(identity), "inner": semantics(inner),
+                 "paper_base_url": broker._inner.base_url,
+                 "account_cash_activity_evidence": False,
+                 "supports_account_cash_activities": False})
+
+
+def _plan_cash_ceiling(*, plan, account, commands) -> Decimal:
+    expected = Fraction(plan.account_cash)
+    for command in commands:
+        if command.side is not Side.SELL or command.filled_quantity == 0:
+            continue
+        if command.filled_average_price is None:
+            raise ProtectedFundingRefused("durable SELL fill has no reported average price")
+        expected += Fraction(command.filled_quantity) * Fraction(command.filled_average_price)
+    if expected < 0:
+        raise ProtectedFundingRefused("immutable plan cash is negative")
+    return exact_decimal(min(Fraction(account.cash), expected))
 
 
 def _canonical(value) -> str:
@@ -112,7 +180,7 @@ def _require_writer(conn) -> None:
         raise ProtectedFundingRefused("protected funding requires the execution writer lock")
 
 
-def load_basis(conn, *, plan_id: str) -> FundingBasis | None:
+def load_basis(conn, *, plan_id: str) -> FundingBasis | PlanCashFundingBasis | None:
     with conn.cursor() as cur:
         cur.execute("SELECT session,state FROM sentinel_processed_sessions"
                     " WHERE cursor_name=%s", (PREFIX + plan_id,))
@@ -125,7 +193,15 @@ def load_basis(conn, *, plan_id: str) -> FundingBasis | None:
         digest = unsigned.pop("funding_sha256")
         if digest != _sha(unsigned):
             raise ValueError("funding fingerprint changed")
-        basis = FundingBasis.model_validate(unsigned)
+        kind = unsigned.get("schema")
+        if kind == "sentinel.protected-buy-funding/1":
+            basis = FundingBasis.model_validate(unsigned)
+        elif kind == "sentinel.protected-buy-funding/2":
+            basis = PlanCashFundingBasis.model_validate(unsigned)
+            if basis.plan_cash_ceiling > basis.cash:
+                raise ValueError("plan cash ceiling exceeds observed cash")
+        else:
+            raise ValueError("unknown funding evidence variant")
         if basis.plan_id != plan_id or basis.effective_session != row[0]:
             raise ValueError("funding basis key/session changed")
         from sentinel.config import assert_paper_url
@@ -147,7 +223,7 @@ def _assert_basis(basis, *, plan, projection, deployment, policy) -> None:
 
 def record_quiescent_basis(conn, *, plan, projection, binding, reconciliation,
                            account, activity_state, observed_at: datetime,
-                           paper_base_url: str) -> FundingBasis:
+                           paper_base_url: str, broker=None) -> FundingBasis | PlanCashFundingBasis:
     """Earn once through the existing strict account and cash contract."""
     from sentinel.config import assert_paper_url
     from sentinel.execution.protected_limits import ProtectedLimitPolicy
@@ -161,12 +237,20 @@ def record_quiescent_basis(conn, *, plan, projection, binding, reconciliation,
         raise ProtectedFundingRefused("protected policy is not selected")
     target_reprojection.assert_projection(
         conn, plan=plan, projection=projection, through_session=plan.effective_session)
+    composition = _plan_cash_composition(broker)
+    if composition is not None and activity_state is not None:
+        raise ProtectedFundingRefused("disabled cash capability supplied native activity evidence")
     existing = load_basis(conn, plan_id=plan.plan_id)
     if existing is not None:
         _assert_basis(existing, plan=plan, projection=projection,
                       deployment=binding.identity, policy=policy)
         if existing.paper_base_url != paper_base_url:
             raise ProtectedFundingRefused("funding endpoint changed")
+        if isinstance(existing, PlanCashFundingBasis):
+            if composition != existing.broker_composition_sha256:
+                raise ProtectedFundingRefused("funding broker composition changed")
+        elif composition is not None:
+            raise ProtectedFundingRefused("funding evidence variant changed")
         return existing
     observation = reconciliation.observation
     if (not reconciliation.transport_ready or reconciliation.observation_id is None
@@ -182,18 +266,22 @@ def record_quiescent_basis(conn, *, plan, projection, binding, reconciliation,
         conn, plan=plan, deployment=binding.identity, account=account,
         observation=observation, activity_state=activity_state,
         endpoint_lag_observed_at=observed_at)
-    if activity_state is None or activity_state.processed_through < observed_at:
+    if composition is None and (activity_state is None or activity_state.processed_through < observed_at):
         raise ProtectedFundingNotReady("complete native cash-activity evidence is required")
     payload = journal.load_observation_payload(conn, reconciliation.observation_id)
-    activity = _activity_identity(activity_state)
-    basis = FundingBasis(
+    fields = dict(
         deployment=_deployment(binding.identity), plan_id=plan.plan_id,
         plan_fingerprint=plan.fingerprint(), projection_fingerprint=projection.fingerprint(),
         policy_sha256=policy.fingerprint(), effective_session=plan.effective_session,
         paper_base_url=paper_base_url, observed_at=observed_at,
         observation_id=reconciliation.observation_id,
-        observation_sha256=_sha(payload), cash_activity_sha256=_sha(activity),
+        observation_sha256=_sha(payload),
         cash=account.cash, buying_power=account.buying_power, multiplier=account.multiplier)
+    if composition is not None:
+        basis = PlanCashFundingBasis(**fields, broker_composition_sha256=composition,
+            plan_cash_ceiling=_plan_cash_ceiling(plan=plan, account=account, commands=commands))
+    else:
+        basis = FundingBasis(**fields, cash_activity_sha256=_sha(_activity_identity(activity_state)))
     value = basis.model_dump(mode="json")
     value["funding_sha256"] = _sha(value)
     with conn.cursor() as cur:
@@ -276,7 +364,7 @@ def available_for_purchase(*, basis_cash: Decimal, account: BrokerAccountSnapsho
 
 
 def validate_submission(conn, *, client_key, instrument, quantity, order_terms,
-                        account: BrokerAccountSnapshot, activity_state) -> None:
+                        account: BrokerAccountSnapshot, activity_state, broker=None) -> None:
     """Canonical membrane callback; no caller-supplied funding proof is accepted."""
     from sentinel import binding as binding_mod
     from sentinel.execution import protected_limits
@@ -293,9 +381,18 @@ def validate_submission(conn, *, client_key, instrument, quantity, order_terms,
         raise ProtectedFundingRefused("protected projection, policy or funding basis is absent")
     _assert_basis(basis, plan=plan, projection=projection,
                   deployment=binding.identity, policy=policy)
-    if (activity_state is None or activity_state.processed_through < basis.observed_at
-            or _sha(_activity_identity(activity_state)) != basis.cash_activity_sha256):
-        raise ProtectedFundingRefused("native cash activity changed or is incomplete after the funding basis")
+    composition = _plan_cash_composition(broker)
+    if isinstance(basis, PlanCashFundingBasis):
+        if composition != basis.broker_composition_sha256 or activity_state is not None:
+            raise ProtectedFundingRefused("funding broker composition or evidence variant changed")
+        if account.cash > basis.cash + HEADROOM:
+            raise ProtectedFundingRefused("fresh cash increased beyond the fixed funding basis")
+    else:
+        if composition is not None:
+            raise ProtectedFundingRefused("funding evidence variant changed")
+        if (activity_state is None or activity_state.processed_through < basis.observed_at
+                or _sha(_activity_identity(activity_state)) != basis.cash_activity_sha256):
+            raise ProtectedFundingRefused("native cash activity changed or is incomplete after the funding basis")
     references = protected_limits.revalidate_references(conn, plan=plan, projection=projection)
     if references.symbols.get(instrument.security_id) != instrument.symbol:
         raise ProtectedFundingRefused("BUY symbol differs from its authenticated source identity")
@@ -318,5 +415,6 @@ def validate_submission(conn, *, client_key, instrument, quantity, order_terms,
                 projection, candidate.security_id)):
         raise ProtectedFundingRefused("pre-transport command differs from its immutable protection")
     available_for_purchase(
-        basis_cash=basis.cash, account=account, commands=commands, candidate=candidate,
+        basis_cash=(basis.plan_cash_ceiling if isinstance(basis, PlanCashFundingBasis) else basis.cash),
+        account=account, commands=commands, candidate=candidate,
         deployment=binding.identity, plan_id=plan.plan_id)

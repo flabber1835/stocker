@@ -138,6 +138,37 @@ def test_primary_and_standby_broker_services_receive_exact_selected_policy(selec
             assert {key: deployed[key] for key in expected} == expected
 
 
+@pytest.mark.parametrize("selected,cap", [("", ""), ("PROTECTED_LIMIT_DAY_V1", "0"),
+                                         ("PROTECTED_LIMIT_DAY_V1", "100"),
+                                         ("PROTECTED_LIMIT_DAY_V1", "500")])
+def test_ordinary_cli_and_authorized_cli_share_execution_policy_identity(selected, cap):
+    from sentinel import authority
+    values = {"SENTINEL_PAPER_BUY_POLICY": selected, "SENTINEL_PAPER_BUY_CAP_BPS": cap}
+    ordinary = yaml.safe_load((ROOT / "docker-compose.sentinel.yml").read_text())["services"]["sentinel"]["environment"]
+    authorized = service_environment("sentinel-authorized-cli", values)
+    for key in values:
+        assert ordinary.get(key) == "${" + key + ":-}"
+    assert not {"ALPACA_API_KEY", "ALPACA_SECRET_KEY", "SENTINEL_AUTHORIZED_RUNTIME"} & ordinary.keys()
+    identities = []
+    for environment in (values, {key: authorized[key] for key in values}):
+        with mock.patch.dict(os.environ, environment):
+            identities.append(authority.execution_config_identity(paper_base_url=authority.PAPER_BASE_URL))
+    assert identities[0] == identities[1]
+    assert identities[0]["schema"] == "sentinel.paper-execution-config/" + ("2" if selected else "1")
+
+
+def test_missing_ordinary_cli_policy_propagation_is_detected():
+    load = yaml.safe_load
+    def missing(value):
+        model = load(value)
+        if "sentinel" in model.get("services", {}):
+            model["services"]["sentinel"]["environment"].pop("SENTINEL_PAPER_BUY_CAP_BPS", None)
+        return model
+    with mock.patch.object(yaml, "safe_load", side_effect=missing):
+        with pytest.raises(AssertionError):
+            test_ordinary_cli_and_authorized_cli_share_execution_policy_identity("PROTECTED_LIMIT_DAY_V1", "100")
+
+
 def test_host_protected_cap_guard_removal_is_detected():
     import inspect
     source = inspect.getsource(preflight._validate_semantics)

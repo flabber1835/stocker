@@ -280,3 +280,19 @@ def test_no_progress_falsifier(monkeypatch):
         'if len(http.orders) <= prior_orders:', 'if False:'))
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_no_forward_progress_cannot_loop_to_a_later_pass(monkeypatch)
+
+
+def test_callback_result_preserves_deferral_reason_before_timing_refusal(capsys):
+    import json
+    evidence = result("RECONCILE", failure_code="EXECUTION_INCOMPLETE",
+        failure_detail="increase evidence unavailable", diagnostic={"execution": {
+            "deferred": ["SEC-AAA"], "detail": "cash evidence unavailable",
+            "deferral_reasons": {"SEC-AAA": "funding basis missing"},
+            "reconciliation": {"large_unrelated_record": "omitted"}}})
+    gateway.report_callback_result(evidence, phase="EXECUTE")
+    row = json.loads(capsys.readouterr().out)
+    assert row["stage"] == "CALLBACK_RESULT" and row["phase"] == "EXECUTE"
+    assert row["disposition"] == "RECONCILE" and row["failure_code"] == "EXECUTION_INCOMPLETE"
+    assert row["execution"]["deferred"] == ["SEC-AAA"]
+    assert row["execution"]["deferral_reasons"] == {"SEC-AAA": "funding basis missing"}
+    assert "reconciliation" not in row["execution"]

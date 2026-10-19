@@ -516,7 +516,7 @@ async def _execute_current_paper_plan(
                             conn, plan=plan, projection=target_projection,
                             binding=binding, reconciliation=fresh_reconciliation,
                             account=fresh_account, activity_state=fresh_activity_state,
-                            observed_at=fresh_cash_at, paper_base_url=base_url)
+                            observed_at=fresh_cash_at, paper_base_url=base_url, broker=broker)
 
                 async def authorize_dual_mutations(fresh_reconciliation):
                     _dual_mutation_observation_or_refuse(

@@ -957,6 +957,13 @@ account completeness or finality. Its SSE decoder remains a quarantined acceptan
 presence cannot make the production guard call it or earn the identity scheme.
 A reviewed, reachable, account-bound integration is required first.
 
+The protected paper BUY profile therefore distinguishes activity-backed funding
+from its separately tagged plan-cash funding basis. The latter uses the existing
+no-activity cash-and-durable-fill equation, a fixed ceiling and unreleased gross
+order promises. It does not claim cash-activity completeness or promote this
+candidate feed. Its exact certified-adapter selection and limitations are
+specified in [the free-data execution design](free-data-execution-proposal.md#conservative-funding-cohort).
+
 For Alpaca financial activities, `ref_id` is the durable idempotency key for the
 economic row and `event_id` is the durable replay cursor. `event_id` is persisted
 after a complete batch and supplied as `since_id` on reconnect. Timestamp

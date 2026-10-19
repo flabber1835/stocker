@@ -1805,6 +1805,10 @@ class AutonomousDeploy:
         if not isinstance(self.test_digest, str) or _DIGEST.fullmatch(self.test_digest) is None:
             raise DeployRefused("plan reader requires selected immutable test image")
         args += ["--env", "SENTINEL_TEST_IMAGE_DIGEST=" + self.test_digest]
+        policy_values = {key: self.env.get(key, "") for key in (
+            "SENTINEL_PAPER_BUY_POLICY", "SENTINEL_PAPER_BUY_CAP_BPS")}
+        args += [item for key, value in policy_values.items()
+                 for item in ("--env", key + "=" + value)]
         reviewed = self.reviewed_validation
         if reviewed is None or reviewed.mode != "dual":
             return args
