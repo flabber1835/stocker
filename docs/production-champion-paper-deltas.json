@@ -77,7 +77,7 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "37fce9001e94f51e8d2999c2e38becd86016e1a12f62ee6c00a9357ace67c2f2",
+      "generated_ast_sha256": "49f8b1955068a161a944b6904c212e0f63e93f46bd1cd37188e31a4dff74c9aa",
       "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
       "module": "execution",
       "open_time_acceptance": [
@@ -94,6 +94,13 @@
       ],
       "protected_buy_design": "docs/free-data-execution-proposal.md",
       "protected_buy_reason": "Require exact fresh reconciliation and ordinary quiescent account/cash proof for the immutable protected funding basis; preserve restrictions, settled recovery, legacy increases and incomplete-price nonconvergence.",
+      "protected_cohort_acceptance": [
+        "tests/sentinel/test_limit_day_plan_cash_funding.py",
+        "tests/sentinel/test_limit_day_execution_wiring.py",
+        "tests/sentinel/test_automation_runtime.py"
+      ],
+      "protected_cohort_design": "docs/protected-cohort-continuation.md",
+      "protected_cohort_reason": "Initial admission still requires quiescent account/cash evidence. Only an existing protected basis permits identity-only account preflight, followed by the canonical fresh COMPLETE same-plan cohort proof under the financial writer before nonquiescent continuation. Fresh cash/activity, owned working DAY identities and immutable terms must agree; ordinary admission, restrictions, all spending bounds and the original pre-POST cutoff remain unchanged.",
       "reason": "Admit the sealed bare transport before composition and preserve reviewed informational current-book scope through execution preflight and settlement. PR #491: Pass independently verified dual scope to the exact retained-state plan guard; all existing sizing, reconciliation, opening-window and broker authority guards remain. PR #511: Warm the immutable proof scope inside the existing writer and publication pin before the gateway verifies the retained book; do not extend its locks, callback deadline or opening-increase window.",
       "retained_acceptance": [
         "tests/sentinel/test_retained_admission_chain.py",
@@ -379,9 +386,16 @@
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
       "forward_cash_design": "docs/late-cash-distributions.md",
-      "generated_ast_sha256": "7293fa69c7cc90add2c69d240f32518b36b1374c752504f45150e9d4f8e0b79a",
+      "generated_ast_sha256": "813c96de4c901d45b5de651f91f1da5d5ba78d092564aa4c438e9a20353c6c8e",
       "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
       "module": "recovery",
+      "protected_cohort_acceptance": [
+        "tests/sentinel/test_limit_day_plan_cash_funding.py",
+        "tests/sentinel/test_automation_runtime.py",
+        "tests/sentinel/test_recovery_capability_boundary.py"
+      ],
+      "protected_cohort_design": "docs/protected-cohort-continuation.md",
+      "protected_cohort_reason": "For an existing protected basis and current projection, derive routing evidence from fresh account/activity and the same canonical continuation predicate used by execution. This grants no broker mutation or settlement: execution repeats the proof at its own writer boundary, and contradictory or missing proof retains ordinary unresolved-command handling.",
       "reason": "PR #480 replaces obsolete 23:45 recovery wording with exchange-close and validated-provider readiness; publication and share-unit revalidation guards remain unchanged. PR #488 reconciles native cash even without a target projection and marks the immutable stale plan superseded after explained activity changes, without permitting new broker mutations. Admit the sealed bare transport before composition and recover reviewed informational dual commands from the current book and exact positive client-key evidence without promoting historical recovery watermarks."
     }
   },

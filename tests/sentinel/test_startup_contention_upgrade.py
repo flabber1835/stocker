@@ -1,4 +1,5 @@
 """Startup waiting admits only the pinned source repair and preserves the book."""
+from sentinel import protected_cohort_upgrade
 from copy import deepcopy
 import hashlib
 import json
@@ -47,7 +48,7 @@ def test_only_exact_reviewed_service_upgrade_is_allowed(closure, name):
     path = root/name
     path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_CHANGE = True\n')
     _refresh_current(root, context, value)
-    expected = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in clock_sampling_upgrade.SCOPE | idle_leader_upgrade.SCOPE
+    expected = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in clock_sampling_upgrade.SCOPE | idle_leader_upgrade.SCOPE | protected_cohort_upgrade.SCOPE
                 else 'RETAINED_ECONOMIC_SOURCE_CHANGED')
     with pytest.raises(admission.Refused, match=expected):
         admission.prove_compatibility(manifest, checkpoint, context, source=value)

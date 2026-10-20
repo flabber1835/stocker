@@ -46,6 +46,8 @@ DDL = [
         CHECK (volume >= 0 AND volume < 'Infinity'::float8),
         CHECK (split_ratio > 0 AND split_ratio < 'Infinity'::float8),
         CHECK (dividend_per_share >= 0 AND dividend_per_share < 'Infinity'::float8))""",
+    """CREATE INDEX IF NOT EXISTS sentinel_snapshot_bars_c_order
+        ON sentinel_snapshot_bars (candidate_id, session, security_id COLLATE "C")""",
     """CREATE TABLE IF NOT EXISTS sentinel_snapshot_benchmarks (
         candidate_id UUID NOT NULL REFERENCES sentinel_price_candidates,
         session DATE NOT NULL,

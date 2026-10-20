@@ -228,6 +228,74 @@ def test_database_health_measures_actual_snapshot_queries_and_pin(conn, publishe
     assert report["recent_xnys_sessions"] == 252
 
 
+def _measure_index_plan(plan, measure=health._indexed):
+    class Explained:
+        def execute(self, query, params):
+            assert query == "EXPLAIN (FORMAT JSON) SELECT reviewed_lookup"
+            assert params == ("candidate", "session")
+            return self
+
+        def fetchone(self):
+            return ([{"Plan": plan}],)
+
+    return measure(Explained(), "SELECT reviewed_lookup", ("candidate", "session"))
+
+
+@pytest.mark.parametrize("index", ["sentinel_snapshot_bars_pkey", "sentinel_snapshot_bars_c_order"])
+@pytest.mark.parametrize("kind", ["Index Scan", "Index Only Scan", "Bitmap Heap Scan"])
+def test_database_health_accepts_either_reviewed_snapshot_index(index, kind):
+    plan = {"Node Type": kind, "Relation Name": "sentinel_snapshot_bars"}
+    if kind == "Bitmap Heap Scan":
+        plan["Plans"] = [{"Node Type": "Bitmap Index Scan", "Index Name": index}]
+    else:
+        plan["Index Name"] = index
+    assert _measure_index_plan(plan)
+
+
+_UNREVIEWED_PLANS = [
+    {"Node Type": "Seq Scan", "Relation Name": "sentinel_snapshot_bars"},
+    {"Node Type": "Custom Scan", "Relation Name": "sentinel_snapshot_bars", "Index Name": "sentinel_snapshot_bars_pkey"},
+    {"Node Type": "Index Scan", "Relation Name": "sentinel_snapshot_bars", "Index Name": "other_index"},
+    {"Node Type": "Index Only Scan", "Relation Name": "sentinel_snapshot_bars"},
+    {"Node Type": "Bitmap Heap Scan", "Relation Name": "sentinel_snapshot_bars", "Plans": [
+        {"Node Type": "BitmapOr", "Plans": [
+            {"Node Type": "Bitmap Index Scan", "Index Name": "sentinel_snapshot_bars_c_order"},
+            {"Node Type": "Bitmap Index Scan", "Index Name": "other_index"}]}]},
+    {"Node Type": "Index Scan", "Relation Name": "other_table", "Index Name": "sentinel_snapshot_bars_pkey"},
+    {"Node Type": "Append", "Plans": [
+        {"Node Type": "Index Scan", "Relation Name": "sentinel_snapshot_bars",
+         "Index Name": "sentinel_snapshot_bars_pkey"},
+        {"Node Type": "Seq Scan", "Relation Name": "sentinel_snapshot_bars"}]},
+    {"Node Type": "Nested Loop", "Plans": [
+        {"Node Type": "Index Scan", "Relation Name": "sentinel_snapshot_bars", "Index Name": "other_index"},
+        {"Node Type": "Index Scan", "Relation Name": "other_table", "Index Name": "sentinel_snapshot_bars_pkey"}]},
+]
+
+
+@pytest.mark.parametrize("plan", _UNREVIEWED_PLANS)
+def test_database_health_refuses_unreviewed_scan_shapes(plan):
+    assert not _measure_index_plan(plan)
+
+
+@pytest.mark.parametrize("before,after", [
+    ('"sentinel_snapshot_bars_c_order"', '"unreviewed_substitute"'),
+    ('if not indexes or any(name not in allowed for name in indexes):', 'if False:'),
+    ('if scan.get("Node Type") not in {"Index Scan", "Index Only Scan", "Bitmap Heap Scan"}:', 'if False:'),
+])
+def test_database_health_plan_guards_have_behavioral_falsifiers(before, after):
+    import inspect
+    source = inspect.getsource(health._indexed)
+    assert source.count(before) == 1
+    namespace = {"_nodes": health._nodes}
+    exec(compile(source.replace(before, after), "<mutated-index-measurement>", "exec"), namespace)
+    measure = namespace["_indexed"]
+    with pytest.raises(AssertionError):
+        assert _measure_index_plan({"Node Type": "Index Scan", "Relation Name": "sentinel_snapshot_bars",
+                                    "Index Name": "sentinel_snapshot_bars_c_order"}, measure)
+        for plan in _UNREVIEWED_PLANS:
+            assert not _measure_index_plan(plan, measure)
+
+
 def test_database_health_refuses_a_missing_publication_pin(conn, published, monkeypatch):
     from sentinel.feed import rolling_store
     @contextmanager

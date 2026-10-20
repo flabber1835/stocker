@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
 from typing import Literal
@@ -18,7 +18,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, fie
 from sentinel.execution import journal, target_reprojection
 from sentinel.execution.contract import BrokerAccountSnapshot, OrderTerms, Side
 from sentinel.execution.numeric import decimal_text, exact_decimal
-from sentinel.execution.states import CommandState, IN_FLIGHT
+from sentinel.execution.states import CommandState, IN_FLIGHT, RuntimeState
 
 
 PREFIX = "protected-buy-funding:v1:"
@@ -94,6 +94,23 @@ class PlanCashFundingBasis(_FundingBasis):
 
     _composition_digest = field_validator("broker_composition_sha256")(_FundingBasis.digest.__func__)
     _ceiling_amount = field_validator("plan_cash_ceiling", mode="before")(_FundingBasis.exact_nonnegative.__func__)
+
+
+class ProtectedCohortContinuation(BaseModel):
+    """Current routing evidence; never a replacement for a submission grant."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema: Literal["sentinel.protected-cohort-continuation/1"] = "sentinel.protected-cohort-continuation/1"
+    deployment: tuple[str, str, str, StrictInt]
+    plan_id: str
+    effective_session: date
+    projection_fingerprint: str
+    policy_sha256: str
+    basis_sha256: str
+    observation_id: StrictInt = Field(gt=0)
+    observed_at: AwareDatetime
+    commands: tuple[dict, ...]
+    reserved_cash: Decimal
 
 
 def _plan_cash_composition(broker) -> str | None:
@@ -219,6 +236,150 @@ def _assert_basis(basis, *, plan, projection, deployment, policy) -> None:
             or basis.policy_sha256 != policy.fingerprint()
             or basis.effective_session != plan.effective_session):
         raise ProtectedFundingRefused("funding basis differs from current immutable authority")
+
+
+def _assert_funding_account(*, basis, account, deployment, activity_state, broker) -> None:
+    """Reuse a basis without crediting a deposit, saving or native BP deficit."""
+    from sentinel.execution.contract import available_purchase_cash
+
+    if not deployment.matches_account(account.identity):
+        raise ProtectedFundingRefused("fresh account differs from the funding subject")
+    available_purchase_cash(account)
+    if not account.equity.is_finite() or account.equity <= 0:
+        raise ProtectedFundingRefused("paper account equity is unusable")
+    if (account.status.upper() != "ACTIVE" or account.trading_blocked
+            or account.account_blocked or account.trade_suspended_by_user):
+        raise ProtectedFundingNotReady("paper account is unavailable")
+    if account.buying_power - account.cash > HEADROOM:
+        raise ProtectedFundingRefused("buying power above cash exposes margin")
+    composition = _plan_cash_composition(broker)
+    if isinstance(basis, PlanCashFundingBasis):
+        if composition != basis.broker_composition_sha256 or activity_state is not None:
+            raise ProtectedFundingRefused("funding broker composition or evidence variant changed")
+        if account.cash > basis.cash + HEADROOM:
+            raise ProtectedFundingRefused("fresh cash increased beyond the fixed funding basis")
+    else:
+        if composition is not None:
+            raise ProtectedFundingRefused("funding evidence variant changed")
+        if (activity_state is None or activity_state.processed_through < basis.observed_at
+                or _sha(_activity_identity(activity_state)) != basis.cash_activity_sha256):
+            raise ProtectedFundingNotReady("native cash-activity evidence changed or is incomplete")
+
+
+def prove_cohort_continuation(conn, *, plan, projection, deployment, reconciliation,
+                              account, activity_state, broker, paper_base_url: str,
+                              evaluated_at: datetime) -> ProtectedCohortContinuation:
+    """Prove only already funded, positively observed protected BUY obligations.
+
+    Initial admission still earns its basis through the quiescent gate. Both
+    recovery routing and execution call this under their real writer lock;
+    every later POST independently retains its ordinary fresh monetary guard.
+    """
+    from sentinel.execution import protected_limits
+
+    _require_writer(conn)
+    policy = protected_limits.ProtectedLimitPolicy.from_env()
+    basis = load_basis(conn, plan_id=plan.plan_id)
+    current = journal.latest_plan(conn)
+    if (policy is None or basis is None or projection is None or current is None
+            or current.plan_id != plan.plan_id or current.fingerprint() != plan.fingerprint()):
+        raise ProtectedFundingRefused("current protected cohort authority is absent")
+    _assert_basis(basis, plan=plan, projection=projection, deployment=deployment, policy=policy)
+    if basis.paper_base_url != paper_base_url:
+        raise ProtectedFundingRefused("funding endpoint changed")
+    target_reprojection.assert_projection(
+        conn, plan=plan, projection=projection, through_session=plan.effective_session)
+    observation = reconciliation.observation
+    if (reconciliation.runtime_state is not RuntimeState.RUNNING
+            or not reconciliation.clean or not reconciliation.transport_ready
+            or observation is None or not observation.is_complete
+            or reconciliation.observation_id is None
+            or observation.account_identity is None
+            or not deployment.matches_account(observation.account_identity)):
+        raise ProtectedFundingNotReady("protected continuation requires clean COMPLETE account evidence")
+    age = evaluated_at - observation.observed_at
+    if age < timedelta(0) or age > timedelta(seconds=60):
+        raise ProtectedFundingNotReady("protected continuation observation is stale or future")
+    from sentinel.feed import calendar
+    from zoneinfo import ZoneInfo
+    if (observation.observed_at.astimezone(ZoneInfo(calendar.EXCHANGE_TZ)).date()
+            != plan.effective_session):
+        raise ProtectedFundingNotReady("protected continuation belongs to another effective session")
+    _assert_funding_account(basis=basis, account=account, deployment=deployment,
+                            activity_state=activity_state, broker=broker)
+    commands = journal.load_commands(conn, deployment)
+    cohort = {}
+    for command in commands:
+        if command.state not in IN_FLIGHT and command.state is not CommandState.PLANNED:
+            continue
+        if (command.identity.deployment != deployment
+                or command.identity.plan_id != plan.plan_id
+                or command.side is not Side.BUY
+                or command.state not in {CommandState.PLANNED, CommandState.ACKNOWLEDGED,
+                                         CommandState.PARTIALLY_FILLED}):
+            # Proven-unsent history from another plan is not a broker obligation.
+            if command.state is CommandState.PLANNED and command.identity.plan_id != plan.plan_id:
+                continue
+            raise ProtectedFundingNotReady("another or uncertain obligation blocks protected continuation")
+        maximum_cost(command)
+        if command.order_terms != protected_limits.order_terms_for(projection, command.security_id):
+            raise ProtectedFundingRefused("cohort command differs from immutable protected terms")
+        if command.state is CommandState.PLANNED:
+            from sentinel.execution import commands as command_arithmetic
+            delta = command_arithmetic.compute_delta(
+                security_id=command.security_id,
+                desired=projection.target_basket.get(command.security_id, Decimal(0)),
+                observation=observation, min_increment=Decimal(1))
+            if not delta.is_increase or delta.quantity != command.quantity:
+                raise ProtectedFundingRefused("proven unsent command no longer has its exact immutable quantity")
+        if command.state is not CommandState.PLANNED:
+            if command.client_key in cohort:
+                raise ProtectedFundingRefused("duplicate protected cohort command")
+            cohort[command.client_key] = command
+    matched = {}
+    principal = Fraction(0)
+    for order in observation.orders:
+        if not order.is_working:
+            continue
+        command = cohort.get(order.client_key)
+        if (command is None or order.client_key in matched
+                or order.state not in {CommandState.ACKNOWLEDGED, CommandState.PARTIALLY_FILLED}
+                or order.side is not Side.BUY or order.instrument != command.instrument
+                or order.broker_order_id != command.broker_order_id
+                or order.quantity != command.quantity
+                or order.filled_quantity != command.filled_quantity
+                or order.filled_average_price != command.filled_average_price
+                or order.order_terms != command.order_terms
+                or order.external_replacement or order.replaces or order.replaced_by):
+            raise ProtectedFundingRefused("working order does not positively match its protected cohort")
+        principal += Fraction(order.remaining) * Fraction(command.order_terms.limit_price)
+        matched[order.client_key] = {
+            "client_key": command.client_key, "broker_order_id": command.broker_order_id,
+            "security_id": command.security_id, "state": command.state.value, "side": "BUY",
+            "remaining_quantity": decimal_text(command.remaining),
+            "limit_price": decimal_text(command.order_terms.limit_price),
+            "order_terms": command.order_terms.to_dict(),
+        }
+    if set(matched) != set(cohort):
+        raise ProtectedFundingNotReady("protected cohort lacks a positive current working-order observation")
+    from sentinel.execution import commands as command_arithmetic
+    for security_id, desired in projection.target_basket.items():
+        delta = command_arithmetic.compute_delta(
+            security_id=security_id, desired=desired, observation=observation,
+            min_increment=Decimal(1))
+        if delta.classification is not command_arithmetic.DeltaClass.ACTIONABLE:
+            continue
+        if not delta.is_increase or any(
+                command.security_id == security_id and command.identity.plan_id == plan.plan_id
+                and command.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}
+                for command in commands):
+            raise ProtectedFundingNotReady("protected continuation permits only proven unsent BUY deltas")
+    return ProtectedCohortContinuation(
+        deployment=_deployment(deployment), plan_id=plan.plan_id,
+        effective_session=plan.effective_session, projection_fingerprint=projection.fingerprint(),
+        policy_sha256=policy.fingerprint(), basis_sha256=_sha(basis.model_dump(mode="json")),
+        observation_id=reconciliation.observation_id, observed_at=observation.observed_at,
+        commands=tuple(matched[key] for key in sorted(matched)), reserved_cash=exact_decimal(principal))
 
 
 def record_quiescent_basis(conn, *, plan, projection, binding, reconciliation,

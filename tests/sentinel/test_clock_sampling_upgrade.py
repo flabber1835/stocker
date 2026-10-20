@@ -1,4 +1,5 @@
 from copy import deepcopy
+import ast
 import hashlib
 import inspect
 import json
@@ -19,6 +20,30 @@ from tests.sentinel.test_operational_liveness_upgrade import (
 
 PRE_FIX_REVISION = '18a4c8b732b50eace554cd3da53e909c27baaada'
 PRE_FIX_MANIFEST_SHA256 = '3823592c1618be7a304c60de2f390d80630afa29eab02c81d8629a9c07237c3f'
+
+
+def _without_profile_pins(source, profiles):
+    """Isolate one historical guard from independently tested later guards."""
+    removed = set()
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id == 'any' and len(node.args) == 1
+                and isinstance(node.args[0], ast.GeneratorExp)):
+            continue
+        iterator = node.args[0].generators[0].iter
+        if (isinstance(iterator, ast.Call) and isinstance(iterator.func, ast.Attribute)
+                and iterator.func.attr == 'items'
+                and isinstance(iterator.func.value, ast.Subscript)
+                and isinstance(iterator.func.value.value, ast.Name)
+                and iterator.func.value.value.id in profiles):
+            name = iterator.func.value.value.id
+            assert name not in removed
+            removed.add(name)
+            source = source.replace(ast.get_source_segment(source, node), 'False', 1)
+            # AST offsets describe the original source; restart after each edit.
+            return _without_profile_pins(source, set(profiles) - removed)
+    assert not profiles
+    return source
 
 
 def _prior_binding(checkpoint, manifest, source):
@@ -183,7 +208,7 @@ def test_addition_presence_guard_has_an_assertion_falsifier(closure, monkeypatch
 def test_current_source_guard_has_an_assertion_falsifier(closure, monkeypatch):
     source = inspect.getsource(admission.prove_compatibility)
     needle = ("any(name in actual and actual[name] != record['after']\n"
-              "                   and not source_allowed(name, record['after'], actual[name], (idle_leader_profile, opening_latency_profile))\n"
+              "                   and not source_allowed(name, record['after'], actual[name], (idle_leader_profile, opening_latency_profile, protected_cohort_profile))\n"
               "                   for name, record in clock_sampling_profile['files'].items())")
     assert source.count(needle) == 1
     # The new exact idle pin also covers the service. Isolate the historical
@@ -191,10 +216,11 @@ def test_current_source_guard_has_an_assertion_falsifier(closure, monkeypatch):
     # refuses before removing that boundary. The new pin has its own separate
     # falsifier using alert_service.py, outside the historical clock scope.
     idle_pin = ("any(name in actual and actual[name] != record['after']\n"
-                "                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile,))\n"
+                "                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile, protected_cohort_profile))\n"
                 "                   for name, record in idle_leader_profile['files'].items())")
     assert source.count(idle_pin) == 1
-    isolated = source.replace(idle_pin, 'False')
+    isolated = _without_profile_pins(source, {
+        'idle_leader_profile', 'opening_latency_profile', 'protected_cohort_profile'})
     namespace = {}
     exec(compile(isolated, 'clock-boundary-isolated', 'exec'), admission.__dict__, namespace)
     monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])

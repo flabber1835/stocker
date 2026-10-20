@@ -502,6 +502,11 @@ for _snapshot_catalog in (_rolling_catalog, _rolling_job_catalog, _rolling_publi
     _CONSTRAINT_WITNESSES.update(_snapshot_catalog.CONSTRAINTS)
     _INDEXES.update({name + "_pkey": True for name in _snapshot_catalog.COLUMNS})
 _INDEXES["sentinel_snapshot_jobs_active_request"] = True
+_INDEXES["sentinel_snapshot_bars_c_order"] = False
+_INDEX_WITNESSES["sentinel_snapshot_bars_c_order"] = (
+    'on public.sentinel_snapshot_bars using btree '
+    '(candidate_id, session, security_id collate "C")',)
+_INDEX_FORBIDDEN["sentinel_snapshot_bars_c_order"] = (" where ", " include ")
 _INDEXES["sentinel_acquisition_bindings_part"] = False
 _INDEXES["sentinel_acquisition_price_links_payload"] = False
 _INDEX_WITNESSES["sentinel_acquisition_price_links_payload"] = (

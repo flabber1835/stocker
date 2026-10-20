@@ -546,6 +546,12 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 # return an unsent command. Preserve its exact key/economics.
                 deferred.append(delta.security_id)
                 deferral_reasons[delta.security_id] = sent.detail
+                if delta.is_increase and order_terms.order_type == "limit":
+                    # A positive no-transport funding deferral needs a fresh
+                    # canonical recovery, not more reads of the same journal
+                    # against cash which may already reflect earlier fills.
+                    deferred.extend(item.security_id for item in authorized_candidates[index + 1:])
+                    break
                 continue
             submitted.append(sent)
             commands = commands + (sent,)

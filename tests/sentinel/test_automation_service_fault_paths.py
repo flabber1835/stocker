@@ -1622,3 +1622,322 @@ def test_local_sync_adapter_awaits_its_result_without_production_process_authori
     assert [event[0] for event in events] == ['called', 'resolved']
     assert events[0][1] != caller and events[1][1] == caller
     assert not context.cancellation.cancelled
+
+
+def resting_recovery(monkeypatch, *, proof='current'):
+    """Only the callback/store edges are doubles; wait validation stays real."""
+    from decimal import Decimal
+    from sentinel.execution.contract import OrderTerms
+    from sentinel.feed import calendar
+
+    config = AutomationConfig(control_poll_seconds=3)
+    cycle, permit = scheduled_record(config, module.CycleState.RECONCILING)
+    cycle = cycle.model_copy(update={'plan_id': 'retained-protected-plan',
+        'diagnostic': {'retry_phase': 'RECOVER', 'phase_attempt_count': 999}})
+    _, closed = calendar.session_window(cycle.effective_session)
+    deadline = closed + timedelta(minutes=10)
+    started = cycle.execute_at
+    completed = started + timedelta(seconds=95)
+    if proof == 'near_deadline':
+        started, completed = deadline - timedelta(seconds=3), deadline - timedelta(seconds=1)
+    clock = [started]
+    payload = {'schema': 'sentinel.protected-day-wait/1', 'plan_id': cycle.plan_id,
+        'effective_session': str(cycle.effective_session), 'observation_id': 12,
+        'observed_at': completed.isoformat(), 'deadline': deadline.isoformat(),
+        'deployment': [cycle.deployment_id, cycle.broker, cycle.broker_account_id, cycle.takeover_epoch],
+        'basis_sha256': 'b' * 64, 'projection_fingerprint': 'c' * 64,
+        'policy_sha256': 'd' * 64, 'reserved_cash': '200',
+        'commands': [{'client_key': 'sntl-owned-day', 'broker_order_id': 'native-owned-day',
+            'security_id': 'security-a', 'side': 'BUY', 'state': 'ACKNOWLEDGED',
+            'remaining_quantity': '2', 'limit_price': '100',
+            'order_terms': OrderTerms('limit', 'day', Decimal('100')).to_dict()}]}
+    if proof == 'stale':
+        payload['observed_at'] = (completed - timedelta(minutes=11)).isoformat()
+    elif proof == 'wrong_plan':
+        payload['plan_id'] = 'another-retained-plan'
+    diagnostic = {} if proof == 'missing' else {'protected_day_wait': payload}
+    calls, transitions = [], []
+    current = cycle
+
+    async def recover(context):
+        context.require_active()
+        assert context.cycle == cycle and context.permit == permit
+        calls.append('read-only recovery')
+        clock[0] = completed
+        return module.ExecuteResult(disposition='RECONCILE',
+            last_clean_reconciliation_id='12', failure_code='PROTECTED_DAY_ORDERS_WORKING',
+            failure_detail='acknowledged DAY orders remain working', diagnostic=diagnostic)
+
+    async def execute(_context):
+        pytest.fail('resting-order observation crossed the execution membrane')
+
+    service = module.AutomationService(config=config, holder_id='resting-proof-lab',
+        refresh=None, prepare=None, recover=recover, execute=execute)
+    connection = SimpleNamespace(rollback=lambda: None)
+    monkeypatch.setattr(module.store, 'require_leader', lambda _conn, actual: actual)
+
+    def transition(conn, *, cycle_id, permit, to_state, **fields):
+        nonlocal current
+        assert conn is connection and cycle_id == cycle.cycle_id
+        transitions.append(to_state)
+        current = current.model_copy(update={'state': to_state, **fields})
+        return current
+
+    monkeypatch.setattr(module.store, 'transition_cycle', transition)
+    return SimpleNamespace(service=service, connection=connection, cycle=cycle, permit=permit,
+        clock=clock, started=started, completed=completed, deadline=deadline,
+        payload=payload, calls=calls, transitions=transitions)
+
+
+def run_resting_recovery(case):
+    return asyncio.run(case.service._run_recover(case.connection, now=case.started,
+        cycle=case.cycle, permit=case.permit, clock=lambda: case.clock[0]))
+
+
+@pytest.mark.parametrize('proof', ['current', 'near_deadline', 'stale', 'wrong_plan', 'missing'])
+def test_recovery_wait_exemption_requires_current_same_plan_day_evidence(monkeypatch, proof):
+    case = resting_recovery(monkeypatch, proof=proof)
+    result = run_resting_recovery(case)
+    assert case.calls == ['read-only recovery'] and result.cycle.plan_id == case.cycle.plan_id
+    assert result.cycle.last_clean_reconciliation_id == '12'
+    if proof in {'current', 'near_deadline'}:
+        assert result.action is module.TickAction.WAITING
+        assert result.cycle.state is module.CycleState.RETRY_WAIT
+        assert result.cycle.next_wake_at == min(case.deadline, case.completed + timedelta(seconds=3))
+        assert result.cycle.failure_code is None and result.cycle.failure_detail is None
+        assert result.cycle.diagnostic == {'protected_day_wait': case.payload, 'retry_phase': 'RECOVER'}
+        assert case.transitions == [module.CycleState.RETRY_WAIT]
+    else:
+        assert result.action is module.TickAction.BLOCKED
+        assert result.cycle.state is module.CycleState.BLOCKED
+        assert result.cycle.failure_code == 'PROTECTED_DAY_ORDERS_WORKING'
+        assert result.cycle.diagnostic['phase_attempt_count'] == 1000
+        assert result.cycle.diagnostic['callback_failure'] == 'TRANSIENT_RETRY_EXHAUSTED'
+        assert result.cycle.next_wake_at is None
+        assert case.transitions == [module.CycleState.BLOCKED]
+
+
+def test_other_plan_wait_cannot_bypass_the_failure_budget_guard_falsifier(monkeypatch):
+    import inspect
+    import textwrap
+    import types
+
+    case = resting_recovery(monkeypatch, proof='wrong_plan')
+    source = textwrap.dedent(inspect.getsource(module.AutomationService._run_recover))
+    assert source.count('plan_id=cycle.plan_id,') == 1
+    changed = source.replace('plan_id=cycle.plan_id,', 'plan_id=None,')
+    namespace = dict(vars(module))
+    exec(compile(changed, '<private-wait-plan-guard-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(case.service, '_run_recover', types.MethodType(namespace['_run_recover'], case.service))
+    result = run_resting_recovery(case)
+    with pytest.raises(AssertionError, match='another plan'):
+        assert result.action is module.TickAction.BLOCKED, 'another plan obtained the pending exemption'
+
+
+def ready_cohort_recovery(monkeypatch):
+    from sentinel.execution.protected_funding import ProtectedCohortContinuation
+
+    case = resting_recovery(monkeypatch)
+    assert module.protected_day_wait(case.payload, now=case.completed,
+        plan_id=case.cycle.plan_id, effective_session=case.cycle.effective_session) is not None
+    cohort_payload = {**case.payload, 'schema': 'sentinel.protected-cohort-continuation/1'}
+    cohort_payload.pop('deadline')
+    case.cohort = ProtectedCohortContinuation.model_validate(cohort_payload).model_dump(mode='json')
+    case.deltas = [{'security_id': 'unsent-security', 'remaining': '1'}]
+    case.raw_ready = module.ExecuteResult(disposition='READY_TO_EXECUTE',
+        last_clean_reconciliation_id='12', failure_code='PROTECTED_COHORT_READY',
+        failure_detail='current owned cohort may continue', diagnostic={
+            'protected_day_wait': case.payload, 'protected_cohort': case.cohort,
+            'actionable_deltas': case.deltas})
+
+    async def ready(context):
+        context.require_active()
+        case.clock[0] = case.completed
+        return case.raw_ready
+
+    monkeypatch.setattr(case.service, 'recover', ready)
+    return case
+
+
+def test_positive_cohort_readiness_preserves_original_cutoff_without_failure(monkeypatch):
+    case = ready_cohort_recovery(monkeypatch)
+    result = run_resting_recovery(case)
+    assert result.action is module.TickAction.RECOVERED
+    assert result.cycle.state is module.CycleState.RETRY_WAIT
+    assert result.cycle.next_wake_at == case.completed
+    assert result.cycle.failure_code is None and result.cycle.failure_detail is None
+    assert result.cycle.plan_id == case.cycle.plan_id and result.cycle.execute_at == case.cycle.execute_at
+    assert case.raw_ready.diagnostic == {'protected_day_wait': case.payload,
+        'protected_cohort': case.cohort, 'actionable_deltas': case.deltas}
+    assert result.cycle.diagnostic == {'protected_cohort': case.cohort,
+        'actionable_deltas': case.deltas, 'retry_phase': 'EXECUTE',
+        'continuation_reason': {'code': 'PROTECTED_COHORT_READY', 'detail': 'current owned cohort may continue'},
+        'original_execution_deadline_at': (case.cycle.execute_at + timedelta(
+            seconds=case.service.config.maximum_execution_lateness_seconds)).isoformat()}
+
+
+def crossing_cohort_recovery(monkeypatch, *, proof='current'):
+    case = resting_recovery(monkeypatch)
+    cutoff = case.service._latest_new_execution_at(case.cycle)
+    case.started = cutoff - timedelta(seconds=1)
+    case.completed = cutoff + timedelta(seconds=1)
+    case.clock[0] = case.started
+    case.payload['observed_at'] = case.started.isoformat()
+    if proof == 'stale':
+        case.payload['observed_at'] = (case.completed - timedelta(minutes=11)).isoformat()
+    elif proof == 'future':
+        case.payload['observed_at'] = (case.completed + timedelta(seconds=1)).isoformat()
+    elif proof == 'wrong_plan':
+        case.payload['plan_id'] = 'another-retained-plan'
+    elif proof == 'wrong_session':
+        case.payload['effective_session'] = str(case.cycle.effective_session - timedelta(days=1))
+    elif proof == 'wrong_deployment':
+        case.payload['deployment'][0] = 'another-deployment'
+    elif proof == 'wrong_terms':
+        case.payload['commands'][0]['order_terms']['limit_price'] = '101'
+    elif proof == 'wrong_deadline':
+        case.payload['deadline'] = (case.deadline + timedelta(seconds=1)).isoformat()
+    elif proof == 'empty':
+        case.payload['commands'] = []
+        case.payload['reserved_cash'] = '0'
+
+    async def ready(context):
+        context.require_active()
+        assert case.clock[0] == case.started < cutoff
+        case.calls.append('read-only recovery')
+        result = module.ExecuteResult(disposition='READY_TO_EXECUTE',
+            last_clean_reconciliation_id='12', failure_code=(
+                'RECOVERY_DETAIL' if proof == 'ordinary' else 'PROTECTED_COHORT_READY'),
+            failure_detail='current owned cohort may continue', diagnostic=(
+                {} if proof == 'missing' else {'protected_day_wait': case.payload,
+                    'actionable_deltas': [{'security_id': 'unsent-security', 'remaining': '1'}]}))
+        await asyncio.sleep(0)
+        case.clock[0] = case.completed
+        return result
+
+    monkeypatch.setattr(case.service, 'recover', ready)
+    return case
+
+
+def test_ready_cohort_crossing_cutoff_keeps_working_orders_in_read_only_recovery(monkeypatch):
+    case = crossing_cohort_recovery(monkeypatch)
+    result = run_resting_recovery(case)
+    assert result.action is module.TickAction.WAITING, 'working DAY cohort was terminalized at cutoff'
+    assert result.cycle.state is module.CycleState.RETRY_WAIT
+    assert result.cycle.diagnostic == {'protected_day_wait': case.payload, 'retry_phase': 'RECOVER',
+        'actionable_deltas': [{'security_id': 'unsent-security', 'remaining': '1'}],
+        'unsent_actionable_deltas': [{'security_id': 'unsent-security', 'remaining': '1'}],
+        'new_submission_cutoff_expired': True}
+    assert result.cycle.next_wake_at == case.completed + timedelta(seconds=3)
+    assert result.cycle.failure_code is None and result.cycle.failure_detail is None
+    assert result.cycle.execute_at == case.cycle.execute_at
+    assert result.cycle.execution_close_at == case.cycle.execution_close_at
+    assert result.cycle.diagnostic['protected_day_wait']['deadline'] == case.deadline.isoformat()
+    assert case.calls == ['read-only recovery']
+    assert case.transitions == [module.CycleState.RETRY_WAIT]
+
+
+@pytest.mark.parametrize('proof', ['missing', 'stale', 'future', 'wrong_plan', 'wrong_session',
+                                  'wrong_deployment', 'wrong_terms', 'wrong_deadline', 'empty', 'ordinary'])
+def test_expired_ready_without_exact_working_cohort_cannot_earn_wait(monkeypatch, proof):
+    case = crossing_cohort_recovery(monkeypatch, proof=proof)
+    result = run_resting_recovery(case)
+    assert result.action is module.TickAction.SUPERSEDED, 'unproved cohort obtained a positive wait'
+    assert result.cycle.state is module.CycleState.SUPERSEDED
+    assert result.cycle.failure_code == 'MAX_EXECUTION_LATENESS_EXCEEDED'
+    assert result.cycle.next_wake_at is None
+    assert case.calls == ['read-only recovery']
+    assert case.transitions == [module.CycleState.SUPERSEDED]
+
+
+def test_expired_old_generation_ready_cannot_earn_cohort_wait(monkeypatch):
+    case = crossing_cohort_recovery(monkeypatch)
+    case.permit = case.permit.model_copy(update={
+        'control_generation': case.cycle.control_generation + 1})
+    monkeypatch.setattr(module.store, 'adopt_cycle', module.store.transition_cycle)
+    result = run_resting_recovery(case)
+    assert result.action is module.TickAction.BLOCKED
+    assert result.cycle.failure_code == 'OLD_GENERATION_EXECUTION_REFUSED'
+    assert result.cycle.next_wake_at is None
+    assert case.transitions == [module.CycleState.BLOCKED]
+    assert case.calls == ['read-only recovery']
+
+
+def test_removed_crossing_cohort_route_is_detected(monkeypatch):
+    import inspect
+    import textwrap
+    source = textwrap.dedent(inspect.getsource(module.AutomationService._run_recover))
+    marker = 'or crossing_cohort_ready:'
+    assert source.count(marker) == 1
+    namespace = dict(vars(module))
+    exec(compile(source.replace(marker, 'or False:'), '<private-cutoff-cohort-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(module.AutomationService, '_run_recover', namespace['_run_recover'])
+    with pytest.raises(AssertionError, match='working DAY cohort was terminalized'):
+        test_ready_cohort_crossing_cutoff_keeps_working_orders_in_read_only_recovery(monkeypatch)
+
+
+def test_removed_wait_deployment_guard_is_detected(monkeypatch):
+    import inspect
+    import textwrap
+    source = textwrap.dedent(inspect.getsource(module.AutomationService._run_recover))
+    marker = ('wait is not None and wait.deployment == (\n'
+              '                cycle.deployment_id, cycle.broker,\n'
+              '                cycle.broker_account_id, cycle.takeover_epoch)')
+    assert source.count(marker) == 1
+    namespace = dict(vars(module))
+    exec(compile(source.replace(marker, 'wait is not None'), '<private-wait-deployment-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(module.AutomationService, '_run_recover', namespace['_run_recover'])
+    with pytest.raises(AssertionError, match='unproved cohort obtained a positive wait'):
+        test_expired_ready_without_exact_working_cohort_cannot_earn_wait(monkeypatch, 'wrong_deployment')
+
+
+@pytest.mark.parametrize('remove_guard', [False, True])
+def test_backwards_completion_cannot_terminalize_recovery(monkeypatch, remove_guard):
+    import inspect
+    import textwrap
+
+    config = AutomationConfig()
+    cycle, permit = scheduled_record(config, module.CycleState.RECONCILING)
+    calls, transitions = [], []
+
+    async def recover(context):
+        context.require_active()
+        calls.append('read-only recovery')
+        return module.ExecuteResult(disposition='SUCCEEDED', last_clean_reconciliation_id='clean')
+
+    service = module.AutomationService(config=config, holder_id='backwards-completion-lab',
+        refresh=None, prepare=None, recover=recover, execute=None)
+    monkeypatch.setattr(module.store, 'require_leader', lambda _conn, actual: actual)
+
+    def transition(_conn, *, to_state, **fields):
+        transitions.append(to_state)
+        fields.pop('permit'); fields.pop('cycle_id')
+        return cycle.model_copy(update={'state': to_state, **fields})
+
+    monkeypatch.setattr(module.store, 'transition_cycle', transition)
+    if remove_guard:
+        source = textwrap.dedent(inspect.getsource(module.AutomationService._completed_at))
+        assert source.count('if completed < started_at:') == 1
+        changed = source.replace('@staticmethod\n', '', 1).replace('if completed < started_at:', 'if False:')
+        namespace = dict(vars(module))
+        exec(compile(changed, '<private-completion-clock-falsifier>', 'exec'), namespace)
+        monkeypatch.setattr(service, '_completed_at', namespace['_completed_at'])
+
+    def require_refusal():
+        failure = None
+        try:
+            asyncio.run(service._run_recover(SimpleNamespace(rollback=lambda: None),
+                now=cycle.execute_at, cycle=cycle, permit=permit,
+                clock=lambda: cycle.execute_at - timedelta(microseconds=1)))
+        except module.AutomationRefused as exc:
+            failure = exc
+        assert failure is not None, 'backwards completion authorized terminal recovery'
+        assert 'completion clock moved backwards' in str(failure)
+        assert transitions == []
+
+    if remove_guard:
+        with pytest.raises(AssertionError, match='backwards completion'):
+            require_refusal()
+    else:
+        require_refusal()
+    assert calls == ['read-only recovery']

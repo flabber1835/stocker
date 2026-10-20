@@ -1,4 +1,5 @@
 """The idle scheduler repair is one closed, authenticated executable successor."""
+from sentinel import protected_cohort_upgrade
 from copy import deepcopy
 import hashlib
 import inspect
@@ -11,6 +12,7 @@ from sentinel import idle_leader_upgrade as upgrade, runtime_admission as admiss
 from tests.sentinel.test_retained_source_compatibility import closure
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
 from tests.sentinel.test_clock_sampling_upgrade import _prior_binding
+from tests.sentinel.test_clock_sampling_upgrade import _without_profile_pins
 from tests.sentinel.test_operational_liveness_upgrade import (
     test_complete_historical_source_manifest_is_admitted as _historical)
 
@@ -26,7 +28,7 @@ def test_scope_predecessors_and_current_bytes_are_exact():
     for name, record in value['files'].items():
         actual = hashlib.sha256((upgrade.PROFILE.parent / name).read_bytes()).hexdigest()
         from sentinel import opening_latency_upgrade
-        assert actual == record['after'] or opening_latency_upgrade.source_allowed(name, record['after'], actual)
+        assert actual == record['after'] or (opening_latency_upgrade.source_allowed(name, record['after'], actual) or protected_cohort_upgrade.source_allowed(name, record['after'], actual))
         assert upgrade.BASE_FILES[name] in record['before']
         assert all(upgrade.source_allowed(name, previous, actual)
                    for previous in record['before'])
@@ -138,11 +140,12 @@ def test_checker_presence_guard_has_behavioral_falsifier(closure, monkeypatch):
 def test_current_source_guard_has_behavioral_falsifier(closure, monkeypatch):
     source = inspect.getsource(admission.prove_compatibility)
     needle = ("any(name in actual and actual[name] != record['after']\n"
-              "                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile,))\n"
+              "                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile, protected_cohort_profile))\n"
               "                   for name, record in idle_leader_profile['files'].items())")
     assert source.count(needle) == 1
+    isolated = _without_profile_pins(source, {'opening_latency_profile', 'protected_cohort_profile'})
     namespace = {}
-    exec(compile(source.replace(needle, 'False'), 'idle-current-source-falsifier', 'exec'),
+    exec(compile(isolated.replace(needle, 'False'), 'idle-current-source-falsifier', 'exec'),
          admission.__dict__, namespace)
     monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):

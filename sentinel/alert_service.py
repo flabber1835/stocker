@@ -353,6 +353,7 @@ def _active_incident(health):
     return bool(health.enabled and not health.kill_switch_engaged
                 and health.policy_state in {
                     'SCHEDULER_STALLED', 'SCHEDULER_OVERDUE', 'WAITING_FOR_LEADER',
+                    'PROTECTED_DAY_WAIT_EXPIRED',
                     'AUTHORITY_FAILED', 'AUTHORITY_INVALID', 'BLOCKED'})
 
 

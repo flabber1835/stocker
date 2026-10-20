@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from sentinel import opening_latency_upgrade as upgrade, runtime_admission as admission
+from sentinel import protected_cohort_upgrade
 from tests.sentinel.test_retained_source_compatibility import closure
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
 from tests.sentinel.test_clock_sampling_upgrade import _prior_binding
@@ -21,9 +22,12 @@ def test_profile_scope_predecessors_and_current_bytes_are_exact():
     assert value['base_revision'] == upgrade.BASE_REVISION
     for name, record in value['files'].items():
         actual = hashlib.sha256((upgrade.PROFILE.parent / name).read_bytes()).hexdigest()
-        assert actual == record['after']
+        assert (actual == record['after']
+                or protected_cohort_upgrade.source_allowed(name, record['after'], actual))
         assert upgrade.BASE_FILES[name] in record['before']
-        assert all(upgrade.source_allowed(name, previous, actual) for previous in record['before'])
+        assert all(upgrade.source_allowed(name, previous, actual)
+                   or protected_cohort_upgrade.source_allowed(name, previous, actual)
+                   for previous in record['before'])
         assert not upgrade.source_allowed(name, 'f' * 64, actual)
         assert not upgrade.source_allowed(name, record['before'][0], 'f' * 64)
     assert not upgrade.source_allowed('core/kernel.py', 'f' * 64, 'f' * 64)

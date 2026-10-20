@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, ConfigDict
 
 from sentinel.automation import store
-from sentinel.automation.model import MissingAutomationState
+from sentinel.automation.model import MissingAutomationState, ProtectedDayWait
 from sentinel.execution import journal
 
 
@@ -243,6 +243,14 @@ def read_health(conn) -> AutomationHealth:
         or (not callback_current and cycle is not None
             and cycle[1] not in terminal_states and cycle[2] is not None
             and (database_now - cycle[2]).total_seconds() > lease_window_seconds))
+    resting_wait_expired = False
+    if cycle_diagnostic.get("protected_day_wait") is not None:
+        try:
+            wait = ProtectedDayWait.model_validate(cycle_diagnostic["protected_day_wait"])
+            resting_wait_expired = (database_now < wait.observed_at or database_now >= min(
+                wait.deadline, wait.observed_at + timedelta(minutes=10)))
+        except (ValueError, TypeError, ArithmeticError):
+            resting_wait_expired = True
     blocked = bool(cycle is not None and cycle[1] == "BLOCKED")
     host_database_clock_skew_seconds = abs(
         (datetime.now(timezone.utc) - database_now).total_seconds())
@@ -265,6 +273,8 @@ def read_health(conn) -> AutomationHealth:
         policy = "BLOCKED"
     elif active and not service_heartbeat_fresh:
         policy = "SCHEDULER_STALLED"
+    elif resting_wait_expired:
+        policy = "PROTECTED_DAY_WAIT_EXPIRED"
     elif scheduler_overdue:
         policy = "SCHEDULER_OVERDUE"
     elif active:
@@ -278,7 +288,7 @@ def read_health(conn) -> AutomationHealth:
             control.enabled and not control.kill_switch_engaged
             and control.authority_verdict == "PASS" and authority_current
             and bool(active) and service_heartbeat_fresh
-            and not blocked and not scheduler_overdue),
+            and not blocked and not scheduler_overdue and not resting_wait_expired),
         policy_state=policy,
         enabled=control.enabled,
         kill_switch_engaged=control.kill_switch_engaged,

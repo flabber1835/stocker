@@ -553,7 +553,9 @@ def test_dual_recovery_checks_mirror_only_for_current_shadow(
         monkeypatch, shadow_advanced):
     """Current intent earns its mirror check; historical obligations only recover."""
     plan = _plan(basket={"SEC-A": Decimal(10)})
+    conn = object()
     events = []
+    pin_calls = []
 
     async def clean_reconcile(**_kwargs):
         events.append("reconcile")
@@ -577,9 +579,16 @@ def test_dual_recovery_checks_mirror_only_for_current_shadow(
     monkeypatch.setattr(
         dual_plan_authority, "rederive_plan",
         lambda *_args, **_kwargs: {"authority_sha256": "a" * 64})
+    mirror_publication = SimpleNamespace(version=1, evidence={})
+
+    def pinned(_conn, *, commit):
+        assert _conn is conn
+        assert commit is False
+        pin_calls.append(mirror_publication)
+        return nullcontext(mirror_publication)
+
     monkeypatch.setattr(
-        publication, "pinned",
-        lambda *_args, **_kwargs: nullcontext(SimpleNamespace(version=1, evidence={})))
+        paper_recovery.feed_inputs, "pinned", pinned)
     monkeypatch.setattr(
         paper_recovery.feed_inputs, "frontier",
         lambda *_args, **_kwargs: (
@@ -603,12 +612,13 @@ def test_dual_recovery_checks_mirror_only_for_current_shadow(
         informational_paper_mirror, "require_transport_permitted", require)
 
     result = asyncio.run(paper.recover_automated_paper_cycle(
-        conn=object(), broker=broker, base_url="https://paper.example",
+        conn=conn, broker=broker, base_url="https://paper.example",
         grant=grant, automation_config_sha256="config",
         dual_shadow_observation_id="obs-year-end",
         dual_shadow_starting_cash=Decimal("100000")))
 
     assert result.clean
+    assert pin_calls == ([] if shadow_advanced else [mirror_publication])
     assert events == (["reconcile"] if shadow_advanced else
                       ["revalidate", "require", "reconcile"])
 

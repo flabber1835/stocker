@@ -36,6 +36,43 @@ PROFILE_FUNCTIONS = frozenset({
 })
 
 
+def safe_failure(exc):
+    """Classify a failure without reading messages, arguments or driver detail."""
+    name = type(exc).__name__
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]{0,79}", name):
+        name = "UnrecognizedException"
+    module = type(exc).__module__
+    if module not in {
+            "builtins", "psycopg", "psycopg.errors", "psycopg2", "psycopg2.errors",
+            "sentinel.automation.model", "sentinel.automation.service",
+            "tools.opening_latency_qualification", "__main__"}:
+        module = "external"
+    sqlstate = None
+    for attribute in ("sqlstate", "pgcode"):
+        try:
+            value = getattr(exc, attribute, None)
+        except BaseException:
+            continue
+        if type(value) is str and re.fullmatch(r"[0-9A-Z]{5}", value):
+            sqlstate = value
+            break
+    domain = {
+        "55P03": "DATABASE_LOCK_UNAVAILABLE", "57014": "DATABASE_STATEMENT_CANCELLED",
+        "40P01": "DATABASE_DEADLOCK", "25P02": "DATABASE_TRANSACTION_ABORTED",
+        "57P01": "DATABASE_ADMIN_SHUTDOWN",
+    }.get(sqlstate)
+    if domain is None and sqlstate is not None and sqlstate.startswith("08"):
+        domain = "DATABASE_CONNECTION_FAILURE"
+    if domain is None:
+        domain = {
+            "StaleLeaderRefused": "AUTOMATION_FENCE_REFUSED",
+            "CallbackDeadlineExceeded": "CALLBACK_DEADLINE_EXCEEDED",
+            "SupervisorIntegrityFailure": "SUPERVISION_INTEGRITY_FAILURE",
+            "QualificationRefused": "PRIVATE_QUALIFICATION_REFUSED",
+        }.get(name, "OTHER_FAILURE")
+    return {"type": name, "module": module, "sqlstate": sqlstate, "domain": domain}
+
+
 def require_environment(environ, sentinel_file):
     # Do not load a .env, inherit provider access, or let a source overlay stand
     # in for the tested runtime. PostgreSQL/publication authentication is needed
@@ -132,6 +169,7 @@ class Stages:
             return value
         except BaseException as exc:
             row["error_type"] = type(exc).__name__
+            row["failure"] = safe_failure(exc)
             raise
         finally:
             row["seconds"] = round(self.clock() - started, 6)
@@ -302,6 +340,7 @@ def main(argv=None):
             # Exception messages may contain a DSN. Retain only type and our
             # fixed refusal code; provider/account/connection bytes never print.
             report["error_type"] = type(exc).__name__
+            report["failure"] = safe_failure(exc)
             if isinstance(exc, QualificationRefused):
                 report["refusal"] = str(exc)
                 report.update(exc.metrics)

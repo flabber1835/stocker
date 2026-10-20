@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from dataclasses import dataclass
+from datetime import date
 from itertools import islice, zip_longest
 from typing import Iterable, Mapping
 
@@ -22,10 +24,66 @@ JSONB_EVIDENCE_BYTES = 1024 * 1024
 MAX_EVIDENCE_BYTES = 256 * 1024 * 1024
 BAR_COLUMNS = tuple(CanonicalBar.model_fields)
 BENCHMARK_COLUMNS = tuple(CanonicalBenchmark.model_fields)
+READINESS_FIELDS = ("close_signal", "close_unadjusted", "open_unadjusted", "volume")
+READINESS_PAIR_LIMIT = 100_000
 
 
 class SnapshotStorageRefused(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class SnapshotReadiness:
+    """Raw facts from one complete scan; no reference or readiness authority."""
+
+    candidate_id: str
+    snapshot_id: str
+    sessions: tuple[date, ...]
+    counts: tuple[int, ...]
+    positive: tuple[tuple[int, ...], ...]
+    benchmarks: tuple[CanonicalBenchmark, ...]
+    reference_uses: dict[tuple[str, str], int]
+
+
+@dataclass(frozen=True)
+class VerifiedSnapshot:
+    manifest: SnapshotManifest
+    readiness: SnapshotReadiness | None
+
+
+class _ReadinessAccumulator:
+    def __init__(self, manifest):
+        self.sessions = manifest.window.sessions
+        self.index = {day: index for index, day in enumerate(self.sessions)}
+        self.counts = [0] * len(self.sessions)
+        self.positive = [[0] * len(READINESS_FIELDS) for _ in self.sessions]
+        self.reference_uses = {}
+
+    def observe(self, row):
+        if self.reference_uses is None:
+            return
+        key = (row.security_id, row.ticker)
+        if key not in self.reference_uses and len(self.reference_uses) >= READINESS_PAIR_LIMIT:
+            # Drop the optimization, never truncate reference coverage.
+            self.reference_uses = None
+            return
+        index = self.index.get(row.session)
+        if index is None:
+            return  # The unchanged complete-axis check refuses this scan.
+        self.reference_uses[key] = self.reference_uses.get(key, 0) | (1 << index)
+        self.counts[index] += 1
+        positive = self.positive[index]
+        for offset, field in enumerate(READINESS_FIELDS):
+            value = getattr(row, field)
+            positive[offset] += value is not None and value > 0
+
+    def finish(self, candidate_id, manifest, benchmarks):
+        if self.reference_uses is None:
+            return None
+        return SnapshotReadiness(
+            candidate_id, manifest.snapshot_id, self.sessions, tuple(self.counts),
+            tuple(tuple(values) for values in self.positive), tuple(benchmarks),
+            self.reference_uses)
 
 
 def put_evidence(conn, payload: Mapping) -> str:
@@ -218,8 +276,10 @@ def _rows(conn, candidate_id, *, table, columns, order, start=None, end=None):
     rolling_work.checkpoint()
 
 
-def _fold(hasher, value):
-    hasher.update(canonical_json(value).encode("ascii"))
+def _fold(hasher, value, _encoder: json.JSONEncoder | None = None):
+    encoded = (canonical_json(value) if _encoder is None
+               else _encoder.encode(value)).encode("ascii")
+    hasher.update(encoded)
     hasher.update(b"\n")
 
 
@@ -348,29 +408,50 @@ def verify_content(conn, candidate_id: str) -> SnapshotManifest:
         lambda: _verify_content_uncached(conn, candidate_id))
 
 
-def _verify_content_uncached(conn, candidate_id: str) -> SnapshotManifest:
+def readiness_facts(conn, candidate_id: str) -> SnapshotReadiness | None:
+    """Borrow completed raw facts only from the original live publication pin."""
+    from sentinel.feed import readiness_scope
+    return readiness_scope.verified_snapshot(conn, candidate_id, None, summary_only=True)
+
+
+def _verify_content_uncached(conn, candidate_id: str) -> VerifiedSnapshot:
     """Full read-only integrity check for restore/comparison, not daily status.
 
     Recompute persisted payload hashes rather than accepting a self-consistent
     manifest as evidence that its rows survived restore. Source completeness
     and backup authority remain separate publisher/runtime obligations.
     """
+    from sentinel.feed import readiness_scope
+    scope = readiness_scope.capture(conn)  # Check the original pin before any reader can reacquire it.
     value = manifest(conn, candidate_id)
+    encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"),
+                               ensure_ascii=True, allow_nan=False)
     bars_hash, keys_hash, benchmarks_hash = (
         hashlib.sha256(), hashlib.sha256(), hashlib.sha256())
     count, sessions, benchmark_sessions = 0, set(), []
+    binding = (scope.publication_object.evidence.get('rolling_snapshot')
+               if scope is not None and scope.publication_object is not None else None)
+    readiness = (_ReadinessAccumulator(value) if isinstance(binding, dict)
+                 and binding.get('candidate_id') == candidate_id
+                 and binding.get('snapshot_id') == value.snapshot_id else None)
+    benchmarks = []
     for row in read_bars(conn, candidate_id):
         count += 1
         sessions.add(row.session)
-        _fold(bars_hash, row.model_dump(mode="json"))
-        _fold(keys_hash, (row.session.isoformat(), row.security_id))
+        _fold(bars_hash, row.model_dump(mode="json"), encoder)
+        _fold(keys_hash, (row.session.isoformat(), row.security_id), encoder)
+        if readiness is not None:
+            readiness.observe(row)
     for row in read_benchmarks(conn, candidate_id):
         benchmark_sessions.append(row.session)
-        _fold(benchmarks_hash, row.model_dump(mode="json"))
+        _fold(benchmarks_hash, row.model_dump(mode="json"), encoder)
+        if readiness is not None and len(benchmarks) < len(value.window.sessions):
+            benchmarks.append(row)
     if (count != value.bar_count or sessions != set(value.window.sessions)
             or tuple(benchmark_sessions) != value.window.sessions
             or bars_hash.hexdigest() != value.bars_sha256
             or keys_hash.hexdigest() != value.coverage_sha256
             or benchmarks_hash.hexdigest() != value.benchmarks_sha256):
         raise SnapshotStorageRefused("sealed snapshot content differs from its manifest")
-    return value
+    return VerifiedSnapshot(value, readiness.finish(candidate_id, value, benchmarks)
+                            if readiness is not None else None)

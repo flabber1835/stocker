@@ -37,6 +37,7 @@ from sentinel.automation.model import (
     ExecuteResult,
     HumanInterventionRequired,
     PrepareResult,
+    ProtectedDayWait,
     RefreshResult,
     SoftwareDefect,
     SourceDataPending,
@@ -1192,6 +1193,59 @@ class ProductionAutomation:
                         "RUNNING reconciliation"),
                     diagnostic=result.to_dict())
             if in_flight:
+                from sentinel.execution.protected_funding import ProtectedCohortContinuation
+                cohort = getattr(result, "protected_cohort", None)
+                if (isinstance(cohort, ProtectedCohortContinuation)
+                        and cohort.plan_id == cycle.plan_id
+                        and cohort.effective_session == cycle.effective_session
+                        and tuple(cohort.deployment) == (
+                            deployment.deployment_id, deployment.broker,
+                            deployment.broker_account_id, deployment.takeover_epoch)
+                        and timedelta(0) <= _now_utc() - cohort.observed_at <= timedelta(seconds=60)):
+                    plan = journal.latest_plan(conn)
+                    if (plan is not None and plan.plan_id == cycle.plan_id
+                            and plan.fingerprint() == cycle.plan_fingerprint):
+                        actionable = self._actionable_current_plan_deltas(
+                            conn, plan=plan, effective_session=cycle.effective_session,
+                            observation=result.observation, reconciliation=result,
+                            minimum_quantity_increment=broker.capabilities.minimum_quantity_increment)
+                        opened, closed = calendar.session_window(cycle.effective_session)
+                        cutoff = min(closed, opened + timedelta(seconds=600))
+                        cohort_commands = journal.load_commands(conn, deployment, plan_id=plan.plan_id)
+                        unsent_only = all(delta.is_increase and not any(
+                            command.security_id == delta.security_id
+                            and command.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}
+                            for command in cohort_commands) for delta in actionable)
+                        wait = None
+                        if cohort.commands:
+                            value = cohort.model_dump(mode="json")
+                            value.update(schema="sentinel.protected-day-wait/1",
+                                         deadline=(closed + timedelta(minutes=10)).isoformat())
+                            wait = ProtectedDayWait.model_validate(value)
+                        if (actionable and unsent_only
+                                and opened + timedelta(seconds=60) <= _now_utc() < cutoff):
+                            return ExecuteResult(
+                                disposition=ExecuteDisposition.READY_TO_EXECUTE,
+                                last_clean_reconciliation_id=str(result.observation_id),
+                                transport_reconciliation_id=str(result.observation_id),
+                                failure_code="PROTECTED_COHORT_READY",
+                                failure_detail="existing funded protected cohort has proven unsent share delta",
+                                diagnostic={**result.to_dict(),
+                                    "protected_cohort": cohort.model_dump(mode="json"),
+                                    **({"protected_day_wait": wait.model_dump(mode="json", by_alias=True)}
+                                       if wait is not None else {}),
+                                    "actionable_deltas": [{"security_id": delta.security_id,
+                                        "remaining": str(delta.remaining)} for delta in actionable]})
+                        if wait is not None and (not actionable or _now_utc() >= cutoff):
+                            return ExecuteResult(
+                                disposition=ExecuteDisposition.RECONCILE,
+                                failure_code="PROTECTED_DAY_ORDERS_WORKING",
+                                failure_detail="positively matched protected DAY orders await native settlement",
+                                diagnostic={**result.to_dict(),
+                                    "protected_day_wait": wait.model_dump(mode="json", by_alias=True),
+                                    "unsent_actionable_deltas": [{"security_id": delta.security_id,
+                                        "remaining": str(delta.remaining)} for delta in actionable],
+                                    "new_submission_cutoff_expired": _now_utc() >= cutoff})
                 return ExecuteResult(
                     disposition=ExecuteDisposition.RECONCILE,
                     failure_code="COMMANDS_IN_FLIGHT",
