@@ -58,10 +58,13 @@ READINESS_TIMEOUT_MS = 2_000
 # The full cycle also carries plan and phase metadata consumed by detailed
 # progress/reconciliation. Only these presentation facts belong to the summary.
 _AUTOMATION_CYCLE_ROW_FIELDS = frozenset({
-    "cycle_id", "state", "decision_session", "effective_session",
+    "cycle_id", "plan_id", "state", "decision_session", "effective_session",
     "next_wake_at", "clean_reconciliation_id", "failure_code", "failure_detail",
     "attempt_count", "phase_attempt_count", "phase_max_attempts",
+    "retry_phase",
+    "original_execution_deadline_at",
     "first_failure_at", "exception_fingerprint", "terminal_reason",
+    "protected_day_wait",
     "prepare_at", "execution_open_at", "execute_at", "execution_close_at",
     "created_at", "completed_at", "updated_at",
 })
@@ -768,6 +771,12 @@ def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | N
         "exception_fingerprint": diagnostic.get("exception_fingerprint"),
         "failure_domain": diagnostic.get("failure_domain"),
         "terminal_reason": diagnostic.get("terminal_reason"),
+        "protected_day_wait": diagnostic.get("protected_day_wait"),
+        "protected_cohort": diagnostic.get("protected_cohort"),
+        "continuation_reason": diagnostic.get("continuation_reason"),
+        "original_execution_deadline_at": diagnostic.get("original_execution_deadline_at"),
+        "unsent_actionable_deltas": diagnostic.get("unsent_actionable_deltas"),
+        "new_submission_cutoff_expired": diagnostic.get("new_submission_cutoff_expired"),
         "updated_at": _utc(updated_at),
         "prepare_at": _utc(prepare_at),
         "execution_open_at": _utc(execution_open_at),
@@ -922,6 +931,25 @@ def _cycle_recovery(
     if (failure_domains is not None
             and failure_domain not in failure_domains):
         return None
+    if (failure_domains is None and retry_phase == "EXECUTE"
+            and not cycle.get("failure_code") and not cycle.get("failure_detail")
+            and cycle.get("phase_max_attempts") is None):
+        return model.RecoveryEvidence(
+            phase="CLEAN_RECOVERY_EXECUTION_WAKE", automatic=True,
+            next_attempt_at=cycle.get("next_wake_at"), deadline=model._clean_execution_deadline(cycle))
+    if failure_domains is None:
+        from sentinel.automation.model import ProtectedDayWait
+        try:
+            wait = ProtectedDayWait.model_validate(cycle.get("protected_day_wait"))
+            if (wait.plan_id == cycle.get("plan_id")
+                    and str(wait.effective_session) == str(cycle.get("effective_session"))
+                    and not cycle.get("failure_code") and not cycle.get("failure_detail")):
+                return model.RecoveryEvidence(
+                    phase="PROTECTED_DAY_ORDER_OBSERVATION", automatic=True,
+                    next_attempt_at=cycle.get("next_wake_at"),
+                    deadline=min(wait.deadline, wait.observed_at + timedelta(minutes=10)))
+        except (ValueError, TypeError, ArithmeticError):
+            pass
     return model.RecoveryEvidence(
         phase=f"AUTOMATION_{retry_phase or 'RECOVERY'}",
         automatic=True,
@@ -1176,6 +1204,74 @@ def _bound_account_id(conn) -> str | None:
     return str(rows[0][0]) if rows else None
 
 
+def _matched_resting_reservation(conn, *, account, cycle, now):
+    """Read exact owned holds; a buying-power difference alone proves nothing."""
+    from sentinel.automation.model import protected_day_wait
+    from sentinel.execution import journal
+    from sentinel.execution.identity import DeploymentIdentity
+    from sentinel.execution.states import IN_FLIGHT
+
+    if not account or not cycle:
+        return None
+    reservation = cycle.get("protected_day_wait")
+    if (reservation is None and cycle.get("retry_phase") == "EXECUTE"
+            and not cycle.get("failure_code") and not cycle.get("failure_detail")
+            and isinstance(cycle.get("continuation_reason"), Mapping)
+            and cycle["continuation_reason"].get("code") == "PROTECTED_COHORT_READY"):
+        cohort = cycle.get("protected_cohort")
+        if isinstance(cohort, Mapping) and cohort.get("schema") == "sentinel.protected-cohort-continuation/1":
+            # This shape validates only the observed resting reservations. It
+            # does not change the READY cycle into an ordinary waiting cycle.
+            closed = _utc(cycle.get("execution_close_at"))
+            if closed is None:
+                return None
+            reservation = dict(cohort, schema="sentinel.protected-day-wait/1",
+                               deadline=(closed + timedelta(minutes=10)).isoformat())
+    wait = protected_day_wait(reservation, now=now,
+        plan_id=cycle.get("plan_id"), effective_session=cycle.get("effective_session"))
+    if (wait is None or account.get("account_id") != wait.deployment[2]
+            or account.get("observed_at") is None
+            or abs((account["observed_at"] - wait.observed_at).total_seconds()) > 60):
+        return None
+    with conn.cursor() as cur:
+        cur.execute("SELECT deployment_id,broker,broker_account_id,takeover_epoch"
+                    " FROM sentinel_account_binding WHERE id=1")
+        binding = cur.fetchone()
+        cur.execute("SELECT seq,runtime_state FROM sentinel_observations ORDER BY seq DESC LIMIT 1")
+        latest = cur.fetchone()
+    if (binding is None or tuple(binding) != wait.deployment
+            or latest is None or tuple(latest) != (wait.observation_id, "RUNNING")):
+        return None
+    payload = journal.load_observation_payload(conn, wait.observation_id)
+    if (payload.get("completeness") != "COMPLETE"
+            or payload.get("account_id") != wait.deployment[2]
+            or datetime.fromisoformat(payload["observed_at"]) != wait.observed_at):
+        return None
+    commands = {c.client_key: c for c in journal.load_commands(
+        conn, DeploymentIdentity(*wait.deployment)) if c.state in IN_FLIGHT}
+    orders = {o["client_key"]: o for o in payload["orders"]
+              if o["state"] in {state.value for state in IN_FLIGHT}}
+    expected = {order.client_key for order in wait.commands}
+    if set(commands) != expected or set(orders) != expected:
+        return None
+    for fact in wait.commands:
+        command, order = commands[fact.client_key], orders[fact.client_key]
+        if (command.identity.plan_id != wait.plan_id or command.side.value != "BUY"
+                or command.state.value != fact.state or order["state"] != fact.state
+                or command.broker_order_id != fact.broker_order_id
+                or order["broker_order_id"] != fact.broker_order_id
+                or command.security_id != fact.security_id or order["security_id"] != fact.security_id
+                or command.order_terms.to_dict() != fact.order_terms
+                or order.get("order_terms") != fact.order_terms
+                or command.quantity - command.filled_quantity != fact.remaining_quantity
+                or Decimal(order["quantity"]) - Decimal(order["filled_quantity"]) != fact.remaining_quantity
+                or Decimal(order["quantity"]) != command.quantity
+                or order["side"] != "BUY" or order.get("external_replacement")
+                or order.get("replaced_by") or order.get("replaces")):
+            return None
+    return wait.model_dump(mode="json", by_alias=True)
+
+
 def _latest_backup_evidence(conn, kind: str) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(
@@ -1246,8 +1342,11 @@ def _operator_evidence_rows(
         cycle, _cycle_error = _read(
             conn, _latest_automation_cycle,
             STATEMENT_TIMEOUT_MS, default=None)
+        reservation, reservation_error = _read(
+            conn, lambda c: _matched_resting_reservation(c, account=account, cycle=cycle, now=now),
+            STATEMENT_TIMEOUT_MS, default=None)
 
-        account_detail = account_error or binding_error
+        account_detail = account_error or binding_error or reservation_error
         account_recovery = _observation_recovery(cycle)
         account_row = (
             model.alpaca_account_row(
@@ -1260,6 +1359,7 @@ def _operator_evidence_rows(
                     cycle, (account or {}).get("observed_at"),
                     broker_fact=True),
                 recovery=account_recovery,
+                matched_protected_reservation=reservation,
                 **(account or {})))
 
         backup_error = base_error or restore_error or runtime_backup_error or maintenance_error

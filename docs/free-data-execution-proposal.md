@@ -386,8 +386,9 @@ the remaining-live-promise bound and the fixed gross cohort ceiling. Cash above
 the basis by more than the existing USD 1.00 tolerance refuses; lower cash can
 only restrict spending. This check does not infer an attributed withdrawal or
 fill, and the ordinary settled cash equation remains mandatory in recovery and
-before a future plan earns a basis. A restart with working orders still fails
-the existing quiescent increase gate.
+before a future plan earns a basis. A restart with working orders still needs
+quiescent admission unless the exact existing protected cohort satisfies the
+[continuation contract](protected-cohort-continuation.md).
 
 Without accepted native activity identities, offsetting deposits and withdrawals
 are not detectable as an event-set change. This is the existing Alpaca
@@ -407,10 +408,11 @@ unbounded legacy BUY refuses new protected transport. Never credit subsequent
 sales, deposits or balance changes to the cohort. UNKNOWN/cancel requests retain
 the full allowance; no lookup absence or elapsed time is terminal evidence.
 
-Resting orders remain recoverable through the independent recovery path. New
-increase attempts continue to require the ordinary quiescent proof; they may
-defer while an earlier DAY order rests. This first profile does not relax the
-settlement contract to complete later legs during a nonquiescent restart.
+Resting orders remain recoverable through the independent recovery path.
+Initial admission requires the ordinary quiescent proof. The
+[protected cohort continuation contract](protected-cohort-continuation.md)
+subsequently permits only positively reconciled same-cohort continuation under
+the existing immutable basis, all funding bounds and the original cutoff.
 
 A protected submit may return a typed, positively reported order receipt with
 cumulative filled quantity and average price. After validating the exact client

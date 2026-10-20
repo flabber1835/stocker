@@ -82,6 +82,7 @@ from .inspection import (
     _require_certified_paper_broker,
     _account_evidence_is_quiescent,
     _account_or_refuse,
+    _recovery_account_identity_or_refuse,
 )
 
 from .validation import (
@@ -361,7 +362,16 @@ async def _execute_current_paper_plan(
                 dual_shadow_starting_cash=dual_shadow_starting_cash)
 
             account = await broker.account_snapshot()
-            _account_or_refuse(account, binding, confirmed_account)
+            from sentinel.execution import protected_funding, protected_limits
+            retained_cohort = (
+                protected_limits.ProtectedLimitPolicy.from_env() is not None
+                and protected_funding.load_basis(conn, plan_id=plan.plan_id) is not None)
+            if retained_cohort:
+                # This read grants no cash authority. A current complete cohort
+                # proof is required below under the same financial writer lock.
+                _recovery_account_identity_or_refuse(account, binding, confirmed_account)
+            else:
+                _account_or_refuse(account, binding, confirmed_account)
             activity_state = await _broker_cash_state_or_refuse(
                 conn, broker=broker, binding=binding, through=clock())
             try:
@@ -491,6 +501,17 @@ async def _execute_current_paper_plan(
                     if not _account_evidence_is_quiescent(
                             conn, deployment=binding.identity,
                             observation=fresh_observation):
+                        if retained_cohort and fresh_reconciliation is not None:
+                            fresh_account = await broker.account_snapshot()
+                            fresh_cash_at = clock()
+                            fresh_activity = await _broker_cash_state_or_refuse(
+                                conn, broker=broker, binding=binding, through=fresh_cash_at)
+                            protected_funding.prove_cohort_continuation(
+                                conn, plan=plan, projection=target_projection,
+                                deployment=binding.identity, reconciliation=fresh_reconciliation,
+                                account=fresh_account, activity_state=fresh_activity, broker=broker,
+                                paper_base_url=base_url, evaluated_at=clock())
+                            return
                         raise PaperRetryableRefused(
                             "account cash remains PENDING while an order or "
                             "durable command is in flight")
@@ -508,7 +529,6 @@ async def _execute_current_paper_plan(
                         endpoint_lag_observed_at=fresh_cash_at)
                     from sentinel.execution.protected_limits import ProtectedLimitPolicy
                     if ProtectedLimitPolicy.from_env() is not None:
-                        from sentinel.execution import protected_funding
                         if (fresh_reconciliation is None
                                 or fresh_reconciliation.observation is not fresh_observation):
                             raise PaperActivationRefused("protected cash requires the executor's exact reconciliation")

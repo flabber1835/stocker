@@ -9,11 +9,12 @@ import hashlib
 import json
 import math
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from enum import Enum
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, field_validator, model_validator
 
 
 class AutomationRefused(RuntimeError):
@@ -441,6 +442,91 @@ class ExecuteDisposition(str, Enum):
     RETRY = "RETRY"
     SUPERSEDED = "SUPERSEDED"
     BLOCKED = "BLOCKED"
+
+
+class ProtectedDayOrder(_FrozenModel):
+    """Positive resting-order evidence, never a transport capability."""
+
+    client_key: str = Field(min_length=1)
+    broker_order_id: str = Field(min_length=1)
+    security_id: str = Field(min_length=1)
+    side: Literal["BUY"]
+    state: Literal["ACKNOWLEDGED", "PARTIALLY_FILLED"]
+    remaining_quantity: Decimal = Field(gt=0, allow_inf_nan=False)
+    limit_price: Decimal = Field(gt=0, allow_inf_nan=False)
+    order_terms: dict
+
+    @field_validator("remaining_quantity", "limit_price", mode="before")
+    @classmethod
+    def exact_decimal(cls, value):
+        if not isinstance(value, (str, Decimal)):
+            raise ValueError("resting order economics require exact decimals")
+        return value
+
+    @model_validator(mode="after")
+    def protected_terms(self):
+        from sentinel.execution.contract import OrderTerms, Side
+        terms = OrderTerms.from_dict(self.order_terms)
+        terms.require_owned_submission(Side.BUY)
+        if (terms.order_type != "limit" or terms.time_in_force != "day"
+                or terms.limit_price != self.limit_price):
+            raise ValueError("resting wait requires exact protected DAY terms")
+        return self
+
+
+class ProtectedDayWait(_FrozenModel):
+    """A bounded observation obligation proved by the execution membrane."""
+
+    schema_version: Literal["sentinel.protected-day-wait/1"] = Field(alias="schema")
+    plan_id: str = Field(min_length=1)
+    effective_session: date
+    observation_id: StrictInt = Field(gt=0)
+    observed_at: AwareDatetime
+    deadline: AwareDatetime
+    deployment: tuple[str, str, str, StrictInt]
+    basis_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    projection_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    policy_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    commands: tuple[ProtectedDayOrder, ...] = Field(min_length=1)
+    reserved_cash: Decimal = Field(gt=0, allow_inf_nan=False)
+
+    @field_validator("reserved_cash", mode="before")
+    @classmethod
+    def exact_decimal(cls, value):
+        return ProtectedDayOrder.exact_decimal(value)
+
+    @model_validator(mode="after")
+    def fixed_observation_boundary(self):
+        from sentinel.feed import calendar
+        from zoneinfo import ZoneInfo
+        _, closed = calendar.session_window(self.effective_session)
+        if self.deadline != closed + timedelta(minutes=10):
+            raise ValueError("resting wait must preserve its fixed close deadline")
+        if self.observed_at.astimezone(ZoneInfo(calendar.EXCHANGE_TZ)).date() != self.effective_session:
+            raise ValueError("resting wait observation belongs to another session")
+        if self.observed_at >= self.deadline:
+            raise ValueError("resting wait observation is beyond its deadline")
+        if (len({order.client_key for order in self.commands}) != len(self.commands)
+                or len({order.broker_order_id for order in self.commands}) != len(self.commands)):
+            raise ValueError("resting wait contains duplicate order identities")
+        if self.reserved_cash != sum((order.remaining_quantity * order.limit_price
+                                      for order in self.commands), Decimal(0)):
+            raise ValueError("resting wait reservation disagrees with exact orders")
+        return self
+
+
+def protected_day_wait(value, *, now: datetime, plan_id: str | None = None,
+                       effective_session: date | str | None = None) -> ProtectedDayWait | None:
+    """Read positive current evidence; malformed/stale evidence earns no wait."""
+    try:
+        wait = value if isinstance(value, ProtectedDayWait) else ProtectedDayWait.model_validate(value)
+        if (now.tzinfo is None or not timedelta(0) <= now - wait.observed_at <= timedelta(minutes=10)
+                or now >= wait.deadline or (plan_id is not None and wait.plan_id != plan_id)
+                or (effective_session is not None and str(wait.effective_session) != str(effective_session))):
+            return None
+        return wait
+    except (ValueError, TypeError, ArithmeticError):
+        return None
 
 
 class ExecuteResult(_FrozenModel):

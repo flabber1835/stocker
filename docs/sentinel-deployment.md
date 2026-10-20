@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Protected cohort continuation](protected-cohort-continuation.md) defines
+same-basis recovery of asynchronous protected BUY fills, known DAY-order waits,
+completion-based retry clocks and the composed opening qualification gate.
+
 [Opening execution latency](opening-execution-latency.md) records the October 19
 missed opening window, dependency-correct reuse of retained sizing, measured
 gateway qualification and renewal of actual publication-bound readiness evidence.

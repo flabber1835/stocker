@@ -1,3 +1,4 @@
+from sentinel import protected_cohort_upgrade
 from collections import Counter
 from copy import deepcopy
 import hashlib
@@ -38,7 +39,7 @@ def test_exact_predecessors_and_full_authenticated_closure(closure, name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent / name).read_bytes()).hexdigest()
     assert (actual == record['after']
-            or opening_latency_upgrade.source_allowed(name, record['after'], actual))
+            or (opening_latency_upgrade.source_allowed(name, record['after'], actual) or protected_cohort_upgrade.source_allowed(name, record['after'], actual)))
     assert all(upgrade.source_allowed(name, old, record['after']) for old in record['before'])
     assert not upgrade.source_allowed(name, 'f' * 64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f' * 64)

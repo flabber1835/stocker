@@ -333,6 +333,28 @@ async def recover_automated_paper_cycle(
         if dual_mode:
             _dual_mutation_observation_or_refuse(result)
 
+        if plan is not None and target_projection is not None:
+            from sentinel.execution import protected_funding, protected_limits
+            if (protected_limits.ProtectedLimitPolicy.from_env() is not None
+                    and protected_funding.load_basis(conn, plan_id=plan.plan_id) is not None):
+                # This proof routes a later EXECUTE only. It does not settle
+                # cash or grant transport, and execution repeats it under its
+                # own writer lock with its own fresh broker observation.
+                fresh_account = await broker.account_snapshot()
+                fresh_at = clock()
+                fresh_activity = await _broker_cash_state_or_refuse(
+                    conn, broker=broker, binding=binding, through=fresh_at)
+                try:
+                    result.protected_cohort = protected_funding.prove_cohort_continuation(
+                        conn, plan=plan, projection=target_projection,
+                        deployment=binding.identity, reconciliation=result,
+                        account=fresh_account, activity_state=fresh_activity, broker=broker,
+                        paper_base_url=base_url, evaluated_at=clock())
+                except protected_funding.ProtectedFundingRefused:
+                    # Missing or contradictory evidence retains ordinary
+                    # unresolved-command/error handling; it earns no wait.
+                    pass
+
         if (plan is not None
                 and result.runtime_state is RuntimeState.RUNNING
                 and result.clean

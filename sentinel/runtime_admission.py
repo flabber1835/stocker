@@ -337,12 +337,14 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     idle_leader_profile = idle_leader_upgrade.profile()
     from sentinel import opening_latency_upgrade
     opening_latency_profile = opening_latency_upgrade.profile()
+    from sentinel import protected_cohort_upgrade
+    protected_cohort_profile = protected_cohort_upgrade.profile()
     profiles = (legacy_economic_profile, economic_profile, execution_records, readiness_records,
                 renewal_records, liveness_records, operational_profile,
                 callback_profile, startup_profile, recovery_profile, ui_profile,
                 monitor_profile, open_time_profile, close_cycle_profile,
                 autonomy_profile, native_read_profile, clock_sampling_profile,
-                idle_leader_profile, opening_latency_profile)
+                idle_leader_profile, opening_latency_profile, protected_cohort_profile)
 
     def source_allowed(name, previous, actual, records=profiles):
         for value in records:
@@ -374,6 +376,16 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     clock_sampling_additions = clock_sampling_upgrade.additions_allowed(actual)
     idle_leader_additions = idle_leader_upgrade.additions_allowed(actual)
     opening_latency_additions = opening_latency_upgrade.additions_allowed(actual)
+    protected_cohort_additions = protected_cohort_upgrade.additions_allowed(actual)
+    # Keep the predecessor's atomic addition check intact. Normalize only
+    # members with an exact authenticated successor, leaving its own checker
+    # and every other member subject to the predecessor's original check.
+    opening_predecessor = dict(actual)
+    for name, previous in opening_latency_profile['additions'].items():
+        if source_allowed(name, previous, actual.get(name), (protected_cohort_profile,)):
+            opening_predecessor[name] = previous
+    opening_latency_additions.update(
+        opening_latency_upgrade.additions_allowed(opening_predecessor))
     # An earlier pinned addition can later receive only its exact reviewed
     # transition; an unpinned neighboring edit still fails the closure gate.
     for previous_profile, allowed in ((operational_profile, operational_additions),
@@ -383,9 +395,11 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
                                      (open_time_profile, open_time_additions),
                                      (close_cycle_profile, close_cycle_additions),
                                      (autonomy_profile, autonomy_additions),
-                                     (clock_sampling_profile, clock_sampling_additions)):
+                                     (clock_sampling_profile, clock_sampling_additions),
+                                     (opening_latency_profile, opening_latency_additions)):
         allowed.update(name for name, previous in previous_profile['additions'].items()
-                       if source_allowed(name, previous, actual.get(name), profiles[-8:]))
+                       if (actual.get(name) == previous
+                           or source_allowed(name, previous, actual.get(name), profiles[-9:])))
     if (source_closure(actual) != context['runtime']['sentinel_source_sha256']
             or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']
             or set(manifest.files) - set(actual)
@@ -393,7 +407,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
             or clock_sampling_upgrade.ADDITIONS - set(actual)
             or idle_leader_upgrade.ADDITIONS - set(actual)
             or opening_latency_upgrade.ADDITIONS - set(actual)
-            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions - recovery_additions - ui_additions - monitor_additions - open_time_additions - close_cycle_additions - autonomy_additions - native_read_additions - clock_sampling_additions - idle_leader_additions - opening_latency_additions
+            or protected_cohort_upgrade.ADDITIONS - set(actual)
+            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions - recovery_additions - ui_additions - monitor_additions - open_time_additions - close_cycle_additions - autonomy_additions - native_read_additions - clock_sampling_additions - idle_leader_additions - opening_latency_additions - protected_cohort_additions
             or (set(actual) & set(operational_profile['additions'])) - operational_additions
             or (set(actual) & set(recovery_profile['additions'])) - recovery_additions
             or (set(actual) & set(ui_profile['additions'])) - ui_additions
@@ -405,20 +420,24 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
             or (set(actual) & set(clock_sampling_profile['additions'])) - clock_sampling_additions
             or (set(actual) & set(idle_leader_profile['additions'])) - idle_leader_additions
             or (set(actual) & set(opening_latency_profile['additions'])) - opening_latency_additions
+            or (set(actual) & set(protected_cohort_profile['additions'])) - protected_cohort_additions
             or any(name in actual and actual[name] != record['after']
-                   and not source_allowed(name, record['after'], actual[name], (clock_sampling_profile, idle_leader_profile, opening_latency_profile))
+                   and not source_allowed(name, record['after'], actual[name], (clock_sampling_profile, idle_leader_profile, opening_latency_profile, protected_cohort_profile))
                    for name, record in native_read_profile['files'].items())
             or any(name in actual and actual[name] != record['after']
-                   and not source_allowed(name, record['after'], actual[name], (idle_leader_profile, opening_latency_profile))
+                   and not source_allowed(name, record['after'], actual[name], (idle_leader_profile, opening_latency_profile, protected_cohort_profile))
                    for name, record in clock_sampling_profile['files'].items())
             or any(name in actual and actual[name] != record['after']
-                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile,))
+                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile, protected_cohort_profile))
                    for name, record in idle_leader_profile['files'].items())
             or any(name in actual and actual[name] != record['after']
-                   for name, record in opening_latency_profile['files'].items())):
+                   and not source_allowed(name, record['after'], actual[name], (protected_cohort_profile,))
+                   for name, record in opening_latency_profile['files'].items())
+            or any(name in actual and actual[name] != record['after']
+                   for name, record in protected_cohort_profile['files'].items())):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     for name, previous in manifest.files.items():
-        if actual[name] == previous or name in (((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE-close_cycle_upgrade.SCOPE) | ADDITIONS) - native_read_upgrade.SCOPE - clock_sampling_upgrade.SCOPE - idle_leader_upgrade.SCOPE - opening_latency_upgrade.SCOPE):
+        if actual[name] == previous or name in (((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE-close_cycle_upgrade.SCOPE) | ADDITIONS) - native_read_upgrade.SCOPE - clock_sampling_upgrade.SCOPE - idle_leader_upgrade.SCOPE - opening_latency_upgrade.SCOPE - protected_cohort_upgrade.SCOPE):
             continue
         module = SEAMS.get(name)
         if source_allowed(name, previous, actual[name]):

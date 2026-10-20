@@ -1,5 +1,9 @@
 # Sentinel — the execution and recovery contract
 
+[Protected cohort continuation](protected-cohort-continuation.md) narrowly
+permits positively reconciled existing protected cohorts to finish unsent legs
+under the original basis and cutoff while known DAY BUYs remain working.
+
 [Opening execution latency](opening-execution-latency.md) scopes retained sizing
 to its economic inputs while retaining every fresh broker and signed-authority
 boundary and the existing ten-minute increase cutoff. Opening readiness requires

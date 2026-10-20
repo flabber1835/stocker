@@ -1,4 +1,5 @@
 """Exact retained-source recovery admission; neighboring edits still refuse."""
+from sentinel import protected_cohort_upgrade
 from copy import deepcopy
 import hashlib
 import json
@@ -43,7 +44,7 @@ def test_shadow_ui_upgrade_pins_exact_predecessor_and_target_and_rejects_neighbo
     _refresh_current(root, context, source)
     # A reviewed addition is checked by the complete closure before ordinary
     # predecessor transitions; a neighboring edit must retain that refusal.
-    reason = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in upgrade.ADDITIONS | idle_leader_upgrade.SCOPE
+    reason = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in upgrade.ADDITIONS | idle_leader_upgrade.SCOPE | protected_cohort_upgrade.SCOPE
               else 'RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)
     with pytest.raises(admission.Refused) as refused:
         admission.prove_compatibility(manifest, checkpoint, context, source=source)

@@ -34,6 +34,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal, Mapping, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sentinel.paper_plan_preview import PlanPreview
+from sentinel.automation.model import ProtectedDayWait
 
 
 def _bounded_display_decimal(value):
@@ -831,10 +832,36 @@ def automation_leader_row(*, installed: Optional[bool],
                valid_until=expires_at)
 
 
+def _protected_day_wait(value, effective_session=None, plan_id=None):
+    try:
+        wait = ProtectedDayWait.model_validate(value)
+        return wait if (effective_session is None or str(wait.effective_session) == str(effective_session)) and (plan_id is None or wait.plan_id == plan_id) else None
+    except (ValueError, TypeError, ArithmeticError):
+        return None
+
+
+def _clean_execution_deadline(cycle):
+    """Read the producer's original cutoff; a market close cannot extend it."""
+    try:
+        def aware(value):
+            result = datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
+            if not isinstance(result, datetime) or result.tzinfo is None:
+                raise ValueError("execution timing must be timezone aware")
+            return result
+        deadline = aware(cycle.get("original_execution_deadline_at"))
+        opened = aware(cycle.get("execution_open_at"))
+        execute = aware(cycle.get("execute_at"))
+        closed = aware(cycle.get("execution_close_at"))
+        return deadline if opened <= execute <= deadline <= min(closed, opened + timedelta(seconds=600)) else None
+    except (ValueError, TypeError, ArithmeticError):
+        return None
+
+
 def automation_cycle_row(*, installed: Optional[bool],
                          enabled: Optional[bool] = None,
                          discovery_recovery: Optional[RecoveryEvidence] = None,
                          cycle_id: Optional[str] = None,
+                         plan_id: Optional[str] = None,
                          state: Optional[str] = None,
                          decision_session: Optional[str] = None,
                          effective_session: Optional[str] = None,
@@ -845,9 +872,12 @@ def automation_cycle_row(*, installed: Optional[bool],
                          attempt_count: Optional[int] = None,
                          phase_attempt_count: Optional[int] = None,
                          phase_max_attempts: Optional[int] = None,
+                         retry_phase: Optional[str] = None,
+                         original_execution_deadline_at: Optional[datetime] = None,
                          first_failure_at: Optional[str] = None,
                          exception_fingerprint: Optional[str] = None,
                          terminal_reason: Optional[str] = None,
+                         protected_day_wait: Optional[dict] = None,
                          prepare_at: Optional[datetime] = None,
                          execution_open_at: Optional[datetime] = None,
                          execute_at: Optional[datetime] = None,
@@ -885,16 +915,32 @@ def automation_cycle_row(*, installed: Optional[bool],
         detail += (f" · failure {failure_code or 'UNCLASSIFIED'}: "
                    f"{failure_detail or 'no detail'}")
     recovery = None
+    wait = None
     if normalized == "RETRY_WAIT":
         status = WARN
-        recovery = RecoveryEvidence(
+        wait = _protected_day_wait(protected_day_wait, effective_session, plan_id)
+        recovery = (RecoveryEvidence(
+            phase="PROTECTED_DAY_ORDER_OBSERVATION", automatic=True,
+            next_attempt_at=next_wake_at,
+            deadline=min(wait.deadline, wait.observed_at + timedelta(minutes=10)))
+            if wait is not None and not failure_code and not failure_detail else RecoveryEvidence(
             phase="AUTOMATION_RETRY",
             automatic=True,
             attempt=(phase_attempt_count if phase_attempt_count is not None
                      else attempt_count),
             maximum_attempts=phase_max_attempts,
             next_attempt_at=next_wake_at,
-            operator_required=bool(terminal_reason))
+            operator_required=bool(terminal_reason)))
+        if wait is not None and not failure_code and not failure_detail:
+            detail += f" · {len(wait.commands)} positively matched protected DAY orders remain working"
+        elif (retry_phase == "EXECUTE" and not failure_code and not failure_detail
+              and phase_max_attempts is None):
+            recovery = RecoveryEvidence(
+                phase="CLEAN_RECOVERY_EXECUTION_WAKE", automatic=True,
+                next_attempt_at=next_wake_at, deadline=_clean_execution_deadline({
+                    "original_execution_deadline_at": original_execution_deadline_at,
+                    "execution_open_at": execution_open_at, "execute_at": execute_at,
+                    "execution_close_at": execution_close_at}))
     elif (normalized == "SUPERSEDED"
           and failure_code == "DISCOVERED_AFTER_SESSION_OPEN"):
         status = PENDING
@@ -925,7 +971,7 @@ def automation_cycle_row(*, installed: Optional[bool],
             automatic=True, next_attempt_at=next_wake_at,
             deadline=deadlines.get(normalized))
     return Row("automation_cycle", "Automation cycle",
-               normalized or "UNKNOWN", status, detail, updated_at,
+               normalized or "UNKNOWN", status, detail, wait.observed_at if wait else updated_at,
                required_current=bool(enabled), recovery=recovery)
 
 
@@ -1070,6 +1116,18 @@ def automation_step_rows(
         next_attempt_at=cycle.get("next_wake_at"),
         operator_required=bool(cycle.get("terminal_reason")),
     )
+    wait = _protected_day_wait(cycle.get("protected_day_wait"), cycle.get("effective_session"), cycle.get("plan_id"))
+    if wait is not None and not cycle.get("failure_code") and not cycle.get("failure_detail"):
+        retry = RecoveryEvidence(
+            phase="PROTECTED_DAY_ORDER_OBSERVATION", automatic=True,
+            next_attempt_at=cycle.get("next_wake_at"),
+            deadline=min(wait.deadline, wait.observed_at + timedelta(minutes=10)))
+    clean_execution_wait = (retry_phase == "EXECUTE" and not cycle.get("failure_code")
+                            and not cycle.get("failure_detail") and cycle.get("phase_max_attempts") is None)
+    if clean_execution_wait:
+        retry = RecoveryEvidence(
+            phase="CLEAN_RECOVERY_EXECUTION_WAKE", automatic=True,
+            next_attempt_at=cycle.get("next_wake_at"), deadline=_clean_execution_deadline(cycle))
     failed_index = None
     if terminal and state != "SUCCEEDED":
         failed_index = _AUTOMATION_RETRY_STEP.get(retry_phase, progress_index)
@@ -1077,6 +1135,17 @@ def automation_step_rows(
     rows: list[Row] = []
     for index, (key, label) in enumerate(_AUTOMATION_STEP_DEFINITIONS):
         row_key = f"automation_step_{key}"
+        if (index == 4 and not terminal and wait is not None
+                and not cycle.get("failure_code") and not cycle.get("failure_detail")):
+            missed = bool(cycle.get("new_submission_cutoff_expired")
+                          and cycle.get("unsent_actionable_deltas"))
+            rows.append(Row(
+                row_key, label, "MISSED UNSENT BUYs" if missed else "DAY ORDERS WORKING",
+                FAIL if missed else WARN,
+                ("the original BUY submission cutoff expired with unsent deltas; " if missed else "")
+                + f"{len(wait.commands)} positively matched protected DAY orders await settlement; full target completion is unproved",
+                wait.observed_at, required_current=True, recovery=retry))
+            continue
         if (index == 4 and interrupted_transport
                 and (state in {"RECONCILING", "SUPERSEDED", "BLOCKED", "MISSED_STATE_ONLY"}
                      or (state == "RETRY_WAIT" and retry_phase != "EXECUTE")
@@ -1129,6 +1198,9 @@ def automation_step_rows(
                     f"{retry_phase or 'UNKNOWN'} · next "
                     f"{cycle.get('next_wake_at') or 'unknown'}")
                 recovery = retry
+                if clean_execution_wait:
+                    value = "READY TO CONTINUE"
+                    detail = "clean recovery permits only the original execution window"
             else:
                 value = state
                 detail = (
@@ -1140,7 +1212,7 @@ def automation_step_rows(
                     deadline=deadlines.get(index))
             rows.append(Row(
                 row_key, label, value, WARN, detail,
-                cycle.get("updated_at"), required_current=True,
+                wait.observed_at if wait is not None else cycle.get("updated_at"), required_current=True,
                 recovery=recovery))
             continue
         rows.append(Row(
@@ -1272,6 +1344,7 @@ def alpaca_account_row(
         observed_at: Optional[datetime] = None,
         valid_until: Optional[datetime] = None,
         recovery: Optional[RecoveryEvidence] = None,
+        matched_protected_reservation: Optional[dict] = None,
         error: Optional[str] = None) -> Row:
     """Latest account result already admitted through the execution membrane."""
     if error or available is None:
@@ -1322,6 +1395,8 @@ def alpaca_account_row(
             "trading_blocked", "account_blocked", "trade_suspended_by_user")
         if flags.get(key) is True)
     economics_failures = []
+    reservation = None
+    matched_hold = False
     if not all(value.is_finite() for value in (
             equity_value, cash_value, buying_power_value, multiplier_value)):
         economics_failures.append("non-finite economics")
@@ -1334,9 +1409,19 @@ def alpaca_account_row(
             economics_failures.append("negative buying power")
         if multiplier_value != Decimal(1):
             economics_failures.append("multiplier is not cash-only 1")
-        if abs(buying_power_value - cash_value) > Decimal("1.00"):
+        reservation = _protected_day_wait(matched_protected_reservation)
+        matched_hold = bool(
+            reservation is not None and observed_at is not None
+            and reservation.deployment[2] == account_id
+            and abs((reservation.observed_at - observed_at).total_seconds()) <= 60
+            and buying_power_value <= cash_value
+            and abs((cash_value - buying_power_value) - reservation.reserved_cash) <= Decimal("1.00"))
+        if abs(buying_power_value - cash_value) > Decimal("1.00") and not matched_hold:
             economics_failures.append(
                 "buying power differs from cash by more than $1")
+        if matched_hold:
+            reservation_until = min(reservation.deadline, reservation.observed_at + timedelta(minutes=10))
+            valid_until = min(valid_until, reservation_until) if valid_until else reservation_until
     state_ok = (
         normalized_status == "ACTIVE" and not blocking
         and not economics_failures)
@@ -1347,7 +1432,9 @@ def alpaca_account_row(
         + (f" · FLAGS {', '.join(blocking)}" if blocking else
            " · no blocking flags")
         + (f" · CONTRACT {', '.join(economics_failures)}"
-           if economics_failures else " · cash-only contract valid"))
+           if economics_failures else " · cash-only contract valid")
+        + (f" · ${reservation.reserved_cash:,.2f} reserved by {len(reservation.commands)} positively matched protected DAY orders"
+           if all(value.is_finite() for value in (cash_value, buying_power_value)) and matched_hold else ""))
     return Row(
         "alpaca_account", "Alpaca Account", value,
         OK if state_ok else FAIL, detail, observed_at,

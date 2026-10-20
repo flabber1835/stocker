@@ -67,9 +67,12 @@ def profile():
               value['idle_checker_normalized_sha256'])
     if (any(not isinstance(sha, str) or not re.fullmatch('[0-9a-f]{64}', sha)
             for sha in hashes)
-            or value['module_sha256'] != value['additions']['opening_latency_upgrade.py']
-            or _normalized(Path(__file__).read_bytes()) != value['module_sha256']):
+            or value['module_sha256'] != value['additions']['opening_latency_upgrade.py']):
         raise ValueError('OPENING_LATENCY_IMPLEMENTATION_CHANGED')
+    normalized_sha = _normalized(Path(__file__).read_bytes())
+    if normalized_sha != value['module_sha256']:
+        from sentinel.protected_cohort_upgrade import require_opening_checker_successor
+        require_opening_checker_successor(normalized_sha)
     return value
 
 
@@ -84,7 +87,10 @@ def require_idle_checker_successor(normalized_sha):
 
 def source_allowed(name, previous, actual):
     record = profile()['files'].get(name)
-    return record is not None and previous in record['before'] and actual == record['after']
+    if record is not None and previous in record['before'] and actual == record['after']:
+        return True
+    from sentinel.protected_cohort_upgrade import source_allowed as successor
+    return successor(name, previous, actual)
 
 
 def additions_allowed(actual):

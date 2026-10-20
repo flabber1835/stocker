@@ -42,6 +42,7 @@ from sentinel.automation.model import (
     LeaderPermit,
     NonRetryableCallbackRefused,
     PermanentOperationalRefusal,
+    protected_day_wait,
     PrepareResult,
     ProspectiveReplacementRefused,
     RefreshResult,
@@ -382,6 +383,14 @@ class AutomationService:
             self.config.retry_base_seconds * (2 ** min(max(0, attempts - 1), int(self.config.retry_max_seconds).bit_length())))
         return now + timedelta(seconds=delay)
 
+    @staticmethod
+    def _completed_at(started_at: datetime, clock) -> datetime:
+        """Use the caller's clock after awaited work; never reset an expiry."""
+        completed = _utc(clock()) if clock is not None else started_at
+        if completed < started_at:
+            raise AutomationRefused("callback completion clock moved backwards")
+        return completed
+
     def _latest_new_execution_at(self, cycle: CycleRecord) -> datetime:
         """Last instant where new transport preserves certified next-open intent.
 
@@ -663,7 +672,7 @@ class AutomationService:
 
     async def _adopt_older_generation(
             self, conn, *, now: datetime, cycle: CycleRecord, permit,
-            control, heartbeat_conn_factory=None) -> TickResult:
+            control, heartbeat_conn_factory=None, clock=None) -> TickResult:
         """Resolve one fenced obligation without ever executing its old plan."""
         integrity.validate_cycle_lineage(conn, cycle)
         if not store.cycle_recovery_capable(cycle):
@@ -706,10 +715,10 @@ class AutomationService:
             return await self._run_preflight_recover(
                 conn, now=now, cycle=adopted, permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory,
-                supersede_on_success=True)
+                supersede_on_success=True, clock=clock)
         return await self._run_recover(
             conn, now=now, cycle=adopted, permit=permit,
-            heartbeat_conn_factory=heartbeat_conn_factory)
+            heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
 
     async def _invoke(
             self, callback, context: CycleContext, *, permit, phase: str,
@@ -1023,7 +1032,7 @@ class AutomationService:
             return await self._adopt_older_generation(
                 conn, now=now, cycle=inherited, permit=permit,
                 control=control,
-                heartbeat_conn_factory=heartbeat_conn_factory)
+                heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
 
         blocked = store.blocked_cycle_for_generation(
             conn, control_generation=control.generation)
@@ -1047,11 +1056,11 @@ class AutomationService:
                 return await self._run_preflight_recover(
                     conn, now=now, cycle=prior, permit=permit,
                     heartbeat_conn_factory=heartbeat_conn_factory,
-                    supersede_on_success=True)
+                    supersede_on_success=True, clock=clock)
             if store.cycle_transport_capable(prior):
                 recovery = await self._run_recover(
                     conn, now=now, cycle=prior, permit=permit,
-                    heartbeat_conn_factory=heartbeat_conn_factory)
+                    heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
                 if (recovery.cycle is None
                         or recovery.cycle.state is not CycleState.SUCCEEDED):
                     return recovery
@@ -1099,14 +1108,14 @@ class AutomationService:
                 return await self._run_preflight_recover(
                     conn, now=now, cycle=unresolved, permit=permit,
                     heartbeat_conn_factory=heartbeat_conn_factory,
-                    supersede_on_success=True)
+                    supersede_on_success=True, clock=clock)
             if (unresolved.state in {
                     CycleState.EXECUTING, CycleState.RECONCILING}
                     or phase in {
                         "EXECUTE", "RECOVER"}):
                 return await self._run_recover(
                     conn, now=now, cycle=unresolved, permit=permit,
-                    heartbeat_conn_factory=heartbeat_conn_factory)
+                    heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
 
         latest = store.latest_cycle(conn)
         conn.rollback()
@@ -1145,10 +1154,10 @@ class AutomationService:
             if store.cycle_preflight_recovery_pending(cycle):
                 return await self._run_preflight_recover(
                     conn, now=now, cycle=cycle, permit=permit,
-                    heartbeat_conn_factory=heartbeat_conn_factory)
+                    heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
             return await self._run_recover(
                 conn, now=now, cycle=cycle, permit=permit,
-                heartbeat_conn_factory=heartbeat_conn_factory)
+                heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
 
         if cycle.state is CycleState.RETRY_WAIT:
             if cycle.next_wake_at is not None and now < cycle.next_wake_at:
@@ -1159,7 +1168,7 @@ class AutomationService:
             if retry_phase == "PREFLIGHT_RECOVER":
                 return await self._run_preflight_recover(
                     conn, now=now, cycle=cycle, permit=permit,
-                    heartbeat_conn_factory=heartbeat_conn_factory)
+                    heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
             if retry_phase == "REFRESH":
                 cycle = store.transition_cycle(
                     conn, permit=permit, cycle_id=cycle.cycle_id,
@@ -1169,7 +1178,7 @@ class AutomationService:
             elif retry_phase == "RECOVER":
                 return await self._run_recover(
                     conn, now=now, cycle=cycle, permit=permit,
-                    heartbeat_conn_factory=heartbeat_conn_factory)
+                    heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
             elif retry_phase == "EXECUTE":
                 if now < cycle.execute_at:
                     return TickResult(
@@ -1178,7 +1187,7 @@ class AutomationService:
                 if self._execution_expired(now=now, cycle=cycle):
                     return await self._run_recover(
                         conn, now=now, cycle=cycle, permit=permit,
-                        heartbeat_conn_factory=heartbeat_conn_factory)
+                        heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
                 cycle = store.transition_cycle(
                     conn, permit=permit, cycle_id=cycle.cycle_id,
                     to_state=CycleState.EXECUTING, increment_attempt=True,
@@ -1196,18 +1205,18 @@ class AutomationService:
                     reason="publication-delay preparation wake has not arrived")
             return await self._run_preflight_recover(
                 conn, now=now, cycle=cycle, permit=permit,
-                heartbeat_conn_factory=heartbeat_conn_factory)
+                heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
 
         if cycle.state is CycleState.REFRESHING_DATA:
             return await self._run_refresh(
                 conn, now=now, cycle=cycle, permit=permit,
-                heartbeat_conn_factory=heartbeat_conn_factory)
+                heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
 
         if cycle.state is CycleState.PREPARING:
             return await self._run_prepare(conn, now=now, cycle=cycle,
                                            permit=permit,
                                            heartbeat_conn_factory=
-                                               heartbeat_conn_factory)
+                                               heartbeat_conn_factory, clock=clock)
 
         if cycle.state is CycleState.PLAN_READY:
             cycle = store.transition_cycle(
@@ -1244,7 +1253,7 @@ class AutomationService:
         if cycle.state is CycleState.RECONCILING:
             return await self._run_recover(
                 conn, now=now, cycle=cycle, permit=permit,
-                heartbeat_conn_factory=heartbeat_conn_factory)
+                heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
 
         if cycle.state is CycleState.EXECUTING:
             integrity.validate_cycle_lineage(conn, cycle)
@@ -1253,18 +1262,18 @@ class AutomationService:
                     conn, permit=permit, cycle_id=cycle.cycle_id)
                 return await self._run_recover(
                     conn, now=now, cycle=cycle, permit=permit,
-                    heartbeat_conn_factory=heartbeat_conn_factory)
+                    heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
             if now < cycle.execute_at:
                 raise AutomationRefused(
                     "EXECUTING cycle reached executor before immutable execute_at")
             if self._execution_expired(now=now, cycle=cycle):
                 return await self._run_recover(
                     conn, now=now, cycle=cycle, permit=permit,
-                    heartbeat_conn_factory=heartbeat_conn_factory)
+                    heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
             return await self._run_execute(conn, now=now, cycle=cycle,
                                            permit=permit,
                                            heartbeat_conn_factory=
-                                               heartbeat_conn_factory)
+                                               heartbeat_conn_factory, clock=clock)
 
         return TickResult(
             action=TickAction.WAITING, cycle=cycle, permit=permit,
@@ -1272,13 +1281,14 @@ class AutomationService:
 
     async def _run_refresh(
             self, conn, *, now: datetime, cycle: CycleRecord,
-            permit, heartbeat_conn_factory=None) -> TickResult:
+            permit, heartbeat_conn_factory=None, clock=None) -> TickResult:
         try:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke_phase(
                 "REFRESH", CycleContext(cycle=cycle, permit=permit),
                 permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
+            now = self._completed_at(now, clock)
             result = (raw if isinstance(raw, RefreshResult)
                       else RefreshResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
@@ -1299,6 +1309,7 @@ class AutomationService:
             raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
+            now = self._completed_at(now, clock)
             return self._handle_callback_failure(
                 conn, now=now, cycle=cycle, permit=permit,
                 phase="REFRESH", exc=exc)
@@ -1306,7 +1317,7 @@ class AutomationService:
     async def _run_preflight_recover(
             self, conn, *, now: datetime, cycle: CycleRecord,
             permit, heartbeat_conn_factory=None,
-            supersede_on_success: bool = False) -> TickResult:
+            supersede_on_success: bool = False, clock=None) -> TickResult:
         """Prove the shared journal clean before any new publication."""
         if cycle.last_fence_token != permit.fence_token:
             cycle = store.adopt_cycle(
@@ -1326,6 +1337,7 @@ class AutomationService:
                 "PREFLIGHT_RECOVER",
                 CycleContext(cycle=cycle, permit=permit), permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
+            now = self._completed_at(now, clock)
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
@@ -1335,6 +1347,7 @@ class AutomationService:
             raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
+            now = self._completed_at(now, clock)
             return self._handle_callback_failure(
                 conn, now=now, cycle=cycle, permit=permit,
                 phase="PREFLIGHT_RECOVER", exc=exc,
@@ -1410,7 +1423,7 @@ class AutomationService:
 
     async def _run_recover(
             self, conn, *, now: datetime, cycle: CycleRecord,
-            permit, heartbeat_conn_factory=None) -> TickResult:
+            permit, heartbeat_conn_factory=None, clock=None) -> TickResult:
         """Read-only broker recovery; this callback is never the executor."""
         if cycle.last_fence_token != permit.fence_token:
             cycle = store.adopt_cycle(
@@ -1421,6 +1434,7 @@ class AutomationService:
                 "RECOVER", CycleContext(cycle=cycle, permit=permit),
                 permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
+            now = self._completed_at(now, clock)
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
@@ -1430,6 +1444,7 @@ class AutomationService:
             raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
+            now = self._completed_at(now, clock)
             return self._handle_callback_failure(
                 conn, now=now, cycle=cycle, permit=permit,
                 phase="RECOVER", exc=exc, recovery_transition=True)
@@ -1514,13 +1529,34 @@ class AutomationService:
                 next_wake_at=max(now, cycle.execute_at),
                 last_clean_reconciliation_id=
                     result.last_clean_reconciliation_id,
-                failure_code=result.failure_code,
-                failure_detail=result.failure_detail,
+                failure_code=(None if result.failure_code == "PROTECTED_COHORT_READY" else result.failure_code),
+                failure_detail=(None if result.failure_code == "PROTECTED_COHORT_READY" else result.failure_detail),
                 diagnostic={**dict(result.diagnostic),
+                            "original_execution_deadline_at": self._latest_new_execution_at(cycle).isoformat(),
+                            **({"continuation_reason": {"code": result.failure_code,
+                                                       "detail": result.failure_detail}}
+                               if result.failure_code == "PROTECTED_COHORT_READY" else {}),
                             "retry_phase": "EXECUTE"})
             return TickResult(
                 action=TickAction.RECOVERED, cycle=cycle, permit=permit,
                 reason="clean recovery permits a fresh executor boundary")
+        if result.failure_code == "PROTECTED_DAY_ORDERS_WORKING":
+            wait = protected_day_wait(
+                result.diagnostic.get("protected_day_wait"), now=now,
+                plan_id=cycle.plan_id,
+                effective_session=cycle.effective_session)
+            if wait is not None:
+                cycle = self._recover_transition(
+                    conn, permit=permit, cycle=cycle,
+                    to_state=CycleState.RETRY_WAIT,
+                    next_wake_at=min(wait.deadline, now + timedelta(
+                        seconds=self.config.control_poll_seconds)),
+                    last_clean_reconciliation_id=result.last_clean_reconciliation_id,
+                    failure_code=None, failure_detail=None,
+                    diagnostic={**dict(result.diagnostic), "retry_phase": "RECOVER"})
+                return TickResult(
+                    action=TickAction.WAITING, cycle=cycle, permit=permit,
+                    reason="positively matched protected DAY orders remain working")
         return self._handle_retry_result(
             conn, now=now, cycle=cycle, permit=permit,
             phase="RECOVER", failure_code=result.failure_code,
@@ -1532,13 +1568,14 @@ class AutomationService:
 
     async def _run_prepare(
             self, conn, *, now: datetime, cycle: CycleRecord,
-            permit, heartbeat_conn_factory=None) -> TickResult:
+            permit, heartbeat_conn_factory=None, clock=None) -> TickResult:
         try:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke_phase(
                 "PREPARE", CycleContext(cycle=cycle, permit=permit),
                 permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
+            now = self._completed_at(now, clock)
             result = (raw if isinstance(raw, PrepareResult)
                       else PrepareResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
@@ -1596,13 +1633,14 @@ class AutomationService:
             raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
+            now = self._completed_at(now, clock)
             return self._handle_callback_failure(
                 conn, now=now, cycle=cycle, permit=permit,
                 phase="PREPARE", exc=exc)
 
     async def _run_execute(
             self, conn, *, now: datetime, cycle: CycleRecord,
-            permit, heartbeat_conn_factory=None) -> TickResult:
+            permit, heartbeat_conn_factory=None, clock=None) -> TickResult:
         integrity.validate_cycle_lineage(conn, cycle)
         if now < cycle.execute_at:
             raise AutomationRefused(
@@ -1610,13 +1648,14 @@ class AutomationService:
         if self._execution_expired(now=now, cycle=cycle):
             return await self._run_recover(
                 conn, now=now, cycle=cycle, permit=permit,
-                heartbeat_conn_factory=heartbeat_conn_factory)
+                heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
         try:
             permit = store.require_leader(conn, permit)
             raw = await self._invoke_phase(
                 "EXECUTE", CycleContext(cycle=cycle, permit=permit),
                 permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory)
+            now = self._completed_at(now, clock)
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
@@ -1626,6 +1665,7 @@ class AutomationService:
             raise
         except Exception as exc:                                  # noqa: BLE001
             store.require_leader(conn, permit)
+            now = self._completed_at(now, clock)
             return self._handle_callback_failure(
                 conn, now=now, cycle=cycle, permit=permit,
                 phase="EXECUTE", exc=exc)

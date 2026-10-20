@@ -555,7 +555,8 @@ def cleanup_private(args, *, preserve_failure=False):
 
 
 EXECUTION_CALENDAR_OWNERS = (
-    "sentinel.automation.schedule", "sentinel.paper.execution", "sentinel.paper.validation",
+    "sentinel.automation.schedule", "sentinel.automation.model", "sentinel.automation_runtime",
+    "sentinel.paper.execution", "sentinel.paper.validation",
     "sentinel.execution.alpaca", "sentinel.execution.guarded", "sentinel.execution.opening_prices",
 )
 

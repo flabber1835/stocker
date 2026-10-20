@@ -1,4 +1,5 @@
 """Closed source upgrades preserve the authenticated formed financial book."""
+from sentinel import protected_cohort_upgrade
 from copy import deepcopy
 import hashlib
 import json
@@ -37,7 +38,7 @@ def test_callback_transition_is_exact_and_neighbor_change_refuses(closure, name)
                 or autonomy_upgrade.source_allowed(name, record['after'], actual)
                 or clock_sampling_upgrade.source_allowed(name, record['after'], actual)
                 or idle_leader_upgrade.source_allowed(name, record['after'], actual)
-                or opening_latency_upgrade.source_allowed(name, record['after'], actual))
+                or (opening_latency_upgrade.source_allowed(name, record['after'], actual) or protected_cohort_upgrade.source_allowed(name, record['after'], actual)))
     assert all(upgrade.source_allowed(name, previous, record['after']) for previous in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
@@ -52,7 +53,7 @@ def test_callback_transition_is_exact_and_neighbor_change_refuses(closure, name)
     path = root/name
     path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_NEIGHBOR = True\n')
     _refresh_current(root, context, value)
-    expected = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in clock_sampling_upgrade.SCOPE | idle_leader_upgrade.SCOPE | opening_latency_upgrade.SCOPE
+    expected = ('RETAINED_SOURCE_CLOSURE_CHANGED' if name in clock_sampling_upgrade.SCOPE | idle_leader_upgrade.SCOPE | opening_latency_upgrade.SCOPE | protected_cohort_upgrade.SCOPE
                 else 'RETAINED_ECONOMIC_SOURCE_CHANGED')
     with pytest.raises(admission.Refused, match=expected):
         admission.prove_compatibility(manifest, checkpoint, context, source=value)
