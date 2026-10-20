@@ -209,16 +209,22 @@ def test_equivalence_manifest_covers_every_canonical_definition():
     assert actual == expected
 
 
-def test_paper_delta_registry_rejects_an_unreviewed_preparation_fingerprint(tmp_path, monkeypatch):
+@pytest.mark.parametrize('definition,owner', [
+    ('prepare_paper_plan', 'preparation'),
+    ('_execute_current_paper_plan', 'execution'),
+    ('recover_automated_paper_cycle', 'recovery'),
+])
+def test_paper_delta_registry_rejects_an_unreviewed_canonical_fingerprint(
+        tmp_path, monkeypatch, definition, owner):
     docs = tmp_path / 'docs'
     docs.mkdir()
     (docs / 'paper-lifecycle-equivalence.json').write_bytes(
         (ROOT / 'docs' / 'paper-lifecycle-equivalence.json').read_bytes())
     delta = json.loads((ROOT / 'docs' / 'production-champion-paper-deltas.json').read_text())
-    delta['definitions']['prepare_paper_plan']['generated_ast_sha256'] = 'f' * 64
+    delta['definitions'][definition]['generated_ast_sha256'] = 'f' * 64
     (docs / 'production-champion-paper-deltas.json').write_text(json.dumps(delta))
     monkeypatch.setattr(sys.modules[__name__], 'ROOT', tmp_path)
-    with pytest.raises(AssertionError, match='unreviewed canonical paper definition: preparation.prepare_paper_plan'):
+    with pytest.raises(AssertionError, match=f'unreviewed canonical paper definition: {owner}.{definition}'):
         test_equivalence_manifest_covers_every_canonical_definition()
 
 

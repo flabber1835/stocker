@@ -241,3 +241,57 @@ No snapshot SQL or diagnostic report is added to a passing callback. Production
 runtime source, lease/callback deadlines, retry policy, clocks, cancellation,
 ownership and authority remain unchanged. Consumed campaigns remain immutable;
 only a fresh namespace may run the newly reviewed harness.
+
+## Measure either reviewed snapshot index
+
+Decision, 2026-10-20: the read-only GO query-plan measurement accepts either
+the existing snapshot-bars primary key or the additive C-order index. PostgreSQL
+may choose either for the same candidate/session lookup. Their exact catalog
+definitions, usable state and uniqueness contracts remain required by schema
+validation; a new index name alone never supplies that authority.
+
+Every measured scan of snapshot bars must remain an index, index-only or bitmap
+heap scan. Its own index branches must name only these two reviewed indexes and
+must include an index. A sequential scan, absent bars scan, unrelated index or
+mixed indexed/sequential plan still fails the measurement. Keep the actual
+EXPLAIN query, read-only transaction and writer-exclusion measurements. Tests
+cover both accepted indexes, bitmap branches and the rejected plan shapes;
+the authenticated PostgreSQL GO payload must pass unchanged financial guards.
+
+## Preserve the caller's transaction during reader dispatch
+
+Decision, 2026-10-20: the canonical versioned reader selects the authenticated
+publication while holding one current corpus pin. Validate its complete receipt
+chain with the explicit snapshot-aware validator, then require the existing
+operational snapshot binding and proof whenever the publication contains a
+`rolling_snapshot` member. Keep the readiness scope inside that same pin. Legacy
+public readers continue to refuse rolling snapshots, and malformed receipts,
+bindings and proofs remain refusals.
+
+This supersedes exception-driven pin dispatch in `rolling-admission-readers.md`
+for the canonical reader's `pinned` entry point only. Trying a legacy pin,
+catching its expected reader-version refusal and acquiring another pin turned
+a healthy caller-owned read-only transaction into a default transaction after
+the failed-pin rollback. Successful `commit=False` dispatch must retain the
+caller's transaction, isolation, read-only setting and backend. Do not restore
+settings onto a replacement transaction or exempt selected exception messages
+from cleanup. Every real lookup, validation or body failure still follows the
+strict rollback/unlock/rollback and session-disposal contract in execution
+contract section 8.4. Failed writes must not survive, and SQLSTATE 57014 must
+retain its original exception and classification.
+
+Expand the current closed successor descriptor from 21 to 23 reviewed runtime
+files by adding `feed/readers.py` and the separately documented physical-health
+reader repair in `feed/rolling_go_health.py`, binding their exact base-52 bytes
+and exact replacement bytes. Keep all 17 historical descriptors and all 22 full
+retained manifest files, revisions and SHA256 pins unchanged. Expand only the
+current unpublished descriptor's per-file witness projections by selecting the
+two added paths from those already authenticated full manifests. Do not invent
+a path absent from a predecessor or accept a hash not present in its manifest.
+Recompute the current projection digest and exact before-hash union; existing
+projected entries remain unchanged. The reviewed checker and current descriptor
+must seal the final reader bytes before further
+qualification. Prove healthy read-only dispatch without rollback, actual failed
+body rollback and pin release, and falsifiers for the former dispatch and a
+removed failed-body rollback. Existing timeout and cleanup-disposal tests remain
+mandatory.

@@ -18,10 +18,14 @@ def _nodes(root):
 def _indexed(conn, query, params):
     plan = conn.execute("EXPLAIN (FORMAT JSON) " + query, params).fetchone()[0][0]["Plan"]
     scans = [node for node in _nodes(plan) if node.get("Relation Name") == "sentinel_snapshot_bars"]
-    return bool(scans) and all(
-        node.get("Node Type") in {"Index Scan", "Index Only Scan", "Bitmap Heap Scan"}
-        for node in scans) and any(node.get("Index Name") == "sentinel_snapshot_bars_pkey"
-                                  for node in _nodes(plan))
+    allowed = {"sentinel_snapshot_bars_pkey", "sentinel_snapshot_bars_c_order"}
+    for scan in scans:
+        if scan.get("Node Type") not in {"Index Scan", "Index Only Scan", "Bitmap Heap Scan"}:
+            return False
+        indexes = [node["Index Name"] for node in _nodes(scan) if "Index Name" in node]
+        if not indexes or any(name not in allowed for name in indexes):
+            return False
+    return bool(scans)
 
 
 def inspect(conn, *, database_url: str):

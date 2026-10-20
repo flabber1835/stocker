@@ -1,5 +1,5 @@
 """Authenticated publication-version dispatch for broker-free operational readers."""
-from contextlib import contextmanager, ExitStack
+from contextlib import contextmanager
 from datetime import datetime
 
 from sentinel.feed import publication, operational_snapshot as snapshots
@@ -40,16 +40,10 @@ def require_current(conn):
 
 @contextmanager
 def pinned(conn, *, commit=True):
-    with ExitStack() as stack:
-        snapshot_reader = False
-        try:
-            pub = stack.enter_context(publication.pinned(conn, commit=commit))
-        except publication.CorpusIncoherent as exc:
-            if str(exc) != "ROLLING_SNAPSHOT_REQUIRES_VERSIONED_READER":
-                raise
-            snapshot_reader = True
-        if snapshot_reader:
-            pub, _ = stack.enter_context(snapshots.pinned(conn, commit=commit))
+    with publication._core.pinned(conn, commit=commit) as pub:
+        publication._validate_publication(conn, pub, allow_snapshot=True)
+        if is_rolling(pub):
+            snapshots._bound(conn, pub)
         from sentinel.feed import readiness_scope
         with readiness_scope.pinned(conn, pub):
             yield pub
