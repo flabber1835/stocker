@@ -59,6 +59,34 @@ injected clock domain. Preserve failure history, deadlines and execution
 cutoffs; recheck them after recovery before further execution. Do not publish
 retry wakes already overdue solely because their callback was lengthy.
 
+Decision, 2026-10-20: a recovery callback can prove a protected cohort ready
+just before the original submission cutoff while its parent receives that
+result after the cutoff. Carry the same strictly typed, nonempty working-DAY
+observation proof alongside that READY result, with its original observation
+time and fixed regular-close-plus-ten-minute deadline. If completion has crossed
+the original execution cutoff, only a current proof matching the cycle's plan,
+effective session and deployment may enter the existing bounded observation
+wait. Its retry phase is RECOVER, never EXECUTE, and it grants no late transport.
+Retain the callback's unsent deltas in the existing missed-remainder diagnostic
+with the expired-cutoff fact, so the working orders cannot hide missed BUYs.
+Do not terminalize positively proved working orders merely because the unsent
+remainder can no longer execute. Missing, stale, foreign or malformed proof
+earns no wait exemption; ordinary expired READY results retain their existing
+expiry behavior. Reuse the existing wait validator and transition, preserve
+failure handling and the cutoff, and falsify removal of the crossing-result
+route or its identity guards.
+
+The working-DAY proof belongs to that callback's cutoff-crossing decision. A
+fresh READY result still awaiting EXECUTE persists the original execution
+deadline and READY status, so copy its diagnostic and remove only
+`protected_day_wait` on that route. Keep the callback result unchanged for the
+crossing decision, and retain its `protected_cohort` and actionable deltas.
+Only the bounded RECOVER observation route persists the working-DAY proof as
+active wait evidence; it must not replace the execution deadline or READY label
+before the cutoff.
+Falsify removal of this separation through the actual service transition and
+both panel projections.
+
 The panel distinguishes positively matched owned resting reservations from
 unexplained buying-power differences using current bound observation evidence.
 Margin, foreign/unknown holds, contradictions and stale evidence remain visible.

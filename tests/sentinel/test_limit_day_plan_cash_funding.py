@@ -583,6 +583,18 @@ class TestProtectedCohortContinuation:
             (SimpleNamespace(security_id="SEC-B", remaining=D(1), is_increase=True),) if actionable else ())
         result = asyncio.run(runtime.recover(ctx))
         assert result.disposition.value == expected
+        if proved:
+            from sentinel.automation.model import ProtectedDayWait
+            from sentinel.feed import calendar
+            wait = ProtectedDayWait.model_validate(result.diagnostic['protected_day_wait'])
+            assert wait.plan_id == plan.plan_id and wait.effective_session == plan.effective_session
+            assert wait.deployment == funding._deployment(command.identity.deployment)
+            assert wait.observed_at == now
+            assert wait.deadline == calendar.session_window(plan.effective_session)[1] + timedelta(minutes=10)
+            assert wait.commands[0].broker_order_id == command.broker_order_id
+            assert wait.commands[0].order_terms == CONTINUATION_TERMS.to_dict()
+        else:
+            assert 'protected_day_wait' not in result.diagnostic
         if proved and (not inside or not actionable):
             assert result.failure_code == "PROTECTED_DAY_ORDERS_WORKING"
             assert result.diagnostic["protected_day_wait"]["reserved_cash"] == "100"

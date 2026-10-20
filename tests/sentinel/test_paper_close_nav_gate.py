@@ -556,9 +556,16 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
             mode=paper_preparation.RolloutMode.PINNED_1_00, version=1,
             certificate_sha256=None))
     publication = SimpleNamespace(version=7, evidence={})
+    pin_calls = []
+
+    def pinned(_conn, *, commit):
+        assert _conn is conn
+        assert commit is False
+        pin_calls.append(publication)
+        return nullcontext(publication)
+
     monkeypatch.setattr(
-        paper_preparation.publication, "pinned",
-        lambda _conn, commit=False: nullcontext(publication))
+        paper_preparation.feed_inputs, "pinned", pinned)
     monkeypatch.setattr(
         paper_preparation.publication, "current", lambda _conn: publication)
     monkeypatch.setattr(
@@ -623,6 +630,7 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
             controller_config=object(), strategy_identity={"strategy": "test"},
             now_et=now, automation_grant=None))
 
+    assert pin_calls == [publication]
     assert len(reached) == 1
     assert reconciled_actions == [aged_actions]
     assert reached[0][0] is conn

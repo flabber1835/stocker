@@ -1216,6 +1216,12 @@ class ProductionAutomation:
                             command.security_id == delta.security_id
                             and command.state not in {CommandState.PLANNED, CommandState.SUPERSEDED}
                             for command in cohort_commands) for delta in actionable)
+                        wait = None
+                        if cohort.commands:
+                            value = cohort.model_dump(mode="json")
+                            value.update(schema="sentinel.protected-day-wait/1",
+                                         deadline=(closed + timedelta(minutes=10)).isoformat())
+                            wait = ProtectedDayWait.model_validate(value)
                         if (actionable and unsent_only
                                 and opened + timedelta(seconds=60) <= _now_utc() < cutoff):
                             return ExecuteResult(
@@ -1226,13 +1232,11 @@ class ProductionAutomation:
                                 failure_detail="existing funded protected cohort has proven unsent share delta",
                                 diagnostic={**result.to_dict(),
                                     "protected_cohort": cohort.model_dump(mode="json"),
+                                    **({"protected_day_wait": wait.model_dump(mode="json", by_alias=True)}
+                                       if wait is not None else {}),
                                     "actionable_deltas": [{"security_id": delta.security_id,
                                         "remaining": str(delta.remaining)} for delta in actionable]})
-                        if cohort.commands and (not actionable or _now_utc() >= cutoff):
-                            value = cohort.model_dump(mode="json")
-                            value.update(schema="sentinel.protected-day-wait/1",
-                                         deadline=(closed + timedelta(minutes=10)).isoformat())
-                            wait = ProtectedDayWait.model_validate(value)
+                        if wait is not None and (not actionable or _now_utc() >= cutoff):
                             return ExecuteResult(
                                 disposition=ExecuteDisposition.RECONCILE,
                                 failure_code="PROTECTED_DAY_ORDERS_WORKING",

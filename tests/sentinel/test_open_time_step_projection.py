@@ -66,6 +66,68 @@ def test_current_execution_retry_keeps_its_active_gate():
         assert unproved.required_current and unproved.effective_status(observed) is model.FAIL
 
 
+def test_fresh_cohort_ready_persistence_keeps_both_panel_execution_deadlines(monkeypatch):
+    from tests.sentinel.test_automation_service_fault_paths import (
+        ready_cohort_recovery, run_resting_recovery,
+    )
+
+    case = ready_cohort_recovery(monkeypatch)
+    record = run_resting_recovery(case).cycle
+    deadline = case.service._latest_new_execution_at(case.cycle)
+    assert deadline != case.completed + timedelta(minutes=10)
+    cycle = {'cycle_id': record.cycle_id, 'state': record.state.value,
+        'plan_id': record.plan_id, 'effective_session': str(record.effective_session),
+        'updated_at': case.completed, 'next_wake_at': record.next_wake_at,
+        'clean_reconciliation_id': record.last_clean_reconciliation_id,
+        'failure_code': record.failure_code, 'failure_detail': record.failure_detail,
+        'execution_open_at': record.execution_open_at, 'execute_at': record.execute_at,
+        'execution_close_at': record.execution_close_at, **record.diagnostic}
+    row = next(row for row in model.automation_step_rows(
+        installed=True, enabled=True, cycle=cycle) if row.key == 'automation_step_transport')
+    assert row.value == 'READY TO CONTINUE', 'fresh READY was projected as DAY observation'
+    assert row.status is model.WARN and row.required_current
+    assert row.recovery.phase == 'CLEAN_RECOVERY_EXECUTION_WAKE'
+    assert row.recovery.automatic and row.recovery.deadline == deadline
+    assert row.recovery.next_attempt_at == record.next_wake_at
+    assert row.effective_status(case.completed) is model.WARN
+    assert row.effective_status(deadline + timedelta(microseconds=1)) is model.FAIL
+
+    cycle_row = model.automation_cycle_row(installed=True, enabled=True,
+        cycle_id=record.cycle_id, state=record.state.value, plan_id=record.plan_id,
+        effective_session=str(record.effective_session), next_wake_at=record.next_wake_at,
+        clean_reconciliation_id=record.last_clean_reconciliation_id,
+        failure_code=record.failure_code, failure_detail=record.failure_detail,
+        retry_phase=cycle['retry_phase'], protected_day_wait=cycle.get('protected_day_wait'),
+        original_execution_deadline_at=cycle['original_execution_deadline_at'],
+        execution_open_at=record.execution_open_at, execute_at=record.execute_at,
+        execution_close_at=record.execution_close_at, updated_at=case.completed)
+    assert cycle_row.status is model.WARN and cycle_row.required_current
+    assert cycle_row.recovery.phase == 'CLEAN_RECOVERY_EXECUTION_WAKE'
+    assert cycle_row.recovery.automatic and cycle_row.recovery.deadline == deadline
+    assert cycle_row.recovery.next_attempt_at == record.next_wake_at
+    assert cycle_row.effective_status(case.completed) is model.WARN
+    assert cycle_row.effective_status(deadline + timedelta(microseconds=1)) is model.FAIL
+    assert 'protected_day_wait' not in record.diagnostic
+    assert case.raw_ready.diagnostic['protected_day_wait'] == case.payload
+    assert record.diagnostic['protected_cohort'] == case.cohort
+    assert record.diagnostic['actionable_deltas'] == case.deltas
+
+
+def test_removed_ready_wait_separation_is_detected_by_real_panel_projection(monkeypatch):
+    import inspect
+    import textwrap
+    from sentinel.automation import service as service_module
+
+    source = textwrap.dedent(inspect.getsource(service_module.AutomationService._run_recover))
+    marker = 'ready_diagnostic.pop("protected_day_wait", None)'
+    assert source.count(marker) == 1
+    namespace = dict(vars(service_module))
+    exec(compile(source.replace(marker, 'pass'), '<private-ready-wait-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(service_module.AutomationService, '_run_recover', namespace['_run_recover'])
+    with pytest.raises(AssertionError, match='fresh READY was projected as DAY observation'):
+        test_fresh_cohort_ready_persistence_keeps_both_panel_execution_deadlines(monkeypatch)
+
+
 def test_recovery_retry_does_not_complete_interrupted_transport():
     row = next(row for row in model.automation_step_rows(
         installed=True, enabled=True, cycle={

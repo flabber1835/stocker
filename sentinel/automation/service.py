@@ -1493,6 +1493,33 @@ class AutomationService:
             return TickResult(
                 action=TickAction.BLOCKED, cycle=cycle, permit=permit,
                 reason=result.failure_detail or result.failure_code)
+        crossing_cohort_ready = (
+            result.disposition is ExecuteDisposition.READY_TO_EXECUTE
+            and result.failure_code == "PROTECTED_COHORT_READY"
+            and cycle.control_generation == permit.control_generation
+            and self._execution_expired(now=now, cycle=cycle))
+        if result.failure_code == "PROTECTED_DAY_ORDERS_WORKING" or crossing_cohort_ready:
+            wait = protected_day_wait(
+                result.diagnostic.get("protected_day_wait"), now=now,
+                plan_id=cycle.plan_id,
+                effective_session=cycle.effective_session)
+            if wait is not None and wait.deployment == (
+                    cycle.deployment_id, cycle.broker,
+                    cycle.broker_account_id, cycle.takeover_epoch):
+                cycle = self._recover_transition(
+                    conn, permit=permit, cycle=cycle,
+                    to_state=CycleState.RETRY_WAIT,
+                    next_wake_at=min(wait.deadline, now + timedelta(
+                        seconds=self.config.control_poll_seconds)),
+                    last_clean_reconciliation_id=result.last_clean_reconciliation_id,
+                    failure_code=None, failure_detail=None,
+                    diagnostic={**dict(result.diagnostic),
+                        **({"unsent_actionable_deltas": result.diagnostic.get("actionable_deltas", []),
+                            "new_submission_cutoff_expired": True} if crossing_cohort_ready else {}),
+                        "retry_phase": "RECOVER"})
+                return TickResult(
+                    action=TickAction.WAITING, cycle=cycle, permit=permit,
+                    reason="positively matched protected DAY orders remain working")
         if result.disposition is ExecuteDisposition.READY_TO_EXECUTE:
             if cycle.control_generation != permit.control_generation:
                 cycle = self._recover_transition(
@@ -1523,6 +1550,8 @@ class AutomationService:
                 return TickResult(
                     action=TickAction.SUPERSEDED, cycle=cycle, permit=permit,
                     reason=cycle.failure_detail)
+            ready_diagnostic = dict(result.diagnostic)
+            ready_diagnostic.pop("protected_day_wait", None)
             cycle = store.transition_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
                 to_state=CycleState.RETRY_WAIT,
@@ -1531,7 +1560,7 @@ class AutomationService:
                     result.last_clean_reconciliation_id,
                 failure_code=(None if result.failure_code == "PROTECTED_COHORT_READY" else result.failure_code),
                 failure_detail=(None if result.failure_code == "PROTECTED_COHORT_READY" else result.failure_detail),
-                diagnostic={**dict(result.diagnostic),
+                diagnostic={**ready_diagnostic,
                             "original_execution_deadline_at": self._latest_new_execution_at(cycle).isoformat(),
                             **({"continuation_reason": {"code": result.failure_code,
                                                        "detail": result.failure_detail}}
@@ -1540,23 +1569,6 @@ class AutomationService:
             return TickResult(
                 action=TickAction.RECOVERED, cycle=cycle, permit=permit,
                 reason="clean recovery permits a fresh executor boundary")
-        if result.failure_code == "PROTECTED_DAY_ORDERS_WORKING":
-            wait = protected_day_wait(
-                result.diagnostic.get("protected_day_wait"), now=now,
-                plan_id=cycle.plan_id,
-                effective_session=cycle.effective_session)
-            if wait is not None:
-                cycle = self._recover_transition(
-                    conn, permit=permit, cycle=cycle,
-                    to_state=CycleState.RETRY_WAIT,
-                    next_wake_at=min(wait.deadline, now + timedelta(
-                        seconds=self.config.control_poll_seconds)),
-                    last_clean_reconciliation_id=result.last_clean_reconciliation_id,
-                    failure_code=None, failure_detail=None,
-                    diagnostic={**dict(result.diagnostic), "retry_phase": "RECOVER"})
-                return TickResult(
-                    action=TickAction.WAITING, cycle=cycle, permit=permit,
-                    reason="positively matched protected DAY orders remain working")
         return self._handle_retry_result(
             conn, now=now, cycle=cycle, permit=permit,
             phase="RECOVER", failure_code=result.failure_code,
