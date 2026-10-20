@@ -216,3 +216,28 @@ corruption. Mutating serialization or path framing must falsify those checks.
 Measure unprofiled algorithm timings separately; neither a microbenchmark nor
 the diagnostic profiles proves sufficient opening margin. A fresh exact-image
 gateway must still pass the unchanged first-POST and recovered-basket limits.
+
+## Retain safe qualification heartbeat failure evidence
+
+Decision, 2026-10-20: a private gateway refusal must retain enough evidence to
+distinguish its heartbeat boundary from its callback boundary. Record only fixed
+exception domains, exception type/module and validated SQLSTATE, never exception
+messages, arguments, connection strings or SQL text. Keep the last four actual
+parent-process heartbeat connection/renewal observations, including elapsed
+times and success or safe failure classification. These are pass-through
+observers: call the original operation once, preserve its exact return value or
+exception object, and never retry, renew independently or change any bound.
+
+Only after a callback invocation fails, before its IDLE cleanup erases callback
+metadata, attempt one read-only snapshot of the exact private physical database.
+Use the existing 3-second connection/statement and 1-second lock bounds. Read
+the database clock, control/lease/instance state and bounded activity/blocker
+metadata without account bindings, query text or provider data. Snapshot and
+reporting failures are secondary diagnostics and cannot replace the original
+refusal. IDLE cleanup failure also preserves an already-raised primary exception;
+cleanup failure after an otherwise successful callback still refuses the run.
+
+No snapshot SQL or diagnostic report is added to a passing callback. Production
+runtime source, lease/callback deadlines, retry policy, clocks, cancellation,
+ownership and authority remain unchanged. Consumed campaigns remain immutable;
+only a fresh namespace may run the newly reviewed harness.

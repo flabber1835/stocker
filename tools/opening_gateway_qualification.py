@@ -7,7 +7,7 @@ has a network fallback and no provider credentials are read from the process.
 from __future__ import annotations
 
 import asyncio
-from collections import Counter
+from collections import Counter, deque
 from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -27,7 +27,7 @@ from unittest.mock import patch
 
 from tools.opening_latency_qualification import (
     QualificationRefused, connect, require_database, require_environment,
-    require_target, reviewed_runtime,
+    require_target, reviewed_runtime, safe_failure,
 )
 
 
@@ -479,6 +479,121 @@ class CallbackMetrics:
             "call_logs_emitted": self.logged, "call_log_cap": self.MAX_CALL_LOGS}), flush=True)
 
 
+class HeartbeatObservations:
+    """Four actual parent boundaries; observation never owns an operation."""
+
+    def __init__(self):
+        self._pid = os.getpid()
+        self._rows = deque(maxlen=4)
+
+    @staticmethod
+    def _started():
+        try:
+            return time.monotonic()
+        except BaseException:
+            return None
+
+    def _record(self, boundary, started, *, conn=None, value=None, error=None):
+        if os.getpid() != self._pid:
+            return  # A forked callback never supplies parent heartbeat evidence.
+        row = {"boundary": boundary, "pid": self._pid,
+               "observed_at": datetime.now(timezone.utc).isoformat(),
+               "seconds": None if started is None else round(time.monotonic() - started, 6),
+               "result": "PASS" if error is None else "REFUSED"}
+        if conn is not None:
+            pid = getattr(getattr(conn, "info", None), "backend_pid", None)
+            if type(pid) is int and pid > 0:
+                row["backend_pid"] = pid
+        if error is not None:
+            row["failure"] = safe_failure(error)
+        elif boundary == "HEARTBEAT_RENEWAL":
+            expires = getattr(value, "expires_at", None)
+            if isinstance(expires, datetime):
+                row["renewed_expires_at"] = expires.isoformat()
+        self._rows.append(row)
+
+    def factory(self, original):
+        @wraps(original)
+        def observed(*args, **kwargs):
+            started = self._started()
+            try:
+                result = original(*args, **kwargs)
+            except BaseException as exc:
+                try:
+                    self._record("HEARTBEAT_CONNECTION", started, error=exc)
+                except BaseException:
+                    pass
+                raise
+            try:
+                self._record("HEARTBEAT_CONNECTION", started, conn=result)
+            except BaseException:
+                pass
+            return result
+        return observed
+
+    def renewal(self, original):
+        @wraps(original)
+        def observed(*args, **kwargs):
+            started = self._started()
+            conn = args[0] if args else kwargs.get("conn")
+            try:
+                result = original(*args, **kwargs)
+            except BaseException as exc:
+                try:
+                    self._record("HEARTBEAT_RENEWAL", started, conn=conn, error=exc)
+                except BaseException:
+                    pass
+                raise
+            try:
+                self._record("HEARTBEAT_RENEWAL", started, conn=conn, value=result)
+            except BaseException:
+                pass
+            return result
+        return observed
+
+    def rows(self):
+        return [dict(row) for row in self._rows]
+
+
+def callback_failure_snapshot(args, context):
+    """One bounded SELECT after refusal, before callback state is cleared."""
+    with connect(args, read_only=True, heartbeat=True) as reader:
+        return reader.execute(
+            "SELECT jsonb_build_object('database_clock',clock_timestamp(),"
+            "'control',(SELECT jsonb_build_object('enabled',enabled,'generation',generation,"
+            "'kill_switch_engaged',kill_switch_engaged) FROM sentinel_automation_control WHERE id=1),"
+            "'lease',(SELECT jsonb_build_object('holder_matches',holder_id=%s,"
+            "'fence_token',fence_token,'control_generation',control_generation,"
+            "'acquired_at',acquired_at,'heartbeat_at',heartbeat_at,'expires_at',expires_at)"
+            " FROM sentinel_automation_lease WHERE id=1),"
+            "'instance',(SELECT jsonb_build_object('state',CASE WHEN state IN"
+            " ('IDLE','PREPARE_CALLBACK','RECOVER_CALLBACK','EXECUTE_CALLBACK',"
+            "'REFRESH_CALLBACK','PREFLIGHT_RECOVER_CALLBACK') THEN state ELSE 'OTHER' END,"
+            "'heartbeat_at',heartbeat_at,'callback_started_at',callback_started_at,"
+            "'callback_deadline_at',callback_deadline_at,'updated_at',updated_at)"
+            " FROM sentinel_automation_service_instances WHERE instance_id=%s),"
+            "'activity',coalesce((SELECT jsonb_agg(a) FROM (SELECT pid,backend_type,"
+            "state,wait_event_type,wait_event,xact_start,query_start,"
+            "(pg_blocking_pids(pid))[1:8] AS blocker_pids FROM pg_stat_activity"
+            " WHERE datname=current_database() AND pid<>pg_backend_pid()"
+            " ORDER BY pid LIMIT 8) a),'[]'::jsonb))",
+            (context.permit.holder_id, context.permit.holder_id)).fetchone()[0]
+
+
+def report_callback_failure(args, context, phase, exc, observations):
+    """Best-effort caller: this function may never replace the primary error."""
+    report = {"stage": "CALLBACK_FAILURE_DIAGNOSTICS", "phase": phase,
+              "parent_pid": os.getpid(), "failure": safe_failure(exc),
+              "heartbeat_observations": observations.rows()}
+    try:
+        report["snapshot"] = callback_failure_snapshot(args, context)
+        report["snapshot_result"] = "PASS"
+    except BaseException as diagnostic:
+        report["snapshot_result"] = "REFUSED"
+        report["snapshot_failure"] = safe_failure(diagnostic)
+    print(json.dumps(report), flush=True)
+
+
 def supervised_callback(args, config, context, phase, body, http, counts):
     """Use the actual process supervisor; exchange only provider fixture state."""
     from sentinel.automation import store
@@ -501,18 +616,37 @@ def supervised_callback(args, config, context, phase, body, http, counts):
             metrics.finish(http, counts, outcome, error)
     supervisor = AutomationService(config=config, holder_id=context.permit.holder_id,
         refresh=callback, prepare=callback, execute=callback, recover=callback)
+    observations, primary = HeartbeatObservations(), None
     try:
-        value = asyncio.run(supervisor._invoke(callback, context, permit=context.permit, phase=phase,
-            heartbeat_conn_factory=lambda: connect(args, read_only=False, heartbeat=True)))
+        with patch.object(store, "heartbeat_lease", observations.renewal(store.heartbeat_lease)):
+            value = asyncio.run(supervisor._invoke(callback, context, permit=context.permit, phase=phase,
+                heartbeat_conn_factory=observations.factory(
+                    lambda: connect(args, read_only=False, heartbeat=True))))
         if set(value) != {"result", "provider", "counts"}:
             raise QualificationRefused("INVALID_CALLBACK_FIXTURE_ROUNDTRIP")
         http.restore(value["provider"])
         counts.clear()
         counts.update(value["counts"])
         return (PrepareResult if phase == "PREPARE" else ExecuteResult).model_validate(value["result"])
+    except BaseException as exc:
+        primary = exc
+        try:
+            report_callback_failure(args, context, phase, exc, observations)
+        except BaseException:
+            pass
+        raise
     finally:
-        with connect(args, read_only=False, heartbeat=True) as reader:
-            store.register_instance(reader, instance_id=context.permit.holder_id, state="IDLE")
+        try:
+            with connect(args, read_only=False, heartbeat=True) as reader:
+                store.register_instance(reader, instance_id=context.permit.holder_id, state="IDLE")
+        except BaseException as cleanup:
+            if primary is None:
+                raise
+            try:
+                print(json.dumps({"stage": "CALLBACK_IDLE_CLEANUP", "result": "REFUSED",
+                    "phase": phase, "failure": safe_failure(cleanup)}), flush=True)
+            except BaseException:
+                pass
 
 
 def report_callback_result(result, *, phase):

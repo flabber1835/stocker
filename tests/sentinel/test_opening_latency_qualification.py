@@ -142,7 +142,9 @@ def test_stages_record_real_failure_without_promoting_pass():
     with pytest.raises(ValueError):
         stages.run("two", lambda: (_ for _ in ()).throw(ValueError("secret")))
     assert stages.rows == [{"stage": "one", "result": "PASS", "seconds": 1.0},
-        {"stage": "two", "result": "REFUSED", "seconds": 2.0, "error_type": "ValueError"}]
+        {"stage": "two", "result": "REFUSED", "seconds": 2.0, "error_type": "ValueError",
+         "failure": {"type": "ValueError", "module": "builtins", "sqlstate": None,
+                     "domain": "OTHER_FAILURE"}}]
 
 
 def test_failure_report_retains_no_dsn_or_exception_message(monkeypatch, tmp_path, capsys):
