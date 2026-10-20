@@ -1,6 +1,6 @@
 {
   "additions": {
-    "protected_cohort_upgrade.py": "7d07b43da7f2564f0fa9a453a6e143c6dfb99be119723a33193c248d68f599ba"
+    "protected_cohort_upgrade.py": "8dbabd8a832b50e56974a40ba2cbd5d704502066592b50b27047aa89385ffa02"
   },
   "authority_effect": "NONE",
   "base_revision": "52b2bd7be846023f924122865a2b16ea1983041d",
@@ -109,7 +109,7 @@
       ]
     },
     "feed/rolling_store.py": {
-      "after": "58f5eefda5aa9bf91117d8250dc7c08fcbda37af52cd9e75e81ec9b54f5e884d",
+      "after": "0091c1149739169688d9432d16070edb03ee9413cb3d90dd422d3275c86e1a46",
       "before": [
         "3e12084449e525b10fa4c645f904ac2706d41fd2fc60461db38a0a77dcac85bb",
         "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d"
@@ -120,6 +120,13 @@
       "before": [
         "2798474440848ce63824ba20eb30123a5ca97fc0fbeb461ef2fca00a60b39d18",
         "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4"
+      ]
+    },
+    "identity.py": {
+      "after": "07865851f32aae555fe85fbf2f0a8063a26ade22d22aa255b96e5af3d0f8ee6a",
+      "before": [
+        "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
+        "92a2933e4f9c43deee239f7ba16d4897e629e3d7e0c256712f5ff90412b894f7"
       ]
     },
     "opening_latency_upgrade.py": {
@@ -202,7 +209,7 @@
       ]
     }
   },
-  "module_sha256": "7d07b43da7f2564f0fa9a453a6e143c6dfb99be119723a33193c248d68f599ba",
+  "module_sha256": "8dbabd8a832b50e56974a40ba2cbd5d704502066592b50b27047aa89385ffa02",
   "opening_checker_normalized_sha256": "3e7739a8f1580db9eaa29e9c730821430b7e33b32fc8fd0dc94d9a496370c76c",
   "predecessor_witnesses": [
     {
@@ -220,6 +227,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "c6742be2fc12294f840219123758804ddab3e949484aa9bce088450489a733fe",
         "panel/sources.py": "2be282ce317ebf34f716643dd9dddb970c4cf0fb1aa9e8bfd8f91736f72e5956",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -244,6 +252,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "e461dacf76fa452f6480d657a3bc457bff0adbff018b8272a9383cf9f5fc150b",
         "panel/sources.py": "e8ac8a78aa2d1cd453b85519551927bda43ab87750bb9dc745e1278647db2a7e",
         "paper/execution.py": "63a6571d7c1cfcdfcd2ccaf9e5e66fe13e1bfe918bfbbe064a74f7d3c5c5814e",
@@ -268,6 +277,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "c6742be2fc12294f840219123758804ddab3e949484aa9bce088450489a733fe",
         "panel/sources.py": "30c1cbc1bb18d8f6b0f6d037dfee7da178998ff51de3407b370f1875550a9360",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -292,6 +302,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "c6742be2fc12294f840219123758804ddab3e949484aa9bce088450489a733fe",
         "panel/sources.py": "2be282ce317ebf34f716643dd9dddb970c4cf0fb1aa9e8bfd8f91736f72e5956",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -316,6 +327,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "740ceb271fc971656ed0541433cfcb3cac6ee890d96436ae8816926a6216c776",
         "panel/sources.py": "26da5ab10c8fe9790319030ee2edfee801015291ae7a6f78d86681f9e4c8b592",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -340,6 +352,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "3e12084449e525b10fa4c645f904ac2706d41fd2fc60461db38a0a77dcac85bb",
         "feed/runtime_schema.py": "2798474440848ce63824ba20eb30123a5ca97fc0fbeb461ef2fca00a60b39d18",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "d5fb0b67299b71d85ba5a204060945104dc52fb1eee666227d1d80a11d1ec931",
         "panel/sources.py": "8cf8b522719cb1f1925309240f7d6b21fd157588971dd55f2c748988bb067b10",
         "paper/execution.py": "63a6571d7c1cfcdfcd2ccaf9e5e66fe13e1bfe918bfbbe064a74f7d3c5c5814e",
@@ -364,6 +377,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "3e12084449e525b10fa4c645f904ac2706d41fd2fc60461db38a0a77dcac85bb",
         "feed/runtime_schema.py": "2798474440848ce63824ba20eb30123a5ca97fc0fbeb461ef2fca00a60b39d18",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "d5fb0b67299b71d85ba5a204060945104dc52fb1eee666227d1d80a11d1ec931",
         "panel/sources.py": "8cf8b522719cb1f1925309240f7d6b21fd157588971dd55f2c748988bb067b10",
         "paper/execution.py": "63a6571d7c1cfcdfcd2ccaf9e5e66fe13e1bfe918bfbbe064a74f7d3c5c5814e",
@@ -388,6 +402,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "7dcd668f75a27634f2520fdad6cf40d477f6989c8c9ed8f293bf64373e91b73c",
         "panel/sources.py": "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -412,6 +427,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "740ceb271fc971656ed0541433cfcb3cac6ee890d96436ae8816926a6216c776",
         "panel/sources.py": "4f9c279c08d326cfb8a6452545b74cd0632f1567d2c5f50fdb7a923995a37328",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -436,6 +452,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "740ceb271fc971656ed0541433cfcb3cac6ee890d96436ae8816926a6216c776",
         "panel/sources.py": "26da5ab10c8fe9790319030ee2edfee801015291ae7a6f78d86681f9e4c8b592",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -460,6 +477,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "7dcd668f75a27634f2520fdad6cf40d477f6989c8c9ed8f293bf64373e91b73c",
         "panel/sources.py": "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17",
         "paper/execution.py": "88ab64e4e985b8d23f61f2074024d8e0bf6c51b2df6184fc0d2c9bfd28ae00ca",
@@ -483,6 +501,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "8725a25072fde7c10842fb1f8273d1ff49880aabb1280deafbe3467f7fc4a554",
         "panel/sources.py": "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -508,6 +527,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "3e12084449e525b10fa4c645f904ac2706d41fd2fc60461db38a0a77dcac85bb",
         "feed/runtime_schema.py": "2798474440848ce63824ba20eb30123a5ca97fc0fbeb461ef2fca00a60b39d18",
+        "identity.py": "92a2933e4f9c43deee239f7ba16d4897e629e3d7e0c256712f5ff90412b894f7",
         "opening_latency_upgrade.py": "f54d24b1e7199b6c0f454da52dbc8d5dddac4f6205926cff4c80c807e1819612",
         "panel/model.py": "d5fb0b67299b71d85ba5a204060945104dc52fb1eee666227d1d80a11d1ec931",
         "panel/sources.py": "8cf8b522719cb1f1925309240f7d6b21fd157588971dd55f2c748988bb067b10",
@@ -533,6 +553,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "740ceb271fc971656ed0541433cfcb3cac6ee890d96436ae8816926a6216c776",
         "panel/sources.py": "4f9c279c08d326cfb8a6452545b74cd0632f1567d2c5f50fdb7a923995a37328",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -557,6 +578,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "1f75c63bc5b4178c79d46c9fe8173cf60dd49c5d549a624fc0576738d16123ea",
         "panel/sources.py": "0d0efbb3e1a3c37fe69104bf6cb1af09111251afd1d6b5527d2f76d051689afd",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -581,6 +603,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "3e12084449e525b10fa4c645f904ac2706d41fd2fc60461db38a0a77dcac85bb",
         "feed/runtime_schema.py": "2798474440848ce63824ba20eb30123a5ca97fc0fbeb461ef2fca00a60b39d18",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "d5fb0b67299b71d85ba5a204060945104dc52fb1eee666227d1d80a11d1ec931",
         "panel/sources.py": "8cf8b522719cb1f1925309240f7d6b21fd157588971dd55f2c748988bb067b10",
         "paper/execution.py": "63a6571d7c1cfcdfcd2ccaf9e5e66fe13e1bfe918bfbbe064a74f7d3c5c5814e",
@@ -605,6 +628,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "7dcd668f75a27634f2520fdad6cf40d477f6989c8c9ed8f293bf64373e91b73c",
         "panel/sources.py": "98275d731dfd118dbf4c4b75a0201dabb51060be4d5402c208cab263c1c59a17",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -629,6 +653,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "3e12084449e525b10fa4c645f904ac2706d41fd2fc60461db38a0a77dcac85bb",
         "feed/runtime_schema.py": "2798474440848ce63824ba20eb30123a5ca97fc0fbeb461ef2fca00a60b39d18",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "d5fb0b67299b71d85ba5a204060945104dc52fb1eee666227d1d80a11d1ec931",
         "panel/sources.py": "8cf8b522719cb1f1925309240f7d6b21fd157588971dd55f2c748988bb067b10",
         "paper/execution.py": "63a6571d7c1cfcdfcd2ccaf9e5e66fe13e1bfe918bfbbe064a74f7d3c5c5814e",
@@ -653,6 +678,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "1f75c63bc5b4178c79d46c9fe8173cf60dd49c5d549a624fc0576738d16123ea",
         "panel/sources.py": "4a82d1296e12fcc507713762baaf22ca4d26edcf8f7580d5300f158dc1f34fc8",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -677,6 +703,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "8725a25072fde7c10842fb1f8273d1ff49880aabb1280deafbe3467f7fc4a554",
         "panel/sources.py": "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -701,6 +728,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "c6742be2fc12294f840219123758804ddab3e949484aa9bce088450489a733fe",
         "panel/sources.py": "fcad027cac68e1373f461a7191d6b3c1423fe2be4f18bb26ea56c12dcf58fdf4",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",
@@ -725,6 +753,7 @@
         "feed/rolling_schema.py": "ed86f692a0bce7b0e942661cb51d4a0debb55ac281d32fe711d52324feeb3ae0",
         "feed/rolling_store.py": "bf038e8e35bd410e3db78407d89b08422647c2c4f7c5310e3615600859bbc56d",
         "feed/runtime_schema.py": "ee5b1c0d9d567bc3e94bb4efbc5a363b719df014c5dc64f28cb994b0322e02e4",
+        "identity.py": "2df357f65d3c12ca653d09763a7b309e1abfb9ae17914cff46b95cfc40a0184e",
         "panel/model.py": "8725a25072fde7c10842fb1f8273d1ff49880aabb1280deafbe3467f7fc4a554",
         "panel/sources.py": "13d0b4bee15fd9f2a1c84a791acb05ca79d5020004a02023b9f2155a9b427cf7",
         "paper/execution.py": "37135d329b5aa7c2b9ba81c770ae6dabb57ea5faf1d7dfad04ccf19c6589215a",

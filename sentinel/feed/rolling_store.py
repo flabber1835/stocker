@@ -276,8 +276,10 @@ def _rows(conn, candidate_id, *, table, columns, order, start=None, end=None):
     rolling_work.checkpoint()
 
 
-def _fold(hasher, value):
-    hasher.update(canonical_json(value).encode("ascii"))
+def _fold(hasher, value, _encoder: json.JSONEncoder | None = None):
+    encoded = (canonical_json(value) if _encoder is None
+               else _encoder.encode(value)).encode("ascii")
+    hasher.update(encoded)
     hasher.update(b"\n")
 
 
@@ -422,6 +424,8 @@ def _verify_content_uncached(conn, candidate_id: str) -> VerifiedSnapshot:
     from sentinel.feed import readiness_scope
     scope = readiness_scope.capture(conn)  # Check the original pin before any reader can reacquire it.
     value = manifest(conn, candidate_id)
+    encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"),
+                               ensure_ascii=True, allow_nan=False)
     bars_hash, keys_hash, benchmarks_hash = (
         hashlib.sha256(), hashlib.sha256(), hashlib.sha256())
     count, sessions, benchmark_sessions = 0, set(), []
@@ -434,13 +438,13 @@ def _verify_content_uncached(conn, candidate_id: str) -> VerifiedSnapshot:
     for row in read_bars(conn, candidate_id):
         count += 1
         sessions.add(row.session)
-        _fold(bars_hash, row.model_dump(mode="json"))
-        _fold(keys_hash, (row.session.isoformat(), row.security_id))
+        _fold(bars_hash, row.model_dump(mode="json"), encoder)
+        _fold(keys_hash, (row.session.isoformat(), row.security_id), encoder)
         if readiness is not None:
             readiness.observe(row)
     for row in read_benchmarks(conn, candidate_id):
         benchmark_sessions.append(row.session)
-        _fold(benchmarks_hash, row.model_dump(mode="json"))
+        _fold(benchmarks_hash, row.model_dump(mode="json"), encoder)
         if readiness is not None and len(benchmarks) < len(value.window.sessions):
             benchmarks.append(row)
     if (count != value.bar_count or sessions != set(value.window.sessions)

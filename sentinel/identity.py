@@ -300,12 +300,18 @@ def source_hash(root: Optional[Path]) -> dict:
                 "files": 0, "hash": None}
     files = sorted(p for p in root.rglob("*.py")
                    if "__pycache__" not in p.parts)
+    ordinary_root = type(root) is type(Path())
+    root_parts = root.parts if ordinary_root else ()
+    prefix_length = len(root_parts)
     h = hashlib.sha256()
     for p in files:
-        h.update(p.relative_to(root).as_posix().encode())
-        h.update(b"\0")
-        h.update(_sha(p.read_bytes()).encode())
-        h.update(b"\n")
+        parts = p.parts if ordinary_root and type(p) is type(root) else ()
+        if (ordinary_root and type(p) is type(root)
+                and len(parts) > prefix_length and parts[:prefix_length] == root_parts):
+            relative = "/".join(parts[prefix_length:])
+        else:
+            relative = p.relative_to(root).as_posix()
+        h.update(relative.encode() + b"\0" + _sha(p.read_bytes()).encode() + b"\n")
     return {"root": root.name, "path": str(root), "files": len(files),
             "hash": h.hexdigest()}
 

@@ -189,3 +189,30 @@ pin-loss, changed-generation and interrupted-scan refusals. Demonstrate guard
 removal falsifiers, detached returned material and complete old-path fallback on
 the reference bound. Only a fresh exact-image gateway can establish a latency
 benefit; the original 120/300-second qualification deadlines stay fixed.
+
+## Preserve bytes while reducing repeated serialization work
+
+Decision, 2026-10-20: reduce pure Python bookkeeping in the existing complete
+verification and runtime source fingerprint. Keep every fresh source-tree
+enumeration, file-byte read, model validation, content hash and authority check.
+No runtime observation or authority is shared across guard invocations.
+
+The source fingerprint may obtain a normal pathlib child's relative POSIX name
+by joining its exact suffix parts when the ordinary concrete Path types and
+lexical parent prefix match. Unusual paths retain the original relative_to
+operation. Preserve sorting, exclusions, fresh file reads, failures and the exact
+path/NUL/content-digest/newline framing; combining consecutive hasher updates
+must produce identical bytes. Retain no source inventory or file digest cache.
+
+One uncached snapshot verification may create one standard JSONEncoder with
+the exact canonical_json options and reuse only that encoder for its rows.
+Preserve complete encoding before updating the hasher, ASCII encoding and the
+newline framing. Keep the canonical_json API and sealing behavior unchanged.
+The encoder retains no row, facts, completed proof or cross-call lifetime.
+
+Independent byte/hash oracles must compare against the original algorithms,
+including unusual labels, paths, error domains, changed files and final-row
+corruption. Mutating serialization or path framing must falsify those checks.
+Measure unprofiled algorithm timings separately; neither a microbenchmark nor
+the diagnostic profiles proves sufficient opening margin. A fresh exact-image
+gateway must still pass the unchanged first-POST and recovered-basket limits.
