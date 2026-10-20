@@ -310,13 +310,50 @@ def summarize_readiness(material):
 
 def readiness_inputs(conn, *, candidate_id: str, snapshot_id: str) -> ReadinessInputs:
     refs, session, axis, warm, meta, _sectors = _snapshot_context(conn, candidate_id, snapshot_id)
-    summary = ReadinessInputs(session, warm, _benchmarks(conn, candidate_id, session),
-                              any(m.related_tickers for m in meta.values()))
-    for bar in _mapped_bars(conn, candidate_id, refs, meta, warm[0]):
-        summary.observe(bar)
+    facts = rolling_store.readiness_facts(conn, candidate_id)
+    if facts is None:
+        summary = ReadinessInputs(session, warm, _benchmarks(conn, candidate_id, session),
+                                  any(m.related_tickers for m in meta.values()))
+        for bar in _mapped_bars(conn, candidate_id, refs, meta, warm[0]):
+            summary.observe(bar)
+    else:
+        summary = _readiness_from_facts(facts, refs, session, axis, warm, meta)
     if sorted(summary.counts) != axis:
         raise RollingInputsRefused("COLD_START_PRICE_GAP")
     # Counts are insufficient evidence for dated action/reference closure.
     refs.terminals(start=warm[0], end=session)
     refs.distributions(session=session)
+    return summary
+
+
+def _readiness_from_facts(facts, refs, session, axis, warm, meta):
+    if (facts.candidate_id != refs.candidate_id
+            or facts.snapshot_id != refs.manifest.snapshot_id
+            or facts.sessions != refs.manifest.window.sessions):
+        raise RollingInputsRefused("SNAPSHOT_READINESS_IDENTITY_MISMATCH")
+    indices = {str(day): index for index, day in enumerate(facts.sessions)}
+    selected = sum(1 << indices[day] for day in axis)
+    for (sid, ticker), dates in facts.reference_uses.items():
+        remaining = dates & selected
+        if remaining and sid not in meta:
+            raise RollingInputsRefused("SNAPSHOT_BAR_REFERENCE_MISMATCH")
+        while remaining:
+            bit = remaining & -remaining
+            day = str(facts.sessions[bit.bit_length() - 1])
+            if refs.resolver.resolve(ticker, day) != sid:
+                raise RollingInputsRefused("SNAPSHOT_BAR_REFERENCE_MISMATCH")
+            remaining ^= bit
+    benchmark_axis = calendar.previous_sessions(session, 254)
+    benchmarks = tuple(row for row in facts.benchmarks if str(row.session) >= benchmark_axis[0])
+    if [str(row.session) for row in benchmarks] != benchmark_axis:
+        raise RollingInputsRefused("COLD_START_BENCHMARK_GAP")
+    summary = ReadinessInputs(session, warm, benchmarks,
+                              any(m.related_tickers for m in meta.values()))
+    for day in axis:
+        index = indices[day]
+        if facts.counts[index]:
+            summary.counts[day] = facts.counts[index]
+        positive = summary.frontier_positive if day == session else summary.warmup_positive
+        for name, count in zip(READINESS_DOMAINS, facts.positive[index], strict=True):
+            positive[name] += count
     return summary

@@ -111,3 +111,81 @@ broker-GET-only preparation can reconcile them. Financial activation of the
 new release requires the next actual closed-session decision and its accepted
 publication and verified shadow. Do not substitute unsent-recovery flags or
 replay today's historical missed BUYs to complete that cutover.
+
+## Physical ordering for snapshot verification
+
+Decision, 2026-10-20: add a nonunique B-tree index on
+`sentinel_snapshot_bars (candidate_id, session, security_id COLLATE "C")`.
+The exact private qualification database uses `en_US.utf8`; its existing
+primary key uses the default security-ID collation. A bounded read-only
+`EXPLAIN` of the canonical snapshot reader therefore includes an incremental
+sort to produce its required C ordering. The new index matches that existing
+ordering directly. Keep the primary key, query, complete payload scan, schema
+validation, canonical serialization and all three content hashes unchanged.
+Do not add covering columns or infer a measured latency benefit from a plan.
+
+Install the index only through the existing explicit atomic feed migration,
+while the deployment is fenced and its migration ownership is held. Runtime
+readers and validators never build or repair it. Preserve all candidate rows,
+manifests, publication receipts, strategy state and existing immutable-input
+rules. The index is a physical access path and grants no execution authority.
+Index creation must succeed before the migration commits; the ordinary lock
+timeout and rollback behavior remain in force. No production or campaign
+database receives an ad hoc index operation.
+
+The read-only feed catalog contract requires this usable nonunique B-tree,
+with exactly these ordered keys and C collation and no predicate or covering
+columns. Its absence or altered shape is an explicit schema mismatch. This
+makes the supported installer take its existing fenced migration path and
+fresh pre-migration backup, rather than reporting an unchanged catalog and
+skipping index installation. No historical book or source witness is rewritten
+to satisfy this physical schema upgrade.
+
+Focused private PostgreSQL tests must show canonical migration idempotence,
+exact row order and unchanged sealed hashes before and after installation,
+and an unforced plan using the matching index without an ordering sort.
+Removing the index or its C collation must fail that access-path assertion.
+Retain the original first-POST and complete-recovery limits and qualify a fresh
+exact image and namespace; this index alone is not evidence those limits pass.
+
+## One traversal for full verification and readiness facts
+
+Decision, 2026-10-20: during the first mandatory complete snapshot verification,
+also accumulate raw per-session population and positive-domain counts, the
+bounded canonical benchmark axis, and exact `(security_id, ticker)` uses as
+session bitmasks. The initial execution resolver verifies content before it
+constructs `SnapshotReferences`; a later readiness observer must not miss that
+first scan. Keep the original complete row-model validation, row order,
+serialization, hashes, axes and streaming checkpoints. Only after every bar,
+benchmark, hash and final ownership check succeeds may one completed private
+record become reusable under the original live publication pin. Preserve
+`verify_content`'s public manifest result.
+Unscoped verification and a different publication candidate allocate no summary
+and keep the existing mapped readiness path.
+
+This record contains raw facts, never `VendorBar` objects, price arrays,
+strategy decisions, readiness verdicts or broker permissions. Limit reference
+uses to 100,000 distinct identity/ticker pairs. On overflow discard the entire
+summary optimization and use the existing mapped readiness stream; continue
+the complete original content verification. Never truncate identities, skip a
+row check or alter input eligibility to meet that bound. Retain no material
+outside the exact database, publication, candidate, manifest and original live
+pin; partial scans, lost pins and changed identities install no record.
+
+Readiness still admits `SnapshotReferences`, current metadata, source/validation
+bindings, canonical aliases, action dates, terminals and distributions. Select
+its existing exact warmup/decision and benchmark axes from the raw facts and
+check every represented selected identity/date through the same canonical
+resolver predicate as the mapped reader. A first/last date interval is
+insufficient: a reused symbol on an interior date must refuse, while an absent
+interior row must not be invented. Preserve dynamic source-final and readiness
+clauses and all execution authority/freshness guards. Economic input readers,
+canonical strategy state and the running backtest remain unchanged.
+
+Focused tests must cross the real resolver-first boundary, prove one complete
+stream before readiness, compare counts with independent SQL, exercise middle
+date identity errors and absent dates, and preserve corruption, action, domain,
+pin-loss, changed-generation and interrupted-scan refusals. Demonstrate guard
+removal falsifiers, detached returned material and complete old-path fallback on
+the reference bound. Only a fresh exact-image gateway can establish a latency
+benefit; the original 120/300-second qualification deadlines stay fixed.

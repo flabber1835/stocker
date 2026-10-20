@@ -101,11 +101,12 @@ def test_removed_snapshot_reuse_guards_are_detected(conn,published,monkeypatch,g
     else:
         source=textwrap.dedent(inspect.getsource(readiness_scope.verified_snapshot))
         if guard=='manifest':
-            source=source.replace("if current.snapshot_id != binding['snapshot_id']:",'if False:').replace('if cached != current:','if False:')
+            source=source.replace("if current.snapshot_id != binding['snapshot_id']:",'if False:').replace('if not isinstance(cached, rolling_store.VerifiedSnapshot) or cached.manifest != current:','if False:')
             check=lambda:test_changed_manifest_and_partial_scan_install_no_reusable_proof(conn,published,monkeypatch)
         elif guard=='detach':
             # A caller must not be able to poison the stored proof.
-            source=source.replace('return deepcopy(cached)','return cached')
+            source=source.replace('return deepcopy(completed.readiness if summary_only else completed.manifest)',
+                                  'return completed.readiness if summary_only else completed.manifest')
             def check():
                 candidate=published['candidate_id']
                 with feed_inputs.pinned(conn,commit=False):
@@ -115,7 +116,7 @@ def test_removed_snapshot_reuse_guards_are_detected(conn,published,monkeypatch,g
                     object.__setattr__(one,'bar_count',one.bar_count+1)
                     assert rolling_store.verify_content(conn,candidate).bar_count==expected
         else:
-            source=source.replace('completed = load()',"completed = current\n        try: load()\n        except TimeoutError: pass")
+            source=source.replace('completed = load()',"completed = rolling_store.VerifiedSnapshot(current, None)\n        try: load()\n        except TimeoutError: pass")
             check=lambda:test_changed_manifest_and_partial_scan_install_no_reusable_proof(conn,published,monkeypatch)
         namespace={};exec(compile(source,'snapshot-reuse-falsifier','exec'),readiness_scope.__dict__,namespace)
         monkeypatch.setattr(readiness_scope,'verified_snapshot',namespace['verified_snapshot'])

@@ -1078,6 +1078,17 @@ the already-current immutable plan; it does not silently re-size that plan from
 a later account observation. Readiness is always judged against the actual
 exchange-local observation time, never a caller-supplied future date.
 
+Attended preparation builds its broker identity resolver for the prepared
+plan's effective session, `calendar.next_session(through)`, while `through`
+remains the decision close passed to canonical preparation. This permits an
+exact lookup of an already-dispatched next-session order whose native
+`submitted_at` names that effective session. Keep the existing authenticated
+next-session source projection and requested-date guard: a later date,
+unresolved identity or contradictory provider identity still refuses. A ticker
+or native asset ID alone is never a permanent-identity fallback. This resolver
+date grants no broker operation; canonical latest-closed-session, publication,
+grant and signed-authority checks still run before broker reads.
+
 For a production Sentinel plan, `plan_id` is itself an authority, not an
 arbitrary database handle. Its only valid value is
 `sentinel-<ExecutionPlan.fingerprint()>`, recomputed from every immutable
@@ -1416,6 +1427,30 @@ implemented is the subset of that guarantee which closes the hazard — and it i
 required under generations too, since the pointer move must still exclude a
 reader mid-snapshot. For a single-writer appliance that decides once per session
 and ingests in the evening, the exclusion costs nothing it does concurrently.
+
+### 8.4 Failed pin cleanup preserves the original refusal
+
+A corpus pin owns one session-level shared advisory lock from successful
+acquisition until cleanup. Publication lookup and the complete body remain
+inside that pin. If either raises, rollback the failed transaction before
+issuing the advisory unlock and never commit failed-body work. Preserve the
+original exception, including its class and SQLSTATE, through cleanup. A
+bounded database timeout remains a temporary dependency failure; an integrity
+refusal remains an integrity refusal. An unexplained aborted transaction is
+not automatically a temporary failure.
+
+Cleanup must release the owned lock or discard its database session. A failed
+rollback or unlock requires session disposal, with sanitized cleanup exception
+types and SQLSTATEs retained on the original exception. A failed disposal is
+also retained; the session cannot be reused and the operation cannot succeed.
+If acquisition itself raises before ownership is known, discard that session
+instead of guessing whether an unlock is owed. A known false acquisition
+remains ordinary corpus contention.
+
+Successful `commit=False` callers keep their caller-owned transaction boundary.
+A success-path unlock failure discards the session and refuses without
+committing the body. These cleanup rules grant no broker authority, change no
+command identity, reset no cycle and extend no execution or retry deadline.
 
 ---
 

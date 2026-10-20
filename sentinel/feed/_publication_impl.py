@@ -653,6 +653,40 @@ def _run_producer_identity(conn, run_id: str) -> dict:
     return recorded
 
 
+def _note_pin_cleanup(primary: BaseException, stage: str,
+                      cleanup: BaseException) -> None:
+    sqlstate = getattr(cleanup, "sqlstate", None)
+    suffix = (f" SQLSTATE={sqlstate}"
+              if isinstance(sqlstate, str) and len(sqlstate) == 5
+              and sqlstate.isascii() and sqlstate.isalnum() else "")
+    primary.add_note(
+        f"corpus pin {stage} failed: {type(cleanup).__name__}{suffix}")
+
+
+def _discard_pin_connection(conn, primary: BaseException) -> None:
+    try:
+        conn.close()
+    except BaseException as cleanup:                           # noqa: BLE001
+        _note_pin_cleanup(primary, "session disposal", cleanup)
+
+
+def _unlock_pin(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_advisory_unlock_shared(%s)", (CORPUS_LOCK_KEY,))
+
+
+def _release_failed_pin(conn, primary: BaseException) -> None:
+    try:
+        # A statement timeout aborts the transaction, but the advisory pin is
+        # session-owned. Clear that transaction before issuing the unlock.
+        conn.rollback()
+        _unlock_pin(conn)
+        conn.rollback()
+    except BaseException as cleanup:                           # noqa: BLE001
+        _note_pin_cleanup(primary, "exception cleanup", cleanup)
+        _discard_pin_connection(conn, primary)
+
+
 @contextmanager
 def pinned(conn, *, commit: bool = True) -> Iterator[Publication]:
     """Hold the corpus still for the duration of a session, and say which one.
@@ -670,26 +704,38 @@ def pinned(conn, *, commit: bool = True) -> Iterator[Publication]:
     exclusion the pin froze the version NUMBER while the rows it named were
     rewritten in place underneath the reader.
     """
-    with conn.cursor() as cur:
-        cur.execute("SELECT pg_try_advisory_lock_shared(%s)", (CORPUS_LOCK_KEY,))
-        if not bool(cur.fetchone()[0]):
-            raise CorpusLockUnavailable(
-                "the corpus is being WRITTEN — a publish or an ingest holds it "
-                "exclusively — so it cannot be pinned. Pinning now would stamp "
-                "a decision with a version whose rows are half one generation "
-                "and half another.")
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock_shared(%s)", (CORPUS_LOCK_KEY,))
+            acquired = bool(cur.fetchone()[0])
+    except BaseException as exc:                               # noqa: BLE001
+        # The server may have acquired a session pin before its result was
+        # lost. Only session disposal safely resolves that unknown ownership.
+        _discard_pin_connection(conn, exc)
+        raise
+    if not acquired:
+        raise CorpusLockUnavailable(
+            "the corpus is being WRITTEN — a publish or an ingest holds it "
+            "exclusively — so it cannot be pinned. Pinning now would stamp "
+            "a decision with a version whose rows are half one generation "
+            "and half another.")
     try:
         yield require_current(conn)
-    finally:
-        with conn.cursor() as cur:
-            cur.execute("SELECT pg_advisory_unlock_shared(%s)",
-                        (CORPUS_LOCK_KEY,))
+    except BaseException as exc:                               # noqa: BLE001
+        _release_failed_pin(conn, exc)
+        raise
+    else:
         # A session-level advisory unlock does not need a commit. Production
         # catch-up defers this commit for its final session so the state and the
         # one adopted plan remain atomic. Existing standalone readers retain
         # their historical autocommit-like behaviour by default.
-        if commit:
-            conn.commit()
+        try:
+            _unlock_pin(conn)
+            if commit:
+                conn.commit()
+        except BaseException as exc:                           # noqa: BLE001
+            _discard_pin_connection(conn, exc)
+            raise
 
 
 def chain_gaps(conn) -> list:

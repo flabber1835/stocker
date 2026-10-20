@@ -221,7 +221,7 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
         return refusal
     from sentinel import paper, schema
     from sentinel.automation_runtime import shadow_config_from_env
-    from sentinel.feed import store as feed_store
+    from sentinel.feed import calendar, store as feed_store
 
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
@@ -259,7 +259,8 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
                 "dual_shadow_observation_id": observation_id,
                 "dual_shadow_starting_cash": starting_cash,
             })
-        resolve_security_id = paper.build_security_resolver(conn, args.through)
+        resolve_security_id = paper.build_security_resolver(
+            conn, calendar.next_session(args.through))
         broker = build_execution_broker(config, resolve_security_id=resolve_security_id)
         result = await paper.prepare_paper_plan(
             conn=conn, broker=broker, base_url=config.base_url,
