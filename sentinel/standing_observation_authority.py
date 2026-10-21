@@ -125,15 +125,20 @@ def require_standing_observation_authority(
             "controller rollout")
 
     bindings = certificate.claims["bindings"]
-    artifacts = runtime_artifact_identity(runtime_identity)
-    for field in ("git_commit", "runtime_image_digest", "test_image_digest"):
-        if bindings[field] != artifacts[field]:
+    from sentinel import local_paper
+    local = local_paper.require_bound_account(conn)
+    if local:
+        local_paper.require_runtime(conn, runtime_identity)
+    else:
+        artifacts = runtime_artifact_identity(runtime_identity)
+        for field in ("git_commit", "runtime_image_digest", "test_image_digest"):
+            if bindings[field] != artifacts[field]:
+                raise AuthorityRefused(
+                    f"standing paper {field.replace('_', ' ')} does not match this "
+                    "runtime")
+        if bindings["runtime_identity_sha256"] != runtime_identity.get("identity_hash"):
             raise AuthorityRefused(
-                f"standing paper {field.replace('_', ' ')} does not match this "
-                "runtime")
-    if bindings["runtime_identity_sha256"] != runtime_identity.get("identity_hash"):
-        raise AuthorityRefused(
-            "standing paper runtime identity does not match this runtime")
+                "standing paper runtime identity does not match this runtime")
     if bindings["strategy_identity_sha256"] != canonical_sha256(strategy_identity):
         raise AuthorityRefused(
             "standing paper strategy identity does not match this runtime")
@@ -176,7 +181,7 @@ def require_standing_observation_authority(
             raise AuthorityRefused(
                 "standing paper certificate does not permit unattended "
                 "automation")
-        if bindings["automation_config_sha256"] != automation_config_sha256:
+        if not local and bindings["automation_config_sha256"] != automation_config_sha256:
             raise AuthorityRefused(
                 "standing paper automation configuration does not match")
     return certificate

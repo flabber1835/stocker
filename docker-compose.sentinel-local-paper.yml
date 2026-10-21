@@ -1,0 +1,38 @@
+# Owner-authorized PAPER iteration. No backup service or archive writes.
+x-local-paper-environment: &local-paper-environment
+  SENTINEL_LOCAL_PAPER_MODE: ${SENTINEL_LOCAL_PAPER_MODE:?owner authorization required}
+  SENTINEL_LOCAL_PAPER_ACCOUNT_ID: ${SENTINEL_LOCAL_PAPER_ACCOUNT_ID:?exact paper account required}
+
+services:
+  sentinel-postgres:
+    command: ["postgres", "-c", "archive_mode=off", "-c", "archive_command="]
+  sentinel:
+    image: ${SENTINEL_LOCAL_PAPER_IMAGE:?exact local image required}
+    pull_policy: never
+    environment:
+      <<: *local-paper-environment
+  sentinel-authorized-cli:
+    image: ${SENTINEL_LOCAL_PAPER_IMAGE:?exact local image required}
+    pull_policy: never
+    environment:
+      <<: *local-paper-environment
+  sentinel-automation:
+    image: ${SENTINEL_LOCAL_PAPER_IMAGE:?exact local image required}
+    pull_policy: never
+    environment:
+      <<: *local-paper-environment
+  sentinel-shadow:
+    image: ${SENTINEL_LOCAL_PAPER_IMAGE:?exact local image required}
+    pull_policy: never
+    environment:
+      <<: *local-paper-environment
+  sentinel-panel:
+    image: ${SENTINEL_LOCAL_PAPER_IMAGE:?exact local image required}
+    pull_policy: never
+    environment:
+      <<: *local-paper-environment
+  sentinel-alert-dispatcher:
+    image: ${SENTINEL_LOCAL_PAPER_IMAGE:?exact local image required}
+    pull_policy: never
+    environment:
+      <<: *local-paper-environment

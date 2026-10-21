@@ -2420,6 +2420,9 @@ def _base_restore_increase_fence_reason(conn, deployment, today: date) -> str:
     return ""
 
 def upgrade_restore_reason(conn) -> str:
+    from sentinel import local_paper
+    if local_paper.require_bound_account(conn):
+        return ""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT state FROM sentinel_processed_sessions"
@@ -2449,6 +2452,9 @@ def upgrade_restore_reason(conn) -> str:
 
 def postmaster_day_order_fence_reason(
         conn, today, *, recovery_generation=None) -> str:
+    from sentinel import local_paper
+    if local_paper.require_bound_account(conn):
+        return ""
     try:
         opened, closed = calendar.session_window(today)
     except calendar.NonSessionDate:
@@ -2711,6 +2717,9 @@ def strict_advance(conn, through: datetime) -> datetime:
 def execution_increase_fence_reason(*, conn, deployment, today) -> str:
     """Return the first Alpaca increase fence in certified execution order."""
     if deployment.broker != "alpaca":
+        return ""
+    from sentinel import local_paper
+    if local_paper.require_bound_account(conn):
         return ""
     return (
         _base_restore_increase_fence_reason(conn, deployment, today)

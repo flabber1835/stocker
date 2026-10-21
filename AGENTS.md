@@ -1,5 +1,16 @@
 # AGENTS.md
 
+## Owner instruction: function-first local PAPER operation (2026-10-21)
+
+Until the owner reinstates the release workflow, local branch changes are
+deployed directly to the paper system. Do not use PR delivery. Backups,
+maintenance, restore drills, backup verification and backup-dependent release
+gates are suspended. Do not re-enable them automatically after a test succeeds.
+The owner authorizes paper trades needed to demonstrate actual execution.
+Keep live endpoints forbidden, the canonical book and command journal intact,
+UNKNOWN outcomes explicit, and long-only/unlevered account guards enforced.
+These instructions supersede conflicting PR and backup requirements below.
+
 # Sentinel
 
 This repository contains one production architecture. Stocker is gone.

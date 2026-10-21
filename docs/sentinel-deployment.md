@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[Owner-authorized local PAPER operation](local-paper-function-first.md)
+temporarily supersedes PR delivery and backup/restore prerequisites. Demonstrate
+actual production-path paper execution first; do not re-enable the suspended
+features without further owner instruction.
+
 [Explicit protected PAPER debug window](paper-debug-window.md) permits only a
 signed, session-specific window of at most 30 regular-session minutes while
 preserving the 100-basis-point cap, funding, lineage and recovery gates.

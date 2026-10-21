@@ -1323,18 +1323,23 @@ def _operator_evidence_rows(
             conn, _latest_account_evidence, STATEMENT_TIMEOUT_MS, default=None)
         bound, binding_error = _read(
             conn, _bound_account_id, STATEMENT_TIMEOUT_MS, default=None)
-        base, base_error = _read(
-            conn, lambda c: _latest_backup_evidence(c, "BASE_BACKUP"),
-            STATEMENT_TIMEOUT_MS, default=None)
-        restore, restore_error = _read(
-            conn, lambda c: _latest_backup_evidence(c, "RESTORE_DRILL"),
-            STATEMENT_TIMEOUT_MS, default=None)
-        runtime_backup, runtime_backup_error = _read(
-            conn, lambda c: _latest_backup_evidence(c, "RUNTIME_CHAIN"),
-            STATEMENT_TIMEOUT_MS, default=None)
-        maintenance, maintenance_error = _read(
-            conn, lambda c: _latest_backup_evidence(c, 'MAINTENANCE_PROGRESS'),
-            STATEMENT_TIMEOUT_MS, default=None)
+        from sentinel import local_paper
+        local = local_paper.require_bound_account(conn)
+        base = restore = runtime_backup = maintenance = None
+        base_error = restore_error = runtime_backup_error = maintenance_error = None
+        if not local:
+            base, base_error = _read(
+                conn, lambda c: _latest_backup_evidence(c, "BASE_BACKUP"),
+                STATEMENT_TIMEOUT_MS, default=None)
+            restore, restore_error = _read(
+                conn, lambda c: _latest_backup_evidence(c, "RESTORE_DRILL"),
+                STATEMENT_TIMEOUT_MS, default=None)
+            runtime_backup, runtime_backup_error = _read(
+                conn, lambda c: _latest_backup_evidence(c, "RUNTIME_CHAIN"),
+                STATEMENT_TIMEOUT_MS, default=None)
+            maintenance, maintenance_error = _read(
+                conn, lambda c: _latest_backup_evidence(c, 'MAINTENANCE_PROGRESS'),
+                STATEMENT_TIMEOUT_MS, default=None)
         lifecycle, lifecycle_error = _read(
             conn, _authority_lifecycle, STATEMENT_TIMEOUT_MS, default=None)
         verdict, verdict_error = _read(
@@ -1381,6 +1386,11 @@ def _operator_evidence_rows(
             runtime_valid_until=_runtime_valid_until(
                 cycle, (runtime_backup or {}).get("observed_at")),
             error=backup_error)
+        if local:
+            backup_row = model.Row(
+                "backup_restore", "Backup and restore", "DISABLED BY OWNER",
+                model.OK, "Local PAPER iteration: backup creation, drills and verification are suspended.",
+                now, required_current=False)
 
         identity_error = lifecycle_error or verdict_error
         lifecycle = dict(lifecycle or {})
@@ -1396,6 +1406,17 @@ def _operator_evidence_rows(
             authority_verdict=runtime_verdict.get("verdict"),
             checked_at=runtime_verdict.get("checked_at"),
             error=identity_error)
+        if local:
+            from sentinel import identity as runtime_identity
+            local_paper.require_runtime(conn, {
+                "deployment_artifacts": runtime_identity.deployment_artifacts()})
+            identity_row = model.Row(
+                "runtime_identity", "Runtime identity",
+                "LOCAL PAPER " + os.environ["SENTINEL_GIT_COMMIT"][:12],
+                model.OK, "Owner-authorized local branch; image "
+                + os.environ["SENTINEL_RUNTIME_IMAGE_DIGEST"]
+                + ". PR release certification is suspended.", now,
+                required_current=True)
 
         errors = []
         for label, error in (
