@@ -186,9 +186,11 @@ def _require_unsent_renewal(conn, plan):
             "wait for the next decision after dispatched intent")
 
 
-def _local_window_resizing(conn, plan, grant):
+def _local_window_resizing(conn, plan, grant, *, decision_session=None):
     from sentinel import local_paper
-    if plan is None or not local_paper.require_bound_account(conn):
+    if plan is None or (decision_session is not None and plan.decision_session != decision_session):
+        return False
+    if not local_paper.require_bound_account(conn):
         return False
     from sentinel.execution import target_reprojection
     from sentinel.execution.protected_limits import ProtectedLimitPolicy
@@ -525,7 +527,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         raise PaperActivationRefused(
                             f"dual sizing authority refused renewal: {exc}") from exc
 
-            local_resizing = (dual_mode and _local_window_resizing(conn, existing_plan, automation_grant))
+            local_resizing = (dual_mode and _local_window_resizing(
+                conn, existing_plan, automation_grant, decision_session=through_date))
             if local_resizing:
                 _assert_plan_authorities(
                     conn, state=dual_state, plan=existing_plan, binding=binding,

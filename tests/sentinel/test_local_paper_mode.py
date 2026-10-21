@@ -251,7 +251,8 @@ def _resizing_fixture(monkeypatch, *, working=False):
 
 def test_changed_window_rebuilds_only_after_native_terminal_recovery(owner,monkeypatch):
     module,conn,plan,grant=_resizing_fixture(monkeypatch)
-    assert module._local_window_resizing(conn,plan,grant)
+    plan.decision_session=date(2026,10,20)
+    assert module._local_window_resizing(conn,plan,grant,decision_session=plan.decision_session)
     with pytest.raises(module.PaperActivationRefused,match='native continuation'):
         module._local_window_resizing(conn,plan,None)
 
@@ -272,3 +273,26 @@ def test_resizing_terminal_guard_falsifier(owner,monkeypatch):
     monkeypatch.setattr(preparation,'_local_window_resizing',namespace['_local_window_resizing'])
     with pytest.raises(pytest.fail.Exception):
         test_changed_window_cannot_resize_unknown_orders(owner,monkeypatch)
+
+
+def test_ordinary_next_day_does_not_consume_previous_window(owner,monkeypatch):
+    from sentinel.paper import preparation
+    from sentinel.execution import target_reprojection
+    monkeypatch.setattr(target_reprojection,'load_projection',
+        lambda *args,**kwargs: pytest.fail('ordinary next day inspected the old debug projection'))
+    old=SimpleNamespace(plan_id='old-plan',decision_session=date(2026,10,20))
+    assert preparation._local_window_resizing(object(),old,None,
+        decision_session=date(2026,10,21)) is False
+
+
+def test_resizing_decision_day_guard_falsifier(owner,monkeypatch):
+    from sentinel.paper import preparation
+    tree=ast.parse(inspect.getsource(preparation._local_window_resizing))
+    first_guard=next(node for node in tree.body[0].body if isinstance(node,ast.If))
+    first_guard.test=ast.Constant(False)
+    ast.fix_missing_locations(tree)
+    namespace={}
+    exec(compile(tree,'removed-resizing-decision-day-guard','exec'),vars(preparation),namespace)
+    monkeypatch.setattr(preparation,'_local_window_resizing',namespace['_local_window_resizing'])
+    with pytest.raises(pytest.fail.Exception):
+        test_ordinary_next_day_does_not_consume_previous_window(owner,monkeypatch)

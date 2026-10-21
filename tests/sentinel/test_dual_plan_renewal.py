@@ -49,7 +49,7 @@ def test_owner_window_resizing_uses_fresh_canonical_economics_and_preserves_prio
     old_authority = dual_plan_authority.load_authority(conn, plan_id=old.plan_id)
     # Owner/cycle/terminal guards have their own rejection and falsifier tests.
     # Exercise the real preparation branch and canonical adapter with real SQL.
-    monkeypatch.setattr(preparation, '_local_window_resizing', lambda *args: True)
+    monkeypatch.setattr(preparation, '_local_window_resizing', lambda *args, **kwargs: True)
     # Exercise an observed sizing change within the unchanged native cash
     # endpoint tolerance; unexplained material movements must still refuse.
     broker.cash += Decimal('0.50')
