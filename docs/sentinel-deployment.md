@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[External restore scratch](external-restore-scratch.md) optionally allocates the
+isolated restore copy on a verified external filesystem, while preserving the
+production PostgreSQL volume, backup root, immutable markers and full restore
+gates. Capacity keeps the existing estimates and per-disk reserve.
+
 [Protected cohort continuation](protected-cohort-continuation.md) defines
 same-basis recovery of asynchronous protected BUY fills, known DAY-order waits,
 completion-based retry clocks and the composed opening qualification gate.

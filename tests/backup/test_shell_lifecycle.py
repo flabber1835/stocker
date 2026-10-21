@@ -43,7 +43,7 @@ class ShellLab:
                      "sentinel-backup-publish-selection.sh",
                      "sentinel-backup-media-lock.sh", "sentinel-restore-worker.sh",
                      "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh",
-                     "sentinel-env.sh", "sentinel_env.py", "sentinel_storage_capacity.py",
+                     "sentinel-env.sh", "sentinel_env.py", "sentinel_storage_capacity.py", "sentinel_restore_storage.py",
                      "sentinel_maintenance_process.py", "sentinel_backup_deadlines.py"):
             shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
         package = self.repo / "sentinel"
