@@ -220,3 +220,55 @@ def test_retained_process_identity_guard_falsifier(owner, monkeypatch):
     monkeypatch.setattr(admission, 'bind_context', namespace['bind_context'])
     with pytest.raises(pytest.fail.Exception):
         test_retained_local_process_preserves_book_and_requires_current_bytes(owner, monkeypatch, True)
+
+
+def _resizing_fixture(monkeypatch, *, working=False):
+    import json
+    from sentinel.paper import preparation
+    from sentinel.automation import integrity, store
+    from sentinel.execution import target_reprojection
+    from sentinel.execution.states import CommandState
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_POLICY', 'PROTECTED_LIMIT_DAY_V1')
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_CAP_BPS', '100')
+    monkeypatch.setenv('SENTINEL_PAPER_DEBUG_WINDOW', json.dumps(dict(schema='PAPER_DEBUG_WINDOW_V1',
+        effective_session='2026-10-21',not_before='2026-10-21T19:00:00Z',not_after='2026-10-21T19:30:00Z')))
+    plan=SimpleNamespace(plan_id='old-plan',effective_session=date(2026,10,21))
+    cycle=SimpleNamespace(cycle_id='current-cycle',control_generation=32,config_sha256='c'*64,effective_session=plan.effective_session)
+    grant=SimpleNamespace(cycle_id=cycle.cycle_id,operation_scope='PREPARE',control_generation=32,config_sha256=cycle.config_sha256)
+    monkeypatch.setattr(target_reprojection,'load_projection',lambda *args,**kwargs: SimpleNamespace(opening_sizing={'policy':{'prior_window':True}}))
+    monkeypatch.setattr(store,'load_cycle',lambda *args: cycle)
+    monkeypatch.setattr(integrity,'validate_cycle_lineage',lambda *args: None)
+    monkeypatch.setattr(binding,'require',lambda conn: SimpleNamespace(broker='alpaca',broker_account_id='PATESTACCOUNT',identity=object()))
+    monkeypatch.setattr(preparation.journal,'load_commands',lambda *args,**kwargs: [SimpleNamespace(state=CommandState.UNKNOWN if working else CommandState.FILLED)])
+    monkeypatch.setattr(preparation.journal,'in_flight_commands',lambda *args: [])
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self,*args): pass
+        def execute(self,*args): pass
+        def fetchone(self): return ({'owner_paper_continuation':local_paper.MODE},)
+    return preparation,SimpleNamespace(cursor=Cursor),plan,grant
+
+
+def test_changed_window_rebuilds_only_after_native_terminal_recovery(owner,monkeypatch):
+    module,conn,plan,grant=_resizing_fixture(monkeypatch)
+    assert module._local_window_resizing(conn,plan,grant)
+    with pytest.raises(module.PaperActivationRefused,match='native continuation'):
+        module._local_window_resizing(conn,plan,None)
+
+
+def test_changed_window_cannot_resize_unknown_orders(owner,monkeypatch):
+    module,conn,plan,grant=_resizing_fixture(monkeypatch,working=True)
+    with pytest.raises(module.PaperRetryableRefused,match='terminal commands'):
+        module._local_window_resizing(conn,plan,grant)
+
+
+def test_resizing_terminal_guard_falsifier(owner,monkeypatch):
+    from sentinel.paper import preparation
+    tree=ast.parse(inspect.getsource(preparation._local_window_resizing))
+    tree.body[0].body[-2].test=ast.Constant(False)
+    ast.fix_missing_locations(tree)
+    namespace={}
+    exec(compile(tree,'removed-resizing-terminal-guard','exec'),vars(preparation),namespace)
+    monkeypatch.setattr(preparation,'_local_window_resizing',namespace['_local_window_resizing'])
+    with pytest.raises(pytest.fail.Exception):
+        test_changed_window_cannot_resize_unknown_orders(owner,monkeypatch)

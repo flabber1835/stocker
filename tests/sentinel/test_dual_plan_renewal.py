@@ -43,6 +43,26 @@ def command(conn, plan, bound, state):
     return value
 
 
+def test_owner_window_resizing_uses_fresh_canonical_economics_and_preserves_prior(conn, gateway, monkeypatch):
+    shadow, bound, broker = gateway
+    old = prepare(conn, broker).plan
+    old_authority = dual_plan_authority.load_authority(conn, plan_id=old.plan_id)
+    # Owner/cycle/terminal guards have their own rejection and falsifier tests.
+    # Exercise the real preparation branch and canonical adapter with real SQL.
+    monkeypatch.setattr(preparation, '_local_window_resizing', lambda *args: True)
+    # Exercise an observed sizing change within the unchanged native cash
+    # endpoint tolerance; unexplained material movements must still refuse.
+    broker.cash += Decimal('0.50')
+    current = prepare(conn, broker).plan
+    assert current.plan_id != old.plan_id
+    assert current.account_cash == old.account_cash + Decimal('0.50')
+    assert current.shadow_snapshot_hash == old.shadow_snapshot_hash
+    assert journal.load_plan(conn, old.plan_id).superseded_by == current.plan_id
+    assert dual_plan_authority.load_authority(conn, plan_id=old.plan_id) == old_authority
+    assert dual_plan_authority.rederive_plan(conn, plan=current, binding=bound,
+        rollout_state=load_rollout_state(conn), expected_shadow_result=shadow)['verdict'] == 'MATCH'
+
+
 def test_renewal_replaces_unsent_plan_and_retry_reuses_exact_economics(conn, gateway, monkeypatch):
     shadow, bound, broker = gateway
     old = prepare(conn, broker).plan

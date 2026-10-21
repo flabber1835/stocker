@@ -52,3 +52,15 @@ fresh bounded same-session window, instead of the old certificate's configuratio
 digest. Recompute and verify that configuration at each authority check; retain
 the explicitly selected protected DAY policy and exactly 100 basis points. The
 certificate still controls account, controller, strategy and maximum exposure.
+
+Observed continuation failure: same-session preparation reused the previous plan
+and its immutable projection, whose window had expired. For an explicit local
+continuation with a changed protected window and terminal prior commands,
+authenticate the old plan, then rerun the existing canonical PAPER sizing adapter
+from a fresh reconciled account snapshot. Keep Wealth Core and the old plan,
+projection and fills unchanged. Adopt a different deterministic economic plan;
+if current sizing cannot produce a different identity, refuse rather than edit
+the old projection. Retries within the same window retain the newly adopted plan.
+Require terminal commands for the plan being replaced and no account-wide
+in-flight commands. Historical never-sent PLANNED commands remain historical;
+ordinary plan adoption may supersede them but cannot send them late.
