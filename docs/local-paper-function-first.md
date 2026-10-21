@@ -46,3 +46,9 @@ and recovery campaign. Verify the actual local image, commit and source identity
 before that binding. Preserve every existing checkpoint, configuration, strategy
 and economic migration check; the historical runtime identity remains historical
 book provenance, while the running process reports its actual local identity.
+
+The owner also authorizes the actual local execution configuration, including a
+fresh bounded same-session window, instead of the old certificate's configuration
+digest. Recompute and verify that configuration at each authority check; retain
+the explicitly selected protected DAY policy and exactly 100 basis points. The
+certificate still controls account, controller, strategy and maximum exposure.

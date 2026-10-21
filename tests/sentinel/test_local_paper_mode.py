@@ -180,3 +180,43 @@ def test_retained_local_process_preserves_book_and_requires_current_bytes(owner,
         admission.bind_context(object(), context)
         assert context['runtime'] is old_runtime
         assert checkpoint.runtime_identity == old_runtime
+
+
+@pytest.mark.parametrize('changed', [False, True])
+def test_local_execution_config_must_be_actual_protected_policy(owner, monkeypatch, changed):
+    from sentinel.authority import canonical_sha256, execution_config_identity
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_POLICY', 'PROTECTED_LIMIT_DAY_V1')
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_CAP_BPS', '100')
+    monkeypatch.delenv('SENTINEL_PAPER_DEBUG_WINDOW', raising=False)
+    actual = canonical_sha256(execution_config_identity(paper_base_url='https://paper-api.alpaca.markets'))
+    if changed:
+        with pytest.raises(RuntimeError, match='differs from actual'):
+            local_paper.require_execution_config(object(), '0'*64)
+    else:
+        local_paper.require_execution_config(object(), actual)
+
+
+def test_local_execution_configuration_guard_falsifier(owner, monkeypatch):
+    tree = ast.parse(inspect.getsource(local_paper.require_execution_config))
+    tree.body[0].body[-1].test = ast.Constant(False)
+    ast.fix_missing_locations(tree)
+    namespace = {}
+    exec(compile(tree, 'removed-local-policy-guard', 'exec'), vars(local_paper), namespace)
+    monkeypatch.setattr(local_paper, 'require_execution_config', namespace['require_execution_config'])
+    with pytest.raises(pytest.fail.Exception):
+        test_local_execution_config_must_be_actual_protected_policy(owner, monkeypatch, True)
+
+
+def test_retained_process_identity_guard_falsifier(owner, monkeypatch):
+    from sentinel import runtime_admission as admission
+    tree = ast.parse(inspect.getsource(admission.bind_context))
+    guard = next(node for node in ast.walk(tree) if isinstance(node, ast.If)
+        and any(isinstance(item, ast.Constant) and item.value == 'LOCAL_PAPER_RETAINED_PROCESS_IDENTITY_CHANGED'
+                for child in node.body if isinstance(child, ast.Raise) for item in ast.walk(child)))
+    guard.test = ast.Constant(False)
+    ast.fix_missing_locations(tree)
+    namespace = {}
+    exec(compile(tree, 'removed-retained-local-process-guard', 'exec'), vars(admission), namespace)
+    monkeypatch.setattr(admission, 'bind_context', namespace['bind_context'])
+    with pytest.raises(pytest.fail.Exception):
+        test_retained_local_process_preserves_book_and_requires_current_bytes(owner, monkeypatch, True)

@@ -49,3 +49,17 @@ def require_runtime(conn, runtime_identity: Mapping) -> None:
             or artifacts.get("runtime_image_digest") != digest
             or artifacts.get("test_image_digest") != digest):
         raise RuntimeError("local PAPER runtime must identify its actual local commit and image")
+
+
+def require_execution_config(conn, configuration_sha256: str) -> None:
+    if not require_bound_account(conn):
+        raise RuntimeError('local PAPER operation was not authorized')
+    from sentinel.authority import canonical_sha256, execution_config_identity
+    from sentinel.config import DEFAULT_BASE_URL
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
+    policy = ProtectedLimitPolicy.from_env()
+    if policy is None or policy.cap_bps != 100:
+        raise RuntimeError('local PAPER iteration requires the selected 100-basis-point protected DAY policy')
+    actual = execution_config_identity(paper_base_url=DEFAULT_BASE_URL)
+    if canonical_sha256(actual) != configuration_sha256:
+        raise RuntimeError('local PAPER execution configuration differs from actual policy')

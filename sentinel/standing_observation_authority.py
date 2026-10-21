@@ -142,7 +142,9 @@ def require_standing_observation_authority(
     if bindings["strategy_identity_sha256"] != canonical_sha256(strategy_identity):
         raise AuthorityRefused(
             "standing paper strategy identity does not match this runtime")
-    if bindings["execution_config_sha256"] != execution_config_sha256:
+    if local:
+        local_paper.require_execution_config(conn, execution_config_sha256)
+    elif bindings["execution_config_sha256"] != execution_config_sha256:
         raise AuthorityRefused(
             "standing paper execution configuration does not match")
 
