@@ -78,6 +78,29 @@ does not make otherwise verified independent facts red.
 
 ## Qualification and release
 
+### Bounded corpus-lock contention (2026-10-21)
+
+Background source retention can briefly own the exclusive corpus lock while a
+display observer tries to pin it. A typed `CorpusLockUnavailable` means that no
+coherent read started; it is not a completed negative financial verification.
+Propagate that specific exception from the source projection to the spawned
+observer and retry with a fresh connection and the same expected evidence key.
+Allow at most 20 seconds of contention retry, fixed at the first refusal and
+capped by the observer's original 300-second work budget. Each retry sleeps at
+most 500 milliseconds. The existing single execution slot, parent deadline,
+identity checks and original ten-minute proof lifetime remain unchanged.
+
+A still-current successful proof may remain visible during this ordinary
+bounded check. Never retain it after identity change or expiry. A cold or
+expired proof stays explicitly checking. Exhausted contention propagates as a
+failed observer, withdrawing green and using the existing 30-second retry
+cadence; do not cache it as a completed financial result for five minutes.
+Other exceptions, semantic negative results and malformed evidence keep their
+existing failure behavior. Direct source projections retain their existing
+UNKNOWN result unless the finite observer explicitly requests propagation.
+This changes display retry only; it does not alter retention, broker execution,
+backup policy, lock exclusion or any durable financial state.
+
 Exercise the actual Reader, monitor lifecycle, JSON, HTML and browser refresh.
 Prove independence on broker-only changes and withdrawal on shadow input or
 annotation changes. Cross several proof lifetimes with no HTTP traffic, queued
