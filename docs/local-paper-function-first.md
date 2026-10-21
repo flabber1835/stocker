@@ -29,3 +29,13 @@ The dashboard must disclose local PAPER operation and disabled backup features.
 Healthy scheduled waits and known working orders are progress, while actual
 errors and unresolved broker outcomes remain visible. Success requires real
 broker acceptance, fills and reconciliation, not process health or CI alone.
+
+An owner-selected later same-session window may create a fresh plan after a
+partially executed older generation has completed native read-only recovery.
+Record this as explicit local-paper continuation in the new cycle genesis.
+Require the exact bound account, complete verified predecessor lineage, native
+OLD_GENERATION_RECOVERED retirement, a clean account-bound observation, and
+terminal predecessor commands. UNKNOWN, pending or working commands refuse.
+Fresh preparation reconciles again and sizes from current holdings, preserving
+the filled sells and all older immutable intent. This exception is opt-in local
+paper only and never authorizes executing an old plan or changing its window.

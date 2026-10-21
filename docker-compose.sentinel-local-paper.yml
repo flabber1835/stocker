@@ -2,6 +2,7 @@
 x-local-paper-environment: &local-paper-environment
   SENTINEL_LOCAL_PAPER_MODE: ${SENTINEL_LOCAL_PAPER_MODE:?owner authorization required}
   SENTINEL_LOCAL_PAPER_ACCOUNT_ID: ${SENTINEL_LOCAL_PAPER_ACCOUNT_ID:?exact paper account required}
+  SENTINEL_TEST_IMAGE_DIGEST: ${SENTINEL_TEST_IMAGE_DIGEST:?actual local image required}
 
 services:
   sentinel-postgres:

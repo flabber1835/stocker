@@ -96,3 +96,61 @@ def test_runtime_identity_guard_falsifier(owner, monkeypatch):
     monkeypatch.setattr(local_paper, "require_runtime", namespace["require_runtime"])
     with pytest.raises(pytest.fail.Exception):
         _bad_baked_revision(monkeypatch)
+
+
+def _continuation_fixture(monkeypatch, *, recovered=True, terminal=True):
+    from sentinel.automation import integrity, local_paper_continuation as continuation
+    from sentinel.automation.model import CycleState
+    monkeypatch.setattr(integrity, 'validate_cycle_lineage', lambda *args: None)
+    spec = SimpleNamespace(control_generation=30, deployment_id='local', broker='alpaca',
+        broker_account_id='PATESTACCOUNT', takeover_epoch=1, decision_session=date(2026, 10, 20),
+        effective_session=date(2026, 10, 21))
+    cycle = SimpleNamespace(**vars(spec))
+    cycle.control_generation = 28
+    cycle.state = CycleState.SUPERSEDED
+    cycle.failure_code = 'OLD_GENERATION_RECOVERED'
+    cycle.historical_state_only = False
+    cycle.plan_id = 'prior-plan'
+    cycle.last_clean_reconciliation_id = '44'
+    cycle.diagnostic = dict(clean=True, unresolved=[], foreign_orders=[], foreign_positions=[])
+    answers = iter([(recovered,), (not terminal,)])
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def execute(self, *args): pass
+        def fetchone(self): return next(answers)
+    conn = SimpleNamespace(cursor=Cursor)
+    config = SimpleNamespace(debug_window_for=lambda spec: object())
+    return continuation, dict(conn=conn, spec=spec, cycles=[cycle], config=config)
+
+
+def test_local_continuation_requires_native_recovery(owner, monkeypatch):
+    continuation, args = _continuation_fixture(monkeypatch)
+    assert continuation.eligible(**args)
+
+
+@pytest.mark.parametrize('recovered,terminal', [(False, True), (True, False)])
+def test_unproven_or_working_predecessor_refuses(owner, monkeypatch, recovered, terminal):
+    continuation, args = _continuation_fixture(monkeypatch, recovered=recovered, terminal=terminal)
+    assert not continuation.eligible(**args)
+
+
+@pytest.mark.parametrize('change', [dict(state='EXECUTING'), dict(failure_code='arbitrary'),
+    dict(last_clean_reconciliation_id=None), dict(broker_account_id='PAFOREIGN'),
+    dict(control_generation=30), dict(diagnostic={'clean': False})])
+def test_continuation_never_reopens_unrecovered_intent(owner, monkeypatch, change):
+    continuation, args = _continuation_fixture(monkeypatch)
+    for name, value in change.items():
+        setattr(args['cycles'][0], name, value)
+    assert not continuation.eligible(**args)
+
+
+def test_continuation_terminal_guard_falsifier(owner, monkeypatch):
+    continuation, args = _continuation_fixture(monkeypatch, terminal=False)
+    tree = ast.parse(inspect.getsource(continuation.eligible))
+    loop = next(node for node in tree.body[0].body if isinstance(node, ast.For))
+    loop.body[-2].body[-1].test = ast.Constant(False)
+    ast.fix_missing_locations(tree)
+    namespace = {}
+    exec(compile(tree, 'removed-terminal-command-guard', 'exec'), vars(continuation), namespace)
+    assert namespace['eligible'](**args), 'mutant must expose the working predecessor'
