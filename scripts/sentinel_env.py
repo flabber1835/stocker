@@ -8,7 +8,7 @@ import binascii
 from decimal import Decimal, InvalidOperation
 from ipaddress import IPv6Address
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import stat
 import sys
@@ -55,6 +55,24 @@ def operational_values(values: Mapping[str, str]) -> Dict[str, str]:
     """Keep historical vendor variables out of operational child processes."""
     return {key: value for key, value in values.items()
             if not key.startswith(("SHARADAR_", "NDL_"))}
+
+
+def _restore_scratch_values(env: Mapping[str, str]) -> None:
+    # Literal shape only. Actual UUID/USB/mount and Docker-volume identity are
+    # proved by the host storage admission before a base or restore is copied.
+    keys = ("SENTINEL_RESTORE_SCRATCH_ROOT", "SENTINEL_RESTORE_SCRATCH_UUID",
+            "SENTINEL_RESTORE_SCRATCH_DOCKER_ROOT")
+    values = [str(env.get(key, "")).strip() for key in keys]
+    if not any(values):
+        return
+    if not all(values) or re.fullmatch(
+            r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", values[1]) is None:
+        _fail("INVALID_RESTORE_SCRATCH_CONFIGURATION")
+    for value in (values[0], values[2]):
+        if (not value.startswith("/") or value == "/" or any(ord(char) < 32 for char in value)
+                or str(PurePosixPath(value)) != value
+                or any(part in {".", ".."} for part in value.split("/")[1:])):
+            _fail("INVALID_RESTORE_SCRATCH_CONFIGURATION")
 
 
 HEX64_OR_EMPTY = re.compile(r"(?:|[0-9a-f]{64})\Z")
@@ -352,6 +370,7 @@ def automation_requires_alerts(arguments: Sequence[str]) -> bool:
 
 
 def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> None:
+    _restore_scratch_values(env)
     buy_policy = str(env.get("SENTINEL_PAPER_BUY_POLICY", "")).strip()
     buy_cap = str(env.get("SENTINEL_PAPER_BUY_CAP_BPS", "")).strip()
     if buy_policy not in {"", "PROTECTED_LIMIT_DAY_V1"}:

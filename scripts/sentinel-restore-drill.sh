@@ -140,11 +140,25 @@ VOLUME_CREATED=0
 NETWORK_CREATED=0
 CONTAINER_STARTED=0
 SEMANTIC_STARTED=0
+EXTERNAL_SCRATCH=0
+if [ -n "${SENTINEL_RESTORE_SCRATCH_ROOT:-}" ]; then EXTERNAL_SCRATCH=1; fi
 cleanup() {
+  local original_exit=$? scratch_cleanup_failed=0
   if [ "$SEMANTIC_STARTED" -eq 1 ]; then docker rm -f "$CONTAINER-semantic" >/dev/null 2>&1 || true; fi
   if [ "$CONTAINER_STARTED" -eq 1 ]; then docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; fi
-  if [ "$VOLUME_CREATED" -eq 1 ]; then docker volume rm "$VOLUME" >/dev/null 2>&1 || true; fi
+  if [ "$VOLUME_CREATED" -eq 1 ]; then
+    if [ "$EXTERNAL_SCRATCH" -eq 1 ]; then
+      if ! "$PYTHON" scripts/sentinel_restore_storage.py cleanup --volume "$VOLUME" --backup-root "$BACKUP_ROOT"; then
+        echo 'REFUSED: external restore scratch cleanup preserved unconfirmed ownership' >&2
+        scratch_cleanup_failed=1
+      fi
+    else
+      docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+    fi
+  fi
   if [ "$NETWORK_CREATED" -eq 1 ]; then docker network rm "$NETWORK" >/dev/null 2>&1 || true; fi
+  if [ "$scratch_cleanup_failed" -eq 1 ] && [ "$original_exit" -eq 0 ]; then exit 4; fi
+  return "$original_exit"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -159,20 +173,32 @@ for object in "$CONTAINER" "$CONTAINER-semantic"; do
   fi
 done
 "$PYTHON" scripts/sentinel_storage_capacity.py restore --backup-root "$BACKUP_ROOT" --base-name "$NAME"
-docker volume create --label sentinel.restore-drill=v1 "$VOLUME" >/dev/null
+DATA_MOUNT=(-v "$VOLUME:/var/lib/postgresql/data")
+DATA_IDENTITY_ENV=()
+if [ "$EXTERNAL_SCRATCH" -eq 1 ]; then
+  "$PYTHON" scripts/sentinel_restore_storage.py prepare --volume "$VOLUME" --backup-root "$BACKUP_ROOT"
+  DATA_MOUNT=(--mount "type=volume,source=$VOLUME,target=/var/lib/postgresql/data,volume-nocopy")
+else
+  docker volume create --label sentinel.restore-drill=v1 "$VOLUME" >/dev/null
+fi
 VOLUME_CREATED=1
 docker network create --internal --label sentinel.restore-drill=v1 "$NETWORK" >/dev/null
 NETWORK_CREATED=1
+if [ "$EXTERNAL_SCRATCH" -eq 1 ]; then
+  EXPECTED_DATA_IDENTITY="$("$PYTHON" scripts/sentinel_restore_storage.py verify --volume "$VOLUME" --backup-root "$BACKUP_ROOT")"
+  DATA_IDENTITY_ENV=(-e "SENTINEL_RESTORE_DATA_IDENTITY=$EXPECTED_DATA_IDENTITY")
+fi
 # One worker owns the media lock continuously through copy, verify and replay.
 # Its finite lifetime also releases the lock when its host/Docker client dies.
 docker run -d --rm --name "$CONTAINER" --network "$NETWORK" \
   --label sentinel.restore-drill=v1 --memory 1g --cpus 0.5 --pids-limit 128 \
   -e "SENTINEL_RESTORE_TARGET_LSN=$TARGET_LSN" \
+  "${DATA_IDENTITY_ENV[@]}" \
   --network-alias restored-postgres \
   -v "$LATEST:/source:ro" -v "$BACKUP_ROOT/base:/backup-lock" \
   -v "$(pwd -P)/scripts/sentinel-backup-media-lock.sh:/media-lock-helper:ro" \
   -v "$(pwd -P)/scripts/sentinel-restore-worker.sh:/restore-worker:ro" \
-  -v "$VOLUME:/var/lib/postgresql/data" -v "$WAL_SOURCE:/archive:ro" \
+  "${DATA_MOUNT[@]}" -v "$WAL_SOURCE:/archive:ro" \
   --entrypoint timeout \
   postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
   --kill-after=30s "$("$PYTHON" scripts/sentinel_backup_deadlines.py restore-worker)" sh /restore-worker >/dev/null

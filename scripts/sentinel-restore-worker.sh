@@ -5,6 +5,14 @@ printf '%s\n' "${SENTINEL_RESTORE_TARGET_LSN:-}" | grep -Eq '^[0-9A-F]+/[0-9A-F]
   echo 'REFUSED: restore worker requires the recorded target LSN' >&2; exit 4; }
 . /media-lock-helper
 sentinel_media_lock /backup-lock shared
+if [ -n "${SENTINEL_RESTORE_DATA_IDENTITY:-}" ]; then
+  printf '%s\n' "$SENTINEL_RESTORE_DATA_IDENTITY" | grep -Eq '^[1-9][0-9]*:[1-9][0-9]*$' || {
+    echo 'REFUSED: external restore data identity is malformed' >&2; exit 4; }
+  [ "$(stat -c %d:%i /var/lib/postgresql/data)" = "$SENTINEL_RESTORE_DATA_IDENTITY" ] || {
+    echo 'REFUSED: external restore data mount changed before copy' >&2; exit 4; }
+  [ -z "$(find /var/lib/postgresql/data -mindepth 1 -maxdepth 1 -print -quit)" ] || {
+    echo 'REFUSED: external restore data is not empty before copy' >&2; exit 4; }
+fi
 cp -a /source/. /var/lib/postgresql/data/
 pg_verifybackup --ignore=sentinel-recovery-marker --ignore=sentinel-pitr-base-identity \
   /var/lib/postgresql/data

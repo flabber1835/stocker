@@ -13,6 +13,7 @@ import shutil
 import sys
 
 from sentinel_maintenance_process import run_bounded
+import sentinel_restore_storage as scratch_storage
 
 GIB = 1024 ** 3
 RESERVE = 10 * GIB
@@ -91,14 +92,20 @@ Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object {
     return record
 
 
-def destinations(backup_root, docker_root, operating_system, runner=run):
+def destinations(backup_root, docker_root, operating_system, runner=run, *, restore_root=None):
     """Return (allocation disk, restore disk, actual free bytes by disk)."""
     kernel = Path("/proc/sys/kernel/osrelease").read_text().lower()
     if "microsoft" in kernel and not Path("/.dockerenv").exists():
         record = windows_storage(runner)
         match = re.match(r"^/mnt/([a-zA-Z])(?:/|$)", str(backup_root))
         free = dict(record["free"])
-        if match:
+        if (match and restore_root is not None
+                and Path(backup_root).stat().st_dev == Path(restore_root).stat().st_dev):
+            # A verified USB bind may live beneath /mnt/c too. Actual device
+            # identity precedes the lexical Windows-drive alias.
+            backup = "linux:" + str(Path(restore_root).stat().st_dev)
+            free[backup] = shutil.disk_usage(backup_root).free
+        elif match:
             backup = match[1].upper() + ":"
         elif Path(backup_root).stat().st_dev != Path("/").stat().st_dev:
             # A separately mounted Linux/USB filesystem is not inside the WSL
@@ -108,10 +115,14 @@ def destinations(backup_root, docker_root, operating_system, runner=run):
         else:
             backup = windows_drive(record["distro_path"])
         restore = windows_drive(record["docker_path"]) if "docker desktop" in operating_system.lower() else windows_drive(record["distro_path"])
+        if restore_root is not None:
+            restore = "linux:" + str(Path(restore_root).stat().st_dev)
+            free[restore] = shutil.disk_usage(restore_root).free
         return backup, restore, free
     # Linux host paths refer to the local daemon's backing filesystems. A remote
     # or inaccessible Docker root cannot be certified by a guessed fallback.
-    backup_path, restore_path = Path(backup_root).resolve(strict=True), Path(docker_root).resolve(strict=True)
+    backup_path = Path(backup_root).resolve(strict=True)
+    restore_path = Path(restore_root if restore_root is not None else docker_root).resolve(strict=True)
     backup, restore = str(backup_path.stat().st_dev), str(restore_path.stat().st_dev)
     free = {backup: shutil.disk_usage(backup_path).free,
             restore: shutil.disk_usage(restore_path).free}
@@ -131,6 +142,10 @@ def require_capacity(backup, restore, free, *, base_bytes=0, restore_bytes=0):
 
 
 def check(operation, backup_root, base_name=None, runner=run):
+    try:
+        scratch_storage.validate_settings(os.environ)
+    except scratch_storage.Refused as exc:
+        raise Refused(str(exc)) from None
     if operation == "base":
         raw = runner(COMPOSE + ["exec", "-T", "sentinel-postgres", "psql", "-U", "sentinel", "-d", "sentinel",
                                "-v", "ON_ERROR_STOP=1", "-Atc",
@@ -145,10 +160,25 @@ def check(operation, backup_root, base_name=None, runner=run):
     parts = info.split("|")
     if len(parts) != 2 or not parts[0].startswith("/"):
         raise Refused("Docker backing filesystem unavailable")
-    backup, restore, free = destinations(backup_root, *parts, runner=runner)
-    return require_capacity(backup, restore, free,
-                            base_bytes=estimate if operation == "base" else 0,
-                            restore_bytes=estimate)
+    try:
+        scratch = scratch_storage.configured(backup_root, parts[0])
+        if scratch is not None:
+            scratch_storage.prove(scratch)
+    except scratch_storage.Refused as exc:
+        raise Refused(str(exc)) from None
+    if scratch is None:
+        backup, restore, free = destinations(backup_root, *parts, runner=runner)
+    else:
+        backup, restore, free = destinations(backup_root, *parts, runner=runner, restore_root=scratch.root)
+    result = require_capacity(backup, restore, free,
+                              base_bytes=estimate if operation == "base" else 0,
+                              restore_bytes=estimate)
+    if scratch is not None:
+        try:
+            scratch_storage.recheck(scratch)
+        except scratch_storage.Refused as exc:
+            raise Refused(str(exc)) from None
+    return result
 
 
 def main(argv=None):
