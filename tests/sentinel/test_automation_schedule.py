@@ -75,3 +75,71 @@ def test_schedule_rejects_an_execution_delay_past_the_close() -> None:
         assert "inside the execution session" in str(exc)
     else:                                                        # pragma: no cover
         raise AssertionError("an after-close execution wake was accepted")
+
+
+def debug_window():
+    from sentinel.automation.model import PaperDebugWindow
+    return PaperDebugWindow.model_validate(dict(schema="PAPER_DEBUG_WINDOW_V1",
+        effective_session="2026-10-21", not_before="2026-10-21T16:00:00Z",
+        not_after="2026-10-21T16:30:00Z"))
+
+
+def test_debug_window_default_fingerprint_and_full_config_roundtrip():
+    import hashlib, json
+    from sentinel.automation_runtime import config_from_env
+    normal = AutomationConfig()
+    previous = normal.model_dump(mode="json")
+    previous.pop("paper_debug_window")
+    assert normal.fingerprint == hashlib.sha256(json.dumps(previous,
+        sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")).hexdigest()
+    selected = AutomationConfig(paper_debug_window=debug_window())
+    assert selected.fingerprint != normal.fingerprint
+    assert AutomationConfig.model_validate(selected.model_dump(mode="json")) == selected
+    assert AutomationConfig.model_validate_json(selected.model_dump_json()).fingerprint == selected.fingerprint
+    env = dict(SENTINEL_PAPER_BUY_POLICY="PROTECTED_LIMIT_DAY_V1",
+        SENTINEL_PAPER_BUY_CAP_BPS="100",
+        SENTINEL_PAPER_DEBUG_WINDOW=json.dumps(debug_window().model_dump(mode="json", by_alias=True)))
+    assert config_from_env(env).fingerprint == selected.fingerprint
+
+
+def test_debug_window_changes_execute_at_and_keeps_actual_exchange_open():
+    selected = AutomationConfig(paper_debug_window=debug_window())
+    slot = for_decision_session("2026-10-20", selected)
+    assert slot.execution_open_at == datetime(2026, 10, 21, 13, 30, tzinfo=UTC)
+    assert slot.execute_at == debug_window().not_before
+    assert slot.execution_close_at == datetime(2026, 10, 21, 20, 0, tzinfo=UTC)
+    assert for_decision_session("2026-10-19", selected).execute_at.hour == 13
+    from types import SimpleNamespace
+    cycle = SimpleNamespace(**slot.model_dump(), config_sha256=selected.fingerprint)
+    assert selected.debug_window_for(cycle) == debug_window()
+    cycle.config_sha256 = "f"*64
+    assert selected.debug_window_for(cycle) is None
+
+
+def test_debug_window_rejects_closed_halfday_and_overlong_policy():
+    import pytest
+    from sentinel.automation.model import PaperDebugWindow
+    for changes in (dict(not_after="2026-10-21T16:30:01Z"),
+            dict(not_after="2026-10-21T16:00:00Z"),
+            dict(not_before="2026-10-21T13:00:00Z", not_after="2026-10-21T13:30:00Z"),
+            dict(effective_session="2026-11-27", not_before="2026-11-27T17:45:00Z", not_after="2026-11-27T18:15:00Z"),
+            dict(not_before="2026-10-21T16:00:00.001Z")):
+        value = debug_window().model_dump(mode="json", by_alias=True)
+        value.update(changes)
+        with pytest.raises(ValueError):
+            PaperDebugWindow.model_validate(value)
+
+
+def test_debug_window_service_cutoff_is_exclusive_and_current_config_only():
+    from types import SimpleNamespace
+    from sentinel.automation.service import AutomationService
+    selected = AutomationConfig(paper_debug_window=debug_window())
+    slot = for_decision_session("2026-10-20", selected)
+    cycle = SimpleNamespace(**slot.model_dump(), config_sha256=selected.fingerprint)
+    service = AutomationService(config=selected, holder_id="debug-test",
+        refresh=lambda context: None, prepare=lambda context: None,
+        recover=lambda context: None, execute=lambda context: None)
+    assert service._execution_is_fresh(now=debug_window().not_before, cycle=cycle)
+    assert not service._execution_is_fresh(now=debug_window().not_after, cycle=cycle)
+    assert service._execution_expired(now=debug_window().not_after, cycle=cycle)
+    assert service._latest_new_execution_at(cycle) == debug_window().not_after

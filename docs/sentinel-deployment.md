@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Explicit protected PAPER debug window](paper-debug-window.md) permits only a
+signed, session-specific window of at most 30 regular-session minutes while
+preserving the 100-basis-point cap, funding, lineage and recovery gates.
+
 [Scheduled pre-open readiness](preopen-dashboard-readiness.md) distinguishes a
 current ready plan awaiting its scheduled open from still-pending post-close
 mirror verification, with the execution boundary and all safety gates retained.

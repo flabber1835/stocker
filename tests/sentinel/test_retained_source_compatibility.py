@@ -164,6 +164,21 @@ class TestProtectedCohortSourceTransition:
             assert not upgrade.source_allowed(name, record['before'][0], 'f' * 64)
         assert not upgrade.source_allowed('core/kernel.py', 'f' * 64, 'f' * 64)
 
+    @pytest.mark.parametrize('name,expected', [
+        ('automation/integrity.py', '9c8f5658fde7cefd216fdb4398f1d0ef425c7ba4b73cac6d1766a2bdf76d5bc3'),
+        ('automation/schedule.py', '09d6ecfd3ac4d5eeb0b002511946c37dff83e414e43854fb7bdb3e4f72798e11'),
+        ('automation/store.py', 'c8c10c4297a00db63b61af3860aa76a2fe0e374f5470b552552895ae504d5c7b'),
+        ('execution/guarded.py', 'fa440b2a1002705e75667885666d8727dba7be8586a78b645be71bfff52b7273'),
+        ('execution/protected_limits.py', 'c441b552fa7f29c45ef5df1414a07d824c43adea29a32d54cb0fccb2a44a7d1e'),
+        ('paper/validation.py', '91c5f2325eb78d7dc93979083fa045fc59f6703b63990a24f05ea93fb40c3ef6'),
+    ])
+    def test_debug_window_scope_keeps_genuine_original_base_identities(self, name, expected):
+        # Independently read from exact 52b2bd7b Git objects before extending the
+        # profile; the six main-base predecessors were byte-identical to them.
+        assert upgrade.BASE_REVISION == '52b2bd7be846023f924122865a2b16ea1983041d'
+        assert upgrade.BASE_FILES[name] == expected
+        assert expected in upgrade.profile()['files'][name]['before']
+
     @pytest.mark.parametrize('name', sorted(upgrade.SCOPE))
     def test_reviewed_base_transition_has_complete_authenticated_source_closure(self, closure, name):
         from tests.sentinel.test_paper_composition_upgrade import _execution_closure

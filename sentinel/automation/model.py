@@ -91,6 +91,52 @@ class _FrozenModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+class PaperDebugWindow(_FrozenModel):
+    """One explicitly selected PAPER session; never a clock override."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    schema_id: Literal["PAPER_DEBUG_WINDOW_V1"] = Field(
+        default="PAPER_DEBUG_WINDOW_V1", alias="schema")
+    effective_session: date
+    not_before: AwareDatetime
+    not_after: AwareDatetime
+
+    @model_validator(mode="after")
+    def _regular_session(self):
+        from sentinel.feed import calendar
+        opened, closed = calendar.session_window(self.effective_session)
+        if (not opened <= self.not_before < self.not_after <= closed
+                or self.not_after - self.not_before > timedelta(minutes=30)
+                or self.not_before.microsecond or self.not_after.microsecond):
+            raise ValueError("PAPER debug window must fit within 30 actual regular-session minutes at whole seconds")
+        return self
+
+    @classmethod
+    def from_env(cls, env=None):
+        import os
+        source = os.environ if env is None else env
+        raw = str(source.get("SENTINEL_PAPER_DEBUG_WINDOW", "")).strip()
+        if not raw:
+            return None
+        if (source.get("SENTINEL_PAPER_BUY_POLICY", "").strip() != "PROTECTED_LIMIT_DAY_V1"
+                or source.get("SENTINEL_PAPER_BUY_CAP_BPS", "").strip() != "100"):
+            raise ValueError("PAPER debug window requires protected DAY BUY cap of exactly 100 basis points")
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("PAPER debug window has duplicate JSON keys")
+                result[key] = value
+            return result
+        value = json.loads(raw, object_pairs_hook=unique)
+        if (not isinstance(value, dict) or set(value) != {
+                "schema", "effective_session", "not_before", "not_after"}
+                or any(type(item) is not str for item in value.values())):
+            raise ValueError("PAPER debug window requires the exact typed JSON document")
+        return cls.model_validate(value)
+
+
 class AutomationConfig(_FrozenModel):
     """Versioned scheduling and safety policy included in activation identity.
 
@@ -112,6 +158,7 @@ class AutomationConfig(_FrozenModel):
     # close-relative delay; publication_timing_policy is authoritative.
     publication_delay_seconds: int = Field(default=900, ge=0)
     execution_delay_seconds: int = Field(default=60, ge=0)
+    paper_debug_window: PaperDebugWindow | None = None
     maximum_execution_lateness_seconds: int = Field(default=540, ge=0)
     lease_seconds: int = Field(default=45, ge=3)
     heartbeat_seconds: int = Field(default=10, ge=1)
@@ -144,9 +191,20 @@ class AutomationConfig(_FrozenModel):
     @property
     def fingerprint(self) -> str:
         payload = json.dumps(
-            self.model_dump(mode="json"), sort_keys=True,
+            self.model_dump(mode="json", exclude_none=True), sort_keys=True,
             separators=(",", ":"), ensure_ascii=True).encode("ascii")
         return hashlib.sha256(payload).hexdigest()
+
+
+    def debug_window_for(self, cycle):
+        window = self.paper_debug_window
+        if (window is not None and cycle.config_sha256 == self.fingerprint
+                and cycle.effective_session == window.effective_session
+                and cycle.execute_at == window.not_before
+                and cycle.execution_open_at <= window.not_before
+                and window.not_after <= cycle.execution_close_at):
+            return window
+        return None
 
 
 class ControlBinding(_FrozenModel):

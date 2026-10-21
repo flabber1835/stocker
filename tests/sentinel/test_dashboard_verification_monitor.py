@@ -459,22 +459,31 @@ def test_removing_execution_boundary_breaks_composed_falsifier(ready, monkeypatc
         test_observer_and_cached_reader_preserve_execution_boundary(ready, monkeypatch)
 
 
-def test_protected_successor_preserves_exact_predecessor_and_financial_sources():
+def test_protected_successor_preserves_exact_predecessor_and_bounded_debug_sources():
     import hashlib
     import json
     from pathlib import Path
     from sentinel import protected_cohort_upgrade as upgrade
     profile = upgrade.profile()
-    predecessor_path = upgrade.PROFILE.with_name("protected-cohort-runtime-preopen-predecessor.json")
+    predecessor_path = upgrade.PROFILE.with_name("protected-cohort-runtime-debug-predecessor.json")
     raw = predecessor_path.read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == "1b3ee2862a68aff0b426e1127a916eb8f9a0ad5bda3135b06710ca5c73c281c2"
+    assert hashlib.sha256(raw).hexdigest() == "f295a701502e0c22dfc591dc378f7fff54407219619dcae3c4584af3aefcb003"
+    assert upgrade.RETAINED_PROFILES[predecessor_path.name] == hashlib.sha256(raw).hexdigest()
     old = json.loads(raw)
-    changed = {name for name, record in profile["files"].items()
-               if record["after"] != old["files"][name]["after"]}
-    assert changed == {"panel/model.py", "panel/sources.py"}
+    added = {"automation/integrity.py", "automation/schedule.py", "automation/store.py",
+             "execution/guarded.py",
+             "execution/protected_limits.py", "paper/validation.py"}
+    assert len(old["files"]) == 23
+    assert set(profile["files"]) == set(old["files"]) | added
+    changed = {name for name in old["files"]
+               if profile["files"][name]["after"] != old["files"][name]["after"]}
+    assert changed == {"automation/model.py", "automation/service.py",
+                       "automation_runtime.py", "paper/execution.py"}
     for name, record in profile["files"].items():
         actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
         assert record["after"] == actual
-        previous = old["files"][name]["after"]
+        previous = old["files"][name]["after"] if name in old["files"] else upgrade.BASE_FILES[name]
+        if name in old["files"]:
+            assert set(old["files"][name]["before"]) | {previous} <= set(record["before"])
         assert upgrade.source_allowed(name, previous, actual)
         assert not upgrade.source_allowed(name, previous, "0"*64)

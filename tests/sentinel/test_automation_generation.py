@@ -341,3 +341,138 @@ def test_operational_migration_refuses_or_rolls_back_exactly(conn, monkeypatch, 
         unique = [item[0] for item in catalog[2]['sentinel_automation_cycles'] if item[1] == 'u']
     conn.rollback()
     assert unique != [schema._GENERATION_CYCLE_UNIQUE]
+
+
+def debug_cutover_case(conn):
+    import asyncio
+    from sentinel.automation.model import PaperDebugWindow
+    cfg = config()
+    enable(conn, cfg)
+    ordinary = service_for(cfg)
+    timing, _ = future_friday(conn, cfg)
+    now = timing.execution_open_at + timedelta(hours=2)
+    # Produce the real clean native after-open cutover; no handmade row/flags.
+    cutover = asyncio.run(ordinary.tick(conn, now=now))
+    assert cutover.cycle.state is CycleState.SUPERSEDED
+    assert cutover.cycle.failure_code == "DISCOVERED_AFTER_SESSION_OPEN"
+    assert cutover.cycle.plan_id is None
+    window = PaperDebugWindow(effective_session=timing.effective_session,
+        not_before=now, not_after=now+timedelta(minutes=30))
+    selected = cfg.model_copy(update={"paper_debug_window": window})
+    store.engage_kill(conn, actor="test", reason="explicit signed debug policy fixture")
+    store.deactivate(conn, actor="test", reason="fresh debug authority fixture")
+    enable(conn, selected)
+    permit = store.acquire_lease(conn, holder_id="worker-a", lease_seconds=30)
+    service = service_for(selected)
+    spec = service._spec(store.load_control(conn), schedule.for_decision_session(timing.decision_session, selected))
+    return service, cutover.cycle, spec, permit, now
+
+
+def test_debug_window_replaces_only_native_clean_unsent_cutover_and_executes_once(conn):
+    import asyncio
+    service, old, spec, permit, now = debug_cutover_case(conn)
+    old_events = conn.execute("SELECT * FROM sentinel_automation_cycle_events WHERE cycle_id=%s ORDER BY seq",
+        (old.cycle_id,)).fetchall()
+    conn.rollback()
+    fresh = store.create_cycle(conn, permit=permit, spec=spec, now=now, config=service.config)
+    assert fresh.cycle_id == spec.generation_cycle_id and fresh.plan_id is None
+    integrity.validate_cycle_lineage(conn, fresh)
+    executed = []
+    original = service.execute
+    service.execute = lambda context: (executed.append(context.cycle.plan_id), original(context))[1]
+    for _ in range(10):
+        answer = asyncio.run(service.tick(conn, now=now))
+        if answer.cycle is not None and answer.cycle.state is CycleState.SUCCEEDED:
+            break
+    assert answer.cycle.state is CycleState.SUCCEEDED
+    assert len(executed) == 1 and answer.cycle.plan_id == executed[0]
+    asyncio.run(service.tick(conn, now=now))
+    assert len(executed) == 1
+    assert store.load_cycle(conn, old.cycle_id) == old
+    assert conn.execute("SELECT * FROM sentinel_automation_cycle_events WHERE cycle_id=%s ORDER BY seq",
+        (old.cycle_id,)).fetchall() == old_events
+    assert conn.execute("SELECT count(*) FROM sentinel_commands").fetchone()[0] == 0
+    conn.rollback()
+
+
+@pytest.mark.parametrize("defect", ["expired", "wrong_config", "unknown_command", "native_flags"])
+def test_debug_window_cannot_replace_expired_foreign_or_possible_transport(conn, defect):
+    service, old, spec, permit, now = debug_cutover_case(conn)
+    if defect == "expired":
+        now = service.config.paper_debug_window.not_after
+    elif defect == "wrong_config":
+        spec = spec.model_copy(update={"config_sha256": "f"*64})
+    elif defect == "unknown_command":
+        conn.execute("INSERT INTO sentinel_commands (client_key,plan_id,security_id,deployment_id,broker,"
+            "broker_account_id,takeover_epoch,symbol,side,quantity,state) VALUES "
+            "('debug-unknown','unknown-plan','sec','sentinel-a','alpaca-paper','paper-account-1',1,'TEST','BUY',1,'UNKNOWN')")
+        conn.commit()
+    else:
+        conn.execute("UPDATE sentinel_automation_cycles SET diagnostic='{}'::jsonb WHERE cycle_id=%s", (old.cycle_id,))
+        conn.commit()
+    with pytest.raises((ProspectiveReplacementRefused, AutomationRefused)):
+        store.create_cycle(conn, permit=permit, spec=spec, now=now, config=service.config)
+    assert conn.execute("SELECT count(*) FROM sentinel_automation_cycles").fetchone()[0] == 1
+    conn.rollback()
+
+
+def test_debug_successor_reconstructs_predecessor_terminal_events(conn):
+    service, old, spec, permit, now = debug_cutover_case(conn)
+    fresh = store.create_cycle(conn, permit=permit, spec=spec, now=now, config=service.config)
+    integrity.validate_cycle_lineage(conn, fresh)
+    conn.execute("UPDATE sentinel_automation_cycle_events SET detail=jsonb_set(detail, '{diagnostic}', '{}'::jsonb) "
+        "WHERE cycle_id=%s AND to_state='SUPERSEDED'", (old.cycle_id,))
+    conn.commit()
+    with pytest.raises(AutomationRefused):
+        integrity.validate_cycle_lineage(conn, fresh)
+
+
+def test_removing_debug_negative_command_proof_breaks_its_falsifier(conn, monkeypatch):
+    import inspect
+    source = inspect.getsource(store.prospective_predecessors)
+    needle = "            if cur.fetchone()[0]:\n                return None"
+    assert source.count(needle) == 2
+    start, end = source.rsplit(needle, 1)
+    local = {}
+    exec(compile(start+"            pass"+end, "<removed-debug-command-proof>", "exec"), vars(store), local)
+    monkeypatch.setattr(store, "prospective_predecessors", local["prospective_predecessors"])
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_debug_window_cannot_replace_expired_foreign_or_possible_transport(conn, "unknown_command")
+
+
+def test_removing_debug_predecessor_reconstruction_breaks_its_falsifier(conn, monkeypatch):
+    import inspect
+    source = inspect.getsource(integrity.validate_cycle_lineage)
+    needle = "                                validate_cycle_lineage(conn, predecessor)"
+    assert source.count(needle) == 1
+    local = {}
+    exec(compile(source.replace(needle, "                                pass"), "<removed-debug-predecessor-proof>", "exec"), vars(integrity), local)
+    monkeypatch.setattr(integrity, "validate_cycle_lineage", local["validate_cycle_lineage"])
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_debug_successor_reconstructs_predecessor_terminal_events(conn)
+
+
+def test_debug_genesis_window_cannot_change_under_signed_configuration(conn):
+    service, old, spec, permit, now = debug_cutover_case(conn)
+    fresh = store.create_cycle(conn, permit=permit, spec=spec, now=now, config=service.config)
+    integrity.validate_cycle_lineage(conn, fresh)
+    import json
+    changed = service.config.model_dump(mode="json", exclude_none=True)
+    changed["paper_debug_window"]["not_after"] = (service.config.paper_debug_window.not_after-timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+    conn.execute("UPDATE sentinel_automation_cycle_events SET detail=jsonb_set(detail, '{paper_debug_configuration}', %s::jsonb) "
+        "WHERE cycle_id=%s AND from_state IS NULL", (json.dumps(changed), fresh.cycle_id))
+    conn.commit()
+    with pytest.raises(AutomationRefused, match="signed cycle subject"):
+        integrity.validate_cycle_lineage(conn, fresh)
+
+
+def test_removing_debug_genesis_configuration_binding_breaks_its_falsifier(conn, monkeypatch):
+    import inspect
+    source = inspect.getsource(integrity.validate_cycle_lineage)
+    needle = "debug_config.debug_window_for(spec) is None\n                            or "
+    assert source.count(needle) == 1
+    local = {}
+    exec(compile(source.replace(needle, ""), "<removed-debug-genesis-binding>", "exec"), vars(integrity), local)
+    monkeypatch.setattr(integrity, "validate_cycle_lineage", local["validate_cycle_lineage"])
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_debug_genesis_window_cannot_change_under_signed_configuration(conn)

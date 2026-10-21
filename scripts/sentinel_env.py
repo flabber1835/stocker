@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from ipaddress import IPv6Address
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -369,6 +371,47 @@ def automation_requires_alerts(arguments: Sequence[str]) -> bool:
             and arguments[index] not in COMPOSE_MAINTENANCE_COMMANDS)
 
 
+def _paper_debug_window_values(env: Mapping[str, str]) -> None:
+    # This host gate validates literal shape only. The runtime additionally binds
+    # the named window to its actual XNYS session before signing or execution.
+    key = "SENTINEL_PAPER_DEBUG_WINDOW"
+    raw = str(env.get(key, "")).strip()
+    if not raw:
+        return
+    if (str(env.get("SENTINEL_PAPER_BUY_POLICY", "")).strip()
+            != "PROTECTED_LIMIT_DAY_V1"
+            or str(env.get("SENTINEL_PAPER_BUY_CAP_BPS", "")).strip() != "100"):
+        _fail("PAPER_DEBUG_WINDOW_REQUIRES_PROTECTED_100_BPS", key=key)
+
+    def unique_object(pairs):
+        document = {}
+        for name, value in pairs:
+            if name in document:
+                raise ValueError("duplicate window key")
+            document[name] = value
+        return document
+
+    try:
+        window = json.loads(raw, object_pairs_hook=unique_object)
+        if (not isinstance(window, dict)
+                or set(window) != {"schema", "effective_session", "not_before", "not_after"}
+                or any(not isinstance(value, str) for value in window.values())
+                or window["schema"] != "PAPER_DEBUG_WINDOW_V1"
+                or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", window["effective_session"]) is None):
+            raise ValueError("invalid window shape")
+        date.fromisoformat(window["effective_session"])
+        before, after = (datetime.fromisoformat(window[name].replace("Z", "+00:00"))
+                         for name in ("not_before", "not_after"))
+        if before.utcoffset() is None or after.utcoffset() is None:
+            raise ValueError("window timestamps must be aware")
+        if before.microsecond or after.microsecond:
+            raise ValueError("window timestamps must use whole seconds")
+        if not timedelta(0) < after - before <= timedelta(minutes=30):
+            raise ValueError("window duration out of range")
+    except (TypeError, ValueError, OverflowError, RecursionError):
+        _fail("INVALID_PAPER_DEBUG_WINDOW", key=key)
+
+
 def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> None:
     _restore_scratch_values(env)
     buy_policy = str(env.get("SENTINEL_PAPER_BUY_POLICY", "")).strip()
@@ -380,6 +423,7 @@ def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> No
             _fail("INVALID_PAPER_BUY_CAP_BPS", key="SENTINEL_PAPER_BUY_CAP_BPS")
     elif buy_cap:
         _fail("PAPER_BUY_POLICY_REQUIRED", key="SENTINEL_PAPER_BUY_POLICY")
+    _paper_debug_window_values(env)
     # Exact runtime conversion boundaries.
     if "SENTINEL_MAX_CYCLES" in env:
         _integer(env["SENTINEL_MAX_CYCLES"], key="SENTINEL_MAX_CYCLES", minimum=1)

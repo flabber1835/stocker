@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import asyncio
+import json
 import os
 from pathlib import Path
 import re
@@ -182,6 +183,137 @@ def test_host_protected_cap_guard_removal_is_detected():
             test_protected_policy_host_runtime_differential("PROTECTED_LIMIT_DAY_V1", "501", False)
 
 
+PAPER_DEBUG_WINDOW = {
+    "schema": "PAPER_DEBUG_WINDOW_V1",
+    "effective_session": "2026-10-21",
+    "not_before": "2026-10-21T17:00:00Z",
+    "not_after": "2026-10-21T17:30:00Z",
+}
+PAPER_DEBUG_ENV = {
+    "SENTINEL_PAPER_BUY_POLICY": "PROTECTED_LIMIT_DAY_V1",
+    "SENTINEL_PAPER_BUY_CAP_BPS": "100",
+}
+
+
+@pytest.mark.parametrize("raw,accepted", [
+    (None, True), ("", True), ("   ", True),
+    (json.dumps(PAPER_DEBUG_WINDOW), True),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW,
+                     not_before="2026-10-21T13:00:00-04:00",
+                     not_after="2026-10-21T13:30:00-04:00")), True),
+    ("{", False), ("null", False), ("[]", False), ("true", False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, schema="UNKNOWN")), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, extra="refuse")), False),
+    (json.dumps({key: value for key, value in PAPER_DEBUG_WINDOW.items()
+                 if key != "not_after"}), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, effective_session=True)), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, effective_session="2026-02-30")), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, not_before=True)), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, not_after=1792598400)), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, not_before="2026-10-21T17:00:00")), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, not_after="2026-10-21T17:30:00")), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, not_before="2026-10-21T17:00:00.000001Z")), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, not_after="2026-10-21T17:29:59.000001Z")), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, not_after="2026-10-21T17:00:00Z")), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, not_after="2026-10-21T16:59:59Z")), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, not_after="2026-10-21T17:30:00.000001Z")), False),
+    (json.dumps(dict(PAPER_DEBUG_WINDOW, not_after="2026-10-21T17:30:01Z")), False),
+    (json.dumps(PAPER_DEBUG_WINDOW)[:-1] + ',"schema":"PAPER_DEBUG_WINDOW_V1"}', False),
+])
+def test_paper_debug_window_host_runtime_shape_differential(raw, accepted):
+    values = dict(PAPER_DEBUG_ENV)
+    if raw is not None:
+        values["SENTINEL_PAPER_DEBUG_WINDOW"] = raw
+    if accepted:
+        preflight._validate_semantics(values, alert_dispatcher=False)
+        config = config_from_env(values)
+        assert (config.paper_debug_window is None) == (not raw or not raw.strip())
+    else:
+        with pytest.raises(preflight.EnvRefused, match="SENTINEL_PAPER_DEBUG_WINDOW"):
+            preflight._validate_semantics(values, alert_dispatcher=False)
+        with pytest.raises(ValueError):
+            config_from_env(values)
+
+
+@pytest.mark.parametrize("policy,cap,accepted", [
+    ("PROTECTED_LIMIT_DAY_V1", "100", True),
+    ("PROTECTED_LIMIT_DAY_V1", " 100 ", True),
+    ("PROTECTED_LIMIT_DAY_V1", "0", False),
+    ("PROTECTED_LIMIT_DAY_V1", "99", False),
+    ("PROTECTED_LIMIT_DAY_V1", "101", False),
+    ("PROTECTED_LIMIT_DAY_V1", "500", False),
+    ("", "", False), ("", "100", False),
+])
+def test_paper_debug_window_requires_exact_protected_cap(policy, cap, accepted):
+    values = {"SENTINEL_PAPER_BUY_POLICY": policy,
+              "SENTINEL_PAPER_BUY_CAP_BPS": cap,
+              "SENTINEL_PAPER_DEBUG_WINDOW": json.dumps(PAPER_DEBUG_WINDOW)}
+    if accepted:
+        preflight._validate_semantics(values, alert_dispatcher=False)
+        assert config_from_env(values).paper_debug_window is not None
+    else:
+        with pytest.raises(preflight.EnvRefused):
+            preflight._validate_semantics(values, alert_dispatcher=False)
+        with pytest.raises(ValueError):
+            config_from_env(values)
+
+
+@pytest.mark.parametrize("raw", ["", json.dumps(PAPER_DEBUG_WINDOW)])
+def test_all_plan_and_broker_services_receive_literal_debug_window(raw):
+    key = "SENTINEL_PAPER_DEBUG_WINDOW"
+    values = dict(PAPER_DEBUG_ENV, **{key: raw})
+    primary = compose_model()["services"]
+    services = {name: service for name, service in primary.items()
+                if (service.get("environment") or {}).get("SENTINEL_AUTHORIZED_RUNTIME")
+                == "SIGNED_DIGEST_SERVICE_V1"}
+    standby = yaml.safe_load(
+        (ROOT / "docker-compose.sentinel-automation-standby.yml").read_text(encoding="utf-8"))
+    services["sentinel-automation-standby"] = standby["services"]["sentinel-automation-standby"]
+    ordinary = yaml.safe_load(
+        (ROOT / "docker-compose.sentinel.yml").read_text(encoding="utf-8"))
+    services["sentinel"] = ordinary["services"]["sentinel"]
+    assert {"sentinel", "sentinel-automation", "sentinel-authorized-cli",
+            "sentinel-automation-standby"} <= set(services)
+    for name, service in services.items():
+        assert service["environment"].get(key) == "${" + key + ":-}", name
+        if name not in {"sentinel", "sentinel-automation-standby"}:
+            deployed = service_environment(name, values)
+            assert deployed[key] == raw
+            assert config_from_env(deployed).paper_debug_window == config_from_env(values).paper_debug_window
+
+
+def test_debug_window_literal_file_ingestion_preserves_document(tmp_path):
+    raw = json.dumps(PAPER_DEBUG_WINDOW)
+    path = tmp_path / ".env"
+    path.write_text("SENTINEL_PAPER_DEBUG_WINDOW='" + raw + "'\n", encoding="utf-8")
+    values = preflight.load(path, required=True)
+    assert values == {"SENTINEL_PAPER_DEBUG_WINDOW": raw}
+    assert preflight.operational_values(values) == values
+    preflight._validate_semantics(dict(PAPER_DEBUG_ENV, **values), alert_dispatcher=False)
+
+
+@pytest.mark.parametrize("needle,exercise", [
+    ('if not timedelta(0) < after - before <= timedelta(minutes=30):',
+     lambda: test_paper_debug_window_host_runtime_shape_differential(
+         json.dumps(dict(PAPER_DEBUG_WINDOW, not_after="2026-10-21T17:30:01Z")), False)),
+    ('if (str(env.get("SENTINEL_PAPER_BUY_POLICY", "")).strip()\n'
+     '            != "PROTECTED_LIMIT_DAY_V1"\n'
+     '            or str(env.get("SENTINEL_PAPER_BUY_CAP_BPS", "")).strip() != "100"):',
+     lambda: test_paper_debug_window_requires_exact_protected_cap(
+         "PROTECTED_LIMIT_DAY_V1", "99", False)),
+])
+def test_host_debug_window_guard_removal_is_detected(needle, exercise):
+    import inspect
+    source = inspect.getsource(preflight._paper_debug_window_values)
+    assert source.count(needle) == 1
+    local = {}
+    exec(compile(source.replace(needle, "if False:"), "<private-host-debug-window>", "exec"),
+         vars(preflight), local)
+    with mock.patch.object(preflight, "_paper_debug_window_values", local["_paper_debug_window_values"]):
+        with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+            exercise()
+
+
 def test_required_service_inputs_have_preflight_or_provisioning_authority():
     required = set()
     for service in compose_model()["services"].values():
@@ -296,7 +428,8 @@ def test_host_preflight_rejects_noncanonical_or_invalid_vapid_shape(
 @pytest.mark.parametrize("service", ["sentinel-automation", "sentinel-authorized-cli"])
 def test_host_automation_defaults_match_deployed_service(service):
     deployed = config_from_env(service_environment(service, {}))
-    numeric_fields = set(AUTOMATION_CONFIG_ENV_BY_FIELD) - {"publication_timing_policy"}
+    numeric_fields = set(AUTOMATION_CONFIG_ENV_BY_FIELD) - {
+        "publication_timing_policy", "paper_debug_window"}
     assert set(preflight.AUTOMATION_INTEGER_DEFAULTS) == {
         AUTOMATION_CONFIG_ENV_BY_FIELD[field] for field in numeric_fields
     }

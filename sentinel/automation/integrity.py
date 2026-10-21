@@ -203,6 +203,17 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                 predecessors = detail.get("prospective_predecessors")
                 recovered = 'recovery_authorization_generation' in detail
                 fields = {'prospective_predecessors'}
+                debug = 'paper_debug_configuration' in detail
+                if debug:
+                    fields.add('paper_debug_configuration')
+                    from sentinel.automation.model import AutomationConfig
+                    try:
+                        debug_config = AutomationConfig.model_validate(detail['paper_debug_configuration'])
+                    except (ValueError, TypeError) as exc:
+                        raise AutomationRefused('debug genesis configuration is malformed') from exc
+                    if (debug_config.debug_window_for(spec) is None
+                            or detail['paper_debug_configuration'] != debug_config.model_dump(mode="json", exclude_none=True)):
+                        raise AutomationRefused('debug genesis configuration is not the signed cycle subject')
                 if recovered:
                     fields.add('recovery_authorization_generation')
                 if (set(detail) != fields
@@ -223,9 +234,18 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                          cycle.takeover_epoch,cycle.decision_session,cycle.control_generation))
                     rows = cur.fetchall()
                     known = [str(row[0]) for row in rows]
-                    if not recovered and any(row[1:] != ('SUPERSEDED', 'CONTROL_GENERATION_SUPERSEDED', False)
-                           for row in rows):
-                        raise AutomationRefused('prospective cycle predecessor is not an unsent retirement')
+                    if not recovered:
+                        if debug:
+                            from sentinel.automation import store
+                            prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
+                            for predecessor in prior:
+                                validate_cycle_lineage(conn, predecessor)
+                            eligible = all(store._unsent_retirement(cycle, spec, debug=True) for cycle in prior)
+                        else:
+                            eligible = all(row[1:] == ('SUPERSEDED', 'CONTROL_GENERATION_SUPERSEDED', False)
+                                           for row in rows)
+                        if not eligible:
+                            raise AutomationRefused('prospective cycle predecessor is not an unsent retirement')
                     cur.execute(
                         "SELECT EXISTS(SELECT 1 FROM sentinel_automation_cycle_events "
                         "WHERE cycle_id=ANY(%s::text[]) AND (from_state IN ('EXECUTING','RECONCILING') "

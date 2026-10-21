@@ -46,13 +46,23 @@ def _positive(value, label):
 @dataclass(frozen=True)
 class ProtectedLimitPolicy:
     cap_bps: int
+    debug_window: object | None = None
 
     def __post_init__(self):
         if type(self.cap_bps) is not int or not 0 <= self.cap_bps <= 500:
             raise TargetProjectionRefused("protected BUY cap must be an integer from 0 through 500")
+        if self.debug_window is not None:
+            from sentinel.automation.model import PaperDebugWindow
+            if not isinstance(self.debug_window, PaperDebugWindow) or self.cap_bps != 100:
+                raise TargetProjectionRefused("debug submission requires exact 100-basis-point protected policy")
 
     @classmethod
     def from_env(cls):
+        from sentinel.automation.model import PaperDebugWindow
+        try:
+            window = PaperDebugWindow.from_env()
+        except (ValueError, TypeError, RecursionError) as exc:
+            raise TargetProjectionRefused("protected BUY debug window configuration is invalid") from exc
         selected = os.environ.get("SENTINEL_PAPER_BUY_POLICY", "").strip()
         if not selected:
             if os.environ.get("SENTINEL_PAPER_BUY_CAP_BPS", "").strip():
@@ -64,24 +74,33 @@ class ProtectedLimitPolicy:
         if not re.fullmatch(r"0|[1-9][0-9]*", raw):
             raise TargetProjectionRefused("protected BUY policy requires an explicit integer cap")
         try:
-            return cls(int(raw))
+            return cls(int(raw), window)
         except ValueError as exc:
             raise TargetProjectionRefused("protected BUY cap is not usable") from exc
 
     def to_dict(self):
-        return {"schema": POLICY_SCHEMA, "profile": PROTECTED_MODE,
+        value = {"schema": POLICY_SCHEMA, "profile": PROTECTED_MODE,
             "cap_bps": self.cap_bps, "cap_ceiling_bps": 500, "reference_recipe": REFERENCE_SOURCE,
             "quantity_rounding": "WHOLE_SHARES_DOWN", "tick_rule": "USD_1_CENT_OR_SUBDOLLAR_1E4_DOWN_V1",
             "fixed_target_limit": "REFERENCE_CAP_AND_ALLOCATED_BUDGET_LESS_HEADROOM_V1",
             "time_in_force": "day", "order_class": "simple", "extended_hours": False,
             "start_delay_seconds": 60, "new_submit_cutoff_seconds": 600,
             "buy_cash_headroom": "1.00"}
+        if self.debug_window is not None:
+            from sentinel.feed import calendar
+            opened, _closed = calendar.session_window(self.debug_window.effective_session)
+            value.update(submission_window=self.debug_window.model_dump(mode="json", by_alias=True),
+                start_delay_seconds=int((self.debug_window.not_before-opened).total_seconds()),
+                new_submit_cutoff_seconds=int((self.debug_window.not_after-opened).total_seconds()))
+        return value
 
     @classmethod
     def from_dict(cls, raw):
         if not isinstance(raw, dict):
             raise TargetProjectionRefused("protected BUY policy has an invalid shape")
-        value = cls(raw.get("cap_bps"))
+        from sentinel.automation.model import PaperDebugWindow
+        window = raw.get("submission_window")
+        value = cls(raw.get("cap_bps"), None if window is None else PaperDebugWindow.model_validate(window))
         if raw != value.to_dict():
             raise TargetProjectionRefused("protected BUY policy terms are unsupported")
         return value
@@ -454,6 +473,8 @@ def validate_projection(projection, *, require_current_policy=False):
         raise TargetProjectionRefused("protected BUY projection is absent")
     policy = ProtectedLimitPolicy.from_dict(evidence.get("policy"))
     references = PriorCloseReferences.from_dict(evidence.get("references"))
+    if policy.debug_window is not None and policy.debug_window.effective_session != references.effective_session:
+        raise TargetProjectionRefused("debug policy belongs to another effective session")
     if (evidence.get("policy_sha256") != policy.fingerprint()
             or evidence.get("reference_sha256") != references.fingerprint()
             or projection.plan_fingerprint != references.plan_fingerprint
@@ -480,6 +501,8 @@ def revalidate_references(conn, *, plan, projection):
 def validate_allocation(projection, *, plan, canonical_shadow_equity):
     """Bind the denominator to the detached scalar from the canonical proof."""
     policy, references = validate_projection(projection, require_current_policy=True)
+    if policy.debug_window is not None and policy.debug_window.effective_session != plan.effective_session:
+        raise TargetProjectionRefused("debug policy belongs to another effective session")
     _positive(canonical_shadow_equity, "canonical shadow equity")
     if Fraction(projection.opening_sizing["shadow_equity"]) != Fraction(canonical_shadow_equity):
         raise TargetProjectionRefused("protected allocation differs from canonical shadow equity")
