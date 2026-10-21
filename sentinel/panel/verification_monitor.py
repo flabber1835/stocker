@@ -30,13 +30,13 @@ def _pack(rows, errors):
     return value
 
 
-def observe_shadow(database_url, include_paper, expected_key):
+def _observe_shadow_once(database_url, include_paper, expected_key):
     from sentinel.panel.sources import _dual_authority_rows
     assert include_paper is False
     if financial._key(database_url, False, shadow_evidence(database_url)) != expected_key:
         raise ValueError('shadow evidence changed before observation')
     rows, details, history, errors = _dual_authority_rows(database_url,
-        now=datetime.now(timezone.utc), include_paper=False)
+        now=datetime.now(timezone.utc), include_paper=False, propagate_corpus_lock=True)
     if details or history:
         raise ValueError('unexpected shadow observer shape')
     value = _pack(rows, errors)
@@ -45,7 +45,12 @@ def observe_shadow(database_url, include_paper, expected_key):
     return value
 
 
-def observe_paper(database_url, include_paper, expected_key):
+def observe_shadow(database_url, include_paper, expected_key):
+    return financial.retry_corpus_lock(lambda: _observe_shadow_once(
+        database_url, include_paper, expected_key))
+
+
+def _observe_paper_once(database_url, include_paper, expected_key):
     from sentinel import informational_paper_mirror
     from sentinel.feed import readers, store
     from sentinel.panel import sources
@@ -64,6 +69,11 @@ def observe_paper(database_url, include_paper, expected_key):
     if financial._key(database_url, True, financial._evidence(database_url, True)) != expected_key:
         raise ValueError('paper evidence changed during observation')
     return value
+
+
+def observe_paper(database_url, include_paper, expected_key):
+    return financial.retry_corpus_lock(lambda: _observe_paper_once(
+        database_url, include_paper, expected_key))
 
 
 def paper_unknown(include_paper, detail, retained=None, *, checking_until=None):

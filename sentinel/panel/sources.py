@@ -2066,7 +2066,8 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
 
 
 def _dual_authority_rows(
-        database_url: str, *, now: datetime, include_paper: bool = True
+        database_url: str, *, now: datetime, include_paper: bool = True,
+        propagate_corpus_lock: bool = False
         ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
     """Project the sole shadow authority and separate PAPER transport state.
 
@@ -2099,6 +2100,7 @@ def _dual_authority_rows(
     from sentinel import informational_paper_mirror, shadow_runtime
     from sentinel.feed import readers as publication
     from sentinel.feed import store as feed_store
+    from sentinel.feed.publication import CorpusLockUnavailable
 
     conn = None
     try:
@@ -2162,6 +2164,8 @@ def _dual_authority_rows(
                 informational_paper_mirror=informational_paper_mirror,
                 publication=publication, feed_store=feed_store)
         except Exception as exc:                             # noqa: BLE001
+            if propagate_corpus_lock and isinstance(exc, CorpusLockUnavailable):
+                raise
             # PAPER evidence cannot erase a shadow result that already passed
             # its independent full-corpus verification above.
             detail = _short(exc)
@@ -2172,6 +2176,8 @@ def _dual_authority_rows(
         rows.extend(book_rows)
         return rows, {}, [], paper_errors
     except Exception as exc:                                 # noqa: BLE001
+        if propagate_corpus_lock and isinstance(exc, CorpusLockUnavailable):
+            raise
         detail = _short(exc)
         return ([
             model.shadow_verification_row(

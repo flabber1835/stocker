@@ -17,6 +17,8 @@ RETRY_SECONDS = 30
 MAX_BYTES = 32 * 1024
 FRESH_SECONDS = 600
 REFRESH_SECONDS = FRESH_SECONDS - DEADLINE_SECONDS
+CORPUS_LOCK_RETRY_SECONDS = 20
+CORPUS_LOCK_POLL_SECONDS = 0.5
 # Canonical execution/trial namespaces sharing the processed-session table.
 # No broker import or observation can become a dependency of shadow proof.
 
@@ -64,12 +66,32 @@ def _evidence(database_url, include_paper):
         conn.close()
 
 
-def _observe(database_url, include_paper, expected_key):
+def retry_corpus_lock(operation, *, clock=time.monotonic, sleep=time.sleep):
+    """Retry only a refused corpus pin inside the original finite observer."""
+    from sentinel.feed.publication import CorpusLockUnavailable
+
+    work_deadline = clock() + DEADLINE_SECONDS
+    retry_deadline = None
+    while True:
+        try:
+            return operation()
+        except CorpusLockUnavailable:
+            now = clock()
+            if retry_deadline is None:
+                retry_deadline = min(work_deadline, now + CORPUS_LOCK_RETRY_SECONDS)
+            remaining = retry_deadline - now
+            if remaining <= 0:
+                raise
+            sleep(min(CORPUS_LOCK_POLL_SECONDS, remaining))
+
+
+def _observe_once(database_url, include_paper, expected_key):
     from sentinel.panel.sources import _dual_authority_rows
     if _key(database_url, include_paper, _evidence(database_url, include_paper)) != expected_key:
         raise ValueError('financial evidence changed before observation')
     rows, details, history, errors = _dual_authority_rows(
-        database_url, now=datetime.now(timezone.utc), include_paper=include_paper)
+        database_url, now=datetime.now(timezone.utc), include_paper=include_paper,
+        propagate_corpus_lock=True)
     if details or history or len(rows) > 7:
         raise ValueError('unexpected financial observer shape')
     value = {'rows': [asdict(row) for row in rows], 'errors': errors,
@@ -82,6 +104,11 @@ def _observe(database_url, include_paper, expected_key):
             or len(pickle.dumps(value)) > MAX_BYTES):
         raise ValueError('financial observer result exceeds bound')
     return value
+
+
+def _observe(database_url, include_paper, expected_key):
+    return retry_corpus_lock(lambda: _observe_once(
+        database_url, include_paper, expected_key))
 
 
 def _key(database_url, include_paper, evidence):
