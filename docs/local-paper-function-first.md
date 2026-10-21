@@ -39,3 +39,10 @@ terminal predecessor commands. UNKNOWN, pending or working commands refuse.
 Fresh preparation reconciles again and sizes from current holdings, preserving
 the filled sells and all older immutable intent. This exception is opt-in local
 paper only and never authorizes executing an old plan or changing its window.
+
+Retained-book reads may bind the owner-authorized current executable without a
+release admission record, which otherwise depends on the suspended delivery
+and recovery campaign. Verify the actual local image, commit and source identity
+before that binding. Preserve every existing checkpoint, configuration, strategy
+and economic migration check; the historical runtime identity remains historical
+book provenance, while the running process reports its actual local identity.

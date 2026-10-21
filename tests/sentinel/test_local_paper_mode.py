@@ -154,3 +154,29 @@ def test_continuation_terminal_guard_falsifier(owner, monkeypatch):
     namespace = {}
     exec(compile(tree, 'removed-terminal-command-guard', 'exec'), vars(continuation), namespace)
     assert namespace['eligible'](**args), 'mutant must expose the working predecessor'
+
+
+@pytest.mark.parametrize('changed', [False, True])
+def test_retained_local_process_preserves_book_and_requires_current_bytes(owner, monkeypatch, changed):
+    from sentinel import runtime_admission as admission, rolling_daily_checkpoint as daily
+    actual = _runtime(monkeypatch)
+    actual['identity_hash'] = 'd'*64
+    monkeypatch.setattr(admission.identity, 'rehearsal_identity', lambda: actual)
+    config = {'validated_source_identity_sha256': 'old-source', 'observation_id': 'primary'}
+    old_runtime = {'schema': 'sentinel.shadow-runtime-identity/1', 'reviewed_shadow_config': config}
+    strategy = {'strategy': 'unchanged-canonical'}
+    checkpoint = SimpleNamespace(observation_id='primary', starting_cash='50000',
+        strategy_identity=strategy, runtime_identity=old_runtime)
+    monkeypatch.setattr(admission.origin, 'read', lambda conn: checkpoint)
+    monkeypatch.setattr(daily, 'read', lambda conn: None)
+    monkeypatch.setattr(admission, 'read', lambda *args: pytest.fail('local process attempted release admission read'))
+    runtime = dict(old_runtime, git_commit='a'*40, runtime_image_digest='sha256:'+'b'*64,
+        environment_identity_sha256=('e' if changed else 'd')*64)
+    context = dict(observation_id='primary', starting_cash='50000', strategy=strategy, runtime=runtime)
+    if changed:
+        with pytest.raises(admission.Refused, match='PROCESS_IDENTITY_CHANGED'):
+            admission.bind_context(object(), context)
+    else:
+        admission.bind_context(object(), context)
+        assert context['runtime'] is old_runtime
+        assert checkpoint.runtime_identity == old_runtime

@@ -203,7 +203,16 @@ def bind_context(conn, context):
         return  # Unknown identities cannot gain a compatibility fallback.
     _require_context(checkpoint, context)
     if process_binding(checkpoint.runtime_identity) != process_binding(context['runtime']):
-        if read(conn, context, checkpoint) is None:
+        from sentinel import local_paper
+        if local_paper.require_bound_account(conn):
+            actual = identity.rehearsal_identity()
+            local_paper.require_runtime(conn, actual)
+            artifacts = actual['deployment_artifacts']
+            if (context['runtime'].get('git_commit') != artifacts['git_commit']
+                    or context['runtime'].get('runtime_image_digest') != artifacts['runtime_image_digest']
+                    or context['runtime'].get('environment_identity_sha256') != actual['identity_hash']):
+                raise Refused('LOCAL_PAPER_RETAINED_PROCESS_IDENTITY_CHANGED')
+        elif read(conn, context, checkpoint) is None:
             raise Refused('RETAINED_RUNTIME_ADMISSION_REQUIRED')
     from sentinel import rolling_daily_checkpoint as daily
     current = daily.read(conn)
