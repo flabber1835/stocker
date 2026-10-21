@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Scheduled pre-open readiness](preopen-dashboard-readiness.md) distinguishes a
+current ready plan awaiting its scheduled open from still-pending post-close
+mirror verification, with the execution boundary and all safety gates retained.
+
 [External restore scratch](external-restore-scratch.md) optionally allocates the
 isolated restore copy on a verified external filesystem, while preserving the
 production PostgreSQL volume, backup root, immutable markers and full restore
