@@ -308,7 +308,8 @@ def shadow_metric_row(
 
 def paper_reconciliation_row(
         *, state: str, cycle_state: Optional[str] = None,
-        detail: str = "", error: Optional[str] = None) -> Row:
+        detail: str = "", error: Optional[str] = None,
+        scheduled_until: Optional[datetime] = None) -> Row:
     """Operational PAPER transport; never a performance authority."""
     if error:
         return Row(
@@ -328,6 +329,12 @@ def paper_reconciliation_row(
             "PAPER NOT VERIFIED · MISMATCH · BLOCKED", FAIL,
             (detail or "a durable PAPER discrepancy blocks future mutations")
             + suffix)
+    if normalized == "SCHEDULED" and scheduled_until is not None:
+        return Row(
+            "paper_reconciliation", "Alpaca PAPER mirror",
+            "PAPER NOT VERIFIED · SCHEDULED · POST-CLOSE EVIDENCE PENDING", OK,
+            detail + suffix, required_current=True,
+            valid_until=scheduled_until - timedelta(microseconds=1))
     if normalized == "CLEAN":
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",

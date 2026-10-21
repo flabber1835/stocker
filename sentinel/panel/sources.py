@@ -1806,6 +1806,62 @@ def _informational_mirror_count(conn) -> int:
     return max(0, int(row[0]))
 
 
+def _scheduled_preopen_mirror(conn, cycle, active_publication, frontier, *, now=None):
+    """Expected future mirror evidence, bounded by an actually ready current cycle."""
+    now = now or datetime.now(timezone.utc)
+    execute_at = _utc(cycle.get("execute_at"))
+    if (cycle.get("state") != "WAITING_OPEN" or execute_at is None
+            or not now < execute_at or cycle.get("failure_code")
+            or cycle.get("failure_detail") or cycle.get("terminal_reason")):
+        return None
+    from sentinel.automation.health import read_health
+    from sentinel.execution import journal
+    from sentinel.feed import calendar
+
+    health = read_health(conn)
+    if (not health.healthy or not health.operational_ready
+            or health.enabled is not True or health.kill_switch_engaged is not False
+            or health.policy_state != "LEADER_ACTIVE"
+            or health.authority_verdict != "PASS"
+            or health.authority_lifecycle_current is not True
+            or health.broker_outcome_unresolved != 0
+            or health.latest_cycle_id != cycle.get("cycle_id")
+            or health.latest_cycle_state != "WAITING_OPEN"):
+        return None
+    plan = journal.latest_plan(conn)
+    rollout = _rollout_state(conn)
+    certificate = health.certificate_sha256
+    if (plan is None or not certificate
+            or plan.plan_id != cycle.get("plan_id")
+            or plan.fingerprint() != cycle.get("plan_fingerprint")
+            or str(plan.decision_session) != cycle.get("decision_session")
+            or str(plan.effective_session) != cycle.get("effective_session")
+            or str(plan.decision_session) != str(frontier)
+            or str(plan.effective_session) != calendar.next_session(str(frontier))
+            or plan.data_version != active_publication.version
+            or (plan.rollout_mode, plan.rollout_version, plan.rollout_certificate_sha256)
+                != (rollout["mode"], rollout["version"], certificate)
+            or rollout["certificate_sha256"] != certificate
+            or (health.rollout_mode, health.rollout_version)
+                != (rollout["mode"], rollout["version"])):
+        return None
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT c.certificate_sha256,c.historical_state_only,"
+            " (c.control_generation=%s OR EXISTS ("
+            " SELECT 1 FROM sentinel_automation_cycle_events e"
+            " WHERE e.cycle_id=c.cycle_id AND e.control_generation=%s))"
+            " FROM sentinel_automation_cycles c WHERE c.cycle_id=%s",
+            (health.control_generation, health.control_generation, cycle["cycle_id"]))
+        binding = cur.fetchone()
+    if binding != (certificate, False, True):
+        return None
+    return model.paper_reconciliation_row(
+        state="SCHEDULED", cycle_state="WAITING_OPEN", scheduled_until=execute_at,
+        detail=("current admitted plan is scheduled for " + execute_at.isoformat()
+                + "; orders have not completed and post-close mirror evidence remains pending"))
+
+
 def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                     feed_store) -> model.Row:
     """Project PAPER independently of an already-proven shadow result."""
@@ -1882,6 +1938,11 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                 state="MISMATCH", cycle_state=cycle_state,
                 detail=("the completed PAPER cycle has no exact durable clean "
                         "reconciliation"))
+        if pending and plan_state == informational_paper_mirror.PENDING:
+            scheduled = _scheduled_preopen_mirror(
+                conn, cycle, active_publication, frontier)
+            if scheduled is not None:
+                return scheduled
         return model.paper_reconciliation_row(
             state="PENDING" if pending else "CLEAN",
             cycle_state=cycle_state,
