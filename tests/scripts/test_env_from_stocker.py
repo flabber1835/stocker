@@ -420,3 +420,35 @@ def test_inheriting_legacy_execution_policy_is_detected(tmp_path, mod, monkeypat
         monkeypatch.setitem(mod.CARRY, key, "incorrect inherited policy")
     with pytest.raises(AssertionError):
         _assert_legacy_execution_policy_is_not_selected(tmp_path / "mutated", mod)
+
+
+LEGACY_DEBUG_WINDOW = (
+    '{"schema":"PAPER_DEBUG_WINDOW_V1","effective_session":"2026-10-21",'
+    '"not_before":"2026-10-21T17:00:00Z","not_after":"2026-10-21T17:30:00Z"}')
+
+
+def _assert_legacy_debug_window_is_unset(directory, mod, value):
+    directory.mkdir()
+    source, destination = directory / "old.env", directory / "new.env"
+    assignment = ("" if value is None else
+                  "SENTINEL_PAPER_DEBUG_WINDOW='" + value + "'\n")
+    source.write_text(OLD + assignment, encoding="utf-8")
+    assert mod.main(["--from", str(source), "--to", str(destination)]) == 0
+    exported = mod.parse_env(destination)
+    assert "SENTINEL_PAPER_DEBUG_WINDOW" not in exported
+    assert exported.get("SENTINEL_PAPER_DEBUG_WINDOW", "") == ""
+
+
+@pytest.mark.parametrize("value", [None, "", LEGACY_DEBUG_WINDOW])
+def test_legacy_debug_window_requires_fresh_signed_selection(tmp_path, mod, value):
+    _assert_legacy_debug_window_is_unset(tmp_path / "selected", mod, value)
+    reason = mod.DELIBERATELY_UNSET["SENTINEL_PAPER_DEBUG_WINDOW"]
+    assert "session-specific signed" in reason and "fresh explicit selection" in reason
+    assert "SENTINEL_PAPER_DEBUG_WINDOW" not in mod.CARRY
+
+
+def test_inheriting_legacy_debug_window_is_detected(tmp_path, mod, monkeypatch):
+    _assert_legacy_debug_window_is_unset(tmp_path / "baseline", mod, LEGACY_DEBUG_WINDOW)
+    monkeypatch.setitem(mod.CARRY, "SENTINEL_PAPER_DEBUG_WINDOW", "incorrect inherited authorization")
+    with pytest.raises(AssertionError):
+        _assert_legacy_debug_window_is_unset(tmp_path / "mutated", mod, LEGACY_DEBUG_WINDOW)
