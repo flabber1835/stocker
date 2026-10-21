@@ -64,3 +64,27 @@ the old projection. Retries within the same window retain the newly adopted plan
 Require terminal commands for the plan being replaced and no account-wide
 in-flight commands. Historical never-sent PLANNED commands remain historical;
 ordinary plan adoption may supersede them but cannot send them late.
+
+For local PAPER's operational headline, a prepared scheduled wait is readiness,
+not recovery. Only the existing independently derived SCHEDULED paper row,
+currently OK and before its producer-bound validity deadline, may make the two
+WAITING_OPEN progress rows neutral in headline severity. Preserve their visible
+waiting labels and all other row severities. Missing/expired scheduled proof,
+source/account/authority/runtime failures, unexpected waits and unreadable facts
+still prevent green. This claims operational readiness, never completed future
+orders or trial/performance certification. Normal release mode keeps its existing
+headline policy.
+
+The future plan's informational mirror stamp is created at the execution
+boundary, so its absence before the open is expected. In local PAPER mode only,
+an absent current stamp may use that same scheduled-readiness proof after the
+global mirror integrity check passes and the bound account is confirmed. Do not
+write a stamp from the panel or convert any mismatch into readiness.
+
+Deploy presentation-only updates while a future WAITING_OPEN plan is quiescent
+by stopping all application workers, confirming no in-flight commands, and
+requiring identical native automation configuration fingerprints in the old and
+new images and durable control/cycle. Preserve control generation and prepared
+plan. Restart through normal lease acquisition; no PostgreSQL restart or control
+mutation is required. Configuration/execution changes still require the explicit
+native fencing and activation sequence.

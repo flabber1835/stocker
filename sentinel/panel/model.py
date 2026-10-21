@@ -194,6 +194,7 @@ class Panel:
     #: Already-earned durable financial evidence for read-only detail sections.
     trial_details: dict = field(default_factory=dict)
     trial_history: list[dict] = field(default_factory=list)
+    local_paper_mode: bool = False
 
     @property
     def overall(self) -> str:
@@ -220,8 +221,14 @@ class Panel:
         failing.  PENDING retains its existing meaning: a deliberately absent
         non-runtime capability is not an outage.
         """
+        scheduled = self.local_paper_mode and any(
+            r.key == 'paper_reconciliation' and 'SCHEDULED' in r.value
+            and r.valid_until is not None and r.effective_status(self.now) == OK
+            for r in self.rows)
         live = [
-            r.effective_status(self.now) for r in self.rows
+            (OK if scheduled and r.key in {'automation_cycle', 'automation_step_open'}
+                and r.value == 'WAITING_OPEN' and r.effective_status(self.now) == WARN
+                else r.effective_status(self.now)) for r in self.rows
             if (r.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
                 and (r.status != PENDING or r.required_current))
         ]

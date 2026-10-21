@@ -1976,6 +1976,16 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
         return model.paper_reconciliation_row(
             state="MISMATCH", cycle_state=cycle_state, detail=_short(exc))
     except informational_paper_mirror.InformationalPaperMirrorUnstamped as exc:
+        from sentinel import local_paper
+        if cycle_state == "WAITING_OPEN" and local_paper.require_bound_account(conn):
+            if mirror.get("status") == informational_paper_mirror.MISMATCH:
+                return model.paper_reconciliation_row(
+                    state="MISMATCH", cycle_state=cycle_state,
+                    detail="historical mirror share-unit mismatch remains recorded")
+            scheduled = _scheduled_preopen_mirror(
+                conn, cycle, active_publication, frontier)
+            if scheduled is not None:
+                return scheduled
         return model.paper_reconciliation_row(
             state=("MISMATCH" if cycle_state == "SUCCEEDED" else "PENDING"),
             cycle_state=cycle_state, detail=_short(exc))
@@ -2738,9 +2748,15 @@ def build_panel(*, state_dir: Path, database_url: str,
         *automation_rows[2:],
     ]
     completed_at = fixed_now or datetime.now(timezone.utc)
+    from sentinel import local_paper
+    try:
+        local_mode = local_paper.enabled()
+    except (RuntimeError, ValueError):
+        local_mode = False  # Existing runtime/account error rows remain visible.
     return model.Panel(rows=rows, now=completed_at, source_errors=errors,
                        trial_details=trial_details,
-                       trial_history=trial_history)
+                       trial_history=trial_history,
+                       local_paper_mode=local_mode)
 
 
 __all__ = ["DEFAULT_SLOTS", "build_panel"]
