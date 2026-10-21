@@ -2318,3 +2318,32 @@ async def test_reconciled_native_cash_supersedes_stale_plan_without_transport(mo
     assert result.disposition is ExecuteDisposition.SUPERSEDED
     assert result.failure_code == 'POST_PLAN_CASH_ACTIVITY_RECONCILED'
     assert not any(call.startswith(('submit:', 'cancel:')) for call in broker.calls)
+
+
+@pytest.mark.parametrize("carried", [None, "current", "foreign"])
+def test_automation_grant_config_sha_matches_durable_control(monkeypatch, carried):
+    cfg, conn = config(), FakeConnection()
+    current, ctx = control(cfg), context(cfg)
+    monkeypatch.setattr(store, "load_control", lambda _conn: current)
+    monkeypatch.setattr(store, "require_leader", lambda _conn, permit: permit)
+    monkeypatch.setattr(store, "load_cycle", lambda _conn, _cycle_id: ctx.cycle)
+    grant = replace(automation_runtime._grant(ctx, "EXECUTE", binding=current.binding),
+        config_sha256=(None if carried is None else cfg.fingerprint if carried == "current" else "f"*64))
+    if carried == "foreign":
+        with pytest.raises(paper.PaperActivationRefused, match="durable control authority"):
+            paper_validation._validate_automation_grant(conn, grant)
+    else:
+        assert paper_validation._validate_automation_grant(conn, grant) == (current, ctx.cycle)
+
+
+def test_removed_durable_grant_config_binding_is_detected(monkeypatch):
+    import inspect
+    source = inspect.getsource(paper_validation._validate_automation_grant)
+    needle = "grant.config_sha256 is not None and grant.config_sha256 != bound.config_sha256"
+    assert source.count(needle) == 1
+    namespace = {}
+    exec(compile(source.replace(needle, "False", 1), "<removed-durable-config-binding>", "exec"),
+         vars(paper_validation), namespace)
+    monkeypatch.setattr(paper_validation, "_validate_automation_grant", namespace["_validate_automation_grant"])
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_automation_grant_config_sha_matches_durable_control(monkeypatch, "foreign")

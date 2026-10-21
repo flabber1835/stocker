@@ -202,10 +202,13 @@ async def test_pending_shared_journal_is_not_discarded_by_open_cutover(conn):
 @pytest.mark.asyncio
 async def test_removed_scheduler_cutover_is_detected(conn, monkeypatch):
     import sentinel.automation.service as module
-    source = textwrap.dedent(inspect.getsource(AutomationService._run_preflight_recover)).replace(
-        'and now >= cycle.execution_open_at)', 'and False)')
+    source = textwrap.dedent(inspect.getsource(AutomationService._run_preflight_recover))
+    needle = 'and now >= cycle.execution_open_at'
+    assert source.count(needle) == 1
+    mutated = source.replace(needle, 'and False', 1)
+    assert mutated != source and needle not in mutated
     namespace = {}
-    exec(compile(source, 'removed-cycle-cutover', 'exec'), module.__dict__, namespace)
+    exec(compile(mutated, 'removed-cycle-cutover', 'exec'), module.__dict__, namespace)
     monkeypatch.setattr(AutomationService, '_run_preflight_recover', namespace['_run_preflight_recover'])
     with pytest.raises(AssertionError):
         await test_intraday_activation_starts_control_but_never_same_open_callbacks(conn, 1)

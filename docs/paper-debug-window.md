@@ -68,6 +68,12 @@ activation, not a daily source change or direct database edit.
 Preserve prior source profiles verbatim and admit only exact reviewed successor
 bytes, including the scheduling/transport modules newly in this bounded profile.
 No retained receipt is relabeled and no source overlay is a qualified runtime.
+The canonical paper delta registry records only the grant configuration-binding
+change in `_validate_automation_grant` and the selected session/cutoff change in
+`_opening_resolution_freshness_or_refuse`. Preserve the historical equivalence
+manifest and its hashes; registry tampering must still fail for either changed
+definition, and the ordinary after-open scheduler cutover falsifier must still
+remove its actual guard.
 Test default identity/window preservation, actual exchange/early-close bounds,
 current-session scheduling, late clean preflight, strict predecessor ownership,
 final POST after slow awaited work, policy/projection mismatch and expiry. Guard

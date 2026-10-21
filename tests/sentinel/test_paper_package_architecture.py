@@ -213,6 +213,8 @@ def test_equivalence_manifest_covers_every_canonical_definition():
     ('prepare_paper_plan', 'preparation'),
     ('_execute_current_paper_plan', 'execution'),
     ('recover_automated_paper_cycle', 'recovery'),
+    ('_validate_automation_grant', 'validation'),
+    ('_opening_resolution_freshness_or_refuse', 'execution'),
 ])
 def test_paper_delta_registry_rejects_an_unreviewed_canonical_fingerprint(
         tmp_path, monkeypatch, definition, owner):
