@@ -206,6 +206,7 @@ def test_worker_wait_restart_source_healing_and_transport(
             "refresh_max_attempts": 2, "maximum_clock_skew_seconds": 100_000_000})
         scfg = assembly.create().sentinel_config
         monkeypatch.setattr(automation_worker, "config_from_env", lambda: cfg)
+        monkeypatch.setattr(automation_runtime, "config_from_env", lambda: cfg)
         monkeypatch.setattr(automation_worker.SentinelConfig, "from_env", lambda: scfg)
         # Explicit simulator transport fixture registration. Production's
         # registry remains unchanged and still validates each wrapper instance.

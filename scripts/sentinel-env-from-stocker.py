@@ -105,6 +105,8 @@ DELIBERATELY_UNSET = {
         "selected explicitly in the new reviewed execution configuration; never inherit a stale legacy policy",
     "SENTINEL_PAPER_BUY_CAP_BPS":
         "selected explicitly in the new reviewed execution configuration; never inherit a stale legacy price band",
+    "SENTINEL_PAPER_DEBUG_WINDOW":
+        "session-specific signed paper authorization requires fresh explicit selection; never inherit a legacy debug window",
     "SHARADAR_API_KEY":
         "historical research only; never copy into deployed Sentinel environment",
     "SHARADAR_FETCH_TIMEOUT": "historical research tuning only",

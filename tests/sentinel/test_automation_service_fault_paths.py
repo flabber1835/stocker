@@ -1941,3 +1941,23 @@ def test_backwards_completion_cannot_terminalize_recovery(monkeypatch, remove_gu
     else:
         require_refusal()
     assert calls == ['read-only recovery']
+
+
+def test_debug_window_service_cutoff_is_exclusive_and_current_config_only():
+    from sentinel.automation.model import PaperDebugWindow
+    from sentinel.automation.schedule import for_decision_session
+    window = PaperDebugWindow(effective_session="2026-10-21",
+        not_before="2026-10-21T16:00:00Z", not_after="2026-10-21T16:30:00Z")
+    selected = AutomationConfig(paper_debug_window=window)
+    slot = for_decision_session("2026-10-20", selected)
+    cycle = SimpleNamespace(**slot.model_dump(), config_sha256=selected.fingerprint)
+    service = module.AutomationService(config=selected, holder_id="debug-test",
+        refresh=lambda context: None, prepare=lambda context: None,
+        recover=lambda context: None, execute=lambda context: None)
+    assert service._latest_new_execution_at(cycle) == window.not_after
+    assert not service._execution_is_fresh(now=window.not_before-timedelta(seconds=1), cycle=cycle)
+    assert service._execution_is_fresh(now=window.not_before, cycle=cycle)
+    assert service._execution_is_fresh(now=window.not_after-timedelta(seconds=1), cycle=cycle)
+    assert not service._execution_is_fresh(now=window.not_after, cycle=cycle)
+    assert not service._execution_expired(now=window.not_after-timedelta(seconds=1), cycle=cycle)
+    assert service._execution_expired(now=window.not_after, cycle=cycle)

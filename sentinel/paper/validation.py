@@ -192,7 +192,8 @@ def _validate_automation_grant(conn, grant: AutomationExecutionGrant):
         bound.rollout_mode, bound.rollout_version,
         bound.certificate_sha256, control.generation,
     )
-    if actual != expected:
+    if (actual != expected
+            or grant.config_sha256 is not None and grant.config_sha256 != bound.config_sha256):
         raise PaperActivationRefused(
             "automation grant does not match durable control authority")
     placeholder = datetime.now(ZoneInfo("UTC"))

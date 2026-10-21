@@ -306,3 +306,95 @@ def test_removing_canonical_equity_binding_is_detected(grant_case, monkeypatch, 
     monkeypatch.setattr(validation, "_protected_allocation_or_refuse", local["_protected_allocation_or_refuse"])
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_actual_submit_grant_refuses_noncanonical_allocation_denominator(grant_case, kind)
+
+
+def debug_broker_case(monkeypatch, *, change=None):
+    import json
+    from sentinel.automation_runtime import config_from_env
+    from tests.sentinel.test_automation_schedule import debug_window
+    from tests.sentinel.test_guarded_execution_broker import automation_grant
+    window = debug_window()
+    if change == "unset":
+        window = window.model_copy(update={"not_before": window.not_before.replace(hour=13, minute=31),
+            "not_after": window.not_after.replace(hour=13, minute=36)})
+    select(monkeypatch)
+    monkeypatch.setenv("SENTINEL_PAPER_DEBUG_WINDOW", json.dumps(window.model_dump(mode="json", by_alias=True)))
+    config = config_from_env()
+    inner = ProtectedBroker()
+    inner.now = window.not_before
+    legacy = wrap(inner)
+    grant = replace(automation_grant(), config_sha256=config.fingerprint)
+    async def funding(**kwargs):
+        assert kwargs["order_terms"].limit_price == D(100)
+    async def mutation(*args):
+        if change == "expiry":
+            inner.now = window.not_after
+        elif change == "window":
+            value = window.model_dump(mode="json", by_alias=True)
+            value["not_after"] = "2026-10-21T16:29:00Z"
+            monkeypatch.setenv("SENTINEL_PAPER_DEBUG_WINDOW", json.dumps(value))
+        elif change == "cap":
+            monkeypatch.setenv("SENTINEL_PAPER_BUY_CAP_BPS", "101")
+        elif change == "unset":
+            monkeypatch.delenv("SENTINEL_PAPER_DEBUG_WINDOW")
+    if change == "manual":
+        grant = legacy.grant
+    if change == "foreign_config":
+        grant = replace(grant, config_sha256="f"*64)
+    broker = GuardedExecutionBroker(inner=inner, grant=grant,
+        guard=replace(legacy.guard, before_mutation=mutation), protected_funding=funding)
+    return broker, inner, window
+
+
+def test_signed_debug_protected_buy_reaches_only_limit_day_transport(monkeypatch):
+    broker, inner, window = debug_broker_case(monkeypatch)
+    terms = OrderTerms(order_type="limit", limit_price=D(100))
+    answer = asyncio.run(broker.submit(client_key="debug", instrument=instrument(),
+        side=Side.BUY, quantity=D(1), order_terms=terms))
+    assert answer.state is S.ACKNOWLEDGED and inner.terms_sent == [terms]
+    assert "quote-read" not in inner.calls
+    policy = protected_limits.ProtectedLimitPolicy.from_env()
+    raw = policy.to_dict()
+    assert raw["cap_bps"] == 100 and raw["start_delay_seconds"] == 9000
+    assert raw["new_submit_cutoff_seconds"] == 10800
+    assert raw["submission_window"] == window.model_dump(mode="json", by_alias=True)
+    assert protected_limits.ProtectedLimitPolicy.from_dict(raw) == policy
+    assert protected_limits.ProtectedLimitPolicy(100).fingerprint() != policy.fingerprint()
+
+
+@pytest.mark.parametrize("change", ["expiry", "window", "cap", "manual", "foreign_config", "unset"])
+def test_debug_final_guard_rejects_expiry_changed_policy_or_noncurrent_grant(monkeypatch, change):
+    broker, inner, window = debug_broker_case(monkeypatch, change=change)
+    terms = OrderTerms(order_type="limit", limit_price=D(100))
+    command = Command(CommandIdentity(DEPLOYMENT, "debug-plan", instrument().security_id),
+        instrument(), Side.BUY, D(1), state=S.SEND_PENDING, order_terms=terms)
+    with pytest.raises(PreTransportAuthorityRefused) as refused:
+        asyncio.run(broker.submit(client_key=command.client_key, instrument=command.instrument,
+            side=command.side, quantity=command.quantity, order_terms=command.order_terms))
+    assert inner.terms_sent == []
+    broker.consume_not_transported(refused.value, command)
+
+
+def test_removing_debug_final_clock_boundary_breaks_its_falsifier(monkeypatch):
+    source = textwrap.dedent(inspect.getsource(GuardedExecutionBroker._prepare_submit))
+    needle = "if not earliest <= now < latest:"
+    assert source.count(needle) == 1
+    import sentinel.execution.guarded as guarded
+    local = {}
+    exec(compile(source.replace(needle, "if False:"), "<removed-debug-end-boundary>", "exec"), vars(guarded), local)
+    monkeypatch.setattr(GuardedExecutionBroker, "_prepare_submit", local["_prepare_submit"])
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_debug_final_guard_rejects_expiry_changed_policy_or_noncurrent_grant(monkeypatch, "expiry")
+
+
+def test_removing_debug_configuration_binding_breaks_its_falsifier(monkeypatch):
+    source = textwrap.dedent(inspect.getsource(GuardedExecutionBroker._prepare_submit))
+    needle = "or self._grant.config_sha256 != config.fingerprint"
+    assert source.count(needle) == 1
+    import sentinel.execution.guarded as guarded
+    local = {}
+    exec(compile(source.replace(needle, "or False"), "<removed-debug-config-binding>", "exec"), vars(guarded), local)
+    monkeypatch.setattr(GuardedExecutionBroker, "_prepare_submit", local["_prepare_submit"])
+    for change in ("foreign_config", "unset"):
+        with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+            test_debug_final_guard_rejects_expiry_changed_policy_or_noncurrent_grant(monkeypatch, change)

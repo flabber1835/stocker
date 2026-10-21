@@ -193,11 +193,17 @@
     },
     "_opening_resolution_freshness_or_refuse": {
       "acceptance": "docs/unattended-operation-qualification.md",
+      "debug_window_acceptance": [
+        "tests/sentinel/test_v5_opening_execution_freshness.py::test_debug_first_sizing_uses_selected_session_and_exclusive_cutoff",
+        "tests/sentinel/test_v5_opening_execution_freshness.py::test_removed_debug_first_sizing_guard_is_detected",
+        "tests/sentinel/test_paper_package_architecture.py"
+      ],
+      "debug_window_design": "docs/paper-debug-window.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "f83de627682c4af43f9f94dc3da903f79b9a382ed7edb246361517d433704e1e",
+      "generated_ast_sha256": "5beb7480f04c4982d447811f2366afb7d0199faa64c67b2e9da1642b98bfd1c8",
       "historical_ast_sha256": null,
       "module": "execution",
-      "reason": "PR #480 uses the reviewed ten-minute regular-session quote window and refuses new sizing at its exact endpoint; an already retained projection remains recoverable."
+      "reason": "PR #480 uses the reviewed ten-minute regular-session quote window and refuses new sizing at its exact endpoint; an already retained projection remains recoverable. PR #537: For an explicitly selected protected 100-basis-point DAY paper window, require the plan effective session to match and use its exclusive cutoff for unresolved first sizing; preserve immutable retained projections and the ordinary ten-minute cutoff when no debug window is selected."
     },
     "_preopen_active_security_ids": {
       "generated_ast_sha256": "f4d0d48fa4bb9e34a62b185b5191e54ba9a11a9352ee0f5cf7af949760431204",
@@ -307,6 +313,18 @@
       "generated_ast_sha256": "1d6718127e067bfe59b53b292f20363bb5e09c2c833b1fb015e1b059373ba139",
       "historical_ast_sha256": null,
       "module": "reconciliation_evidence"
+    },
+    "_validate_automation_grant": {
+      "debug_window_acceptance": [
+        "tests/sentinel/test_automation_runtime.py::test_automation_grant_config_sha_matches_durable_control",
+        "tests/sentinel/test_automation_runtime.py::test_removed_durable_grant_config_binding_is_detected",
+        "tests/sentinel/test_paper_package_architecture.py"
+      ],
+      "debug_window_design": "docs/paper-debug-window.md",
+      "generated_ast_sha256": "b5aa393ac4e82870a5299d765bb836f12bfc98c723f9fa34b2dd0d4ce8204d1c",
+      "historical_ast_sha256": "44b255babafd9ac3d4687aa8a299f7c3968a0ef5f4fb9ba8de95d2c11351725e",
+      "module": "validation",
+      "reason": "PR #537: Bind any carried automation configuration SHA to the durable control configuration before paper mutation; preserve existing generation, certificate, account, leader, phase and cycle checks."
     },
     "_validate_broker_grant": {
       "generated_ast_sha256": "9434164b9c2c06c9af428e19643d1158c40100def5a5d20bd78ea1595f2d9848",

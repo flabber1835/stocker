@@ -149,6 +149,12 @@ def _opening_resolution_freshness_or_refuse(
         return
     opened, closed = calendar.session_window(plan.effective_session)
     latest = min(closed, opened + _V5_OPENING_FRESHNESS)
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
+    policy = ProtectedLimitPolicy.from_env()
+    if policy is not None and policy.debug_window is not None:
+        if policy.debug_window.effective_session != plan.effective_session:
+            raise PaperActivationRefused("debug policy belongs to another effective session")
+        latest = policy.debug_window.not_after
     if (now_et >= latest and target_reprojection.load_projection(
             conn, plan_id=plan.plan_id) is None):
         return OpeningPriceUnavailability(

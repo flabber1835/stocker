@@ -662,12 +662,31 @@ def _cycles_in_scope(conn, spec: CycleSpec) -> list[CycleRecord]:
         return [_cycle(row) for row in cur.fetchall()]
 
 
-def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None):
+def _prospective_deadline(spec, config):
+    window = config.debug_window_for(spec) if config is not None else None
+    return window.not_after if window is not None else spec.execution_open_at
+
+
+def _unsent_retirement(cycle, spec, *, debug=False):
+    if cycle.state is not CycleState.SUPERSEDED or cycle.historical_state_only:
+        return False
+    if cycle.failure_code == "CONTROL_GENERATION_SUPERSEDED":
+        return True
+    return (debug and cycle.failure_code == "DISCOVERED_AFTER_SESSION_OPEN"
+            and cycle.effective_session == spec.effective_session
+            and cycle.plan_id is None
+            and cycle.diagnostic.get("preflight_recovery_complete") is True
+            and cycle.diagnostic.get("stale_preflight_superseded") is True)
+
+
+def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None,
+                             config=None):
     """Read-only eligibility; creation repeats it under the canonical owner."""
     from sentinel.automation import integrity
+    deadline = _prospective_deadline(spec, config)
     try:
         if (now is None or now.tzinfo is None or now.utcoffset() is None
-                or now >= spec.execution_open_at or spec.historical_state_only):
+                or now >= deadline or spec.historical_state_only):
             return None
         control = load_control(conn)
         if control.binding is None or control.generation != spec.control_generation:
@@ -678,7 +697,7 @@ def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None):
         with conn.cursor() as cur:
             cur.execute("SELECT clock_timestamp(),enabled_at FROM sentinel_automation_control WHERE id=1")
             clock, cutover = cur.fetchone()
-        if clock >= spec.execution_open_at or cutover is None or cutover >= spec.execution_open_at:
+        if clock >= deadline or cutover is None or cutover >= deadline:
             return None
         prior = _cycles_in_scope(conn, spec)
         if not prior:
@@ -697,8 +716,8 @@ def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None):
         for cycle in prior:
             integrity.validate_cycle_lineage(conn, cycle)
             if (cycle.control_generation >= spec.control_generation
-                    or cycle.state is not CycleState.SUPERSEDED or cycle.historical_state_only
-                    or cycle.failure_code != 'CONTROL_GENERATION_SUPERSEDED'):
+                    or not _unsent_retirement(cycle, spec,
+                        debug=config is not None and config.debug_window_for(spec) is not None)):
                 return None
         ids = sorted(cycle.cycle_id for cycle in prior)
         plans = [cycle.plan_id for cycle in prior if cycle.plan_id is not None]
@@ -724,21 +743,21 @@ def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None):
 
 def create_cycle(
         conn, *, permit: LeaderPermit, spec: CycleSpec,
-        now: datetime | None = None) -> CycleRecord:
+        now: datetime | None = None, config=None) -> CycleRecord:
     # This scheduling-only write cannot submit orders or bypass the independent
     # backup authority on the ordinary plan/execution writer boundary.
     owned = False
     try:
         with writer_lock(conn, recovery_only=True):
             owned = True
-            return _create_cycle(conn, permit=permit, spec=spec, now=now)
+            return _create_cycle(conn, permit=permit, spec=spec, now=now, config=config)
     except WriterLockUnavailable as exc:
         if owned:
             raise
         raise CycleCreationBusy('canonical writer is busy before cycle creation') from exc
 
 
-def _create_cycle(conn, *, permit, spec, now):
+def _create_cycle(conn, *, permit, spec, now, config=None):
     """Idempotently create one full-hash cycle under a live leader fence."""
     if spec.control_generation != permit.control_generation:
         raise StaleLeaderRefused(
@@ -759,14 +778,17 @@ def _create_cycle(conn, *, permit, spec, now):
             raise AutomationRefused('cycle binding differs from current activation')
         cycle_id, genesis = spec.cycle_id, {}
         if prior:
-            predecessors = prospective_predecessors(conn, spec=spec, now=now)
+            predecessors = prospective_predecessors(conn, spec=spec, now=now, config=config)
             if predecessors is None:
                 raise ProspectiveReplacementRefused('generation replacement is not a fresh unsent prospective obligation')
             cycle_id = spec.generation_cycle_id
             genesis = {'prospective_predecessors': predecessors}
+            if config is not None and config.debug_window_for(spec) is not None:
+                genesis['paper_debug_configuration'] = config.model_dump(mode="json", exclude_none=True)
             if any(cycle.state is CycleState.BLOCKED for cycle in prior):
                 from sentinel.automation.unsent_recovery import authorization_generation
                 genesis['recovery_authorization_generation'] = authorization_generation(conn, spec)
+        deadline = _prospective_deadline(spec, config)
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO sentinel_automation_cycles"
@@ -796,8 +818,8 @@ def _create_cycle(conn, *, permit, spec, now):
                  spec.execution_close_at, spec.historical_state_only,
                  spec.prepare_at, permit.fence_token,
                  permit.control_generation, permit.holder_id,
-                 permit.fence_token, bool(prior), spec.execution_open_at,
-                 spec.execution_open_at))
+                 permit.fence_token, bool(prior), deadline,
+                 deadline))
             inserted = cur.fetchone() is not None
             if inserted:
                 cur.execute(

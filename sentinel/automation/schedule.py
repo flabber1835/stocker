@@ -40,8 +40,10 @@ def for_decision_session(
         # readiness. Never infer readiness from a later arbitrary wall clock.
         prepare_at=publication_not_before(decision.isoformat()),
         execution_open_at=open_utc,
-        execute_at=(open_utc
-                    + timedelta(seconds=config.execution_delay_seconds)),
+        execute_at=(config.paper_debug_window.not_before
+                    if config.paper_debug_window is not None
+                    and config.paper_debug_window.effective_session == effective
+                    else open_utc + timedelta(seconds=config.execution_delay_seconds)),
         execution_close_at=end_utc,
     )
 

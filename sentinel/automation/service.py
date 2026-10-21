@@ -397,12 +397,18 @@ class AutomationService:
         Maximum lateness is a distinct activation-fingerprinted policy field; it
         is not inferred from the intended execution delay or retry cadence.
         """
+        window = self.config.debug_window_for(cycle)
+        if window is not None:
+            return window.not_after
         return min(
             cycle.execution_close_at,
             cycle.execute_at + timedelta(
                 seconds=self.config.maximum_execution_lateness_seconds))
 
     def _execution_is_fresh(self, *, now: datetime, cycle: CycleRecord) -> bool:
+        window = self.config.debug_window_for(cycle)
+        if window is not None:
+            return cycle.execute_at <= now < window.not_after
         return (
             cycle.execute_at <= now
             <= self._latest_new_execution_at(cycle)
@@ -410,6 +416,9 @@ class AutomationService:
         )
 
     def _execution_expired(self, *, now: datetime, cycle: CycleRecord) -> bool:
+        window = self.config.debug_window_for(cycle)
+        if window is not None:
+            return now >= window.not_after
         return (
             now > self._latest_new_execution_at(cycle)
             or now >= cycle.execution_close_at
@@ -1125,7 +1134,8 @@ class AutomationService:
                 and latest.control_generation != control.generation
                 and latest.decision_session == obligation.decision_session
                 and store.prospective_predecessors(
-                    conn, spec=self._spec(control, obligation), now=now) is None):
+                    conn, spec=self._spec(control, obligation), now=now,
+                    config=self.config) is None):
             return TickResult(
                 action=TickAction.WAITING, cycle=latest, permit=permit,
                 reason=(
@@ -1134,7 +1144,8 @@ class AutomationService:
 
         try:
             cycle = store.create_cycle(
-                conn, permit=permit, spec=self._spec(control, obligation), now=now)
+                conn, permit=permit, spec=self._spec(control, obligation), now=now,
+                config=self.config)
         except store.CycleCreationBusy:
             conn.rollback()
             return TickResult(action=TickAction.WAITING, permit=permit,
@@ -1353,8 +1364,10 @@ class AutomationService:
                 phase="PREFLIGHT_RECOVER", exc=exc,
                 recovery_transition=True)
 
+        debug = self.config.debug_window_for(cycle)
         cutover_after_open = (not supersede_on_success
-                              and now >= cycle.execution_open_at)
+                              and now >= cycle.execution_open_at
+                              and not (debug is not None and now < debug.not_after))
         if ((supersede_on_success or cutover_after_open)
                 and result.disposition in {
                     ExecuteDisposition.SUCCEEDED,

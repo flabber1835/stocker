@@ -82,7 +82,7 @@ def test_standby_takeover_preserves_nondefault_automation_fingerprint() -> None:
     }
     assert set(overrides) == (
         set(AUTOMATION_CONFIG_ENV)
-        - {"SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY"})
+        - {"SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY", "SENTINEL_PAPER_DEBUG_WINDOW"})
 
     primary_config = automation_runtime.config_from_env(
         _resolve_environment(primary, overrides))

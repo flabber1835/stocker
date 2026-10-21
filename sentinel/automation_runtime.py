@@ -163,6 +163,7 @@ AUTOMATION_CONFIG_ENV_BY_FIELD = MappingProxyType({
         "SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS",
     "execution_delay_seconds":
         "SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS",
+    "paper_debug_window": "SENTINEL_PAPER_DEBUG_WINDOW",
     "lease_seconds": "SENTINEL_AUTOMATION_LEASE_SECONDS",
     "heartbeat_seconds": "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS",
     "callback_deadline_seconds":
@@ -389,7 +390,11 @@ def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
         raw = str(source.get(name, "")).strip()
         if not raw:
             continue
-        values[field] = raw if field == "publication_timing_policy" else int(raw)
+        if field == "paper_debug_window":
+            from sentinel.automation.model import PaperDebugWindow
+            values[field] = PaperDebugWindow.from_env(source)
+        else:
+            values[field] = raw if field == "publication_timing_policy" else int(raw)
     return AutomationConfig(**values)
 
 
@@ -414,6 +419,7 @@ def _grant(context: CycleContext, operation_scope: str, *, binding=None
         rollout_mode=authority.rollout_mode,
         rollout_version=authority.rollout_version,
         certificate_sha256=authority.certificate_sha256,
+        config_sha256=authority.config_sha256,
         cancellation_check=context.require_active)
 
 

@@ -180,6 +180,7 @@ class AutomationExecutionGrant:
     rollout_version: int
     certificate_sha256: str
     cancellation_check: Callable[[], None] | None = None
+    config_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if self.operation_scope not in {"PREPARE", "RECOVER", "EXECUTE"}:
@@ -199,6 +200,8 @@ class AutomationExecutionGrant:
             raise ValueError(
                 "certificate_sha256 must be 64 lowercase hexadecimal "
                 "characters")
+        if self.config_sha256 is not None and re.fullmatch(r"[0-9a-f]{64}", self.config_sha256) is None:
+            raise ValueError("automation configuration must be an exact SHA256")
         if (self.cancellation_check is not None
                 and not callable(self.cancellation_check)):
             raise TypeError("cancellation_check must be callable")
@@ -629,8 +632,23 @@ class GuardedExecutionBroker(ExecutionBroker):
                     if now.date() != self._grant.effective_session:
                         raise ValueError('attended plan belongs to another session')
                 else:
-                    earliest = opened + (timedelta(seconds=60) if protected else timedelta(0))
-                    latest = min(closed, opened + timedelta(seconds=600))
+                    from sentinel.automation.model import PaperDebugWindow
+                    window = PaperDebugWindow.from_env()
+                    if (window is not None or isinstance(self._grant, AutomationExecutionGrant)
+                            and self._grant.config_sha256 is not None):
+                        from sentinel.automation_runtime import config_from_env
+                        config = config_from_env()
+                        if (not isinstance(self._grant, AutomationExecutionGrant)
+                                or self._grant.operation_scope != "EXECUTE"
+                                or self._grant.config_sha256 != config.fingerprint):
+                            raise ValueError("submission lacks exact current automation configuration")
+                    if window is not None:
+                        if not protected or now.date() != window.effective_session:
+                            raise ValueError("debug submission requires protected terms in its exact session")
+                        earliest, latest = window.not_before, window.not_after
+                    else:
+                        earliest = opened + (timedelta(seconds=60) if protected else timedelta(0))
+                        latest = min(closed, opened + timedelta(seconds=600))
                 if not earliest <= now < latest:
                     raise ValueError(
                         f"increase freshness expired at {latest.isoformat()}; "

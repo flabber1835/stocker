@@ -129,3 +129,50 @@ def test_fresh_v5_opening_without_certificate_retains_sizing_on_retry(conn, monk
                         today=opened + dt.timedelta(seconds=90))
     assert target_reprojection.load_projection(conn, plan_id=plan.plan_id) == projected
     assert len(journal.load_commands(conn, bound.identity, plan_id=plan.plan_id)) == 1
+
+
+@pytest.mark.parametrize("position", ["inside", "end", "foreign_session"])
+def test_debug_first_sizing_uses_selected_session_and_exclusive_cutoff(monkeypatch, position):
+    import json
+    session = dt.date(2026, 10, 21)
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", "PROTECTED_LIMIT_DAY_V1")
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_CAP_BPS", "100")
+    monkeypatch.setenv("SENTINEL_PAPER_DEBUG_WINDOW", json.dumps({
+        "schema": "PAPER_DEBUG_WINDOW_V1", "effective_session": str(session),
+        "not_before": "2026-10-21T16:00:00Z", "not_after": "2026-10-21T16:30:00Z"}))
+    monkeypatch.setattr(opening_sizing, "requires_initial_projection", lambda *a, **k: True)
+    monkeypatch.setattr(target_reprojection, "load_projection", lambda *a, **k: None)
+    plan = SimpleNamespace(plan_id="selected-debug-plan", effective_session=(
+        session-dt.timedelta(days=1) if position == "foreign_session" else session))
+    end = dt.datetime(2026, 10, 21, 16, 30, tzinfo=dt.timezone.utc)
+    now = end if position == "end" else end-dt.timedelta(seconds=1)
+    if position == "foreign_session":
+        with pytest.raises(paper.PaperActivationRefused, match="another effective session"):
+            paper_execution._opening_resolution_freshness_or_refuse(
+                object(), plan=plan, deployment=object(), now_et=now)
+    else:
+        result = paper_execution._opening_resolution_freshness_or_refuse(
+            object(), plan=plan, deployment=object(), now_et=now)
+        if position == "inside":
+            assert result is None
+        else:
+            from sentinel.execution.opening_prices import OpeningPriceUnavailability
+            assert isinstance(result, OpeningPriceUnavailability)
+            assert end.isoformat() in result.reason
+
+
+@pytest.mark.parametrize("guard,position", [("cutoff", "inside"), ("session", "foreign_session")])
+def test_removed_debug_first_sizing_guard_is_detected(monkeypatch, guard, position):
+    import inspect
+    source = inspect.getsource(paper_execution._opening_resolution_freshness_or_refuse)
+    needle, replacement = (("latest = policy.debug_window.not_after", "latest = latest")
+        if guard == "cutoff" else
+        ("policy.debug_window.effective_session != plan.effective_session", "False"))
+    assert source.count(needle) == 1
+    namespace = {}
+    exec(compile(source.replace(needle, replacement, 1), "<removed-debug-first-sizing-guard>", "exec"),
+         vars(paper_execution), namespace)
+    monkeypatch.setattr(paper_execution, "_opening_resolution_freshness_or_refuse",
+                        namespace["_opening_resolution_freshness_or_refuse"])
+    with pytest.raises((AssertionError, pytest.fail.Exception)):
+        test_debug_first_sizing_uses_selected_session_and_exclusive_cutoff(monkeypatch, position)

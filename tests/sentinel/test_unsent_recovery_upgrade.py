@@ -2,6 +2,7 @@
 from copy import deepcopy
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,10 @@ def test_recovery_upgrade_pins_exact_predecessor_and_target_and_rejects_neighbor
     path = root/name
     path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_CHANGE = True\n')
     _refresh_current(root, context, source)
-    with pytest.raises(admission.Refused, match='RETAINED_ECONOMIC_SOURCE_CHANGED'):
+    expected = (r'^RETAINED_SOURCE_CLOSURE_CHANGED$'
+        if name in {'automation/integrity.py', 'automation/store.py'} else
+        rf'^RETAINED_ECONOMIC_SOURCE_CHANGED:{re.escape(name)}$')
+    with pytest.raises(admission.Refused, match=expected):
         admission.prove_compatibility(manifest, checkpoint, context, source=source)
 
 
