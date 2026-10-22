@@ -47,6 +47,16 @@ work budget, ten-minute proof lifetime and publication/identity invalidation.
 After expiry the wait escalates red; historical values never become current
 verification or permission to trade.
 
+Clock preservation applies only to the explicitly typed historical source-wait
+cohort. Its verification row identifies `SOURCE_FRONTIER`, including the dated
+metrics that have no individual recovery object. Ordinary current observations
+retain the observer's original verification clock and ten-minute proof lifetime.
+For example, a current authenticated exposure may reference a plan created an
+hour earlier; the plan's creation time must not expire the fresh exposure proof.
+Keep producer-derived validity deadlines unchanged in both cases. This separates
+historical attestation time from current proof time without renewing either one
+on a browser read or claiming verification during a source wait.
+
 ## Holdings and visible copy
 
 The holdings view must represent the actual canonical stock-selection book with

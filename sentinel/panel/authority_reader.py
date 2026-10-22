@@ -300,12 +300,20 @@ class Reader:
                             age = completed_at-observed
                             if not timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):
                                 raise ValueError('observer result is not fresh')
-                            rows = [replace(_row_from_observation(row),
-                                as_of=row.get('as_of') or observed,
+                            original_rows = [_row_from_observation(row) for row in value['rows']]
+                            historical_source_wait = any(
+                                row.key == 'shadow_verification'
+                                and row.status in {model.WARN, model.FAIL}
+                                and row.recovery is not None
+                                and row.recovery.phase == 'SOURCE_FRONTIER'
+                                for row in original_rows)
+                            rows = [replace(row,
+                                as_of=((row.as_of or observed)
+                                       if historical_source_wait and row.key != 'paper_reconciliation'
+                                       else observed),
                                 freshness=timedelta(seconds=FRESH_SECONDS),
-                                required_current=(row.get('required_current', False)
-                                                  or row['status'] != model.WARN))
-                                for row in value['rows']]
+                                required_current=(row.required_current or row.status != model.WARN))
+                                for row in original_rows]
                             if (any(row.key == 'shadow_verification'
                                    and row.status == model.OK for row in rows)
                                     or any(row.key == 'shadow_verification'

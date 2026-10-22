@@ -40,6 +40,49 @@ def complete(value, timeout=3):
     assert value.pending is None, 'test observer did not complete'
 
 
+def test_current_verified_exposure_uses_observer_clock_instead_of_plan_creation(monkeypatch):
+    now = datetime(2026, 10, 22, 21, 54, tzinfo=timezone.utc)
+    created = now.replace(hour=21, minute=0)
+    rollout = {'mode': 'CONTROLLER', 'version': 9, 'certificate_sha256': 'a'*64}
+    plan = {'target_exposure': 0.55, 'decision_session': '2026-10-22',
+            'rollout_mode': rollout['mode'], 'rollout_version': rollout['version'],
+            'rollout_certificate_sha256': rollout['certificate_sha256'], 'created_at': created}
+    exposure = sources._exposure_row(
+        {'session': '2026-10-22', 'updated_at': now,
+         'decision': {'session': '2026-10-22', 'target_core_exposure': 0.55}},
+        plan, rollout, state_error=None, plan_error=None, rollout_error=None)
+    assert exposure.as_of == created
+    answer = result()
+    answer['rows'][0] = asdict(model.shadow_verification_row(
+        verdict='SHADOW_GO', verification='VERIFIED', session='2026-10-22'))
+    answer['observed_at'] = now
+    answer['rows'] = [asdict(exposure) if row['key'] == 'exposure'
+                      else {**row, 'as_of': created} for row in answer['rows']]
+    value = reader.Reader(runner=lambda *a, **kw: answer, wall_clock=lambda: now)
+    value.read('fixture'); complete(value)
+    output = value.read('fixture')
+    assert all(row.as_of == now for row in output[0])
+    assert all(row.effective_status(now) == model.OK for row in output[0])
+    actual, _ = surfaces(monkeypatch, output, now)
+    assert actual['operational'] == model.OK and actual['overall'] == model.OK
+    value.wall_clock = lambda: now+timedelta(seconds=reader.FRESH_SECONDS+1)
+    expired = value.read('fixture', allow_start=False)
+    assert expired[0][0].status == model.UNKNOWN
+
+
+def test_preserving_every_source_clock_falsely_expires_current_exposure(monkeypatch):
+    import inspect, textwrap
+    body = textwrap.dedent(inspect.getsource(reader.Reader.read))
+    guard = "if historical_source_wait and row.key != 'paper_reconciliation'"
+    assert guard in body
+    namespace = {}
+    exec(compile(body.replace(guard, 'if True'), 'all-clocks-falsifier', 'exec'),
+         reader.__dict__, namespace)
+    monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
+    with pytest.raises(AssertionError):
+        test_current_verified_exposure_uses_observer_clock_instead_of_plan_creation(monkeypatch)
+
+
 def test_answer_expiring_while_ui_idle_is_a_bounded_refresh_not_unreadable():
     now = datetime.now(timezone.utc)
     answer = result()

@@ -198,6 +198,22 @@ def test_refresh_never_advances_attestation_clock_or_owed_open(history, monkeypa
     assert row.effective_status(DEADLINE) == model.FAIL
 
 
+def test_expired_source_wait_keeps_historical_clocks_and_current_paper_clock(history, monkeypatch):
+    output = source_projection(monkeypatch, history)
+    rows = [replace(row, status=model.FAIL) if row.key == 'shadow_verification' else row
+            for row in output[0]]
+    rows.append(replace(model.paper_reconciliation_row(state='CLEAN'), as_of=ATTESTED))
+    answer = observation((rows, {}, [], []))
+    answer['observed_at'] = DEADLINE
+    value = reader.Reader(runner=lambda *a, **kw: answer,
+        evidence_reader=lambda *a: 'unchanged', wall_clock=lambda: DEADLINE)
+    value.read('fixture'); complete(value)
+    observed = {row.key: row for row in value.read('fixture')[0]}
+    assert observed['shadow_nav'].as_of == observed['book'].as_of == ATTESTED
+    assert observed['paper_reconciliation'].as_of == DEADLINE
+    assert observed['shadow_verification'].effective_status(DEADLINE) == model.FAIL
+
+
 def test_current_producer_failure_remains_red_during_source_wait(history, monkeypatch):
     output = source_projection(monkeypatch, history)
     output[0].append(model.Row('shadow_worker', 'Shadow publisher', 'FAILED', model.FAIL))
