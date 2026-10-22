@@ -55,6 +55,25 @@ rewriting or reactivating today's plan. Any refusal leaves the old plan intact;
 do not relax authority, replay a trade or alter a clock. PostgreSQL is not
 restarted and no backup or restore operation is part of installation.
 
+The first installed successor was correctly fenced on recovery: standing PAPER
+authority still named the old execution-inclusive strategy fingerprint. Pure
+plan replay did not test this boundary. Preflight must also call the real
+standing automation-authority check before starting workers or releasing a kill.
+
+For this owner-authorized local PAPER change only, admit the exact strategy
+fingerprint transition from `7f94cb127d4abac3001ffbe3de7d794775fbaae95a9406708eef990524f7c437`
+to `caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095`.
+The former is independently verified from the installed predecessor and its
+signed certificate; the latter commits the documented persistent-share code.
+The controller rule, canonical Wealth Core package/configuration, universe,
+market inputs and cash policy remain identical. This is local owner authority
+for an execution-policy change, not a replacement or alteration of the signed
+certificate. Keep the full source fingerprint visible. No wildcard semantic
+compatibility, other strategy/configuration, live endpoint or normal-release
+exception is authorized. The existing runtime, signature, account, controller,
+publication, configuration and cash guards still run. Recover a fenced native
+cycle and release its kill only through the supported operator commands.
+
 Verification covers the observed 72-to-71 and inverse rounding cases, new entry
 to held-episode continuity, partial fills, restart/re-derivation, actual exits,
 same-symbol new episodes, exposure changes, share-unit actions, tampered or

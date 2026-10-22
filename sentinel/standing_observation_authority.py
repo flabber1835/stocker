@@ -140,8 +140,11 @@ def require_standing_observation_authority(
             raise AuthorityRefused(
                 "standing paper runtime identity does not match this runtime")
     if bindings["strategy_identity_sha256"] != canonical_sha256(strategy_identity):
-        raise AuthorityRefused(
-            "standing paper strategy identity does not match this runtime")
+        from sentinel.persistent_share_authority import allows_execution_transition
+        if not local or not allows_execution_transition(
+                bindings["strategy_identity_sha256"], strategy_identity):
+            raise AuthorityRefused(
+                "standing paper strategy identity does not match this runtime")
     if local:
         local_paper.require_execution_config(conn, execution_config_sha256)
     elif bindings["execution_config_sha256"] != execution_config_sha256:
