@@ -1,5 +1,9 @@
 # Sentinel — the execution and recovery contract
 
+[Persistent account share targets](persistent-account-share-targets.md) supersede
+daily resizing for continuing episodes at unchanged controller exposure. The
+account target remains durable through partial fills and restarts.
+
 [Paper fill notification recovery](paper-fill-notification-recovery.md) permits
 notification-only receipts from exact, account-bound native execution activities
 without changing the financial fill ledger or its completeness requirements.

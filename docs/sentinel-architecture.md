@@ -1,5 +1,9 @@
 # Sentinel — architecture and build plan
 
+[Persistent account share targets](persistent-account-share-targets.md) keep
+execution quantities stable between strategy and controller allocation events.
+Price-driven weight drift is execution state and never feeds the strategy.
+
 
 [Current-window book formation](current-window-formation.md) restores 126
 broker-free ownership/controller transitions after 299 feature sessions. The

@@ -519,7 +519,7 @@ def test_unavailable_core_buy_guard_falsifier(monkeypatch):
 
 def test_core_envelope_falsifier_detects_removed_guard(monkeypatch):
     original = inspect.getsource(limits.resolve_protected)
-    target = 'if not missing_core and held > core_budget:'
+    target = 'if not missing_core and held - retained_value > max(Fraction(0), core_budget - retained_value):'
     assert original.count(target) == 1
     namespace = {}
     exec(compile(original.replace(target, 'if False:'), '<removed-core-envelope>', 'exec'),

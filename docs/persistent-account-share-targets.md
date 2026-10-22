@@ -1,0 +1,63 @@
+# Persistent account share targets
+
+Owner decision, 2026-10-22: do not rebalance an existing position merely because
+account NAV and shadow NAV changed by different percentages. PBR.A stayed at
+132 shadow shares and 55% controller exposure, but daily flooring moved the
+account target from 72 to 71. That sale was unwanted execution turnover.
+
+The production dual PAPER adapter now carries its previous durable account
+target for each continuing Wealth Core episode. Episode identity is the stable
+security ID, slot and original signal session; a pending entry and its resulting
+episode have the same identity. Broker holdings never determine the target.
+Partial fills, an expired DAY order and a restart leave the intended quantity
+outstanding. New entries are sized normally; exits remain zero targets. A new
+episode in a reused slot is a new entry. A change in effective Sentinel exposure
+resizes the basket normally and establishes new account quantities. This rule
+applies to the defensive sleeve too while the allocation is unchanged.
+
+Accept price-driven weight drift between allocation decisions. Do not silently
+sell an unchanged holding to restore a percentage. Retained positions can exceed
+the nominal Core allocation after appreciation; that does not permit additional
+spending above the allocation. Clamp new-entry allocation to zero when retained
+Core value already consumes it. Keep account-wide long-only, cash-only,
+buying-power, protected limit, reservation and UNKNOWN-outcome guards. Report
+the nominal allocation and actual holdings separately. No margin is permitted.
+
+Persist an immutable predecessor basis in version 2 of the existing dual sizing
+authority. It names the previous account-bound plan, authority and final target
+projection, and the carried quantities. Re-derive it from those retained records
+at every sizing-proof boundary. Apply authenticated scalar corporate actions
+between the previous projection and the new decision; do not mistake a split
+for a sale, an entry, or NAV drift. Unsupported or ambiguous actions refuse.
+Decision-to-open action projection remains responsible for the next boundary.
+Within one existing writer/publication verification scope, reuse only the small
+detached predecessor basis. Bind reuse to economic row versions and freshly read
+predecessor plan/projection row versions. Do not decompress the full retained
+shadow JSON before every broker read just to recover its parent plan ID.
+
+Historical version 1 authorities and already prepared plans keep their exact
+arithmetic. Installation does not rewrite a plan, cancel a working order, undo a
+filled sale, or repurchase the sold PBR.A share. The next new plan seeds from the
+current durable target (71 PBR.A), and later plans preserve it until an exit or
+an allocation change. No schema migration, book change or broker-state feedback
+into Wealth Core or Sentinel is involved. Backups remain disabled under the
+owner's existing local PAPER instruction.
+
+For this prospective owner-local PAPER update, stop all application writers only
+after the increase window has closed and exact native resting-order ownership is
+clean, with no uncertain command. Before stopping, the successor image must
+re-derive the current historical authority and replay its final protected
+projection identically. Require identical native execution configuration, the
+same canonical Wealth Core source, and unchanged control generation, plan,
+command identities and order terms. Start and verify shadow before resuming the
+other workers. This narrowly permits the new policy at the next new plan without
+rewriting or reactivating today's plan. Any refusal leaves the old plan intact;
+do not relax authority, replay a trade or alter a clock. PostgreSQL is not
+restarted and no backup or restore operation is part of installation.
+
+Verification covers the observed 72-to-71 and inverse rounding cases, new entry
+to held-episode continuity, partial fills, restart/re-derivation, actual exits,
+same-symbol new episodes, exposure changes, share-unit actions, tampered or
+cross-account predecessor evidence, and allocation drift without new buying
+power. Guard-removal falsifiers must fail. Use isolated targeted tests only;
+do not invoke backup, restore or Wealth Core test campaigns.

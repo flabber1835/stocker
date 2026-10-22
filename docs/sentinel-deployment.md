@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Persistent account share targets](persistent-account-share-targets.md) prevent
+daily NAV rescaling from trading unchanged holdings. Entries, exits, exposure
+changes and authenticated share-unit actions retain their execution contracts.
+
 [Paper fill notification recovery](paper-fill-notification-recovery.md) restores
 native execution notifications without granting complete-history authority and
 matches resting-order reservations across bounded independent dashboard reads.
