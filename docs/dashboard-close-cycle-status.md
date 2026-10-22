@@ -86,6 +86,62 @@ plain language, retaining raw evidence and verdicts in technical details. Keep
 small-screen type readable and preserve reduced-motion/accessibility behavior.
 These refinements cannot change status severity, freshness or trading policy.
 
+## Complete panel text audit
+
+The October 22 full text audit found that correct saved facts were sometimes
+described as different facts. Repair the main card and expanded text together.
+Keep underlying raw state names, source timestamps, verdicts, recovery bounds,
+account controls and command identities unchanged.
+
+Name three separate views explicitly: the unscaled Wealth Core stock-selection
+book, the controller's simulated Core-plus-Treasury strategy value (including
+costs), and the recorded Alpaca PAPER account. Display the controller target as
+planned Core exposure in percent; it is not measured account stock exposure,
+and Core itself can retain cash. Explain book weights and noncash receivables
+without treating a receivable as spending cash.
+
+For the owner-local profile, describe backup creation/drills/verification as
+suspended and the installed commit/image as local, rather than implying either
+restore verification or reviewed-release certification. Label an authority
+certificate's original reviewed references separately from the installed local
+runtime. Keep its actual mode and historical-causality limitations visible.
+The guide must retain the actual Alpaca/OpenFIGI provider attribution; research
+Sharadar and superseded Nasdaq classification are not the current publisher.
+
+Call the cycle the current daily run and identify its effective trading date.
+Use saved typed execution/recovery times for scheduled Pacific start, explain
+future steps as pending their predecessor, and identify a market-close recovery
+deadline as distinct from execution start and the new-submission cutoff. Do
+not infer a clock from free text or change the actual execution window. An OK
+scheduled PAPER state means readiness to wait; future alignment and post-close
+verification remain pending.
+
+The planned-trades description must be execution-policy neutral: fresh account,
+funding, corporate-action and execution checks can restrict the saved targets.
+Do not claim opening quotes or opening prices set protected BUY terms. That
+policy uses authenticated prior closes and fixed capped DAY limits; market
+SELL reductions retain their own terms. Label dollar-intent targets as budgets
+sized at execution, not a promise of an opening price. Correct singular/plural
+counts in both ordinary and technical values.
+
+Describe saved broker RUNNING as its reconciled runtime classification, not as
+currently running reconciliation. Journal state counts cover all plans and
+must say so; distinguish PLANNED records from in-flight or uncertain commands
+and from the saved broker's working-order count. Preserve all uncertainty
+guards and do not prune historical commands. An operational acquisition's
+phase-local rows counter is not a dataset total; omit that counter after
+publication instead of displaying a false zero-row dataset. Do not add an
+independent market-data reconstruction just to count display rows.
+
+Use plain notification labels for failed delivery and unacknowledged alerts.
+Separate sender health, browser subscription, push-service acceptance and
+confirmed receipt on a device; none alone proves the others. The audit and
+copy tests must not send a test notification or acknowledge alerts.
+
+Cover the changed display branches, raw technical details, scheduled dates,
+non-local alternatives and uncertainty failures with targeted tests. No trading
+or financial algorithm changes are part of this text repair.
+
 ## Verification and installation
 
 Test the composed database-shaped cycle reader, common recovery helper, summary,

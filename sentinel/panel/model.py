@@ -739,6 +739,7 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
                working_orders: Optional[int] = None,
                active_commands: Optional[int] = None,
                uncertain_commands: Optional[int] = None,
+               command_counts: Optional[Mapping[str, int]] = None,
                command_as_of: Optional[datetime] = None,
                as_of: Optional[datetime] = None,
                recovery: Optional[RecoveryEvidence] = None,
@@ -785,11 +786,22 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
     active = int(active_commands or 0)
     uncertain = int(uncertain_commands or 0)
     value = f"{positions} positions · {working} working"
-    journal_age = (f" · journal {command_as_of.isoformat()}"
+    journal_age = (f" · latest counted journal update {command_as_of.isoformat()}"
                    if command_as_of else "")
-    detail = (f"observation {complete or 'UNKNOWN'} · reconciliation "
-              f"{runtime or 'UNKNOWN'} · {active} active command(s)"
-              f"{journal_age}")
+    runtime_label = ("reconciled (RUNNING)" if runtime == "RUNNING"
+                     else runtime or "UNKNOWN")
+    if command_counts is not None:
+        planned = int(command_counts.get('PLANNED', 0))
+        inflight = sum(int(count) for state, count in command_counts.items()
+                       if state != 'PLANNED')
+        journal_detail = (
+            f"all-plan journal: {planned} PLANNED (unsent) · {inflight} in-flight · "
+            f"{uncertain} uncertain (included in in-flight)")
+    else:
+        journal_detail = (f"{active} nonterminal command record(s); "
+                          "journal scope unavailable (all-plan state counts not supplied)")
+    detail = (f"saved observation {complete or 'UNKNOWN'} · saved runtime classification "
+              f"{runtime_label} · {journal_detail}{journal_age}")
     if not complete or not runtime:
         return Row("broker", "Broker", value, UNKNOWN,
                    detail, as_of, freshness=timedelta(minutes=10),
@@ -1291,9 +1303,15 @@ def automation_step_rows(
                     detail = "clean recovery permits only the original execution window"
             else:
                 value = state
-                detail = (
-                    f"current automatic step · deadline "
-                    f"{deadlines.get(index) or 'unknown'}")
+                if index == 3:
+                    detail = (
+                        f"scheduled execution start {cycle.get('execute_at') or 'unknown'} · "
+                        f"lifecycle recovery deadline (regular-session close) {deadlines.get(index) or 'unknown'}; "
+                        "new submissions remain subject to the original execution window")
+                else:
+                    detail = (
+                        f"current automatic step · deadline "
+                        f"{deadlines.get(index) or 'unknown'}")
                 recovery = RecoveryEvidence(
                     phase=f"AUTOMATION_{key.upper()}", automatic=True,
                     next_attempt_at=cycle.get("next_wake_at"),
@@ -1305,7 +1323,8 @@ def automation_step_rows(
             continue
         rows.append(Row(
             row_key, label, "NOT REACHED", PENDING,
-            "future step in the current durable cycle"))
+            "future step in the current durable cycle; pending completion of "
+            + (_AUTOMATION_STEP_DEFINITIONS[index-1][1] if index else 'cycle discovery')))
     return rows
 
 
@@ -1725,6 +1744,9 @@ def execution_authority_row(
         verdict_binding_matches: Optional[bool] = None,
         reviewed_git_commit: Optional[str] = None,
         reviewed_image_digest: Optional[str] = None,
+        owner_local_runtime: bool = False,
+        runtime_git_commit: Optional[str] = None,
+        runtime_image_digest: Optional[str] = None,
         error: Optional[str] = None) -> Row:
     """Durable runtime verdict plus clearly non-authoritative lifecycle facts.
 
@@ -1783,10 +1805,15 @@ def execution_authority_row(
         status = UNKNOWN
     else:
         status = FAIL
+    reference_label = 'certificate original reviewed' if owner_local_runtime else 'reviewed'
     detail = (f"persisted runtime verdict: {runtime_detail or 'no detail'}; "
-              f"{lifecycle}; reviewed Git "
-              f"{reviewed_git_commit or 'missing'} · reviewed image "
+              f"{lifecycle}; {reference_label} Git "
+              f"{reviewed_git_commit or 'missing'} · {reference_label} image "
               f"{reviewed_image_digest or 'missing'}")
+    if owner_local_runtime:
+        detail += (f" · current owner-authorized LOCAL PAPER runtime Git {runtime_git_commit or 'unavailable'}"
+                   f" · image {runtime_image_digest or 'unavailable'}; "
+                   "the certificate's original reviewed references do not certify this local image")
     digest = f" · {certificate_sha256[:12]}" if certificate_sha256 else ""
     return Row("authority", "Paper execution authority",
                f"{verdict}{digest}", status, detail, checked_at,

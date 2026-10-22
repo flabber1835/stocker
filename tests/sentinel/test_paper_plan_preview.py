@@ -42,7 +42,7 @@ def test_dated_estimate_survives_the_overnight_wait():
     assert value.trades==2
     html=render._paper_plan_html(model.Row('paper_plan','Plan','ready',paper_plan=value),NOW)
     assert 'dated snapshot' in html and 'portfolio-table' in html
-    assert str(value.observation_at) in html
+    assert '2026-10-13 at 12:00:00 AM Pacific' in html
 
 
 @pytest.mark.parametrize('legacy', [[], [('one','CONFLICT')]])
@@ -94,7 +94,7 @@ def test_opening_dollars_do_not_become_invented_share_orders():
     row=model.Row('paper_plan','Next paper plan','ready',paper_plan=value,valid_until=value.execute_at)
     html=render._paper_plan_html(row,NOW)
     assert '2026-10-14' in html and '06:31 AM Pacific' in html
-    assert 'Sized at open' in html and '$2000 at open' in html
+    assert 'Sized at execution' in html and '$2000 budget' in html
     assert render._paper_plan_html(row,value.execute_at+timedelta(seconds=1))==''
 
 
@@ -113,7 +113,7 @@ def test_plan_view_escapes_ticker_and_has_no_order_action():
     html=render._paper_plan_html(model.Row('paper_plan','Plan','ready',paper_plan=value),NOW)
     assert '<script>attack</script>' not in html and '&lt;script&gt;' in html
     assert '<form' not in html and 'type="submit"' not in html
-    assert 'proposed changes' in html and 'No orders' in html
+    assert 'saved targets, not orders or fills' in html and 'No orders' in html
 
 
 def test_plan_notification_is_distinct_from_a_fill_and_payload_is_bounded():

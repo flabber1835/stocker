@@ -194,7 +194,7 @@ PUSH_SCRIPT = r"""
       return true;
     }
     if (receipt.delivery_status === "FAILED") {
-      message("Test notification failed. Check Alert delivery on the dashboard.");
+      message("Test notification failed. Check Notification delivery on the dashboard.");
       return true;
     }
     if (receipt.delivery_status === "CANCELLED") {
@@ -203,7 +203,7 @@ PUSH_SCRIPT = r"""
     }
     message(receipt.sender_available
       ? "A single test notification is queued; waiting for the push service."
-      : "Test queued, but the notification sender is unavailable. Check Alert delivery on the dashboard.");
+      : "Test queued, but the notification sender is unavailable. Check Notification delivery on the dashboard.");
     return false;
   }
   async function followTest(receipt) {
@@ -228,7 +228,7 @@ PUSH_SCRIPT = r"""
     var sub = await reg.pushManager.getSubscription();
     enable.textContent = sub ? "Send test notification" : "Enable notifications";
     remove.hidden = !sub;
-    message(sub ? "Notifications enabled on this device." : "Notifications are off on this device.");
+    message(sub ? "This browser has a notification subscription. Send a test to check delivery." : "Notifications are off on this device.");
   }
   if (!(window.isSecureContext && "serviceWorker" in navigator &&
         "PushManager" in window && "Notification" in window)) {
@@ -343,11 +343,13 @@ def _holdings_html(row: Row, now: datetime) -> str:
             '<div class="detail-body"><p>'
             + ('LAST ATTESTED THROUGH ' + _esc(book.session) + ' · CURRENT SESSION NOT VERIFIED. '
                if historical else '')
-            + 'Wealth Core stock-selection book as of ' + _esc(book.session)
+            + 'Unscaled Wealth Core stock-selection book as of ' + _esc(book.session)
             + '. These simulated shares are separate from Alpaca holdings. Book value: '
             + number(book.nav, True) + '. The simulated strategy value includes the controller’s '
-            'stock allocation, Treasury-bill sleeve and transaction costs, so the two totals can differ.</p>'
-            + f'<p>{book.pending_operations} pending operations; these are not filled holdings. '
+            'Core allocation, Treasury-bill sleeve and transaction costs, so the two totals can differ.</p>'
+            + f'<p>{book.pending_operations} pending strategy operations; these are not filled holdings. '
+            'Weights are percentages of this Wealth Core book, not the Alpaca account. '
+            'Dividend receivables can include securities no longer held and are not spending cash. '
             'Unavailable prices are not treated as zero.</p><div style="overflow-x:auto">'
             + _table(('Ticker', 'Quantity', 'Close', 'Value', 'Book weight'), rows, portfolio=True) + '</div></div></details>')
 
@@ -359,14 +361,18 @@ def _paper_plan_html(row: Row, now: datetime) -> str:
     def number(value):
         return 'Unavailable' if value is None else format(value,'f')
     rows = [(leg.ticker,leg.action,number(leg.current_quantity),
-             '$'+number(leg.opening_dollars)+' at open' if leg.opening_dollars else number(leg.target_quantity),
-             'Sized at open' if leg.opening_dollars else number(leg.change_quantity)) for leg in plan.legs]
+             '$'+number(leg.opening_dollars)+' budget' if leg.opening_dollars else number(leg.target_quantity),
+             'Sized at execution' if leg.opening_dollars else number(leg.change_quantity)) for leg in plan.legs]
     opened = plan.execute_at.astimezone(ZoneInfo('America/Los_Angeles'))
+    observed = (plan.observation_at.astimezone(ZoneInfo('America/Los_Angeles')).strftime(
+        '%Y-%m-%d at %I:%M:%S %p Pacific') if plan.observation_at else 'Unavailable')
     return ('<details class="technical" data-detail-key="next-paper-plan"><summary>View planned trades</summary>'
         '<div class="detail-body"><p>Trading date: '+_esc(plan.effective_session)+
         ' · scheduled '+_esc(opened.strftime('%I:%M %p Pacific'))+'. Decision close: '+_esc(plan.decision_session)+
-        '. These are proposed changes; opening quotes, corporate actions and fresh broker checks determine final orders.</p>'
-        '<p>Recorded broker shares as of '+_esc(plan.observation_at or 'Unavailable')+
+        '. These are saved targets, not orders or fills. Final orders depend on the selected execution policy, '
+        'corporate actions, and fresh account and funding checks. Targets show shares, or a dollar budget '
+        'sized when execution begins.</p>'
+        '<p>Recorded broker shares as of '+_esc(observed)+
         '. These estimates use that dated snapshot; they are not current broker holdings. No orders have been submitted by this view.</p><div style="overflow-x:auto">'+
         _table(('Ticker','Proposed action','Recorded shares','Target','Proposed share change'),rows,portfolio=True)+
         '</div></div></details>')
@@ -615,8 +621,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   {CASINO_ACCENT}
 </header>
 <details class="mode-guide" data-detail-key="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
-  <p><strong>Your strategy, at a glance.</strong> The simulated portfolio is the strategy’s model book. Formation builds it by simulating earlier trading days; daily updates then carry it forward.</p>
-  <p>Market data comes from Alpaca, with OpenFIGI identifying common stocks. The paper account is separate: it uses simulated money and only trades after activation. A simulated portfolio check does not mean paper orders have been placed.</p>
+  <p><strong>Your strategy, at a glance.</strong> Wealth Core records the unscaled stock-selection book. The controller’s simulated strategy value combines its Core allocation, Treasury-bill sleeve and transaction costs. The Alpaca paper account has its own recorded holdings and value.</p>
+  <p>Alpaca supplies daily prices, corporate actions and listed-asset information. OpenFIGI classifies eligible equity instruments. Formation simulates earlier sessions to build the model book; daily updates carry it forward. A simulated portfolio check does not mean paper orders have been placed.</p>
+  {'<p>Owner-authorized local PAPER operation is active. PR release certification is suspended. Backup creation, restore drills and backup verification are disabled by owner instruction.</p>' if panel.local_paper_mode else ''}
   <p>Green means the check passed. Amber means waiting or review needed. Red means a failed or unreadable check. Open technical details for the precise reason.</p>
 </div></details>
 {errs}

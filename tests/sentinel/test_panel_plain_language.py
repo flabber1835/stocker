@@ -28,7 +28,7 @@ def test_decoration_is_inert_and_stale_portfolio_is_never_presented_as_current()
                     'original financial evidence', NOW-timedelta(hours=1),
                     freshness=timedelta(minutes=1), required_current=True)
     html = render(model.Panel(rows=[row], now=NOW))
-    assert 'Simulated portfolio value' in html
+    assert 'Simulated strategy value' in html
     assert '$53,000.00' in html
     assert 'data-key="shadow_nav" data-status="fail"' in html
     assert 'Attention needed' in html and 'STALE' in html

@@ -630,7 +630,9 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                                run_err, required_current=True)
         elif operational:
             ingest = replace(ingest, value=('NO OPERATIONAL JOB YET' if not run else
-                             f"OPERATIONAL SNAPSHOT · {run['current_chunk']}"))
+                             f"OPERATIONAL SNAPSHOT · {run['current_chunk']}"),
+                             detail=(run['current_chunk'] if run.get('status') == 'success'
+                                     else ingest.detail))
         rows = [
             # A frontier that TIMED OUT is not an unreadable database — the
             # connection is open and the ingest row right below was just read
@@ -1730,6 +1732,8 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                         runtime_detail=runtime_detail, checked_at=checked_at)
                 else:
                     lifecycle_view = dict(lifecycle or {})
+                    from sentinel import local_paper
+                    owner_local_runtime = local_paper.enabled()
                     verdict_binding_matches = bool(
                         control is not None
                         and control.get("certificate_sha256")
@@ -1740,6 +1744,11 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                         installed=True, runtime_verdict=runtime_verdict,
                         runtime_detail=runtime_detail, checked_at=checked_at,
                         verdict_binding_matches=verdict_binding_matches,
+                        owner_local_runtime=owner_local_runtime,
+                        runtime_git_commit=(os.environ.get('SENTINEL_GIT_COMMIT')
+                                            if owner_local_runtime else None),
+                        runtime_image_digest=(os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST')
+                                              if owner_local_runtime else None),
                         **lifecycle_view)
 
         raw_errors = (
@@ -2744,6 +2753,7 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
                     runtime_state=observation["runtime_state"],
                     working_orders=working_orders, active_commands=active,
                     uncertain_commands=uncertain,
+                    command_counts=counts,
                     command_as_of=commands["updated_at"],
                     as_of=observation["observed_at"],
                     recovery=broker_recovery,
@@ -2777,9 +2787,12 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
         else:
             plan_row = model.Row('paper_plan','Next paper plan',
                 (f'{preview.effective_session} · changes unavailable' if any(leg.action == 'UNAVAILABLE' for leg in preview.legs)
-                 else f'{preview.effective_session} · {preview.buys} buys · {preview.sells} sells'),model.OK,
+                 else f'{preview.effective_session} · {preview.buys} '
+                      f'{"buy" if preview.buys == 1 else "buys"} · {preview.sells} '
+                      f'{"sell" if preview.sells == 1 else "sells"}'),model.OK,
                 detail='Saved plan; proposed changes use the dated recorded Alpaca observation. '
-                       'Opening prices and fresh account checks can change final quantities. No orders are submitted by this view.',
+                       'Fresh account, funding, corporate-action and execution checks can restrict saved targets. '
+                       'No orders are submitted by this view.',
                 as_of=preview.created_at,valid_until=preview.execute_at,paper_plan=preview)
         return [exposure, book, terminals, broker, plan_row], errors
     except Exception as exc:                                 # noqa: BLE001

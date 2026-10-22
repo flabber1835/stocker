@@ -19,7 +19,7 @@ def test_scheduled_wait_and_unavailable_copy_preserve_raw_evidence_and_verdict()
         row = model.Row('automation_cycle', 'Cycle', value, status,
                         'original reason <recorded>')
         label, shown, explanation = describe(row, status)
-        assert label == 'Today’s daily run' and shown == display
+        assert label == 'Current daily run' and shown == display
         html = _row_html(row, NOW)
         assert f'data-status="{status}"' in html
         assert f'<div class="value">{display}</div>' in html
