@@ -83,6 +83,58 @@ def test_preserving_every_source_clock_falsely_expires_current_exposure(monkeypa
         test_current_verified_exposure_uses_observer_clock_instead_of_plan_creation(monkeypatch)
 
 
+@pytest.mark.parametrize('historical', [False, True])
+def test_future_original_row_is_rejected_before_clock_normalization(historical):
+    now = datetime(2026, 10, 22, 21, 54, tzinfo=timezone.utc)
+    answer = result()
+    answer['observed_at'] = now
+    answer['rows'] = [{**row, 'as_of': now} for row in answer['rows']]
+    if historical:
+        answer['rows'][0].update(status=model.WARN, required_current=True,
+            recovery=asdict(model.RecoveryEvidence(phase='SOURCE_FRONTIER',
+                automatic=True, deadline=now+timedelta(hours=1))))
+    next(row for row in answer['rows'] if row['key'] == 'exposure')['as_of'] = (
+        now + model.MAXIMUM_FUTURE_SKEW + timedelta(microseconds=1))
+    value = reader.Reader(runner=lambda *a, **kw: answer, wall_clock=lambda: now)
+    value.read('fixture'); complete(value)
+    rows, _, _, errors = value.read('fixture', allow_start=False)
+    assert rows[0].status == model.UNKNOWN
+    assert errors and 'malformed or stale' in errors[0]
+    assert value.completed is None and value.retained is None
+
+
+@pytest.mark.parametrize('skew', [timedelta(0), model.MAXIMUM_FUTURE_SKEW])
+def test_current_original_row_within_skew_keeps_future_deadlines(skew):
+    now = datetime(2026, 10, 22, 21, 54, tzinfo=timezone.utc)
+    deadline = now+timedelta(hours=1)
+    answer = result()
+    answer['observed_at'] = now
+    exposure = next(row for row in answer['rows'] if row['key'] == 'exposure')
+    exposure.update(as_of=now+skew, valid_until=deadline,
+        recovery=asdict(model.RecoveryEvidence(phase='CURRENT_PROOF',
+            automatic=True, deadline=deadline)))
+    value = reader.Reader(runner=lambda *a, **kw: answer, wall_clock=lambda: now)
+    value.read('fixture'); complete(value)
+    rows, _, _, errors = value.read('fixture', allow_start=False)
+    projected = next(row for row in rows if row.key == 'exposure')
+    assert not errors and projected.effective_status(now) == model.OK
+    assert projected.as_of == now
+    assert projected.valid_until == projected.recovery.deadline == deadline
+
+
+def test_future_original_row_guard_has_a_falsifier(monkeypatch):
+    import inspect, textwrap
+    body = textwrap.dedent(inspect.getsource(reader.Reader.read))
+    guard = 'if any(row.is_future(observed) for row in original_rows):'
+    assert guard in body
+    namespace = {}
+    exec(compile(body.replace(guard, 'if False:'), 'future-row-clock-falsifier', 'exec'),
+         reader.__dict__, namespace)
+    monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
+    with pytest.raises(AssertionError):
+        test_future_original_row_is_rejected_before_clock_normalization(False)
+
+
 def test_answer_expiring_while_ui_idle_is_a_bounded_refresh_not_unreadable():
     now = datetime.now(timezone.utc)
     answer = result()

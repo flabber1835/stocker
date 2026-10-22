@@ -57,6 +57,12 @@ Keep producer-derived validity deadlines unchanged in both cases. This separates
 historical attestation time from current proof time without renewing either one
 on a browser read or claiming verification during a source wait.
 
+Before selecting either clock representation, reject any original row timestamp
+more than the existing five-second future-skew allowance beyond the observer's
+original verification time. Replacing a current row's source timestamp must not
+hide a future-dated durable fact. Apply this check to `as_of` only; legitimate
+future validity and recovery deadlines retain their existing meaning.
+
 ## Holdings and visible copy
 
 The holdings view must represent the actual canonical stock-selection book with

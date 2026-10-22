@@ -301,6 +301,8 @@ class Reader:
                             if not timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):
                                 raise ValueError('observer result is not fresh')
                             original_rows = [_row_from_observation(row) for row in value['rows']]
+                            if any(row.is_future(observed) for row in original_rows):
+                                raise ValueError('observer row timestamp is in the future')
                             historical_source_wait = any(
                                 row.key == 'shadow_verification'
                                 and row.status in {model.WARN, model.FAIL}
