@@ -99,7 +99,8 @@ def recorded_reservation(conn, *, account, now):
     if (not cash.is_finite() or not power.is_finite() or not 0 <= power < cash
             or abs(Fraction(cash)-Fraction(power)-Fraction(hold)) > 1):
         return None
-    return {"reserved_cash": decimal_text(hold), "valid_until": closed.isoformat()}
+    return {"reserved_cash": decimal_text(hold), "valid_until": closed.isoformat(),
+            "order_count": len(commands)}
 
 
 async def _collect(conn, *, reader, bound, commands):

@@ -330,6 +330,11 @@ def paper_reconciliation_row(
             "paper_reconciliation", "Alpaca PAPER mirror",
             "PAPER NOT VERIFIED · LATEST CYCLE FAILED", FAIL,
             (detail or "the latest daily cycle did not complete") + suffix)
+    if normalized == "PRIOR_CYCLE_FAILED":
+        return Row(
+            "paper_reconciliation", "Alpaca PAPER mirror",
+            "PAPER NOT VERIFIED · PRIOR CYCLE FAILED · NEXT DECISION PENDING", WARN,
+            detail + suffix)
     if normalized == "MISMATCH":
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",

@@ -99,6 +99,18 @@ observation without refreshing its clock. Normal-release account display and
 all execution cash/reservation guards remain unchanged. The panel itself still
 has no broker credentials or provider polling.
 
+After supported local PAPER reactivation, distinguish a failed retired cycle
+from a failure of the active generation. If the current healthy, authorized,
+enabled generation has no owned/adopted cycle yet, and fresh native account
+evidence is valid, retain the old terminal failure visibly as an amber history
+warning while the next decision is pending. First check global mirror integrity;
+a mismatch still fails. This is never CLEAN, SCHEDULED, VERIFIED, or evidence of
+completed recovery. Current/adopted failures, disabled or killed policy, invalid
+account evidence and normal release operation retain their existing failures.
+The health reader counts known working orders as outstanding too: require that
+this count equals the number of exact native orders covered by the reservation
+proof. Any uncertain, foreign or uncovered outcome still refuses.
+
 Verification covers the observed 72-to-71 and inverse rounding cases, new entry
 to held-episode continuity, partial fills, restart/re-derivation, actual exits,
 same-symbol new episodes, exposure changes, share-unit actions, tampered or

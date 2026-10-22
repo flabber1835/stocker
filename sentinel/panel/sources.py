@@ -1920,6 +1920,40 @@ def _scheduled_preopen_mirror(conn, cycle, active_publication, frontier, *, now=
                 + "; orders have not completed and post-close mirror evidence remains pending"))
 
 
+def _retired_local_paper_failure(conn):
+    """A healthy new generation may display prior failure as history, never completion."""
+    from sentinel import local_paper
+    from sentinel.automation import store
+    from sentinel.automation.health import read_health
+    from sentinel.execution import account_status
+    if not local_paper.require_bound_account(conn):
+        return False
+    control = store.load_control(conn)
+    if (not control.enabled or control.kill_switch_engaged
+            or _latest_automation_cycle(conn, generation=control.generation) is not None):
+        return False
+    health = read_health(conn)
+    if (not health.healthy or not health.operational_ready
+            or health.control_generation != control.generation
+            or not health.leader_active or not health.service_heartbeat_fresh
+            or health.authority_verdict != "PASS"
+            or health.authority_lifecycle_current is not True):
+        return False
+    account = _latest_account_evidence(conn)
+    if not account:
+        return False
+    now = datetime.now(timezone.utc)
+    proof = account_status.recorded_reservation(conn, account=account, now=now)
+    # Health counts known ACK/PARTIAL commands as outstanding too. Require
+    # every outstanding command to be covered by the exact native proof;
+    # UNKNOWN or foreign/uncovered outcomes never become historical warnings.
+    if health.broker_outcome_unresolved != (proof or {}).get("order_count", 0):
+        return False
+    row = model.alpaca_account_row(available=True, expected_account_id=_bound_account_id(conn),
+        matched_operator_reservation=(proof or {}).get("reserved_cash"), **account)
+    return row.effective_status(now) == model.OK
+
+
 def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                     feed_store) -> model.Row:
     """Project PAPER independently of an already-proven shadow result."""
@@ -1932,6 +1966,23 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="PENDING", cycle_state=cycle_state,
             detail="activation waits for the next eligible session; no new order was sent")
     if cycle_state in {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
+        if _retired_local_paper_failure(conn):
+            current = publication.current(conn)
+            frontier = publication.frontier(conn, current) if current is not None else None
+            if current is None or not isinstance(frontier, str):
+                return model.paper_reconciliation_row(state="UNKNOWN", error="current publication/frontier is unavailable")
+            try:
+                integrity = informational_paper_mirror.require_transport_permitted(
+                    conn, current_frontier=frontier, current_publication_version=current.version)
+                if integrity.get("status") == informational_paper_mirror.MISMATCH:
+                    return model.paper_reconciliation_row(state="MISMATCH", detail="historical mirror mismatch remains recorded")
+            except informational_paper_mirror.InformationalPaperMirrorRefused as exc:
+                return model.paper_reconciliation_row(state="MISMATCH", detail=_short(exc))
+            return model.paper_reconciliation_row(state="PRIOR_CYCLE_FAILED", cycle_state=cycle_state,
+                detail=("retired cycle " + cycle["cycle_id"] + " failed: "
+                    + str(cycle.get("failure_code") or cycle_state) + ": "
+                    + str(cycle.get("failure_detail") or "no recorded detail")
+                    + "; current healthy generation is waiting for its next decision; no completed reconciliation or qualification is claimed"))
         return model.paper_reconciliation_row(
             state="CYCLE_FAILED", cycle_state=cycle_state,
             detail=("latest recorded decision " + str(cycle.get('decision_session') or 'unknown')
