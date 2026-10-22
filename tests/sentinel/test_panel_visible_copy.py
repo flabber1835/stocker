@@ -120,3 +120,26 @@ def test_availability_retry_copy_keeps_original_deadline_and_expiry_severity():
     expired = _row_html(row, NOW+timedelta(minutes=2))
     assert 'data-status="fail"' in expired and 'Attention needed' in expired
     assert 'Automatic retries are continuing' not in expired
+
+
+@pytest.mark.parametrize('buys,sells', [(0,0),(1,0),(0,1),(1,1),(1,2),(2,1),(2,2)])
+def test_typed_plan_counts_use_singular_and_plural_without_changing_evidence(buys, sells):
+    legs = [dict(security_id=f'b{i}', ticker=f'B{i}', current_quantity='0',
+                 target_quantity='1', change_quantity='1', action='BUY') for i in range(buys)]
+    legs += [dict(security_id=f's{i}', ticker=f'S{i}', current_quantity='1',
+                  target_quantity='0', change_quantity='-1', action='SELL') for i in range(sells)]
+    plan = PlanPreview(cycle_id='cycle', plan_id='plan', decision_session=date(2026,10,22),
+        effective_session=date(2026,10,23), execute_at=NOW+timedelta(days=1),
+        created_at=NOW, observation_at=NOW, legs=legs)
+    row = model.Row('paper_plan', 'Next paper plan', 'original recorded counts', model.OK,
+                    'original evidence', paper_plan=plan)
+    shown = describe(row, model.OK)[1]
+    assert shown == (f'2026-10-23 · {buys} {"buy" if buys == 1 else "buys"} · '
+                     f'{sells} {"sell" if sells == 1 else "sells"}')
+    assert row.value == 'original recorded counts' and row.status == model.OK
+    unknown = plan.model_copy(update={'legs': [plan.legs[0].model_copy(update={
+        'action': 'UNAVAILABLE'})]}) if plan.legs else None
+    if unknown is not None:
+        unavailable = model.Row('paper_plan', 'Next paper plan', 'changes unavailable',
+                                model.OK, paper_plan=unknown)
+        assert describe(unavailable, model.OK)[1] == 'changes unavailable'

@@ -69,8 +69,13 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
     if key == 'backup_restore' and value == 'BACKUP CHECK IN PROGRESS':
         explanation += ' A replacement backup is being restored and checked. It is not yet confirmed recoverable.'
     if key == 'paper_plan' and row.paper_plan is not None:
-        scheduled = row.paper_plan.execute_at.astimezone(ZoneInfo('America/Los_Angeles'))
+        plan = row.paper_plan
+        scheduled = plan.execute_at.astimezone(ZoneInfo('America/Los_Angeles'))
         explanation += ' Saved execution: '+scheduled.strftime('%Y-%m-%d at %I:%M %p Pacific')+'.'
+        if not any(leg.action == 'UNAVAILABLE' for leg in plan.legs):
+            value = (f'{plan.effective_session} · {plan.buys} '
+                     f'{"buy" if plan.buys == 1 else "buys"} · {plan.sells} '
+                     f'{"sell" if plan.sells == 1 else "sells"}')
     source_wait = row.recovery is not None and row.recovery.phase == 'SOURCE_FRONTIER'
     availability_wait = row.recovery is not None and row.recovery.phase in {
         'AUTOMATION_REFRESH_AVAILABILITY', 'AUTOMATION_PREPARE_AVAILABILITY'}
