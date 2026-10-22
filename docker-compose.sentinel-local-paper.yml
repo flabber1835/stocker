@@ -37,3 +37,7 @@ services:
     pull_policy: never
     environment:
       <<: *local-paper-environment
+      # GET-only execution-event collection, not financial history authority.
+      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
+      SENTINEL_FILL_NOTIFICATIONS_SINCE: ${SENTINEL_FILL_NOTIFICATIONS_SINCE:-}

@@ -1231,7 +1231,7 @@ def _matched_resting_reservation(conn, *, account, cycle, now):
         plan_id=cycle.get("plan_id"), effective_session=cycle.get("effective_session"))
     if (wait is None or account.get("account_id") != wait.deployment[2]
             or account.get("observed_at") is None
-            or abs((account["observed_at"] - wait.observed_at).total_seconds()) > 60):
+            or abs((account["observed_at"] - wait.observed_at).total_seconds()) > 600):
         return None
     with conn.cursor() as cur:
         cur.execute("SELECT deployment_id,broker,broker_account_id,takeover_epoch"
@@ -1240,12 +1240,14 @@ def _matched_resting_reservation(conn, *, account, cycle, now):
         cur.execute("SELECT seq,runtime_state FROM sentinel_observations ORDER BY seq DESC LIMIT 1")
         latest = cur.fetchone()
     if (binding is None or tuple(binding) != wait.deployment
-            or latest is None or tuple(latest) != (wait.observation_id, "RUNNING")):
+            or latest is None or latest[0] < wait.observation_id or latest[1] != "RUNNING"):
         return None
-    payload = journal.load_observation_payload(conn, wait.observation_id)
+    payload = journal.load_observation_payload(conn, latest[0])
     if (payload.get("completeness") != "COMPLETE"
             or payload.get("account_id") != wait.deployment[2]
-            or datetime.fromisoformat(payload["observed_at"]) != wait.observed_at):
+            or not wait.observed_at <= datetime.fromisoformat(payload["observed_at"]) <= now
+            or (latest[0] == wait.observation_id
+                and datetime.fromisoformat(payload["observed_at"]) != wait.observed_at)):
         return None
     commands = {c.client_key: c for c in journal.load_commands(
         conn, DeploymentIdentity(*wait.deployment)) if c.state in IN_FLIGHT}

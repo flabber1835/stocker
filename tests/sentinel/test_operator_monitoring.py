@@ -1362,8 +1362,12 @@ class TestProtectedDayOrderMonitoring:
             cash="1000", buying_power="800", multiplier="1", observed_at=DAY_WAIT_NOW)
         assert model.alpaca_account_row(**values).effective_status(DAY_WAIT_NOW) == FAIL
         assert model.alpaca_account_row(**values, matched_protected_reservation=day_wait_wait_payload()).effective_status(DAY_WAIT_NOW) == OK
+        for seconds in (63, 150, 599):
+            assert model.alpaca_account_row(**{**values, "observed_at": DAY_WAIT_NOW + timedelta(seconds=seconds)},
+                matched_protected_reservation=day_wait_wait_payload()).effective_status(
+                    DAY_WAIT_NOW + timedelta(seconds=seconds)) == OK
         for changed in ({"multiplier": "2"}, {"buying_power": "700"}, {"buying_power": "1200"},
-                        {"flags": {"trading_blocked": True}}, {"observed_at": DAY_WAIT_NOW + timedelta(seconds=61)}):
+                        {"flags": {"trading_blocked": True}}, {"observed_at": DAY_WAIT_NOW + timedelta(seconds=601)}):
             assert model.alpaca_account_row(**{**values, **changed},
                 matched_protected_reservation=day_wait_wait_payload()).effective_status(DAY_WAIT_NOW) == FAIL
         assert model.alpaca_account_row(**values, matched_protected_reservation=day_wait_wait_payload()).effective_status(
@@ -1373,7 +1377,7 @@ class TestProtectedDayOrderMonitoring:
         assert alert_service._active_incident(SimpleNamespace(policy_state="PROTECTED_DAY_WAIT_EXPIRED",
             enabled=True, kill_switch_engaged=False))
 
-    @pytest.mark.parametrize("fault", [None, "unknown", "different_plan", "native_terms", "replacement", "binding", "incomplete"])
+    @pytest.mark.parametrize("fault", [None, "unknown", "different_plan", "native_terms", "replacement", "binding", "incomplete", "newer_same_cohort", "newer_fill", "newer_foreign"])
     @pytest.mark.parametrize("ready", [False, True])
     def test_reservation_reader_joins_actual_commands_and_canonical_observation(self, monkeypatch, fault, ready):
         from dataclasses import replace
@@ -1409,19 +1413,41 @@ class TestProtectedDayOrderMonitoring:
         elif fault == "replacement": order["external_replacement"] = True
         elif fault == "binding": binding = (*binding[:2], "another-account", binding[3])
         elif fault == "incomplete": payload["completeness"] = "PARTIAL"
+        elif fault == "newer_fill": order["filled_quantity"] = "1"
+        elif fault == "newer_foreign": payload["orders"].append(dict(order, client_key="foreign"))
+        newer = str(fault).startswith("newer_")
+        if newer:
+            payload["observed_at"] = (DAY_WAIT_NOW + timedelta(seconds=63)).isoformat()
 
         class Cursor:
             def __enter__(self): return self
             def __exit__(self, *_a): pass
             def execute(self, query): self.query = query
-            def fetchone(self): return binding if "account_binding" in self.query else (12, "RUNNING")
+            def fetchone(self): return binding if "account_binding" in self.query else (13 if newer else 12, "RUNNING")
         conn = SimpleNamespace(cursor=Cursor)
         monkeypatch.setattr(journal, "load_observation_payload", lambda *_a: payload)
         monkeypatch.setattr(journal, "load_commands", lambda *_a: [command])
         result = sources._matched_resting_reservation(conn,
-            account={"account_id": dep.broker_account_id, "observed_at": DAY_WAIT_NOW},
-            cycle=cycle, now=DAY_WAIT_NOW)
-        assert bool(result) is (fault is None)
+            account={"account_id": dep.broker_account_id, "observed_at": DAY_WAIT_NOW + timedelta(seconds=63)},
+            cycle=cycle, now=DAY_WAIT_NOW + timedelta(seconds=63))
+        assert bool(result) is (fault in (None, "newer_same_cohort"))
+        if result:
+            assert result["observation_id"] == raw["observation_id"]
+            assert datetime.fromisoformat(result["observed_at"]) == DAY_WAIT_NOW
+        assert sources._matched_resting_reservation(conn,
+            account={"account_id": dep.broker_account_id, "observed_at": DAY_WAIT_NOW + timedelta(seconds=601)},
+            cycle=cycle, now=DAY_WAIT_NOW + timedelta(seconds=601)) is None
+
+    def test_removed_bounded_timestamp_matching_is_detected(self, monkeypatch):
+        import inspect
+        text = inspect.getsource(model.alpaca_account_row)
+        assert '.total_seconds()) <= 600' in text
+        namespace = {}
+        exec(compile(text.replace('.total_seconds()) <= 600', '.total_seconds()) <= 60'),
+            'former-dashboard-skew', 'exec'), model.__dict__, namespace)
+        monkeypatch.setattr(model, "alpaca_account_row", namespace["alpaca_account_row"])
+        with pytest.raises(AssertionError):
+            self.test_panel_only_accepts_positively_matched_reservations_and_keeps_margin_red()
 
     def test_removed_completion_clock_guard_is_detected(self, monkeypatch):
         monkeypatch.setattr(module.AutomationService, "_completed_at", staticmethod(lambda now, clock: now))

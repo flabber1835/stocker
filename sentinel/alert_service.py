@@ -1,6 +1,8 @@
 """Independent external alert dispatcher for unattended Sentinel automation.
 
-The trading worker only enqueues durable outbox rows. This process owns delivery
+The trading worker only enqueues durable outbox rows. Local PAPER can also
+collect notification-only native execution receipts through a bounded GET-only
+execution-layer reader. This process owns delivery
 and requires first-party Web Push or the migration webhook. Database loss is
 reported through the optional independent webhook when available because a
 database-backed subscription cannot report loss of its own database.
@@ -432,6 +434,7 @@ async def run() -> int:
     database_incident_detail: str | None = None
     database_incident_reported = False
     last_probe_at: float | None = None
+    last_fill_poll_at: float | None = None
     registered = False
     # A predecessor may have exited after an observation it could not persist.
     # Restart preserves the incident, but begins a fresh recovery interval.
@@ -485,6 +488,25 @@ async def run() -> int:
             continue
 
         try:
+            from sentinel.execution import fill_notifications
+            if (os.environ.get(fill_notifications.SINCE_ENV)
+                    and (last_fill_poll_at is None
+                         or time.monotonic() - last_fill_poll_at >= fill_notifications.POLL_SECONDS)):
+                last_fill_poll_at = time.monotonic()
+                try:
+                    await fill_notifications.collect(conn, config=config)
+                except Exception as exc:
+                    conn.rollback()
+                    # No credential, URL, or provider response text is logged.
+                    code = (str(exc) if isinstance(exc, fill_notifications.FillNotificationRefused)
+                            else type(exc).__name__)
+                    outbox.enqueue(conn,
+                        idempotency_key="fill-notification-collection:" + code,
+                        event_type="FILL_NOTIFICATION_COLLECTION_FAILED",
+                        severity="CRITICAL" if isinstance(exc, fill_notifications.FillNotificationRefused) else "WARN",
+                        payload={"reason": code})
+                alert_health.heartbeat(conn, dispatcher_id=dispatcher_id)
+                health = read_health(conn)
             _observe_health(
                 conn, health=health, max_attempts=automation.alert_max_attempts,
                 maximum_observation_gap_seconds=max(10.0, 2 * poll),

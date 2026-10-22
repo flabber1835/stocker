@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Paper fill notification recovery](paper-fill-notification-recovery.md) restores
+native execution notifications without granting complete-history authority and
+matches resting-order reservations across bounded independent dashboard reads.
+
 [Owner-authorized local PAPER operation](local-paper-function-first.md)
 temporarily supersedes PR delivery and backup/restore prerequisites. Demonstrate
 actual production-path paper execution first; do not re-enable the suspended

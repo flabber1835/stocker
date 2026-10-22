@@ -1427,7 +1427,7 @@ def alpaca_account_row(
         matched_hold = bool(
             reservation is not None and observed_at is not None
             and reservation.deployment[2] == account_id
-            and abs((reservation.observed_at - observed_at).total_seconds()) <= 60
+            and abs((reservation.observed_at - observed_at).total_seconds()) <= 600
             and buying_power_value <= cash_value
             and abs((cash_value - buying_power_value) - reservation.reserved_cash) <= Decimal("1.00"))
         if abs(buying_power_value - cash_value) > Decimal("1.00") and not matched_hold:
