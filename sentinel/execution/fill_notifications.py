@@ -7,9 +7,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from fractions import Fraction
+import re
 
 from sentinel.automation import outbox
 from sentinel.execution import fill_integrity, journal, native_activity
@@ -82,6 +83,16 @@ def _check_order(command, order):
         raise FillNotificationRefused("COMMAND_ORDER_TERMS_CHANGED")
 
 
+def _notification_order(order):
+    """Bound nanosecond order time at the activity wire's microsecond precision."""
+    raw = order.get("filled_at")
+    fraction = re.search(r"\.(\d+)(?:Z|[+-]\d\d:\d\d)$", raw) if isinstance(raw, str) else None
+    if fraction and len(fraction[1]) > 6 and any(c != "0" for c in fraction[1][6:]):
+        upper = native_activity.aware_time(raw) + timedelta(microseconds=1)
+        return dict(order, filled_at=upper.isoformat())
+    return order
+
+
 async def _activities(reader, order_id):
     items, seen, token = [], set(), None
     for _ in range(10):
@@ -122,7 +133,7 @@ async def _collect(conn, *, reader, since, now):
         fills = []
         for raw in activities:
             result = native_activity.normalize_activity(
-                raw, subject_sha256=subject, account_id=native, order=order)
+                raw, subject_sha256=subject, account_id=native, order=_notification_order(order))
             if result.disposition == "QUARANTINED" or result.fill is None:
                 raise FillNotificationRefused(result.reason_code or "NATIVE_FILL_REQUIRED")
             fill = result.fill
@@ -143,7 +154,8 @@ async def _collect(conn, *, reader, since, now):
             alert["payload"].pop("reconstructed_from_durable_fill", None)
             alert["payload"].update(notification_only=True,
                 source="ALPACA_ORDER_ACTIVITIES_V1", native_activity=raw,
-                native_account_id=native, binding=list(bound))
+                native_account_id=native, binding=list(bound),
+                native_order_filled_at=order.get("filled_at"))
             alerts.append(alert)
         # Reuse actual adapter normalization and the existing exact arithmetic
         # checks, without claiming that account-wide history is complete.

@@ -22,6 +22,13 @@ activity normalizer and fill integrity checks. A cumulative order average is
 never synthesized into a native execution. Missing activities remain eligible
 for later collection; partial fills and restarts converge by native activity ID.
 
+Native order timestamps can have nanosecond precision while REST execution
+activities round to microseconds. For notification-only validation, a terminal
+order timestamp with a nonzero sub-microsecond remainder has an upper bound at
+the following microsecond. Compare the activity against that precision-derived
+bound, retain the original native timestamp, and refuse any greater difference.
+Do not apply a general time tolerance or change financial history validation.
+
 The existing alert outbox stores the immutable notification receipt, including
 native source evidence, under the same `fill:<order>:<native-fill-fingerprint>`
 identity used by ledger-derived notifications. Cross-order reuse or changed

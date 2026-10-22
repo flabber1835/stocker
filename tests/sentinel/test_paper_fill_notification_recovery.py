@@ -228,3 +228,28 @@ def test_removed_command_identity_guard_is_detected(db, monkeypatch):
     monkeypatch.setattr(module, "_check_order", namespace["_check_order"])
     with pytest.raises(pytest.fail.Exception):
         test_wrong_identity_or_economics_never_notifies(db, monkeypatch, "asset")
+
+
+@pytest.mark.parametrize("activity_fraction,accepted", [("229501", True), ("229502", True), ("229503", False)])
+def test_native_nanosecond_order_and_rounded_microsecond_activity(db, monkeypatch, activity_fraction, accepted):
+    f = fixture(db, monkeypatch)
+    native = "2026-10-22T13:45:17.229501912Z"
+    f.order["filled_at"] = native
+    for activity in f.activities:
+        activity["transaction_time"] = "2026-10-22T13:45:17." + activity_fraction + "Z"
+    if accepted:
+        assert collect(db, f) == 2
+        rows = db.execute("SELECT payload FROM sentinel_alert_outbox WHERE event_type='BROKER_FILL'").fetchall()
+        assert len(rows) == 2 and all(p[0]["native_order_filled_at"] == native for p in rows)
+        assert f.order["filled_at"] == native
+    else:
+        with pytest.raises(module.FillNotificationRefused, match="FILL_FOLLOWS_ORDER_FILL"):
+            collect(db, f)
+        assert db.execute("SELECT count(*) FROM sentinel_alert_outbox").fetchone()[0] == 0
+
+
+def test_microsecond_order_time_does_not_get_a_tolerance(db, monkeypatch):
+    f = fixture(db, monkeypatch)
+    f.activities[0]["transaction_time"] = (FILLED + timedelta(microseconds=1)).isoformat()
+    with pytest.raises(module.FillNotificationRefused, match="FILL_FOLLOWS_ORDER_FILL"):
+        collect(db, f)
