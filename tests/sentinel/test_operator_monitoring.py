@@ -1377,7 +1377,7 @@ class TestProtectedDayOrderMonitoring:
         assert alert_service._active_incident(SimpleNamespace(policy_state="PROTECTED_DAY_WAIT_EXPIRED",
             enabled=True, kill_switch_engaged=False))
 
-    @pytest.mark.parametrize("fault", [None, "unknown", "different_plan", "native_terms", "replacement", "binding", "incomplete", "newer_same_cohort", "newer_fill", "newer_foreign"])
+    @pytest.mark.parametrize("fault", [None, "unknown", "different_plan", "native_terms", "replacement", "binding", "incomplete", "newer_same_cohort", "newer_fill", "newer_foreign", "newer_reconciled_fill"])
     @pytest.mark.parametrize("ready", [False, True])
     def test_reservation_reader_joins_actual_commands_and_canonical_observation(self, monkeypatch, fault, ready):
         from dataclasses import replace
@@ -1415,6 +1415,9 @@ class TestProtectedDayOrderMonitoring:
         elif fault == "incomplete": payload["completeness"] = "PARTIAL"
         elif fault == "newer_fill": order["filled_quantity"] = "1"
         elif fault == "newer_foreign": payload["orders"].append(dict(order, client_key="foreign"))
+        elif fault == "newer_reconciled_fill":
+            command = replace(command, state=CommandState.PARTIALLY_FILLED, filled_quantity=Decimal("1"))
+            order.update(filled_quantity="1", state="PARTIALLY_FILLED")
         newer = str(fault).startswith("newer_")
         if newer:
             payload["observed_at"] = (DAY_WAIT_NOW + timedelta(seconds=63)).isoformat()
@@ -1430,10 +1433,12 @@ class TestProtectedDayOrderMonitoring:
         result = sources._matched_resting_reservation(conn,
             account={"account_id": dep.broker_account_id, "observed_at": DAY_WAIT_NOW + timedelta(seconds=63)},
             cycle=cycle, now=DAY_WAIT_NOW + timedelta(seconds=63))
-        assert bool(result) is (fault in (None, "newer_same_cohort"))
+        assert bool(result) is (fault in (None, "newer_same_cohort", "newer_reconciled_fill"))
         if result:
-            assert result["observation_id"] == raw["observation_id"]
-            assert datetime.fromisoformat(result["observed_at"]) == DAY_WAIT_NOW
+            assert result["observation_id"] == (13 if newer else raw["observation_id"])
+            assert datetime.fromisoformat(result["observed_at"]) == DAY_WAIT_NOW + timedelta(seconds=63 if newer else 0)
+            assert result["deadline"] == datetime.fromisoformat(raw["deadline"]).isoformat().replace('+00:00', 'Z')
+            assert result["reserved_cash"] == ("100" if fault == "newer_reconciled_fill" else "200")
         assert sources._matched_resting_reservation(conn,
             account={"account_id": dep.broker_account_id, "observed_at": DAY_WAIT_NOW + timedelta(seconds=601)},
             cycle=cycle, now=DAY_WAIT_NOW + timedelta(seconds=601)) is None
@@ -1448,6 +1453,48 @@ class TestProtectedDayOrderMonitoring:
         monkeypatch.setattr(model, "alpaca_account_row", namespace["alpaca_account_row"])
         with pytest.raises(AssertionError):
             self.test_panel_only_accepts_positively_matched_reservations_and_keeps_margin_red()
+
+    def test_positive_terminal_progress_removes_only_proved_hold(self, monkeypatch):
+        from sentinel.execution import journal
+        from sentinel.execution.commands import Command
+        from sentinel.execution.contract import BrokerInstrument, Side
+        from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
+        from sentinel.execution.states import CommandState
+        raw = day_wait_wait_payload()
+        dep = DeploymentIdentity(*raw["deployment"])
+        terms = OrderTerms("limit", "day", Decimal("100"))
+        first = Command(CommandIdentity(dep, raw["plan_id"], "security-a"),
+            BrokerInstrument("security-a", "AAA", "asset-a"), Side.BUY, Decimal(2),
+            state=CommandState.FILLED, broker_order_id="native-first",
+            filled_quantity=Decimal(2), filled_average_price=Decimal(99), order_terms=terms)
+        second = Command(CommandIdentity(dep, raw["plan_id"], "security-b"),
+            BrokerInstrument("security-b", "BBB", "asset-b"), Side.BUY, Decimal(2),
+            state=CommandState.ACKNOWLEDGED, broker_order_id="native-second", order_terms=terms)
+        raw["commands"] = [dict(raw["commands"][0], client_key=c.client_key,
+            broker_order_id=c.broker_order_id, security_id=c.security_id) for c in (first, second)]
+        raw["reserved_cash"] = "400"
+        now = DAY_WAIT_NOW + timedelta(seconds=63)
+        orders = [dict(client_key=c.client_key, broker_order_id=c.broker_order_id,
+            security_id=c.security_id, side="BUY", state=c.state.value, quantity="2",
+            filled_quantity=str(c.filled_quantity), order_terms=terms.to_dict()) for c in (first, second)]
+        payload = dict(completeness="COMPLETE", account_id=dep.broker_account_id,
+                       observed_at=now.isoformat(), orders=orders)
+        class Cursor:
+            def __enter__(self): return self
+            def __exit__(self, *_a): pass
+            def execute(self, query): self.query = query
+            def fetchone(self): return tuple(raw["deployment"]) if "account_binding" in self.query else (13, "RUNNING")
+        conn = SimpleNamespace(cursor=Cursor)
+        monkeypatch.setattr(journal, "load_observation_payload", lambda *_a: payload)
+        monkeypatch.setattr(journal, "load_commands", lambda *_a: [first, second])
+        cycle = dict(plan_id=raw["plan_id"], effective_session="2026-10-20", protected_day_wait=raw)
+        account = dict(account_id=dep.broker_account_id, observed_at=now)
+        result = sources._matched_resting_reservation(conn, account=account, cycle=cycle, now=now)
+        assert result["reserved_cash"] == "200" and len(result["commands"]) == 1
+        assert result["commands"][0]["client_key"] == second.client_key
+        # Terminal state in our journal alone cannot excuse an absent native order.
+        payload["orders"] = orders[1:]
+        assert sources._matched_resting_reservation(conn, account=account, cycle=cycle, now=now) is None
 
     def test_removed_completion_clock_guard_is_detected(self, monkeypatch):
         monkeypatch.setattr(module.AutomationService, "_completed_at", staticmethod(lambda now, clock: now))

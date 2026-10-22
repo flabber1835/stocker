@@ -1249,29 +1249,48 @@ def _matched_resting_reservation(conn, *, account, cycle, now):
             or (latest[0] == wait.observation_id
                 and datetime.fromisoformat(payload["observed_at"]) != wait.observed_at)):
         return None
-    commands = {c.client_key: c for c in journal.load_commands(
-        conn, DeploymentIdentity(*wait.deployment)) if c.state in IN_FLIGHT}
+    all_commands = {c.client_key: c for c in journal.load_commands(
+        conn, DeploymentIdentity(*wait.deployment))}
+    commands = {key: c for key, c in all_commands.items() if c.state in IN_FLIGHT}
+    all_orders = {o["client_key"]: o for o in payload["orders"]}
     orders = {o["client_key"]: o for o in payload["orders"]
               if o["state"] in {state.value for state in IN_FLIGHT}}
     expected = {order.client_key for order in wait.commands}
-    if set(commands) != expected or set(orders) != expected:
+    if not set(commands) <= expected or set(orders) != set(commands):
         return None
+    remaining_facts = []
     for fact in wait.commands:
-        command, order = commands[fact.client_key], orders[fact.client_key]
+        command, order = all_commands.get(fact.client_key), all_orders.get(fact.client_key)
+        if command is None or order is None:
+            return None
         if (command.identity.plan_id != wait.plan_id or command.side.value != "BUY"
-                or command.state.value != fact.state or order["state"] != fact.state
+                or order["state"] != command.state.value
                 or command.broker_order_id != fact.broker_order_id
                 or order["broker_order_id"] != fact.broker_order_id
                 or command.security_id != fact.security_id or order["security_id"] != fact.security_id
                 or command.order_terms.to_dict() != fact.order_terms
                 or order.get("order_terms") != fact.order_terms
-                or command.quantity - command.filled_quantity != fact.remaining_quantity
-                or Decimal(order["quantity"]) - Decimal(order["filled_quantity"]) != fact.remaining_quantity
+                or not 0 <= command.quantity - command.filled_quantity <= fact.remaining_quantity
+                or Decimal(order["filled_quantity"]) != command.filled_quantity
                 or Decimal(order["quantity"]) != command.quantity
                 or order["side"] != "BUY" or order.get("external_replacement")
                 or order.get("replaced_by") or order.get("replaces")):
             return None
-    return wait.model_dump(mode="json", by_alias=True)
+        if command.state.value in {"ACKNOWLEDGED", "PARTIALLY_FILLED"}:
+            remaining_facts.append(dict(fact.model_dump(mode="json"), state=command.state.value,
+                remaining_quantity=str(command.quantity - command.filled_quantity)))
+        elif command.state.value not in {"FILLED", "CANCELLED", "REJECTED"}:
+            return None
+    if not remaining_facts:
+        return None  # No working holds remain; account cash must stand on its own.
+    value = wait.model_dump(mode="json", by_alias=True)
+    value.update(commands=remaining_facts, observation_id=latest[0],
+        observed_at=payload["observed_at"],
+        reserved_cash=str(sum((Decimal(f["remaining_quantity"]) * Decimal(f["limit_price"])
+                               for f in remaining_facts), Decimal(0))))
+    matched = protected_day_wait(value, now=now, plan_id=wait.plan_id,
+                                effective_session=wait.effective_session)
+    return matched.model_dump(mode="json", by_alias=True) if matched else None
 
 
 def _latest_backup_evidence(conn, kind: str) -> dict | None:
@@ -1355,6 +1374,13 @@ def _operator_evidence_rows(
 
         account_detail = account_error or binding_error or reservation_error
         account_recovery = _observation_recovery(cycle)
+        account_valid_until = _runtime_valid_until(
+            cycle, (account or {}).get("observed_at"), broker_fact=True)
+        if reservation is not None:
+            original = ((cycle or {}).get("protected_day_wait")
+                        or (cycle or {}).get("protected_cohort") or {})
+            original_expiry = _utc(original.get("observed_at")) + timedelta(minutes=10)
+            account_valid_until = min(account_valid_until, original_expiry) if account_valid_until else original_expiry
         account_row = (
             model.alpaca_account_row(
                 available=None, error=account_detail,
@@ -1362,9 +1388,7 @@ def _operator_evidence_rows(
             if account_detail else
             model.alpaca_account_row(
                 available=account is not None, expected_account_id=bound,
-                valid_until=_runtime_valid_until(
-                    cycle, (account or {}).get("observed_at"),
-                    broker_fact=True),
+                valid_until=account_valid_until,
                 recovery=account_recovery,
                 matched_protected_reservation=reservation,
                 **(account or {})))

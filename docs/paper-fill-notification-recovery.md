@@ -45,10 +45,17 @@ timestamps may differ by more than 60 seconds during an ordinary recovery
 pass. Accept their match within the existing ten-minute observation lifetime,
 preserving the original reservation timestamp and expiry. Require the exact
 cash-minus-buying-power amount, cash-only multiplier, binding, commands and
-native order terms. If a newer complete observation exists, it must positively
-confirm the same entire working cohort; it cannot renew the old proof's clock.
-Changed fills, extra/UNKNOWN orders, replacement, foreign identity, expired
-evidence or unexplained cash still refuse.
+native order terms. A newer complete observation may confirm the same cohort
+or positively reconcile partial/terminal progress of its existing orders.
+Require agreement with the durable commands, no added working order, no
+increased remainder, and a positive exact terminal order for each removed leg.
+The display-only reservation is then the sum of the observed remaining limit
+notionals. Bind it to that native observation while capping its display validity
+at the original wait's ten-minute expiry; preserve the fixed market-close
+deadline and never renew the old display clock. Extra or
+UNKNOWN orders, replacement, foreign identity, unproved transitions, expired
+evidence or unexplained cash still refuse. No execution or financial state is
+written by this read.
 
 Local deployment of these notification/display-only changes may preserve an
 active generation after the new-submission cutoff while positively known DAY
