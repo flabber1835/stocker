@@ -658,6 +658,7 @@ class TestRuntimeRowsAreDurableFacts:
                 "terminal_pending_terms": {},
             },
             "feed": {"series": {}},
+            "ledger": {"receivables": []},
             "pending": [{"security_id": "SEC-B"}],
             "last_evidence": {
                 "wealth_core": {

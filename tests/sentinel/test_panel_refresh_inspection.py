@@ -93,7 +93,8 @@ def test_renewal_cannot_mask_expired_future_or_foreign_image_evidence(field, val
 
 def canonical_state():
     return dict(wealth_core=dict(cash='50', episodes={'1':dict(security_id='sid', ticker='A<B', current_shares='2')}),
-                feed=dict(series={'sid':dict(sessions=['2026-10-09'], raw_closes=['25'])}), pending=[])
+                feed=dict(series={'sid':dict(sessions=['2026-10-09'], raw_closes=['25'])}),
+                ledger=dict(receivables=[]), pending=[])
 
 
 def test_holdings_come_from_canonical_state_with_exact_arithmetic_and_escaped_copy():

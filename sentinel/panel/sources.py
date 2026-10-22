@@ -64,6 +64,8 @@ _AUTOMATION_CYCLE_ROW_FIELDS = frozenset({
     "retry_phase",
     "original_execution_deadline_at",
     "first_failure_at", "exception_fingerprint", "terminal_reason",
+    "availability_retry_unbounded", "callback_failure", "exception_type",
+    "availability_retry_clocks_aware",
     "protected_day_wait",
     "prepare_at", "execution_open_at", "execute_at", "execution_close_at",
     "created_at", "completed_at", "updated_at",
@@ -765,6 +767,12 @@ def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | N
         "attempt_count": int(attempt_count),
         "phase_attempt_count": diagnostic.get("phase_attempt_count"),
         "phase_max_attempts": diagnostic.get("phase_max_attempts"),
+        "availability_retry_unbounded": diagnostic.get("availability_retry_unbounded"),
+        "callback_failure": diagnostic.get("callback_failure"),
+        "exception_type": diagnostic.get("exception_type"),
+        "availability_retry_clocks_aware": all(
+            isinstance(stamp, datetime) and stamp.utcoffset() is not None
+            for stamp in (next_wake, execution_open_at)),
         "retry_phase": diagnostic.get("retry_phase"),
         "first_failure_at": diagnostic.get("first_failure_at"),
         "latest_failure_at": diagnostic.get("latest_failure_at"),
@@ -931,6 +939,13 @@ def _cycle_recovery(
     if (failure_domains is not None
             and failure_domain not in failure_domains):
         return None
+    from sentinel.panel.retry_status import availability_recovery, availability_refusal
+    availability = availability_recovery(cycle)
+    if availability is not None:
+        return availability
+    refused = availability_refusal(cycle, availability)
+    if refused is not None:
+        return refused
     if (failure_domains is None and retry_phase == "EXECUTE"
             and not cycle.get("failure_code") and not cycle.get("failure_detail")
             and cycle.get("phase_max_attempts") is None):
@@ -2088,6 +2103,19 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
 
 def _shadow_holdings(state, session, nav):
     """Small projection of the canonical book and its own exact-session marks."""
+    ledger = state['ledger']
+    if not isinstance(ledger, Mapping) or not isinstance(ledger.get('receivables'), list):
+        raise ValueError('canonical dividend receivables are not an array')
+    receivables = Decimal(0)
+    for claim in ledger['receivables']:
+        if (not isinstance(claim, Mapping) or 'amount' not in claim
+                or isinstance(claim['amount'], bool)):
+            raise ValueError('canonical dividend receivable is invalid')
+        amount = Decimal(str(claim['amount']))
+        if not amount.is_finite() or amount < 0:
+            raise ValueError('canonical dividend receivable is invalid')
+        model._bounded_display_decimal(amount)
+        receivables += amount
     holdings = {}
     series = state['feed']['series']
     for episode in state['wealth_core']['episodes'].values():
@@ -2112,7 +2140,7 @@ def _shadow_holdings(state, session, nav):
         value = item['quantity'] * item['raw_close'] if item['raw_close'] is not None else None
         item.update(value=value, weight=value/nav if value is not None else None)
     return model.ShadowBook(session=session, cash=state['wealth_core']['cash'],
-        nav=nav, pending_operations=len(state['pending']),
+        receivables=receivables, nav=nav, pending_operations=len(state['pending']),
         holdings=[holdings[key] for key in sorted(holdings)])
 
 
@@ -2197,20 +2225,28 @@ def _dual_authority_rows(
 
         result = None
         shadow_error = None
+        source_wait = None
         try:
             result = shadow_runtime.verified_shadow_status(
                 conn, observation_id=observation_id,
                 starting_cash=starting_cash)
         except shadow_runtime.ShadowRuntimeRefused as exc:
             shadow_error = _short(exc)
+            from sentinel.panel import shadow_source_wait
+            source_wait = shadow_source_wait.read(
+                conn, exc, observation_id=observation_id,
+                starting_cash=starting_cash, now=now)
+            if source_wait is not None:
+                result = source_wait.result
+                shadow_error = None
 
-        current = result is not None and result.sessions_lag == 0
+        current = source_wait is None and result is not None and result.sessions_lag == 0
         shadow = model.shadow_verification_row(
             verdict=(result.shadow_verdict if result is not None else None),
             verification=(result.verification if result is not None else None),
             session=(result.session if result is not None else None),
             sessions_lag=(result.sessions_lag if result is not None else None),
-            error=shadow_error)
+            error=shadow_error, source_wait=source_wait, now=now)
         verified = shadow.status == model.OK and current
 
         nav_value = None
@@ -2225,6 +2261,7 @@ def _dual_authority_rows(
                 return_value = f"{cumulative * Decimal(100):+.2f}%"
             except (InvalidOperation, TypeError, ValueError) as exc:
                 shadow_error = _short(exc)
+                source_wait = None
                 shadow = model.shadow_verification_row(
                     verdict=None, verification=None, session=None,
                     error=shadow_error)
@@ -2234,14 +2271,24 @@ def _dual_authority_rows(
             model.shadow_metric_row(
                 "shadow_nav", "Certified shadow NAV", nav_value,
                 verified=verified,
-                detail="broker-free strategy NAV; not Alpaca account equity"),
+                detail="broker-free strategy NAV; not Alpaca account equity",
+                source_wait=source_wait),
             model.shadow_metric_row(
                 "shadow_return", "Certified strategy return", return_value,
                 verified=verified,
-                detail="cumulative return from the certified shadow ledger"),
+                detail="cumulative return from the certified shadow ledger",
+                source_wait=source_wait),
         ]
         book_rows, book_errors = _verified_shadow_book_rows(
-            conn, result, verified=verified, now=datetime.now(timezone.utc))
+            conn, result, verified=(verified or source_wait is not None),
+            now=(source_wait.attested_at if source_wait else datetime.now(timezone.utc)))
+        if source_wait is not None:
+            book_rows = [replace(row, status=model.WARN,
+                value=f"LAST ATTESTED THROUGH {source_wait.session} · {row.value}",
+                detail=f"LAST ATTESTED THROUGH {source_wait.session} · CURRENT SESSION NOT VERIFIED · {row.detail}",
+                as_of=source_wait.attested_at, required_current=True,
+                valid_until=shadow.valid_until, recovery=shadow.recovery)
+                if row.status == model.OK else row for row in book_rows]
 
         if not include_paper:
             return [*rows, *book_rows], {}, [], book_errors

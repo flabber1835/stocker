@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Dashboard close-cycle status](dashboard-close-cycle-status.md) distinguishes
+typed source waits from failures, preserves dated authenticated historical
+holdings and fixes composed retry/readiness presentation without trading changes.
+
 [Persistent account share targets](persistent-account-share-targets.md) prevent
 daily NAV rescaling from trading unchanged holdings. Entries, exits, exposure
 changes and authenticated share-unit actions retain their execution contracts.

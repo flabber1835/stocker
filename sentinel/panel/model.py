@@ -31,10 +31,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Literal, Mapping, Optional
+from typing import TYPE_CHECKING, Literal, Mapping, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sentinel.paper_plan_preview import PlanPreview
 from sentinel.automation.model import ProtectedDayWait
+
+if TYPE_CHECKING:
+    from sentinel.panel.shadow_source_wait import SourceWait
 
 
 def _bounded_display_decimal(value):
@@ -58,10 +61,11 @@ class ShadowBook(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True)
     session: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
     cash: Decimal = Field(ge=0, allow_inf_nan=False)
+    receivables: Decimal = Field(ge=0, allow_inf_nan=False)
     nav: Decimal = Field(gt=0, allow_inf_nan=False)
     pending_operations: int = Field(ge=0, le=10000)
     holdings: list[ShadowHolding] = Field(max_length=100)
-    _number_bound = field_validator('cash', 'nav')(_bounded_display_decimal)
+    _number_bound = field_validator('cash', 'receivables', 'nav')(_bounded_display_decimal)
 
     @model_validator(mode='after')
     def coherent_values(self):
@@ -77,9 +81,10 @@ class ShadowBook(BaseModel):
                   or abs(item.weight-item.value/self.nav) > Decimal('1e-25')):
                 raise ValueError('holding arithmetic is inconsistent')
         if (all(item.value is not None for item in self.holdings)
-                and abs(self.cash+sum((item.value for item in self.holdings), Decimal(0))-self.nav)
+                and abs(self.cash+self.receivables
+                        +sum((item.value for item in self.holdings), Decimal(0))-self.nav)
                     > Decimal('0.02')):
-            raise ValueError('canonical holdings and cash disagree with book value')
+            raise ValueError('canonical holdings, cash and receivables disagree with book value')
         return self
 
 
@@ -183,6 +188,16 @@ class Row:
             required_current=self.required_current, recovery=self.recovery,
             now=now)
 
+    def can_show_shadow_book(self, now: datetime) -> bool:
+        """Use the same authenticated holdings boundary in JSON and HTML."""
+        status = self.effective_status(now)
+        return self.shadow_book is not None and (
+            status == OK or (
+                self.status == WARN and status == WARN and self.required_current
+                and self.recovery is not None
+                and self.recovery.phase == 'SOURCE_FRONTIER'
+                and self.recovery.active(now)))
+
 
 @dataclass(frozen=True)
 class Panel:
@@ -275,7 +290,9 @@ def trial_metric_row(key: str, label: str, value: Optional[str], *,
 def shadow_verification_row(
         *, verdict: Optional[str], verification: Optional[str],
         session: Optional[str], sessions_lag: Optional[int] = None,
-        error: Optional[str] = None, unreadable: bool = False) -> Row:
+        error: Optional[str] = None, unreadable: bool = False,
+        source_wait: Optional['SourceWait'] = None,
+        now: Optional[datetime] = None) -> Row:
     """The broker-free performance authority used by reviewed dual mode."""
     if unreadable:
         return Row(
@@ -286,6 +303,19 @@ def shadow_verification_row(
         return Row(
             "shadow_verification", "Certified shadow strategy",
             "SHADOW NOT VERIFIED — VERIFICATION WITHDRAWN", FAIL, error)
+    if source_wait is not None:
+        # The cached display must escalate at the actual open, including the
+        # exact boundary; Row's generic inclusive validity is otherwise kept.
+        boundary = source_wait.deadline - timedelta(microseconds=1)
+        return Row(
+            "shadow_verification", "Certified shadow strategy",
+            f"WAITING FOR {source_wait.decision_session} INPUTS",
+            WARN if now is not None and now < source_wait.deadline else FAIL,
+            f"LAST ATTESTED THROUGH {source_wait.session} · CURRENT SESSION NOT VERIFIED; "
+            f"source recovery deadline {source_wait.deadline.isoformat()}",
+            as_of=now, required_current=True, valid_until=boundary,
+            recovery=RecoveryEvidence(phase='SOURCE_FRONTIER', automatic=True,
+                                      deadline=boundary))
     lag = int(sessions_lag or 0)
     if (verdict != "SHADOW_GO" or verification != "VERIFIED"
             or not session or lag != 0):
@@ -305,9 +335,13 @@ def shadow_verification_row(
 
 def shadow_metric_row(
         key: str, label: str, value: Optional[str], *, verified: bool,
-        detail: str) -> Row:
+        detail: str, source_wait: Optional['SourceWait'] = None) -> Row:
     if value is None:
         return Row(key, label, "UNAVAILABLE", UNKNOWN, detail)
+    if source_wait is not None:
+        return Row(key, label, value, WARN,
+                   f"LAST ATTESTED THROUGH {source_wait.session} · CURRENT SESSION NOT VERIFIED · {detail}",
+                   as_of=source_wait.attested_at)
     return Row(
         key, label, value, OK if verified else WARN,
         detail if verified else f"NOT CURRENT · {detail}")
@@ -891,6 +925,10 @@ def automation_cycle_row(*, installed: Optional[bool],
                          attempt_count: Optional[int] = None,
                          phase_attempt_count: Optional[int] = None,
                          phase_max_attempts: Optional[int] = None,
+                         availability_retry_unbounded: Optional[bool] = None,
+                         callback_failure: Optional[str] = None,
+                         exception_type: Optional[str] = None,
+                         availability_retry_clocks_aware: Optional[bool] = None,
                          retry_phase: Optional[str] = None,
                          original_execution_deadline_at: Optional[datetime] = None,
                          first_failure_at: Optional[str] = None,
@@ -935,8 +973,21 @@ def automation_cycle_row(*, installed: Optional[bool],
                    f"{failure_detail or 'no detail'}")
     recovery = None
     wait = None
+    availability = None
+    availability_cycle = dict(
+        state=state, retry_phase=retry_phase,
+        availability_retry_unbounded=availability_retry_unbounded,
+        callback_failure=callback_failure, exception_type=exception_type,
+        phase_attempt_count=phase_attempt_count, terminal_reason=terminal_reason,
+        next_wake_at=next_wake_at, execution_open_at=execution_open_at,
+        decision_session=decision_session, effective_session=effective_session)
+    if availability_retry_clocks_aware is not None:
+        availability_cycle['availability_retry_clocks_aware'] = availability_retry_clocks_aware
     if normalized == "RETRY_WAIT":
+        from sentinel.panel.retry_status import availability_label, availability_recovery, availability_refusal
+
         status = WARN
+        availability = availability_recovery(availability_cycle)
         wait = _protected_day_wait(protected_day_wait, effective_session, plan_id)
         recovery = (RecoveryEvidence(
             phase="PROTECTED_DAY_ORDER_OBSERVATION", automatic=True,
@@ -960,6 +1011,12 @@ def automation_cycle_row(*, installed: Optional[bool],
                     "original_execution_deadline_at": original_execution_deadline_at,
                     "execution_open_at": execution_open_at, "execute_at": execute_at,
                     "execution_close_at": execution_close_at}))
+        if availability is not None:
+            recovery = availability
+            detail += f" · state {normalized} · {callback_failure} · {exception_type}"
+        elif (refused := availability_refusal(availability_cycle, availability)) is not None:
+            recovery = refused
+            detail += " · availability retry evidence is malformed or incomplete"
     elif (normalized == "SUPERSEDED"
           and failure_code == "DISCOVERED_AFTER_SESSION_OPEN"):
         status = PENDING
@@ -990,7 +1047,8 @@ def automation_cycle_row(*, installed: Optional[bool],
             automatic=True, next_attempt_at=next_wake_at,
             deadline=deadlines.get(normalized))
     return Row("automation_cycle", "Automation cycle",
-               normalized or "UNKNOWN", status, detail, wait.observed_at if wait else updated_at,
+               (availability_label(availability_cycle, availability) if availability is not None
+                else normalized or "UNKNOWN"), status, detail, wait.observed_at if wait else updated_at,
                required_current=bool(enabled), recovery=recovery)
 
 
@@ -1135,6 +1193,10 @@ def automation_step_rows(
         next_attempt_at=cycle.get("next_wake_at"),
         operator_required=bool(cycle.get("terminal_reason")),
     )
+    from sentinel.panel.retry_status import availability_label, availability_recovery, availability_refusal
+    availability = availability_recovery(cycle)
+    if availability is not None:
+        retry = availability
     wait = _protected_day_wait(cycle.get("protected_day_wait"), cycle.get("effective_session"), cycle.get("plan_id"))
     if wait is not None and not cycle.get("failure_code") and not cycle.get("failure_detail"):
         retry = RecoveryEvidence(
@@ -1147,6 +1209,9 @@ def automation_step_rows(
         retry = RecoveryEvidence(
             phase="CLEAN_RECOVERY_EXECUTION_WAKE", automatic=True,
             next_attempt_at=cycle.get("next_wake_at"), deadline=_clean_execution_deadline(cycle))
+    refused = availability_refusal(cycle, availability)
+    if refused is not None:
+        retry = refused
     failed_index = None
     if terminal and state != "SUCCEEDED":
         failed_index = _AUTOMATION_RETRY_STEP.get(retry_phase, progress_index)
@@ -1217,6 +1282,10 @@ def automation_step_rows(
                     f"{retry_phase or 'UNKNOWN'} · next "
                     f"{cycle.get('next_wake_at') or 'unknown'}")
                 recovery = retry
+                if availability is not None:
+                    value = availability_label(cycle, availability)
+                    detail += (f" · state {state} · {cycle.get('callback_failure')}"
+                               f" · {cycle.get('exception_type')}")
                 if clean_execution_wait:
                     value = "READY TO CONTINUE"
                     detail = "clean recovery permits only the original execution window"

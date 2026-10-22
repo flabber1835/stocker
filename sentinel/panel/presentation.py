@@ -1,13 +1,15 @@
 """Plain-language display only; never alter a financial or operational verdict."""
 from __future__ import annotations
 
+from zoneinfo import ZoneInfo
+
 from sentinel.panel.model import Row, FINANCIAL_AUTHORITY_ROW_KEYS
 
 _COPY = {
     'paper_plan': ('Next paper plan', 'Saved targets for the next market open. Proposed trades are estimates, not submitted orders or fills.'),
     'shadow_worker': ('Strategy worker', 'Checks that the worker updating the simulated portfolio is running. A verified saved portfolio can still be displayed while its worker is halted.'),
     'shadow_verification': ('Simulated portfolio check', 'Checks that the strategy portfolio was built correctly from the available market data. This is separate from your Alpaca account.'),
-    'shadow_nav': ('Simulated portfolio value', 'The value of the strategy’s simulated shares and cash. This is not the balance in your Alpaca paper account.'),
+    'shadow_nav': ('Simulated portfolio value', 'The value of the strategy’s simulated shares, cash and dividend receivables. This is not the balance in your Alpaca paper account.'),
     'shadow_return': ('Strategy gain or loss', 'The simulated strategy’s gain or loss since its starting book, excluding money added to a broker account.'),
     'paper_reconciliation': ('Paper account alignment', 'Checks whether Alpaca’s paper holdings and orders match the trading plan. Alignment is confirmed after execution and reconciliation.'),
     'trial_verification': ('Paper account check', 'Checks the paper account’s holdings, cash and trading results. Unverified results should not be treated as confirmed performance.'),
@@ -19,7 +21,7 @@ _COPY = {
     'ownership': ('Account connected to Sentinel', 'Shows whether Sentinel has been assigned control of a paper account. Shadow-only operation does not require paper trading.'),
     'feed': ('Market data', 'The latest trading day with accepted prices and company information. It should catch up before the next trading decision.'),
     'ingest': ('Data download', 'Shows the most recent attempt to download and prepare market data.'),
-    'book': ('Strategy holdings', 'The stocks and cash chosen by Wealth Core. Initial formation simulates earlier sessions to build this portfolio before today.'),
+    'book': ('Strategy holdings', 'The stocks, cash and dividend receivables recorded by Wealth Core. Initial formation simulates earlier sessions to build this portfolio before today.'),
     'exposure': ('Stock allocation', 'The fraction of the portfolio assigned to the stock strategy. The remaining allocation goes to the Treasury-bill sleeve.'),
     'terminals': ('Company events', 'Checks events such as delistings and acquisitions that can affect held shares.'),
     'broker': ('Paper holdings and orders', 'The broker account’s recorded holdings and order state. These are separate from the simulated strategy portfolio.'),
@@ -66,6 +68,38 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
         explanation += ' The last successful check is still current. '+row.detail
     if key == 'backup_restore' and value == 'BACKUP CHECK IN PROGRESS':
         explanation += ' A replacement backup is being restored and checked. It is not yet confirmed recoverable.'
+    if key == 'paper_plan' and row.paper_plan is not None:
+        scheduled = row.paper_plan.execute_at.astimezone(ZoneInfo('America/Los_Angeles'))
+        explanation += ' Saved execution: '+scheduled.strftime('%Y-%m-%d at %I:%M %p Pacific')+'.'
+    source_wait = row.recovery is not None and row.recovery.phase == 'SOURCE_FRONTIER'
+    availability_wait = row.recovery is not None and row.recovery.phase in {
+        'AUTOMATION_REFRESH_AVAILABILITY', 'AUTOMATION_PREPARE_AVAILABILITY'}
+    working_orders = row.value == 'DAY ORDERS WORKING'
+    missed_buys = row.value == 'MISSED UNSENT BUYs'
+    if source_wait and status == 'warn':
+        explanation += (' Market data for the next decision is still pending. '
+                        'Current-session verification must wait; retained values and holdings '
+                        'keep their original attestation date.')
+    elif availability_wait and status == 'warn':
+        explanation += (' Automatic retries are continuing before the saved market-open deadline. '
+                        'Trading still requires a ready plan.')
+    elif working_orders and status == 'warn':
+        explanation += (' Known DAY orders remain open at the paper broker. '
+                        'The system is checking for fills or terminal outcomes; '
+                        'target completion is not yet confirmed.')
+    elif working_orders:
+        explanation += (' The recorded working-order evidence is no longer current. '
+                        'Fills, cancellation or expiry still need to be confirmed.')
+    elif missed_buys:
+        explanation += (' Some planned buys were not submitted before the original cutoff. '
+                        'Existing broker orders still require reconciliation; '
+                        'target completion is not confirmed.')
+    value = {
+        'WAITING_OPEN': 'Waiting for market open',
+        'UNKNOWN': 'Status unavailable',
+        'DAY ORDERS WORKING': 'DAY orders recorded as working',
+        'MISSED UNSENT BUYs': 'Buy submission window expired',
+    }.get(value, value)
     if copy:
         value = (value.replace('TRIAL NOT VERIFIED', 'Paper account not verified')
                  .replace('TRIAL VERIFIED THROUGH', 'Paper account checked through')
@@ -79,7 +113,7 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
             explanation += ' Attention needed: this check is failing or cannot be confirmed. Open the technical details for the recorded reason.'
         elif status == 'warn' and row.value == 'WAITING_OPEN':
             explanation += ' The plan is ready and waiting for its scheduled execution time.'
-        elif status == 'warn':
+        elif status == 'warn' and not (source_wait or availability_wait or working_orders):
             explanation += ' This is waiting or needs review; it is not a completed check.'
         elif status == 'pending':
             explanation += ' This step has not been reached in the current daily run.'
@@ -160,5 +194,6 @@ button.secondary{color:#f7d78c}button:focus-visible,summary:focus-visible{outlin
 @keyframes chip-drift{50%{transform:translateY(-22px) rotate(30deg)}}
 @keyframes reel-turn{0%,40%{transform:translateY(0)}50%,90%{transform:translateY(-56px)}100%{transform:translateY(-84px)}}
 @media(max-width:760px){.hostess{width:80px;height:192px;opacity:.4}.floating-chip{opacity:.16}.marquee-glow{inset:4px;opacity:.25}.wrap{max-width:620px}}
+@media(max-width:360px){.value{font-size:16px}}
 @media(prefers-reduced-motion:reduce){.casino-stage *, .casino-accent *{animation:none!important}}
 '''

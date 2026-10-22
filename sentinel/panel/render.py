@@ -321,7 +321,12 @@ def _row_html(r: Row, now: datetime) -> str:
 
 def _holdings_html(row: Row, now: datetime) -> str:
     book = row.shadow_book
-    if book is None or row.effective_status(now) != 'ok':
+    status = row.effective_status(now)
+    historical = (row.status == 'warn' and status == 'warn'
+                  and row.required_current and row.recovery is not None
+                  and row.recovery.phase == 'SOURCE_FRONTIER'
+                  and row.recovery.active(now))
+    if not row.can_show_shadow_book(now):
         return ''
     def number(value, money=False):
         if value is None:
@@ -331,8 +336,14 @@ def _holdings_html(row: Row, now: datetime) -> str:
              number(holding.value, True), f'{holding.weight*100:.2f}%' if holding.weight is not None else 'Unavailable')
             for holding in book.holdings]
     rows.append(('Cash', '', '', number(book.cash, True), f'{book.cash/book.nav*100:.2f}%'))
+    if book.receivables > 0:
+        rows.append(('Dividend receivables (not cash)', '', '',
+                     number(book.receivables, True), f'{book.receivables/book.nav*100:.2f}%'))
     return ('<details class="technical" data-detail-key="shadow-holdings"><summary>View shadow holdings</summary>'
-            '<div class="detail-body"><p>Wealth Core stock-selection book as of ' + _esc(book.session)
+            '<div class="detail-body"><p>'
+            + ('LAST ATTESTED THROUGH ' + _esc(book.session) + ' · CURRENT SESSION NOT VERIFIED. '
+               if historical else '')
+            + 'Wealth Core stock-selection book as of ' + _esc(book.session)
             + '. These simulated shares are separate from Alpaca holdings. Book value: '
             + number(book.nav, True) + '. The simulated strategy value includes the controller’s '
             'stock allocation, Treasury-bill sleeve and transaction costs, so the two totals can differ.</p>'
