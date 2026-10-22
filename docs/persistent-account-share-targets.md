@@ -74,6 +74,31 @@ exception is authorized. The existing runtime, signature, account, controller,
 publication, configuration and cash guards still run. Recover a fenced native
 cycle and release its kill only through the supported operator commands.
 
+Keep account-status observation independent of a daily execution cycle. The
+existing local PAPER alert dispatcher polls the authenticated paper account at
+most once a minute through the execution adapter, within an eight-second bound.
+Bracket the observation with two typed account snapshots, require the bound
+native account and USD currency, and recheck the durable binding and current
+command facts before appending operational account evidence. Release database
+transactions before network I/O. This existing append-only table is read only
+by the operator panel; it supplies no trading authority, reconciliation, fill
+completeness or financial ledger update.
+
+When cash exceeds buying power, an account display may explain that difference
+only with freshly read native open orders matching every current in-flight
+journal command by account, deployment/epoch, client key, order ID, asset ID,
+side, state, quantities and immutable terms. Require only known simple LIMIT/DAY
+BUYs, exact remainders, no foreign or uncertain open orders, stable cash/buying
+power around the read, and a total limit reservation matching the shortfall
+within $1. Retain the native order facts in the same append-only account row.
+The panel rechecks the current journal/binding and same-session market clock.
+Missing, stale, partial, changed or inconsistent facts never waive the cash-only
+display failure. Preserve the ten-minute freshness limit and all real blocked,
+leveraged, negative or invalid account failures. Failed reads retain the old
+observation without refreshing its clock. Normal-release account display and
+all execution cash/reservation guards remain unchanged. The panel itself still
+has no broker credentials or provider polling.
+
 Verification covers the observed 72-to-71 and inverse rounding cases, new entry
 to held-episode continuity, partial fills, restart/re-derivation, actual exits,
 same-symbol new episodes, exposure changes, share-unit actions, tampered or

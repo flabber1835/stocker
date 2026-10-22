@@ -1372,10 +1372,20 @@ def _operator_evidence_rows(
             conn, lambda c: _matched_resting_reservation(c, account=account, cycle=cycle, now=now),
             STATEMENT_TIMEOUT_MS, default=None)
 
+        operator_reservation = None
+        if local and reservation is None and reservation_error is None:
+            from sentinel.execution import account_status
+            operator_reservation, reservation_error = _read(
+                conn, lambda c: account_status.recorded_reservation(c, account=account, now=now),
+                STATEMENT_TIMEOUT_MS, default=None)
+
         account_detail = account_error or binding_error or reservation_error
         account_recovery = _observation_recovery(cycle)
         account_valid_until = _runtime_valid_until(
             cycle, (account or {}).get("observed_at"), broker_fact=True)
+        if operator_reservation is not None:
+            expiry = _utc(operator_reservation["valid_until"])
+            account_valid_until = min(account_valid_until, expiry) if account_valid_until else expiry
         if reservation is not None:
             original = ((cycle or {}).get("protected_day_wait")
                         or (cycle or {}).get("protected_cohort") or {})
@@ -1391,6 +1401,7 @@ def _operator_evidence_rows(
                 valid_until=account_valid_until,
                 recovery=account_recovery,
                 matched_protected_reservation=reservation,
+                matched_operator_reservation=(operator_reservation or {}).get("reserved_cash"),
                 **(account or {})))
 
         backup_error = base_error or restore_error or runtime_backup_error or maintenance_error

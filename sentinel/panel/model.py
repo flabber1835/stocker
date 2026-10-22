@@ -1359,6 +1359,7 @@ def alpaca_account_row(
         valid_until: Optional[datetime] = None,
         recovery: Optional[RecoveryEvidence] = None,
         matched_protected_reservation: Optional[dict] = None,
+        matched_operator_reservation: Optional[str] = None,
         error: Optional[str] = None) -> Row:
     """Latest account result already admitted through the execution membrane."""
     if error or available is None:
@@ -1411,6 +1412,7 @@ def alpaca_account_row(
     economics_failures = []
     reservation = None
     matched_hold = False
+    operator_hold = None
     if not all(value.is_finite() for value in (
             equity_value, cash_value, buying_power_value, multiplier_value)):
         economics_failures.append("non-finite economics")
@@ -1430,7 +1432,16 @@ def alpaca_account_row(
             and abs((reservation.observed_at - observed_at).total_seconds()) <= 600
             and buying_power_value <= cash_value
             and abs((cash_value - buying_power_value) - reservation.reserved_cash) <= Decimal("1.00"))
-        if abs(buying_power_value - cash_value) > Decimal("1.00") and not matched_hold:
+        if matched_operator_reservation is not None:
+            try:
+                amount = Decimal(matched_operator_reservation)
+                if (amount.is_finite() and amount > 0 and 0 <= buying_power_value < cash_value
+                        and abs(cash_value-buying_power_value-amount) <= Decimal("1.00")):
+                    operator_hold = amount
+            except (InvalidOperation, TypeError, ValueError):
+                pass
+        if (abs(buying_power_value - cash_value) > Decimal("1.00")
+                and not matched_hold and operator_hold is None):
             economics_failures.append(
                 "buying power differs from cash by more than $1")
         if matched_hold:
@@ -1448,7 +1459,9 @@ def alpaca_account_row(
         + (f" · CONTRACT {', '.join(economics_failures)}"
            if economics_failures else " · cash-only contract valid")
         + (f" · ${reservation.reserved_cash:,.2f} reserved by {len(reservation.commands)} positively matched protected DAY orders"
-           if all(value.is_finite() for value in (cash_value, buying_power_value)) and matched_hold else ""))
+           if all(value.is_finite() for value in (cash_value, buying_power_value)) and matched_hold else "")
+        + (f" · ${operator_hold:,.2f} reserved by freshly matched native LIMIT/DAY buys (operator evidence only)"
+           if operator_hold is not None else ""))
     return Row(
         "alpaca_account", "Alpaca Account", value,
         OK if state_ok else FAIL, detail, observed_at,

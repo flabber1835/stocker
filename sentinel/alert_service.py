@@ -435,6 +435,7 @@ async def run() -> int:
     database_incident_reported = False
     last_probe_at: float | None = None
     last_fill_poll_at: float | None = None
+    last_account_poll_at: float | None = None
     registered = False
     # A predecessor may have exited after an observation it could not persist.
     # Restart preserves the incident, but begins a fresh recovery interval.
@@ -488,6 +489,23 @@ async def run() -> int:
             continue
 
         try:
+            from sentinel import local_paper
+            from sentinel.execution import account_status
+            if (local_paper.enabled() and (last_account_poll_at is None
+                    or time.monotonic() - last_account_poll_at >= account_status.POLL_SECONDS)):
+                last_account_poll_at = time.monotonic()
+                try:
+                    await account_status.collect(conn, config=config)
+                except Exception as exc:
+                    conn.rollback()
+                    # Account freshness expires normally; never replace a
+                    # failed GET with a fabricated current observation.
+                    code = type(exc).__name__
+                    outbox.enqueue(conn,
+                        idempotency_key="account-status-collection:" + code,
+                        event_type="ACCOUNT_STATUS_COLLECTION_FAILED",
+                        severity="WARN", payload={"reason": code})
+                alert_health.heartbeat(conn, dispatcher_id=dispatcher_id)
             from sentinel.execution import fill_notifications
             if (os.environ.get(fill_notifications.SINCE_ENV)
                     and (last_fill_poll_at is None
