@@ -96,9 +96,12 @@ def _availability_exit(exc: BaseException) -> int:
 
 
 def main() -> int:
+    config = None
     try:
         config = ShadowServiceConfig.from_env()
         result = advance_once(config)
+        from sentinel import shadow_dependency_notifications as notices
+        notices.report_recovery(config, result)
         print(json.dumps(result, sort_keys=True), flush=True)
         return 0
     except ShadowServiceWaiting as exc:
@@ -109,12 +112,18 @@ def main() -> int:
         return EXIT_REFUSED
     except backup_guard.BackupWriteFenced as exc:
         # BackupUnavailable and legacy generic BackupWriteFenced are transient.
+        from sentinel import shadow_dependency_notifications as notices
+        notices.report_failure(exc, config)
         print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
         return EXIT_DEPENDENCY_UNAVAILABLE
     except ShadowServiceRetry as exc:
         if _availability_failure(exc):
+            code = _availability_exit(exc)
+            if code == EXIT_DEPENDENCY_UNAVAILABLE:
+                from sentinel import shadow_dependency_notifications as notices
+                notices.report_failure(exc, config)
             print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
-            return _availability_exit(exc)
+            return code
         print(f"RETRY: {exc}", file=sys.stderr, flush=True)
         return EXIT_RETRY
     except (ShadowServiceRefused, shadow_runtime.ShadowRuntimeRefused) as exc:
@@ -123,8 +132,12 @@ def main() -> int:
     except Exception as exc:
         if not _availability_failure(exc):
             raise
+        code = _availability_exit(exc)
+        if code == EXIT_DEPENDENCY_UNAVAILABLE:
+            from sentinel import shadow_dependency_notifications as notices
+            notices.report_failure(exc, config)
         print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
-        return _availability_exit(exc)
+        return code
 
 
 if __name__ == "__main__":  # pragma: no cover

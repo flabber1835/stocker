@@ -1,5 +1,10 @@
 # Current installation boundary
 
+[Worker notification diagnostics](worker-notification-diagnostics.md) preserve
+typed original failure evidence and timestamps, distinguish source retries from
+stopped workers, and send one delivered-incident recovery after canonical
+verification without changing trading or critical-alert policy.
+
 [Plan-first PAPER dashboard](dashboard-plan-first.md) puts the saved trades,
 canonical slots and cooldowns ahead of collapsed system diagnostics while
 preserving health, freshness and push-notification behavior.

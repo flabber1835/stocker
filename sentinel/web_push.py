@@ -13,9 +13,10 @@ import secrets
 import time
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Mapping, Optional
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 import httpx
 from cryptography.hazmat.primitives import hashes, serialization
@@ -194,6 +195,66 @@ def _default_sender(
     return int(response.status_code)
 
 
+_DEPENDENCY_CAUSES = {
+    "CORPUS_LOCK_BUSY": "Market-data publication lock is busy",
+    "WRITER_LOCK_BUSY": "Strategy writer lock is busy",
+    "DATABASE_UNAVAILABLE": "Database temporarily unavailable",
+    "WORKER_BUDGET_EXHAUSTED": "Strategy update reached its worker time budget",
+    "BACKUP_WRITE_FENCED": "Backup write permission is fenced",
+}
+_DEPENDENCY_STAGES = {
+    "ACQUISITION_LOCK": "acquiring the data-update lock",
+    "SOURCE_PREFLIGHT": "checking source readiness",
+    "SOURCE_REFERENCES": "updating reference data",
+    "PRICE_ACQUISITION": "updating prices",
+    "CANDIDATE_BUILD": "building the data update",
+    "CANDIDATE_VALIDATION": "validating the data update",
+    "SOURCE_CORROBORATION": "corroborating source data",
+    "PUBLICATION": "publishing the data update",
+    "SHADOW_ADVANCE": "updating the strategy book",
+}
+_NOTICE_CLOCK_SKEW = timedelta(seconds=5)
+
+
+def _notice_time(value) -> datetime | None:
+    """Only aware, bounded original clocks may describe an incident."""
+    if not isinstance(value, str) or len(value) > 64:
+        return None
+    try:
+        instant = datetime.fromisoformat(value)
+        if instant.utcoffset() is None:
+            return None
+        instant = instant.astimezone(timezone.utc)
+        return instant if 1970 <= instant.year <= 9998 else None
+    except (OverflowError, TypeError, ValueError):
+        return None
+
+
+def _pacific_time(instant: datetime) -> str:
+    local = instant.astimezone(ZoneInfo("America/Los_Angeles"))
+    hour = local.hour % 12 or 12
+    return (f"{local:%b} {local.day}, {local.year} at {hour}:{local:%M} "
+            f"{'AM' if local.hour < 12 else 'PM'} {local:%Z} (Pacific)")
+
+
+def _recorded_notice_time(alert) -> datetime | None:
+    recorded = getattr(alert, "created_at", None)
+    if isinstance(recorded, datetime) and recorded.utcoffset() is not None:
+        return _notice_time(recorded.isoformat())
+    return None
+
+
+def _original_notice_clock(value, alert) -> str:
+    original = _notice_time(value)
+    recorded = _recorded_notice_time(alert)
+    if (original is not None and recorded is not None
+            and original <= recorded + _NOTICE_CLOCK_SKEW):
+        return _pacific_time(original)
+    if recorded is not None:
+        return "event time unavailable; notification recorded " + _pacific_time(recorded)
+    return "event time unavailable"
+
+
 def notification_payload(alert) -> dict:
     details = dict(alert.payload)
     if alert.event_type == "BROKER_FILL":
@@ -209,6 +270,38 @@ def notification_payload(alert) -> dict:
     elif alert.event_type == 'PAPER_PLAN_READY':
         title = 'Paper trades planned for ' + str(details.get('effective_session') or 'next open')
         body = str(details.get('reason') or 'Open the dashboard to review proposed trades.')[:240]
+    elif (alert.event_type == "SHADOW_DEPENDENCY_UNAVAILABLE"
+          and str(alert.severity).upper() == "WARN"):
+        title = "Strategy update retrying"
+        code = details.get("cause_code")
+        stage_code = details.get("operation_stage")
+        cause = _DEPENDENCY_CAUSES.get(code if isinstance(code, str) else None,
+            "Dependency unavailable; exact cause was not recorded")
+        stage = _DEPENDENCY_STAGES.get(stage_code if isinstance(stage_code, str) else None)
+        body = (cause + (f" while {stage}" if stage else "")
+                + "; the update will retry. "
+                + _original_notice_clock(details.get("observed_at"), alert))
+    elif (alert.event_type == "SHADOW_DEPENDENCY_RECOVERED"
+          and str(alert.severity).upper() == "INFO"):
+        title = "Strategy update verified"
+        warning = _notice_time(details.get("warning_observed_at"))
+        recovered = _notice_time(details.get("recovered_at"))
+        recorded = _recorded_notice_time(alert)
+        ordered = (warning is not None and recovered is not None and recorded is not None
+                   and warning <= recovered <= recorded + _NOTICE_CLOCK_SKEW)
+        warning_time = (_pacific_time(warning) if ordered
+                        else "original warning time unavailable")
+        body = ("Dependency warning: " + warning_time + ". Update verified: "
+                + (_pacific_time(recovered) if ordered else _original_notice_clock(None, alert))
+                + ". See dashboard for trading-plan status.")
+    elif (alert.event_type == "AUTOMATION_RETRY_SCHEDULED"
+          and str(alert.severity).upper() == "WARN"
+          and details.get("reason") == "SourceDataPending"
+          and isinstance(details.get("detail"), Mapping)
+          and details["detail"].get("retry_phase") == "REFRESH"):
+        title = "Closing data not ready"
+        body = ("The next trading plan is waiting for closing data; preparation will retry. "
+                + _original_notice_clock(details["detail"].get("first_failure_at"), alert))
     else:
         critical = str(alert.severity).upper() == "CRITICAL"
         title = (
@@ -246,6 +339,9 @@ class WebPushAlertAdapter:
         self._sender = sender or _default_sender
 
     def _initialize_fanout(self, alert) -> tuple[int, bool]:
+        if (alert.event_type == "SHADOW_DEPENDENCY_RECOVERED"
+                and str(alert.severity).upper() == "INFO"):
+            return self._initialize_recovery_fanout(alert)
         target = (
             str(alert.payload.get("subscription_id") or "")
             if alert.event_type == "PUSH_ENROLLMENT_TEST" else "")
@@ -298,6 +394,73 @@ class WebPushAlertAdapter:
                 raise
         if row is None:
             raise RuntimeError("Web Push notification policy singleton is absent")
+        return int(row[0]), bool(row[1])
+
+    def _initialize_recovery_fanout(self, alert) -> tuple[int, bool]:
+        """Only devices with a delivered warning may receive its recovery."""
+        warning_id = alert.payload.get("warning_alert_id")
+        if (not isinstance(warning_id, str)
+                or re.fullmatch(r"[0-9a-f]{64}", warning_id) is None):
+            raise WebPushDeliveryFailure(
+                "dependency recovery warning identity is malformed", retryable=False)
+        with closing(self._connection_factory()) as conn:
+            try:
+                with conn.cursor() as cur:
+                    push_recipients.lock(cur)
+                    cur.execute(
+                        "SELECT recipient_count,delivery_required"
+                        " FROM sentinel_web_push_fanouts WHERE alert_id=%s",
+                        (alert.alert_id,))
+                    row = cur.fetchone()
+                    if row is None:
+                        cur.execute(
+                            "SELECT created_at FROM sentinel_alert_outbox"
+                            " WHERE alert_id=%s"
+                            " AND event_type='SHADOW_DEPENDENCY_UNAVAILABLE'"
+                            " AND severity='WARN' AND state='DELIVERED'"
+                            " AND created_at<=%s", (warning_id, alert.created_at))
+                        warning = cur.fetchone()
+                        if warning is None:
+                            raise WebPushDeliveryFailure(
+                                "dependency recovery has no delivered warning", retryable=False)
+                        cur.execute(
+                            "SELECT subscription_id FROM sentinel_web_push_deliveries"
+                            " WHERE alert_id=%s AND state='DELIVERED'"
+                            " AND delivered_at<=%s ORDER BY subscription_id",
+                            (warning_id, alert.created_at))
+                        warned = list(cur.fetchall())
+                        recipients = set()
+                        for (sub_id,) in warned:
+                            recipient = push_recipients.resolve(
+                                cur, sub_id, created_at=warning[0])
+                            if recipient is not None and recipient.retired_at is None:
+                                recipients.add(recipient.subscription_id)
+                        cur.execute(
+                            "SELECT %s>=web_push_activated_at"
+                            " FROM sentinel_notification_policy WHERE id=1",
+                            (alert.created_at,))
+                        policy = cur.fetchone()
+                        if policy is None:
+                            raise RuntimeError("Web Push notification policy singleton is absent")
+                        required = bool(policy[0])
+                        captured = sorted(recipients) if required else []
+                        cur.execute(
+                            "INSERT INTO sentinel_web_push_fanouts"
+                            " (alert_id,recipient_count,delivery_required) VALUES (%s,%s,%s)",
+                            (alert.alert_id, len(captured), required))
+                        if captured:
+                            cur.execute(
+                                "INSERT INTO sentinel_web_push_deliveries"
+                                " (alert_id,subscription_id,state)"
+                                " SELECT %s,subscription_id,'PENDING'"
+                                " FROM sentinel_web_push_subscriptions"
+                                " WHERE subscription_id=ANY(%s) ORDER BY subscription_id",
+                                (alert.alert_id, captured))
+                        row = len(captured), required
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
         return int(row[0]), bool(row[1])
 
     def _recipients(self, alert_id: str) -> list[tuple]:
@@ -389,7 +552,8 @@ class WebPushAlertAdapter:
             self._record(**kwargs, claim=alert if claimed else None, claim_seconds=claim_seconds,
                          created_at=alert.created_at, recipient=recipient)
         if (str(alert.severity).upper() == "INFO"
-                and alert.event_type not in {"PUSH_ENROLLMENT_TEST", "PAPER_PLAN_READY"}):
+                and alert.event_type not in {"PUSH_ENROLLMENT_TEST", "PAPER_PLAN_READY",
+                                             "SHADOW_DEPENDENCY_RECOVERED"}):
             # Webhook-era informational rows may still exist in the durable
             # outbox. Consume them successfully without initializing fan-out:
             # quiet green must not become either a push or a dead letter.

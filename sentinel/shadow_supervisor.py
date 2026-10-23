@@ -121,6 +121,10 @@ def _write_alert(idempotency_key, event_type, severity, payload) -> None:
         raise RuntimeError("database URL is absent")
     conn = feed_store.connect(database_url, connect_timeout=1, statement_timeout_ms=750)
     try:
+        if event_type == 'SHADOW_DEPENDENCY_UNAVAILABLE':
+            from sentinel import shadow_dependency_notifications as notices
+            notices.enqueue_warning(conn, payload)
+            return
         outbox.enqueue(
             conn, idempotency_key=idempotency_key,
             event_type=event_type, severity=severity, payload=payload,
@@ -188,15 +192,14 @@ def _semantic_retry_alert(*, now: datetime | None = None) -> None:
 
 def _dependency_retry_alert(*, now: datetime | None = None) -> None:
     """A dependency deferral is not proof that a decision missed its open."""
-    instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     try:
-        target = calendar.latest_closed_session(instant)
+        from sentinel import shadow_dependency_notifications as notices
+        payload = notices.fallback_warning(now=now)
+        target = payload['decision_session']
         _enqueue_alert(
             idempotency_key=f'shadow-dependency:{target}:unavailable',
             event_type='SHADOW_DEPENDENCY_UNAVAILABLE', severity='WARN',
-            payload={'decision_session': target, 'state': 'DEPENDENCY_RETRY_PENDING',
-                     'detail': 'A local lock, database, backup or worker budget is unavailable; '
-                               'the supervised worker will retry. See current portfolio evidence.'})
+            payload=payload)
     except Exception as exc:
         supervisor_io.report('WARNING: shadow dependency notification unavailable: '
                              + type(exc).__name__, file=sys.stderr)

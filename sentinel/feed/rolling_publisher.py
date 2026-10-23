@@ -203,15 +203,18 @@ def _prepare(conn, job_id, *, operational):
     producer = identity.require_feed_producer_identity()
     lease = jobs.claim(conn, job_id, lease_seconds=600)
     conn.commit()
+    operation_stage = 'SHADOW_ADVANCE'
     try:
         current = jobs.status(conn, job_id)
         request = jobs.PreparationRequest.model_validate(current["request"])
         ready = current["state"] == "READY"
         if current["state"] not in {"ACQUIRING", "READY"}:
             raise ComparisonRefused("unexpected persisted direct-builder stage")
+        operation_stage = 'ACQUISITION_LOCK'
         with store.acquisition_write_lock(conn):
             boundary.freeze(conn, lease, request)
             conn.commit()
+        operation_stage = 'SOURCE_PREFLIGHT'
         corrections = None
         if ready:
             manifest = rolling_store.manifest(conn, str(current["candidate_id"]))
@@ -238,14 +241,18 @@ def _prepare(conn, job_id, *, operational):
 
         # A callback slice cannot outlive its worker lease. All retries retain
         # the server-owned absolute deadline; budget() also caps nested HTTP work.
+        operation_stage = 'SOURCE_PREFLIGHT'
         with source.parts.unit():
             source.preflight()
             pulse()
         if not ready and isinstance(source, RetainedSource):
             from sentinel.feed import source_wait
             source_wait.check(conn, lease, request, source)
+        operation_stage = 'SOURCE_REFERENCES'
         source.references(checkpoint)
+        operation_stage = 'PRICE_ACQUISITION'
         source.acquire_prices(checkpoint, pulse)
+        operation_stage = 'CANDIDATE_BUILD'
         if ready and getattr(source, "provider", None) == "ALPACA_OPENFIGI":
             source.tickers = rolling_store.load_evidence(conn, manifest.reference_sha256)["tickers"]
         with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):
@@ -264,6 +271,7 @@ def _prepare(conn, job_id, *, operational):
             if operational:
                 # Catch restore-horizon growth before another full assets/actions
                 # observation. A renewed READY candidate still gets both checks.
+                operation_stage = 'CANDIDATE_VALIDATION'
                 with progress.phase("rolling_operational_validation", job_id=job_id):
                     operational_snapshot.validate(conn, lease, request)
                     conn.commit()
@@ -274,18 +282,22 @@ def _prepare(conn, job_id, *, operational):
                 backup_runtime_authority.require(conn, operation="operational publication preflight")
                 conn.commit()
             rolling_work.checkpoint()
+            operation_stage = 'SOURCE_CORROBORATION'
             with acquisition_work.budget(seconds=min(500, jobs.status(conn, job_id)["remaining_seconds"])):
                 conn.commit()
                 with progress.phase('rolling_source_corroboration', job_id=job_id):
                     source.corroborate()
             rolling_work.checkpoint()
         phase = "rolling_operational_publication" if operational else "rolling_comparison_publication"
+        operation_stage = 'PUBLICATION'
         with progress.phase(phase, job_id=job_id), store.corpus_write_lock(conn):
             producer = identity.require_feed_producer_identity()
             result = boundary.publish(conn, lease, request, producer=producer)
             conn.commit()
         return result
     except BaseException as exc:
+        from sentinel import shadow_dependency_notifications as notices
+        notices.capture_stage(exc, operation_stage)
         _record_failure(conn, lease, exc, operational=operational)
         raise
     finally:
