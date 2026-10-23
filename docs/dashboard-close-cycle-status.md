@@ -144,6 +144,32 @@ or financial algorithm changes are part of this text repair.
 
 ## Verification and installation
 
+### Retained refresh screen
+
+The installed phone screenshot exposed a composed fallback bug: converting a
+required-current OK row into WARN made the normal effective-status classifier
+turn it into FAIL, inventing a Needs attention entry. The fallback must be a
+presentation layer over the original row, rather than a modified financial or
+operational verdict. Compute each row's effective status once from its original
+facts. Only its HTML styling becomes amber for a previously OK result while
+refreshing. Pending steps stay pending; original FAIL/UNKNOWN, expired evidence,
+invalid future clocks and source errors remain visible failures. Build the
+attention list from the original effective statuses, never display downgrades.
+
+Retained values and technical details remain explicitly LAST KNOWN / not current
+with original timestamps, proof lifetimes and recovery deadlines. Do not grant
+CURRENT headers, JSON/machine health or execution authority from this screen.
+Keep the existing 15-second foreground resume bound, five-second retry, offline
+and malformed-response withdrawal, single in-flight request, and original clock
+checks unchanged. Only a valid new CURRENT response restores current styling.
+
+Qualification must use realistic required-current financial, account, feed,
+authority and leader rows in the actual contended HTTP route, including a known
+failure among otherwise healthy facts. Empty/non-required rows and a mocked
+browser DOM alone cannot detect this composition. Prove that reverting the
+presentation separation reproduces the screenshot failure. This fix changes no
+trading, source acquisition, backup or recovery rules.
+
 Test the composed database-shaped cycle reader, common recovery helper, summary,
 steps, JSON and HTML across the market close and attempt counts below, at and
 above the former limit. Cover original clocks/deadlines, panel restart, fixed

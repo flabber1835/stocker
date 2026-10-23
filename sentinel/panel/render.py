@@ -296,9 +296,17 @@ PUSH_SCRIPT = r"""
 """.strip()
 
 
-def _row_html(r: Row, now: datetime) -> str:
+def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False) -> str:
     st = r.effective_status(now)
     label, value, explanation = describe(r, st)
+    # Retained HTML is presentation only. Mutating an OK required-current row
+    # to WARN would make the authority classifier invent a failure.
+    display_status = WARN if refresh_pending and st == OK else st
+    detail = r.detail
+    if refresh_pending:
+        value = 'LAST KNOWN · ' + value.removeprefix('LAST KNOWN · ')
+        explanation = 'LAST KNOWN · not current · ' + explanation
+        detail = 'LAST KNOWN · not current · ' + detail
     stale = r.is_stale(now)
     age = _ago(r.staleness(now))
     age_html = ""
@@ -307,14 +315,14 @@ def _row_html(r: Row, now: datetime) -> str:
         suffix = " · STALE" if stale else ""
         age_html = f'<div class="{cls}">{_esc(age)}{suffix}</div>'
     return (
-        f'<div class="row {st}" id="status-{_esc(r.key)}" data-key="{_esc(r.key)}" data-status="{st}">'
-        f'<div class="dot {st}">{_DOT.get(st, "?")}</div>'
+        f'<div class="row {display_status}" id="status-{_esc(r.key)}" data-key="{_esc(r.key)}" data-status="{display_status}">'
+        f'<div class="dot {display_status}">{_DOT.get(display_status, "?")}</div>'
         f'<div class="label">{_esc(label)}</div>'
         f'<div class="value">{_esc(value)}</div>'
         f'<div class="detail">{_esc(explanation)}{age_html}</div>'
         + _holdings_html(r, now) + _paper_plan_html(r, now) +
         f'<details class="technical" data-detail-key="{_esc(r.key)}"><summary>Technical details</summary>'
-        f'<div class="detail-body">{_esc(r.label)} · {_esc(r.value)}<br>{_esc(r.detail)}</div></details>'
+        f'<div class="detail-body">{_esc(r.label)} · {_esc(r.value)}<br>{_esc(detail)}</div></details>'
         f"</div>"
     )
 
@@ -577,9 +585,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     if refresh_pending:
         headline_status = FAIL if operational in {FAIL, UNKNOWN} else WARN
         operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
-        rendered_rows = [replace(row, status=WARN if row.effective_status(now) == OK else row.effective_status(now),
-            detail='LAST KNOWN · not current · ' + row.detail) for row in rendered_rows]
-    rows = "".join(_row_html(r, now) for r in rendered_rows)
+    rows = "".join(_row_html(r, now, refresh_pending=refresh_pending) for r in rendered_rows)
     reasons = []
     for row in rendered_rows:
         status = row.effective_status(now)

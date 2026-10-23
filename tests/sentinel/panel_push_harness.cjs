@@ -122,7 +122,9 @@ async function settled() { for (let i = 0; i < 32; i++) await Promise.resolve();
   }
   assert.equal(enable.textContent, subscription ? 'Send test notification' : 'Enable notifications');
   assert.equal(remove.hidden, !subscription);
-  assert(status.textContent.includes(subscription ? 'enabled' : 'off'));
+  assert.equal(status.textContent, subscription
+    ? 'This browser has a notification subscription. Send a test to check delivery.'
+    : 'Notifications are off on this device.');
   phase = 'click';
   if (scenario.startsWith('remove-')) {
     if (scenario === 'remove-absent') subscription = false;
