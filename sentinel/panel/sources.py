@@ -440,6 +440,94 @@ def _previous_buy_outcomes(conn, *, preview):
     return order_outcomes(rows)
 
 
+def _current_trading_run(conn):
+    """Current-date intent/progress, independent of future notification eligibility."""
+    with conn.cursor() as cur:
+        cur.execute("""SELECT c.cycle_id,c.state,c.execute_at,c.updated_at,c.completed_at,
+            p.plan_id,c.plan_fingerprint,p.created_at,p.decision_session,p.effective_session,
+            p.target_basket,p.broker,p.broker_account_id,
+            ((c.effective_session+1)::timestamp AT TIME ZONE 'America/New_York')
+            FROM sentinel_automation_cycles c
+            JOIN sentinel_automation_control a ON a.id=1 AND c.control_generation=a.generation
+              AND c.deployment_id=a.deployment_id AND c.broker=a.broker
+              AND c.broker_account_id=a.broker_account_id AND c.takeover_epoch=a.takeover_epoch
+              AND c.certificate_sha256=a.certificate_sha256 AND c.config_sha256=a.config_sha256
+            JOIN sentinel_account_binding b ON b.id=1 AND b.ownership_state='SENTINEL_OWNED'
+              AND b.deployment_id=c.deployment_id AND b.broker=c.broker
+              AND b.broker_account_id=c.broker_account_id AND b.takeover_epoch=c.takeover_epoch
+            JOIN sentinel_execution_plans p ON p.plan_id=c.plan_id
+              AND p.deployment_id=c.deployment_id AND p.broker=c.broker
+              AND p.broker_account_id=c.broker_account_id AND p.takeover_epoch=c.takeover_epoch
+              AND p.decision_session=c.decision_session AND p.effective_session=c.effective_session
+            WHERE NOT c.historical_state_only AND p.superseded_by IS NULL
+              AND c.effective_session=(clock_timestamp() AT TIME ZONE 'America/New_York')::date
+              AND c.state IN ('PLAN_READY','WAITING_OPEN','EXECUTING','RECONCILING',
+                              'RETRY_WAIT','SUCCEEDED','FAILED','ABANDONED','SUPERSEDED')
+            ORDER BY c.created_at DESC LIMIT 2""")
+        rows = cur.fetchall()
+    if not rows:
+        return None
+    if len(rows) != 1:
+        raise ValueError('multiple current-date trading runs')
+    plan = dict(zip(('cycle_id','state','execute_at','updated_at','completed_at','plan_id',
+        'plan_fingerprint','created_at','decision_session','effective_session','target_basket',
+        'broker','broker_account_id','valid_until'), rows[0], strict=True))
+    from sentinel.execution import journal
+    stored = journal.load_plan(conn, plan['plan_id'])
+    if (stored is None or stored.fingerprint() != plan['plan_fingerprint']
+            or stored.target_basket != {sid:Decimal(str(value))
+                                        for sid,value in plan['target_basket'].items()}):
+        raise ValueError('current trading run economic plan identity changed')
+    from sentinel import dual_plan_authority
+    authority = dual_plan_authority.load_authority(conn, plan_id=plan['plan_id'])
+    if authority is None:
+        raise ValueError('current trading run has no immutable sizing authority')
+    with conn.cursor() as cur:
+        cur.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s",
+                    ('plan-opening-intents:v1:'+plan['plan_id'],))
+        opening = cur.fetchone()
+        if opening is not None:
+            raw = _json_mapping(opening[1], label='current trading opening intents')
+            if (str(opening[0]) != str(plan['effective_session'])
+                    or raw.get('kind') != 'plan-opening-intents/v1'
+                    or raw.get('plan_id') != plan['plan_id']
+                    or raw.get('plan_fingerprint') != plan['plan_fingerprint']):
+                raise ValueError('current trading opening intent identity changed')
+            plan['opening_intents'] = raw['intents']
+        cur.execute("""SELECT c.security_id,c.symbol,c.client_key,c.broker_order_id,c.side,c.quantity,
+            c.filled_quantity,c.state,c.updated_at,c.filled_average_price,c.order_terms
+            FROM sentinel_commands c JOIN sentinel_execution_plans p ON p.plan_id=c.plan_id
+              AND c.deployment_id=p.deployment_id AND c.broker=p.broker
+              AND c.broker_account_id=p.broker_account_id AND c.takeover_epoch=p.takeover_epoch
+            WHERE c.plan_id=%s ORDER BY c.created_at,c.client_key LIMIT 101""",
+            (plan['plan_id'],))
+        commands = [dict(zip(('security_id','ticker','client_key','broker_order_id','side',
+            'quantity','filled_quantity','state','observed_at','filled_average_price','order_terms'),
+            row, strict=True)) for row in cur.fetchall()]
+    from sentinel.panel.run_progress import project_run
+    run = project_run(plan, authority, commands)
+    failed = run.state in {'FAILED','ABANDONED','SUPERSEDED'} or any(
+        item.state in {'UNKNOWN','CANCEL_PENDING'} for item in run.orders)
+    status = model.FAIL if failed else model.WARN if run.state in {
+        'EXECUTING','RECONCILING','RETRY_WAIT'} else model.OK
+    return model.Row('trading_run', 'Today’s paper trading', run.state, status,
+        detail='Saved original intent and durable command progress; post-close verification is separate.',
+        as_of=max([run.updated_at]+[item.observed_at for item in run.orders]),
+        valid_until=plan['valid_until']-timedelta(microseconds=1), trading_run=run)
+
+
+def _first_inconsistent_observation(conn, *, cycle_id):
+    with conn.cursor() as cur:
+        cur.execute("""SELECT min(o.observed_at) FROM sentinel_observations o
+            JOIN sentinel_observation_provenance p ON p.observation_seq=o.seq
+            JOIN sentinel_automation_cycles c ON c.cycle_id=%s
+              AND c.broker=p.broker AND c.broker_account_id=p.broker_account_id
+            WHERE o.completeness='INCONSISTENT' AND o.observed_at>=c.execute_at""",
+            (cycle_id,))
+        row = cur.fetchone()
+    return _utc(row[0]) if row and row[0] is not None else None
+
+
 def _state_view(snapshot, *, expected_version=3) -> dict:
     state = snapshot["state"]
     session = snapshot["session"]
@@ -2627,7 +2715,8 @@ def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     return ([row for row in rows if row.key in {'broker','paper_plan'}] if reviewed_shadow else rows), errors
 
 
-def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[model.Row], list[str]]:
+def _runtime_projection(database_url: str, *, include_book=True,
+                        now: datetime | None = None) -> tuple[list[model.Row], list[str]]:
     """Canonical state, current plan and durable broker evidence.
 
     This is a PostgreSQL projection only. In particular, the newest
@@ -2690,6 +2779,10 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
         recovery_cycle, _recovery_cycle_error = _read(
             conn, _latest_automation_cycle,
             STATEMENT_TIMEOUT_MS, default=None)
+        trading_row, trading_error = (None, None)
+        if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'dual','paper'}:
+            trading_row, trading_error = _read(
+                conn, _current_trading_run, STATEMENT_TIMEOUT_MS, default=None)
 
         state_view = None
         if state_error is None and state_snapshot is not None:
@@ -2796,6 +2889,24 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
                     valid_until=_runtime_valid_until(
                         recovery_cycle, observation["observed_at"],
                         broker_fact=True))
+                if (trading_row is not None and observation['completeness']=='INCONSISTENT'
+                        and recovery_cycle and recovery_cycle.get('observation_callback')
+                        and recovery_cycle.get('cycle_id') == trading_row.trading_run.intent.cycle_id
+                        and not uncertain):
+                    first, first_error = _read(conn,
+                        lambda c: _first_inconsistent_observation(c, cycle_id=recovery_cycle['cycle_id']),
+                        STATEMENT_TIMEOUT_MS, default=None)
+                    if first_error:
+                        raise ValueError('first moving observation is unreadable')
+                    from sentinel.panel.run_progress import moving_snapshot_recovery
+                    wait = moving_snapshot_recovery(run=trading_row.trading_run,
+                        observation=observation, callback=recovery_cycle['observation_callback'],
+                        first_inconsistent=first, now=now or datetime.now(timezone.utc),
+                        failure_code=recovery_cycle.get('failure_code'))
+                    if wait is not None:
+                        broker = replace(broker, status=model.WARN, recovery=wait,
+                            valid_until=wait.deadline,
+                            detail=broker.detail+' · Reconciling fills; broker snapshot is not yet verified')
             except Exception as exc:                         # noqa: BLE001
                 observation_error = _short(exc)
                 broker = model.broker_row(
@@ -2811,6 +2922,10 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
                 ("commands", command_error))
             if error
         ]
+        if trading_error:
+            errors.append('current trading run: '+trading_error)
+            trading_row = model.Row('trading_run','Today’s paper trading','UNAVAILABLE',
+                                    model.UNKNOWN, detail=trading_error)
         if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual','paper'}:
             return [exposure, book, terminals, broker], errors
         from sentinel import paper_plan_preview
@@ -2839,7 +2954,7 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
                 errors.append('previous paper order outcomes: '+outcome_error)
             else:
                 plan_row = replace(plan_row, order_outcomes=outcomes)
-        return [exposure, book, terminals, broker, plan_row], errors
+        return [exposure, book, terminals, broker, plan_row, *([trading_row] if trading_row else [])], errors
     except Exception as exc:                                 # noqa: BLE001
         detail = _short(exc)
         return ([

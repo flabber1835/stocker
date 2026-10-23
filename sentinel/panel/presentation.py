@@ -88,6 +88,12 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
         copy = _STEPS.get(key.removeprefix('automation_step_'))
     label, explanation = copy or (row.label, row.detail)
     value = row.value
+    if key == 'broker' and row.recovery is not None and row.recovery.phase == 'BROKER_FILL_SNAPSHOT':
+        explanation = ('Reconciling fills. The broker snapshot is temporarily inconsistent while '
+                       'known orders change positions. It is not verified; the original bounded '
+                       'observation deadline remains in force.' if status == 'warn' else
+                       'The bounded broker snapshot wait expired or is no longer current. '
+                       'The snapshot remains unverified and needs attention.')
     if key == 'exposure':
         value = _core_percentage(value)
     if key == 'backup_restore' and row.value == 'DISABLED BY OWNER':

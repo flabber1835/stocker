@@ -290,6 +290,8 @@ def panel_json() -> JSONResponse:
                  "order_outcomes": ([item.model_dump(mode='json') for item in r.order_outcomes
                                      if item.observed_at <= p.now + model.MAXIMUM_FUTURE_SKEW]
                                     if r.effective_status(p.now) == model.OK else []),
+                 "trading_run": (r.trading_run.model_dump(mode='json')
+                                 if r.can_show_trading_run(p.now) else None),
                  "valid_until": (
                      r.valid_until.isoformat() if r.valid_until else None),
                  "recovery": (

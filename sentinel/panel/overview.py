@@ -105,6 +105,9 @@ def _plan_html(panel: Panel) -> str:
     admitted = (row is not None and row.effective_status(panel.now) == OK
                 and plan is not None and plan.execute_at > panel.now)
     if not admitted:
+        current = _run_html(panel)
+        if current:
+            return current
         return ('<section class="overview-card next-plan" aria-labelledby="next-plan-title">'
                 '<div class="overview-heading"><h2 id="next-plan-title">Next trading plan</h2></div>'
                 '<p class="overview-unavailable">No current saved plan available.</p>'
@@ -139,6 +142,62 @@ def _plan_html(panel: Panel) -> str:
         '<p class="overview-note">Decision close: '+_esc(plan.decision_session)+'. Saved '
         +_esc(_clock(plan.created_at))+'. Targets are estimates based on the dated account snapshot.</p>'
         '</div></details></section>')
+
+
+def _run_html(panel: Panel) -> str:
+    row = panel.row('trading_run')
+    if row is None or not row.can_show_trading_run(panel.now):
+        return ''
+    run = row.trading_run
+    heading = ('Today’s trades · completed' if run.state == 'SUCCEEDED'
+               else 'Today’s trading plan')
+    stage = {'EXECUTING':'Trading in progress','RECONCILING':'Reconciling fills',
+             'RETRY_WAIT':'Waiting for the next check','SUCCEEDED':'Run completed',
+             'FAILED':'Run failed','ABANDONED':'Run abandoned','SUPERSEDED':'Run superseded',
+             'PLAN_READY':'Plan ready','WAITING_OPEN':'Waiting for market open'}[run.state]
+    rows = []
+    for leg in run.intent.legs:
+        if leg.action == 'HOLD':
+            continue
+        orders = [item for item in run.orders if item.security_id == leg.security_id]
+        filled = sum((item.filled_quantity for item in orders),Decimal(0))
+        submitted = sum((item.quantity for item in orders),Decimal(0))
+        value = sum((item.filled_quantity*(item.filled_average_price or Decimal(0))
+                     for item in orders),Decimal(0))
+        states = {item.state for item in orders}
+        state = ('Outcome uncertain' if 'UNKNOWN' in states else 'Cancellation pending'
+                 if 'CANCEL_PENDING' in states else 'Submission not confirmed'
+                 if 'SEND_PENDING' in states else 'Filled' if orders and states=={'FILLED'}
+                 else 'Partly filled' if filled>0 else 'Rejected' if 'REJECTED' in states
+                 else 'Ended unfilled' if states and states<={'CANCELLED','REJECTED','SUPERSEDED'}
+                 else 'Working' if states & {'ACKNOWLEDGED','PARTIALLY_FILLED'}
+                 else 'Awaiting submission' if run.state!='SUCCEEDED' else 'No order recorded')
+        amount = ('Budget $'+f'{leg.opening_dollars:,.2f}' if leg.opening_dollars is not None
+                  else _quantity(abs(leg.change_quantity))+' shares')
+        progress = (state+' · '+_quantity(filled)+'/'+_quantity(submitted)+' submitted shares filled'
+                    if orders else state)
+        if filled:
+            progress += ' · avg $'+f'{value/filled:,.2f}'
+        detail = ''.join('<p>'+_esc(item.state)+' · '+_quantity(item.filled_quantity)+'/'
+            +_quantity(item.quantity)+' shares · '+_esc(_clock(item.observed_at))
+            +'<br>'+_esc(item.order_terms['order_type'].title())
+            +(' $'+_esc(item.order_terms['limit_price']) if item.order_terms['limit_price'] is not None else '')
+            +' · '+_esc(item.order_terms['time_in_force'].upper())
+            +'<br>Client order: '+_esc(item.client_key)+'<br>Broker order: '
+            +_esc(item.broker_order_id or 'Not confirmed')+'</p>' for item in orders)
+        rows.append('<li class="plan-leg '+leg.action.lower()+'"><div class="plan-leg-main">'
+            '<strong class="plan-ticker">'+_esc(leg.ticker)+'</strong><span class="plan-action">'
+            +_esc(leg.action.title())+'</span><strong class="plan-quantity">'+_esc(amount)
+            +'</strong></div><p class="run-progress">'+_esc(progress)+'</p>'
+            +('<details class="overview-inline-details" data-detail-key="run-'+_esc(leg.security_id)
+              +'"><summary>Order details</summary><div class="detail-body">'+detail+'</div></details>' if orders else '')+'</li>')
+    return ('<section class="overview-card current-trades" aria-labelledby="current-trades-title">'
+        '<div class="overview-heading"><h2 id="current-trades-title">'+_esc(heading)+'</h2>'
+        '<span class="overview-tag">PAPER</span></div><div class="plan-schedule"><strong>'
+        +_esc(run.intent.effective_session.strftime('%A, %b %d'))+'</strong><span>'+_esc(stage)
+        +'</span></div><ul class="plan-legs">'+(''.join(rows) or '<li>No share changes in this plan.</li>')
+        +'</ul><p class="overview-note">Original saved plan; progress comes from recorded orders. '
+        'Post-close account verification is separate.</p>'+_stamp(row.as_of,label='Progress recorded:')+'</section>')
 
 
 def _account_html(panel: Panel) -> str:
@@ -227,7 +286,12 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
     css = 'overview retained-overview' if refresh_pending else 'overview'
     return ('<main class="'+css+'" aria-label="Trading overview">'
             '<p class="overview-withdrawn">Last known overview · status is not current.</p>'
-            +retained+_plan_html(panel)+_account_html(panel)+_slots_html(panel)+'</main>')
+            +retained+_plan_html(panel)
+            +(_run_html(panel) if panel.row('paper_plan') is not None
+              and panel.row('paper_plan').paper_plan is not None
+              and panel.row('paper_plan').effective_status(panel.now)==OK
+              and panel.row('paper_plan').paper_plan.execute_at>panel.now else '')
+            +_account_html(panel)+_slots_html(panel)+'</main>')
 
 
 OVERVIEW_CSS = '''
@@ -269,6 +333,9 @@ h1{font-family:Georgia,serif;font-size:clamp(16px,4.9vw,25px);letter-spacing:.11
 .plan-outcome{border-left:2px solid #bb904d;background:#3b2d29;padding:9px 10px;margin-top:11px;
  color:#f1cc8d;font-size:12px;line-height:1.5}.no-plan-changes{color:var(--muted);font-size:14px;padding:10px 0}
 .overview-note,.overview-evidence{font-size:11px;line-height:1.6;color:var(--muted);margin:9px 0 0;overflow-wrap:anywhere}
+.run-progress{font-size:12px;line-height:1.6;color:#e7d7b9;margin:8px 0}
+.not-current .run-progress{color:var(--fail)}
+.refreshing-status .run-progress,.retained-overview .run-progress{color:var(--warn)}
 .overview-evidence{font-size:10px}.overview-inline-details{background:none;border:0;border-radius:0;box-shadow:none;margin:4px 0 0}
 .overview-inline-details summary{padding:0;font-size:10px;font-weight:400;text-decoration:underline;color:inherit}
 .overview-inline-details .detail-body{padding:7px 0 0;color:var(--muted);font-size:10px;overflow-wrap:anywhere}

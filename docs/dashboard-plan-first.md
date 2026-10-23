@@ -57,3 +57,40 @@ checks. Inspect the actual mobile page before delivery. Install the exact tested
 local image through the existing quiescent future-plan application handoff;
 preserve the plan, generation, book, database, journal and order terms. No backups,
 archives, restore work, PostgreSQL restart or backtest activity is authorized.
+
+## Current trading run and moving broker snapshots
+
+The October 23 opening exposed two missing composed states. Keep the existing
+future-only PlanPreview reader and notification eligibility unchanged. Add a
+separate SELECT-only display of the bound current generation's latest effective
+trading session, with the immutable preparation account snapshot as the intent
+baseline. Show that dated plan before, during and after its run, including
+per-command submitted quantities, confirmed cumulative fills, average price,
+order terms and original progress timestamps. Never recompute an original trade
+delta from holdings already changed by its fills. Show pending/working, partial,
+filled, cancelled, rejected and uncertain outcomes explicitly. A SUCCEEDED cycle
+does not fabricate fills or complete pending post-close financial verification.
+Hide expired current-session evidence from subsequent trading dates; a new future
+plan can lead while today's completed run remains available below it.
+
+An INCONSISTENT broker snapshot remains unverified. It may be shown as amber
+"Reconciling fills" only during an original, live, account/control/fence-bound
+execution callback, with no uncertain or cancellation-pending commands, exact
+current-plan working-order identities/terms, and positions inside the bounds
+explained by that plan's owned commands from its recorded baseline. Unexpected
+orders, unexplained positions, identity/term drift, missing evidence, foreign
+activity and UNKNOWN outcomes remain red. The display wait expires at the
+earlier of the callback's original deadline and 120 seconds after the cycle's
+first retained inconsistent observation. Browser refreshes cannot renew either
+clock. A clean complete observation exits this wait normally. This changes
+display classification only; execution completeness and reconciliation guards
+remain unchanged. Use the same evidence in HTML and panel JSON.
+
+Qualify the composed pre-open -> executing -> partial/moving observation ->
+reconciling -> succeeded display sequence, including the retained October 23
+snapshot, plus negative controls and removal falsifiers for every new admission
+gate. Keep notification and browser-negative-authority regressions. A local
+application handoff may also use an already SUCCEEDED current-session run after
+proving zero in-flight/unknown commands, no working native orders, identical
+control, book, plan, journal, fills, policy, source and push-subscription state.
+PostgreSQL and backup services remain untouched.

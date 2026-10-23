@@ -605,6 +605,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
                         .get(headline_status, 'Status unavailable'))
     if refresh_pending:
         compact_headline = 'Refreshing status · last known values'
+    elif headline_status == WARN:
+        broker = panel.row('broker')
+        if (broker is not None and broker.effective_status(now)==WARN
+                and broker.recovery is not None and broker.recovery.phase=='BROKER_FILL_SNAPSHOT'):
+            compact_headline = 'Reconciling fills'
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">

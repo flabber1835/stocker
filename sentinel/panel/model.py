@@ -31,6 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 from typing import TYPE_CHECKING, Literal, Mapping, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sentinel.paper_plan_preview import PlanPreview
@@ -140,6 +141,50 @@ class PaperOrderOutcome(BaseModel):
             raise ValueError('filled order quantity is incomplete')
         if self.state == 'PARTIALLY_FILLED' and not 0 < self.filled_quantity < self.quantity:
             raise ValueError('partial order lacks a partial fill')
+        return self
+
+
+class RunOrder(PaperOrderOutcome):
+    broker_order_id: str | None = Field(default=None, min_length=1, max_length=100)
+    filled_average_price: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
+    order_terms: dict
+    _price_bound = field_validator('filled_average_price')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def coherent_terms(self):
+        from sentinel.execution.contract import OrderTerms
+        if OrderTerms.from_dict(self.order_terms).to_dict() != self.order_terms:
+            raise ValueError('recorded order terms are not canonical')
+        if self.filled_quantity > 0 and self.filled_average_price is None:
+            raise ValueError('confirmed fills lack an average price')
+        if self.state in {'ACKNOWLEDGED','PARTIALLY_FILLED','FILLED'} and not self.broker_order_id:
+            raise ValueError('confirmed order progress lacks a native order identity')
+        return self
+
+
+class TradingRun(BaseModel):
+    """Dated intent and durable execution progress, never permission to trade."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    intent: PlanPreview
+    state: Literal['PLAN_READY', 'WAITING_OPEN', 'EXECUTING', 'RECONCILING',
+                   'RETRY_WAIT', 'SUCCEEDED', 'FAILED', 'ABANDONED', 'SUPERSEDED']
+    updated_at: datetime
+    completed_at: datetime | None = None
+    orders: list[RunOrder] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode='after')
+    def coherent_progress(self):
+        if any(value is not None and value.utcoffset() is None
+               for value in (self.updated_at, self.completed_at)):
+            raise ValueError('trading progress has no timezone')
+        if len({order.client_key for order in self.orders}) != len(self.orders):
+            raise ValueError('duplicate current-run command')
+        if self.state=='SUCCEEDED' and (self.completed_at is None
+                or self.completed_at < self.intent.execute_at):
+            raise ValueError('successful trading run lacks its dated completion')
+        if not {order.security_id for order in self.orders} <= {
+                leg.security_id for leg in self.intent.legs}:
+            raise ValueError('current-run command has no saved intent')
         return self
 
 
@@ -257,6 +302,7 @@ class Row:
     paper_plan: Optional[PlanPreview] = None
     paper_account: Optional[PaperAccountOverview] = None
     order_outcomes: list[PaperOrderOutcome] = field(default_factory=list)
+    trading_run: Optional[TradingRun] = None
 
     def staleness(self, now: datetime) -> Optional[timedelta]:
         return None if self.as_of is None else now - self.as_of
@@ -288,6 +334,17 @@ class Row:
                 and self.recovery is not None
                 and self.recovery.phase == 'SOURCE_FRONTIER'
                 and self.recovery.active(now)))
+
+    def can_show_trading_run(self, now: datetime) -> bool:
+        return (self.trading_run is not None and not self.is_future(now)
+                and not self.is_stale(now)
+                and self.trading_run.intent.effective_session ==
+                    now.astimezone(ZoneInfo('America/New_York')).date()
+                and all(value is None or value <= now+MAXIMUM_FUTURE_SKEW for value in (
+                    self.trading_run.updated_at,self.trading_run.completed_at,
+                    self.trading_run.intent.created_at,self.trading_run.intent.observation_at))
+                and all(item.observed_at <= now+MAXIMUM_FUTURE_SKEW
+                        for item in self.trading_run.orders))
 
 
 @dataclass(frozen=True)
