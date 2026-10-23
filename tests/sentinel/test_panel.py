@@ -651,8 +651,15 @@ class TestRuntimeRowsAreDurableFacts:
             "version": 3,
             "last_processed_session": "2026-08-12",
             "wealth_core": {
-                "slots": {"0": {}, "1": {}},
-                "episodes": {"0": {"security_id": "SEC-A", "ticker": "AAA", "current_shares": "10"}},
+                "slots": {
+                    "0": {"slot_id": 0, "occupied_by": "SEC-A", "reserved_for": None,
+                          "cooldown_sessions_elapsed": None},
+                    "1": {"slot_id": 1, "occupied_by": None, "reserved_for": None,
+                          "cooldown_sessions_elapsed": None},
+                },
+                "episodes": {"0": {"slot_id": 0, "security_id": "SEC-A", "ticker": "AAA",
+                                    "current_shares": "10", "exit_pending": False,
+                                    "exit_reason": None}},
                 "cash": "350",
                 "unresolved_terminals": {},
                 "terminal_pending_terms": {},

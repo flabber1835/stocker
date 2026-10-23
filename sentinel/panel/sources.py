@@ -410,6 +410,36 @@ def _active_commands(conn):
     return {"counts": counts, "updated_at": updated_at}
 
 
+def _previous_buy_outcomes(conn, *, preview):
+    """Latest submitted BUY per proposed BUY, with exact bound lineage.
+
+    CANCELLED does not preserve Alpaca's expired/cancelled distinction. Render
+    zero filled shares as ended unfilled, without inventing a native reason.
+    """
+    identities = [leg.security_id for leg in preview.legs if leg.action == 'BUY']
+    if not identities:
+        return []
+    with conn.cursor() as cur:
+        cur.execute("""SELECT DISTINCT ON (c.security_id)
+            c.security_id,c.symbol,c.client_key,c.broker_order_id,c.side,
+            c.quantity,c.filled_quantity,c.state,c.updated_at
+            FROM sentinel_commands c
+            JOIN sentinel_account_binding b ON b.id=1
+              AND b.ownership_state='SENTINEL_OWNED'
+              AND c.deployment_id=b.deployment_id AND c.broker=b.broker
+              AND c.broker_account_id=b.broker_account_id AND c.takeover_epoch=b.takeover_epoch
+            JOIN sentinel_execution_plans p ON p.plan_id=c.plan_id
+              AND p.deployment_id=c.deployment_id AND p.broker=c.broker
+              AND p.broker_account_id=c.broker_account_id AND p.takeover_epoch=c.takeover_epoch
+            WHERE c.security_id=ANY(%s) AND c.side='BUY' AND c.broker_order_id IS NOT NULL
+              AND c.created_at<%s AND p.effective_session<%s
+            ORDER BY c.security_id,c.created_at DESC,c.updated_at DESC,c.client_key DESC
+            LIMIT 100""", (identities, preview.created_at, preview.effective_session))
+        rows = cur.fetchall()
+    from sentinel.panel.overview_data import order_outcomes
+    return order_outcomes(rows)
+
+
 def _state_view(snapshot, *, expected_version=3) -> dict:
     state = snapshot["state"]
     session = snapshot["session"]
@@ -1420,6 +1450,10 @@ def _operator_evidence_rows(
                 matched_protected_reservation=reservation,
                 matched_operator_reservation=(operator_reservation or {}).get("reserved_cash"),
                 **(account or {})))
+        if account_row.status == model.OK:
+            from sentinel.panel.overview_data import account_overview
+            account_row = replace(account_row, paper_account=account_overview(
+                account, expected_account_id=bound))
 
         backup_error = base_error or restore_error or runtime_backup_error or maintenance_error
         backup_row = model.backup_restore_row(
@@ -2148,9 +2182,11 @@ def _shadow_holdings(state, session, nav):
     for item in holdings.values():
         value = item['quantity'] * item['raw_close'] if item['raw_close'] is not None else None
         item.update(value=value, weight=value/nav if value is not None else None)
+    from sentinel.panel.overview_data import shadow_slots
     return model.ShadowBook(session=session, cash=state['wealth_core']['cash'],
         receivables=receivables, nav=nav, pending_operations=len(state['pending']),
-        holdings=[holdings[key] for key in sorted(holdings)])
+        holdings=[holdings[key] for key in sorted(holdings)],
+        slots=shadow_slots(state['wealth_core']))
 
 
 def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
@@ -2794,6 +2830,15 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
                        'Fresh account, funding, corporate-action and execution checks can restrict saved targets. '
                        'No orders are submitted by this view.',
                 as_of=preview.created_at,valid_until=preview.execute_at,paper_plan=preview)
+            outcomes, outcome_error = _read(conn,
+                lambda c: _previous_buy_outcomes(c, preview=preview),
+                STATEMENT_TIMEOUT_MS, default=[])
+            if outcome_error:
+                # A supplementary projection cannot replace the saved plan;
+                # unreadable outcome provenance remains visible to operators.
+                errors.append('previous paper order outcomes: '+outcome_error)
+            else:
+                plan_row = replace(plan_row, order_outcomes=outcomes)
         return [exposure, book, terminals, broker, plan_row], errors
     except Exception as exc:                                 # noqa: BLE001
         detail = _short(exc)

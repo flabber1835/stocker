@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Plan-first PAPER dashboard](dashboard-plan-first.md) puts the saved trades,
+canonical slots and cooldowns ahead of collapsed system diagnostics while
+preserving health, freshness and push-notification behavior.
+
 [Dashboard close-cycle status](dashboard-close-cycle-status.md) distinguishes
 typed source waits from failures, preserves dated authenticated historical
 holdings and fixes composed retry/readiness presentation without trading changes.

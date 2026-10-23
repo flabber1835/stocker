@@ -23,7 +23,7 @@ def test_clear_descriptions_preserve_failed_values_and_precise_reason(status):
     assert '2026-10-01' in html
 
 
-def test_decoration_is_inert_and_stale_portfolio_is_never_presented_as_current():
+def test_compact_page_and_stale_portfolio_is_never_presented_as_current():
     row = model.Row('shadow_nav', 'Certified shadow NAV', '$53,000.00', model.OK,
                     'original financial evidence', NOW-timedelta(hours=1),
                     freshness=timedelta(minutes=1), required_current=True)
@@ -33,7 +33,8 @@ def test_decoration_is_inert_and_stale_portfolio_is_never_presented_as_current()
     assert 'data-key="shadow_nav" data-status="fail"' in html
     assert 'Attention needed' in html and 'STALE' in html
     assert 'This result is unverified' in html
-    assert 'casino-stage" aria-hidden="true"' in html
+    assert '<div class="casino-stage"' not in html
+    assert 'id="system-details" data-detail-key="system-details"' in html
     assert 'prefers-reduced-motion:reduce' in html
     assert 'animation:none!important' in html
     assert 'Disable notifications' in html

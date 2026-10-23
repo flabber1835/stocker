@@ -111,6 +111,9 @@ def test_raw_saved_plan_counts_and_final_checks_are_policy_neutral(monkeypatch, 
         effective_session=date(2026, 10, 23), execute_at=EXECUTE, created_at=NOW,
         observation_at=NOW, legs=legs)
     monkeypatch.setattr(paper_plan_preview, 'read', lambda *_: preview)
+    # This copy-only fixture has no submitted broker orders. Exact prior-order
+    # provenance is covered by the dedicated overview-data source tests.
+    monkeypatch.setattr(sources, '_previous_buy_outcomes', lambda *a, **kw: [])
     rows, errors = sources._runtime_rows('fixture')
     row = next(row for row in rows if row.key == 'paper_plan')
     assert not errors and row.status == model.OK

@@ -57,6 +57,92 @@ class ShadowHolding(BaseModel):
     _number_bound = field_validator('quantity', 'raw_close', 'value', 'weight')(_bounded_display_decimal)
 
 
+class ShadowSlot(BaseModel):
+    """One canonical model slot; these quantities are never broker positions."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    slot_id: int = Field(ge=0, le=99, strict=True)
+    state: Literal['OCCUPIED', 'COOLING', 'RESERVED', 'READY']
+    security_id: str | None = Field(default=None, min_length=1, max_length=100)
+    ticker: str | None = Field(default=None, min_length=1, max_length=40)
+    model_quantity: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
+    cooldown_elapsed: int | None = Field(default=None, ge=0, strict=True)
+    cooldown_remaining: int | None = Field(default=None, ge=0, strict=True)
+    cooldown_total: int = Field(gt=0, le=1000, strict=True)
+    exit_pending: bool = False
+    exit_reason: str | None = Field(default=None, min_length=1, max_length=100)
+    _number_bound = field_validator('model_quantity')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def coherent_slot(self):
+        if self.state == 'COOLING':
+            if (self.cooldown_elapsed is None or self.cooldown_remaining is None
+                    or self.cooldown_elapsed >= self.cooldown_total
+                    or self.cooldown_remaining != self.cooldown_total-self.cooldown_elapsed):
+                raise ValueError('slot cooldown arithmetic is inconsistent')
+        elif self.cooldown_elapsed is not None or self.cooldown_remaining is not None:
+            raise ValueError('non-cooling slot carries cooldown counters')
+        if self.state in {'OCCUPIED', 'RESERVED'}:
+            if self.security_id is None or self.ticker is None:
+                raise ValueError('owned or reserved slot lacks its identity')
+        elif self.security_id is not None or self.ticker is not None:
+            raise ValueError('empty slot carries a holding identity')
+        if (self.state == 'OCCUPIED') != (self.model_quantity is not None):
+            raise ValueError('slot quantity and ownership disagree')
+        if self.exit_pending and self.state != 'OCCUPIED':
+            raise ValueError('empty slot cannot have a pending exit')
+        if self.exit_reason is not None and not self.exit_pending:
+            raise ValueError('slot exit reason has no pending exit')
+        return self
+
+
+class PaperAccountOverview(BaseModel):
+    """Recorded native paper balance, with its producer's original clock."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    account_id: str = Field(min_length=1, max_length=100)
+    equity: Decimal = Field(gt=0, allow_inf_nan=False)
+    cash: Decimal = Field(ge=0, allow_inf_nan=False)
+    buying_power: Decimal = Field(ge=0, allow_inf_nan=False)
+    observed_at: datetime
+    _number_bound = field_validator('equity', 'cash', 'buying_power')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def coherent_account(self):
+        if self.observed_at.utcoffset() is None:
+            raise ValueError('account observation has no timezone')
+        if self.cash > self.equity:
+            raise ValueError('cash exceeds long-only account equity')
+        return self
+
+
+class PaperOrderOutcome(BaseModel):
+    """Exact account-bound command fact, without inventing a native reason."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    security_id: str = Field(min_length=1, max_length=100)
+    ticker: str = Field(min_length=1, max_length=40)
+    client_key: str = Field(min_length=1, max_length=100)
+    broker_order_id: str = Field(min_length=1, max_length=100)
+    side: Literal['BUY', 'SELL']
+    quantity: Decimal = Field(gt=0, allow_inf_nan=False)
+    filled_quantity: Decimal = Field(ge=0, allow_inf_nan=False)
+    state: Literal['PLANNED', 'SEND_PENDING', 'ACKNOWLEDGED', 'UNKNOWN',
+                   'PARTIALLY_FILLED', 'FILLED', 'CANCEL_PENDING', 'CANCELLED',
+                   'REJECTED', 'SUPERSEDED']
+    observed_at: datetime
+    _number_bound = field_validator('quantity', 'filled_quantity')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def coherent_order(self):
+        if self.observed_at.utcoffset() is None:
+            raise ValueError('order evidence has no timezone')
+        if self.filled_quantity > self.quantity:
+            raise ValueError('order overfilled its quantity')
+        if self.state == 'FILLED' and self.filled_quantity != self.quantity:
+            raise ValueError('filled order quantity is incomplete')
+        if self.state == 'PARTIALLY_FILLED' and not 0 < self.filled_quantity < self.quantity:
+            raise ValueError('partial order lacks a partial fill')
+        return self
+
+
 class ShadowBook(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True)
     session: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
@@ -65,10 +151,13 @@ class ShadowBook(BaseModel):
     nav: Decimal = Field(gt=0, allow_inf_nan=False)
     pending_operations: int = Field(ge=0, le=10000)
     holdings: list[ShadowHolding] = Field(max_length=100)
+    slots: list[ShadowSlot] = Field(default_factory=list, max_length=100)
     _number_bound = field_validator('cash', 'receivables', 'nav')(_bounded_display_decimal)
 
     @model_validator(mode='after')
     def coherent_values(self):
+        if self.slots and sorted(item.slot_id for item in self.slots) != list(range(len(self.slots))):
+            raise ValueError('canonical slot identities are missing or duplicated')
         identities = [item.security_id for item in self.holdings]
         if len(identities) != len(set(identities)):
             raise ValueError('duplicate canonical holding')
@@ -166,6 +255,8 @@ class Row:
     valid_until: Optional[datetime] = None
     shadow_book: Optional[ShadowBook] = None
     paper_plan: Optional[PlanPreview] = None
+    paper_account: Optional[PaperAccountOverview] = None
+    order_outcomes: list[PaperOrderOutcome] = field(default_factory=list)
 
     def staleness(self, now: datetime) -> Optional[timedelta]:
         return None if self.as_of is None else now - self.as_of

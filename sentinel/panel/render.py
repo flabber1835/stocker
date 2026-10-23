@@ -22,7 +22,8 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.presentation import describe, CASINO_STAGE, CASINO_ACCENT, CASINO_CSS
+from sentinel.panel.presentation import describe, CASINO_CSS
+from sentinel.panel.overview import OVERVIEW_CSS, overview_html
 
 from sentinel.panel.model import (
     FAIL, OK, PENDING, TRIAL_ROW_KEYS, UNKNOWN, WARN, Panel, Row)
@@ -586,18 +587,24 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         headline_status = FAIL if operational in {FAIL, UNKNOWN} else WARN
         operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
     rows = "".join(_row_html(r, now, refresh_pending=refresh_pending) for r in rendered_rows)
+    overview = overview_html(panel, refresh_pending=refresh_pending)
     reasons = []
     for row in rendered_rows:
         status = row.effective_status(now)
         if status in {FAIL, UNKNOWN}:
             label, value, _ = describe(row, status)
-            reasons.append(f'<li><a href="#status-{_esc(row.key)}">'
+            reasons.append(f'<li><a href="#status-{_esc(row.key)}" '
+                           'onclick="document.getElementById(\'system-details\').open=true">'
                            f'{_esc(label)}: {_esc(value)}</a></li>')
     reason_html = ('<section class="status-reasons" aria-label="Checks needing attention">'
                    '<strong>Needs attention</strong><ul>'+''.join(reasons)+'</ul></section>'
                    if reasons else '')
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
+    compact_headline = ({OK: 'System ready', WARN: 'System waiting', FAIL: 'Needs attention'}
+                        .get(headline_status, 'Status unavailable'))
+    if refresh_pending:
+        compact_headline = 'Refreshing status · last known values'
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -611,28 +618,29 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/caesars-palace-180.png">
 <title>{_esc(page_name)}</title>
-<style>{CSS}{CASINO_CSS}</style>
+<style>{CSS}{CASINO_CSS}{OVERVIEW_CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
              data-max-age-seconds="{document_age}">
-{CASINO_STAGE}
 <div class="wrap">
 <header>
   <div class="brand"><img src="/static/caesars-palace-192.png" alt="">
     <h1>{_esc(page_heading)}</h1></div>
-  <span id="operational-state" class="state {headline_status}">{_esc(operational_headline)}</span>
+  <p class="brand-subtitle">Sentinel · PAPER</p>
+  <span id="operational-state" class="state {headline_status}" title="{_esc(operational_headline)}">{_esc(compact_headline)}</span>
   {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
         aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO'}</span>
-  {CASINO_ACCENT}
 </header>
+{errs}
+<div id="portfolio-overview">{overview}</div>
+<details id="system-details" data-detail-key="system-details"><summary>System details</summary><div class="detail-body system-detail-body">
 <details class="mode-guide" data-detail-key="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
   <p><strong>Your strategy, at a glance.</strong> Wealth Core records the unscaled stock-selection book. The controller’s simulated strategy value combines its Core allocation, Treasury-bill sleeve and transaction costs. The Alpaca paper account has its own recorded holdings and value.</p>
   <p>Alpaca supplies daily prices, corporate actions and listed-asset information. OpenFIGI classifies eligible equity instruments. Formation simulates earlier sessions to build the model book; daily updates carry it forward. A simulated portfolio check does not mean paper orders have been placed.</p>
   {'<p>Owner-authorized local PAPER operation is active. PR release certification is suspended. Backup creation, restore drills and backup verification are disabled by owner instruction.</p>' if panel.local_paper_mode else ''}
   <p>Green means the check passed. Amber means waiting or review needed. Red means a failed or unreadable check. Open technical details for the precise reason.</p>
 </div></details>
-{errs}
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
   <div class="label">Notifications</div>
   <div id="push-status" aria-live="polite">Checking this device…</div>
@@ -642,6 +650,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   </div>
 </section>
 {rows}{details}
+</div></details>
 <footer>
   as of {_esc(stamp)} · refreshes every {refresh_seconds}s<br>
   This page shows status; it cannot place trades.<br>
