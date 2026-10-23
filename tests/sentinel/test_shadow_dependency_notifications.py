@@ -133,11 +133,17 @@ def test_publisher_records_original_acquisition_lock_before_cleanup(monkeypatch)
     def locked(_):
         raise failure
         yield
+    # This diagnostic phase fixture isolates the original acquisition guard;
+    # real queue/guard composition is covered by the rolling integration tests.
+    @contextmanager
+    def scheduled(_connection, _lease):
+        yield
+    monkeypatch.setattr(rolling_publisher.writer_schedule, 'turn', scheduled)
     monkeypatch.setattr(rolling_publisher.store, 'acquisition_write_lock', locked)
     recorded = []
     monkeypatch.setattr(rolling_publisher, '_record_failure', lambda _c, _l, exc, **_: recorded.append(exc))
     monkeypatch.setattr(rolling_publisher.staging, 'clear', lambda *_args, **_kwargs: (_ for _ in ()).throw(cleanup))
-    connection = SimpleNamespace(commit=lambda: None, rollback=lambda: None)
+    connection = SimpleNamespace(commit=lambda: None, rollback=lambda: None, closed=False)
     with pytest.raises(RuntimeError, match='independent cleanup failure'):
         rolling_publisher._prepare(connection, 'job', operational=True)
     assert recorded == [failure]

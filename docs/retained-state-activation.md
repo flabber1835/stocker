@@ -32,6 +32,10 @@ The separately documented [publisher diagnostic seam](worker-notification-diagno
 adds one closed, exact-source transition for notification instrumentation. It
 preserves the entire remaining installed publisher AST and its economic source
 contribution; unknown publisher bytes still contribute their actual hash.
+The [corpus writer scheduling seam](corpus-writer-scheduling.md) composes one
+further exact-source transition with that diagnostic seam. Only the reviewed
+queue wrappers and uncertain-session cleanup normalize to the installed
+publisher; any other source change keeps its actual economic contribution.
 The replaced source-identity recipe also requires its exact reviewed function
 header: no arguments, defaults, decorators, type parameters or changed return
 annotation may be hidden by replacing its body. These can change executable

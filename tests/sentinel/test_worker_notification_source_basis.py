@@ -14,7 +14,10 @@ EXPECTED_STRATEGY_SHA256 = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffac
 @pytest.fixture
 def sources():
     from sentinel.feed import rolling_publisher
-    current = Path(rolling_publisher.__file__).read_bytes()
+    from sentinel.corpus_writer_source_basis import normalize_reviewed_source
+    # This remains the diagnostic-only historical proof. Normalize only the
+    # exact separately qualified scheduling successor to its pinned predecessor.
+    current = normalize_reviewed_source(Path(rolling_publisher.__file__).read_bytes())
     # Reconstruct the independently pinned Git-object witness by removing only
     # the exact twelve added source lines. Its byte hash must match that object.
     additions = {f"operation_stage = '{stage}'".encode() for stage in basis.STAGE_SEQUENCE}
@@ -91,9 +94,11 @@ def test_closed_mapping_guard_has_behavioral_falsifier(sources, monkeypatch):
 
 def test_exact_publisher_contribution_flows_through_real_semantic_bundle(sources):
     _baseline, current = sources
+    from sentinel.feed import rolling_publisher
+    actual = Path(rolling_publisher.__file__).read_bytes()
     value = semantics.economic_sources([basis.MODULE], schema='source-pair-test')
     assert value['files'] == [{'module': basis.MODULE, 'sha256': basis.BASE_SHA256}]
-    assert {'module': basis.MODULE, 'actual_sha256': hashlib.sha256(current).hexdigest(),
+    assert {'module': basis.MODULE, 'actual_sha256': hashlib.sha256(actual).hexdigest(),
             'economic_sha256': basis.BASE_SHA256} in value['administrative_source_basis']['observed_seams']
 
 

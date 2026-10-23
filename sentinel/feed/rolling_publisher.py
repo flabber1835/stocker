@@ -9,6 +9,7 @@ from sentinel.feed import (
     acquisition_work, authority, progress, rolling_builder, rolling_jobs as jobs,
     rolling_store, rolling_work, runtime_schema, sharadar, snapshot_export, staging, store,
 )
+from sentinel.feed import writer_schedule
 from sentinel.feed.rolling_contract import digest
 from sentinel.feed.retained_source import RetainedSource
 from sentinel.feed.publication import CorpusLockUnavailable
@@ -204,6 +205,7 @@ def _prepare(conn, job_id, *, operational):
     lease = jobs.claim(conn, job_id, lease_seconds=600)
     conn.commit()
     operation_stage = 'SHADOW_ADVANCE'
+    discard_connection = False
     try:
         current = jobs.status(conn, job_id)
         request = jobs.PreparationRequest.model_validate(current["request"])
@@ -211,7 +213,7 @@ def _prepare(conn, job_id, *, operational):
         if current["state"] not in {"ACQUIRING", "READY"}:
             raise ComparisonRefused("unexpected persisted direct-builder stage")
         operation_stage = 'ACQUISITION_LOCK'
-        with store.acquisition_write_lock(conn):
+        with writer_schedule.turn(conn, lease), store.acquisition_write_lock(conn):
             boundary.freeze(conn, lease, request)
             conn.commit()
         operation_stage = 'SOURCE_PREFLIGHT'
@@ -257,7 +259,7 @@ def _prepare(conn, job_id, *, operational):
             source.tickers = rolling_store.load_evidence(conn, manifest.reference_sha256)["tickers"]
         with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):
             if not ready:
-                with store.acquisition_write_lock(conn):
+                with writer_schedule.turn(conn, lease), store.acquisition_write_lock(conn):
                     identity.require_feed_producer_identity()
                     rolling_builder.build(conn, lease, request, source)
                     conn.commit()
@@ -290,7 +292,7 @@ def _prepare(conn, job_id, *, operational):
             rolling_work.checkpoint()
         phase = "rolling_operational_publication" if operational else "rolling_comparison_publication"
         operation_stage = 'PUBLICATION'
-        with progress.phase(phase, job_id=job_id), store.corpus_write_lock(conn):
+        with progress.phase(phase, job_id=job_id), writer_schedule.turn(conn, lease), store.corpus_write_lock(conn):
             producer = identity.require_feed_producer_identity()
             result = boundary.publish(conn, lease, request, producer=producer)
             conn.commit()
@@ -298,13 +300,16 @@ def _prepare(conn, job_id, *, operational):
     except BaseException as exc:
         from sentinel import shadow_dependency_notifications as notices
         notices.capture_stage(exc, operation_stage)
-        _record_failure(conn, lease, exc, operational=operational)
+        discard_connection = writer_schedule.connection_discarded(exc)
+        if not discard_connection and not conn.closed:
+            _record_failure(conn, lease, exc, operational=operational)
         raise
     finally:
         # Scratch only, scoped to this exact owner; sealed evidence is never deleted.
-        conn.rollback()
-        staging.clear(conn, run_id=lease.owner)
-        if operational:
-            from sentinel.feed import retention
-            conn.commit()
-            retention.maintain(conn)
+        if not discard_connection and not conn.closed:
+            conn.rollback()
+            staging.clear(conn, run_id=lease.owner)
+            if operational:
+                from sentinel.feed import retention
+                conn.commit()
+                retention.maintain(conn)

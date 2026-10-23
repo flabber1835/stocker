@@ -1,5 +1,9 @@
 # Current installation boundary
 
+[Bounded rolling-writer scheduling](corpus-writer-scheduling.md) gives an owned
+publisher a finite place in the existing corpus lock queue so recurring readers
+cannot repeatedly overtake it, with unchanged data and trading authority.
+
 [Worker notification diagnostics](worker-notification-diagnostics.md) preserve
 typed original failure evidence and timestamps, distinguish source retries from
 stopped workers, and send one delivered-incident recovery after canonical
