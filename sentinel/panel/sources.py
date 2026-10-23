@@ -2712,7 +2712,7 @@ def _trial_rows(database_url: str, *, now: datetime
 def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     reviewed_shadow = os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'shadow', 'dual'}
     rows, errors = _runtime_projection(database_url, include_book=not reviewed_shadow)
-    return ([row for row in rows if row.key in {'broker','paper_plan'}] if reviewed_shadow else rows), errors
+    return ([row for row in rows if row.key in {'broker','paper_plan','trading_run'}] if reviewed_shadow else rows), errors
 
 
 def _runtime_projection(database_url: str, *, include_book=True,

@@ -271,3 +271,38 @@ def test_success_requires_a_real_completion_after_its_execute_clock(completed):
     value=run().model_dump()
     value.update(state='SUCCEEDED',completed_at=completed)
     with pytest.raises(ValueError): model.TradingRun(**value)
+
+
+@pytest.mark.parametrize('state',['EXECUTING','SUCCEEDED'])
+def test_dual_surface_keeps_today_run_through_full_panel_assembly(monkeypatch,state):
+    current=run().model_copy(update={'state':state,'completed_at':NOW if state=='SUCCEEDED' else None})
+    row=model.Row('trading_run','Today’s paper trading',state,as_of=NOW,
+        valid_until=NOW+timedelta(hours=8),trading_run=current)
+    broker=model.Row('broker','Broker','13 positions · 0 working',as_of=NOW)
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE','dual')
+    monkeypatch.setattr(sources,'_runtime_projection',lambda *a,**kw:([
+        model.Row('book','Unscaled book','Existing shadow reader owns this'),broker,row],[]))
+    monkeypatch.setattr(sources,'_bounded_dual_authority_rows',lambda *a,**kw:([
+        model.Row('shadow_verification','Shadow','SHADOW VERIFIED THROUGH 2026-10-22',as_of=NOW)],{},[],[]))
+    monkeypatch.setattr(sources,'_ownership',lambda *a:model.Row('ownership','Account','Owned',as_of=NOW))
+    monkeypatch.setattr(sources,'_feed_rows',lambda *a:([],[]))
+    monkeypatch.setattr(sources,'_automation_rows',lambda *a:([
+        model.Row('automation','Automation','Enabled',as_of=NOW),
+        model.Row('automation_leader','Leader','Current',as_of=NOW)],[]))
+    monkeypatch.setattr(sources,'_operator_evidence_rows',lambda *a,**kw:([],[]))
+    monkeypatch.setattr(sources,'_shadow_worker_row',lambda *a:model.Row('shadow_worker','Worker','Running',as_of=NOW))
+    panel=sources.build_panel(state_dir='fixture',database_url='fixture',now=NOW)
+    assert not panel.source_errors and panel.row('trading_run')==row
+    assert panel.row('book') is None  # Do not duplicate the independently admitted shadow book.
+    html=render(panel)
+    assert 'No current saved plan available.' not in html
+    assert '6/12 submitted shares filled' in html
+    assert ('Today’s trades · completed' if state=='SUCCEEDED' else 'Today’s trading plan') in html
+    source=inspect.getsource(sources._runtime_rows)
+    changed=source.replace("'broker','paper_plan','trading_run'","'broker','paper_plan'")
+    assert changed != source
+    scope=dict(sources.__dict__);exec(changed,scope)
+    monkeypatch.setattr(sources,'_runtime_rows',scope['_runtime_rows'])
+    broken=sources.build_panel(state_dir='fixture',database_url='fixture',now=NOW)
+    assert broken.row('trading_run') is None
+    assert 'No current saved plan available.' in render(broken)
