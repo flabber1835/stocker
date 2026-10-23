@@ -28,6 +28,10 @@ their actual source hash contributes, changing strategy identity and refusing
 reuse. All other economic modules and Wealth Core keep their exact source-byte
 identities. This recipe is deterministic and never reads a broker or database.
 The full executable hash always records the actual administrative code.
+The separately documented [publisher diagnostic seam](worker-notification-diagnostics.md)
+adds one closed, exact-source transition for notification instrumentation. It
+preserves the entire remaining installed publisher AST and its economic source
+contribution; unknown publisher bytes still contribute their actual hash.
 The replaced source-identity recipe also requires its exact reviewed function
 header: no arguments, defaults, decorators, type parameters or changed return
 annotation may be hidden by replacing its body. These can change executable

@@ -117,6 +117,9 @@ def economic_sources(modules, *, schema):
         raw = Path(module.__file__).resolve().read_bytes()
         actual = _sha(raw)
         contribution = canonical_contribution(name, raw) if name in (*HOOKS, 'sentinel.core.decision') else actual
+        if name == 'sentinel.feed.rolling_publisher':
+            from sentinel.worker_notification_source_basis import contribution as publisher_contribution
+            contribution = publisher_contribution(raw)
         files.append({'module': name, 'sha256': contribution})
         if contribution != actual:
             observed.append({'module': name, 'actual_sha256': actual, 'economic_sha256': contribution})

@@ -29,6 +29,25 @@ the existing outbox as notification history, without a second incident registry,
 schema migration or financial cursor. A database outage may prevent outbox
 persistence; the structured process log remains evidence of the actual cause.
 
+## Exact publisher diagnostic source seam
+
+The publisher contributes to the existing economic source identity. Adding
+diagnostics therefore requires a narrow administrative seam before deployment;
+it must not change the signed strategy, reconstruct the book, or loosen standing
+paper authority. The independently verified installed publisher at commit
+`596e8496bb0028498847f8e8a4afb26df3f786ba` supplies the unchanged economic source
+contribution. Only the exact reviewed successor publisher bytes may inherit it.
+The full executable identity still includes the actual successor and seam code.
+
+Qualification strips only the exact added literal stage assignments and the
+two diagnostic statements before failure recording, then compares the complete
+remaining module AST with the installed baseline. It must reject neighboring
+economic edits, changed hooks, unknown source bytes and missing diagnostics.
+The runtime mapping is closed to this source pair; it never accepts an arbitrary
+publisher or ignores an economic function. Existing source seams and baseline
+fixtures remain unchanged. This follows the administrative-source principle in
+`retained-state-activation.md`, and adds only the explicitly named publisher seam.
+
 ## Recovery evidence
 
 Send one INFO `SHADOW_DEPENDENCY_RECOVERED` notice per original dependency
