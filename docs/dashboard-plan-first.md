@@ -94,3 +94,12 @@ application handoff may also use an already SUCCEEDED current-session run after
 proving zero in-flight/unknown commands, no working native orders, identical
 control, book, plan, journal, fills, policy, source and push-subscription state.
 PostgreSQL and backup services remain untouched.
+
+The live phone-width check also exposed a refused corpus pin in the cheap
+market-data status reader. Retry only the typed `CorpusLockUnavailable` refusal
+inside one fixed two-second page-read budget, rolling back the refused read and
+reacquiring the authenticated publication on each attempt. Bound each statement
+by the remaining original budget. Do not cache a successful frontier, retain an
+old PASS, renew evidence times, retry integrity/time-out failures, or change feed
+publication locks. Persistent contention remains an unreadable/red source fact.
+Qualify both temporary and exhausted contention and unchanged negative verdicts.

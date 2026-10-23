@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import replace
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
@@ -54,6 +55,8 @@ STATEMENT_TIMEOUT_MS = 8_000
 #: gets its own, tighter budget so a slow contract check costs the panel its
 #: verdict but never its frontier, its ingest row or its ownership row.
 READINESS_TIMEOUT_MS = 2_000
+FEED_PIN_RETRY_SECONDS = 2
+FEED_PIN_POLL_SECONDS = 0.1
 
 # The full cycle also carries plan and phase metadata consumed by detailed
 # progress/reconciliation. Only these presentation facts belong to the summary.
@@ -664,6 +667,29 @@ def _ownership(state_dir: Path, database_url: str = "") -> model.Row:
         return model.ownership_row(state=None, at=None, error=repr(exc))
 
 
+def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
+    """Reacquire only a refused source pin within the original page budget."""
+    from sentinel.feed import readers
+    from sentinel.feed.publication import CorpusLockUnavailable
+
+    deadline = clock() + FEED_PIN_RETRY_SECONDS
+    last_error = None
+    while True:
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise CorpusLockUnavailable('panel source pin retry deadline expired') from last_error
+        _set_statement_timeout(conn, max(1, int(remaining * 1000)))
+        try:
+            return readers.status_snapshot(conn)
+        except CorpusLockUnavailable as exc:
+            last_error = exc
+            conn.rollback()
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise
+            sleep(min(FEED_PIN_POLL_SECONDS, remaining))
+
+
 def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     """The feed frontier, the contract verdict and the latest ingest.
 
@@ -697,8 +723,7 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                               STATEMENT_TIMEOUT_MS, default=[])
         # Bind the cached verdict and frontier to one authenticated generation.
         # A rolling page load verifies receipts, not the full price window.
-        from sentinel.feed import readers
-        feed, front_err = _read(conn, readers.status_snapshot,
+        feed, front_err = _read(conn, _feed_status_snapshot,
                                STATEMENT_TIMEOUT_MS, default=(None, None))
         frontier, snap = feed
         if snap is None:
