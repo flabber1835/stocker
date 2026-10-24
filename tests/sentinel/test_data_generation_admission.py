@@ -101,6 +101,50 @@ def test_changed_strategy_cannot_read_without_a_current_authenticated_receipt(co
             inputs.validate_status(conn,pub)
 
 
+def test_admission_cannot_preseal_an_unselected_strategy(conn,published):
+    _,selected=inputs.production_strategy()
+    unselected={**selected,'data_semantics_source_sha256':'7'*64}
+    assert digest(unselected)!=digest(selected)
+    with inputs.pinned(conn) as pub:
+        with pytest.raises(admission.GenerationRefused,match='STRATEGY_NOT_CURRENT'):
+            admission.admit_current(conn,pub,strategy=unselected,target=TARGET)
+        assert conn.execute(f'SELECT COUNT(*) FROM {admission.TABLE}').fetchone()[0]==0
+
+
+def test_removed_current_strategy_guard_is_killed_by_unselected_receipt_regression(conn,published,monkeypatch):
+    monkeypatch.setattr(admission,'_require_current_strategy',lambda _strategy:None)
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_admission_cannot_preseal_an_unselected_strategy(conn,published)
+
+
+def test_admission_rechecks_selected_strategy_before_inserting_receipt(conn,published,monkeypatch):
+    controller,selected=inputs.production_strategy()
+    changed={**selected,'data_semantics_source_sha256':'8'*64}
+    assert digest(changed)!=digest(selected)
+    generation=admission.generation
+    def change_selection(database,pub):
+        value=generation(database,pub)
+        monkeypatch.setattr(inputs,'production_strategy',lambda:(controller,changed))
+        return value
+    monkeypatch.setattr(admission,'generation',change_selection)
+    with inputs.pinned(conn) as pub:
+        with pytest.raises(admission.GenerationRefused,match='STRATEGY_NOT_CURRENT'):
+            admission.admit_current(conn,pub,strategy=selected,target=TARGET)
+        assert conn.execute(f'SELECT COUNT(*) FROM {admission.TABLE}').fetchone()[0]==0
+
+
+def test_removed_final_strategy_check_is_killed_by_mid_assessment_selection_change(conn,published,monkeypatch):
+    source=inspect.getsource(admission.admit_current)
+    needle='    _require_current_strategy(strategy)\n'
+    assert source.count(needle)==2
+    before,after=source.rsplit(needle,1)
+    namespace={}
+    exec(compile(before+after,'removed-admission-final-strategy','exec'),vars(admission),namespace)
+    monkeypatch.setattr(admission,'admit_current',namespace['admit_current'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_admission_rechecks_selected_strategy_before_inserting_receipt(conn,published,monkeypatch)
+
+
 def test_admission_requires_the_original_live_publication_pin(conn,published):
     pub = inputs.current(conn)
     _,selected = inputs.production_strategy()

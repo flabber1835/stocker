@@ -41,6 +41,7 @@ def refused(cause=None):
 
 @pytest.fixture
 def history(monkeypatch):
+    from sentinel import committed_read
     class Connection:
         def execute(self, query):
             assert query == 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'
@@ -49,6 +50,18 @@ def history(monkeypatch):
         def close(self):
             pass
     conn = Connection()
+    @contextmanager
+    def synthetic_proof(subject):
+        # Only this already synthetic historical-material fixture uses a fake
+        # connection. Real ownership is covered on PG by the transaction tests;
+        # the retained-attestation case below uses the actual public helper.
+        assert subject is conn
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        try:
+            yield conn
+        finally:
+            conn.rollback()
+    monkeypatch.setattr(committed_read, 'proof_connection', synthetic_proof)
     result = SimpleNamespace(session='2026-10-21', sessions_lag=0,
         shadow_verdict='SHADOW_GO', verification='VERIFIED',
         strategy_nav='100', strategy_cumulative_return='0.01')
@@ -301,4 +314,3 @@ def test_real_retained_attestation_survives_close_wait_and_fails_tampering(
 from tests.sentinel.test_rolling_go_inputs import issuer_source, published, ready  # noqa: E402,F401
 from tests.sentinel.test_operational_snapshot import operational_source  # noqa: E402,F401
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: E402,F401
-

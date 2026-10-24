@@ -671,7 +671,16 @@ async def test_close_preflight_observes_monday_with_friday_identity_frontier(mon
         'decision_session': date(2026, 10, 12),
         'effective_session': date(2026, 10, 13)}), permit=ctx.permit)
     conn = FakeConnection()
-    conn.execute = lambda *a: SimpleNamespace(fetchone=lambda: ('v'*64,))
+    validation_query = ('SELECT validation_sha256 FROM sentinel_snapshot_validations '
+                        'WHERE candidate_id=%s')
+    original_execute = conn.execute
+    def validation_or_default(sql, params=None):
+        result = original_execute(sql, params)
+        if sql == validation_query:
+            assert params == ('c',)
+            return SimpleNamespace(fetchone=lambda: ('v'*64,))
+        return result
+    conn.execute = validation_or_default
     runtime = production(cfg)
     broker = SimulatedBroker()
     install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
@@ -699,6 +708,8 @@ async def test_close_preflight_observes_monday_with_friday_identity_frontier(mon
     result = await runtime.recover(ctx)
     assert sessions == ['2026-10-12']
     assert result.disposition is ExecuteDisposition.SUCCEEDED
+    assert any(sql.startswith('SELECT count(*) FROM pg_class') for sql, _ in conn.statements)
+    assert [params for sql, params in conn.statements if sql == validation_query] == [('c',)]
     assert not any(call.startswith(('submit:', 'cancel:')) for call in broker.calls)
 
 

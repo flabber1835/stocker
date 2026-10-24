@@ -177,8 +177,11 @@ status inspection is read-only. The request is immutable and receipt stages
 form an append-only digest-linked history with atomic replacement of the
 current receipt. A new operation cannot reuse another operation's receipts.
 Reuse only fresh exact preflight evidence; an active worker refuses the stop.
-Gracefully roll only the four application services with no dependencies;
-PostgreSQL remains running. Server-enforced read-only canonical comparisons and
+The current [operational architecture](operational-architecture-20261023.md)
+extends the original four-role handoff to shadow, automation, panel, alert
+dispatcher, verifier and GET-only execution collector. Roll these six application
+services without dependencies, shadow first; PostgreSQL remains running.
+Server-enforced read-only canonical comparisons and
 the real account's GET-only holdings/open-order check surround the handoff.
 No control, plan, authority, journal, broker order or backup writes are allowed.
 Native credentials stay secret and are never shell-sourced or printed.
@@ -209,6 +212,6 @@ Compare the exact candidate's economic strategy identity and canonical retained
 book/plan against the installed runtime, and verify complete runtime identity.
 Build the final clean commit offline from the exact installed foundation.
 Only a fully qualified candidate may use the reusable guarded local handoff.
-Finish with four healthy exact-image applications, advancing leadership,
+Finish with six healthy exact-image applications, advancing leadership,
 preserved native holdings/history and a freshly green dashboard. Stop at any
 refused gate, preserve evidence and diagnose it without weakening the guard.

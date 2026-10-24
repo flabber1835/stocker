@@ -97,16 +97,25 @@ def admitted(conn, pub, strategy):
     return True
 
 
+def _require_current_strategy(strategy):
+    from sentinel.feed.rolling_go_inputs import production_strategy
+    _, selected = production_strategy()
+    if digest(strategy) != digest(selected):
+        raise GenerationRefused('DATA_GENERATION_STRATEGY_NOT_CURRENT')
+
+
 def admit_current(conn, pub, *, strategy, target):
     """Caller owns pin/transaction; independently verify full existing readiness."""
     from sentinel.feed import rolling_go_inputs, readiness_scope
     readiness_scope.require_owned_publication(conn,pub)
+    _require_current_strategy(strategy)
     require_schema(conn)
     binding, material, report = rolling_go_inputs._assess_material(conn,pub,target=target,summary_only=True)
     rolling_go_inputs._require_ready(report,available_session=material.session,target=target)
     value = generation(conn,pub)
     payload = _payload(value,strategy)
     readiness_scope.require_owned_publication(conn,pub)
+    _require_current_strategy(strategy)
     conn.execute(f'INSERT INTO {TABLE}(publication_version,strategy_sha256,generation_sha256,receipt_sha256,receipt,hmac_sha256) '
         'VALUES(%s,%s,%s,%s,%s::jsonb,%s) ON CONFLICT DO NOTHING',
         (pub.version,digest(strategy),value.sha256,digest(payload),canonical_json(payload),_signature(payload)))

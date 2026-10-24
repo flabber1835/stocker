@@ -20,7 +20,8 @@ from sentinel.execution.commands import Command
 from sentinel.execution.contract import BrokerInstrument, OrderTerms, Side
 from sentinel.execution.identity import CommandIdentity
 from sentinel.execution.states import CommandState as S
-from tests.sentinel.test_operator_monitoring import db, issue369_pg
+from tests.sentinel.test_operator_monitoring import issue369_pg
+from tests.sentinel.test_notification_recovery import db, historical_db
 
 NOW = datetime(2026, 10, 22, 14, tzinfo=timezone.utc)
 SUBMITTED = NOW - timedelta(minutes=20)

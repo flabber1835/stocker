@@ -70,5 +70,6 @@ Local PAPER delivery remains owner-authorized. Preserve publication 6, the saved
 October 23 decision / October 26 WAITING_OPEN plan, control generation 46,
 canonical book, journal, holdings, order policy, subscriptions and alert history.
 Use one fresh old/new canonical comparison and bounded row hashes around the
-normal four-application handoff, shadow first; PostgreSQL remains running.
+current six-application handoff documented in the
+[local delivery guide](local-paper-delivery.md), shadow first; PostgreSQL remains running.
 Backups, archives and restore work remain disabled. The backtest is untouched.

@@ -238,7 +238,7 @@ def assert_compose_power_loss_recovery(operation,tmp_path,monkeypatch):
     monkeypatch.setattr(host_module.os,'fsync',fsync)
     with pytest.raises(OSError,match='SIMULATED_POWER_LOSS'):
         delivery.step()
-    assert journal.read()['stage']=='COMPOSE_INSTALL_REQUESTED'
+    assert journal.read()['stage']=='COMPOSE_INSTALL_REQUESTED', 'Compose receipt advanced before directory durability'
     assert not state['directory_synced']
     state['lose_power']=False
     assert delivery.step()['stage']=='COMPOSE_INSTALLED'
@@ -258,7 +258,8 @@ def test_removing_compose_directory_sync_has_a_power_loss_falsifier(operation,tm
     scope=dict(vars(host_module))
     exec(compile(source,'Compose durability falsifier','exec'),scope)
     monkeypatch.setattr(host_module.Host,'install_compose',scope['install_compose'])
-    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+    with pytest.raises((AssertionError,pytest.fail.Exception),
+                       match='Compose receipt advanced before directory durability|DID NOT RAISE'):
         assert_compose_power_loss_recovery(operation,tmp_path,monkeypatch)
 
 

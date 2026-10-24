@@ -170,19 +170,13 @@ def initialize(conn, *, observation_id: str, starting_cash):
 
 
 def resume(conn, *, observation_id: str, starting_cash):
-    """Read a consistent checkpoint closure on an idle connection; no mutation."""
-    try:
-        schema.require_runtime_schema(conn)
-        runtime_schema.require_feed_schema(conn)
+    """Read the committed checkpoint without ending borrowed caller work."""
+    from sentinel import committed_read
+    with committed_read.proof_connection(conn) as proof:
+        schema.require_runtime_schema(proof)
+        runtime_schema.require_feed_schema(proof)
         context = _context(observation_id, starting_cash)
-        with conn.cursor() as cur:
-            cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        checkpoint = checkpoints.read(conn)
+        checkpoint = checkpoints.read(proof)
         if checkpoint is None:
             raise RollingColdStartRefused("COLD_START_CHECKPOINT_REQUIRED")
-        result = checkpoints.restore(conn, checkpoint, **context)
-        conn.commit()
-        return result
-    except BaseException:
-        conn.rollback()
-        raise
+        return checkpoints.restore(proof, checkpoint, **context)

@@ -20,7 +20,34 @@ from sentinel.panel import push_enrollment, sources, model
 from sentinel.web_push import subscription_id
 from fastapi.testclient import TestClient
 from tests.sentinel.test_operator_monitoring import (
-    _add_subscription, _subscription_material, _vapid, db, issue369_pg)
+    _add_subscription, _subscription_material, _vapid, issue369_pg)
+
+
+@pytest.fixture
+def historical_db(issue369_pg):
+    """Reset only this module's disposable server to its explicit base scope."""
+    from sentinel import schema
+    connection=store.connect(issue369_pg.sync_dsn)
+    try:
+        # A table-only reset would retain the current projection's functions.
+        # This server belongs exclusively to the module's private PG fixture.
+        connection.execute('DROP SCHEMA public CASCADE')
+        connection.execute('CREATE SCHEMA public')
+        connection.commit()
+        schema.ensure_schema(connection)
+        yield connection
+    finally:
+        connection.close()
+
+
+@pytest.fixture
+def db(historical_db):
+    """Explicitly install current notification priority for every connection."""
+    from sentinel.panel import operational_schema
+    store.migrate_schema(historical_db)
+    operational_schema.install(historical_db)
+    historical_db.commit()
+    yield historical_db
 
 
 def _healthy_sender(db):
@@ -314,7 +341,8 @@ def test_health_occurrence_and_alert_recover_atomic_commit(db, monkeypatch, comm
 
 
 @pytest.mark.parametrize('damage', ['row', 'table'])
-def test_notification_migration_does_not_reseed_lost_occurrence(db, damage):
+def test_notification_migration_does_not_reseed_lost_occurrence(historical_db, damage):
+    db=historical_db
     from sentinel import alert_service, schema
     from sentinel.automation.health import AutomationHealth
     red = AutomationHealth(healthy=False, installed=True, operational_ready=False, policy_state='CORRUPT')
@@ -487,7 +515,8 @@ def test_rotation_chain_survives_restart_and_refuses_merging_devices(db, issue36
     assert final.delivered and calls == [third]
 
 
-def test_recipient_schema_migration_preserves_eligibility_and_pending_evidence(db):
+def test_recipient_schema_migration_preserves_eligibility_and_pending_evidence(historical_db):
+    db=historical_db
     from sentinel import schema
     old = _add_subscription(db, 'legacy-subscription')
     db.execute('ALTER TABLE sentinel_web_push_subscriptions DROP COLUMN eligible_from, DROP COLUMN successor_id')
@@ -506,7 +535,8 @@ def test_recipient_schema_migration_preserves_eligibility_and_pending_evidence(d
 
 
 @pytest.mark.parametrize('damage', ['unknown_catalog', 'late_failure'])
-def test_recipient_schema_migration_refuses_or_rolls_back_exactly(db, monkeypatch, damage):
+def test_recipient_schema_migration_refuses_or_rolls_back_exactly(historical_db, monkeypatch, damage):
+    db=historical_db
     from sentinel import schema
     _add_subscription(db, 'retained-recipient')
     db.execute('ALTER TABLE sentinel_web_push_subscriptions DROP COLUMN eligible_from, DROP COLUMN successor_id')

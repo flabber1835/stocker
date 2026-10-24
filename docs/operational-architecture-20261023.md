@@ -35,6 +35,12 @@ before assessment and immediately before inserting the receipt. The optional
 readiness reuse scope remains optional for independent read-only verification;
 its absence never authorizes writing a strategy admission. Losing the pin during
 assessment refuses rather than letting a storage reader reacquire it silently.
+This current-only receipt writer also requires the supplied strategy identity
+to equal the currently selected production strategy before assessment and again
+immediately before insertion. Its data checks cannot pre-admit an arbitrary
+future strategy by sealing a caller-supplied identity. A selection change during
+assessment refuses without a receipt; authentic historical receipts remain
+independently readable for their original exact identity.
 
 Move pure current-window contracts/transforms and formation input calculations
 out of database/runtime modules. Production and qualification import the same
@@ -343,3 +349,32 @@ the proof; caller data and transaction ownership survive success and refusal.
 An unconditional rollback or a blanket idle precondition would discard work or
 refuse legitimate composed paper calls. Explicit migrations and the bounded
 connection-owning evidence-advance operation still require an idle connection.
+
+Canonical rolling status and compact guard status prove the committed book.
+When their caller is idle they own its repeatable-read, read-only proof
+transaction and return it idle. When borrowing an already active caller,
+they open a separate proof connection using the existing exact-target,
+password-preserving connection factory. Only that connection is rolled back
+and closed. Uncommitted caller changes never become canonical status authority,
+and successful or refused status does not end caller work or change its local
+settings. Capture and check the original publication-pin token before and
+after the proof in rollback-only owned transactions, or nested savepoints when
+the caller already has work. Record the caller's original transaction status
+before capture. Even an idle connection borrowing another backend's active
+session pin, or owning its own session pin while idle, returns idle; token
+checks retain the original session/transaction pins and never roll back caller
+work. Compact structural reuse still checks the original callback
+owner's publication and writer locks through the proof backend. PAPER continues
+to compare the returned committed state/publication with its pinned plan
+inputs; no proof can release or reacquire the caller's pin silently. Dispatch
+SELECTs and ordinary authority reads therefore cannot depend on a schema
+validator discarding their transaction as an undocumented side effect.
+
+The shared public owner is `sentinel.committed_read.proof_connection`.
+Rolling initialization resume, daily resume, canonical runtime status and
+historical panel source-wait evidence all use this same boundary. Resuming a
+committed book or reading historical display evidence never commits a caller's
+transaction, and none of these reusable readers rolls it back on refusal.
+The source-wait reader keeps its original historical session/attestation clocks
+and still grants no current GO. Read-only service probes which create their own
+fresh connection already have an explicit owner and retain that behavior.

@@ -96,7 +96,8 @@ remote publication is implied by local delivery.
 Installation preserves PostgreSQL identity and all financial/source/notification
 history. One owned operation compares the exact old/new canonical state read-only,
 checks native paper holdings/open orders GET-only, waits for an idle handoff and
-rolls only the four application services, shadow first. Each continuation validates
+rolls only shadow, automation, panel, alert dispatcher, verifier and GET-only
+execution collector, shadow first. Each continuation validates
 its immutable request, exact image, fresh receipt and unchanged current state.
 Finish by verifying healthy exact-image services, advancing leadership and the
 actual dashboard. A refused gate stops the stage; diagnose rather than erase it.

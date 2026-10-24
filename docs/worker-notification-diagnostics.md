@@ -102,6 +102,7 @@ effective plan reaches WAITING_OPEN, compare the exact old/new configurations,
 authority, book, source publication, policy, prepared plan/projection/targets,
 control generation, journal, fills and subscription identities. Require no
 in-flight or uncertain commands and no native working orders. Hand off only the
-four application services, shadow first, through normal lease acquisition.
+six application services in the [local delivery guide](local-paper-delivery.md),
+shadow first, through normal lease acquisition.
 Do not restart PostgreSQL or interrupt the active acquisition/preparation job.
 Report actual local qualification and installation, not release certification.
