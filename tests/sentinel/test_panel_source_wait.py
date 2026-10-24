@@ -159,7 +159,7 @@ def source_projection(monkeypatch, history):
         [model.Row('exposure', 'Exposure', '1.00', model.OK),
          model.Row('book', 'Book', 'Canonical holdings', model.OK, shadow_book=book),
          model.Row('terminals', 'Terminals', 'None', model.OK)], []))
-    return sources._dual_authority_rows('fixture', now=NOW, include_paper=False)
+    return sources._dual_authority_rows('postgresql://fixture@isolated.invalid/fixture', now=NOW, include_paper=False)
 
 
 def observation(output):
@@ -262,11 +262,11 @@ def test_generic_refusal_and_new_success_keep_normal_semantics(history, monkeypa
     def invalid(*args, **kwargs):
         raise refused(ValueError('RollingSourceFrontierPending: sole frontier clause'))
     monkeypatch.setattr(shadow_runtime, 'verified_shadow_status', invalid)
-    output = sources._dual_authority_rows('fixture', now=NOW, include_paper=False)
+    output = sources._dual_authority_rows('postgresql://fixture@isolated.invalid/fixture', now=NOW, include_paper=False)
     assert output[0][0].status == model.FAIL
     assert output[0][1].value == 'UNAVAILABLE'
     monkeypatch.setattr(shadow_runtime, 'verified_shadow_status', lambda *a, **kw: history.result)
-    output = sources._dual_authority_rows('fixture', now=NOW, include_paper=False)
+    output = sources._dual_authority_rows('postgresql://fixture@isolated.invalid/fixture', now=NOW, include_paper=False)
     assert output[0][0].status == model.OK
     assert output[0][0].recovery is None
     assert 'LAST ATTESTED' not in output[0][1].detail

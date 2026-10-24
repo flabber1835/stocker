@@ -238,7 +238,7 @@ def test_actual_source_composition_recovers_the_screenshot_then_cleans_up(monkey
         cycle_id=values['run'].intent.cycle_id,state='EXECUTING',execute_at=START,
         observation_callback=values['callback']))
     monkeypatch.setattr(paper_plan_preview,'read',lambda _:None)
-    rows,errors=sources._runtime_projection('fixture',now=NOW)
+    rows,errors=sources._runtime_projection('postgresql://fixture@isolated.invalid/fixture',now=NOW)
     assert not errors
     broker=next(item for item in rows if item.key=='broker')
     assert broker.effective_status(NOW)==model.WARN
@@ -253,7 +253,7 @@ def test_actual_source_composition_recovers_the_screenshot_then_cleans_up(monkey
     assert 'saved observation INCONSISTENT' in html
     assert values['observation']['completeness']=='INCONSISTENT'
     values['observation'].update(completeness='COMPLETE',runtime_state='RUNNING',orders=[])
-    rows,errors=sources._runtime_projection('fixture',now=NOW)
+    rows,errors=sources._runtime_projection('postgresql://fixture@isolated.invalid/fixture',now=NOW)
     assert not errors
     broker=next(item for item in rows if item.key=='broker')
     assert broker.effective_status(NOW)==model.OK

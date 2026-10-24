@@ -26,7 +26,7 @@ def test_reader_describes_old_planned_records_separately_from_saved_working_orde
         commands={'counts': {'PLANNED': 8}, 'updated_at': NOW-timedelta(days=2)})
     monkeypatch.setattr(sources, '_latest_automation_cycle', lambda *_: None)
     monkeypatch.setattr(paper_plan_preview, 'read', lambda *_: None)
-    rows, errors = sources._runtime_rows('fixture')
+    rows, errors = sources._runtime_rows('postgresql://fixture@isolated.invalid/fixture')
     row = next(row for row in rows if row.key == 'broker')
     assert errors == [] and row.status == model.OK
     assert 'saved runtime classification reconciled (RUNNING)' in row.detail
@@ -84,7 +84,7 @@ def test_published_operational_phase_count_is_omitted_but_other_counts_remain(
     snapshot = SimpleNamespace(ready=True, checks_passed=14, checks_total=14, computed_at=NOW)
     monkeypatch.setattr(readers, 'status_snapshot', lambda *_: ('2026-10-22', snapshot))
     monkeypatch.setattr(calendar, 'freshness', lambda *_: SimpleNamespace(sessions_behind=0, ahead=False))
-    rows, errors = sources._feed_rows('fixture')
+    rows, errors = sources._feed_rows('postgresql://fixture@isolated.invalid/fixture')
     row = next(row for row in rows if row.key == 'ingest')
     assert not errors
     assert ('0 rows' in row.detail) == expected_count
@@ -114,7 +114,7 @@ def test_raw_saved_plan_counts_and_final_checks_are_policy_neutral(monkeypatch, 
     # This copy-only fixture has no submitted broker orders. Exact prior-order
     # provenance is covered by the dedicated overview-data source tests.
     monkeypatch.setattr(sources, '_previous_buy_outcomes', lambda *a, **kw: [])
-    rows, errors = sources._runtime_rows('fixture')
+    rows, errors = sources._runtime_rows('postgresql://fixture@isolated.invalid/fixture')
     row = next(row for row in rows if row.key == 'paper_plan')
     assert not errors and row.status == model.OK
     assert f'{buys} {"buy" if buys == 1 else "buys"}' in row.value
@@ -174,7 +174,7 @@ def test_source_adds_installed_identity_copy_only_when_local_mode_is_known(monke
     monkeypatch.setattr(local_paper, 'enabled', lambda: local)
     monkeypatch.setenv('SENTINEL_GIT_COMMIT', 'd'*40)
     monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', 'sha256:'+'e'*64)
-    rows, _ = sources._automation_rows('fixture')
+    rows, _ = sources._automation_rows('postgresql://fixture@isolated.invalid/fixture')
     row = next(row for row in rows if row.key == 'authority')
     assert row.status == model.OK
     assert ('current owner-authorized LOCAL PAPER runtime' in row.detail) == local
