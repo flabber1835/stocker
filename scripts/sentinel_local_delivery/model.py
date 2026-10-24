@@ -135,7 +135,7 @@ def validate_request(value):
             and len(paths) == len(set(paths)),
             'REQUEST_DELTA_SHAPE')
     for name in paths:
-        require(isinstance(name, str) and name.startswith(('sentinel/', 'scripts/', 'tests/', 'docs/'))
+        require(isinstance(name, str) and name.startswith(('sentinel/', 'scripts/', 'tests/', 'docs/', 'tools/'))
                 and '\\' not in name and '..' not in name.split('/')
                 and '/.env' not in name and not name.endswith('.env'), 'REQUEST_DELTA_PATH')
     return value

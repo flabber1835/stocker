@@ -162,6 +162,14 @@ read-only preflight, quiescent application handoff, successor shadow proof,
 application resume and final live verification. Preserve each stage receipt;
 resume never guesses completion or restarts earlier expensive work silently.
 
+The reviewed delta may contain additions/modifications under `sentinel/`,
+`scripts/`, `tests/`, `docs/` and `tools/`. Qualification-only tools remain host
+inputs: their exact paths and bytes belong to the approved delta and complete
+qualified source map, while only Sentinel sources enter the image layer. The
+builder and resumed delivery both require the actual Git delta to match the
+reviewed list exactly. Root build/configuration files, environment files,
+dependency changes, deletions and renames remain refused.
+
 Each resume validates current literal configuration, exact image/source,
 unchanged financial/source state, PostgreSQL identity and stage ownership.
 An exclusive, nonblocking host file lock serializes stage-changing invocations;

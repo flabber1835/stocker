@@ -66,7 +66,7 @@ def allowed_delta(path, expected_sha):
     names = read_json(path)
     require(isinstance(names,list) and names and len(names) == len(set(names)), 'APPROVED_DELTA_SHAPE')
     for name in names:
-        require(isinstance(name,str) and name.startswith(('sentinel/','scripts/','tests/','docs/'))
+        require(isinstance(name,str) and name.startswith(('sentinel/','scripts/','tests/','docs/','tools/'))
             and '\\' not in name and '..' not in name.split('/')
             and '/.env' not in name and not name.endswith('.env'), 'APPROVED_DELTA_PATH')
     return sorted(names)

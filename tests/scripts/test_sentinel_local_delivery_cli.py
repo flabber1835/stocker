@@ -75,6 +75,31 @@ def validate(value):
     return qualification.validate_report(value.report_path,value.report_sha,value.source,NEW,OLD)
 
 
+def request(inputs, paths):
+    return dict(schema=model.SCHEMA,operation_id='reviewed-inputs',source=str(inputs.source),
+        deployment=str(inputs.deployment),predecessor=builder.baseline(inputs.previous),
+        candidate=dict(commit=NEW,image=NEW_IMAGE,
+            source_identity={'source':'2'*64,'wealth':'4'*64,'shadow_config':'3'*64}),
+        qualification=dict(report_path=str(inputs.report_path),report_sha256=inputs.report_sha,
+            commit=NEW,passed=True,source_files=inputs.report['source_files']),
+        allowed_delta=paths,created_at=model.utcnow().isoformat())
+
+
+def qualified_tool_change(inputs, *, approved):
+    name='tools/sentinel_rolling_publisher_falsifiers.py'
+    inputs.files[name]='def qualification_only(): return True\n'
+    path=inputs.source/name;path.parent.mkdir();path.write_text(inputs.files[name])
+    # The fake Git diff follows the actual changed files independently of the
+    # separately reviewed on-disk allowed list.
+    inputs.approved.append(name)
+    if approved:
+        inputs.delta.write_bytes(model.canonical(inputs.approved))
+    inputs.report['source_files']=qualification.source_files(inputs.source)
+    inputs.report_path.write_bytes(model.canonical(inputs.report))
+    inputs.report_sha=qualification.sha256_file(inputs.report_path)
+    return name
+
+
 def test_report_is_bound_to_complete_actual_tracked_inputs_and_retained_log(inputs):
     assert validate(inputs)==inputs.report
     (inputs.source/'scripts/example.py').write_text('changed\n')
@@ -186,6 +211,72 @@ def test_offline_build_has_only_exact_tracked_runtime_source_and_retained_eviden
     assert host.calls[0]=='lock' and host.calls[-1]=='unlock'
     with pytest.raises(model.DeliveryRefused,match='ALREADY_STARTED'):
         run_build(inputs,monkeypatch)
+
+
+def test_reviewed_qualification_tool_is_accepted_without_entering_runtime_image(inputs,monkeypatch):
+    tool=qualified_tool_change(inputs,approved=True)
+    result,_,_=run_build(inputs,monkeypatch)
+    assert result['allowed_delta']==result['changed_files']==sorted(inputs.approved)
+    assert tool in inputs.report['source_files']
+    context=Path(result['context'])
+    assert sorted(path.relative_to(context).as_posix() for path in context.rglob('*') if path.is_file())==[
+        'Dockerfile','sentinel/module.py']
+    class Candidate:
+        def __init__(self,selected,folder): self.request=selected
+        def verify_candidate(self):
+            assert self.request['allowed_delta']==sorted(inputs.approved)
+    path=inputs.folder/'build.json'
+    journal=cli.prepare(operation_dir=inputs.folder,build_record=path,
+        build_sha256=qualification.sha256_file(path),operation_id='reviewed-tool',host_type=Candidate)
+    assert tool in journal.request['allowed_delta']
+    assert journal.request['qualification']['source_files'][tool]==qualification.sha256_file(inputs.source/tool)
+
+
+@pytest.mark.parametrize('gate',['build','candidate'])
+def test_unapproved_extra_qualification_tool_refuses_before_any_host_operation(inputs,monkeypatch,gate):
+    qualified_tool_change(inputs,approved=False)
+    if gate=='build':
+        def forbidden_host(*args): pytest.fail('unapproved delta constructed a host')
+        with pytest.raises(model.DeliveryRefused,match='CANDIDATE_DELTA_CHANGED'):
+            builder.build(source=inputs.source,deployment=inputs.deployment,
+                predecessor_receipt=inputs.previous,qualification=inputs.report_path,
+                qualification_sha256=inputs.report_sha,approved_delta=inputs.delta,
+                approved_delta_sha256=qualification.sha256_file(inputs.delta),
+                operation_dir=inputs.folder,commit=NEW,host_type=forbidden_host)
+        assert not (inputs.folder/'build-started.json').exists()
+    else:
+        host=cli.Host.__new__(cli.Host)
+        host.request=model.validate_request(request(inputs,model.read_json(inputs.delta)))
+        host.source=inputs.source
+        host.git=lambda *args: inputs.git(inputs.source,*args)
+        host.run=lambda *args,**kwargs: pytest.fail('unapproved delta launched a host operation')
+        with pytest.raises(model.DeliveryRefused,match='CANDIDATE_DELTA_CHANGED'):
+            host.verify_candidate()
+
+
+def test_reviewed_tool_bytes_remain_bound_to_completed_qualification(inputs):
+    tool=qualified_tool_change(inputs,approved=True)
+    assert validate(inputs)==inputs.report
+    (inputs.source/tool).write_text('def qualification_only(): return False\n')
+    with pytest.raises(model.DeliveryRefused,match='QUALIFIED_SOURCE_BYTES_CHANGED'):
+        validate(inputs)
+
+
+@pytest.mark.parametrize('gate',['build','request'])
+@pytest.mark.parametrize('name',[
+    'tools/../.env','tools/sub/../../outside.py','tools\\escape.py','/tools/absolute.py',
+    'tools/.env','tools/.env.production','tools/private.env','tools/sub/.env.local',
+    'Dockerfile.sentinel','docker-compose.sentinel.yml','requirements.txt','pyproject.toml',
+    'unreviewed/extra.py',
+])
+def test_tools_input_root_does_not_admit_unsafe_or_unreviewed_path_classes(inputs,gate,name):
+    if gate=='build':
+        inputs.delta.write_bytes(model.canonical([name]))
+        with pytest.raises(model.DeliveryRefused,match='APPROVED_DELTA_PATH'):
+            builder.allowed_delta(inputs.delta,qualification.sha256_file(inputs.delta))
+    else:
+        with pytest.raises(model.DeliveryRefused,match='REQUEST_DELTA_PATH'):
+            model.validate_request(request(inputs,[name]))
 
 
 @pytest.mark.parametrize('damage',['layer','environment','user','label'])

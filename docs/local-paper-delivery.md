@@ -14,7 +14,12 @@ does not merge a PR or grant financial authority. See the
   generic operation's authenticated `receipt.json` at `VERIFIED`.
 - An independently reviewed JSON list of the exact changed paths and its SHA256.
   The source-only builder accepts additions/modifications, not deletions,
-  renames or dependency changes.
+  renames or dependency changes. Allowed roots are `sentinel/`, `scripts/`,
+  `tests/`, `docs/` and `tools/`; root build/configuration and environment files
+  remain refused. Qualification-only tools are host inputs bound by this exact
+  path list and the full qualified source hashes; they are not copied into the
+  runtime image. The builder and each resumed candidate check reject any extra
+  changed path outside the reviewed list.
 - A completed qualification report and its SHA256, retained logs and complete
   tracked-file hashes. The report must describe the exact clean commit.
 - A private operation directory **outside the qualified source checkout** with
