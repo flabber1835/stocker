@@ -34,6 +34,20 @@ def _fixtures():
     return Path(__file__).parents[1] / 'sentinel/fixtures/retained-source-history'
 
 
+def manifest(revision):
+    """Read one manifest authenticated by the immutable successor policy."""
+    _known, profiles = _authenticated()
+    witnesses = [item for item in profiles['protected_cohort']['predecessor_witnesses']
+                 if item['revision'] == revision or item['revision'][:8] == revision]
+    assert len(witnesses) == 1, 'fixture must name an authenticated historical revision'
+    witness = witnesses[0]
+    raw = (_fixtures() / (witness['revision'][:8] + '.json')).read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == witness['manifest_sha256']
+    value = json.loads(raw)
+    assert value['revision'] == witness['revision']
+    return value
+
+
 def profile(module):
     """Current registry validation of one immutable historical descriptor."""
     checker = module.__name__.removeprefix('sentinel.')

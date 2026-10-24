@@ -42,7 +42,7 @@ from datetime import datetime, timezone
 import httpx
 from sentinel import backup_runtime_authority, identity
 from sentinel.cli import _shared
-from sentinel.feed import operational_snapshot, rolling_publisher, store
+from sentinel.feed import operational_snapshot, publisher_pipeline, store
 from sentinel.feed.alpaca_source import AlpacaSource
 from sentinel.feed.alpaca_transport import ASSETS
 from sentinel.feed.rolling_contract import digest, PriceWindow
@@ -996,7 +996,7 @@ def attended_published_database(tmp_path_factory):
                 classifier=classifier,
                 verify_during_coverage=kwargs["verify_during_coverage"])
 
-        patch.setattr(rolling_publisher, "_operational_source", source)
+        patch.setattr(publisher_pipeline, "_operational_source", source)
         patch.setattr(operational_snapshot, "_now", lambda: ATTENDED_NOW)
         try:
             store.migrate_schema(connection)
