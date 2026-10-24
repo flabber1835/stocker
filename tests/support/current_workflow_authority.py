@@ -11,6 +11,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
+from types import SimpleNamespace
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -20,6 +21,29 @@ from sentinel.authority import validation
 from sentinel.execution.authority_gate import (
     PUBLICATION_POLICY_SCHEMA, publication_policy_implementation_sha256)
 from sentinel.strategy import controller_for_identity, production_strategy
+
+
+PRIVATE_MAXIMUM_EXPOSURE = '1'
+
+
+def private_exposure_ceiling() -> str:
+    """Admit the private issuer's whole unlevered controller domain up front.
+
+    Owned55's impairment ceiling is conditional. Its normal path can preserve
+    the parent's full allocation; a static 55% certificate cannot qualify that
+    current path. This is only the disposable issuer's permission, never a
+    change to the installed signed policy or the controller's chosen outcome.
+    """
+    from sentinel.controller import owned_impairment
+    maximum = validation._canonical_exposure(
+        PRIVATE_MAXIMUM_EXPOSURE, label='private workflow maximum_exposure')
+    _, normal = owned_impairment.step(
+        observation=SimpleNamespace(session='2026-10-23', shadow_drawdown=0.,
+            damaged_breadth=0., green_breadth=1., shadow_r20=.1),
+        base_target=1., state=owned_impairment.fresh())
+    assert Decimal(str(normal['target'])) <= maximum <= Decimal(1), (
+        'private issuer does not cover the current healthy unlevered domain')
+    return PRIVATE_MAXIMUM_EXPOSURE
 
 
 def issue_current_paper_authority(
@@ -77,7 +101,7 @@ def issue_current_paper_authority(
         issuer_generation=1, deployment_id=bound.deployment_id,
         expected_account=bound.broker_account_id, runtime_identity=runtime,
         strategy_identity=strategy, automation_config_sha256=automation_config_sha256,
-        warmup=warmup, maximum_exposure='0.55',
+        warmup=warmup, maximum_exposure=private_exposure_ceiling(),
         reviewer='isolated automated qualification', ticket='current-operational-workflow',
         not_before=now, expires_at=now+timedelta(days=1), now=now)
 
@@ -129,6 +153,8 @@ def issue_current_paper_authority(
         conn, certificate_sha256=certificate_sha256, context=context, now=now,
         reason='isolated composed PAPER qualification', confirm_controller_rollout=True)
     assert activated.status == 'ACTIVE'
-    assert authority.load_active_signed_certificate(conn,now=now).certificate_sha256 == certificate_sha256
+    loaded = authority.load_active_signed_certificate(conn,now=now)
+    assert loaded.certificate_sha256 == certificate_sha256
+    assert loaded.maximum_exposure == Decimal(private_exposure_ceiling())
     conn.rollback()
     return certificate_sha256

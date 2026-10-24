@@ -20,12 +20,26 @@ from sentinel.strategy import production_strategy
 from tests.sentinel.test_alpaca_daily_formation import Prices
 from tests.sentinel.test_alpaca_operational_snapshot import FakeClassifier
 from tests.sentinel.test_operational_catalog_integration import cluster, conn  # noqa: F401
-from tests.support.current_workflow_authority import issue_current_paper_authority
+from tests.support.current_workflow_authority import issue_current_paper_authority, private_exposure_ceiling
 from tests.support.current_workflow_clock import prospective_clock
 from tests.support.current_workflow_run import paper_and_delivery
 
 OBSERVATION = 'current-operational-workflow'
 ACCOUNT = 'PAISOLATEDWORKFLOW'
+
+
+def test_private_issuer_covers_full_healthy_domain_and_refuses_partial_or_levered_permission(monkeypatch):
+    from sentinel import authority
+    from tests.support import current_workflow_authority as issuer
+    assert private_exposure_ceiling() == '1'
+    # The former fixture cap must fail before the expensive source/formation
+    # campaign. Leverage still fails the production claim parser itself.
+    monkeypatch.setattr(issuer, 'PRIVATE_MAXIMUM_EXPOSURE', '0.55')
+    with pytest.raises(AssertionError, match='healthy unlevered domain'):
+        private_exposure_ceiling()
+    monkeypatch.setattr(issuer, 'PRIVATE_MAXIMUM_EXPOSURE', '1.01')
+    with pytest.raises(authority.AuthorityRefused, match='canonical Decimal'):
+        private_exposure_ceiling()
 
 
 class BroadPrices(Prices):
@@ -49,6 +63,9 @@ class BroadPrices(Prices):
 
 @pytest.fixture
 def current(conn, monkeypatch):
+    # Fail immediately if this disposable issuer cannot authorize the current
+    # controller's full healthy domain, before acquiring 426 source sessions.
+    assert private_exposure_ceiling() == '1'
     commit = 'a' * 40
     image = 'sha256:' + 'b' * 64
     # These are issuer/host artifact inputs for the private runtime. No validator
