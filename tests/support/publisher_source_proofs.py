@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from sentinel import transition_registry
 from sentinel.worker_notification_source_basis import (
     STAGE_SEQUENCE, DIAGNOSTIC_IMPORT, DIAGNOSTIC_CALL,
 )
@@ -28,7 +29,7 @@ def baseline_catalog():
 def baseline_source(name):
     """Read unchanged plain source only when it matches the Git witness."""
     value = baseline_catalog()
-    raw = (Path(__file__).parents[2] / 'sentinel' / name).read_bytes()
+    raw = (transition_registry.ROOT / name).read_bytes()
     if hashlib.sha256(raw).hexdigest() != value['files'][name]:
         raise ValueError('historical source witness needs explicit hash fixture:' + name)
     return raw

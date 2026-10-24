@@ -13,6 +13,7 @@ from sentinel import structural_refactor_source_basis as refactor
 from sentinel import transition_registry as registry
 from tests.support.legacy_transition_oracle import legacy_closure_allowed
 from tests.support import historical_transition_fixture as historical
+from tests.support import publisher_source_proofs as publisher_proofs
 from tests.support.publisher_source_proofs import baseline_catalog, publisher_baseline, admission_baseline
 
 
@@ -59,6 +60,42 @@ def test_historical_hash_adapter_is_explicit_and_mutation_never_looks_authentica
     path.write_bytes(path.read_bytes() + b'\nUNREVIEWED = True\n')
     assert historical.source_files(tmp_path) == admission._source_files(tmp_path)
     assert historical.source_files(tmp_path) != projected
+
+
+@pytest.mark.parametrize('owner', ['historical', 'publisher'])
+def test_historical_source_reads_follow_the_imported_runtime_package(tmp_path, monkeypatch, owner):
+    """The CI lens keeps tests and the installed runtime in separate roots."""
+    module = historical if owner == 'historical' else publisher_proofs
+    fixture_root = historical._fixtures()
+    monkeypatch.setattr(historical, '_fixtures', lambda: fixture_root)
+    monkeypatch.setattr(module, '__file__', str(tmp_path/'lens/tests/support'/Path(module.__file__).name))
+    assert not (tmp_path/'lens/sentinel').exists()
+    name = '__init__.py'
+    actual = (registry.ROOT/name).read_bytes()
+    assert hashlib.sha256(actual).hexdigest() == baseline_catalog()['files'][name]
+    if owner == 'historical':
+        target = tmp_path/'target'
+        historical.write(target, name, expected=baseline_catalog()['files'][name])
+        observed = (target/name).read_bytes()
+    else:
+        observed = publisher_proofs.baseline_source(name)
+    assert observed == actual
+
+
+@pytest.mark.parametrize('owner', ['historical', 'publisher'])
+def test_repository_relative_source_reader_has_a_split_layout_falsifier(tmp_path, monkeypatch, owner):
+    test_historical_source_reads_follow_the_imported_runtime_package(tmp_path, monkeypatch, owner)
+    module, attribute = ((historical, 'write') if owner == 'historical'
+                         else (publisher_proofs, 'baseline_source'))
+    source = inspect.getsource(getattr(module, attribute))
+    needle = 'transition_registry.ROOT / name'
+    assert source.count(needle) == 1
+    namespace = {}
+    exec(compile(source.replace(needle, "Path(__file__).parents[2] / 'sentinel' / name"),
+                 'repository-relative-source-reader', 'exec'), module.__dict__, namespace)
+    monkeypatch.setattr(module, attribute, namespace[attribute])
+    with pytest.raises(FileNotFoundError):
+        test_historical_source_reads_follow_the_imported_runtime_package(tmp_path, monkeypatch, owner)
 
 
 def test_all_historical_before_edges_and_unknown_neighbors_are_closed(transitions):
@@ -245,5 +282,7 @@ def test_current_full_refactor_seal_preserves_exact_baseline_and_refuses_unknown
     for name in actual:
         changed = {**actual, name: 'f' * 64}
         assert refactor.historical_view(changed) is changed
-    assert refactor.historical_view({k: v for k, v in actual.items()
-                                     if k != 'feed/publisher_pipeline.py'}) != baseline
+    missing = {k: v for k, v in actual.items() if k != 'feed/publisher_pipeline.py'}
+    assert refactor.historical_view(missing) is missing
+    extra = {**actual, 'unreviewed_extra.py': 'f' * 64}
+    assert refactor.historical_view(extra) is extra

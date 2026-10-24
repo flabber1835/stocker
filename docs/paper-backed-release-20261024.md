@@ -36,6 +36,39 @@ retaining broker-free notification sending and GET-only collection isolation.
 Semantic restore validation must preserve the actual reviewed PAPER/policy
 context rather than manufacture normal historical admission for the retained book.
 
+## Final reviewed source acceptance
+
+The current structural transition still seals the 370-module candidate finalized
+at `22bbfbaa`. The final reviewed release contains 401 candidate Python modules,
+including the later architectural extractions, isolated disabled live-preparation
+components and the restored backup policy. Its exact current-source acceptance
+map must be finalized before release qualification. This is a source acceptance
+upgrade within this PR, not a financial golden or historical profile re-pin.
+
+Preserve all 364 baseline source records, their original source closure and the
+independent `0067e90b` witness catalog with SHA256
+`81928641311c17e4dbefe5bcb6a06a01dcb920cac77b74318b891ab195d2475e`.
+Preserve the normalized checker SHA256
+`88098391b7f111d646738990856067c4719288d6c068e025e01d40bb96ee1952`,
+its economic mappings and both already-reviewed exact candidate hashes for
+`execution/held_targets.py` and `execution/target_reprojection.py`. Historical
+transition profiles and their checker witnesses remain immutable.
+
+Before writing, verify every final candidate file against its committed release
+Git blob. Refresh only the complete `candidate_files` map and the checker's
+`TRANSITION_SHA256` pin of the resulting JSON bytes; the checker itself stays
+outside that map to avoid a recursive self-pin. Record old/new hashes, exact
+counts and source differences in retained qualification evidence.
+
+The transition retains `authority_effect=NONE`. It authenticates compatibility
+with the original retained financial baseline; it never rewrites actual current
+runtime, source, dependency or environment identity or grants trading authority.
+Require the actual complete candidate to pass, with falsifiers refusing unknown,
+missing, extra and tampered bytes. Recheck the independent economic extraction
+and source-boundary proofs, the historical transition matrix and actual installed
+runtime layout before final CI. Do not alter a financial expectation, original
+book, source witness, historical profile or rejection rule to refresh this seal.
+
 ## Qualification and transition
 
 Restore normal CI on an ordinary new feature-branch commit. Preserve historical
