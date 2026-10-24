@@ -78,6 +78,25 @@ seconds. Setup/acquisition has separately reported metrics and is not smuggled
 into or out of the defined EXECUTE interval. Failed/consumed campaigns retain
 their evidence and cannot be rerun, reset or given a later origin clock.
 
+For the private diagnostic clock, sample monotonic and required Linux
+`CLOCK_BOOTTIME` ticks before reading UTC. Retain their original offsets to the
+scheduled EXECUTE instant and use the maximum elapsed monotonic, boottime and
+UTC interval. Boottime includes laptop suspension; UTC and conservative sampling
+also prevent scheduler descheduling from shortening the measured interval.
+Backward UTC or tick samples refuse, and elapsed evidence never decreases.
+Wrap only the generated broker's POST method: check this clock at every actual
+POST entry and retain its first elapsed value in the existing numeric provider
+state. Original/observed UTC and tick evidence are emitted to retained diagnostic
+stdout. The unchanged legacy provider state schema, production clocks, broker
+guards and transport implementation are not broadened.
+
+An invocation may persist its canonical report only after it wins that mode's
+exclusive claim. Preparation owns its claim immediately after creating the
+fresh campaign directory and successfully writing its claim file. A competing
+or preclaim refusal cannot write the winner's report. Status remains read-only
+and consumes no claim. Behavioral collision, suspend/descheduling, POST-entry
+and final durable-save falsifiers cover these diagnostic boundaries.
+
 The real effective-session and exchange-window checks remain mandatory. A
 Saturday campaign may prepare sealed inputs and measure clearly labelled cold
 read-only work, but reports BLOCKED_MARKET_SESSION for complete gateway proof.
@@ -100,6 +119,16 @@ private callback process. No production process/container/database is signalled
 or restarted. Do not invoke legacy reboot/restore suites with backup prerequisites.
 
 ## Qualification and delivery
+
+The read-only certification audit retains the selected strategy identity
+`caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095`
+and data-semantics identity
+`38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb`.
+The existing Wealth Core/controller certification documents and the economic
+audit remediation ledger still name outstanding economic and provider evidence.
+This preparation neither reruns historical research nor reads the protected
+backtest. Functional correction arithmetic and generated source replay cannot
+close those independent economic or native-provider gates.
 
 Use targeted new tests and guard-removal falsifiers, then current relevant
 execution/configuration/provider-boundary regressions. Preserve all original

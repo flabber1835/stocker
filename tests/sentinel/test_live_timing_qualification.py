@@ -19,8 +19,8 @@ CAMPAIGN = 'a' * 32
 
 def clock(*, delay=0, sampled=1000):
     values = [sampled]
-    result = timing.OriginalExecuteClock(EXECUTE, now=EXECUTE + timedelta(seconds=delay),
-                                         monotonic=lambda: values[0])
+    result = timing.OriginalExecuteClock(EXECUTE, now=lambda: EXECUTE + timedelta(seconds=delay),
+                                         monotonic=lambda: values[0], boottime=lambda: values[0])
     return result, values
 
 
@@ -33,19 +33,17 @@ def test_original_execute_clock_includes_late_entry_and_all_prepare_time():
 
 
 def test_preparation_deadline_falsifier_rejects_reset_to_callback_entry():
-    source = inspect.getsource(timing.OriginalExecuteClock)
-    assert 'self.started = sampled - delay' in source
-    broken = source.replace('self.started = sampled - delay', 'self.started = sampled')
+    source = inspect.getsource(timing.run_original_clock)
+    needle = 'OriginalExecuteClock(execute_at, now=now'
+    assert needle in source
+    broken = source.replace(needle, 'OriginalExecuteClock(now(), now=now')
     namespace = {}
     exec(compile(broken, 'private-original-clock-reset-mutant', 'exec'), vars(timing), namespace)
-    sampled = [1000]
-    gate = namespace['OriginalExecuteClock'](EXECUTE, now=EXECUTE + timedelta(seconds=35),
-                                             monotonic=lambda: sampled[0])
-    sampled[0] += 86
-    # The same concrete observation incorrectly succeeds when the origin is
-    # reset. This is the failure that the ordinary regression above detects.
-    assert gate.check() == 86
-    assert gate.elapsed() != 121
+    # The exact 35-second late entry plus 86-second PREPARE observation is
+    # incorrectly accepted when original EXECUTE is replaced by process entry.
+    (_verified, elapsed), _events = orchestrated(namespace['run_original_clock'],
+        entry_delay=35, prepare_seconds=86)
+    assert elapsed == 141
 
 
 def test_deadline_edges_are_inclusive_and_completion_includes_terminal_work():
@@ -76,7 +74,8 @@ def test_first_post_cannot_be_after_current_elapsed_time():
 
 def test_future_due_time_and_regressed_monotonic_clock_refuse():
     with pytest.raises(timing.TimingRefused, match='NOT_YET_DUE'):
-        timing.OriginalExecuteClock(EXECUTE, now=EXECUTE - timedelta(seconds=1), monotonic=lambda: 1)
+        timing.OriginalExecuteClock(EXECUTE, now=lambda: EXECUTE - timedelta(seconds=1),
+                                   monotonic=lambda: 1, boottime=lambda: 1)
     gate, sampled = clock()
     sampled[0] -= 1
     with pytest.raises(timing.TimingRefused, match='REGRESSED'):
@@ -86,7 +85,7 @@ def test_future_due_time_and_regressed_monotonic_clock_refuse():
 @pytest.mark.parametrize('value', [float('nan'), float('inf')])
 def test_nonfinite_monotonic_sample_refuses(value):
     with pytest.raises(timing.TimingRefused, match='INVALID'):
-        timing.OriginalExecuteClock(EXECUTE, now=EXECUTE, monotonic=lambda: value)
+        timing.OriginalExecuteClock(EXECUTE, now=lambda: EXECUTE, monotonic=lambda: value, boottime=lambda: 1)
 
 
 def test_market_assessment_preserves_real_saturday_and_monday_calendars():
@@ -225,7 +224,8 @@ def test_generated_source_names_real_426_session_shape_and_coverage_limitations(
 
 
 @pytest.mark.parametrize('material', [b'x' * (timing.MAX_DOCUMENT_BYTES + 1),
-    b'{"value":' + b'[' * (timing.MAX_DOCUMENT_DEPTH + 1) + b'0' + b']' * (timing.MAX_DOCUMENT_DEPTH + 1) + b'}\n'])
+    b'{"value":' + b'[' * (timing.MAX_DOCUMENT_DEPTH + 1) + b'0' + b']' * (timing.MAX_DOCUMENT_DEPTH + 1) + b'}\n'],
+    ids=['oversized-eight-mib', 'nested-past-depth-64'])
 def test_documents_are_bounded_before_recursive_json_decode(tmp_path, material):
     path = tmp_path / 'manifest.json'
     path.write_bytes(material)
@@ -251,7 +251,7 @@ def test_brackets_and_escaped_quotes_inside_strings_do_not_consume_depth(tmp_pat
 def orchestrated(run=timing.run_original_clock, *, entry_delay=0, prepare_seconds=10,
                  execution_seconds=40, commit_seconds=15, first_post=True):
     sampled, events = [1000], []
-    provider = SimpleNamespace(started=None, first_order_seconds=None)
+    provider = SimpleNamespace(started=None, first_order_seconds=None, post=lambda *_args, **_kwargs: None)
     def record(gate):
         events.append(('ORIGIN', provider.started, gate.elapsed()))
     def prepare():
@@ -261,7 +261,7 @@ def orchestrated(run=timing.run_original_clock, *, entry_delay=0, prepare_second
     def execute_recover(plan):
         assert plan == 'durable-plan'
         if first_post:
-            provider.first_order_seconds = sampled[0] - provider.started
+            provider.post('local-only', {'qty': '1'})
         events.append(('EXECUTE_AND_RECOVER', provider.started))
         sampled[0] += execution_seconds
         return 'positively-recovered-basket'
@@ -272,7 +272,8 @@ def orchestrated(run=timing.run_original_clock, *, entry_delay=0, prepare_second
         return {'basket': 'verified'}
     result = run(EXECUTE, provider=provider, prepare=prepare, execute_recover=execute_recover,
         verify_commit=verify_commit, record_origin=record,
-        now=lambda: EXECUTE + timedelta(seconds=entry_delay), monotonic=lambda: sampled[0])
+        now=lambda: EXECUTE + timedelta(seconds=entry_delay), monotonic=lambda: sampled[0],
+        boottime=lambda: sampled[0])
     return result, events
 
 
@@ -328,11 +329,154 @@ def test_nonconsuming_weekend_status_never_writes_claim_or_runs_gateway(tmp_path
     monkeypatch.setattr(timing, 'market_status', lambda *_args, **_kwargs: (saturday, actual_timing))
     monkeypatch.setattr(timing, 'write_new', lambda *_args, **_kwargs: pytest.fail('status must not consume or write'))
     monkeypatch.setattr(timing, 'gateway', lambda *_args, **_kwargs: pytest.fail('weekend status cannot execute'))
-    argv = ['status', '--campaign-dir', str(tmp_path), '--campaign-id', CAMPAIGN,
+    campaign_dir = tmp_path / 'campaign'
+    campaign_dir.mkdir()
+    argv = ['status', '--campaign-dir', str(campaign_dir), '--campaign-id', CAMPAIGN,
         '--database', 'postgresql://postgres@127.0.0.1:5432/opening_latency_' + CAMPAIGN,
         '--expected-system-id', '123456789', '--production-system-id', '7691913275518591014',
         '--runtime-image-digest', 'sha256:' + 'b' * 64, '--commit', 'a' * 40,
         '--scheduler-profile', str(tmp_path / 'scheduler.json'), '--campaign-sha256', 'c' * 64]
     assert timing.main(argv) == 0
     assert timing.main(argv) == 0
-    assert list(tmp_path.iterdir()) == []
+    assert list(campaign_dir.iterdir()) == []
+
+
+def test_suspend_and_late_post_refuse_at_post_entry_before_local_transport():
+    ticks = {'mono': 1000, 'boot': 1000, 'utc': EXECUTE}
+    posts = []
+    provider = SimpleNamespace(started=None, first_order_seconds=None,
+                               post=lambda *_args, **_kwargs: posts.append('sent'))
+    def execute(_prepared):
+        # CLOCK_MONOTONIC paused during sleep; boottime and UTC did not.
+        ticks.update(boot=1121, utc=EXECUTE + timedelta(seconds=121))
+        provider.post('local-only', {})
+    with pytest.raises(timing.TimingRefused, match='FIRST_POST'):
+        timing.run_original_clock(EXECUTE, provider=provider, prepare=lambda: None,
+            execute_recover=execute, verify_commit=lambda _: pytest.fail('late POST cannot complete'),
+            record_origin=lambda _: None, now=lambda: ticks['utc'],
+            monotonic=lambda: ticks['mono'], boottime=lambda: ticks['boot'])
+    assert posts == [] and provider.first_order_seconds is None
+
+
+def test_scheduler_descheduling_between_ticks_and_utc_cannot_shorten_elapsed():
+    ticks, calls = [1000], []
+    def mono():
+        calls.append('MONOTONIC')
+        return ticks[0]
+    def boot():
+        calls.append('BOOTTIME')
+        return ticks[0]
+    def utc():
+        calls.append('UTC')
+        ticks[0] = 1050
+        return EXECUTE + timedelta(seconds=50)
+    gate = timing.OriginalExecuteClock(EXECUTE, now=utc, monotonic=mono, boottime=boot)
+    assert calls[:3] == ['MONOTONIC', 'BOOTTIME', 'UTC']
+    assert gate.elapsed() >= 50
+    assert gate.evidence()['initial_monotonic'] == 1000
+
+
+def test_forward_utc_jump_counts_and_backward_utc_refuses():
+    utc = [EXECUTE]
+    gate = timing.OriginalExecuteClock(EXECUTE, now=lambda: utc[0],
+                                      monotonic=lambda: 1000, boottime=lambda: 1000)
+    utc[0] += timedelta(seconds=301)
+    with pytest.raises(timing.TimingRefused, match='COMPLETE_BASKET'):
+        gate.check(1, complete=True)
+    utc[0] -= timedelta(seconds=1)
+    with pytest.raises(timing.TimingRefused, match='UTC_CLOCK_REGRESSED'):
+        gate.elapsed()
+
+
+def test_boottime_is_required_and_a_regression_is_not_hidden_by_other_clocks(monkeypatch):
+    boot = [1000]
+    gate = timing.OriginalExecuteClock(EXECUTE, now=lambda: EXECUTE,
+                                      monotonic=lambda: 1000, boottime=lambda: boot[0])
+    boot[0] -= 1
+    with pytest.raises(timing.TimingRefused, match='REGRESSED'):
+        gate.elapsed()
+    monkeypatch.delattr(timing.time, 'CLOCK_BOOTTIME', raising=False)
+    with pytest.raises(timing.TimingRefused, match='LINUX_BOOTTIME'):
+        timing.OriginalExecuteClock(EXECUTE, now=lambda: EXECUTE, monotonic=lambda: 1000)
+
+
+def test_actual_first_post_entry_survives_unchanged_provider_numeric_roundtrip():
+    from decimal import Decimal
+    import json
+    from tools.opening_gateway_qualification import LocalAlpaca
+    assets = {'AAA': {'id': 'asset-AAA', 'security_id': 'SEC-AAA', 'symbol': 'AAA', 'price': Decimal('100')}}
+    make = lambda: LocalAlpaca(account='private', cash='10000', assets=assets,
+        window=lambda: (EXECUTE - timedelta(minutes=1), EXECUTE + timedelta(hours=6)),
+        forbid_quotes=True, marketable_limit_fills=True)
+    provider = make()
+    ticks = {'mono': 1000, 'boot': 1000, 'utc': EXECUTE}
+    def execute(_prepared):
+        ticks.update(mono=1005, boot=1061, utc=EXECUTE + timedelta(seconds=61))
+        provider.post('https://paper-api.alpaca.markets/v2/orders', {
+            'symbol': 'asset-AAA', 'qty': '1', 'side': 'buy', 'type': 'limit', 'time_in_force': 'day',
+            'client_order_id': 'private-timing-one', 'order_class': 'simple',
+            'extended_hours': False, 'limit_price': '101'})
+        payload = json.loads(json.dumps(provider.state()))
+        parent = make()
+        parent.started = provider.started
+        parent.restore(payload)
+        assert parent.first_order_seconds == provider.first_order_seconds == 61
+        assert set(payload) == {'cash', 'positions', 'orders', 'events', 'requests', 'started', 'first_order_seconds'}
+        return parent
+    verified, elapsed = timing.run_original_clock(EXECUTE, provider=provider, prepare=lambda: None,
+        execute_recover=execute, verify_commit=lambda value: value, record_origin=lambda _: None,
+        now=lambda: ticks['utc'], monotonic=lambda: ticks['mono'], boottime=lambda: ticks['boot'])
+    assert verified.first_order_seconds == elapsed == 61
+
+
+def mock_main_boundary(monkeypatch, tmp_path, mode):
+    from sentinel.automation.model import AutomationConfig
+    config = AutomationConfig()
+    monkeypatch.setattr(timing, 'require_environment', lambda: {})
+    monkeypatch.setattr(timing, 'scheduler_document', lambda _path: ({}, config))
+    monkeypatch.setattr(timing, 'load_campaign', lambda *_args: ({'source_frontier': '2026-10-23',
+        'runtime_identity_sha256': 'private-runtime'}, {'environment': {}}))
+    monkeypatch.setattr(timing, '_environment', lambda *_args, **_kwargs: nullcontext())
+    monkeypatch.setattr(timing, '_identity', lambda: {'identity_hash': 'private-runtime'})
+    monkeypatch.setattr(timing, 'market_status', lambda *_args, **_kwargs: ({'status': 'BLOCKED_MARKET_SESSION'}, None))
+    return [mode, '--campaign-dir', str(tmp_path), '--campaign-id', CAMPAIGN,
+        '--database', 'postgresql://postgres@127.0.0.1:5432/opening_latency_' + CAMPAIGN,
+        '--expected-system-id', '123456789', '--production-system-id', '7691913275518591014',
+        '--runtime-image-digest', 'sha256:' + 'b' * 64, '--commit', 'a' * 40,
+        '--scheduler-profile', str(tmp_path / 'scheduler.json'), '--campaign-sha256', 'c' * 64]
+
+
+def test_losing_prepare_invocation_cannot_steal_or_overwrite_winner_report(tmp_path, monkeypatch):
+    campaign = tmp_path / 'campaign'
+    argv = mock_main_boundary(monkeypatch, campaign, 'prepare')
+    winner = {'result': 'WINNER_ORIGINAL'}
+    def competing(_args, *_unused, **_kwargs):
+        campaign.mkdir()
+        timing.write_new(campaign / 'prepare-claim.json', {'owner': 'other-invocation'})
+        timing.write_new(campaign / 'prepare-report.json', winner)
+        raise timing.TimingRefused('FRESH_CAMPAIGN_DIRECTORY_REQUIRED')
+    monkeypatch.setattr(timing, 'prepare', competing)
+    assert timing.main(argv) == 1
+    assert timing.read_object(campaign / 'prepare-report.json') == winner
+
+
+def test_losing_cold_claim_cannot_create_winners_canonical_report(tmp_path, monkeypatch):
+    argv = mock_main_boundary(monkeypatch, tmp_path, 'cold')
+    timing.write_new(tmp_path / 'cold-claim.json', {'owner': 'other-invocation'})
+    monkeypatch.setattr(timing, 'cold', lambda *_args: pytest.fail('losing claim cannot execute'))
+    assert timing.main(argv) == 1
+    assert not (tmp_path / 'cold-report.json').exists()
+
+
+def test_owned_claim_still_retains_its_original_failure_report(tmp_path, monkeypatch):
+    campaign = tmp_path / 'campaign'
+    argv = mock_main_boundary(monkeypatch, campaign, 'prepare')
+    def own_and_fail(_args, *_unused, claim_owned, **_kwargs):
+        campaign.mkdir()
+        timing.write_new(campaign / 'prepare-claim.json', {'owner': 'this-invocation'})
+        claim_owned()
+        raise timing.TimingRefused('ORIGINAL_PRIVATE_PREPARATION_FAILURE')
+    monkeypatch.setattr(timing, 'prepare', own_and_fail)
+    assert timing.main(argv) == 1
+    report = timing.read_object(campaign / 'prepare-report.json')
+    assert report['result'] == 'REFUSED' and report['failure_code'] == 'ORIGINAL_PRIVATE_PREPARATION_FAILURE'

@@ -169,27 +169,54 @@ def scheduler_document(path):
 
 
 class OriginalExecuteClock:
-    """One monotonic origin anchored to the real scheduled EXECUTE instant.
+    """Conservative monotonic/boottime/UTC elapsed from original EXECUTE.
 
     Construction is before PREPARE. Late process entry retains the elapsed
     delay from the original due-time. No callback/retry can reset the origin.
     """
-    def __init__(self, execute_at, *, now, monotonic=time.monotonic):
+    def __init__(self, execute_at, *, now=None, monotonic=None, boottime=None):
         self.execute_at = instant(execute_at)
-        self.observed_at = instant(now)
+        self._clock = time.monotonic if monotonic is None else monotonic
+        if boottime is None:
+            require(hasattr(time, 'CLOCK_BOOTTIME'), 'LINUX_BOOTTIME_CLOCK_REQUIRED')
+            boottime = lambda: time.clock_gettime(time.CLOCK_BOOTTIME)
+        self._boottime = boottime
+        self._utc = (lambda: datetime.now(UTC)) if now is None else now
+        # Read ticks before UTC: descheduling between reads can only add a
+        # conservative interval, never make the original origin more recent.
+        sampled = self._clock()
+        sampled_boot = self._boottime()
+        self.observed_at = instant(self._utc())
         delay = (self.observed_at - self.execute_at).total_seconds()
         require(delay >= 0, 'ORIGINAL_EXECUTE_NOT_YET_DUE')
-        self._clock = monotonic
-        sampled = monotonic()
-        require(math.isfinite(sampled), 'MONOTONIC_CLOCK_INVALID')
+        require(math.isfinite(sampled) and math.isfinite(sampled_boot), 'MONOTONIC_CLOCK_INVALID')
         self.started = sampled - delay
+        self._boot_origin = sampled_boot - delay
+        self._initial_mono, self._initial_boot = sampled, sampled_boot
         self._last = sampled
+        self._last_boot = sampled_boot
+        self._last_utc = self.observed_at
+        self._elapsed = delay
 
     def elapsed(self):
         value = self._clock()
-        require(math.isfinite(value) and value >= self._last, 'MONOTONIC_CLOCK_REGRESSED')
-        self._last = value
-        return value - self.started
+        boot = self._boottime()
+        utc = instant(self._utc())
+        require(math.isfinite(value) and value >= self._last
+                and math.isfinite(boot) and boot >= self._last_boot, 'MONOTONIC_CLOCK_REGRESSED')
+        require(utc >= self._last_utc, 'UTC_CLOCK_REGRESSED')
+        self._last, self._last_boot, self._last_utc = value, boot, utc
+        self._elapsed = max(self._elapsed, value - self.started, boot - self._boot_origin,
+                            (utc - self.execute_at).total_seconds())
+        return self._elapsed
+
+    def evidence(self):
+        return {'execute_at': self.execute_at.isoformat(), 'observed_at': self.observed_at.isoformat(),
+                'latest_utc': self._last_utc.isoformat(), 'initial_monotonic': self._initial_mono,
+                'initial_boottime': self._initial_boot, 'latest_monotonic': self._last,
+                'latest_boottime': self._last_boot, 'monotonic_origin': self.started,
+                'boottime_origin': self._boot_origin,
+                'basis': 'MAX_MONOTONIC_LINUX_BOOTTIME_UTC; BACKWARD_SAMPLES_REFUSE'}
 
     def check(self, first_post=None, *, complete=False):
         elapsed = self.elapsed()
@@ -203,25 +230,35 @@ class OriginalExecuteClock:
 
 
 def run_original_clock(execute_at, *, provider, prepare, execute_recover,
-                       verify_commit, record_origin, now=None, monotonic=None):
+                       verify_commit, record_origin, now=None, monotonic=None, boottime=None):
     """The gateway's measured orchestration, with bounded test-only clock inputs.
 
     The CLI supplies neither clock seam. Every callback and the final positive
     verification/durable commit use the one original origin; failure propagates.
     """
-    clock = OriginalExecuteClock(execute_at,
-        now=datetime.now(UTC) if now is None else now(),
-        monotonic=time.monotonic if monotonic is None else monotonic)
+    clock = OriginalExecuteClock(execute_at, now=now, monotonic=monotonic, boottime=boottime)
     provider.started = clock.started
-    record_origin(clock)
-    clock.check()
-    prepared = prepare()
-    clock.check(provider.first_order_seconds)
-    outcome = execute_recover(prepared)
-    clock.check(provider.first_order_seconds)
-    verified = verify_commit(outcome)
-    elapsed = clock.check(provider.first_order_seconds, complete=True)
-    return verified, elapsed
+    original_post = provider.post
+    def measured_post(*args, **kwargs):
+        elapsed = clock.check(provider.first_order_seconds)
+        if provider.first_order_seconds is None:
+            provider.first_order_seconds = elapsed
+            print(canonical({'stage': 'FIRST_SIMULATED_POST_ENTRY', 'seconds': elapsed,
+                             'clock': clock.evidence()}).decode('ascii'), flush=True)
+        return original_post(*args, **kwargs)
+    provider.post = measured_post
+    try:
+        record_origin(clock)
+        clock.check()
+        prepared = prepare()
+        clock.check(provider.first_order_seconds)
+        outcome = execute_recover(prepared)
+        clock.check(provider.first_order_seconds)
+        verified = verify_commit(outcome)
+        elapsed = clock.check(provider.first_order_seconds, complete=True)
+        return verified, elapsed
+    finally:
+        provider.post = original_post
 
 
 def market_status(decision_session, config, *, now):
@@ -324,7 +361,7 @@ class _FixtureScope:
         self.stack.enter_context(patch.object(owner, name, value))
 
 
-def prepare(args, config, scheduler, resources):
+def prepare(args, config, scheduler, resources, *, claim_owned=None):
     """Generate source through canonical publication/formation, without execution."""
     from sentinel import binding, identity, mirror_projection, operational_schema, schema, shadow_runtime
     from sentinel import rolling_initialization, rolling_runtime
@@ -338,6 +375,8 @@ def prepare(args, config, scheduler, resources):
     args.campaign_dir.mkdir(parents=True)
     write_new(args.campaign_dir / 'prepare-claim.json', {'campaign_id': args.campaign_id,
         'at': datetime.now(UTC).isoformat(), 'authority_effect': 'NONE'})
+    if claim_owned is not None:
+        claim_owned()
     started = time.monotonic()
     with _environment(args), connect(args) as conn, ExitStack() as stack:
         require(conn.execute("SELECT to_regclass('public.sentinel_account_binding')").fetchone()[0] is None,
@@ -560,6 +599,7 @@ def gateway(args, campaign, config, timing):
                 write_new(args.campaign_dir / 'original-execute-clock.json', {
                     'campaign_sha256': digest(campaign), 'execute_at': timing.execute_at.isoformat(),
                     'observed_at': clock.observed_at.isoformat(), 'monotonic_origin': clock.started,
+                    'clock_evidence': clock.evidence(),
                     'includes': ['PREPARE', 'EXECUTE', 'ALL_RECOVER', 'POSITIVE_BASKET', 'DURABLE_SUCCEEDED']})
             def prepare_at_origin():
                 return callback('PREPARE', 'PREPARE', runtime.prepare)
@@ -598,6 +638,7 @@ def gateway(args, campaign, config, timing):
                 'execution_passes': verified['passes'], 'stages': stages, 'original_execute_at': timing.execute_at.isoformat(),
                 'pre_execute_setup_seconds': round(setup_seconds, 6),
                 'pre_execute_wait_seconds': round(wait_seconds, 6),
+                'clock_basis': 'MAX_MONOTONIC_LINUX_BOOTTIME_UTC; BACKWARD_SAMPLES_REFUSE',
                 'book_preserved': True, 'callbacks': 'UNCHANGED AutomationService._invoke + ProductionAutomation',
                 'substitutions': ['generated external source', 'disposable signed PAPER issuer root',
                                   'native-shaped local broker transport'],
@@ -645,10 +686,13 @@ def main(argv=None):
         report['failure_code'] = 'ORIGINAL_REPORT_ALREADY_EXISTS'
         print(canonical(report).decode('ascii'), flush=True)
         return 1
-    persist = args.mode != 'status'
+    report_owned = False
+    def claim_owned():
+        nonlocal report_owned
+        report_owned = True
     try:
         if args.mode == 'prepare':
-            report.update(prepare(args, config, scheduler, resources))
+            report.update(prepare(args, config, scheduler, resources, claim_owned=claim_owned))
         else:
             campaign, context = load_campaign(args, scheduler, resources)
             report['campaign_sha256'] = digest(campaign)
@@ -663,6 +707,7 @@ def main(argv=None):
                     return 0
                 write_new(args.campaign_dir / (args.mode + '-claim.json'), {
                     'campaign_sha256': digest(campaign), 'at': datetime.now(UTC).isoformat(), 'mode': args.mode})
+                claim_owned()
                 if args.mode == 'cold':
                     report.update(cold(args, campaign))
                 elif state['status'] != 'ELIGIBLE_REAL_SESSION':
@@ -677,7 +722,7 @@ def main(argv=None):
     finally:
         # Prepare can refuse before it creates the campaign directory. Avoid
         # creating/replacing caller-selected paths merely to report that error.
-        if persist and args.campaign_dir.is_dir() and not args.campaign_dir.is_symlink():
+        if report_owned and args.campaign_dir.is_dir() and not args.campaign_dir.is_symlink():
             write_new(report_path, report)
         print(canonical(report).decode('ascii'), flush=True)
     return 0 if report['result'] in {'PREPARED', 'DIAGNOSTIC_ONLY'} or report.get('gateway_qualified') else 1

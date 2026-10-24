@@ -19,7 +19,7 @@ from unittest.mock import patch
 import pytest
 from psycopg.pq import TransactionStatus
 
-from sentinel import automation_runtime, binding, rolling_checkpoint, rolling_initialization
+from sentinel import automation_runtime, binding, rolling_checkpoint, rolling_initialization, rolling_runtime
 from sentinel.authority import load_rollout_state
 from sentinel.automation import schedule, store as automation_store
 from sentinel.automation.model import (AutomationConfig, ControlBinding, CycleContext, CycleSpec,
@@ -27,6 +27,8 @@ from sentinel.automation.model import (AutomationConfig, ControlBinding, CycleCo
 from sentinel.config import DEFAULT_BASE_URL, SentinelConfig
 from sentinel.execution import journal, protected_funding
 from sentinel.execution.states import CommandState
+from sentinel.core.formation_inputs import FormationInputs
+from sentinel.feed import normalized_layout, operational_snapshot as snapshots, rolling_store
 from sentinel.strategy import production_strategy
 from tests.sentinel.test_current_operational_workflow import OBSERVATION, cluster, conn, current  # noqa: F401
 from tests.support.current_workflow_authority import issue_current_paper_authority
@@ -38,9 +40,25 @@ from tests.support.current_workflow_run import _assets, live_lease
 @pytest.mark.skipif(sys.platform != 'linux', reason='actual fork/SIGKILL and durable directory fsync')
 def test_current_protected_day_survives_two_callback_deaths_without_duplicate_economics(
         conn, current, monkeypatch, tmp_path):
-    _, published, clock = current
+    prices, published, clock = current
+    assert len(prices.window.sessions) == 426
     formed = rolling_initialization.initialize(conn, observation_id=OBSERVATION, starting_cash=Decimal('50000'))
+    assert formed.state.last_processed_session == str(prices.window.end)
     assert formed.state.wealth_core['episodes']
+    original_hash = formed.state.state_hash
+    resumed = rolling_initialization.resume(conn, observation_id=OBSERVATION, starting_cash=Decimal('50000'))
+    assert resumed.state.state_hash == original_hash
+    # Initial formation creates canonical state. The ordinary runtime advance
+    # independently verifies that state and earns the retained runtime receipt
+    # required by the issuer; formation alone is not execution admission.
+    attested = rolling_runtime.advance(conn, through=str(prices.window.end),
+        observation_id=OBSERVATION, starting_cash=Decimal('50000'))
+    assert attested.verification == 'VERIFIED' and attested.state.state_hash == original_hash
+    with snapshots.pinned(conn) as (publication, source_bound):
+        assert FormationInputs(conn, source_bound, publication) is not None
+        source_manifest = rolling_store.manifest(conn, published['candidate_id'])
+        normalized_layout.require_layout(conn, published['candidate_id'], source_manifest)
+    conn.rollback()
     canonical = rolling_checkpoint.read(conn).model_dump(by_alias=True)
     config = AutomationConfig()
     controller, strategy = production_strategy()
