@@ -12,7 +12,6 @@ import asyncio
 import ast
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-import hashlib
 import inspect
 import json
 import os
@@ -313,21 +312,69 @@ def test_current_whole_service_restart_takes_over_real_lease_without_reposting_u
             assert Decimal(final_state['state']['positions'][order['asset_id']]) == original.quantity
             assert final_state['state']['requests'].get('GET /v2/stocks/quotes/latest', 0) == 0
             assert json.loads(state_path.read_text()) == final_state
-            stored_fills = conn.execute('SELECT broker_order_id,fill_key,client_key,quantity,price,filled_at '
-                'FROM sentinel_fills WHERE client_key=%s OR broker_order_id=%s ORDER BY fill_key',
-                (key, order['id'])).fetchall()
-            expected_fills = []
-            for event in final_state['state']['events']:
-                # Independent expected identity/economics, not the journal's
-                # fingerprint helper or command's cumulative fill projection.
-                material = {'kind': 'broker-native-fill/v1', 'activity_id': event['ref_id']}
-                fingerprint = hashlib.sha256(json.dumps(material, sort_keys=True,
-                    separators=(',', ':')).encode('utf-8')).hexdigest()
-                expected_fills.append((order['id'], fingerprint, key, Decimal(event['qty']),
-                    Decimal(event['price']), datetime.fromisoformat(event['executed_at'])))
-            assert len(stored_fills) == len({event['ref_id'] for event in final_state['state']['events']}) == 2
-            assert stored_fills == sorted(expected_fills, key=lambda row: row[1])
-            assert sum(row[3] for row in stored_fills) == original.quantity
+            # Current dual PAPER reconciliation accepts positive cumulative
+            # order evidence. It deliberately does not claim accepted native
+            # activity history or project provider events into a fill ledger.
+            assert setup._broker(conn,
+                cycle.effective_session.isoformat()).capabilities.recent_fill_history is False
+            assert conn.execute('SELECT count(*) FROM sentinel_fills').fetchone() == (0,)
+            assert not any(name.startswith('GET /v2/account/activities')
+                or name.startswith('GET /v2beta1/events/activities')
+                for name in final_state['state']['requests'])
+            assert conn.execute('SELECT count(*) FROM sentinel_commands WHERE client_key=%s',
+                (key,)).fetchone() == (1,)
+            history = journal.command_history(conn, key)
+            partial_events = [index for index, event in enumerate(history)
+                if event['to'] == 'PARTIALLY_FILLED' and Decimal(event['filled']) == 1]
+            final_events = [index for index, event in enumerate(history)
+                if event['to'] == 'FILLED' and Decimal(event['filled']) == original.quantity]
+            assert partial_events and final_events and min(final_events) > min(partial_events)
+            cumulative = [Decimal(event['filled']) for event in history if event['filled'] is not None]
+            assert cumulative == sorted(cumulative) and max(cumulative) == original.quantity
+
+            partial_witnesses, final_witnesses = [], []
+            exact_partial_witnesses, ordinary_final_witnesses = [], []
+            sequences = conn.execute('SELECT seq FROM sentinel_observations ORDER BY seq').fetchall()
+            assert 0 < len(sequences) <= 128, 'bounded fresh private observation history'
+            for (sequence,) in sequences:
+                # This real canonical loader validates primary/provenance rows,
+                # their full digest and immutable processed-session witness.
+                payload = journal.load_observation_payload(conn, sequence)
+                assert payload['broker'] == bound.broker
+                assert payload['account_id'] == bound.broker_account_id
+                orders = [(value, False) for value in payload['orders']]
+                for exact in payload['exact_evidence']:
+                    if exact['client_key'] == key and exact['order'] is not None:
+                        expected_identity = {'broker': bound.broker, 'account_id': bound.broker_account_id}
+                        assert exact['identity_before'] == exact['identity_after'] == expected_identity
+                        orders.append((exact['order'], True))
+                for witnessed, exact in orders:
+                    if witnessed['client_key'] != key:
+                        continue
+                    assert witnessed['broker_order_id'] == order['id'] == final.broker_order_id
+                    assert witnessed['security_id'] == original.security_id
+                    assert witnessed['broker_id'] == order['asset_id'] == original.instrument.broker_id
+                    assert witnessed['symbol'] == order['symbol'] == original.instrument.symbol
+                    assert witnessed['side'] == original.side.value == 'BUY'
+                    assert Decimal(witnessed['quantity']) == original.quantity
+                    assert witnessed['order_terms'] == original.order_terms.to_dict()
+                    assert Decimal(witnessed['filled_average_price']) == Decimal(order['filled_avg_price'])
+                    assert witnessed['submitted_at'] == order['submitted_at']
+                    positions = {item['security_id']: Decimal(item['quantity']) for item in payload['positions']}
+                    filled = Decimal(witnessed['filled_quantity'])
+                    if witnessed['state'] == 'PARTIALLY_FILLED':
+                        assert filled == 1 and positions[original.security_id] == 1
+                        partial_witnesses.append(sequence)
+                        if exact:
+                            exact_partial_witnesses.append(sequence)
+                    elif witnessed['state'] == 'FILLED':
+                        assert filled == original.quantity and positions[original.security_id] == original.quantity
+                        final_witnesses.append(sequence)
+                        if not exact:
+                            ordinary_final_witnesses.append(sequence)
+            assert partial_witnesses and final_witnesses
+            assert exact_partial_witnesses and ordinary_final_witnesses
+            assert min(final_witnesses) > min(partial_witnesses)
             assert rolling_checkpoint.read(conn).model_dump(by_alias=True) == origin
             conn.rollback()
             worker_c['stop'].set()

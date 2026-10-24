@@ -41,12 +41,23 @@ limit, DAY terms, funding basis and outstanding principal reservation. A separat
 transport outage must keep uncertainty unresolved without a second order POST.
 After positive observations return, recovery records partial/final executions
 exactly once and defers any remaining new submissions to the original wake.
-Verify the actual PostgreSQL fill journal against both original simulated native
-activity identities, independent expected SHA256 fill keys and every quantity,
-price, client/order identity and timestamp. Provider totals or a cumulative
-command quantity alone do not establish durable exactly-once accounting. The
-last complete worker must stop normally with exit zero and its STOPPED receipt
-before any exceptional cleanup fallback.
+Verify the actual current-profile PostgreSQL evidence: validated account-bound
+order observations/provenance, the exact-key partial-order witness needed to
+resolve UNKNOWN and the durable command event progression from one partially
+filled share to the original full quantity. A final positive order already in
+the ordinary snapshot needs no additional exact-key lookup; validate its final
+order/position witness without manufacturing another read.
+Check the same account, command/order/asset identity, original quantity, limit,
+DAY terms and cumulative average against the independent provider. The current
+dual PAPER recovery deliberately observes orders/positions without promoting
+account-wide native activity completeness. Its financial `sentinel_fills` cache
+therefore remains empty and its native history capability remains false. The
+candidate's original new requirement for two financial-cache rows was incorrect
+for this operating contract; its failed qualification is retained. Do not fill
+that cache from provider test events or relax native acceptance to satisfy a
+test. Positive per-activity identity/financial-history acceptance stays open.
+The last complete worker must stop normally with exit zero and its STOPPED
+receipt before any exceptional cleanup fallback.
 
 The private process owner accepts only its direct child and its original Linux
 start ticks; signal through its opened pidfd. An in-memory copied-function
