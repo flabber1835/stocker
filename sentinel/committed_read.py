@@ -10,6 +10,8 @@ def proof_connection(conn):
     borrowed = conn.info.transaction_status != TransactionStatus.IDLE
     with conn.transaction(force_rollback=True):
         pin = readiness_scope.capture(conn)
+        statement_timeout = conn.execute('SHOW statement_timeout').fetchone()[0]
+        lock_timeout = conn.execute('SHOW lock_timeout').fetchone()[0]
     borrowed = borrowed or pin is not None
     if borrowed:
         from sentinel.guarded_administration import fresh_connection_factory
@@ -18,6 +20,9 @@ def proof_connection(conn):
         proof = conn
     try:
         proof.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        if borrowed:
+            proof.execute("SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)",
+                          (statement_timeout,lock_timeout))
         yield proof
         if pin is not None:
             with conn.transaction(force_rollback=True):

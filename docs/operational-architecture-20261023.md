@@ -378,3 +378,12 @@ transaction, and none of these reusable readers rolls it back on refusal.
 The source-wait reader keeps its original historical session/attestation clocks
 and still grants no current GO. Read-only service probes which create their own
 fresh connection already have an explicit owner and retain that behavior.
+
+A borrowed committed-read proof inherits the owner's exact current
+`statement_timeout` and `lock_timeout`, including transaction-local settings.
+Capture both with the original pin inside the existing rollback-only owner
+scope. On the fresh backend, establish repeatable-read/read-only mode first,
+then set those exact values through parameterized transaction-local settings
+before any proof query. An idle reused connection already has its settings.
+The proof cannot silently revert to a longer connection default; success and
+timeout refusal preserve the owner's work, settings and original pin.

@@ -11,6 +11,7 @@ import pytest
 
 from sentinel import supervisor_io
 from sentinel.panel import authority_reader as reader, model, sources
+from tests.sentinel.test_operational_catalog_integration import cluster, conn  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -18,6 +19,91 @@ def named_observer_identity_fixture(monkeypatch):
     # Unit and process-pipe tests have no database. Real SQL keys are qualified
     # separately; this seam never replaces the complete observer in production.
     monkeypatch.setattr(reader, '_evidence', lambda *args: 'f'*64)
+
+
+@pytest.mark.parametrize('dsn,expected', [
+    ('postgresql://paper:private@127.0.0.1:5432/isolated',
+     'postgresql://paper:private@127.0.0.1:5432/isolated?connect_timeout=4'),
+    ('postgresql://paper:private@127.0.0.1:5432/isolated?sslmode=require',
+     'postgresql://paper:private@127.0.0.1:5432/isolated?sslmode=require&connect_timeout=4'),
+])
+def test_observer_connect_bound_preserves_uri_style_and_target(dsn, expected):
+    from psycopg.conninfo import conninfo_to_dict
+    bounded = sources._bounded_dsn(dsn)
+    assert bounded == expected
+    assert conninfo_to_dict(bounded) == {
+        **conninfo_to_dict(dsn), 'connect_timeout': str(sources.CONNECT_TIMEOUT_SECONDS)}
+
+
+def test_observer_connect_bound_preserves_keyword_target_password_and_quoted_values():
+    from psycopg.conninfo import conninfo_to_dict
+    dsn = (r"user='paper user' password='a b\'c\\d' host=127.0.0.1 "
+           r"dbname='paper book' port=5432 options='-c statement_timeout=8000'")
+    expected = {'user': 'paper user', 'password': "a b'c\\d", 'host': '127.0.0.1',
+                'dbname': 'paper book', 'port': '5432', 'options': '-c statement_timeout=8000',
+                'connect_timeout': str(sources.CONNECT_TIMEOUT_SECONDS)}
+    assert conninfo_to_dict(sources._bounded_dsn(dsn)) == expected
+
+
+@pytest.mark.parametrize('timeout', [2, 9])
+@pytest.mark.parametrize('uri', [False, True])
+def test_observer_preserves_explicit_positive_connect_timeout(timeout, uri):
+    dsn = (f'postgresql://paper@127.0.0.1:5432/isolated?connect_timeout={timeout}' if uri else
+           f'user=paper host=127.0.0.1 port=5432 dbname=isolated connect_timeout={timeout}')
+    assert sources._bounded_dsn(dsn) == dsn
+
+
+@pytest.mark.parametrize('uri', [False, True])
+def test_observer_zero_connect_timeout_gets_finite_default_without_target_change(uri):
+    from psycopg.conninfo import conninfo_to_dict
+    dsn = ('postgresql://paper@127.0.0.1:5432/isolated?connect_timeout=0' if uri else
+           'user=paper host=127.0.0.1 port=5432 dbname=isolated connect_timeout=0')
+    assert conninfo_to_dict(sources._bounded_dsn(dsn)) == {
+        **conninfo_to_dict(dsn), 'connect_timeout': str(sources.CONNECT_TIMEOUT_SECONDS)}
+
+
+def test_connect_timeout_text_in_password_is_not_a_connection_option():
+    from psycopg.conninfo import conninfo_to_dict
+    dsn = "user=paper password='private connect_timeout text' host=127.0.0.1 dbname=isolated"
+    assert conninfo_to_dict(sources._bounded_dsn(dsn)) == {
+        **conninfo_to_dict(dsn), 'connect_timeout': str(sources.CONNECT_TIMEOUT_SECONDS)}
+
+
+def test_keyword_conninfo_guard_has_a_removed_fix_falsifier(monkeypatch):
+    from psycopg.conninfo import conninfo_to_dict
+    dsn = 'user=paper dbname=isolated host=127.0.0.1 port=5432'
+    def require_original_target():
+        assert conninfo_to_dict(sources._bounded_dsn(dsn)) == {
+            'user': 'paper', 'dbname': 'isolated', 'host': '127.0.0.1',
+            'port': '5432', 'connect_timeout': str(sources.CONNECT_TIMEOUT_SECONDS)}
+    require_original_target()
+    def uri_only(dsn):
+        if 'connect_timeout' in dsn:
+            return dsn
+        return dsn+('&' if '?' in dsn else '?')+'connect_timeout=4'
+    monkeypatch.setattr(sources, '_bounded_dsn', uri_only)
+    with pytest.raises(AssertionError):
+        require_original_target()
+
+
+def test_actual_connection_info_dsn_reaches_private_shadow_observer_without_invented_book(conn):
+    from psycopg.conninfo import conninfo_to_dict
+    dsn = conn.info.dsn
+    assert not dsn.startswith(('postgresql://', 'postgres://'))
+    conn.rollback()
+    bounded = conninfo_to_dict(sources._bounded_dsn(dsn))
+    assert {key: value for key, value in bounded.items() if key != 'connect_timeout'} == {
+        key: value for key, value in conninfo_to_dict(dsn).items() if key != 'connect_timeout'}
+    rows, details, history, errors = sources._dual_authority_rows(
+        dsn, now=datetime.now(timezone.utc), include_paper=False)
+    assert not details and not history
+    assert not any('shadow authority database:' in error for error in errors), errors
+    by_key = {row.key: row for row in rows}
+    # This private database deliberately has no canonical book/publication.
+    # A successful connection must preserve that honest unavailable outcome.
+    assert by_key['shadow_verification'].status in {model.FAIL, model.UNKNOWN}
+    assert by_key['book'].shadow_book is None
+    assert by_key['book'].status in {model.FAIL, model.UNKNOWN}
 
 
 def result():

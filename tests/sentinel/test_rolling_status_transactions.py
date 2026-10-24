@@ -63,6 +63,65 @@ def test_borrowed_status_reads_committed_target_without_ending_caller_work(mater
     assert conn.execute('SELECT value FROM status_transaction_fixture').fetchone()[0] == 'committed'
 
 
+def _timeouts(conn):
+    return (conn.execute('SHOW statement_timeout').fetchone()[0],
+            conn.execute('SHOW lock_timeout').fetchone()[0])
+
+
+def _local_timeouts(conn, statement, lock):
+    conn.execute("SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)",
+                 (statement,lock))
+    return _timeouts(conn)
+
+
+@pytest.mark.parametrize('statement,lock', [('0','0'), ('2s','37ms')])
+def test_borrowed_proof_inherits_exact_owner_timeouts(material, statement, lock):
+    owner = material
+    transaction = _caller_work(owner)
+    expected = _local_timeouts(owner,statement,lock)
+    with committed_read.proof_connection(owner) as proof:
+        assert proof is not owner
+        assert _mode(proof) == ('repeatable read','on')
+        assert _timeouts(proof) == expected
+    assert proof.closed
+    _unchanged_caller(owner,transaction)
+    assert _timeouts(owner) == expected
+
+
+def test_borrowed_statement_timeout_cancels_only_proof_and_preserves_owner(material):
+    owner = material
+    transaction = _caller_work(owner)
+    expected = _local_timeouts(owner,'50ms','2s')
+    with _actual_pin(owner):
+        with pytest.raises(psycopg.errors.QueryCanceled,match='statement timeout'):
+            with committed_read.proof_connection(owner) as proof:
+                proof.execute('SELECT pg_sleep(0.2)')
+        assert proof.closed
+        readiness_scope.require(owner)
+        _unchanged_caller(owner,transaction)
+        assert _timeouts(owner) == expected
+
+
+def test_borrowed_lock_timeout_cancels_only_proof_and_preserves_owner(material):
+    owner = material
+    owner.execute('CREATE TABLE status_proof_lock_fixture(value text)')
+    owner.commit()
+    transaction = _caller_work(owner)
+    expected = _local_timeouts(owner,'2s','35ms')
+    blocker = psycopg.connect(owner.info.dsn)
+    try:
+        blocker.execute('LOCK TABLE status_proof_lock_fixture IN ACCESS EXCLUSIVE MODE')
+        with pytest.raises(psycopg.errors.LockNotAvailable,match='lock timeout'):
+            with committed_read.proof_connection(owner) as proof:
+                proof.execute('SELECT * FROM status_proof_lock_fixture')
+        assert proof.closed
+        _unchanged_caller(owner,transaction)
+        assert _timeouts(owner) == expected
+    finally:
+        blocker.rollback()
+        blocker.close()
+
+
 @pytest.mark.parametrize('refusal',['python','sql'])
 def test_refused_borrowed_proof_closes_only_itself(material,refusal):
     conn = material
@@ -156,8 +215,12 @@ def test_pin_checks_leave_initially_idle_input_idle_and_preserve_original_owner(
 
 @pytest.mark.parametrize('removed',['capture','recheck'])
 def test_removing_pin_check_transaction_context_leaks_idle_input_and_is_detected(material,monkeypatch,removed):
-    old,new=(('    with conn.transaction(force_rollback=True):\n        pin = readiness_scope.capture(conn)',
-              '    pin = readiness_scope.capture(conn)') if removed=='capture' else
+    old,new=(('    with conn.transaction(force_rollback=True):\n        pin = readiness_scope.capture(conn)\n'
+              "        statement_timeout = conn.execute('SHOW statement_timeout').fetchone()[0]\n"
+              "        lock_timeout = conn.execute('SHOW lock_timeout').fetchone()[0]",
+              '    pin = readiness_scope.capture(conn)\n'
+              "    statement_timeout = conn.execute('SHOW statement_timeout').fetchone()[0]\n"
+              "    lock_timeout = conn.execute('SHOW lock_timeout').fetchone()[0]") if removed=='capture' else
              ('            with conn.transaction(force_rollback=True):\n                readiness_scope.require_token(conn,pin)',
               '            readiness_scope.require_token(conn,pin)'))
     _mutated(monkeypatch,old,new)
@@ -204,6 +267,16 @@ def test_missing_readonly_mode_is_killed_by_real_owned_proof(material,monkeypatc
     _mutated(monkeypatch,"proof.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')",'pass')
     with pytest.raises(AssertionError):
         test_idle_status_proof_owns_repeatable_read_readonly_and_returns_idle(material)
+
+
+def test_missing_timeout_propagation_is_killed_by_real_statement_cancellation(material,monkeypatch):
+    _mutated(monkeypatch,
+        "        if borrowed:\n"
+        "            proof.execute(\"SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)\",\n"
+        "                          (statement_timeout,lock_timeout))",
+        '        if borrowed:\n            pass')
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_borrowed_statement_timeout_cancels_only_proof_and_preserves_owner(material)
 
 
 def _reader(monkeypatch, kind, caller, *, refuse=False):

@@ -6,6 +6,7 @@ The host independently qualifies the exact deliverable image after this workflow
 from decimal import Decimal
 import hashlib
 import json
+import time
 import uuid
 
 import pytest
@@ -146,6 +147,48 @@ def current(conn, monkeypatch):
     monkeypatch.setenv('SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256', subject)
     conn.rollback()
     return prices, published, clock
+
+
+def test_real_current_source_readiness_uses_panel_budget_without_forming_a_book(conn,current):
+    """Isolate source SQL at real breadth before the expensive formed-book run.
+
+    This proves authenticated input closure/readiness only. No canonical book,
+    signed execution authority, broker transport or financial readiness exists.
+    """
+    from psycopg.pq import TransactionStatus
+    from sentinel import committed_read, rolling_checkpoint
+    from sentinel.feed import rolling_go_inputs, rolling_store, store
+    from sentinel.panel import sources
+    prices,published,clock=current
+    assert len(prices.window.sessions)==426
+    assert sources.STATEMENT_TIMEOUT_MS==8000
+    conn.rollback()
+    proof_owner=store.connect(conn.info.dsn,connect_timeout=sources.CONNECT_TIMEOUT_SECONDS,
+        statement_timeout_ms=sources.STATEMENT_TIMEOUT_MS)
+    started=time.monotonic()
+    try:
+        with committed_read.proof_connection(proof_owner) as proof:
+            assert proof.execute('SHOW transaction_isolation').fetchone()[0]=='repeatable read'
+            assert proof.execute('SHOW transaction_read_only').fetchone()[0]=='on'
+            assert proof.execute('SHOW statement_timeout').fetchone()[0] in {'8s','8000ms'}
+            rolling_go_inputs.require_schemas(proof)
+            with rolling_go_inputs.pinned(proof) as publication:
+                bound,report=rolling_go_inputs.validate_status(proof,publication,now=clock.now())
+                assert report.ready,report
+                assert bound['candidate_id']==published['candidate_id']
+                assert bound['snapshot_id']==published['snapshot_id']
+                manifest=rolling_store.manifest(proof,bound['candidate_id'])
+                assert len(manifest.window.sessions)==426 and manifest.bar_count==500*426
+                assert rolling_store.readiness_facts(proof,bound['candidate_id']) is not None
+                assert proof.execute('SHOW statement_timeout').fetchone()[0] in {'8s','8000ms'}
+        assert proof_owner.info.transaction_status==TransactionStatus.IDLE
+    finally:
+        proof_owner.close()
+    print(f'CURRENT_SOURCE_READINESS_SECONDS={time.monotonic()-started:.6f}',flush=True)
+    assert rolling_checkpoint.read(conn) is None
+    assert conn.execute('SELECT count(*) FROM sentinel_execution_plans').fetchone()[0]==0
+    assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0]==0
+    conn.rollback()
 
 
 def test_real_current_source_formation_restart_paper_execution_notifications_and_http(

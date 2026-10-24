@@ -175,16 +175,24 @@ def _utc(dt) -> Optional[datetime]:
 
 
 def _bounded_dsn(dsn: str) -> str:
-    """Append libpq's `connect_timeout` so opening the connection cannot hang.
+    """Bind libpq's `connect_timeout` without changing its connection target.
 
     A statement timeout does nothing if the CONNECT never completes — a busy or
     unreachable Postgres leaves the socket waiting indefinitely by default, and
     the page hangs before it has run a single query.
     """
-    if "connect_timeout" in dsn:
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    values = conninfo_to_dict(dsn)
+    configured = values.get("connect_timeout")
+    if configured is not None and int(configured) > 0:
         return dsn
-    sep = "&" if "?" in dsn else "?"
-    return f"{dsn}{sep}connect_timeout={CONNECT_TIMEOUT_SECONDS}"
+    if configured is None and dsn.startswith(("postgresql://", "postgres://")):
+        # Keep existing URI spelling/escaping. ConnectionInfo.dsn instead uses
+        # keyword conninfo, whose quoting must be owned by libpq's parser.
+        sep = "&" if "?" in dsn else "?"
+        return f"{dsn}{sep}connect_timeout={CONNECT_TIMEOUT_SECONDS}"
+    return make_conninfo(dsn, connect_timeout=CONNECT_TIMEOUT_SECONDS)
 
 
 def _set_statement_timeout(conn, ms: int) -> None:
