@@ -201,16 +201,34 @@ def test_host_verification_contract_covers_every_runtime_subject_key():
     assert evidence._VERIFICATION_SUBJECT_ENV == frozenset(ast.literal_eval(assignment.value.args[0]))
 
 
-def test_local_verification_default_cash_matches_actual_shadow_and_execution_subject():
+def test_canonical_verification_uses_the_selected_shadow_and_execution_cash_subject():
     import yaml
-    overlay = yaml.safe_load((ROOT/'docker-compose.sentinel-local-paper.yml').read_text(encoding='utf-8'))
-    base = yaml.safe_load((ROOT/'docker-compose.sentinel-automation.yml').read_text(encoding='utf-8'))
+    base = yaml.safe_load((ROOT/'docker-compose.sentinel.yml').read_text(encoding='utf-8'))
+    automation = yaml.safe_load((ROOT/'docker-compose.sentinel-automation.yml').read_text(encoding='utf-8'))
     key = 'SENTINEL_SHADOW_STARTING_CASH'
-    expected = base['services']['sentinel-shadow']['environment'][key]
-    assert expected == '${SENTINEL_SHADOW_STARTING_CASH:-50000}'
-    assert base['services']['sentinel-authorized-cli']['environment'][key] == expected
-    for service in ('sentinel-panel', 'sentinel-verifier'):
-        assert overlay['services'][service]['environment'][key] == expected
+    # Full installation preserves the explicitly selected financial context.
+    # The legacy base-panel fallback is not a second book-capital selection.
+    expressions = {'sentinel-panel': base['services']['sentinel-panel']['environment'][key]}
+    expressions.update({service: automation['services'][service]['environment'][key]
+                        for service in ('sentinel-shadow', 'sentinel-authorized-cli', 'sentinel-verifier')})
+    for expression in expressions.values():
+        assert re.fullmatch(r'\$\{SENTINEL_SHADOW_STARTING_CASH:-[0-9]+\}', expression)
+    assert [expressions[name] for name in ('sentinel-shadow', 'sentinel-authorized-cli', 'sentinel-verifier')] == [
+        '${SENTINEL_SHADOW_STARTING_CASH:-50000}'] * 3
+    selected_cash = '50000'
+    resolved = {name: re.sub(r'\$\{SENTINEL_SHADOW_STARTING_CASH:-[0-9]+\}', selected_cash, expression)
+                for name, expression in expressions.items()}
+    assert set(resolved.values()) == {selected_cash}
+
+    def selected_subject(services):
+        for name, cash in resolved.items():
+            services[name]['environment'][key] = cash
+
+    # Feed the explicitly selected source-derived values through the same
+    # rendered-role comparison whose unequal-capital falsifiers follow below.
+    host = configuration_host(mutate=selected_subject)
+    evidence.compare_configuration(host, {'role': 'predecessor'}, {'role': 'candidate'}, host.state)
+    assert len(host.calls) == 2
 
 
 @pytest.mark.parametrize('key', sorted(evidence._VERIFICATION_SUBJECT_ENV))
