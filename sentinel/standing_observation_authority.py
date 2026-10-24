@@ -97,7 +97,9 @@ def require_standing_observation_authority(
         raise AuthorityRefused(
             f"standing paper certificate does not permit {required_operation}")
 
-    binding = binding_mod.require(conn)
+    from sentinel import local_paper
+    local_binding = local_paper.bound_account(conn)
+    binding = binding_mod.require(conn) if local_binding is None else local_binding
     expected_subject = {
         "deployment_id": binding.deployment_id,
         "broker": binding.broker,
@@ -125,10 +127,9 @@ def require_standing_observation_authority(
             "controller rollout")
 
     bindings = certificate.claims["bindings"]
-    from sentinel import local_paper
-    local = local_paper.require_bound_account(conn)
+    local = local_binding is not None
     if local:
-        local_paper.require_runtime(conn, runtime_identity)
+        local_paper.validate_runtime_identity(runtime_identity)
     else:
         artifacts = runtime_artifact_identity(runtime_identity)
         for field in ("git_commit", "runtime_image_digest", "test_image_digest"):
@@ -146,7 +147,7 @@ def require_standing_observation_authority(
             raise AuthorityRefused(
                 "standing paper strategy identity does not match this runtime")
     if local:
-        local_paper.require_execution_config(conn, execution_config_sha256)
+        local_paper.validate_execution_policy(execution_config_sha256)
     elif bindings["execution_config_sha256"] != execution_config_sha256:
         raise AuthorityRefused(
             "standing paper execution configuration does not match")

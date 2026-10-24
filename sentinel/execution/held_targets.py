@@ -5,10 +5,9 @@ from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from fractions import Fraction
-from types import SimpleNamespace
 
 from sentinel.execution.numeric import decimal_text, exact_decimal
-from sentinel.execution.target_reprojection import TargetProjectionRefused
+from sentinel.execution.target_reprojection import TargetProjectionRefused, share_action_factor
 
 SCHEMA = "sentinel.held-share-targets/1"
 
@@ -41,7 +40,6 @@ def carry_quantities(*, previous, previous_state, projection, state,
                      exposure, actions=None):
     """Use retained intent, never the observed partially filled broker book."""
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID
-    from sentinel.execution.protected_limits import _factor
     if previous.target_exposure != exposure:
         return {}
     old, current = ownership(previous_state), ownership(state)
@@ -67,7 +65,9 @@ def carry_quantities(*, previous, previous_state, projection, state,
         if through > decision:
             if decision != previous.decision_session or projection is None:
                 raise TargetProjectionRefused("retained targets have a future share-unit basis")
-            factor /= _factor(projection, sid)
+            factor /= share_action_factor(security_id=sid,
+                multiplier=projection.action_multipliers.get(sid, Decimal(1)),
+                evidence=projection.action_evidence)
         elif through < decision:
             if actions is None:
                 raise TargetProjectionRefused("retained targets require authenticated intervening actions")
@@ -85,8 +85,8 @@ def carry_quantities(*, previous, previous_state, projection, state,
             if multiplier is None:
                 multiplier = Decimal(1)
             events = tuple(item.to_dict() for item in actions.scalar_evidence_for((sid,)))
-            factor *= _factor(SimpleNamespace(
-                action_multipliers={sid: multiplier}, action_evidence=events), sid)
+            factor *= share_action_factor(security_id=sid, multiplier=multiplier,
+                                          evidence=events)
         if not isinstance(quantity, Decimal) or not quantity.is_finite() or quantity < 0:
             raise TargetProjectionRefused("retained account share quantity is invalid")
         result[sid] = exact_decimal(Fraction(quantity) * factor)
@@ -139,19 +139,13 @@ def build_basis(conn, *, previous, state, binding, rollout):
 
 
 def verify_basis(conn, *, basis, state, binding, rollout):
-    from sentinel.execution import journal, target_reprojection
+    from sentinel.execution import journal
     if not isinstance(basis, dict) or basis.get("schema") != SCHEMA:
         raise TargetProjectionRefused("retained share target basis is absent or unsupported")
     previous_id = basis.get("previous_plan_id")
     previous = None if previous_id is None else journal.load_plan(conn, previous_id)
     if previous_id is not None and previous is None:
         raise TargetProjectionRefused("retained share predecessor is missing")
-    if previous is not None:
-        projection = target_reprojection.load_projection(conn, plan_id=previous_id)
-        if (basis.get("previous_plan_fingerprint") != previous.fingerprint()
-                or basis.get("previous_projection_fingerprint") != (
-                    None if projection is None else projection.fingerprint())):
-            raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")
     expected = build_basis(conn, previous=previous, state=state, binding=binding, rollout=rollout)
     if expected != basis:
         raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")

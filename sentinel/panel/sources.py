@@ -1074,49 +1074,10 @@ def _cycle_recovery(
         cycle: Mapping | None, *, phases: tuple[str, ...] | None = None,
         failure_domains: tuple[str, ...] | None = None,
                     ) -> model.RecoveryEvidence | None:
-    """Conservatively project only a durable, bounded automatic retry."""
-    if not cycle or str(cycle.get("state") or "").upper() != "RETRY_WAIT":
-        return None
-    retry_phase = str(cycle.get("retry_phase") or "").upper()
-    if phases is not None and retry_phase not in phases:
-        return None
-    failure_domain = str(cycle.get("failure_domain") or "").upper()
-    if (failure_domains is not None
-            and failure_domain not in failure_domains):
-        return None
-    from sentinel.panel.retry_status import availability_recovery, availability_refusal
-    availability = availability_recovery(cycle)
-    if availability is not None:
-        return availability
-    refused = availability_refusal(cycle, availability)
-    if refused is not None:
-        return refused
-    if (failure_domains is None and retry_phase == "EXECUTE"
-            and not cycle.get("failure_code") and not cycle.get("failure_detail")
-            and cycle.get("phase_max_attempts") is None):
-        return model.RecoveryEvidence(
-            phase="CLEAN_RECOVERY_EXECUTION_WAKE", automatic=True,
-            next_attempt_at=cycle.get("next_wake_at"), deadline=model._clean_execution_deadline(cycle))
-    if failure_domains is None:
-        from sentinel.automation.model import ProtectedDayWait
-        try:
-            wait = ProtectedDayWait.model_validate(cycle.get("protected_day_wait"))
-            if (wait.plan_id == cycle.get("plan_id")
-                    and str(wait.effective_session) == str(cycle.get("effective_session"))
-                    and not cycle.get("failure_code") and not cycle.get("failure_detail")):
-                return model.RecoveryEvidence(
-                    phase="PROTECTED_DAY_ORDER_OBSERVATION", automatic=True,
-                    next_attempt_at=cycle.get("next_wake_at"),
-                    deadline=min(wait.deadline, wait.observed_at + timedelta(minutes=10)))
-        except (ValueError, TypeError, ArithmeticError):
-            pass
-    return model.RecoveryEvidence(
-        phase=f"AUTOMATION_{retry_phase or 'RECOVERY'}",
-        automatic=True,
-        attempt=cycle.get("phase_attempt_count"),
-        maximum_attempts=cycle.get("phase_max_attempts"),
-        next_attempt_at=cycle.get("next_wake_at"),
-        operator_required=bool(cycle.get("terminal_reason")))
+    """Project one scoped source recovery through the shared display policy."""
+    from sentinel.panel.retry_status import project_cycle_recovery
+    return project_cycle_recovery(
+        cycle, phases=phases, failure_domains=failure_domains).evidence
 
 
 def _runtime_valid_until(
@@ -3003,8 +2964,9 @@ def _bounded_dual_authority_rows(database_url, *, now, include_paper=True):
     monitored = monitor.read(database_url, include_paper=include_paper)
     if monitored is not None:
         return monitored
-    from sentinel.panel.authority_reader import reader
-    return reader.read(database_url, include_paper=include_paper)
+    from sentinel.panel.authority_reader import _unknown
+    return _unknown(include_paper,
+                    'background verification monitor is not initialized; no current verification is claimed')
 
 
 def _shadow_worker_row(state_dir, database_url):

@@ -1,13 +1,11 @@
 """One browser-independent, broker-free owner of separate display proofs."""
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
-import json
-import pickle
 from threading import BoundedSemaphore, Event, Lock, Thread
 
 from sentinel.panel import authority_reader as financial
+from sentinel.panel.observer_codec import pack
 
 POLL_SECONDS = 15
 MONITOR_DEADLINE_SECONDS = 60
@@ -19,17 +17,6 @@ def shadow_evidence(database_url, include_paper=False):
     return financial._evidence(database_url, False)
 
 
-def _pack(rows, errors):
-    value = {'rows': [asdict(row) for row in rows], 'errors': errors,
-             'observed_at': datetime.now(timezone.utc)}
-    for raw, row in zip(value['rows'], rows):
-        raw['shadow_book'] = row.shadow_book.model_dump(mode='json') if row.shadow_book else None
-    if (len(json.dumps(value, default=str, allow_nan=False).encode()) > financial.MAX_BYTES
-            or len(pickle.dumps(value)) > financial.MAX_BYTES):
-        raise ValueError('financial observer result exceeds bound')
-    return value
-
-
 def _observe_shadow_once(database_url, include_paper, expected_key):
     from sentinel.panel.sources import _dual_authority_rows
     assert include_paper is False
@@ -39,7 +26,7 @@ def _observe_shadow_once(database_url, include_paper, expected_key):
         now=datetime.now(timezone.utc), include_paper=False, propagate_corpus_lock=True)
     if details or history:
         raise ValueError('unexpected shadow observer shape')
-    value = _pack(rows, errors)
+    value = pack(rows, errors, observed_at=datetime.now(timezone.utc))
     if financial._key(database_url, False, shadow_evidence(database_url)) != expected_key:
         raise ValueError('shadow evidence changed during observation')
     return value
@@ -63,7 +50,7 @@ def _observe_paper_once(database_url, include_paper, expected_key):
         conn.execute('BEGIN TRANSACTION READ ONLY')
         row = sources._dual_paper_row(conn, informational_paper_mirror=informational_paper_mirror,
                                       publication=readers, feed_store=store)
-        value = _pack([row], [])
+        value = pack([row], [], observed_at=datetime.now(timezone.utc))
     finally:
         conn.rollback(); conn.close()
     if financial._key(database_url, True, financial._evidence(database_url, True)) != expected_key:

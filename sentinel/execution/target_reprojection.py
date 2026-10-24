@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from fractions import Fraction
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Sequence
 
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.numeric import exact_decimal
@@ -100,6 +100,28 @@ def _evidence_factor(item: Mapping[str, object]) -> tuple[Fraction, Fraction]:
         return published, rational
 
     return published, exact
+
+
+def share_action_factor(*, security_id: str, multiplier: Decimal,
+                        evidence: Sequence[Mapping[str, object]]) -> Fraction:
+    """Recover exact evidenced units without rounding intended account shares."""
+    if not isinstance(multiplier, Decimal) or not multiplier.is_finite() or multiplier <= 0:
+        raise TargetProjectionRefused("effective share multiplier must be positive finite Decimal")
+    events = [item for item in evidence if item.get("security_id") == security_id]
+    if not events:
+        if multiplier != 1:
+            raise TargetProjectionRefused("non-unit effective shares require durable action evidence")
+        return Fraction(multiplier)
+    published, exact = Fraction(1), Fraction(1)
+    for item in events:
+        if not item.get("source_row_id"):
+            raise TargetProjectionRefused("effective share evidence lacks source identity")
+        approximate, rational = _evidence_factor(item)
+        published *= approximate
+        exact *= rational
+    if not _fractions_close(Fraction(multiplier), published, _RATIO_REPRESENTATION_TOLERANCE):
+        raise TargetProjectionRefused("effective share evidence differs from projection")
+    return exact
 
 
 def _exact_evidenced_projection(
@@ -553,4 +575,4 @@ def assert_projection(
 
 __all__ = [
     "TargetProjection", "TargetProjectionRefused", "assert_projection",
-    "load_projection", "project_target", "record_projection"]
+    "load_projection", "project_target", "record_projection", "share_action_factor"]

@@ -22,8 +22,9 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.presentation import describe, CASINO_CSS
-from sentinel.panel.overview import OVERVIEW_CSS, overview_html
+from sentinel.panel.presentation import describe
+from sentinel.panel.overview import overview_html
+from sentinel.panel.styles import CSS
 
 from sentinel.panel.model import (
     FAIL, OK, PENDING, TRIAL_ROW_KEYS, UNKNOWN, WARN, Panel, Row)
@@ -52,126 +53,6 @@ def _ago(delta) -> str:
     d, h = s // 86400, (s % 86400) // 3600
     return f"{d}d {h}h ago" if h else f"{d}d ago"
 
-
-CSS = """
-:root{
-  --bg:#f6f7f9; --card:#ffffff; --ink:#11161d; --muted:#5d6773; --line:#e3e7ec;
-  --ok:#1a7f4b; --warn:#9a6400; --fail:#b3261e; --pending:#6b7480;
-  --okbg:#e8f5ee; --warnbg:#fdf3e0; --failbg:#fdeceb; --pendingbg:#eef1f4;
-  --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.10);
-}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --bg:#0e1116; --card:#161a21; --ink:#e8edf3; --muted:#98a2b0; --line:#252b34;
-    --ok:#5ed39a; --warn:#e8b45f; --fail:#ff7b72; --pending:#7d8794;
-    --okbg:#12261c; --warnbg:#2a2113; --failbg:#2c1615; --pendingbg:#1b2028;
-    --shadow:0 1px 2px rgba(0,0,0,.4);
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#0e1116; --card:#161a21; --ink:#e8edf3; --muted:#98a2b0; --line:#252b34;
-  --ok:#5ed39a; --warn:#e8b45f; --fail:#ff7b72; --pending:#7d8794;
-  --okbg:#12261c; --warnbg:#2a2113; --failbg:#2c1615; --pendingbg:#1b2028;
-  --shadow:0 1px 2px rgba(0,0,0,.4);
-}
-*{box-sizing:border-box}
-body{
-  margin:0; background:var(--bg); color:var(--ink);
-  font:15px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"SF Pro Text",
-       "Segoe UI",Roboto,sans-serif;
-  -webkit-text-size-adjust:100%;
-  padding:max(16px,env(safe-area-inset-top))
-          max(16px,env(safe-area-inset-right))
-          max(24px,env(safe-area-inset-bottom))
-          max(16px,env(safe-area-inset-left));
-}
-.wrap{max-width:560px;margin:0 auto}
-header{display:block;margin:4px 2px 14px}
-h1{font-size:17px;font-weight:650;letter-spacing:.02em;margin:0}
-.brand{display:flex;align-items:center;gap:10px}
-.brand img{width:42px;height:42px;border-radius:10px;flex:0 0 auto}
-.state{
-  display:inline-block;margin-top:8px;font-size:12px;font-weight:650;letter-spacing:.06em;
-  padding:4px 10px;border-radius:999px;text-transform:uppercase;
-  overflow-wrap:anywhere;
-}
-.state.ok{background:var(--okbg);color:var(--ok)}
-.state.warn{background:var(--warnbg);color:var(--warn)}
-.state.fail{background:var(--failbg);color:var(--fail)}
-.state.pending{background:var(--pendingbg);color:var(--pending)}
-.state.unknown{background:var(--failbg);color:var(--fail)}
-.heartbeat{
-  display:block;margin-top:7px;color:var(--muted);font-size:12px;
-  font-variant-numeric:tabular-nums;letter-spacing:.03em;
-}
-.heartbeat::before{content:"●";color:var(--ok);margin-right:7px}
-.not-current .heartbeat{color:var(--fail);font-weight:650}
-.not-current .heartbeat::before{color:var(--fail)}
-.err{
-  background:var(--failbg);color:var(--fail);border-radius:12px;
-  padding:12px 14px;margin-bottom:12px;font-size:13px;
-}
-.row{
-  background:var(--card);border:1px solid var(--line);border-radius:14px;
-  padding:13px 15px;margin-bottom:10px;box-shadow:var(--shadow);
-  display:grid;grid-template-columns:18px 1fr;gap:2px 11px;
-}
-.dot{grid-row:1/span 3;font-size:13px;line-height:1.5;text-align:center}
-.dot.ok{color:var(--ok)} .dot.warn{color:var(--warn)}
-.dot.fail{color:var(--fail)} .dot.pending{color:var(--pending)}
-.dot.unknown{color:var(--fail)}
-.label{
-  font-size:11px;font-weight:600;letter-spacing:.10em;text-transform:uppercase;
-  color:var(--muted);
-}
-.value{
-  font-size:17px;font-weight:600;line-height:1.3;
-  font-variant-numeric:tabular-nums;overflow-wrap:anywhere;
-}
-.row.fail .value{color:var(--fail)}
-.detail{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
-.age{font-size:11px;color:var(--muted);margin-top:3px}
-.age.stale{color:var(--warn);font-weight:600}
-footer{
-  margin-top:16px;text-align:center;font-size:11px;color:var(--muted);
-  line-height:1.7;
-}
-footer code{font-size:11px}
-details{
-  background:var(--card);border:1px solid var(--line);border-radius:14px;
-  margin:10px 0;box-shadow:var(--shadow);overflow:hidden;
-}
-summary{cursor:pointer;padding:13px 15px;font-weight:650;list-style-position:inside}
-.detail-body{padding:0 15px 14px;overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
-th,td{padding:7px 6px;text-align:left;border-top:1px solid var(--line);vertical-align:top}
-th{color:var(--muted);font-weight:600;letter-spacing:.04em}
-.portfolio-table{min-width:650px;table-layout:auto;overflow-wrap:normal}
-.portfolio-table th,.portfolio-table td{white-space:nowrap;word-break:normal}
-.not-current .row.ok{border-color:var(--fail)}
-.not-current .dot.ok{color:var(--fail)}
-.refreshing-status .row.ok{border-color:var(--warn)}
-.refreshing-status .dot.ok,.refreshing-status .heartbeat{color:var(--warn)}
-.refreshing-status .heartbeat::before{color:var(--warn)}
-.refreshing-status .row.ok .value::before{content:"LAST KNOWN · ";color:var(--warn)}
-.push-card{
-  background:var(--card);border:1px solid var(--line);border-radius:14px;
-  padding:13px 15px;margin:10px 0;box-shadow:var(--shadow);
-}
-.push-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-button{
-  appearance:none;border:1px solid var(--line);border-radius:10px;
-  background:var(--ink);color:var(--card);font:inherit;font-weight:650;
-  min-height:44px;padding:9px 13px;cursor:pointer;
-}
-button.secondary{background:transparent;color:var(--ink)}
-button[hidden]{display:none}
-#push-status{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
-@media (max-width:360px){
-  body{font-size:14px}.row{padding:12px}.value{font-size:16px}
-}
-@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
-"""
 
 
 PUSH_SCRIPT = r"""
@@ -365,7 +246,7 @@ def _holdings_html(row: Row, now: datetime) -> str:
 
 def _paper_plan_html(row: Row, now: datetime) -> str:
     plan = row.paper_plan
-    if plan is None or row.effective_status(now) != 'ok':
+    if not row.can_show_paper_plan(now):
         return ''
     def number(value):
         return 'Unavailable' if value is None else format(value,'f')
@@ -623,7 +504,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/caesars-palace-180.png">
 <title>{_esc(page_name)}</title>
-<style>{CSS}{CASINO_CSS}{OVERVIEW_CSS}</style>
+<style>{CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
              data-max-age-seconds="{document_age}">

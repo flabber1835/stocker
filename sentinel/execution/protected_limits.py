@@ -17,7 +17,8 @@ from types import MappingProxyType
 from typing import Mapping
 
 from sentinel.execution.numeric import decimal_text, exact_decimal
-from sentinel.execution.target_reprojection import TargetProjectionRefused
+from sentinel.execution.contract import OrderTerms
+from sentinel.execution.target_reprojection import TargetProjection, TargetProjectionRefused, share_action_factor
 
 
 PROTECTED_MODE = "PROTECTED_LIMIT_DAY_V1"
@@ -204,24 +205,9 @@ def _action_identity(projection):
 
 
 def _factor(projection, sid):
-    from sentinel.execution import target_reprojection as units
-    multiplier = projection.action_multipliers.get(sid, Decimal(1))
-    _positive(multiplier, "effective share multiplier")
-    events = [item for item in projection.action_evidence if item.get("security_id") == sid]
-    if not events:
-        if multiplier != 1:
-            raise TargetProjectionRefused("non-unit effective shares require durable action evidence")
-        return Fraction(multiplier)
-    published, exact = Fraction(1), Fraction(1)
-    for item in events:
-        if not item.get("source_row_id"):
-            raise TargetProjectionRefused("effective share evidence lacks source identity")
-        approximate, rational = units._evidence_factor(item)
-        published *= approximate
-        exact *= rational
-    if not units._fractions_close(Fraction(multiplier), published, units._RATIO_REPRESENTATION_TOLERANCE):
-        raise TargetProjectionRefused("effective share evidence differs from projection")
-    return exact
+    return share_action_factor(security_id=sid,
+        multiplier=projection.action_multipliers.get(sid, Decimal(1)),
+        evidence=projection.action_evidence)
 
 
 def _wanted(plan, projection):
@@ -517,7 +503,35 @@ def _validate_allocation(projection, references, policy, plan=None):
         raise TargetProjectionRefused("protected BUY allocation is inconsistent") from exc
 
 
-def validate_projection(projection, *, require_current_policy=False):
+@dataclass(frozen=True)
+class _ValidatedProjection:
+    """One synchronous verification's parsed facts, never a readiness token."""
+    projection: TargetProjection
+    policy: ProtectedLimitPolicy
+    references: PriorCloseReferences
+
+
+@dataclass(frozen=True)
+class ProtectedOrderTerms:
+    """Immutable price terms only; never an account or submission grant."""
+    plan_fingerprint: str
+    projection_fingerprint: str
+    allocation_status: str
+    limits: Mapping[str, OrderTerms]
+
+    def __post_init__(self):
+        object.__setattr__(self, "limits", MappingProxyType(dict(self.limits)))
+
+    def for_security(self, sid: str) -> OrderTerms:
+        if self.allocation_status == "CORE_REFERENCE_UNAVAILABLE":
+            raise ProtectedReferenceUnavailable("Core allocation lacks an authenticated RAW reference")
+        value = self.limits.get(sid)
+        if value is None:
+            raise ProtectedReferenceUnavailable("protected BUY lacks an authenticated price limit")
+        return value
+
+
+def _validated_projection(projection, *, require_current_policy=False, plan=None):
     evidence = projection.opening_sizing
     if not isinstance(evidence, dict) or evidence.get("mode") != PROTECTED_MODE:
         raise TargetProjectionRefused("protected BUY projection is absent")
@@ -532,31 +546,39 @@ def validate_projection(projection, *, require_current_policy=False):
             or references.action_evidence_sha256 != _action_identity(projection)
             or dict(references.unit_factors) != {sid: str(_factor(projection, sid)) for sid in references.symbols}):
         raise TargetProjectionRefused("protected BUY projection commitment differs")
-    _validate_allocation(projection, references, policy)
+    _validate_allocation(projection, references, policy, plan)
     if require_current_policy and ProtectedLimitPolicy.from_env() != policy:
         raise TargetProjectionRefused("protected BUY policy differs from current configuration")
-    return policy, references
+    return _ValidatedProjection(projection, policy, references)
 
 
-def revalidate_references(conn, *, plan, projection):
-    """Fresh row/source comparison for the compact pre-submit authority path."""
-    policy, stored = validate_projection(projection, require_current_policy=True)
-    _validate_allocation(projection, stored, policy, plan)
-    fresh = build_references(conn, plan=plan, projection=projection, policy=policy)
-    if fresh != stored:
+def validate_projection(projection, *, require_current_policy=False):
+    view = _validated_projection(projection, require_current_policy=require_current_policy)
+    return view.policy, view.references
+
+
+def _fresh_references(conn, *, plan, view):
+    fresh = build_references(conn, plan=plan, projection=view.projection, policy=view.policy)
+    if fresh != view.references:
         raise TargetProjectionRefused("protected BUY source references changed")
     return fresh
 
 
+def revalidate_references(conn, *, plan, projection):
+    """Fresh row/source comparison for the compact pre-submit authority path."""
+    view = _validated_projection(projection, require_current_policy=True, plan=plan)
+    return _fresh_references(conn, plan=plan, view=view)
+
+
 def validate_allocation(projection, *, plan, canonical_shadow_equity):
     """Bind the denominator to the detached scalar from the canonical proof."""
-    policy, references = validate_projection(projection, require_current_policy=True)
+    view = _validated_projection(projection, require_current_policy=True, plan=plan)
+    policy = view.policy
     if policy.debug_window is not None and policy.debug_window.effective_session != plan.effective_session:
         raise TargetProjectionRefused("debug policy belongs to another effective session")
     _positive(canonical_shadow_equity, "canonical shadow equity")
     if Fraction(projection.opening_sizing["shadow_equity"]) != Fraction(canonical_shadow_equity):
         raise TargetProjectionRefused("protected allocation differs from canonical shadow equity")
-    _validate_allocation(projection, references, policy, plan)
 
 
 def unavailable_opening_intents(projection):
@@ -576,11 +598,30 @@ def unavailable_opening_intents(projection):
 
 
 def order_terms_for(projection, sid):
-    from sentinel.execution.contract import OrderTerms
-    validate_projection(projection, require_current_policy=True)
-    if projection.opening_sizing["allocation_status"] == "CORE_REFERENCE_UNAVAILABLE":
-        raise ProtectedReferenceUnavailable("Core allocation lacks an authenticated RAW reference")
-    value = projection.opening_sizing["limits"].get(sid)
-    if value is None:
-        raise ProtectedReferenceUnavailable("protected BUY lacks an authenticated price limit")
-    return OrderTerms(order_type="limit", limit_price=Decimal(value))
+    return order_terms(projection).for_security(sid)
+
+
+def order_terms(projection, *, plan=None) -> ProtectedOrderTerms:
+    """Verify this operation's basket once and detach its immutable terms."""
+    view = _validated_projection(projection, require_current_policy=True, plan=plan)
+    return _order_terms(view)
+
+
+def _order_terms(view) -> ProtectedOrderTerms:
+    projection = view.projection
+    return ProtectedOrderTerms(projection.plan_fingerprint, projection.fingerprint(),
+        projection.opening_sizing["allocation_status"],
+        {sid: OrderTerms(order_type="limit", limit_price=Decimal(value))
+         for sid, value in projection.opening_sizing["limits"].items()})
+
+
+def submission_protection(conn, *, plan, projection):
+    """Fresh source comparison and immutable terms from one validated basket.
+
+    The private parsed view lives only for this call. Its results grant no
+    account, funding, ownership, command, signature or timing authority. The
+    caller retains its original identity/command checks before selecting terms.
+    """
+    view = _validated_projection(projection, require_current_policy=True, plan=plan)
+    references = _fresh_references(conn, plan=plan, view=view)
+    return references, _order_terms(view)

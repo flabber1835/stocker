@@ -88,12 +88,12 @@ def test_mislabelled_local_image_refuses(owner, monkeypatch):
 
 
 def test_runtime_identity_guard_falsifier(owner, monkeypatch):
-    tree = ast.parse(inspect.getsource(local_paper.require_runtime))
+    tree = ast.parse(inspect.getsource(local_paper.validate_runtime_identity))
     tree.body[0].body[-1].test = ast.Constant(False)
     ast.fix_missing_locations(tree)
     namespace = {}
     exec(compile(tree, "removed-local-image-guard", "exec"), vars(local_paper), namespace)
-    monkeypatch.setattr(local_paper, "require_runtime", namespace["require_runtime"])
+    monkeypatch.setattr(local_paper, "validate_runtime_identity", namespace["validate_runtime_identity"])
     with pytest.raises(pytest.fail.Exception):
         _bad_baked_revision(monkeypatch)
 
@@ -197,12 +197,12 @@ def test_local_execution_config_must_be_actual_protected_policy(owner, monkeypat
 
 
 def test_local_execution_configuration_guard_falsifier(owner, monkeypatch):
-    tree = ast.parse(inspect.getsource(local_paper.require_execution_config))
+    tree = ast.parse(inspect.getsource(local_paper.validate_execution_policy))
     tree.body[0].body[-1].test = ast.Constant(False)
     ast.fix_missing_locations(tree)
     namespace = {}
     exec(compile(tree, 'removed-local-policy-guard', 'exec'), vars(local_paper), namespace)
-    monkeypatch.setattr(local_paper, 'require_execution_config', namespace['require_execution_config'])
+    monkeypatch.setattr(local_paper, 'validate_execution_policy', namespace['validate_execution_policy'])
     with pytest.raises(pytest.fail.Exception):
         test_local_execution_config_must_be_actual_protected_policy(owner, monkeypatch, True)
 

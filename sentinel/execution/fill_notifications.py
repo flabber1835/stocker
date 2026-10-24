@@ -26,10 +26,10 @@ class FillNotificationRefused(ValueError):
 
 
 def _binding(conn):
-    from sentinel import binding, local_paper
-    if not local_paper.require_bound_account(conn):
+    from sentinel import local_paper
+    value = local_paper.bound_account(conn)
+    if value is None:
         raise FillNotificationRefused("LOCAL_PAPER_REQUIRED")
-    value = binding.require(conn)
     return (value.deployment_id, value.broker, value.broker_account_id,
             value.takeover_epoch)
 

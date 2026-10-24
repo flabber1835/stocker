@@ -1,20 +1,20 @@
 """One finite read-only financial observation; retained values are presentation."""
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
-import pickle
 from threading import Lock, Thread
 import time
 
 from sentinel import supervisor_io
 from sentinel.panel import model
+from sentinel.panel.observer_codec import (
+    MAX_BYTES, pack, row_from_observation as _row_from_observation, validate_envelope)
 from sentinel.retained_input_namespaces import PAPER_CURSOR_NAMES, PAPER_CURSOR_PREFIXES
 
 DEADLINE_SECONDS = 300
 RETRY_SECONDS = 30
-MAX_BYTES = 32 * 1024
 FRESH_SECONDS = 600
 REFRESH_SECONDS = FRESH_SECONDS - DEADLINE_SECONDS
 CORPUS_LOCK_RETRY_SECONDS = 20
@@ -94,15 +94,9 @@ def _observe_once(database_url, include_paper, expected_key):
         propagate_corpus_lock=True)
     if details or history or len(rows) > 7:
         raise ValueError('unexpected financial observer shape')
-    value = {'rows': [asdict(row) for row in rows], 'errors': errors,
-             'observed_at': datetime.now(timezone.utc)}
-    for raw, row in zip(value['rows'], rows):
-        raw['shadow_book'] = row.shadow_book.model_dump(mode='json') if row.shadow_book else None
+    value = pack(rows, errors, observed_at=datetime.now(timezone.utc))
     if _key(database_url, include_paper, _evidence(database_url, include_paper)) != expected_key:
         raise ValueError('financial evidence changed during observation')
-    if (len(json.dumps(value, default=str, allow_nan=False).encode()) > MAX_BYTES
-            or len(pickle.dumps(value)) > MAX_BYTES):
-        raise ValueError('financial observer result exceeds bound')
     return value
 
 
@@ -156,38 +150,6 @@ def _unknown(include_paper, detail, retained=None, *, checking_until=None):
                   if paper is not None and paper.status == model.UNKNOWN else [])
         return rows, {}, [], errors
     return rows, {}, [], ['financial verification: '+detail]
-
-
-def _row_from_observation(value):
-    """Materialize nested dataclass evidence before public projection."""
-    row = dict(value)
-    if row.get('shadow_book') is not None:
-        if row.get('key') != 'book':
-            raise ValueError('holdings are only permitted on the canonical book')
-        row['shadow_book'] = model.ShadowBook.model_validate(row['shadow_book'])
-    if type(row.get('required_current', False)) is not bool:
-        raise ValueError('observer current flag is malformed')
-    for field in ('as_of', 'valid_until'):
-        boundary = row.get(field)
-        if boundary is not None and (not isinstance(boundary, datetime)
-                                     or boundary.utcoffset() is None):
-            raise ValueError('observer clock is malformed')
-    recovery = row.get('recovery')
-    if recovery is not None:
-        if not isinstance(recovery, dict):
-            raise ValueError('observer recovery is malformed')
-        recovery = model.RecoveryEvidence(**recovery)
-        if (not isinstance(recovery.phase, str) or len(recovery.phase) > 1000
-                or type(recovery.automatic) is not bool
-                or type(recovery.operator_required) is not bool
-                or any(bound is not None and type(bound) is not int
-                       for bound in (recovery.attempt, recovery.maximum_attempts))
-                or any(clock is not None and (not isinstance(clock, datetime)
-                                              or clock.utcoffset() is None)
-                       for clock in (recovery.next_attempt_at, recovery.deadline))):
-            raise ValueError('observer recovery fields are malformed')
-        row['recovery'] = recovery
-    return model.Row(**row)
 
 
 class Reader:
@@ -275,25 +237,7 @@ class Reader:
                                 expected.add('paper_reconciliation')
                             if self.expected_keys is not None:
                                 expected = self.expected_keys
-                            if (not isinstance(value, dict)
-                                    or set(value) != {'rows', 'errors', 'observed_at'}
-                                    or not isinstance(value['rows'], list)
-                                    or len(value['rows']) != len(expected)
-                                    or {row['key'] for row in value['rows']} != expected
-                                    or not isinstance(value['errors'], list)
-                                    or len(value['errors']) > 4
-                                    or any(not isinstance(error, str) or len(error) > 1000
-                                           for error in value['errors'])):
-                                raise ValueError('observer shape is incomplete')
-                            for row in value['rows']:
-                                if (not isinstance(row, dict)
-                                        or any(not isinstance(row.get(field), str)
-                                               for field in ('key', 'label', 'value', 'status', 'detail'))
-                                        or row['status'] not in {model.OK, model.PENDING, model.WARN,
-                                                                 model.FAIL, model.UNKNOWN}
-                                        or any(len(row[field]) > 1000
-                                               for field in ('label', 'value', 'detail'))):
-                                    raise ValueError('observer row is malformed')
+                            validate_envelope(value, expected)
                             observed = value['observed_at']
                             # Validate arrival separately from later UI consumption.
                             # An idle page cannot make an originally valid answer malformed.
@@ -401,6 +345,3 @@ class Reader:
                 return self.unknown(include_paper, self.scope_label+' awaits the next monitor check',
                                     self.retained, checking_until=awaiting_until)
             return self.unknown(include_paper, self.failure or detail, self.retained)
-
-
-reader = Reader()

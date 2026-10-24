@@ -2004,12 +2004,11 @@ class TestItRenders:
             "without this the iPhone safe areas are not respected and content "
             "sits under the notch or the home indicator")
 
-    def test_it_defines_BOTH_themes_without_a_media_only_colour(self):
-        """The panel is read on a phone in a dark room. Every colour must have a
-        definition on bare `:root`, or a viewer whose theme is unset gets an
-        undefined variable and an unstyled page."""
+    def test_current_palette_is_defined_for_unset_and_explicit_themes(self):
+        """The selected presentation uses one palette, including unset theme."""
         from sentinel.panel.render import CSS
         base = CSS.split("@media")[0]
         for var in ("--bg", "--card", "--ink", "--ok", "--warn", "--fail"):
-            assert var in base, f"{var} has no light-mode definition"
-        assert "prefers-color-scheme:dark" in CSS
+            assert var in base, f"{var} has no default definition"
+        assert ':root,:root[data-theme="dark"],:root[data-theme="light"]{' in base
+        assert CSS.count('--bg:') == 1

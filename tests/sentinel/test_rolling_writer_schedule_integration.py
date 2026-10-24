@@ -14,7 +14,7 @@ import pytest
 
 from sentinel import shadow_dependency_notifications as notices
 from sentinel.feed import operational_snapshot, retention, rolling_publisher as publisher
-from sentinel.feed import writer_schedule
+from sentinel.feed import writer_schedule, publisher_pipeline
 from sentinel.feed.publication import CORPUS_LOCK_KEY, CorpusLockUnavailable
 from sentinel.feed.rolling_contract import digest
 
@@ -167,7 +167,7 @@ def _coordinator(monkeypatch, *, ready=False, failure_phase=None,
             raise failure
 
     monkeypatch.setattr(operational_snapshot, 'freeze', lambda *_: body('freeze'))
-    monkeypatch.setattr(publisher.rolling_builder, 'build', lambda *_: body('build'))
+    monkeypatch.setattr(publisher_pipeline.rolling_builder, 'build', lambda *_: body('build'))
     def publish(*_args, **_kwargs):
         body('publication')
         return {'publication': 'fixture-published'}
@@ -189,14 +189,14 @@ def _coordinator(monkeypatch, *, ready=False, failure_phase=None,
         def source_payload(self):
             return source_payload
     source = Source()
-    monkeypatch.setattr(publisher, '_operational_source', lambda *_args, **_kwargs: source)
-    monkeypatch.setattr(publisher.rolling_store, 'manifest', lambda *_: manifest)
-    monkeypatch.setattr(publisher.rolling_store, 'load_evidence',
+    monkeypatch.setattr(publisher_pipeline, '_operational_source', lambda *_args, **_kwargs: source)
+    monkeypatch.setattr(publisher_pipeline.rolling_store, 'manifest', lambda *_: manifest)
+    monkeypatch.setattr(publisher_pipeline.rolling_store, 'load_evidence',
                         lambda _, key: source_payload if key == manifest.source_evidence_sha256
                         else reference_payload)
     monkeypatch.setattr(operational_snapshot, 'validate', lambda *_: None)
-    monkeypatch.setattr(publisher.acquisition_work, 'budget', lambda **_: nullcontext())
-    monkeypatch.setattr(publisher.progress, 'phase', lambda *_args, **_kwargs: nullcontext())
+    monkeypatch.setattr(publisher_pipeline.acquisition_work, 'budget', lambda **_: nullcontext())
+    monkeypatch.setattr(publisher_pipeline.progress, 'phase', lambda *_args, **_kwargs: nullcontext())
     monkeypatch.setattr(publisher, '_record_failure',
                         lambda _connection, _lease, exc, **_: recorded.append(exc))
     monkeypatch.setattr(publisher.staging, 'clear',

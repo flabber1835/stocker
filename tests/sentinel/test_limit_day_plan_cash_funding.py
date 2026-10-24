@@ -102,10 +102,10 @@ def case(conn, monkeypatch):
     observed = BrokerObservation(NOW, started_at=NOW - timedelta(seconds=1), account_identity=account().identity)
     seq = journal.record_observation(conn, observed, RuntimeState.RUNNING.value)
     reconciliation = ReconciliationResult(RuntimeState.RUNNING, observation=observed, observation_id=seq)
-    monkeypatch.setattr(protected_limits, "revalidate_references", lambda *_args, **_kwargs:
-        SimpleNamespace(source_provider="ALPACA_OPENFIGI", symbols={instrument.security_id: instrument.symbol},
-                        provider_asset_ids={instrument.security_id: instrument.broker_id}))
-    monkeypatch.setattr(protected_limits, "order_terms_for", lambda *_args: candidate.order_terms)
+    monkeypatch.setattr(protected_limits, "submission_protection", lambda *_args, **_kwargs:
+        (SimpleNamespace(source_provider="ALPACA_OPENFIGI", symbols={instrument.security_id: instrument.symbol},
+                         provider_asset_ids={instrument.security_id: instrument.broker_id}),
+         SimpleNamespace(for_security=lambda sid: candidate.order_terms)))
     return SimpleNamespace(owner=owner, candidate=candidate, plan=plan, projection=projection,
         reconciliation=reconciliation, broker=native_wrapper())
 
@@ -306,7 +306,7 @@ def test_private_guard_removal_is_detected(conn, case, monkeypatch, guard):
         def rejected():
             assert funding._plan_cash_ceiling(plan=case.plan, account=account("1000.50"), commands=()) == D(1000)
     else:
-        target = funding.validate_submission
+        target = funding._assert_current_evidence
         needle = "if account.cash > basis.cash + HEADROOM:"
         replacement = "if False:"
         with journal.writer_lock(conn, recovery_only=True):
@@ -365,7 +365,8 @@ def continuation_cohort(monkeypatch):
     monkeypatch.setattr(funding.journal, "latest_plan", lambda _conn: value.plan)
     monkeypatch.setattr(funding.journal, "load_commands", lambda *_args, **_kwargs: value.commands)
     monkeypatch.setattr(funding.target_reprojection, "assert_projection", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(protected_limits, "order_terms_for", lambda *_args: CONTINUATION_TERMS)
+    monkeypatch.setattr(protected_limits, "order_terms", lambda *_args, **_kwargs:
+        SimpleNamespace(for_security=lambda sid: CONTINUATION_TERMS))
     monkeypatch.setattr(funding, "_plan_cash_composition", lambda _broker: "c" * 64)
     return value
 

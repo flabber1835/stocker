@@ -284,12 +284,11 @@ def panel_json() -> JSONResponse:
                  "shadow_book": (r.shadow_book.model_dump(mode='json')
                                  if r.can_show_shadow_book(p.now) else None),
                  "paper_plan": (r.paper_plan.model_dump(mode='json')
-                                if r.paper_plan and r.effective_status(p.now) == model.OK else None),
+                                if r.can_show_paper_plan(p.now) else None),
                  "paper_account": (r.paper_account.model_dump(mode='json')
-                                   if r.paper_account and r.effective_status(p.now) == model.OK else None),
-                 "order_outcomes": ([item.model_dump(mode='json') for item in r.order_outcomes
-                                     if item.observed_at <= p.now + model.MAXIMUM_FUTURE_SKEW]
-                                    if r.effective_status(p.now) == model.OK else []),
+                                   if r.can_show_paper_account(p.now) else None),
+                 "order_outcomes": [item.model_dump(mode='json')
+                                    for item in r.visible_order_outcomes(p.now)],
                  "trading_run": (r.trading_run.model_dump(mode='json')
                                  if r.can_show_trading_run(p.now) else None),
                  "valid_until": (

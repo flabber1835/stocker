@@ -8,7 +8,7 @@ import asyncio
 from decimal import Decimal
 from fractions import Fraction
 
-from sentinel import binding, local_paper, operational_evidence
+from sentinel import local_paper, operational_evidence
 from sentinel.execution import journal, native_activity
 from sentinel.execution.numeric import decimal_text, exact_decimal
 from sentinel.execution.states import IN_FLIGHT, CommandState
@@ -25,9 +25,9 @@ class AccountStatusRefused(ValueError):
 
 
 def _bound(conn):
-    if not local_paper.require_bound_account(conn):
+    owner = local_paper.bound_account(conn)
+    if owner is None:
         return None
-    owner = binding.require(conn)
     return (owner.deployment_id, owner.broker, owner.broker_account_id,
             owner.takeover_epoch)
 

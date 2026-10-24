@@ -10,6 +10,7 @@ from sentinel import open_time_upgrade, close_cycle_upgrade, idle_leader_upgrade
 from sentinel import execution_upgrade as upgrade, runtime_admission as admission
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
+from tests.support import historical_transition_fixture as historical
 
 
 @pytest.mark.parametrize('name', sorted(upgrade.SCOPE))
@@ -60,7 +61,7 @@ def _execution_closure(closure, name, *, source_profile=upgrade):
     actual_root = Path(upgrade.__file__).parent
     path = root/name
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes((actual_root/name).read_bytes())
+    historical.write(root, name)
     manifest['files'][name] = source_profile.profile()['files'][name]['before'][0]
     _refresh_current(root, context, source)
     prior_env = dict(source['environment'])
@@ -74,8 +75,7 @@ def _execution_closure(closure, name, *, source_profile=upgrade):
 
 
 def _refresh_current(root, context, source):
-    files = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-             for p in root.rglob('*.py')}
+    files = historical.source_files(root)
     actual = admission.source_closure(files)
     context['runtime']['sentinel_source_sha256'] = actual
     source['environment']['sentinel_source'].update(files=len(files), hash=actual)

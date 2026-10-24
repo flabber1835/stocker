@@ -411,13 +411,14 @@ def test_compare_and_swap_loser_preserves_winner(conn, source, monkeypatch):
 
 
 def test_publication_transaction_rolls_back_before_visibility(conn, source, monkeypatch):
-    original = publisher.published
+    from sentinel.feed import publisher_pipeline
+    original = publisher_pipeline.published
     def fail_ack(conn, job):
         value = original(conn, job)
         if value:
             raise RuntimeError("injected before commit")
         return value
-    monkeypatch.setattr(publisher, "published", fail_ack)
+    monkeypatch.setattr(publisher_pipeline, "published", fail_ack)
     with pytest.raises(RuntimeError, match="before commit"):
         publisher.prepare(conn, enqueue(conn))
     assert count(conn, "sentinel_snapshot_comparisons") == 0
@@ -453,10 +454,11 @@ def test_backup_refusal_preserves_staging_publication_boundary(conn, source, mon
 
 
 def test_legacy_publication_change_invalidates_ready(conn, source, monkeypatch):
+    from sentinel.feed import publisher_pipeline
     original = rolling_source.SharadarSource.corroborate
     def changed(self):
         original(self)
-        monkeypatch.setattr(publisher, "_legacy_version", lambda conn: 42)
+        monkeypatch.setattr(publisher_pipeline, "_legacy_version", lambda conn: 42)
     monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", changed)
     with pytest.raises(publisher.ComparisonRefused, match="legacy publication changed during"):
         publisher.prepare(conn, enqueue(conn))
@@ -577,9 +579,10 @@ def test_comparison_catalog_is_immutable(conn, source):
 
 
 def test_old_comparison_cannot_replace_newer_frontier(conn, source, monkeypatch):
+    from sentinel.feed import publisher_pipeline
     result = publisher.prepare(conn, enqueue(conn))
-    latest = publisher._latest(conn)
-    monkeypatch.setattr(publisher, "_latest", lambda conn: (latest[0], latest[1] + timedelta(days=1)))
+    latest = publisher_pipeline._latest(conn)
+    monkeypatch.setattr(publisher_pipeline, "_latest", lambda conn: (latest[0], latest[1] + timedelta(days=1)))
     with pytest.raises(publisher.ComparisonRefused, match="older window"):
         publisher.prepare(conn, enqueue(conn))
     assert count(conn, "sentinel_snapshot_comparisons") == 1

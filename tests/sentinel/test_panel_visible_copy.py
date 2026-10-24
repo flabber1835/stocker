@@ -4,7 +4,8 @@ import pytest
 
 from sentinel.operational_status import RecoveryEvidence
 from sentinel.panel import model
-from sentinel.panel.presentation import CASINO_CSS, describe
+from sentinel.panel.presentation import describe
+from sentinel.panel.styles import CSS
 from sentinel.panel.render import _row_html
 from sentinel.paper_plan_preview import PlanPreview
 
@@ -104,9 +105,12 @@ def test_source_wait_copy_requires_structured_phase_and_never_claims_verificatio
     assert 'Market data for the next decision is still pending' not in describe(spoof, model.WARN)[2]
 
 
-def test_narrow_screen_value_size_follows_the_casino_default_and_keeps_motion_opt_out():
-    assert CASINO_CSS.index('@media(max-width:360px){.value{font-size:16px}}') > CASINO_CSS.index('.value{font-size:22px}')
-    assert 'animation:none!important' in CASINO_CSS
+def test_current_styles_keep_narrow_screen_values_and_accessibility_without_decoration():
+    assert '@media(max-width:360px){body{font-size:14px}.row{padding:12px}.value{font-size:16px}}' in CSS
+    assert 'prefers-reduced-motion:reduce' in CSS and 'animation:none!important' in CSS
+    assert 'summary:focus-visible,a:focus-visible' in CSS
+    assert 'repeat(2,minmax(0,1fr))' in CSS
+    assert all(name not in CSS for name in ('casino-stage', 'casino-accent', 'hostess', '@keyframes'))
 
 
 def test_availability_retry_copy_keeps_original_deadline_and_expiry_severity():

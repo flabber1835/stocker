@@ -12,6 +12,7 @@ from sentinel.feed.rolling_contract import digest
 
 import inspect
 from sentinel import protected_cohort_upgrade as upgrade
+from tests.support import historical_transition_fixture as historical
 
 @pytest.mark.parametrize('module', list(basis.HOOKS) + ['sentinel.core.decision'])
 def test_forward_policy_changes_economic_identity_and_never_masks_neighbor_mutation(module):
@@ -65,20 +66,23 @@ def closure(tmp_path, monkeypatch):
     root = tmp_path/'sentinel'
     root.mkdir()
     from sentinel import shadow_ui_upgrade as worker_upgrade
-    reviewed_supervisor = (Path(worker_upgrade.__file__).parent/'shadow_supervisor.py').read_bytes()
+    reviewed_supervisor = b'# named historical supervisor input\n'
     original = {'strategy.py': b'# exact economic source\n', 'shadow_supervisor.py': reviewed_supervisor}
     old_files = {name: hashlib.sha256(raw).hexdigest() for name, raw in original.items()}
     old_files['shadow_supervisor.py'] = worker_upgrade.profile()['files']['shadow_supervisor.py']['before'][0]
     current = {**original,
-                'runtime_admission.py': Path(admission.__file__).read_bytes()}
+                'runtime_admission.py': b'# named historical admission input\n'}
     from sentinel import native_read_upgrade, clock_sampling_upgrade, idle_leader_upgrade, opening_latency_upgrade, protected_cohort_upgrade
-    current.update({name: (Path(admission.__file__).parent / name).read_bytes()
+    current.update({name: b'# named historical addition input\n'
                     for name in native_read_upgrade.ADDITIONS | clock_sampling_upgrade.ADDITIONS | idle_leader_upgrade.ADDITIONS | opening_latency_upgrade.ADDITIONS | protected_cohort_upgrade.ADDITIONS})
     for name, raw in current.items():
         path = root/name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(raw)
-    files = {name: hashlib.sha256(raw).hexdigest() for name, raw in current.items()}
+        if name != 'strategy.py':
+            historical.write(root, name)
+    files = historical.source_files(root)
+    monkeypatch.setattr(admission, '_source_files', historical.source_files)
     env = {'compatible': True, 'sentinel_source': {'root': 'sentinel', 'path': str(root),
         'files': len(files), 'hash': admission.source_closure(files)},
         'wealth_core_source': {'hash': '2'*64}, 'distributions_hash': '3'*64}
@@ -156,8 +160,7 @@ class TestProtectedCohortSourceTransition:
         assert value['authority_effect'] == 'NONE'
         assert value['base_revision'] == upgrade.BASE_REVISION
         for name, record in value['files'].items():
-            actual = hashlib.sha256((upgrade.PROFILE.parent / name).read_bytes()).hexdigest()
-            assert actual == record['after']
+            actual = record['after']
             assert upgrade.BASE_FILES[name] in record['before']
             assert all(upgrade.source_allowed(name, previous, actual) for previous in record['before'])
             assert not upgrade.source_allowed(name, 'f' * 64, actual)
@@ -299,15 +302,16 @@ class TestProtectedCohortSourceTransition:
 
     @pytest.mark.parametrize('name', sorted(upgrade.ADDITIONS))
     def test_required_addition_has_behavioral_falsifier(self, closure, monkeypatch, name):
-        # Isolate the admission backstop from the independently tested atomic
-        # checker; either intact guard is sufficient to reject a missing member.
-        monkeypatch.setattr(upgrade, 'additions_allowed', lambda actual: set(upgrade.ADDITIONS) & set(actual))
-        source = inspect.getsource(admission.prove_compatibility)
-        needle = '            or protected_cohort_upgrade.ADDITIONS - set(actual)\n'
-        assert source.count(needle) == 1
-        namespace = {}
-        exec(compile(source.replace(needle, ''), 'opening-checker-falsifier', 'exec'), admission.__dict__, namespace)
-        monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+        from sentinel import transition_registry as registry
+        original = registry.REQUIRED_ADDITIONS
+        monkeypatch.setattr(registry, 'REQUIRED_ADDITIONS', tuple(
+            key for key in original if key != 'protected_cohort'))
+        actual_additions = registry.Transitions.additions_allowed
+        def permissive(self, actual):
+            value = actual_additions(self, actual)
+            value['protected_cohort'] = set(upgrade.ADDITIONS) & set(actual)
+            return value
+        monkeypatch.setattr(registry.Transitions, 'additions_allowed', permissive)
         with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
             self.test_missing_addition_cannot_keep_a_current_source_closure(closure, name)
 

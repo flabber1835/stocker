@@ -373,8 +373,8 @@ def funding_case(conn, monkeypatch):
     def fresh_references(connection, **kwargs):
         proof_calls.append((connection, kwargs))
         return references
-    monkeypatch.setattr(protected_limits, "revalidate_references", fresh_references)
-    monkeypatch.setattr(protected_limits, "order_terms_for", lambda _projection, _sid: candidate.order_terms)
+    monkeypatch.setattr(protected_limits, "submission_protection", lambda connection, **kwargs:
+        (fresh_references(connection, **kwargs), SimpleNamespace(for_security=lambda sid: candidate.order_terms)))
     return SimpleNamespace(owner=owner, candidate=candidate, plan=plan, projection=projection,
                            activity=activity, basis=basis, proof_calls=proof_calls, references=references)
 
@@ -388,7 +388,7 @@ def test_funding_basis_persisted_json_roundtrip_and_tamper_refusal(conn, funding
         funding.load_basis(conn, plan_id="p")
 
 
-@pytest.mark.parametrize("damage", [None, "writer", "quantity", "instrument", "terms", "planned",
+@pytest.mark.parametrize("damage", [None, "writer", "quantity", "instrument", "security-id", "terms", "planned",
                                     "activity-id", "activity-scheme", "activity-balance", "activity-stale",
                                     "source-symbol", "source-asset"])
 def test_canonical_submission_rechecks_committed_rows_activity_and_writer(conn, funding_case, damage):
@@ -399,6 +399,7 @@ def test_canonical_submission_rechecks_committed_rows_activity_and_writer(conn, 
         account=account(), activity_state=case.activity)
     if damage == "quantity": kwargs["quantity"] = D(2)
     if damage == "instrument": kwargs["instrument"] = replace(case.candidate.instrument, broker_id="wrong")
+    if damage == "security-id": kwargs["instrument"] = replace(case.candidate.instrument, security_id="unowned")
     if damage == "terms": kwargs["order_terms"] = replace(case.candidate.order_terms, limit_price=D(100))
     if damage == "planned":
         journal.save_command(conn, replace(case.candidate, state=S.PLANNED), previous=S.SEND_PENDING)
@@ -441,12 +442,13 @@ def test_removing_canonical_funding_guard_is_detected(
         conn, funding_case, monkeypatch, guard, damage, needle, replacement):
     # Establish the same genuine refusal before replacing only one guard.
     test_canonical_submission_rechecks_committed_rows_activity_and_writer(conn, funding_case, damage)
-    source = inspect.getsource(funding.validate_submission)
+    target = funding._assert_current_evidence if guard == "activity" else funding.validate_submission
+    source = inspect.getsource(target)
     assert source.count(needle) == 1
     local = {}
     exec(compile(source.replace(needle, replacement), "<private-funding-" + guard + ">", "exec"),
          vars(funding), local)
-    monkeypatch.setattr(funding, "validate_submission", local["validate_submission"])
+    monkeypatch.setattr(funding, target.__name__, local[target.__name__])
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_canonical_submission_rechecks_committed_rows_activity_and_writer(conn, funding_case, damage)
 

@@ -35,7 +35,11 @@ from zoneinfo import ZoneInfo
 from typing import TYPE_CHECKING, Literal, Mapping, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sentinel.paper_plan_preview import PlanPreview
-from sentinel.automation.model import ProtectedDayWait
+from sentinel.panel.retry_status import (
+    availability_label,
+    protected_day_wait as _protected_day_wait,
+    project_cycle_recovery,
+)
 
 if TYPE_CHECKING:
     from sentinel.panel.shadow_source_wait import SourceWait
@@ -345,6 +349,24 @@ class Row:
                     self.trading_run.intent.created_at,self.trading_run.intent.observation_at))
                 and all(item.observed_at <= now+MAXIMUM_FUTURE_SKEW
                         for item in self.trading_run.orders))
+
+    def can_show_paper_plan(self, now: datetime) -> bool:
+        """A saved future intent is distinct from today's execution evidence."""
+        return (self.paper_plan is not None and self.effective_status(now) == OK
+                and self.paper_plan.execute_at > now
+                and all(value is None or value <= now + MAXIMUM_FUTURE_SKEW
+                        for value in (self.paper_plan.created_at,
+                                      self.paper_plan.observation_at)))
+
+    def can_show_paper_account(self, now: datetime) -> bool:
+        return (self.paper_account is not None and self.effective_status(now) == OK
+                and self.paper_account.observed_at <= now + MAXIMUM_FUTURE_SKEW)
+
+    def visible_order_outcomes(self, now: datetime) -> list[PaperOrderOutcome]:
+        if self.effective_status(now) != OK:
+            return []
+        return [item for item in self.order_outcomes
+                if item.observed_at <= now + MAXIMUM_FUTURE_SKEW]
 
 
 @dataclass(frozen=True)
@@ -1045,31 +1067,6 @@ def automation_leader_row(*, installed: Optional[bool],
                valid_until=expires_at)
 
 
-def _protected_day_wait(value, effective_session=None, plan_id=None):
-    try:
-        wait = ProtectedDayWait.model_validate(value)
-        return wait if (effective_session is None or str(wait.effective_session) == str(effective_session)) and (plan_id is None or wait.plan_id == plan_id) else None
-    except (ValueError, TypeError, ArithmeticError):
-        return None
-
-
-def _clean_execution_deadline(cycle):
-    """Read the producer's original cutoff; a market close cannot extend it."""
-    try:
-        def aware(value):
-            result = datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
-            if not isinstance(result, datetime) or result.tzinfo is None:
-                raise ValueError("execution timing must be timezone aware")
-            return result
-        deadline = aware(cycle.get("original_execution_deadline_at"))
-        opened = aware(cycle.get("execution_open_at"))
-        execute = aware(cycle.get("execute_at"))
-        closed = aware(cycle.get("execution_close_at"))
-        return deadline if opened <= execute <= deadline <= min(closed, opened + timedelta(seconds=600)) else None
-    except (ValueError, TypeError, ArithmeticError):
-        return None
-
-
 def automation_cycle_row(*, installed: Optional[bool],
                          enabled: Optional[bool] = None,
                          discovery_recovery: Optional[RecoveryEvidence] = None,
@@ -1131,51 +1128,31 @@ def automation_cycle_row(*, installed: Optional[bool],
     if failure_code or failure_detail:
         detail += (f" · failure {failure_code or 'UNCLASSIFIED'}: "
                    f"{failure_detail or 'no detail'}")
-    recovery = None
-    wait = None
-    availability = None
     availability_cycle = dict(
         state=state, retry_phase=retry_phase,
         availability_retry_unbounded=availability_retry_unbounded,
         callback_failure=callback_failure, exception_type=exception_type,
-        phase_attempt_count=phase_attempt_count, terminal_reason=terminal_reason,
+        phase_attempt_count=phase_attempt_count, phase_max_attempts=phase_max_attempts,
+        attempt_count=attempt_count, terminal_reason=terminal_reason,
         next_wake_at=next_wake_at, execution_open_at=execution_open_at,
-        decision_session=decision_session, effective_session=effective_session)
+        decision_session=decision_session, effective_session=effective_session,
+        failure_code=failure_code, failure_detail=failure_detail,
+        protected_day_wait=protected_day_wait, plan_id=plan_id,
+        original_execution_deadline_at=original_execution_deadline_at,
+        execute_at=execute_at, execution_close_at=execution_close_at)
     if availability_retry_clocks_aware is not None:
         availability_cycle['availability_retry_clocks_aware'] = availability_retry_clocks_aware
+    projection = project_cycle_recovery(availability_cycle, allow_legacy_attempt=True)
+    recovery = projection.evidence
+    wait = projection.protected_wait if normalized == 'RETRY_WAIT' else None
+    availability = projection.availability
     if normalized == "RETRY_WAIT":
-        from sentinel.panel.retry_status import availability_label, availability_recovery, availability_refusal
-
         status = WARN
-        availability = availability_recovery(availability_cycle)
-        wait = _protected_day_wait(protected_day_wait, effective_session, plan_id)
-        recovery = (RecoveryEvidence(
-            phase="PROTECTED_DAY_ORDER_OBSERVATION", automatic=True,
-            next_attempt_at=next_wake_at,
-            deadline=min(wait.deadline, wait.observed_at + timedelta(minutes=10)))
-            if wait is not None and not failure_code and not failure_detail else RecoveryEvidence(
-            phase="AUTOMATION_RETRY",
-            automatic=True,
-            attempt=(phase_attempt_count if phase_attempt_count is not None
-                     else attempt_count),
-            maximum_attempts=phase_max_attempts,
-            next_attempt_at=next_wake_at,
-            operator_required=bool(terminal_reason)))
-        if wait is not None and not failure_code and not failure_detail:
+        if wait is not None:
             detail += f" · {len(wait.commands)} positively matched protected DAY orders remain working"
-        elif (retry_phase == "EXECUTE" and not failure_code and not failure_detail
-              and phase_max_attempts is None):
-            recovery = RecoveryEvidence(
-                phase="CLEAN_RECOVERY_EXECUTION_WAKE", automatic=True,
-                next_attempt_at=next_wake_at, deadline=_clean_execution_deadline({
-                    "original_execution_deadline_at": original_execution_deadline_at,
-                    "execution_open_at": execution_open_at, "execute_at": execute_at,
-                    "execution_close_at": execution_close_at}))
         if availability is not None:
-            recovery = availability
             detail += f" · state {normalized} · {callback_failure} · {exception_type}"
-        elif (refused := availability_refusal(availability_cycle, availability)) is not None:
-            recovery = refused
+        elif projection.availability_refused:
             detail += " · availability retry evidence is malformed or incomplete"
     elif (normalized == "SUPERSEDED"
           and failure_code == "DISCOVERED_AFTER_SESSION_OPEN"):
@@ -1343,35 +1320,11 @@ def automation_step_rows(
         4: cycle.get("execution_close_at"),
         5: cycle.get("execution_close_at"),
     }
-    retry = RecoveryEvidence(
-        phase=f"AUTOMATION_{retry_phase or 'RETRY'}",
-        automatic=True,
-        attempt=(cycle.get("phase_attempt_count")
-                 if cycle.get("phase_attempt_count") is not None
-                 else cycle.get("attempt_count")),
-        maximum_attempts=cycle.get("phase_max_attempts"),
-        next_attempt_at=cycle.get("next_wake_at"),
-        operator_required=bool(cycle.get("terminal_reason")),
-    )
-    from sentinel.panel.retry_status import availability_label, availability_recovery, availability_refusal
-    availability = availability_recovery(cycle)
-    if availability is not None:
-        retry = availability
-    wait = _protected_day_wait(cycle.get("protected_day_wait"), cycle.get("effective_session"), cycle.get("plan_id"))
-    if wait is not None and not cycle.get("failure_code") and not cycle.get("failure_detail"):
-        retry = RecoveryEvidence(
-            phase="PROTECTED_DAY_ORDER_OBSERVATION", automatic=True,
-            next_attempt_at=cycle.get("next_wake_at"),
-            deadline=min(wait.deadline, wait.observed_at + timedelta(minutes=10)))
-    clean_execution_wait = (retry_phase == "EXECUTE" and not cycle.get("failure_code")
-                            and not cycle.get("failure_detail") and cycle.get("phase_max_attempts") is None)
-    if clean_execution_wait:
-        retry = RecoveryEvidence(
-            phase="CLEAN_RECOVERY_EXECUTION_WAKE", automatic=True,
-            next_attempt_at=cycle.get("next_wake_at"), deadline=_clean_execution_deadline(cycle))
-    refused = availability_refusal(cycle, availability)
-    if refused is not None:
-        retry = refused
+    projection = project_cycle_recovery(cycle, allow_legacy_attempt=True)
+    retry = projection.evidence or projection.protected_recovery
+    availability = projection.availability
+    wait = projection.protected_wait
+    clean_execution_wait = projection.clean_execution_wait
     failed_index = None
     if terminal and state != "SUCCEEDED":
         failed_index = _AUTOMATION_RETRY_STEP.get(retry_phase, progress_index)

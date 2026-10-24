@@ -11,7 +11,7 @@ from decimal import Decimal
 from html import escape
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.model import MAXIMUM_FUTURE_SKEW, OK, Panel, PaperOrderOutcome, ShadowSlot
+from sentinel.panel.model import OK, Panel, PaperOrderOutcome, ShadowSlot
 from sentinel.panel.presentation import describe
 
 
@@ -102,8 +102,7 @@ def _plan_html(panel: Panel) -> str:
     plan = row.paper_plan if row is not None else None
     # The saved plan expires at the same boundary as its original row. Neither
     # the overview nor a retained response can promote an expired plan.
-    admitted = (row is not None and row.effective_status(panel.now) == OK
-                and plan is not None and plan.execute_at > panel.now)
+    admitted = row is not None and row.can_show_paper_plan(panel.now)
     if not admitted:
         current = _run_html(panel)
         if current:
@@ -116,8 +115,7 @@ def _plan_html(panel: Panel) -> str:
     actions = [leg for leg in plan.legs if leg.action != 'HOLD']
     date = plan.effective_session.strftime('%A, %b %d').replace(' 0', ' ')
     start = plan.execute_at.astimezone(ZoneInfo('America/Los_Angeles')).strftime('%I:%M %p').lstrip('0')
-    outcomes = [outcome for outcome in row.order_outcomes
-                if outcome.observed_at-panel.now <= MAXIMUM_FUTURE_SKEW]
+    outcomes = row.visible_order_outcomes(panel.now)
     changes = (''.join(_leg_html(leg, outcomes) for leg in actions)
                if actions else '<li class="no-plan-changes">No share changes in the saved plan.</li>')
     targets = ''.join(
@@ -202,9 +200,7 @@ def _run_html(panel: Panel) -> str:
 
 def _account_html(panel: Panel) -> str:
     row = panel.row('alpaca_account')
-    account = row.paper_account if row is not None and row.effective_status(panel.now) == OK else None
-    if account is not None and account.observed_at-panel.now > MAXIMUM_FUTURE_SKEW:
-        account = None
+    account = row.paper_account if row is not None and row.can_show_paper_account(panel.now) else None
     if account is None:
         return ('<section class="overview-card account-overview" aria-labelledby="account-overview-title">'
                 '<h2 id="account-overview-title">Recorded paper account</h2>'
@@ -288,117 +284,5 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
             '<p class="overview-withdrawn">Last known overview · status is not current.</p>'
             +retained+_plan_html(panel)
             +(_run_html(panel) if panel.row('paper_plan') is not None
-              and panel.row('paper_plan').paper_plan is not None
-              and panel.row('paper_plan').effective_status(panel.now)==OK
-              and panel.row('paper_plan').paper_plan.execute_at>panel.now else '')
+              and panel.row('paper_plan').can_show_paper_plan(panel.now) else '')
             +_account_html(panel)+_slots_html(panel)+'</main>')
-
-
-OVERVIEW_CSS = '''
-:root,:root[data-theme="dark"],:root[data-theme="light"]{
- --bg:#16111f;--card:#241c30;--ink:#f5eee3;--muted:#c2b7c8;--line:#4d3c57;
- --ok:#8ce0b4;--warn:#f2cd83;--fail:#ffa69e;--pending:#c4bfd1;
- --okbg:#20392f;--warnbg:#493b23;--failbg:#492c32;--pendingbg:#30283c;
- --shadow:0 8px 28px #0002;
-}
-body{background:radial-gradient(ellipse at 50% 0%,#342039 0,transparent 52%),#16111f;
- padding:max(18px,env(safe-area-inset-top)) max(14px,env(safe-area-inset-right))
- max(24px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));font-size:15px}
-.wrap{max-width:760px}.casino-stage,.casino-accent{display:none}
-header{padding:6px 0 0;border:0;border-radius:0;background:none;box-shadow:none;margin:0 0 18px}
-.brand{gap:12px}.brand img{width:42px;height:42px;border-radius:11px;border:1px solid #a98750}
-h1{font-family:Georgia,serif;font-size:clamp(16px,4.9vw,25px);letter-spacing:.11em;color:#eacb8e;line-height:1.2}
-.brand-subtitle{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-top:5px}
-.state{display:block;border:1px solid currentColor;border-radius:12px;font-size:12px;letter-spacing:.045em;
- padding:12px 14px;margin-top:19px;line-height:1.4;text-transform:none}
-.heartbeat{margin:9px 2px 0;font-size:11px;letter-spacing:0;line-height:1.5}
-.status-reasons{padding:0 3px}.status-reasons ul{padding-left:19px}.status-reasons a{color:var(--fail)}
-.overview{display:grid;gap:14px}.overview-card{min-width:0;background:linear-gradient(135deg,#2c2336,#211a2b);
- border:1px solid #56435c;border-radius:17px;padding:20px;box-shadow:var(--shadow)}
-.overview-heading{display:flex;gap:12px;align-items:center;justify-content:space-between;min-width:0}
-.overview h2{font-family:Georgia,serif;font-size:23px;font-weight:400;color:#f2e5cb;margin:0;line-height:1.25}
-.overview-eyebrow{margin:0 0 5px;color:#cdb899;font-size:10px;letter-spacing:.15em;text-transform:uppercase}
-.overview-tag{font-size:10px;color:#e5c68c;border:1px solid #806348;border-radius:6px;padding:4px 7px;
- flex:0 0 auto;max-width:47%;overflow-wrap:anywhere;letter-spacing:.055em}
-.plan-schedule{display:flex;justify-content:space-between;gap:12px;margin:17px 0 0;font-size:12px;color:var(--muted);
- flex-wrap:wrap}.plan-schedule strong{color:#eddfca;font-weight:600}.plan-legs{list-style:none;margin:12px 0;padding:0}
-.plan-leg{border-top:1px solid var(--line);padding:14px 0 12px}.plan-leg-main{display:grid;
- grid-template-columns:minmax(60px,1fr) auto minmax(78px,auto);align-items:center;gap:10px}
-.plan-ticker{font-size:21px;font-weight:650;overflow-wrap:anywhere}.plan-action{font-size:10px;text-transform:uppercase;
- padding:4px 8px;border-radius:5px;letter-spacing:.05em;color:var(--pending);background:var(--pendingbg)}
-.plan-leg.buy .plan-action{color:var(--ok);background:var(--okbg)}
-.plan-leg.sell .plan-action{color:#ffb2ab;background:#492f37}
-.plan-quantity{font-size:14px;text-align:right;font-weight:550;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.plan-leg-basis{font-size:11px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
-.plan-outcome{border-left:2px solid #bb904d;background:#3b2d29;padding:9px 10px;margin-top:11px;
- color:#f1cc8d;font-size:12px;line-height:1.5}.no-plan-changes{color:var(--muted);font-size:14px;padding:10px 0}
-.overview-note,.overview-evidence{font-size:11px;line-height:1.6;color:var(--muted);margin:9px 0 0;overflow-wrap:anywhere}
-.run-progress{font-size:12px;line-height:1.6;color:#e7d7b9;margin:8px 0}
-.not-current .run-progress{color:var(--fail)}
-.refreshing-status .run-progress,.retained-overview .run-progress{color:var(--warn)}
-.overview-evidence{font-size:10px}.overview-inline-details{background:none;border:0;border-radius:0;box-shadow:none;margin:4px 0 0}
-.overview-inline-details summary{padding:0;font-size:10px;font-weight:400;text-decoration:underline;color:inherit}
-.overview-inline-details .detail-body{padding:7px 0 0;color:var(--muted);font-size:10px;overflow-wrap:anywhere}
-.overview-disclosure{border:0;border-top:1px solid var(--line);border-radius:0;background:none;box-shadow:none;margin:14px 0 0}
-.overview-disclosure summary{padding:12px 0 0;color:#e7c88f;font-size:12px;font-weight:500}
-.overview-disclosure summary span{float:right;color:var(--muted)}.overview-disclosure .detail-body{padding:12px 0 0}
-.overview-table-scroll{overflow-x:auto}.overview table{min-width:350px}.overview th,.overview td{font-size:11px}
-.overview td{white-space:nowrap}.account-overview{padding:16px 20px}.account-overview h2{font-size:17px}
-.account-stats{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
-.account-stats>div+div{border-left:1px solid var(--line);padding-left:20px}
-.account-stats span{font-size:11px;color:var(--muted);display:block}.account-stats strong{font-size:24px;
- font-weight:550;display:block;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;overflow-wrap:anywhere}
-.slot-counts{display:flex;flex-wrap:wrap;gap:7px 15px;font-size:11px;color:var(--muted);margin:12px 0 15px}
-.slot-counts span:first-child{color:#bfe1c9}.slot-grid{list-style:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
- gap:9px;padding:0;margin:0}.slot-tile{min-width:0;display:flex;flex-direction:column;align-items:flex-start;
- background:#30263b;border:1px solid #5a485e;border-radius:10px;padding:11px 10px;min-height:120px}
-.slot-tile.occupied{border-top:2px solid #8caf91}.slot-tile.exit-pending{border-top-color:#df9a94}
-.slot-tile.cooling{background:#2a2433;border-style:dashed;border-color:#665140}
-.slot-tile.reserved{border-top:2px solid #baafdb}.slot-tile.ready{border-color:#8caf91}
-.slot-number{font-size:9px;color:#baacc3;text-transform:uppercase;letter-spacing:.07em}
-.slot-main{font-size:22px;line-height:1.25;font-weight:550;margin:7px 0 3px;overflow-wrap:anywhere;max-width:100%}
-.slot-tile.cooling .slot-main{color:#edcb89}.slot-tile.ready .slot-main{color:var(--ok);font-size:20px}
-.slot-state{font-size:10px;line-height:1.35;color:#d0c4d5}.exit-pending .slot-state{color:#ffb2ab}
-.slot-evidence{margin:8px 0 0;border:0;border-radius:0;background:none;box-shadow:none;overflow:visible;width:100%}
-.slot-evidence summary{padding:0;font-size:9px;font-weight:400;color:#bbadbd}
-.slot-evidence>div{font-size:10px;line-height:1.5;color:var(--muted);padding-top:7px;overflow-wrap:anywhere}
-.overview-unavailable{color:var(--warn);font-size:14px;margin:14px 0 0}
-.overview-history,.overview-retained,.overview-withdrawn{font-size:12px;line-height:1.5;margin:0;
- color:var(--warn);padding:10px 12px;background:var(--warnbg);border-radius:8px}
-.overview-history{margin-bottom:12px}.overview-withdrawn{display:none}
-.not-current .overview-withdrawn{display:block;color:var(--fail);background:var(--failbg)}
-.not-current .overview-card{border-color:var(--fail)}
-.not-current .overview-card h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--fail)}
-.not-current .plan-action,.not-current .plan-leg.buy .plan-action,.not-current .overview-tag,
- .not-current .slot-state,.not-current .slot-tile.ready .slot-main,.not-current .slot-counts span:first-child{color:var(--fail)}
-.refreshing-status .overview-withdrawn{display:block;color:var(--warn);background:var(--warnbg)}
-.refreshing-status .overview-card{border-color:#9a7949}
-.refreshing-status .overview-card h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--warn)}
-.retained-overview .overview-card{border-color:#9a7949}
-.retained-overview .overview-card h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--warn)}
-.refreshing-status .slot-tile,.refreshing-status .slot-tile.occupied,.refreshing-status .slot-tile.ready,
- .retained-overview .slot-tile,.retained-overview .slot-tile.occupied,.retained-overview .slot-tile.ready{border-color:#9a7949}
-.refreshing-status .plan-leg.buy .plan-action,.refreshing-status .slot-tile.ready .slot-main,
- .refreshing-status .slot-counts span:first-child,.retained-overview .plan-leg.buy .plan-action,
- .retained-overview .slot-tile.ready .slot-main,.retained-overview .slot-counts span:first-child{color:var(--warn)}
-.not-current .slot-tile,.not-current .slot-tile.occupied,.not-current .slot-tile.ready{border-color:var(--fail)}
-.not-current .plan-leg.buy .plan-action,.not-current .slot-tile.ready .slot-main,
- .not-current .slot-counts span:first-child{color:var(--fail)}
-.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-#system-details{margin-top:18px;background:#201a29;border-color:#493c51;border-radius:13px}
-#system-details>summary{padding:15px 17px;color:#cbbcce;font-size:13px;font-weight:500}
-#system-details>.detail-body{padding:0 12px 12px;overflow:visible}#system-details .mode-guide{margin-top:0;font-size:12px}
-#system-details .row{padding:14px 13px;background:#261f30;border-radius:11px;border-color:#493c51}
-#system-details .value{font-size:17px}#system-details .label{font-size:10px}
-#system-details .detail{font-size:12px;line-height:1.5}#system-details .push-card{background:#261f30}
-button:focus-visible,summary:focus-visible,a:focus-visible{outline:3px solid #f4d79b;outline-offset:3px}
-footer{font-size:10px;color:#b5a8be;line-height:1.7;margin-top:18px}footer>.technical{font-size:10px;background:none;border:0;box-shadow:none}
-footer>.technical>summary{font-size:10px;font-weight:400;padding:4px}
-@media(min-width:600px){.overview-card{padding:23px}.slot-grid{gap:12px}.slot-tile{min-height:127px;padding:14px}.slot-main{font-size:26px}}
-@media(max-width:420px){.overview-card{padding:17px 14px}.overview h2{font-size:21px}.account-overview h2{font-size:16px}
- .account-stats strong{font-size:22px}.slot-grid{gap:7px}.slot-tile{padding:10px 7px}.slot-main{font-size:20px}
- .overview-heading{gap:8px}.overview-tag{font-size:9px;padding:4px 5px}.plan-leg-main{gap:7px}}
-@media(max-width:360px){.slot-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.slot-tile{min-height:115px;padding:12px}
- .slot-main{font-size:24px}.overview h2{font-size:20px}.account-overview h2{font-size:16px}.account-stats strong{font-size:21px}
- .account-stats>div+div{padding-left:14px}.account-stats{gap:10px}.plan-ticker{font-size:19px}.plan-quantity{font-size:13px}}
-'''
