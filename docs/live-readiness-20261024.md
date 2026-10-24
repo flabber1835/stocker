@@ -149,3 +149,34 @@ retain the CI skip needed to respect the backup prohibition. Do not merge,
 redeploy, alter the current PAPER environment, enable a live endpoint or run a
 real-money pilot as part of this preparation. Reinstating recovery controls or
 conducting live-account work requires its own explicit owner instruction.
+
+## Authorized next preparation
+
+The owner's next instruction on 2026-10-24 authorizes completing the offline
+accounting, whole-service recovery, live restriction design, native API contract
+map and retained gateway handoff recommended in this thread. It does not change
+the installation, credential, backup or trading-authority boundaries above.
+
+- [Account event accounting](live-accounting-candidate-20261024.md) extends the
+  existing gross-trade candidate to complete interpreted cash/security legs,
+  including same-issuer and different-issuer corporate-action receipts. Receiving
+  shares does not itself authorize their sale or rewrite canonical model state.
+- [Whole-service recovery](live-service-recovery-20261024.md) qualifies a
+  disposable complete worker and independent surviving simulated provider using
+  actual service/lease clocks; it retains its prospective generated order clock
+  and expressly excludes host power-loss or original-opening latency claims.
+- [Live restrictions](live-authority-preparation-20261024.md) tests exact subjects
+  and capital/order/daily commitment bounds without producing an execution grant.
+- [Native acceptance map](alpaca-live-account-acceptance.md) distinguishes public
+  retail REST contracts from partner streams and names actual-account evidence
+  still needed. Public documentation does not prove account entitlement.
+- [Gateway handoff](live-gateway-handoff-20261024.md) uses the original sealed
+  campaign and driver. A read-only check cannot consume the gateway; the separate
+  actual-session run remains required. No automation is scheduled by this work.
+
+Keep new candidates isolated from production entry points, schema, capability
+flags and authority issuance. Qualify their exact immutable inputs with targeted
+tests, including behavioral falsifiers. Preserve initial refusals and failures,
+then publish the completed changes through PR 538 for review without merging or
+installing them. A private functional PASS cannot close the native-provider,
+independent economic, approved live-authority or limited-capital pilot gates.
