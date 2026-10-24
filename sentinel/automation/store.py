@@ -702,6 +702,9 @@ def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None,
         prior = _cycles_in_scope(conn, spec)
         if not prior:
             return None
+        from sentinel.automation import local_paper_continuation
+        if local_paper_continuation.eligible(conn, spec=spec, cycles=prior, config=config):
+            return sorted(cycle.cycle_id for cycle in prior)
         if any(cycle.state is CycleState.BLOCKED for cycle in prior):
             from sentinel.automation import unsent_recovery as recovery
             try:
@@ -783,6 +786,10 @@ def _create_cycle(conn, *, permit, spec, now, config=None):
                 raise ProspectiveReplacementRefused('generation replacement is not a fresh unsent prospective obligation')
             cycle_id = spec.generation_cycle_id
             genesis = {'prospective_predecessors': predecessors}
+            from sentinel.automation import local_paper_continuation
+            if local_paper_continuation.eligible(conn, spec=spec, cycles=prior, config=config):
+                from sentinel import local_paper
+                genesis['owner_paper_continuation'] = local_paper.MODE
             if config is not None and config.debug_window_for(spec) is not None:
                 genesis['paper_debug_configuration'] = config.model_dump(mode="json", exclude_none=True)
             if any(cycle.state is CycleState.BLOCKED for cycle in prior):

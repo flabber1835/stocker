@@ -128,7 +128,7 @@ def test_dual_runtime_broker_reader_does_not_consult_legacy_book(monkeypatch, mo
     monkeypatch.setattr(paper_plan_preview, 'read', read_preview)
     for name in ('_canonical_state', '_current_plan', '_rollout_state'):
         monkeypatch.setattr(sources, name, lambda conn: pytest.fail('alternate book queried'))
-    rows, errors = sources._runtime_rows('fixture')
+    rows, errors = sources._runtime_rows('dbname=fixture')
     assert not errors
     assert [row.key for row in rows] == (['broker', 'paper_plan'] if mode == 'dual' else ['broker'])
     assert len(preview_reads) == (1 if mode == 'dual' else 0)

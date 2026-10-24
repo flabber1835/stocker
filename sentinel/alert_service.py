@@ -1,6 +1,8 @@
 """Independent external alert dispatcher for unattended Sentinel automation.
 
-The trading worker only enqueues durable outbox rows. This process owns delivery
+The trading worker only enqueues durable outbox rows. Local PAPER can also
+collect notification-only native execution receipts through a bounded GET-only
+execution-layer reader. This process owns delivery
 and requires first-party Web Push or the migration webhook. Database loss is
 reported through the optional independent webhook when available because a
 database-backed subscription cannot report loss of its own database.
@@ -358,6 +360,8 @@ def _active_incident(health):
 
 
 async def run() -> int:
+    if os.environ.get('ALPACA_API_KEY') or os.environ.get('ALPACA_SECRET_KEY'):
+        raise ValueError('alert sender must not hold broker credentials')
     config = SentinelConfig.from_env()
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
@@ -485,6 +489,8 @@ async def run() -> int:
             continue
 
         try:
+            # Provider GETs belong to execution_collector. A stalled broker
+            # cannot delay dispatch of a previously committed critical alert.
             _observe_health(
                 conn, health=health, max_attempts=automation.alert_max_attempts,
                 maximum_observation_gap_seconds=max(10.0, 2 * poll),

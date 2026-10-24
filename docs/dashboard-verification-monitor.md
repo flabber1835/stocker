@@ -1,5 +1,10 @@
 # Independent dashboard verification and background refresh
 
+Current ownership is superseded by the durable independent role in
+[operational architecture](operational-architecture-20261023.md). The original
+scope, finite clocks, failure behavior and historical qualification below remain
+preserved; historical release instructions do not override local PAPER delivery.
+
 Decision: 2026-10-11. The operator observed repeated CHECK IN PROGRESS and a
 worker-status timeout while the actual shadow publisher and paper scheduler
 were healthy. The financial reader currently uses one identity for independent
@@ -33,22 +38,21 @@ sizing records remain bound. Compare classification constants to their owning
 modules in PostgreSQL tests without importing broker modules in the panel's
 identity reader. These exclusions change display invalidation only.
 
-The panel owns one background monitor for its fixed configured database. It
-starts at HTTP application startup and checks both identities independently
-while no browser is connected. The HTTP path still reads current compact
-identities and operational facts; it does not trust a monitor snapshot after
-identity change. It reads the owned observations without starting extra jobs.
-Configuration changes replace the monitor's scope, never replay old results.
+A dedicated broker-free verifier role in the common immutable image owns both
+independent observations even when HTTP is stopped. It persists positive and
+negative versioned HMAC receipts with exact SHADOW/PAPER subject keys, original
+observation times and finite expiry. One finite session owner and execution slot
+serialize expensive observations. Each queued check retains the original
+five-minute queue plus five-minute work bounds and parent-death/reap rules.
 
-At most one expensive financial observer executes per panel process. Separate
-scope jobs share one finite execution slot and cannot multiply the existing
-1 GiB panel budget. A queued observation has at most five minutes to acquire
-that slot. Its five-minute work deadline starts only when acquired; its total
-queue plus work interval is at most ten minutes from the original request.
-Queueing and checking carry explicit finite recovery evidence and different
-wording. A stalled worker, failed observation, unreadable identity or exhausted
-bound remains a failure. Shutdown stops the monitor; finite subprocesses retain
-the existing parent-death and reap rules.
+The HTTP lifecycle starts no observer. It validates the exact installed
+invalidation/DDL-audit catalogs, reads constant-size independent revision keys
+and consumes authenticated receipts. Runtime, semantic environment, installation
+incarnation, dependency revision and independent DDL epoch bind each subject.
+Broker-owned mutations invalidate PAPER alone. Heartbeats, browser requests and
+process restarts cannot renew proof expiry. Missing, changed, negative, expired
+or malformed records withdraw current styling. A still-valid exact-subject proof
+can survive a panel restart. Receipt persistence confers no financial authority.
 
 ## Worker liveness
 
@@ -77,6 +81,29 @@ amber. Failed or unreadable required facts remain red; finite refresh alone
 does not make otherwise verified independent facts red.
 
 ## Qualification and release
+
+### Bounded corpus-lock contention (2026-10-21)
+
+Background source retention can briefly own the exclusive corpus lock while a
+display observer tries to pin it. A typed `CorpusLockUnavailable` means that no
+coherent read started; it is not a completed negative financial verification.
+Propagate that specific exception from the source projection to the spawned
+observer and retry with a fresh connection and the same expected evidence key.
+Allow at most 20 seconds of contention retry, fixed at the first refusal and
+capped by the observer's original 300-second work budget. Each retry sleeps at
+most 500 milliseconds. The existing single execution slot, parent deadline,
+identity checks and original ten-minute proof lifetime remain unchanged.
+
+A still-current successful proof may remain visible during this ordinary
+bounded check. Never retain it after identity change or expiry. A cold or
+expired proof stays explicitly checking. Exhausted contention propagates as a
+failed observer, withdrawing green and using the existing 30-second retry
+cadence; do not cache it as a completed financial result for five minutes.
+Other exceptions, semantic negative results and malformed evidence keep their
+existing failure behavior. Direct source projections retain their existing
+UNKNOWN result unless the finite observer explicitly requests propagation.
+This changes display retry only; it does not alter retention, broker execution,
+backup policy, lock exclusion or any durable financial state.
 
 Exercise the actual Reader, monitor lifecycle, JSON, HTML and browser refresh.
 Prove independence on broker-only changes and withdrawal on shadow input or

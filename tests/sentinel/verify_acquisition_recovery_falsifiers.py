@@ -35,8 +35,8 @@ module.SeedCoverageAccumulator.require_complete = module.require_complete
 """, "test_source_wait_recovery.py::test_missing_repeated_probe_then_reviewed_data_recovers_after_restart"),
     ("ready_dataset_repin", """
 import inspect
-from sentinel.feed import rolling_publisher as module
-source = inspect.getsource(module._prepare)
+from sentinel.feed import publisher_pipeline as module
+source = inspect.getsource(module.run)
 line = 'corrections = pinned.get("source_corrections", source_corrections.bootstrap())'
 assert source.count(line) == 1
 exec(source.replace(line, 'corrections = None'), module.__dict__)

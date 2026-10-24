@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from sentinel.feed import operational_snapshot as op, rolling_builder, rolling_publisher
+from sentinel.feed import operational_snapshot as op, publisher_pipeline, rolling_builder
 from sentinel.feed import rolling_store
 from sentinel.feed import store
 from sentinel.feed.alpaca_source import AlpacaSource
@@ -126,7 +126,7 @@ def alpaca_path(monkeypatch):
     fake.classifier = FakeClassifier()
     from sentinel.feed import alpaca_source
     monkeypatch.setattr(alpaca_source, '_today', lambda: date(2026,9,15))
-    monkeypatch.setattr(rolling_publisher, "_operational_source",
+    monkeypatch.setattr(publisher_pipeline, "_operational_source",
         lambda window, conn, lease, *, corrections, verify_during_coverage:
             AlpacaSource(window, conn, lease, client=fake, classifier=fake.classifier,
                          verify_during_coverage=verify_during_coverage))

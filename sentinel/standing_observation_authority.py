@@ -97,7 +97,9 @@ def require_standing_observation_authority(
         raise AuthorityRefused(
             f"standing paper certificate does not permit {required_operation}")
 
-    binding = binding_mod.require(conn)
+    from sentinel import local_paper
+    local_binding = local_paper.bound_account(conn)
+    binding = binding_mod.require(conn) if local_binding is None else local_binding
     expected_subject = {
         "deployment_id": binding.deployment_id,
         "broker": binding.broker,
@@ -125,19 +127,28 @@ def require_standing_observation_authority(
             "controller rollout")
 
     bindings = certificate.claims["bindings"]
-    artifacts = runtime_artifact_identity(runtime_identity)
-    for field in ("git_commit", "runtime_image_digest", "test_image_digest"):
-        if bindings[field] != artifacts[field]:
+    local = local_binding is not None
+    if local:
+        local_paper.validate_runtime_identity(runtime_identity)
+    else:
+        artifacts = runtime_artifact_identity(runtime_identity)
+        for field in ("git_commit", "runtime_image_digest", "test_image_digest"):
+            if bindings[field] != artifacts[field]:
+                raise AuthorityRefused(
+                    f"standing paper {field.replace('_', ' ')} does not match this "
+                    "runtime")
+        if bindings["runtime_identity_sha256"] != runtime_identity.get("identity_hash"):
             raise AuthorityRefused(
-                f"standing paper {field.replace('_', ' ')} does not match this "
-                "runtime")
-    if bindings["runtime_identity_sha256"] != runtime_identity.get("identity_hash"):
-        raise AuthorityRefused(
-            "standing paper runtime identity does not match this runtime")
+                "standing paper runtime identity does not match this runtime")
     if bindings["strategy_identity_sha256"] != canonical_sha256(strategy_identity):
-        raise AuthorityRefused(
-            "standing paper strategy identity does not match this runtime")
-    if bindings["execution_config_sha256"] != execution_config_sha256:
+        from sentinel.persistent_share_authority import allows_execution_transition
+        if not local or not allows_execution_transition(
+                bindings["strategy_identity_sha256"], strategy_identity):
+            raise AuthorityRefused(
+                "standing paper strategy identity does not match this runtime")
+    if local:
+        local_paper.validate_execution_policy(execution_config_sha256)
+    elif bindings["execution_config_sha256"] != execution_config_sha256:
         raise AuthorityRefused(
             "standing paper execution configuration does not match")
 
@@ -176,7 +187,7 @@ def require_standing_observation_authority(
             raise AuthorityRefused(
                 "standing paper certificate does not permit unattended "
                 "automation")
-        if bindings["automation_config_sha256"] != automation_config_sha256:
+        if not local and bindings["automation_config_sha256"] != automation_config_sha256:
             raise AuthorityRefused(
                 "standing paper automation configuration does not match")
     return certificate

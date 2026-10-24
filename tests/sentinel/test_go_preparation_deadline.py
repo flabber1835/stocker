@@ -24,7 +24,7 @@ def test_missing_or_invalid_host_cutoff_cannot_default_to_one_hour(value):
 def test_slow_preparation_and_backup_share_original_host_deadline(
         conn, issuer_source, monkeypatch, tmp_path, exhaust):
     from sentinel import backup_guard, backup_runtime_authority as authority, shadow_runtime
-    from sentinel.feed import rolling_builder, rolling_publisher, store, calendar, operational_snapshot
+    from sentinel.feed import rolling_builder, publisher_pipeline, store, calendar, operational_snapshot
     from tests.sentinel.test_go_backup_refresh import backup, GrowingWalRunner, TOKEN, _cp, run_overlay
     import sentinel_go_deadline as host_deadline
     import sentinel_go_feed_progress as host_progress
@@ -66,11 +66,11 @@ def test_slow_preparation_and_backup_share_original_host_deadline(
             pass
     monkeypatch.setattr(store, "connect", lambda *_a, **_kw: Borrowed())
 
-    checkpoint = rolling_publisher._checkpoint
+    checkpoint = publisher_pipeline._checkpoint
     def slow_checkpoint(*args, **kwargs):
         checkpoint(*args, **kwargs)
         elapsed[0] += 45  # Each of 22 parts; lease remains live between pulses.
-    monkeypatch.setattr(rolling_publisher, "_checkpoint", slow_checkpoint)
+    monkeypatch.setattr(publisher_pipeline, "_checkpoint", slow_checkpoint)
     build = rolling_builder.build
     def slow_build(c, lease, *args, **kwargs):
         for _ in range(6):

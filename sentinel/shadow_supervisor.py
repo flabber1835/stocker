@@ -76,10 +76,14 @@ def _pending_file():
 def _arm_worker(supervisor_pid=None):
     # A positive, durable acknowledgement is required before launching work.
     # Never reuse an existing marker from an unacknowledged prior attempt.
-    attempt = uuid.uuid4().hex
-    _write_marker(_pending_file(), restart_recovery.make_pending(
-        attempt, supervisor_pid if supervisor_pid is not None else os.getpid()))
-    return attempt
+    from sentinel import shadow_drain
+    def arm():
+        attempt = uuid.uuid4().hex
+        _write_marker(_pending_file(), restart_recovery.make_pending(
+            attempt, supervisor_pid if supervisor_pid is not None else os.getpid()))
+        return attempt
+    return shadow_drain.arm_or_drain(LATCH_FILE.parent,
+        os.environ.get('SENTINEL_DATABASE_URL',''),_STATUS_INCARNATION,arm)
 
 
 def _clear_worker():
@@ -121,6 +125,10 @@ def _write_alert(idempotency_key, event_type, severity, payload) -> None:
         raise RuntimeError("database URL is absent")
     conn = feed_store.connect(database_url, connect_timeout=1, statement_timeout_ms=750)
     try:
+        if event_type == 'SHADOW_DEPENDENCY_UNAVAILABLE':
+            from sentinel import shadow_dependency_notifications as notices
+            notices.enqueue_warning(conn, payload)
+            return
         outbox.enqueue(
             conn, idempotency_key=idempotency_key,
             event_type=event_type, severity=severity, payload=payload,
@@ -188,15 +196,14 @@ def _semantic_retry_alert(*, now: datetime | None = None) -> None:
 
 def _dependency_retry_alert(*, now: datetime | None = None) -> None:
     """A dependency deferral is not proof that a decision missed its open."""
-    instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     try:
-        target = calendar.latest_closed_session(instant)
+        from sentinel import shadow_dependency_notifications as notices
+        payload = notices.fallback_warning(now=now)
+        target = payload['decision_session']
         _enqueue_alert(
             idempotency_key=f'shadow-dependency:{target}:unavailable',
             event_type='SHADOW_DEPENDENCY_UNAVAILABLE', severity='WARN',
-            payload={'decision_session': target, 'state': 'DEPENDENCY_RETRY_PENDING',
-                     'detail': 'A local lock, database, backup or worker budget is unavailable; '
-                               'the supervised worker will retry. See current portfolio evidence.'})
+            payload=payload)
     except Exception as exc:
         supervisor_io.report('WARNING: shadow dependency notification unavailable: '
                              + type(exc).__name__, file=sys.stderr)
@@ -482,6 +489,12 @@ def _run_owned(owner_fd) -> int:
                 supervisor_io.report('REFUSED: shadow worker could not be durably armed: '
                                      + type(exc).__name__)
                 return EXIT_REFUSED
+            if attempt is None:
+                # An authenticated drain owns admission. Existing children
+                # finished before acknowledgement; heartbeat is liveness only.
+                heartbeat()
+                time.sleep(1)
+                continue
             started = time.monotonic()
             worker_env = dict(os.environ)
             worker_env[shadow_budget.DEADLINE_ENV] = (

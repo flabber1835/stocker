@@ -100,7 +100,7 @@ class InstallationDeploy(bootstrap.BootstrapDeploy):
             raise core.DeployRefused('installation requires disabled+killed execution')
         self.runner.run(self._authorized_compose() + [
             '--profile', 'automation', '--profile', 'shadow', 'create',
-            'sentinel-automation', 'sentinel-shadow'])
+            'sentinel-automation', 'sentinel-shadow', 'sentinel-execution-collector'])
         if self._running_automation_containers():
             raise core.DeployRefused('financial automation unexpectedly running at installation completion')
         running = self.runner.run(['docker', 'ps', '-q',
@@ -108,6 +108,10 @@ class InstallationDeploy(bootstrap.BootstrapDeploy):
             '--filter', 'label=com.docker.compose.service=sentinel-shadow'], capture=True)
         if running.stdout.strip():
             raise core.DeployRefused('shadow writer unexpectedly running at installation completion')
+        if self._application_role_ids('sentinel-execution-collector'):
+            raise core.DeployRefused('execution collector unexpectedly running at installation completion')
+        self._verify_role_images(['sentinel-automation', 'sentinel-shadow',
+                                  'sentinel-execution-collector'], running=False)
         after = self._automation_status()
         if after.get('enabled') is not False or after.get('kill_switch_engaged') is not True:
             raise core.DeployRefused('installation lost its durable execution fence')

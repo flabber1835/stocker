@@ -123,6 +123,7 @@ def test_daily_name_change_preserves_held_or_leadership_economics_and_restart(co
     from sentinel import rolling_initialization as initial,rolling_daily as daily
     from sentinel.core import window_features
     from sentinel.feed import rolling_store
+    from sentinel.feed.normalized_layout import candidate_query
     prices,publish=provider
     publish();before=initial.initialize(conn,observation_id=OBS,starting_cash=50_000)
     held={value['security_id']:value for value in before.state.wealth_core['episodes'].values()}
@@ -140,8 +141,9 @@ def test_daily_name_change_preserves_held_or_leadership_economics_and_restart(co
     reference=rolling_store.load_evidence(conn,manifest.reference_sha256)
     proof=reference['identity_bindings'][0]
     assert proof['security_id']==sid and proof['provider_asset_id']=='replacement-provider'
-    current=dict(conn.execute('SELECT security_id,close_signal FROM sentinel_snapshot_bars '
-        'WHERE candidate_id=%s AND session=%s',(binding['candidate_id'],day)).fetchall())
+    current=dict(conn.execute(candidate_query(conn, 'SELECT security_id,close_signal FROM sentinel_snapshot_bars '
+        'WHERE candidate_id=%s AND session=%s'),(binding['candidate_id'],day)).fetchall())
+    assert set(prior_closes).issubset(current)
     expected_return=sum(Decimal(str(current[key]))/Decimal(str(close))-1
         for key,close in prior_closes.items())/len(prior_closes)
     result=daily.advance(conn,observation_id=OBS,starting_cash=50_000)

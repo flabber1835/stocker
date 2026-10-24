@@ -27,7 +27,7 @@ def test_stale_sole_dated_publication_is_unavailable_not_accepted(conn, publishe
     with pytest.raises(evidence.InputsUnavailable, match='MISSING_DATED_PUBLICATION:2026-09-14'):
         evidence.select(conn, session='2026-09-14', previous_version=0)
     # The strict reader continues to reject direct reuse of the old publication.
-    with pytest.raises(inputs.RollingGoRefused, match='ROLLING_ACQUISITION_STRATEGY_CHANGED'):
+    with pytest.raises(inputs.RollingGoRefused, match='^ROLLING_DATA_GENERATION_STRATEGY_ADMISSION_REQUIRED$'):
         inputs.validate_reconstruction(conn, pub, summary_only=True)
     conn.rollback()
     assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0

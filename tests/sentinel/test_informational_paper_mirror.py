@@ -57,12 +57,34 @@ class _Cursor:
 
 
 class _Conn:
+    """Historical mirror storage with an explicitly absent extension catalog."""
     def __init__(self):
         self.rows = {}
         self.commits = 0
 
     def cursor(self):
         return _Cursor(self)
+
+    def execute(self,sql,params=()):
+        from sentinel import mirror_schema
+        normalized=' '.join(sql.split())
+        if normalized=="SELECT to_regprocedure('public.sentinel_operational_installation_guard()') IS NOT NULL":
+            assert params==()
+            return SimpleNamespace(fetchone=lambda:(False,))
+        if normalized=="SELECT to_regclass('public.sentinel_processed_sessions')":
+            assert params==()
+            return SimpleNamespace(fetchone=lambda:('sentinel_processed_sessions',))
+        if normalized=='SELECT 1 FROM sentinel_processed_sessions WHERE cursor_name=%s':
+            assert params==('operational-schema:v1',)
+            return SimpleNamespace(fetchone=lambda:None if params[0] not in self.rows else (1,))
+        expected=(sorted(mirror_schema.extension_tables) if 'FROM pg_class' in normalized
+            else sorted(mirror_schema.extension_functions) if 'FROM pg_proc' in normalized
+            else sorted({name for _,name in mirror_schema.extension_triggers})
+            if 'FROM pg_trigger' in normalized else []
+            if 'FROM pg_event_trigger' in normalized else None)
+        assert normalized.startswith('SELECT count(*)') and expected is not None
+        assert params==(expected,)
+        return SimpleNamespace(fetchone=lambda:(0,))
 
     def commit(self):
         self.commits += 1

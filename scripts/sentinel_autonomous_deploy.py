@@ -1728,6 +1728,49 @@ class AutonomousDeploy:
             self.runner.run(["docker", "stop", "--time", str(grace_seconds)] + ids,
                             timeout=grace_seconds + 5)
 
+    def _application_role_ids(self, role: str, *, include_stopped: bool = False) -> List[str]:
+        roles = {"sentinel-panel", "sentinel-verifier", "sentinel-alert-dispatcher",
+                 "sentinel-execution-collector", "sentinel-shadow", "sentinel-automation"}
+        if role not in roles:
+            raise DeployRefused("unknown application lifecycle role")
+        args = ["docker", "ps", "-q", "--no-trunc"]
+        if include_stopped:
+            args.append("-a")
+        result = self.runner.run(args + [
+            "--filter", "label=com.docker.compose.project=sentinel",
+            "--filter", "label=com.docker.compose.service=" + role], capture=True, timeout=15)
+        ids = (result.stdout or "").split()
+        if len(ids) > 1 or any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in ids):
+            raise DeployRefused("application role identity is ambiguous or malformed")
+        return ids
+
+    def _direct_stop_observers(self) -> None:
+        """Quiesce bounded read/receipt writers before a database transition."""
+        grace = max(30, getattr(self.cfg, "health_timeout", 300))
+        for role in ("sentinel-execution-collector", "sentinel-verifier"):
+            ids = self._application_role_ids(role)
+            if ids:
+                self.runner.run(["docker", "stop", "--time", str(grace), ids[0]], timeout=grace + 5)
+
+    def _verify_role_images(self, roles: Sequence[str], *, running: bool = True) -> None:
+        """Inspect only non-secret immutable image and process facts."""
+        if not getattr(self, "_ci_single_runtime", False):
+            return  # Historical local build fixtures retain their original scope.
+        expected = self.runner.run(["docker", "image", "inspect", "--format", "{{.Id}}",
+            self.runtime_repo_digest], capture=True, timeout=15).stdout.strip()
+        if _DIGEST.fullmatch(expected) is None:
+            raise DeployRefused("selected runtime image identity is malformed")
+        for role in roles:
+            ids = self._application_role_ids(role, include_stopped=True)
+            if len(ids) != 1:
+                raise DeployRefused("required application role is absent: " + role)
+            facts = self.runner.run(["docker", "inspect", "--format",
+                "{{.Image}} {{.Config.Image}} {{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}",
+                ids[0]], capture=True, timeout=15).stdout.split()
+            if (len(facts) != 4 or facts[0] != expected or facts[1] != self.runtime_repo_digest
+                    or facts[2] != str(running).lower() or (running and facts[3] != "healthy")):
+                raise DeployRefused("application role image/process identity differs: " + role)
+
     def _try_emergency_kill(self) -> bool:
         result = self.runner.run([
             "bash", "scripts/sentinel-emergency-kill.sh",
@@ -1844,6 +1887,9 @@ class AutonomousDeploy:
                 "--profile", "automation", "up", "-d", "--no-deps",
                 "--wait", "--wait-timeout", str(self.cfg.health_timeout),
                 "sentinel-alert-dispatcher"])
+        self.runner.run(self._authorized_compose() + [
+            "--profile", "automation", "up", "-d", "--no-deps",
+            "--wait", "--wait-timeout", str(self.cfg.health_timeout), "sentinel-verifier"])
         self.verify_operator_services()
 
     def verify_operator_services(self) -> None:
@@ -1858,6 +1904,13 @@ class AutonomousDeploy:
                 "--profile", "automation", "exec", "-T",
                 "sentinel-alert-dispatcher", "python", "-m",
                 "sentinel.alert_liveness"], timeout=10)
+        self.runner.run(self._authorized_compose() + [
+            "--profile", "automation", "exec", "-T", "sentinel-verifier",
+            "python", "-m", "sentinel.panel.verification_service", "--health"], timeout=10)
+        roles = ["sentinel-panel", "sentinel-verifier"]
+        if self._notification_transport_configured():
+            roles.append("sentinel-alert-dispatcher")
+        self._verify_role_images(roles)
 
     def _authorized_cli(self, args: Sequence[str], *, capture: bool = False,
                         check: bool = True) -> subprocess.CompletedProcess:
@@ -1894,6 +1947,7 @@ class AutonomousDeploy:
         first_kill = self._try_emergency_kill()
         self._direct_stop_automation()
         self._direct_stop_shadow()
+        self._direct_stop_observers()
         self.phase("transition: start only behavioral PostgreSQL on preserved volume")
         self.runner.run(self.base_compose + ["up", "-d", "--wait", "--wait-timeout",
                                             str(self.cfg.health_timeout), "sentinel-postgres"])
@@ -2264,6 +2318,9 @@ class AutonomousDeploy:
         if self._running_automation_containers():
             raise DeployRefused("automation appeared before resumed shadow verification")
         self.runner.run(self._authorized_compose() + [
+            "--profile", "automation", "up", "-d", "--no-deps", "--wait", "--wait-timeout",
+            str(getattr(self.cfg, "health_timeout", 300)), "sentinel-execution-collector"])
+        self.runner.run(self._authorized_compose() + [
             "--profile", "automation", "up", "-d", "sentinel-automation"])
 
     def _require_released_activation_control(self, certificate_sha256: str) -> None:
@@ -2402,6 +2459,15 @@ class AutonomousDeploy:
         if (authority.get("authority_mode") != "PAPER_OBSERVATION_ONLY"
                 or authority.get("lifecycle_current") is not True):
             raise DeployRefused("final status does not show current PAPER_OBSERVATION_ONLY authority")
+        self.runner.run(self._authorized_compose() + [
+            "--profile", "automation", "exec", "-T", "sentinel-execution-collector",
+            "python", "-m", "sentinel.execution_collector", "--health"], timeout=10)
+        self.verify_operator_services()
+        roles = ["sentinel-panel", "sentinel-verifier", "sentinel-execution-collector",
+                 "sentinel-shadow", "sentinel-automation"]
+        if self._notification_transport_configured():
+            roles.append("sentinel-alert-dispatcher")
+        self._verify_role_images(roles)
         return second
 
     def start_fenced_runtime(self) -> Mapping:

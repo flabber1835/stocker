@@ -173,6 +173,17 @@
       "historical_ast_sha256": "ca6ba67872aab988905382eda278340903befbd539c4fd23f817f9506320a7ef",
       "module": "preparation"
     },
+    "_local_window_resizing": {
+      "generated_ast_sha256": "b7d0a7ef7da597f9ebfa0d92219a3a76ddb678def6c71a2ea6c16deff0044369",
+      "historical_ast_sha256": null,
+      "local_window_acceptance": [
+        "tests/sentinel/test_local_paper_mode.py",
+        "tests/sentinel/test_dual_plan_renewal.py"
+      ],
+      "local_window_design": "docs/paper-debug-window.md",
+      "module": "preparation",
+      "reason": "Owner-PAPER same-decision recovered window renewal; explicit PREPARE/debug policy and terminal-command checks remain mandatory."
+    },
     "_observation_economics": {
       "generated_ast_sha256": "704d528815498d84fff694dab9f84bf3d09888c3db9b5effe6e89cf08ab9c96e",
       "historical_ast_sha256": "89ba97c041bdbc87f66dc3e63f5dcd2e02cd2c42b0858b565cd68969b60d96be",
@@ -211,9 +222,15 @@
       "module": "targets"
     },
     "_protected_allocation_or_refuse": {
-      "generated_ast_sha256": "82a549606e71194be49cf0b2675fd0f518e6c682045934b3b9b405550b7dc06a",
+      "generated_ast_sha256": "d62411fc0983a51a331f1f50a19b520b828890718a4f5a713b520e4acb9aaede",
       "historical_ast_sha256": null,
       "module": "validation",
+      "persistent_share_acceptance": [
+        "tests/sentinel/test_persistent_account_share_targets.py",
+        "tests/sentinel/test_paper_package_architecture.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "persistent_share_design": "docs/persistent-account-share-targets.md",
       "protected_buy_acceptance": [
         "tests/sentinel/test_limit_day_execution_wiring.py",
         "tests/sentinel/test_limit_day_policy_guard.py",
@@ -297,9 +314,15 @@
       "module": "targets"
     },
     "_target_projection_or_refuse": {
-      "generated_ast_sha256": "9d9927cb9ed0c16d824a20c579d78d6d1f35e2bf9105b216b298bc81e1fdd915",
+      "generated_ast_sha256": "80aa07b647edfc997d0299cd41e2066f6fc9710cf98a203111f1bb88a0b7f88f",
       "historical_ast_sha256": "23dfec886b25ef9cb2ad3cb210347e115dd5a2eb4ecc60a7f9febe0bd4935a46",
       "module": "targets",
+      "persistent_share_acceptance": [
+        "tests/sentinel/test_persistent_account_share_targets.py",
+        "tests/sentinel/test_paper_package_architecture.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "persistent_share_design": "docs/persistent-account-share-targets.md",
       "protected_buy_acceptance": [
         "tests/sentinel/test_limit_day_execution_wiring.py",
         "tests/sentinel/test_limit_day_policy_guard.py",
@@ -327,9 +350,15 @@
       "reason": "PR #537: Bind any carried automation configuration SHA to the durable control configuration before paper mutation; preserve existing generation, certificate, account, leader, phase and cycle checks."
     },
     "_validate_broker_grant": {
-      "generated_ast_sha256": "9434164b9c2c06c9af428e19643d1158c40100def5a5d20bd78ea1595f2d9848",
+      "generated_ast_sha256": "9da0a9d1ee1f79eaa62e33d461a521032dff8dfe2eb562a1746258c35d213155",
       "historical_ast_sha256": "a10cb381c28e916db84d14fe6fbc617043ac4e1beaaf165a2287250fdc4ce282",
       "module": "validation",
+      "persistent_share_acceptance": [
+        "tests/sentinel/test_persistent_account_share_targets.py",
+        "tests/sentinel/test_paper_package_architecture.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "persistent_share_design": "docs/persistent-account-share-targets.md",
       "protected_buy_acceptance": [
         "tests/sentinel/test_limit_day_execution_wiring.py",
         "tests/sentinel/test_limit_day_policy_guard.py",
@@ -365,7 +394,7 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "e5f8cd9ca0071260e7403202ec367e57d03f05df54940888a35e681bf651f879",
+      "generated_ast_sha256": "10479acd3882efbdc250821252aff6a3c761879a306f213d73e8cefc0a937adf",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "initial_paper_recovery_acceptance": [
         "tests/sentinel/test_initial_paper_recovery.py",
@@ -375,7 +404,18 @@
       ],
       "initial_paper_recovery_design": "docs/sentinel-execution-contract.md",
       "initial_paper_recovery_qualification": "docs/readiness-workflow-qualification.md",
+      "local_window_acceptance": [
+        "tests/sentinel/test_local_paper_mode.py",
+        "tests/sentinel/test_dual_plan_renewal.py"
+      ],
+      "local_window_design": "docs/paper-debug-window.md",
       "module": "preparation",
+      "persistent_share_acceptance": [
+        "tests/sentinel/test_persistent_account_share_targets.py",
+        "tests/sentinel/test_paper_package_architecture.py",
+        "tests/sentinel/test_rolling_paper_inputs.py::test_fresh_dual_guard_reuses_only_its_verified_state_digest"
+      ],
+      "persistent_share_design": "docs/persistent-account-share-targets.md",
       "production_path_acceptance": [
         "tests/sentinel/test_alpaca_source_codec.py",
         "tests/sentinel/test_rolling_paper_inputs.py"

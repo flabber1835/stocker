@@ -1017,9 +1017,10 @@ _PREPARATION_CODE = r'''
 import json, os
 from datetime import datetime, timezone
 from sentinel import schema
-from sentinel.feed import calendar, rolling_go_inputs, publication, store
+from sentinel.feed import calendar, rolling_go_inputs, publication, store, writer_schedule
 from sentinel.shadow_runtime import publication_not_before
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+discard_connection = False
 try:
     schema.ensure_schema(c)
     store.migrate_schema(c)
@@ -1045,8 +1046,12 @@ try:
             prepared is not None and prepared['status'] in ('PUBLISHED', 'ALREADY_CURRENT')),
         'publication_current': current,
     }, sort_keys=True))
+except BaseException as exc:
+    discard_connection = writer_schedule.connection_discarded(exc)
+    raise
 finally:
-    c.close()
+    if not discard_connection:
+        c.close()
 '''.strip()
 
 

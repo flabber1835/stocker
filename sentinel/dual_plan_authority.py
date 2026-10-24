@@ -43,6 +43,7 @@ from sentinel.execution.numeric import decimal_text
 
 
 SCHEMA = "sentinel.dual-plan-sizing-authority/1"
+HELD_SCHEMA = "sentinel.dual-plan-sizing-authority/2"
 CURSOR_PREFIX = "dual-plan-sizing-authority:v1:"
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _REGENESIS_FLAT_SIZING_REQUIRED = ContextVar(
@@ -376,7 +377,8 @@ def _decode_observation(value: Any) -> BrokerObservation:
 
 def build_authority(
         *, plan, shadow_result, publication, account_snapshot,
-        observation, marks: Mapping, tickers: Mapping) -> dict:
+        observation, marks: Mapping, tickers: Mapping,
+        held_share_targets: Mapping | None = None) -> dict:
     """Build the immutable evidence committed beside one PAPER plan."""
     state = getattr(shadow_result, "state", None)
     if not isinstance(state, SessionState):
@@ -409,6 +411,9 @@ def build_authority(
         "tickers": {str(key): str(value)
                     for key, value in sorted(tickers.items())},
     }
+    if held_share_targets is not None:
+        body["schema"] = HELD_SCHEMA
+        body["held_share_targets"] = dict(held_share_targets)
     body["authority_sha256"] = _sha256(body)
     return json.loads(_canonical(body))
 
@@ -421,7 +426,9 @@ def _validate_payload(value: Any, *, plan_id: str | None = None) -> dict:
         "shadow_state", "publication", "account_snapshot",
         "broker_observation", "marks", "tickers", "authority_sha256",
     }
-    if set(raw) != expected or raw.get("schema") != SCHEMA:
+    if raw.get("schema") == HELD_SCHEMA:
+        expected.add("held_share_targets")
+    if set(raw) != expected or raw.get("schema") not in {SCHEMA, HELD_SCHEMA}:
         raise DualPlanAuthorityRefused(
             "dual sizing authority has an unknown schema or shape")
     digest = str(raw.get("authority_sha256") or "")
@@ -508,6 +515,8 @@ def rederive_plan(
         None if expected is None else (
             expected_state.state_hash, getattr(expected, 'record_sha256', None),
             getattr(expected, 'runtime_authority_sha256', None)))
+    from sentinel.execution import held_targets
+    key = (*key, held_targets.predecessor_version(conn, plan.plan_id))
     return structural_verification.material(conn, slot='dual-sizing', key=key,
         load=load)
 
@@ -534,9 +543,11 @@ def _rederive_guard_plan(conn, *, plan, binding, rollout_state,
                 or full.runtime_authority_sha256 != intent.runtime_authority_sha256):
             raise DualPlanAuthorityRefused('private guard state commitment changed')
         return proof
+    from sentinel.execution import held_targets
     proof = structural_verification.material(conn, slot='dual-sizing',
-        key=_sizing_key(plan, binding, rollout_state, (intent.state_sha256,
-            intent.record_sha256, intent.runtime_authority_sha256)), load=load)
+        key=(*_sizing_key(plan, binding, rollout_state, (intent.state_sha256,
+            intent.record_sha256, intent.runtime_authority_sha256)),
+            held_targets.predecessor_version(conn, plan.plan_id)), load=load)
     return intent, proof
 
 
@@ -576,6 +587,12 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
     tickers = {str(key): _text(value, where=f"ticker {key}")
                for key, value in tickers_raw.items()}
     try:
+        retained_targets = None
+        if authority["schema"] == HELD_SCHEMA:
+            from sentinel.execution import held_targets
+            retained_targets = held_targets.verified_targets(conn, plan=plan,
+                basis=authority["held_share_targets"], state=state,
+                binding=binding, rollout=rollout_state)
         derived = build_execution_plan(
             state=state, binding=binding,
             publication=_mapping(
@@ -585,7 +602,7 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
             marks=marks, tickers=tickers,
             decision_session=plan.decision_session,
             effective_session=plan.effective_session,
-            rollout_state=rollout_state)
+            rollout_state=rollout_state, retained_targets=retained_targets)
     except DualPlanAuthorityRefused:
         raise
     except Exception as exc:  # noqa: BLE001 - normalize adapter failure
@@ -604,6 +621,8 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
         "plan_fingerprint": plan.fingerprint(),
         "canonical_symbols": dict(sorted(tickers.items())),
         "shadow_equity": decimal_text(_shadow_equity(state)),
+        **({"retained_targets": {sid: decimal_text(qty) for sid, qty in retained_targets.items()}}
+           if retained_targets is not None else {}),
         "verdict": "MATCH",
     }
 

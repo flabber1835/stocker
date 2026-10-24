@@ -57,11 +57,11 @@ class BackupGuardStatus:
 
     @property
     def writes_permitted(self) -> bool:
-        return self.state in {"HEALTHY", "DEGRADED"}
+        return self.state in {"HEALTHY", "DEGRADED", "DISABLED_BY_OPERATOR"}
 
     @property
     def bulk_writes_permitted(self) -> bool:
-        return self.state == "HEALTHY"
+        return self.state in {"HEALTHY", "DISABLED_BY_OPERATOR"}
 
     def to_dict(self) -> dict:
         return {
@@ -92,6 +92,12 @@ def clear_archive_snapshot(conn) -> None:
 
 
 def status(conn) -> BackupGuardStatus:
+    from sentinel import local_paper
+    if local_paper.backups_suspended_for_account(conn):
+        return BackupGuardStatus(
+            state="DISABLED_BY_OPERATOR", archive_mode="off",
+            last_success_age_seconds=None, unresolved_failure=False,
+            failed_count=0)
     clear_archive_snapshot(conn)
     with conn.cursor() as cur:
         cur.execute(

@@ -211,13 +211,13 @@ def test_projection_requires_prospective_attestation(compact, attested):
         compact.read()
 
 
-def test_unscoped_projection_refuses_without_loading():
+def test_unscoped_projection_refuses_without_loading(conn):
     with pytest.raises(verified.VerificationScopeRefused, match='SCOPE_REQUIRED'):
         verified.projected_material(None, slot='rolling-checkpoint', key='key',
             load=lambda: pytest.fail('unscoped projection loaded'),
             projection_slot='test', project=lambda v: v)
     with pytest.raises(rolling.Refused, match='SCOPE_REQUIRED'):
-        rolling._guard_status(None, observation_id='primary', starting_cash='50000')
+        rolling._guard_status(conn, observation_id='primary', starting_cash='50000')
 
 
 @pytest.mark.parametrize('failure', ['approval', 'handover'])
@@ -258,7 +258,7 @@ def test_private_sizing_acquires_commitment_and_keeps_canonical_cold_loader(conn
     monkeypatch.setattr(dual, '_verified_guard_intent', private)
     monkeypatch.setattr(dual, 'verified_shadow_intent', public)
     monkeypatch.setattr(sizing, '_rederive_plan', derive)
-    plan = SimpleNamespace(decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
+    plan = SimpleNamespace(plan_id='exact', decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
     def read():
         return sizing._rederive_guard_plan(conn, plan=plan, binding='account', rollout_state='rollout',
             observation_id='primary', starting_cash='50000')
@@ -277,7 +277,7 @@ def test_public_sizing_keeps_hashing_mutated_caller_state(conn, compact, monkeyp
         state_hash = STATE
     expected = SimpleNamespace(state=MutableState(), record_sha256=RECORD,
         runtime_authority_sha256=intent.runtime_authority_sha256)
-    plan = SimpleNamespace(decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
+    plan = SimpleNamespace(plan_id='exact', decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
     def derive(*_a, **kwargs):
         if kwargs['expected_shadow_result'].state.state_hash != STATE:
             raise sizing.DualPlanAuthorityRefused('mutated supplied state')
@@ -307,7 +307,7 @@ def test_private_cold_sizing_refuses_changed_commitments(conn, compact, monkeypa
     monkeypatch.setattr(dual, '_verified_guard_intent', lambda *_a, **_k: compact.read())
     monkeypatch.setattr(dual, 'verified_shadow_intent', lambda *_a, **_k: full)
     monkeypatch.setattr(sizing, '_rederive_plan', lambda *_a, **_k: proof)
-    plan = SimpleNamespace(decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
+    plan = SimpleNamespace(plan_id='exact', decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
     with pytest.raises(sizing.DualPlanAuthorityRefused, match='commitment changed'):
         sizing._rederive_guard_plan(conn, plan=plan, binding='account', rollout_state='rollout',
             observation_id='primary', starting_cash='50000')
@@ -341,7 +341,7 @@ def test_original_record_identity_falsifier_detects_removed_binding(compact, mon
 
 
 def test_readiness_falsifier_detects_removed_current_validation(compact, monkeypatch):
-    monkeypatch.setattr(rolling, '_guard_status', _mutant(rolling._guard_status,
+    monkeypatch.setattr(rolling, '_guard_status_owned', _mutant(rolling._guard_status_owned,
         '_current(conn, checkpoint, pub)', 'None'))
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_current_validation_repeats_after_projection_is_warm(compact, 'readiness')

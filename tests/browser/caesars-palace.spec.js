@@ -1,5 +1,13 @@
 const { test, expect } = require("@playwright/test");
 
+async function openSystemDetails(page) {
+  const details = page.locator("#system-details");
+  await expect(details).not.toHaveAttribute("open", "");
+  await expect(page.locator("#operational-state")).toBeVisible();
+  await details.locator(":scope > summary").click();
+  await expect(details).toHaveAttribute("open", "");
+}
+
 async function waitForActiveWorker(page, observe) {
   await expect.poll(async () => {
     const snapshot = await page.evaluate(async () => {
@@ -39,9 +47,12 @@ test.describe('App resume presentation', () => {
         if (!route.request().isNavigationRequest()) await held;
         try {
           const response = await route.fetch();
-          const body = (await response.text()).replace(
-            /(<span id="operational-state" class=")state [^"]+(">)[\s\S]*?(<\/span>)/,
+          const source = await response.text();
+          const body = source.replace(
+            /(<span id="operational-state" class=")state [^"]+("[^>]*>)[\s\S]*?(<\/span>)/,
             '$1state ok$2CLIENT PRESENTATION FIXTURE$3');
+          expect(body).not.toBe(source);
+          expect(body).toContain('CLIENT PRESENTATION FIXTURE');
           await route.fulfill({response,body});
         } catch (error) {
           if (!expires) throw error; // The expected timeout can abort this request.
@@ -50,6 +61,7 @@ test.describe('App resume presentation', () => {
       try {
         await page.clock.install();
         await page.goto('/', {waitUntil:'domcontentloaded'});
+        await openSystemDetails(page);
         await page.locator('[data-detail-key="mode-guide"] summary').click();
         const generated = await page.locator('body').getAttribute('data-generated-at');
         await page.evaluate(() => {
@@ -75,8 +87,9 @@ test.describe('App resume presentation', () => {
           release();
           await expect(page.locator('#operational-state')).toContainText('CLIENT PRESENTATION FIXTURE');
           await expect(page.locator('html')).not.toHaveClass('refreshing-status');
-          await expect(page.locator('[data-detail-key="mode-guide"]')).toHaveAttribute('open','');
         }
+        await expect(page.locator('#system-details')).toHaveAttribute('open','');
+        await expect(page.locator('[data-detail-key="mode-guide"]')).toHaveAttribute('open','');
       } finally { release(); }
     });
   }
@@ -90,7 +103,7 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
       { name: "portrait", width: 393, height: 852 },
       { name: "landscape", width: 852, height: 393 }
     ]) {
-      test(`${viewport.name} ${appearance} keeps every status visible`, async ({ page }) => {
+      test(`${viewport.name} ${appearance} opens every status from the compact view`, async ({ page }) => {
         await page.setViewportSize(viewport);
         await page.emulateMedia({ colorScheme: appearance });
         await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -98,6 +111,8 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
         await expect(page.locator("#operational-state")).toBeVisible();
         await expect(page.locator("#dashboard-heartbeat")).toContainText(
           "DASHBOARD HEARTBEAT");
+        await expect(page.locator('[data-key="automation_step_discovery"]')).toBeHidden();
+        await openSystemDetails(page);
         for (const key of REQUIRED_AUTOMATION_STEPS) {
           await expect(page.locator(`[data-key="${key}"]`)).toBeVisible();
         }
@@ -117,12 +132,17 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
         expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewport + 1);
         expect(layout.paddingLeft).toBeGreaterThan(0);
         expect(layout.paddingRight).toBeGreaterThan(0);
+        await page.locator("#system-details > summary").click();
+        await expect(page.locator("#system-details")).not.toHaveAttribute("open", "");
+        await expect(page.locator('[data-key="automation_step_discovery"]')).toBeHidden();
+        await expect(page.locator("#operational-state")).toBeVisible();
       });
     }
   }
 
   test("dynamic text, long errors, and wide detail tables stay contained", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
+    await openSystemDetails(page);
     await page.addStyleTag({ content: "body{font-size:24px!important}" });
     await page.locator(".detail").first().evaluate((node) => {
       node.textContent = "BROKER_ACCOUNT_RUNTIME_FAILURE_".repeat(80);
@@ -135,13 +155,19 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
     });
     expect(await tableSections.count()).toBeGreaterThan(0);
     for (const details of await tableSections.all()) {
-      await details.locator("summary").click();
-      for (const table of await details.locator("table").all()) {
-        await table.evaluate((node) => {
-          const row = node.insertRow();
-          row.insertCell().textContent = "WIDE_COLUMN_".repeat(100);
-        });
+      // DOM order opens ancestors before their children. Never toggle an
+      // already-open ancestor closed or match a descendant's summary.
+      if (await details.getAttribute("open") === null) {
+        await details.locator(":scope > summary").click();
       }
+      await expect(details).toHaveAttribute("open", "");
+    }
+    for (const table of await page.locator("table").all()) {
+      await expect(table).toBeVisible();
+      await table.evaluate((node) => {
+        const row = node.insertRow();
+        row.insertCell().textContent = "WIDE_COLUMN_".repeat(100);
+      });
     }
 
     const sizes = await page.evaluate(() => ({
@@ -291,6 +317,10 @@ test.describe("Caesar's Palace PWA and push path", () => {
 
     await page.goto("/", { waitUntil: "networkidle" });
     await waitForActiveWorker(page);
+    await expect(page.locator("#push-card")).toBeHidden();
+    expect(await page.evaluate(() => window.__permissionRequests)).toBe(0);
+    expect(await page.evaluate(() => window.__subscribeRequests)).toBe(0);
+    await openSystemDetails(page);
     await expect(page.locator("#push-card")).toBeVisible();
     await expect(page.locator("#push-status")).toContainText("off");
     expect(await page.evaluate(() => window.__permissionRequests)).toBe(0);
@@ -334,6 +364,9 @@ test.describe("Caesar's Palace PWA and push path", () => {
       }));
       await page.goto("/", {waitUntil: "networkidle"});
       await waitForActiveWorker(page);
+      expect(submissions).toBe(0);
+      await openSystemDetails(page);
+      expect(submissions).toBe(0);
       await page.locator("#push-enable").click();
       await expect(page.locator("#push-status")).toContainText(
         outcome === "accepted" ? "accepted by the push service"

@@ -623,7 +623,9 @@ def _validate_views(cur) -> None:
 
 def require_feed_schema(conn) -> None:
     """Validate installed feed structure with catalog SELECTs only."""
-    try:
+    # Roll back only this proof (a nested savepoint when borrowing a caller's
+    # transaction), never the caller's existing work, settings or locks.
+    with conn.transaction(force_rollback=True):
         with conn.cursor() as cur:
             cur.execute("SELECT pg_try_advisory_xact_lock_shared(%s,%s)",
                         _SCHEMA_LOCK)
@@ -632,13 +634,9 @@ def require_feed_schema(conn) -> None:
                 raise _refuse(
                     "the explicit feed migration lock is held; runtime will "
                     "not race a changing catalog")
-            catalog = behavioral_schema._read_catalog(cur)
+            catalog = behavioral_schema._read_runtime_catalog(cur)
             _validate_catalog(catalog)
             _validate_views(cur)
-        conn.rollback()
-    except BaseException:
-        conn.rollback()
-        raise
 
 
 def migrate_feed_schema(conn) -> None:
@@ -654,7 +652,7 @@ def migrate_feed_schema(conn) -> None:
                     "feed schema lock")
             for statement in DDL:
                 cur.execute(statement)
-            catalog = behavioral_schema._read_catalog(cur)
+            catalog = behavioral_schema._read_runtime_catalog(cur)
             _validate_catalog(catalog)
             _validate_views(cur)
         conn.commit()

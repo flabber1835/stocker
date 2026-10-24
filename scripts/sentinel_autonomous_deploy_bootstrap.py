@@ -65,7 +65,7 @@ def _existing_status(env: Mapping[str, str]) -> Optional[Mapping]:
     """Read only the current canonical DB-backed status; absence is not guessed."""
     compose = _compose_args(env)
     result = _run(compose + [
-        "--profile", "cli", "run", "--rm", "-T", "sentinel", "status"],
+        "--profile", "cli", "run", "--rm", "-T", "--no-deps", "sentinel", "status"],
         env=env, check=False)
     if result.returncode != 0:
         return None

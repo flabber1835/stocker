@@ -1,4 +1,5 @@
 """Daily feature replacement with continuity of retained economic state."""
+from sentinel.feed.normalized_layout import candidate_query
 from sentinel.core import window_features
 from sentinel.core.history import CurrentWindowProof
 from sentinel.core.rolling_inputs import SnapshotReferences
@@ -19,10 +20,10 @@ def protected_economics(conn, *, previous, current, live, start, cursor):
                  or refs.resolver.resolve(payload.get('contraticker') or '', payload['date']) in live))
 
     def distributions(refs):
-        rows = conn.execute('SELECT session,security_id,split_ratio,dividend_per_share '
+        rows = conn.execute(candidate_query(conn, 'SELECT session,security_id,split_ratio,dividend_per_share '
             'FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session BETWEEN %s AND %s '
             'AND security_id=ANY(%s) AND (split_ratio<>1 OR dividend_per_share<>0) '
-            'ORDER BY session,security_id COLLATE "C"',
+            'ORDER BY session,security_id COLLATE "C"'),
             (refs.candidate_id, start, cursor, sorted(live))).fetchall()
         return [(str(day), sid, split) for day, sid, split, cash in rows if split != 1]
 

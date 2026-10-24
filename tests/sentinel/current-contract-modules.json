@@ -1,0 +1,31 @@
+{
+  "schema": "sentinel.current-contract-test-family/1",
+  "scope": "pure-domain-and-transport-contracts",
+  "modules": [
+    "test_action_value_precision.py",
+    "test_alpaca_certification_boundary.py",
+    "test_alpaca_nasdaq.py",
+    "test_alpaca_source_bounds.py",
+    "test_automation_schedule.py",
+    "test_broker_conformance.py",
+    "test_cancellation_confirmed.py",
+    "test_canonical_session_kernel.py",
+    "test_combined_event_economics.py",
+    "test_dividend_domain.py",
+    "test_execution_contract.py",
+    "test_feed_domains.py",
+    "test_formed_economics.py",
+    "test_historical_command_symbol.py",
+    "test_historical_symbol_identity.py",
+    "test_issue237_actions_semantic_v6.py",
+    "test_issue237_tri_split.py",
+    "test_live_funding.py",
+    "test_nav_quantity_precision.py",
+    "test_openfigi.py",
+    "test_ownership.py",
+    "test_paper_allowlist.py",
+    "test_resource_envelope.py",
+    "test_session_freshness.py",
+    "test_terminal.py"
+  ]
+}

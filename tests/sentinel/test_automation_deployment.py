@@ -77,7 +77,11 @@ def test_only_authority_profiles_receive_broker_and_artifact_authority():
     automated_environment = services["sentinel-automation"]["environment"]
     authorized_environment = services["sentinel-authorized-cli"]["environment"]
 
-    assert not any(name.startswith("ALPACA_") for name in panel_environment)
+    assert panel_environment['ALPACA_BASE_URL'] == (
+        '${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}')
+    assert 'ALPACA_API_KEY' not in panel_environment
+    assert 'ALPACA_SECRET_KEY' not in panel_environment
+    assert 'SENTINEL_AUTHORIZED_RUNTIME' not in panel_environment
     assert {
         "SENTINEL_REVIEWED_DEPLOYMENT_MODE",
         "SENTINEL_SHADOW_OBSERVATION_ID",

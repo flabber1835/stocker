@@ -16,10 +16,11 @@ CODE = r'''
 import json, os
 from datetime import datetime, timezone
 from sentinel import deployment_fence
-from sentinel.feed import calendar, operational_snapshot, rolling_go_inputs, store
+from sentinel.feed import calendar, operational_snapshot, rolling_go_inputs, store, writer_schedule
 from sentinel.feed.rolling_jobs import JobDeadlineExceeded
 from sentinel.backup_runtime_authority import BackupHorizonExceeded
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+discard_connection = False
 try:
     deployment_fence.require(c)
     c.rollback()
@@ -39,20 +40,30 @@ try:
                 resume_job_id=os.environ.get('SENTINEL_INSTALL_RESUME_JOB_ID'))
             result = {'status': prepared['status'], 'resume_job_id': None}
         except BackupHorizonExceeded as exc:
+            if writer_schedule.connection_discarded(exc):
+                raise
             c.rollback()
             result = {'status': 'BACKUP_HORIZON_EXCEEDED',
                       'resume_job_id': exc.resume_job_id}
-        except JobDeadlineExceeded:
+        except JobDeadlineExceeded as exc:
+            if writer_schedule.connection_discarded(exc):
+                raise
             c.rollback()
             result = {'status': 'WINDOW_EXPIRED', 'resume_job_id': None}
         except rolling_go_inputs.RollingGoRefused as exc:
+            if writer_schedule.connection_discarded(exc):
+                raise
             if str(exc) != 'ROLLING_SOURCE_FINAL_TARGET_CHANGED':
                 raise
             c.rollback()
             result = {'status': 'WINDOW_EXPIRED', 'resume_job_id': None}
     print('SENTINEL_INSTALL_SOURCE_REFRESH=' + json.dumps(result, sort_keys=True))
+except BaseException as exc:
+    discard_connection = writer_schedule.connection_discarded(exc)
+    raise
 finally:
-    c.rollback(); c.close()
+    if not discard_connection:
+        c.rollback(); c.close()
 '''.strip()
 
 

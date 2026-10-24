@@ -53,7 +53,11 @@ def public_installer(monkeypatch, tmp_path):
                  discovery_failed=False, schema_transport_failed=False,
                  fence_reply=None, operator_failed=False, operator_final_failed=False,
                  operator_probes=0, handoff_failed=False, migrated=False,
-                 created=False, receipt_before_handoff=False)
+                 created=False, receipt_before_handoff=False, roles={}, role_fault=None)
+    role_ids = {role: format(index, '064x') for index, role in enumerate((
+        'sentinel-panel', 'sentinel-verifier', 'sentinel-alert-dispatcher',
+        'sentinel-execution-collector', 'sentinel-shadow', 'sentinel-automation'), 1)}
+    image_id = 'sha256:' + 'd' * 64
     calls = []
 
     def invoke(argv, **kwargs):
@@ -67,10 +71,39 @@ def public_installer(monkeypatch, tmp_path):
             return completed('-f docker-compose.sentinel.yml -f docker-compose.sentinel-backup.yml')
         if argv[:2] == ['docker', 'pull']: return completed()
         if argv[:3] == ['docker', 'image', 'inspect']:
+            if '--format' in argv:
+                assert argv[-1] == IMAGE and argv[argv.index('--format') + 1] == '{{.Id}}'
+                return completed(image_id)
             return completed(json.dumps([dict(Config={'Labels': {
                 'org.opencontainers.image.revision': SHA}}, RepoDigests=[IMAGE],
-                Id='sha256:' + 'd' * 64)]))
-        if argv[:2] == ['docker', 'ps']: return completed()
+                Id=image_id)]))
+        if argv[:2] == ['docker', 'ps']:
+            filters = [argv[index + 1] for index, value in enumerate(argv) if value == '--filter']
+            role = next((value.split('=', 2)[2] for value in filters
+                         if value.startswith('label=com.docker.compose.service=')), None)
+            if role not in state['roles']:
+                return completed()
+            assert 'label=com.docker.compose.project=sentinel' in filters
+            if state['role_fault'] == (role, 'absent'):
+                return completed()
+            return completed(role_ids[role] if '-a' in argv or state['roles'][role] else '')
+        if argv[:2] == ['docker', 'inspect']:
+            role = next(role for role, container in role_ids.items() if container == argv[-1])
+            assert role in state['roles'] and argv[2] == '--format'
+            running = str(state['roles'][role]).lower()
+            facts = [image_id, IMAGE, running, 'healthy' if state['roles'][role] else 'none']
+            if state['role_fault'] and state['role_fault'][0] == role:
+                fault = state['role_fault'][1]
+                if fault == 'image': facts[0] = 'sha256:' + 'e' * 64
+                if fault == 'reference': facts[1] = IMAGE.replace('b' * 64, 'f' * 64)
+                if fault == 'running': facts[2] = str(not state['roles'][role]).lower()
+                if fault == 'health': facts[3] = 'unhealthy'
+            return completed(' '.join(facts))
+        if argv[:2] == ['docker', 'stop']:
+            role = next(role for role, container in role_ids.items() if container == argv[-1])
+            assert role in state['roles'] and '--time' in argv
+            state['roles'][role] = False
+            return completed()
         if argv[:2] == ['bash', 'scripts/sentinel-emergency-kill.sh']:
             return completed(code=int(state['schema'] == 'missing' and not state['migrated']))
         if argv[:2] == ['bash', 'scripts/sentinel-backup-status.sh']:
@@ -115,10 +148,24 @@ def public_installer(monkeypatch, tmp_path):
                         raise core.DeployRefused('operator health failed')
                     return completed()
             if 'create' in argv:
+                roles = argv[argv.index('create') + 1:]
+                assert roles == ['sentinel-automation', 'sentinel-shadow', 'sentinel-execution-collector']
+                assert argv[argv.index('--profile') + 1] == 'automation'
+                state['roles'].update({role: False for role in roles})
                 state['created'] = True
                 return completed()
             if 'up' in argv:
-                assert argv[-1] in {'sentinel-postgres', 'sentinel-panel'}
+                role = argv[-1]
+                assert role in {'sentinel-postgres', 'sentinel-panel', 'sentinel-verifier',
+                                'sentinel-alert-dispatcher'}
+                if role in {'sentinel-verifier', 'sentinel-alert-dispatcher'}:
+                    assert argv[argv.index('--profile') + 1] == 'automation'
+                    assert '--no-deps' in argv and '--wait' in argv
+                if role in role_ids:
+                    state['roles'][role] = True
+                return completed()
+            if 'sentinel.panel.verification_service' in argv:
+                assert argv[-1] == '--health' and state['roles']['sentinel-verifier']
                 return completed()
         raise AssertionError('unexpected external command: ' + repr(argv))
 
@@ -209,6 +256,22 @@ def test_public_adjacent_failure_preserves_installed_or_fenced_boundary(public_i
             'activation_state'] == 'OPERATOR_ACTION_REQUIRED'
     else:
         assert sum('scripts/sentinel-emergency-kill.sh' in call for call in calls) >= 2
+    assert not any('scripts/sentinel-backup-status.sh' in call for call in calls)
+
+
+@pytest.mark.parametrize('role,fault', [
+    ('sentinel-verifier', 'absent'), ('sentinel-verifier', 'image'),
+    ('sentinel-verifier', 'reference'), ('sentinel-verifier', 'running'),
+    ('sentinel-verifier', 'health'), ('sentinel-execution-collector', 'image'),
+    ('sentinel-execution-collector', 'running'),
+])
+def test_current_role_identity_failure_keeps_installation_fenced(public_installer, role, fault):
+    state, calls, root, _pointer = public_installer
+    state['role_fault'] = role, fault
+    assert install.main(['--mode', 'dual']) == 2
+    assert not list(root.rglob('installation-receipt.json'))
+    assert sum('scripts/sentinel-emergency-kill.sh' in call for call in calls) >= 2
+    assert not any('release-paper-automation-kill-switch' in call for call in calls)
     assert not any('scripts/sentinel-backup-status.sh' in call for call in calls)
 
 

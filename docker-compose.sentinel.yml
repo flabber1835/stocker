@@ -26,6 +26,11 @@ x-sentinel-logging: &sentinel-logging
     max-size: "10m"
     max-file: "3"
 
+x-sentinel-owner-paper-context: &sentinel-owner-paper-context
+  SENTINEL_LOCAL_PAPER_MODE: ${SENTINEL_LOCAL_PAPER_MODE:-}
+  SENTINEL_LOCAL_PAPER_ACCOUNT_ID: ${SENTINEL_LOCAL_PAPER_ACCOUNT_ID:-}
+  SENTINEL_LOCAL_PAPER_BACKUP_POLICY: ${SENTINEL_LOCAL_PAPER_BACKUP_POLICY:-}
+
 services:
   # Sentinel's OWN database. bt-postgres already holds 35M rows of the same
   # corpus and reading it would have been faster — rejected because it is a
@@ -128,6 +133,7 @@ services:
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     environment:
+      <<: *sentinel-owner-paper-context
       # PAPER URL ONLY. The ordinary service deliberately has no broker or
       # standing artifact authority. The host wrapper injects non-secret feed
       # identity with per-invocation `compose run --env` flags only after it has
@@ -198,6 +204,7 @@ services:
     ports:
       - "127.0.0.1:8004:8000"
     environment:
+      <<: *sentinel-owner-paper-context
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
       SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
@@ -211,6 +218,12 @@ services:
       SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256: ${SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256:-}
       SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:-}
       SENTINEL_RUNTIME_IMAGE_DIGEST: ${SENTINEL_RUNTIME_IMAGE_DIGEST:-}
+      SENTINEL_TEST_IMAGE_DIGEST: ${SENTINEL_TEST_IMAGE_DIGEST:-}
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      SENTINEL_PAPER_BUY_POLICY: ${SENTINEL_PAPER_BUY_POLICY:-}
+      SENTINEL_PAPER_BUY_CAP_BPS: ${SENTINEL_PAPER_BUY_CAP_BPS:-}
+      SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY: ${SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY:-ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2}
+      SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256: ${SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256:-}
       # Public browser configuration only. The VAPID private key belongs solely
       # to the independent alert dispatcher.
       SENTINEL_PUBLIC_ORIGIN: ${SENTINEL_PUBLIC_ORIGIN:-}

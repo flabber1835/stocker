@@ -7,7 +7,7 @@ from statistics import median
 from sentinel import rolling_checkpoint, schema
 from sentinel.core.rolling_inputs import cold_start_inputs, readiness_inputs, summarize_readiness
 from sentinel.feed import calendar, operational_snapshot as snapshots, publication
-from sentinel.feed import preparation_wait, rolling_jobs, runtime_schema
+from sentinel.feed import preparation_wait, rolling_jobs, runtime_schema, writer_schedule
 from sentinel.feed.rolling_contract import digest
 from sentinel.feed.readiness_impl import Readiness, PASS, FAIL, MIN_FRONTIER_POPULATION_RATIO
 from sentinel.feed.authority import MIN_FRONTIER_DOMAIN_COVERAGE
@@ -105,10 +105,20 @@ def _assess(conn, pub, *, target, summary_only=False):
     _, strategy = production_strategy()
     request = rolling_jobs.status(conn, binding["job_id"])["request"]
     if request["strategy_sha256"] != digest(strategy):
-        from sentinel.runtime_admission import retained_publication_strategy
-        retained_strategy = retained_publication_strategy(conn, pub)
-        if retained_strategy is None or request["strategy_sha256"] != digest(retained_strategy):
-            raise RollingGoRefused("ROLLING_ACQUISITION_STRATEGY_CHANGED")
+        from sentinel.feed.generation_admission import admitted
+        if not admitted(conn,pub,strategy):
+            from sentinel.runtime_admission import retained_publication_strategy
+            retained_strategy = retained_publication_strategy(conn, pub)
+            if retained_strategy is None or request["strategy_sha256"] != digest(retained_strategy):
+                raise RollingGoRefused("ROLLING_DATA_GENERATION_STRATEGY_ADMISSION_REQUIRED")
+    return _assess_material(conn,pub,target=target,summary_only=summary_only)
+
+
+def _assess_material(conn, pub, *, target, summary_only=False):
+    """Data-only evidence; acquisition strategy does not define source facts."""
+    from sentinel.feed import readiness_scope
+    readiness_scope.require(conn)
+    binding = snapshots._bound(conn,pub)
     if publication.chain_gaps(conn):
         raise RollingGoRefused("ROLLING_PUBLICATION_CHAIN_GAP")
     reader = readiness_inputs if summary_only else cold_start_inputs
@@ -182,8 +192,9 @@ def prepare(conn, *, target_session, budget_seconds=3600, resume_job_id=None,
         require_first_deployment(conn)
         return _prepare(conn, target_session=target_session, budget_seconds=budget_seconds,
                         wait=True, resume_job_id=resume_job_id, absolute_deadline=absolute_deadline)
-    except BaseException:
-        conn.rollback()
+    except BaseException as exc:
+        if not writer_schedule.connection_discarded(exc):
+            conn.rollback()
         raise
 
 
@@ -214,13 +225,19 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
                         and (manifest.normalization_version != ALPACA_NORMALIZATION
                              or rolling_store.load_evidence(conn, manifest.source_evidence_sha256).get('schema')
                                 != ALPACA_SOURCE))
-                    or request['strategy_sha256'] != digest(strategy)
                     or (actual != expected and (window_policy.enabled(strategy)
                                                 or isinstance(expected, FormationWindow)))):
                 pub = None
         if is_rolling(pub) and pub.window_end == target_session:
-            with snapshots.pinned(conn, commit=False) as (held, _):
-                binding, _ = validate_status(conn, held)
+            with pinned(conn) as held:
+                binding = snapshots._bound(conn,held)
+                original = rolling_jobs.status(conn,binding['job_id'])['request']['strategy_sha256']
+                _, selected = production_strategy()
+                if original != digest(selected):
+                    from sentinel.feed.generation_admission import admit_current
+                    binding, _ = admit_current(conn,held,strategy=selected,target=target_session)
+                else:
+                    binding, _ = validate_status(conn, held)
             conn.commit()
             return {"schema": SCHEMA, "status": "ALREADY_CURRENT", **binding}
         _, strategy = production_strategy()
@@ -243,6 +260,7 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
                 raise RollingGoRefused("ROLLING_PREPARATION_PUBLICATION_CHANGED")
         conn.commit()
         return {"schema": SCHEMA, "status": "PUBLISHED", **binding}
-    except BaseException:
-        conn.rollback()
+    except BaseException as exc:
+        if not writer_schedule.connection_discarded(exc):
+            conn.rollback()
         raise

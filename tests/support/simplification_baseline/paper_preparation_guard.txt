@@ -1,0 +1,11 @@
+def _require_unsent_renewal(conn, plan):
+    from sentinel.execution.identity import DeploymentIdentity
+    deployment = DeploymentIdentity(plan.deployment_id, plan.broker,
+                                    plan.broker_account_id, plan.takeover_epoch)
+    if any(command.state is not CommandState.PLANNED
+           or command.filled_quantity != 0 or command.broker_order_id is not None
+           or command.recovered_key is not None for command in
+           journal.load_commands(conn, deployment, plan_id=plan.plan_id)):
+        raise PaperRetryableRefused(
+            "same-session authority renewal requires an unsent plan; "
+            "wait for the next decision after dispatched intent")

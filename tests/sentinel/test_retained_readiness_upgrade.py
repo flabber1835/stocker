@@ -1,4 +1,5 @@
 """One reviewed readiness repair never becomes an economic source waiver."""
+from tests.support import registry_falsifiers as mutants
 import hashlib
 from pathlib import Path
 
@@ -9,20 +10,14 @@ from sentinel import open_time_upgrade, close_cycle_upgrade, idle_leader_upgrade
 from sentinel import retained_readiness_upgrade as upgrade, runtime_admission as admission
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
+from tests.support import historical_transition_fixture as historical
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
 
 
 @pytest.mark.parametrize('name', sorted(upgrade.SCOPE))
 def test_only_exact_retained_readiness_sources_are_pinned(name):
     record = upgrade.profile()['files'][name]
-    actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-    if actual != record['after']:
-        from sentinel import dual_plan_renewal_upgrade as subsequent
-        assert (subsequent.source_allowed(name, record['after'], actual)
-                or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
-                or autonomy_upgrade.source_allowed(name, record['after'], actual)
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
+    actual = record['after']  # Named historical target; current release has its own seal.
     reviewed = record['after']
     for previous in record['before']:
         assert upgrade.source_allowed(name, previous, reviewed)
@@ -55,7 +50,8 @@ def test_exact_source_upgrade_requires_full_authenticated_origin_and_environment
 def test_neighboring_acquisition_guard_change_still_refuses(closure):
     root, checkpoint, context, manifest, source = _execution_closure(closure, 'feed/rolling_go_inputs.py', source_profile=upgrade)
     path = root/'feed/rolling_go_inputs.py'
-    raw = path.read_text()
+    raw = (Path(upgrade.__file__).parent/'feed/rolling_go_inputs.py').read_text()
+    historical.require_current_source('feed/rolling_go_inputs.py', hashlib.sha256(raw.encode()).hexdigest())
     assert 'if publication.chain_gaps(conn):' in raw
     path.write_text(raw.replace('if publication.chain_gaps(conn):', 'if False:'))
     _refresh_current(root, context, source)

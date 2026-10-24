@@ -1119,13 +1119,66 @@ def test_noop_fast_path_does_not_reseed_missing_authority(current_catalog, table
     assert current_catalog.execute('SELECT count(*) FROM '+table+' WHERE id=1').fetchone()[0] == 0
 
 
-def test_go_validation_refuses_instead_of_repairing_missing_schema(current_catalog):
-    current_catalog.execute('ALTER TABLE sentinel_processed_sessions DROP COLUMN state')
+@pytest.mark.parametrize('column', ['cursor_name', 'session', 'state'])
+@pytest.mark.parametrize('damage', ['missing', 'wrong_type'])
+def test_go_validation_refuses_instead_of_repairing_missing_schema(
+        current_catalog, monkeypatch, column, damage):
+    from psycopg.pq import TransactionStatus
+
+    if damage == 'missing':
+        current_catalog.execute('ALTER TABLE sentinel_processed_sessions DROP COLUMN '+column)
+    else:
+        target = 'jsonb' if column == 'cursor_name' else 'text'
+        expression = 'to_jsonb(cursor_name)' if column == 'cursor_name' else column+'::text'
+        current_catalog.execute('ALTER TABLE sentinel_processed_sessions ALTER COLUMN '
+                                +column+' TYPE '+target+' USING '+expression)
     current_catalog.commit()
-    with pytest.raises(schema.SchemaMigrationRefused):
+    query = ("SELECT column_name,data_type,is_nullable FROM information_schema.columns WHERE "
+             "table_schema='public' AND table_name='sentinel_processed_sessions' ORDER BY column_name")
+    before = current_catalog.execute(query).fetchall()
+    current_catalog.execute('CREATE TEMP TABLE caller_schema_work(value text)')
+    current_catalog.execute("INSERT INTO caller_schema_work VALUES ('preserve')")
+    current_catalog.execute("SET LOCAL lock_timeout='8311ms'")
+    statements = []
+    cursor_type = type(current_catalog.cursor())
+    execute = cursor_type.execute
+
+    def observe(cursor, statement, *args, **kwargs):
+        if cursor.connection is current_catalog:
+            statements.append(str(statement))
+        return execute(cursor, statement, *args, **kwargs)
+
+    monkeypatch.setattr(cursor_type, 'execute', observe)
+    with pytest.raises(schema.SchemaMigrationRefused, match='INSTALLATION_CATALOG_CHANGED'):
         schema.require_runtime_schema(current_catalog)
-    assert current_catalog.execute("SELECT count(*) FROM information_schema.columns WHERE "
-        "table_name='sentinel_processed_sessions' AND column_name='state'").fetchone()[0] == 0
+    assert statements
+    assert all(statement.lstrip().split(None, 1)[0].upper() in
+               {'SELECT', 'SET', 'SAVEPOINT', 'ROLLBACK', 'RELEASE'} for statement in statements)
+    assert not any('SELECT session,state FROM sentinel_processed_sessions' in statement
+                   for statement in statements)
+    assert current_catalog.info.transaction_status == TransactionStatus.INTRANS
+    assert current_catalog.execute(query).fetchall() == before
+    assert current_catalog.execute('SELECT value FROM caller_schema_work').fetchone() == ('preserve',)
+    assert current_catalog.execute('SHOW lock_timeout').fetchone() == ('8311ms',)
+
+
+def test_marker_read_before_catalog_guard_breaks_the_real_typed_refusal(
+        current_catalog, monkeypatch):
+    from psycopg.errors import UndefinedColumn
+    from sentinel import operational_schema
+
+    source = textwrap.dedent(inspect.getsource(operational_schema.legacy_catalog))
+    start = source.index('    if marker_possible:\n')
+    end = source.index('    marker = installation(', start)
+    namespace = {}
+    exec(compile(source[:start]+source[end:], 'old-installation-read-order', 'exec'),
+         operational_schema.__dict__, namespace)
+    monkeypatch.setattr(operational_schema, 'legacy_catalog', namespace['legacy_catalog'])
+    # The old ordering leaks SQL failure instead of satisfying the same typed
+    # public refusal contract against the actual damaged PostgreSQL catalog.
+    with pytest.raises(UndefinedColumn):
+        test_go_validation_refuses_instead_of_repairing_missing_schema(
+            current_catalog, monkeypatch, 'state', 'missing')
 
 
 def test_reintroduced_noop_ddl_is_detected_by_the_real_lock_failure(current_catalog, pg, monkeypatch):

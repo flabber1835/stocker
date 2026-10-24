@@ -89,6 +89,11 @@ def appliance(tmp_path, cls, *, failure=None):
 
     def run(args, **kwargs):
         service = args[-1][len('sentinel-'):]
+        if service == 'execution-collector':
+            assert 'reconcile-resumed' in events and not control['kill_switch_engaged']
+            assert '--wait' in args and '--no-deps' in args
+            events.append('start-collector')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
         assert service in running
         if service == 'automation':
             assert 'reconcile-resumed' in events
@@ -178,7 +183,7 @@ def test_complete_activation_hands_off_all_writers_before_dispatch(tmp_path, cls
         'current-paper-plan', 'reconcile-plan', 'activate-paper-automation',
         'operator-health', 'restore', 'release-paper-automation-kill-switch',
         'start-shadow', 'shadow-health', 'resumed-attestation',
-        'reconcile-resumed', 'shadow-health', 'start-automation']
+        'reconcile-resumed', 'shadow-health', 'start-collector', 'start-automation']
     assert control['enabled'] and not control['kill_switch_engaged']
     assert all(running.values())
 

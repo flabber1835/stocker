@@ -10,12 +10,12 @@ from pydantic import Field, field_validator, model_validator
 
 from sentinel.controller.machine import Controller
 from sentinel.core.kernel import advance_session
-from sentinel.core.production import warm_session_state
+from sentinel.core.feature_warmup import warm_session_state
 from sentinel.core.session import SessionState
 from sentinel.feed import calendar
 from sentinel.feed.rolling_contract import Contract, Digest, digest
-from sentinel.shadow_runtime import _starting_cash, _warmup_input_identity
-from sentinel.strategy import controller_for_identity
+from sentinel.core.formation_identity import _starting_cash, _warmup_input_identity
+from sentinel.core.strategy_profiles import controller_for_identity
 
 
 class FormationRefused(ValueError):

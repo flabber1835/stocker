@@ -466,17 +466,32 @@ def claim_next(
                     action="RETRY_SCHEDULED", holder_id="expired-claim-recovery",
                     error="delivery claim expired before durable result")
 
+            # At most three critical claims may bypass the ordinary oldest
+            # due item. The durable counter survives sender restarts. A later
+            # event of the same incident cannot overtake its predecessor.
+            cur.execute("SELECT critical_streak FROM sentinel_alert_delivery_priority WHERE id=1 FOR UPDATE")
+            priority = cur.fetchone()
+            if priority is None or type(priority[0]) is not int or not 0 <= priority[0] <= 3:
+                raise AutomationRefused('alert priority state unavailable')
             cur.execute(
-                "SELECT alert_id FROM sentinel_alert_outbox"
-                " WHERE state='PENDING'"
-                " AND next_attempt_at <= clock_timestamp()"
-                " ORDER BY next_attempt_at,created_at,alert_id"
-                " FOR UPDATE SKIP LOCKED LIMIT 1")
+                "SELECT a.alert_id FROM sentinel_alert_outbox a"
+                " WHERE a.state='PENDING' AND a.next_attempt_at <= clock_timestamp()"
+                " AND NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox p"
+                " WHERE p.state IN ('PENDING','DELIVERING')"
+                " AND (p.created_at,p.alert_id)<(a.created_at,a.alert_id)"
+                " AND COALESCE(p.payload->>'incident_id',p.payload->>'cycle_id',p.payload->>'warning_alert_id',p.alert_id)"
+                " =COALESCE(a.payload->>'incident_id',a.payload->>'cycle_id',a.payload->>'warning_alert_id',a.alert_id))"
+                " ORDER BY CASE WHEN %s<3 AND a.severity='CRITICAL' THEN 0 ELSE 1 END,"
+                " a.next_attempt_at,a.created_at,a.alert_id"
+                " FOR UPDATE OF a SKIP LOCKED LIMIT 1", (priority[0],))
             row = cur.fetchone()
             if row is None:
                 conn.commit()
                 return None
             alert_id = row[0]
+            cur.execute("UPDATE sentinel_alert_delivery_priority SET critical_streak="
+                "CASE WHEN (SELECT severity FROM sentinel_alert_outbox WHERE alert_id=%s)='CRITICAL' "
+                "THEN LEAST(critical_streak+1,3) ELSE 0 END WHERE id=1", (alert_id,))
             cur.execute(
                 "UPDATE sentinel_alert_outbox SET state='DELIVERING',"
                 " attempt_count=attempt_count+1,delivery_holder=%s,"

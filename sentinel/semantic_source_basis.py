@@ -117,6 +117,15 @@ def economic_sources(modules, *, schema):
         raw = Path(module.__file__).resolve().read_bytes()
         actual = _sha(raw)
         contribution = canonical_contribution(name, raw) if name in (*HOOKS, 'sentinel.core.decision') else actual
+        if name == 'sentinel.feed.rolling_publisher':
+            from sentinel import publisher_pipeline_source_basis as publisher_basis
+            pipeline = importlib.import_module(publisher_basis.PIPELINE_MODULE)
+            raw = Path(pipeline.__file__).resolve().read_bytes()
+            actual = _sha(raw)
+            contribution = publisher_basis.contribution(raw)
+        elif name in {'sentinel.execution.held_targets', 'sentinel.execution.target_reprojection'}:
+            from sentinel.structural_refactor_source_basis import economic_contribution
+            contribution = economic_contribution(name, raw)
         files.append({'module': name, 'sha256': contribution})
         if contribution != actual:
             observed.append({'module': name, 'actual_sha256': actual, 'economic_sha256': contribution})

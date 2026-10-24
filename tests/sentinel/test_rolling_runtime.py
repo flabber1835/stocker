@@ -354,13 +354,14 @@ def test_rolling_book_cannot_dispatch_back_to_legacy_publication(conn, published
         shadow_runtime.verified_shadow_status(conn, observation_id=OBS, starting_cash=100_000)
 
 
-def test_actual_shadow_service_initializes_and_acquires_next_snapshot(conn, published, operational_source, monkeypatch):
+def test_actual_shadow_service_initializes_and_acquires_next_snapshot(
+        conn, published, operational_source, monkeypatch, connection_factory=None):
     class Borrowed:
         def __getattr__(self, name):
             return getattr(conn, name)
         def close(self):
             pass
-    monkeypatch.setattr(store, "connect", lambda _: Borrowed())
+    monkeypatch.setattr(store, "connect", connection_factory or (lambda _: Borrowed()))
     monkeypatch.setattr(shadow_service.ingest, "daily", lambda *_a, **_k: pytest.fail("legacy ingest"))
     config = shadow_service.ShadowServiceConfig("fixture", OBS, Decimal("100000"),
         shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY, 300)

@@ -103,7 +103,23 @@ def test_window_continuity_cannot_skip_or_replace_prior_state():
 
 def test_late_cash_is_forward_input_while_structural_history_still_refuses():
     from sentinel.core.window_continuity import protected_economics
-    conn = SimpleNamespace(execute=lambda *args: SimpleNamespace(fetchall=lambda: []))
+    def execute(statement, params=()):
+        # The direct mutation runner exercises the real optional-layout guard,
+        # including the absence of installation markers and orphaned objects.
+        if statement.startswith(('SELECT count(*) FROM pg_class ',
+                                 'SELECT count(*) FROM pg_proc ',
+                                 'SELECT count(*) FROM pg_trigger ',
+                                 'SELECT count(*) FROM pg_event_trigger ')):
+            return SimpleNamespace(fetchone=lambda: (0,))
+        if statement == "SELECT to_regclass('public.sentinel_processed_sessions')":
+            return SimpleNamespace(fetchone=lambda: (None,))
+        if statement == "SELECT to_regprocedure('public.sentinel_operational_installation_guard()') IS NOT NULL":
+            return SimpleNamespace(fetchone=lambda: (False,))
+        assert statement.startswith('SELECT session,security_id,split_ratio,dividend_per_share ')
+        assert 'FROM sentinel_snapshot_bars WHERE candidate_id=%s' in statement
+        return SimpleNamespace(fetchall=lambda: [])
+
+    conn = SimpleNamespace(execute=execute)
     resolver = SimpleNamespace(resolve=lambda ticker, day: '1' if ticker == 'ABC' else None)
     previous = SimpleNamespace(actions=[], resolver=resolver, candidate_id='old')
     current = SimpleNamespace(actions=[('source', {'ticker': 'ABC', 'date': DAY,

@@ -173,7 +173,9 @@ def test_reused_material_never_caches_readiness_authority(conn, published, monke
         elif defect == "strategy":
             config, identity = inputs.production_strategy()
             monkeypatch.setattr(inputs, "production_strategy", lambda: (config, dict(identity, changed=True)))
-            error, message = inputs.RollingGoRefused, "STRATEGY_CHANGED"
+            # The current publication's strategy admission is rechecked before
+            # any cached readiness material can be reused.
+            error, message = inputs.RollingGoRefused, "^ROLLING_DATA_GENERATION_STRATEGY_ADMISSION_REQUIRED$"
         else:
             conn.execute("SET LOCAL session_replication_role=replica")
             conn.execute("UPDATE sentinel_publication_validation_receipts SET receipt_hmac_sha256=%s", ("0"*64,))
@@ -181,6 +183,21 @@ def test_reused_material_never_caches_readiness_authority(conn, published, monke
             error, message = publication.CorpusIncoherent, "receipt"
         with pytest.raises(error, match=message):
             inputs.validate_status(conn, pub, now=instant)
+
+
+def test_reused_material_strategy_admission_guard_has_a_falsifier(conn, published, monkeypatch):
+    import inspect
+    from sentinel.feed import rolling_go_inputs as inputs
+
+    source = inspect.getsource(inputs._assess)
+    needle = 'if request["strategy_sha256"] != digest(strategy):'
+    assert source.count(needle) == 1
+    namespace = {}
+    exec(compile(source.replace(needle, 'if False:'), 'missing-fresh-strategy-admission', 'exec'),
+         inputs.__dict__, namespace)
+    monkeypatch.setattr(inputs, '_assess', namespace['_assess'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_reused_material_never_caches_readiness_authority(conn, published, monkeypatch, 'strategy')
 
 
 def test_readiness_reuse_refuses_lost_pin(conn, published):

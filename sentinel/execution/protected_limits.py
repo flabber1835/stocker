@@ -4,6 +4,7 @@ These references are never executable quotes. Source rows are read again under
 the exact authenticated plan publication; current funding is a separate gate.
 """
 from __future__ import annotations
+from sentinel.feed.normalized_layout import candidate_query
 
 from dataclasses import dataclass, replace
 from datetime import date
@@ -17,7 +18,8 @@ from types import MappingProxyType
 from typing import Mapping
 
 from sentinel.execution.numeric import decimal_text, exact_decimal
-from sentinel.execution.target_reprojection import TargetProjectionRefused
+from sentinel.execution.contract import OrderTerms
+from sentinel.execution.target_reprojection import TargetProjection, TargetProjectionRefused, share_action_factor
 
 
 PROTECTED_MODE = "PROTECTED_LIMIT_DAY_V1"
@@ -204,24 +206,9 @@ def _action_identity(projection):
 
 
 def _factor(projection, sid):
-    from sentinel.execution import target_reprojection as units
-    multiplier = projection.action_multipliers.get(sid, Decimal(1))
-    _positive(multiplier, "effective share multiplier")
-    events = [item for item in projection.action_evidence if item.get("security_id") == sid]
-    if not events:
-        if multiplier != 1:
-            raise TargetProjectionRefused("non-unit effective shares require durable action evidence")
-        return Fraction(multiplier)
-    published, exact = Fraction(1), Fraction(1)
-    for item in events:
-        if not item.get("source_row_id"):
-            raise TargetProjectionRefused("effective share evidence lacks source identity")
-        approximate, rational = units._evidence_factor(item)
-        published *= approximate
-        exact *= rational
-    if not units._fractions_close(Fraction(multiplier), published, units._RATIO_REPRESENTATION_TOLERANCE):
-        raise TargetProjectionRefused("effective share evidence differs from projection")
-    return exact
+    return share_action_factor(security_id=sid,
+        multiplier=projection.action_multipliers.get(sid, Decimal(1)),
+        evidence=projection.action_evidence)
 
 
 def _wanted(plan, projection):
@@ -255,8 +242,8 @@ def build_references(conn, *, plan, projection, policy=None):
             symbols[sid] = str(symbol)
         prices, seen = {}, set()
         with conn.cursor() as cur:
-            cur.execute("SELECT security_id,ticker,close_unadjusted FROM sentinel_snapshot_bars "
-                "WHERE candidate_id=%s AND session=%s AND security_id=ANY(%s)",
+            cur.execute(candidate_query(conn, "SELECT security_id,ticker,close_unadjusted FROM sentinel_snapshot_bars "
+                "WHERE candidate_id=%s AND session=%s AND security_id=ANY(%s)"),
                 (refs.candidate_id, str(plan.decision_session), sorted(wanted - {DEFENSIVE_SECURITY_ID})))
             for sid, ticker, close in cur.fetchall():
                 sid = str(sid)
@@ -265,8 +252,8 @@ def build_references(conn, *, plan, projection, policy=None):
                 seen.add(sid)
                 if close is not None:
                     prices[sid] = _positive(Decimal(str(close)), "prior RAW source close")
-            cur.execute("SELECT bil_close_unadjusted FROM sentinel_snapshot_benchmarks "
-                        "WHERE candidate_id=%s AND session=%s",
+            cur.execute(candidate_query(conn, "SELECT bil_close_unadjusted FROM sentinel_snapshot_benchmarks "
+                        "WHERE candidate_id=%s AND session=%s"),
                         (refs.candidate_id, str(plan.decision_session)))
             rows = cur.fetchall()
         if len(rows) > 1:
@@ -323,7 +310,30 @@ def _projection_limits(projection, references, policy, *, account_nav, target_ex
     return limits, fixed
 
 
-def resolve_protected(state, plan, projection, references, policy):
+def _retained_quantities(projection, targets):
+    if targets is None:
+        return {}
+    if not isinstance(targets, dict):
+        raise TargetProjectionRefused("retained share targets must be a mapping")
+    result = {}
+    for sid, raw in targets.items():
+        quantity = Decimal(str(raw))
+        if not quantity.is_finite() or quantity < 0 or sid not in projection.target_basket:
+            raise TargetProjectionRefused("retained share target is invalid or outside the plan")
+        result[sid] = exact_decimal(Fraction(quantity) * _factor(projection, sid))
+    return result
+
+
+def _fixed_entry_limit(raw_cap, budget, quantity):
+    if raw_cap is None or quantity <= 0 or budget <= Fraction(HEADROOM):
+        return None
+    affordable = min(Fraction(raw_cap), (budget - Fraction(HEADROOM)) / Fraction(quantity))
+    tick = Fraction(1, 100) if affordable >= 1 else Fraction(1, 10000)
+    rounded = (affordable // tick) * tick
+    return None if rounded <= 0 else exact_decimal(rounded)
+
+
+def resolve_protected(state, plan, projection, references, policy, *, retained_targets=None):
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID, shadow_target, _shadow_equity
     if (not isinstance(references, PriorCloseReferences) or not isinstance(policy, ProtectedLimitPolicy)
             or state.state_hash != plan.shadow_snapshot_hash
@@ -344,6 +354,7 @@ def resolve_protected(state, plan, projection, references, policy):
     if target.opening_intents != plan.opening_intents:
         raise TargetProjectionRefused("protected opening intents differ from canonical dollar reservations")
     basket = dict(projection.target_basket)
+    retained = _retained_quantities(projection, retained_targets)
     opening = {item.security_id for item in plan.opening_intents}
     for sid in opening:
         if basket.get(sid) != 0 or target.held_shares.get(sid, Decimal(0)) != 0 or sid in target.pending_close_shares:
@@ -360,23 +371,32 @@ def resolve_protected(state, plan, projection, references, policy):
             missing_core.append(sid)
             continue
         held += Fraction(qty) * Fraction(references.prices[sid]) / Fraction(references.unit_factors[sid])
-    if not missing_core and held > core_budget:
+    retained_value = sum((Fraction(basket[sid]) * Fraction(references.prices[sid])
+        / Fraction(references.unit_factors[sid]) for sid in retained
+        if sid not in opening and sid != DEFENSIVE_SECURITY_ID and sid in references.prices), Fraction(0))
+    if not missing_core and held - retained_value > max(Fraction(0), core_budget - retained_value):
         raise TargetProjectionRefused("non-opening Core target exceeds its reference allocation")
-    available = None if missing_core else core_budget - held
+    available = None if missing_core else max(Fraction(0), core_budget - held)
     scale = core_budget / Fraction(_shadow_equity(state))
     limits, fixed = _projection_limits(projection, references, policy,
         account_nav=plan.account_nav, target_exposure=plan.target_exposure, opening=opening)
     entries = []
     for intent in plan.opening_intents:
         if available is None:
-            basket[intent.security_id] = Decimal(0)
-            entries.append({**intent.to_dict(), "budget": None, "account_shares": "0",
+            basket[intent.security_id] = retained.get(intent.security_id, Decimal(0))
+            entries.append({**intent.to_dict(), "budget": None, "account_shares": str(basket[intent.security_id]),
                 "status": "CORE_REFERENCE_UNAVAILABLE", "maximum_spend": "0"})
             continue
         budget = min(scale * Fraction(intent.intended_dollars), available)
         available -= budget
         limit = limits.get(intent.security_id)
         quantity = (0 if limit is None else max(Fraction(0), budget - Fraction(HEADROOM)) // Fraction(limit))
+        if intent.security_id in retained:
+            quantity = retained[intent.security_id]
+            limit = _fixed_entry_limit(limit, budget, quantity)
+            limits.pop(intent.security_id, None)
+            if limit is not None:
+                limits[intent.security_id] = limit
         basket[intent.security_id] = Decimal(quantity)
         entries.append({**intent.to_dict(), "budget": str(budget), "account_shares": str(quantity),
             "status": "REFERENCE_UNAVAILABLE" if limit is None else ("SIZED" if quantity else "BELOW_WHOLE_SHARE"),
@@ -392,7 +412,9 @@ def resolve_protected(state, plan, projection, references, policy):
         "missing_core_reference_ids": sorted(missing_core),
         "core_budget": str(core_budget), "nonopening_core_reference_value": None if missing_core else str(held),
         "shadow_equity": decimal_text(_shadow_equity(state)),
-        "account_scale": str(scale), "unallocated_core_budget": None if available is None else str(available)})
+        "account_scale": str(scale), "unallocated_core_budget": None if available is None else str(available),
+        **({"retained_targets": {sid: decimal_text(Decimal(str(qty))) for sid, qty in sorted(retained_targets.items())}}
+           if retained_targets is not None else {})})
 
 
 def _validate_allocation(projection, references, policy, plan=None):
@@ -421,8 +443,10 @@ def _validate_allocation(projection, references, policy, plan=None):
         opening = {item.security_id for item in intents}
         expected_limits, fixed = _projection_limits(projection, references, policy,
             account_nav=account_nav, target_exposure=target_exposure, opening=opening)
-        if (evidence["fixed_legs"] != fixed or evidence["limits"] != {
-                sid: decimal_text(limit) for sid, limit in sorted(expected_limits.items())}):
+        retained = _retained_quantities(projection, evidence.get("retained_targets"))
+        if any(projection.target_basket[sid] != qty for sid, qty in retained.items()):
+            raise ValueError("retained share quantity changed")
+        if evidence["fixed_legs"] != fixed:
             raise ValueError("limits differ from their allocated historical reference")
         held, missing_core = Fraction(0), []
         for sid, qty in projection.target_basket.items():
@@ -437,25 +461,36 @@ def _validate_allocation(projection, references, policy, plan=None):
         if evidence["missing_core_reference_ids"] != sorted(missing_core):
             raise ValueError("missing Core references differ")
         if missing_core:
-            rows = [{**intent.to_dict(), "budget": None, "account_shares": "0",
+            rows = [{**intent.to_dict(), "budget": None, "account_shares": str(retained.get(intent.security_id, Decimal(0))),
                 "status": "CORE_REFERENCE_UNAVAILABLE", "maximum_spend": "0"} for intent in intents]
             if (evidence["allocation_status"] != "CORE_REFERENCE_UNAVAILABLE"
                     or evidence["nonopening_core_reference_value"] is not None
                     or evidence["unallocated_core_budget"] is not None
                     or evidence["entries"] != rows
-                    or any(projection.target_basket.get(item.security_id) != 0 for item in intents)):
+                    or any(projection.target_basket.get(item.security_id) != retained.get(item.security_id, Decimal(0)) for item in intents)
+                    or evidence["limits"] != {sid: decimal_text(limit) for sid, limit in sorted(expected_limits.items())}):
                 raise ValueError("unavailable allocation invented a value")
             return
         if evidence["allocation_status"] != "READY":
             raise ValueError("available allocation has another status")
-        if held > core_budget or Fraction(evidence["nonopening_core_reference_value"]) != held:
+        retained_value = sum((Fraction(projection.target_basket[sid]) * Fraction(references.prices[sid])
+            / Fraction(references.unit_factors[sid]) for sid in retained
+            if sid not in opening and sid != DEFENSIVE_SECURITY_ID and sid in references.prices), Fraction(0))
+        if (held - retained_value > max(Fraction(0), core_budget - retained_value)
+                or Fraction(evidence["nonopening_core_reference_value"]) != held):
             raise ValueError("nonopening Core allocation differs")
-        available, rows = core_budget - held, []
+        available, rows = max(Fraction(0), core_budget - held), []
         for intent in intents:
             budget = min(scale * Fraction(intent.intended_dollars), available)
             available -= budget
             limit = limit_for(references, intent.security_id, policy)
             quantity = 0 if limit is None else max(Fraction(0), budget - Fraction(HEADROOM)) // Fraction(limit)
+            if intent.security_id in retained:
+                quantity = retained[intent.security_id]
+                limit = _fixed_entry_limit(limit, budget, quantity)
+                expected_limits.pop(intent.security_id, None)
+                if limit is not None:
+                    expected_limits[intent.security_id] = limit
             if projection.target_basket.get(intent.security_id) != Decimal(quantity):
                 raise ValueError("opening quantity differs from reserved budget")
             rows.append({**intent.to_dict(), "budget": str(budget), "account_shares": str(quantity),
@@ -463,11 +498,41 @@ def _validate_allocation(projection, references, policy, plan=None):
                 "maximum_spend": str(Fraction(quantity) * Fraction(limit) + Fraction(HEADROOM)) if quantity else "0"})
         if rows != evidence["entries"] or Fraction(evidence["unallocated_core_budget"]) != available:
             raise ValueError("reserved opening allocation differs")
+        if evidence["limits"] != {sid: decimal_text(limit) for sid, limit in sorted(expected_limits.items())}:
+            raise ValueError("limits differ from their allocated historical reference")
     except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
         raise TargetProjectionRefused("protected BUY allocation is inconsistent") from exc
 
 
-def validate_projection(projection, *, require_current_policy=False):
+@dataclass(frozen=True)
+class _ValidatedProjection:
+    """One synchronous verification's parsed facts, never a readiness token."""
+    projection: TargetProjection
+    policy: ProtectedLimitPolicy
+    references: PriorCloseReferences
+
+
+@dataclass(frozen=True)
+class ProtectedOrderTerms:
+    """Immutable price terms only; never an account or submission grant."""
+    plan_fingerprint: str
+    projection_fingerprint: str
+    allocation_status: str
+    limits: Mapping[str, OrderTerms]
+
+    def __post_init__(self):
+        object.__setattr__(self, "limits", MappingProxyType(dict(self.limits)))
+
+    def for_security(self, sid: str) -> OrderTerms:
+        if self.allocation_status == "CORE_REFERENCE_UNAVAILABLE":
+            raise ProtectedReferenceUnavailable("Core allocation lacks an authenticated RAW reference")
+        value = self.limits.get(sid)
+        if value is None:
+            raise ProtectedReferenceUnavailable("protected BUY lacks an authenticated price limit")
+        return value
+
+
+def _validated_projection(projection, *, require_current_policy=False, plan=None):
     evidence = projection.opening_sizing
     if not isinstance(evidence, dict) or evidence.get("mode") != PROTECTED_MODE:
         raise TargetProjectionRefused("protected BUY projection is absent")
@@ -482,31 +547,39 @@ def validate_projection(projection, *, require_current_policy=False):
             or references.action_evidence_sha256 != _action_identity(projection)
             or dict(references.unit_factors) != {sid: str(_factor(projection, sid)) for sid in references.symbols}):
         raise TargetProjectionRefused("protected BUY projection commitment differs")
-    _validate_allocation(projection, references, policy)
+    _validate_allocation(projection, references, policy, plan)
     if require_current_policy and ProtectedLimitPolicy.from_env() != policy:
         raise TargetProjectionRefused("protected BUY policy differs from current configuration")
-    return policy, references
+    return _ValidatedProjection(projection, policy, references)
 
 
-def revalidate_references(conn, *, plan, projection):
-    """Fresh row/source comparison for the compact pre-submit authority path."""
-    policy, stored = validate_projection(projection, require_current_policy=True)
-    _validate_allocation(projection, stored, policy, plan)
-    fresh = build_references(conn, plan=plan, projection=projection, policy=policy)
-    if fresh != stored:
+def validate_projection(projection, *, require_current_policy=False):
+    view = _validated_projection(projection, require_current_policy=require_current_policy)
+    return view.policy, view.references
+
+
+def _fresh_references(conn, *, plan, view):
+    fresh = build_references(conn, plan=plan, projection=view.projection, policy=view.policy)
+    if fresh != view.references:
         raise TargetProjectionRefused("protected BUY source references changed")
     return fresh
 
 
+def revalidate_references(conn, *, plan, projection):
+    """Fresh row/source comparison for the compact pre-submit authority path."""
+    view = _validated_projection(projection, require_current_policy=True, plan=plan)
+    return _fresh_references(conn, plan=plan, view=view)
+
+
 def validate_allocation(projection, *, plan, canonical_shadow_equity):
     """Bind the denominator to the detached scalar from the canonical proof."""
-    policy, references = validate_projection(projection, require_current_policy=True)
+    view = _validated_projection(projection, require_current_policy=True, plan=plan)
+    policy = view.policy
     if policy.debug_window is not None and policy.debug_window.effective_session != plan.effective_session:
         raise TargetProjectionRefused("debug policy belongs to another effective session")
     _positive(canonical_shadow_equity, "canonical shadow equity")
     if Fraction(projection.opening_sizing["shadow_equity"]) != Fraction(canonical_shadow_equity):
         raise TargetProjectionRefused("protected allocation differs from canonical shadow equity")
-    _validate_allocation(projection, references, policy, plan)
 
 
 def unavailable_opening_intents(projection):
@@ -526,11 +599,30 @@ def unavailable_opening_intents(projection):
 
 
 def order_terms_for(projection, sid):
-    from sentinel.execution.contract import OrderTerms
-    validate_projection(projection, require_current_policy=True)
-    if projection.opening_sizing["allocation_status"] == "CORE_REFERENCE_UNAVAILABLE":
-        raise ProtectedReferenceUnavailable("Core allocation lacks an authenticated RAW reference")
-    value = projection.opening_sizing["limits"].get(sid)
-    if value is None:
-        raise ProtectedReferenceUnavailable("protected BUY lacks an authenticated price limit")
-    return OrderTerms(order_type="limit", limit_price=Decimal(value))
+    return order_terms(projection).for_security(sid)
+
+
+def order_terms(projection, *, plan=None) -> ProtectedOrderTerms:
+    """Verify this operation's basket once and detach its immutable terms."""
+    view = _validated_projection(projection, require_current_policy=True, plan=plan)
+    return _order_terms(view)
+
+
+def _order_terms(view) -> ProtectedOrderTerms:
+    projection = view.projection
+    return ProtectedOrderTerms(projection.plan_fingerprint, projection.fingerprint(),
+        projection.opening_sizing["allocation_status"],
+        {sid: OrderTerms(order_type="limit", limit_price=Decimal(value))
+         for sid, value in projection.opening_sizing["limits"].items()})
+
+
+def submission_protection(conn, *, plan, projection):
+    """Fresh source comparison and immutable terms from one validated basket.
+
+    The private parsed view lives only for this call. Its results grant no
+    account, funding, ownership, command, signature or timing authority. The
+    caller retains its original identity/command checks before selecting terms.
+    """
+    view = _validated_projection(projection, require_current_policy=True, plan=plan)
+    references = _fresh_references(conn, plan=plan, view=view)
+    return references, _order_terms(view)

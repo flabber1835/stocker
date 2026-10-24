@@ -31,10 +31,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Literal, Mapping, Optional
+from zoneinfo import ZoneInfo
+from typing import TYPE_CHECKING, Literal, Mapping, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sentinel.paper_plan_preview import PlanPreview
-from sentinel.automation.model import ProtectedDayWait
+from sentinel.panel.retry_status import (
+    availability_label,
+    protected_day_wait as _protected_day_wait,
+    project_cycle_recovery,
+)
+
+if TYPE_CHECKING:
+    from sentinel.panel.shadow_source_wait import SourceWait
 
 
 def _bounded_display_decimal(value):
@@ -54,17 +62,151 @@ class ShadowHolding(BaseModel):
     _number_bound = field_validator('quantity', 'raw_close', 'value', 'weight')(_bounded_display_decimal)
 
 
+class ShadowSlot(BaseModel):
+    """One canonical model slot; these quantities are never broker positions."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    slot_id: int = Field(ge=0, le=99, strict=True)
+    state: Literal['OCCUPIED', 'COOLING', 'RESERVED', 'READY']
+    security_id: str | None = Field(default=None, min_length=1, max_length=100)
+    ticker: str | None = Field(default=None, min_length=1, max_length=40)
+    model_quantity: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
+    cooldown_elapsed: int | None = Field(default=None, ge=0, strict=True)
+    cooldown_remaining: int | None = Field(default=None, ge=0, strict=True)
+    cooldown_total: int = Field(gt=0, le=1000, strict=True)
+    exit_pending: bool = False
+    exit_reason: str | None = Field(default=None, min_length=1, max_length=100)
+    _number_bound = field_validator('model_quantity')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def coherent_slot(self):
+        if self.state == 'COOLING':
+            if (self.cooldown_elapsed is None or self.cooldown_remaining is None
+                    or self.cooldown_elapsed >= self.cooldown_total
+                    or self.cooldown_remaining != self.cooldown_total-self.cooldown_elapsed):
+                raise ValueError('slot cooldown arithmetic is inconsistent')
+        elif self.cooldown_elapsed is not None or self.cooldown_remaining is not None:
+            raise ValueError('non-cooling slot carries cooldown counters')
+        if self.state in {'OCCUPIED', 'RESERVED'}:
+            if self.security_id is None or self.ticker is None:
+                raise ValueError('owned or reserved slot lacks its identity')
+        elif self.security_id is not None or self.ticker is not None:
+            raise ValueError('empty slot carries a holding identity')
+        if (self.state == 'OCCUPIED') != (self.model_quantity is not None):
+            raise ValueError('slot quantity and ownership disagree')
+        if self.exit_pending and self.state != 'OCCUPIED':
+            raise ValueError('empty slot cannot have a pending exit')
+        if self.exit_reason is not None and not self.exit_pending:
+            raise ValueError('slot exit reason has no pending exit')
+        return self
+
+
+class PaperAccountOverview(BaseModel):
+    """Recorded native paper balance, with its producer's original clock."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    account_id: str = Field(min_length=1, max_length=100)
+    equity: Decimal = Field(gt=0, allow_inf_nan=False)
+    cash: Decimal = Field(ge=0, allow_inf_nan=False)
+    buying_power: Decimal = Field(ge=0, allow_inf_nan=False)
+    observed_at: datetime
+    _number_bound = field_validator('equity', 'cash', 'buying_power')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def coherent_account(self):
+        if self.observed_at.utcoffset() is None:
+            raise ValueError('account observation has no timezone')
+        if self.cash > self.equity:
+            raise ValueError('cash exceeds long-only account equity')
+        return self
+
+
+class PaperOrderOutcome(BaseModel):
+    """Exact account-bound command fact, without inventing a native reason."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    security_id: str = Field(min_length=1, max_length=100)
+    ticker: str = Field(min_length=1, max_length=40)
+    client_key: str = Field(min_length=1, max_length=100)
+    broker_order_id: str = Field(min_length=1, max_length=100)
+    side: Literal['BUY', 'SELL']
+    quantity: Decimal = Field(gt=0, allow_inf_nan=False)
+    filled_quantity: Decimal = Field(ge=0, allow_inf_nan=False)
+    state: Literal['PLANNED', 'SEND_PENDING', 'ACKNOWLEDGED', 'UNKNOWN',
+                   'PARTIALLY_FILLED', 'FILLED', 'CANCEL_PENDING', 'CANCELLED',
+                   'REJECTED', 'SUPERSEDED']
+    observed_at: datetime
+    _number_bound = field_validator('quantity', 'filled_quantity')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def coherent_order(self):
+        if self.observed_at.utcoffset() is None:
+            raise ValueError('order evidence has no timezone')
+        if self.filled_quantity > self.quantity:
+            raise ValueError('order overfilled its quantity')
+        if self.state == 'FILLED' and self.filled_quantity != self.quantity:
+            raise ValueError('filled order quantity is incomplete')
+        if self.state == 'PARTIALLY_FILLED' and not 0 < self.filled_quantity < self.quantity:
+            raise ValueError('partial order lacks a partial fill')
+        return self
+
+
+class RunOrder(PaperOrderOutcome):
+    broker_order_id: str | None = Field(default=None, min_length=1, max_length=100)
+    filled_average_price: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
+    order_terms: dict
+    _price_bound = field_validator('filled_average_price')(_bounded_display_decimal)
+
+    @model_validator(mode='after')
+    def coherent_terms(self):
+        from sentinel.execution.contract import OrderTerms
+        if OrderTerms.from_dict(self.order_terms).to_dict() != self.order_terms:
+            raise ValueError('recorded order terms are not canonical')
+        if self.filled_quantity > 0 and self.filled_average_price is None:
+            raise ValueError('confirmed fills lack an average price')
+        if self.state in {'ACKNOWLEDGED','PARTIALLY_FILLED','FILLED'} and not self.broker_order_id:
+            raise ValueError('confirmed order progress lacks a native order identity')
+        return self
+
+
+class TradingRun(BaseModel):
+    """Dated intent and durable execution progress, never permission to trade."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    intent: PlanPreview
+    state: Literal['PLAN_READY', 'WAITING_OPEN', 'EXECUTING', 'RECONCILING',
+                   'RETRY_WAIT', 'SUCCEEDED', 'FAILED', 'ABANDONED', 'SUPERSEDED']
+    updated_at: datetime
+    completed_at: datetime | None = None
+    orders: list[RunOrder] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode='after')
+    def coherent_progress(self):
+        if any(value is not None and value.utcoffset() is None
+               for value in (self.updated_at, self.completed_at)):
+            raise ValueError('trading progress has no timezone')
+        if len({order.client_key for order in self.orders}) != len(self.orders):
+            raise ValueError('duplicate current-run command')
+        if self.state=='SUCCEEDED' and (self.completed_at is None
+                or self.completed_at < self.intent.execute_at):
+            raise ValueError('successful trading run lacks its dated completion')
+        if not {order.security_id for order in self.orders} <= {
+                leg.security_id for leg in self.intent.legs}:
+            raise ValueError('current-run command has no saved intent')
+        return self
+
+
 class ShadowBook(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True)
     session: str = Field(pattern=r'^\d{4}-\d{2}-\d{2}$')
     cash: Decimal = Field(ge=0, allow_inf_nan=False)
+    receivables: Decimal = Field(ge=0, allow_inf_nan=False)
     nav: Decimal = Field(gt=0, allow_inf_nan=False)
     pending_operations: int = Field(ge=0, le=10000)
     holdings: list[ShadowHolding] = Field(max_length=100)
-    _number_bound = field_validator('cash', 'nav')(_bounded_display_decimal)
+    slots: list[ShadowSlot] = Field(default_factory=list, max_length=100)
+    _number_bound = field_validator('cash', 'receivables', 'nav')(_bounded_display_decimal)
 
     @model_validator(mode='after')
     def coherent_values(self):
+        if self.slots and sorted(item.slot_id for item in self.slots) != list(range(len(self.slots))):
+            raise ValueError('canonical slot identities are missing or duplicated')
         identities = [item.security_id for item in self.holdings]
         if len(identities) != len(set(identities)):
             raise ValueError('duplicate canonical holding')
@@ -77,9 +219,10 @@ class ShadowBook(BaseModel):
                   or abs(item.weight-item.value/self.nav) > Decimal('1e-25')):
                 raise ValueError('holding arithmetic is inconsistent')
         if (all(item.value is not None for item in self.holdings)
-                and abs(self.cash+sum((item.value for item in self.holdings), Decimal(0))-self.nav)
+                and abs(self.cash+self.receivables
+                        +sum((item.value for item in self.holdings), Decimal(0))-self.nav)
                     > Decimal('0.02')):
-            raise ValueError('canonical holdings and cash disagree with book value')
+            raise ValueError('canonical holdings, cash and receivables disagree with book value')
         return self
 
 
@@ -161,6 +304,11 @@ class Row:
     valid_until: Optional[datetime] = None
     shadow_book: Optional[ShadowBook] = None
     paper_plan: Optional[PlanPreview] = None
+    paper_account: Optional[PaperAccountOverview] = None
+    order_outcomes: list[PaperOrderOutcome] = field(default_factory=list)
+    trading_run: Optional[TradingRun] = None
+    #: A typed display fact; copy changes cannot grant scheduled readiness.
+    paper_alignment: Optional[str] = None
 
     def staleness(self, now: datetime) -> Optional[timedelta]:
         return None if self.as_of is None else now - self.as_of
@@ -178,10 +326,56 @@ class Row:
 
     def effective_status(self, now: datetime) -> str:
         """Apply the shared operator recoverability policy."""
+        if self.paper_alignment == 'PRIOR_CYCLE_FAILED':
+            if (self.key != 'paper_reconciliation' or self.status != WARN
+                    or not isinstance(self.valid_until,datetime)
+                    or self.valid_until.utcoffset() != timedelta(0)
+                    or self.is_future(now) or self.is_stale(now)):
+                return FAIL
+            return WARN
         return effective_status(
             self.status, stale=self.is_stale(now), future=self.is_future(now),
             required_current=self.required_current, recovery=self.recovery,
             now=now)
+
+    def can_show_shadow_book(self, now: datetime) -> bool:
+        """Use the same authenticated holdings boundary in JSON and HTML."""
+        status = self.effective_status(now)
+        return self.shadow_book is not None and (
+            status == OK or (
+                self.status == WARN and status == WARN and self.required_current
+                and self.recovery is not None
+                and self.recovery.phase == 'SOURCE_FRONTIER'
+                and self.recovery.active(now)))
+
+    def can_show_trading_run(self, now: datetime) -> bool:
+        return (self.trading_run is not None and not self.is_future(now)
+                and not self.is_stale(now)
+                and self.trading_run.intent.effective_session ==
+                    now.astimezone(ZoneInfo('America/New_York')).date()
+                and all(value is None or value <= now+MAXIMUM_FUTURE_SKEW for value in (
+                    self.trading_run.updated_at,self.trading_run.completed_at,
+                    self.trading_run.intent.created_at,self.trading_run.intent.observation_at))
+                and all(item.observed_at <= now+MAXIMUM_FUTURE_SKEW
+                        for item in self.trading_run.orders))
+
+    def can_show_paper_plan(self, now: datetime) -> bool:
+        """A saved future intent is distinct from today's execution evidence."""
+        return (self.paper_plan is not None and self.effective_status(now) == OK
+                and self.paper_plan.execute_at > now
+                and all(value is None or value <= now + MAXIMUM_FUTURE_SKEW
+                        for value in (self.paper_plan.created_at,
+                                      self.paper_plan.observation_at)))
+
+    def can_show_paper_account(self, now: datetime) -> bool:
+        return (self.paper_account is not None and self.effective_status(now) == OK
+                and self.paper_account.observed_at <= now + MAXIMUM_FUTURE_SKEW)
+
+    def visible_order_outcomes(self, now: datetime) -> list[PaperOrderOutcome]:
+        if self.effective_status(now) != OK:
+            return []
+        return [item for item in self.order_outcomes
+                if item.observed_at <= now + MAXIMUM_FUTURE_SKEW]
 
 
 @dataclass(frozen=True)
@@ -194,6 +388,7 @@ class Panel:
     #: Already-earned durable financial evidence for read-only detail sections.
     trial_details: dict = field(default_factory=dict)
     trial_history: list[dict] = field(default_factory=list)
+    local_paper_mode: bool = False
 
     @property
     def overall(self) -> str:
@@ -220,8 +415,14 @@ class Panel:
         failing.  PENDING retains its existing meaning: a deliberately absent
         non-runtime capability is not an outage.
         """
+        scheduled = self.local_paper_mode and any(
+            r.key == 'paper_reconciliation' and r.paper_alignment == 'SCHEDULED'
+            and r.valid_until is not None and r.effective_status(self.now) == OK
+            for r in self.rows)
         live = [
-            r.effective_status(self.now) for r in self.rows
+            (OK if scheduled and r.key in {'automation_cycle', 'automation_step_open'}
+                and r.value == 'WAITING_OPEN' and r.effective_status(self.now) == WARN
+                else r.effective_status(self.now)) for r in self.rows
             if (r.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
                 and (r.status != PENDING or r.required_current))
         ]
@@ -268,7 +469,9 @@ def trial_metric_row(key: str, label: str, value: Optional[str], *,
 def shadow_verification_row(
         *, verdict: Optional[str], verification: Optional[str],
         session: Optional[str], sessions_lag: Optional[int] = None,
-        error: Optional[str] = None, unreadable: bool = False) -> Row:
+        error: Optional[str] = None, unreadable: bool = False,
+        source_wait: Optional['SourceWait'] = None,
+        now: Optional[datetime] = None) -> Row:
     """The broker-free performance authority used by reviewed dual mode."""
     if unreadable:
         return Row(
@@ -279,6 +482,19 @@ def shadow_verification_row(
         return Row(
             "shadow_verification", "Certified shadow strategy",
             "SHADOW NOT VERIFIED — VERIFICATION WITHDRAWN", FAIL, error)
+    if source_wait is not None:
+        # The cached display must escalate at the actual open, including the
+        # exact boundary; Row's generic inclusive validity is otherwise kept.
+        boundary = source_wait.deadline - timedelta(microseconds=1)
+        return Row(
+            "shadow_verification", "Certified shadow strategy",
+            f"WAITING FOR {source_wait.decision_session} INPUTS",
+            WARN if now is not None and now < source_wait.deadline else FAIL,
+            f"LAST ATTESTED THROUGH {source_wait.session} · CURRENT SESSION NOT VERIFIED; "
+            f"source recovery deadline {source_wait.deadline.isoformat()}",
+            as_of=now, required_current=True, valid_until=boundary,
+            recovery=RecoveryEvidence(phase='SOURCE_FRONTIER', automatic=True,
+                                      deadline=boundary))
     lag = int(sessions_lag or 0)
     if (verdict != "SHADOW_GO" or verification != "VERIFIED"
             or not session or lag != 0):
@@ -298,9 +514,13 @@ def shadow_verification_row(
 
 def shadow_metric_row(
         key: str, label: str, value: Optional[str], *, verified: bool,
-        detail: str) -> Row:
+        detail: str, source_wait: Optional['SourceWait'] = None) -> Row:
     if value is None:
         return Row(key, label, "UNAVAILABLE", UNKNOWN, detail)
+    if source_wait is not None:
+        return Row(key, label, value, WARN,
+                   f"LAST ATTESTED THROUGH {source_wait.session} · CURRENT SESSION NOT VERIFIED · {detail}",
+                   as_of=source_wait.attested_at)
     return Row(
         key, label, value, OK if verified else WARN,
         detail if verified else f"NOT CURRENT · {detail}")
@@ -323,6 +543,11 @@ def paper_reconciliation_row(
             "paper_reconciliation", "Alpaca PAPER mirror",
             "PAPER NOT VERIFIED · LATEST CYCLE FAILED", FAIL,
             (detail or "the latest daily cycle did not complete") + suffix)
+    if normalized == "PRIOR_CYCLE_FAILED":
+        return Row(
+            "paper_reconciliation", "Alpaca PAPER mirror",
+            "PAPER NOT VERIFIED · PRIOR CYCLE FAILED · NEXT DECISION PENDING", WARN,
+            detail + suffix, paper_alignment='PRIOR_CYCLE_FAILED')
     if normalized == "MISMATCH":
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",
@@ -334,7 +559,8 @@ def paper_reconciliation_row(
             "paper_reconciliation", "Alpaca PAPER mirror",
             "PAPER NOT VERIFIED · SCHEDULED · POST-CLOSE EVIDENCE PENDING", OK,
             detail + suffix, required_current=True,
-            valid_until=scheduled_until - timedelta(microseconds=1))
+            valid_until=scheduled_until - timedelta(microseconds=1),
+            paper_alignment='SCHEDULED')
     if normalized == "CLEAN":
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",
@@ -693,6 +919,7 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
                working_orders: Optional[int] = None,
                active_commands: Optional[int] = None,
                uncertain_commands: Optional[int] = None,
+               command_counts: Optional[Mapping[str, int]] = None,
                command_as_of: Optional[datetime] = None,
                as_of: Optional[datetime] = None,
                recovery: Optional[RecoveryEvidence] = None,
@@ -739,11 +966,22 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
     active = int(active_commands or 0)
     uncertain = int(uncertain_commands or 0)
     value = f"{positions} positions · {working} working"
-    journal_age = (f" · journal {command_as_of.isoformat()}"
+    journal_age = (f" · latest counted journal update {command_as_of.isoformat()}"
                    if command_as_of else "")
-    detail = (f"observation {complete or 'UNKNOWN'} · reconciliation "
-              f"{runtime or 'UNKNOWN'} · {active} active command(s)"
-              f"{journal_age}")
+    runtime_label = ("reconciled (RUNNING)" if runtime == "RUNNING"
+                     else runtime or "UNKNOWN")
+    if command_counts is not None:
+        planned = int(command_counts.get('PLANNED', 0))
+        inflight = sum(int(count) for state, count in command_counts.items()
+                       if state != 'PLANNED')
+        journal_detail = (
+            f"all-plan journal: {planned} PLANNED (unsent) · {inflight} in-flight · "
+            f"{uncertain} uncertain (included in in-flight)")
+    else:
+        journal_detail = (f"{active} nonterminal command record(s); "
+                          "journal scope unavailable (all-plan state counts not supplied)")
+    detail = (f"saved observation {complete or 'UNKNOWN'} · saved runtime classification "
+              f"{runtime_label} · {journal_detail}{journal_age}")
     if not complete or not runtime:
         return Row("broker", "Broker", value, UNKNOWN,
                    detail, as_of, freshness=timedelta(minutes=10),
@@ -839,31 +1077,6 @@ def automation_leader_row(*, installed: Optional[bool],
                valid_until=expires_at)
 
 
-def _protected_day_wait(value, effective_session=None, plan_id=None):
-    try:
-        wait = ProtectedDayWait.model_validate(value)
-        return wait if (effective_session is None or str(wait.effective_session) == str(effective_session)) and (plan_id is None or wait.plan_id == plan_id) else None
-    except (ValueError, TypeError, ArithmeticError):
-        return None
-
-
-def _clean_execution_deadline(cycle):
-    """Read the producer's original cutoff; a market close cannot extend it."""
-    try:
-        def aware(value):
-            result = datetime.fromisoformat(value.replace("Z", "+00:00")) if isinstance(value, str) else value
-            if not isinstance(result, datetime) or result.tzinfo is None:
-                raise ValueError("execution timing must be timezone aware")
-            return result
-        deadline = aware(cycle.get("original_execution_deadline_at"))
-        opened = aware(cycle.get("execution_open_at"))
-        execute = aware(cycle.get("execute_at"))
-        closed = aware(cycle.get("execution_close_at"))
-        return deadline if opened <= execute <= deadline <= min(closed, opened + timedelta(seconds=600)) else None
-    except (ValueError, TypeError, ArithmeticError):
-        return None
-
-
 def automation_cycle_row(*, installed: Optional[bool],
                          enabled: Optional[bool] = None,
                          discovery_recovery: Optional[RecoveryEvidence] = None,
@@ -879,6 +1092,10 @@ def automation_cycle_row(*, installed: Optional[bool],
                          attempt_count: Optional[int] = None,
                          phase_attempt_count: Optional[int] = None,
                          phase_max_attempts: Optional[int] = None,
+                         availability_retry_unbounded: Optional[bool] = None,
+                         callback_failure: Optional[str] = None,
+                         exception_type: Optional[str] = None,
+                         availability_retry_clocks_aware: Optional[bool] = None,
                          retry_phase: Optional[str] = None,
                          original_execution_deadline_at: Optional[datetime] = None,
                          first_failure_at: Optional[str] = None,
@@ -921,33 +1138,32 @@ def automation_cycle_row(*, installed: Optional[bool],
     if failure_code or failure_detail:
         detail += (f" · failure {failure_code or 'UNCLASSIFIED'}: "
                    f"{failure_detail or 'no detail'}")
-    recovery = None
-    wait = None
+    availability_cycle = dict(
+        state=state, retry_phase=retry_phase,
+        availability_retry_unbounded=availability_retry_unbounded,
+        callback_failure=callback_failure, exception_type=exception_type,
+        phase_attempt_count=phase_attempt_count, phase_max_attempts=phase_max_attempts,
+        attempt_count=attempt_count, terminal_reason=terminal_reason,
+        next_wake_at=next_wake_at, execution_open_at=execution_open_at,
+        decision_session=decision_session, effective_session=effective_session,
+        failure_code=failure_code, failure_detail=failure_detail,
+        protected_day_wait=protected_day_wait, plan_id=plan_id,
+        original_execution_deadline_at=original_execution_deadline_at,
+        execute_at=execute_at, execution_close_at=execution_close_at)
+    if availability_retry_clocks_aware is not None:
+        availability_cycle['availability_retry_clocks_aware'] = availability_retry_clocks_aware
+    projection = project_cycle_recovery(availability_cycle, allow_legacy_attempt=True)
+    recovery = projection.evidence
+    wait = projection.protected_wait if normalized == 'RETRY_WAIT' else None
+    availability = projection.availability
     if normalized == "RETRY_WAIT":
         status = WARN
-        wait = _protected_day_wait(protected_day_wait, effective_session, plan_id)
-        recovery = (RecoveryEvidence(
-            phase="PROTECTED_DAY_ORDER_OBSERVATION", automatic=True,
-            next_attempt_at=next_wake_at,
-            deadline=min(wait.deadline, wait.observed_at + timedelta(minutes=10)))
-            if wait is not None and not failure_code and not failure_detail else RecoveryEvidence(
-            phase="AUTOMATION_RETRY",
-            automatic=True,
-            attempt=(phase_attempt_count if phase_attempt_count is not None
-                     else attempt_count),
-            maximum_attempts=phase_max_attempts,
-            next_attempt_at=next_wake_at,
-            operator_required=bool(terminal_reason)))
-        if wait is not None and not failure_code and not failure_detail:
+        if wait is not None:
             detail += f" · {len(wait.commands)} positively matched protected DAY orders remain working"
-        elif (retry_phase == "EXECUTE" and not failure_code and not failure_detail
-              and phase_max_attempts is None):
-            recovery = RecoveryEvidence(
-                phase="CLEAN_RECOVERY_EXECUTION_WAKE", automatic=True,
-                next_attempt_at=next_wake_at, deadline=_clean_execution_deadline({
-                    "original_execution_deadline_at": original_execution_deadline_at,
-                    "execution_open_at": execution_open_at, "execute_at": execute_at,
-                    "execution_close_at": execution_close_at}))
+        if availability is not None:
+            detail += f" · state {normalized} · {callback_failure} · {exception_type}"
+        elif projection.availability_refused:
+            detail += " · availability retry evidence is malformed or incomplete"
     elif (normalized == "SUPERSEDED"
           and failure_code == "DISCOVERED_AFTER_SESSION_OPEN"):
         status = PENDING
@@ -978,7 +1194,8 @@ def automation_cycle_row(*, installed: Optional[bool],
             automatic=True, next_attempt_at=next_wake_at,
             deadline=deadlines.get(normalized))
     return Row("automation_cycle", "Automation cycle",
-               normalized or "UNKNOWN", status, detail, wait.observed_at if wait else updated_at,
+               (availability_label(availability_cycle, availability) if availability is not None
+                else normalized or "UNKNOWN"), status, detail, wait.observed_at if wait else updated_at,
                required_current=bool(enabled), recovery=recovery)
 
 
@@ -1113,28 +1330,11 @@ def automation_step_rows(
         4: cycle.get("execution_close_at"),
         5: cycle.get("execution_close_at"),
     }
-    retry = RecoveryEvidence(
-        phase=f"AUTOMATION_{retry_phase or 'RETRY'}",
-        automatic=True,
-        attempt=(cycle.get("phase_attempt_count")
-                 if cycle.get("phase_attempt_count") is not None
-                 else cycle.get("attempt_count")),
-        maximum_attempts=cycle.get("phase_max_attempts"),
-        next_attempt_at=cycle.get("next_wake_at"),
-        operator_required=bool(cycle.get("terminal_reason")),
-    )
-    wait = _protected_day_wait(cycle.get("protected_day_wait"), cycle.get("effective_session"), cycle.get("plan_id"))
-    if wait is not None and not cycle.get("failure_code") and not cycle.get("failure_detail"):
-        retry = RecoveryEvidence(
-            phase="PROTECTED_DAY_ORDER_OBSERVATION", automatic=True,
-            next_attempt_at=cycle.get("next_wake_at"),
-            deadline=min(wait.deadline, wait.observed_at + timedelta(minutes=10)))
-    clean_execution_wait = (retry_phase == "EXECUTE" and not cycle.get("failure_code")
-                            and not cycle.get("failure_detail") and cycle.get("phase_max_attempts") is None)
-    if clean_execution_wait:
-        retry = RecoveryEvidence(
-            phase="CLEAN_RECOVERY_EXECUTION_WAKE", automatic=True,
-            next_attempt_at=cycle.get("next_wake_at"), deadline=_clean_execution_deadline(cycle))
+    projection = project_cycle_recovery(cycle, allow_legacy_attempt=True)
+    retry = projection.evidence or projection.protected_recovery
+    availability = projection.availability
+    wait = projection.protected_wait
+    clean_execution_wait = projection.clean_execution_wait
     failed_index = None
     if terminal and state != "SUCCEEDED":
         failed_index = _AUTOMATION_RETRY_STEP.get(retry_phase, progress_index)
@@ -1205,14 +1405,24 @@ def automation_step_rows(
                     f"{retry_phase or 'UNKNOWN'} · next "
                     f"{cycle.get('next_wake_at') or 'unknown'}")
                 recovery = retry
+                if availability is not None:
+                    value = availability_label(cycle, availability)
+                    detail += (f" · state {state} · {cycle.get('callback_failure')}"
+                               f" · {cycle.get('exception_type')}")
                 if clean_execution_wait:
                     value = "READY TO CONTINUE"
                     detail = "clean recovery permits only the original execution window"
             else:
                 value = state
-                detail = (
-                    f"current automatic step · deadline "
-                    f"{deadlines.get(index) or 'unknown'}")
+                if index == 3:
+                    detail = (
+                        f"scheduled execution start {cycle.get('execute_at') or 'unknown'} · "
+                        f"lifecycle recovery deadline (regular-session close) {deadlines.get(index) or 'unknown'}; "
+                        "new submissions remain subject to the original execution window")
+                else:
+                    detail = (
+                        f"current automatic step · deadline "
+                        f"{deadlines.get(index) or 'unknown'}")
                 recovery = RecoveryEvidence(
                     phase=f"AUTOMATION_{key.upper()}", automatic=True,
                     next_attempt_at=cycle.get("next_wake_at"),
@@ -1224,7 +1434,8 @@ def automation_step_rows(
             continue
         rows.append(Row(
             row_key, label, "NOT REACHED", PENDING,
-            "future step in the current durable cycle"))
+            "future step in the current durable cycle; pending completion of "
+            + (_AUTOMATION_STEP_DEFINITIONS[index-1][1] if index else 'cycle discovery')))
     return rows
 
 
@@ -1352,6 +1563,7 @@ def alpaca_account_row(
         valid_until: Optional[datetime] = None,
         recovery: Optional[RecoveryEvidence] = None,
         matched_protected_reservation: Optional[dict] = None,
+        matched_operator_reservation: Optional[str] = None,
         error: Optional[str] = None) -> Row:
     """Latest account result already admitted through the execution membrane."""
     if error or available is None:
@@ -1404,6 +1616,7 @@ def alpaca_account_row(
     economics_failures = []
     reservation = None
     matched_hold = False
+    operator_hold = None
     if not all(value.is_finite() for value in (
             equity_value, cash_value, buying_power_value, multiplier_value)):
         economics_failures.append("non-finite economics")
@@ -1420,10 +1633,19 @@ def alpaca_account_row(
         matched_hold = bool(
             reservation is not None and observed_at is not None
             and reservation.deployment[2] == account_id
-            and abs((reservation.observed_at - observed_at).total_seconds()) <= 60
+            and abs((reservation.observed_at - observed_at).total_seconds()) <= 600
             and buying_power_value <= cash_value
             and abs((cash_value - buying_power_value) - reservation.reserved_cash) <= Decimal("1.00"))
-        if abs(buying_power_value - cash_value) > Decimal("1.00") and not matched_hold:
+        if matched_operator_reservation is not None:
+            try:
+                amount = Decimal(matched_operator_reservation)
+                if (amount.is_finite() and amount > 0 and 0 <= buying_power_value < cash_value
+                        and abs(cash_value-buying_power_value-amount) <= Decimal("1.00")):
+                    operator_hold = amount
+            except (InvalidOperation, TypeError, ValueError):
+                pass
+        if (abs(buying_power_value - cash_value) > Decimal("1.00")
+                and not matched_hold and operator_hold is None):
             economics_failures.append(
                 "buying power differs from cash by more than $1")
         if matched_hold:
@@ -1441,7 +1663,9 @@ def alpaca_account_row(
         + (f" · CONTRACT {', '.join(economics_failures)}"
            if economics_failures else " · cash-only contract valid")
         + (f" · ${reservation.reserved_cash:,.2f} reserved by {len(reservation.commands)} positively matched protected DAY orders"
-           if all(value.is_finite() for value in (cash_value, buying_power_value)) and matched_hold else ""))
+           if all(value.is_finite() for value in (cash_value, buying_power_value)) and matched_hold else "")
+        + (f" · ${operator_hold:,.2f} reserved by freshly matched native LIMIT/DAY buys (operator evidence only)"
+           if operator_hold is not None else ""))
     return Row(
         "alpaca_account", "Alpaca Account", value,
         OK if state_ok else FAIL, detail, observed_at,
@@ -1631,6 +1855,9 @@ def execution_authority_row(
         verdict_binding_matches: Optional[bool] = None,
         reviewed_git_commit: Optional[str] = None,
         reviewed_image_digest: Optional[str] = None,
+        owner_local_runtime: bool = False,
+        runtime_git_commit: Optional[str] = None,
+        runtime_image_digest: Optional[str] = None,
         error: Optional[str] = None) -> Row:
     """Durable runtime verdict plus clearly non-authoritative lifecycle facts.
 
@@ -1689,10 +1916,15 @@ def execution_authority_row(
         status = UNKNOWN
     else:
         status = FAIL
+    reference_label = 'certificate original reviewed' if owner_local_runtime else 'reviewed'
     detail = (f"persisted runtime verdict: {runtime_detail or 'no detail'}; "
-              f"{lifecycle}; reviewed Git "
-              f"{reviewed_git_commit or 'missing'} · reviewed image "
+              f"{lifecycle}; {reference_label} Git "
+              f"{reviewed_git_commit or 'missing'} · {reference_label} image "
               f"{reviewed_image_digest or 'missing'}")
+    if owner_local_runtime:
+        detail += (f" · current owner-authorized LOCAL PAPER runtime Git {runtime_git_commit or 'unavailable'}"
+                   f" · image {runtime_image_digest or 'unavailable'}; "
+                   "the certificate's original reviewed references do not certify this local image")
     digest = f" · {certificate_sha256[:12]}" if certificate_sha256 else ""
     return Row("authority", "Paper execution authority",
                f"{verdict}{digest}", status, detail, checked_at,

@@ -1,4 +1,5 @@
 """The idle scheduler repair is one closed, authenticated executable successor."""
+from tests.support import registry_falsifiers as mutants
 from sentinel import protected_cohort_upgrade
 from copy import deepcopy
 import hashlib
@@ -17,7 +18,7 @@ from tests.sentinel.test_operational_liveness_upgrade import (
     test_complete_historical_source_manifest_is_admitted as _historical)
 
 
-def test_scope_predecessors_and_current_bytes_are_exact():
+def test_scope_predecessors_and_historical_targets_are_exact():
     value = upgrade.profile()
     assert upgrade.SCOPE == {
         'automation/service.py', 'automation_runtime.py', 'alert_service.py',
@@ -26,9 +27,8 @@ def test_scope_predecessors_and_current_bytes_are_exact():
     assert value['authority_effect'] == 'NONE'
     assert value['base_revision'] == 'c0be72ed708b20cc8fff25b0cd8e1796889377f0'
     for name, record in value['files'].items():
-        actual = hashlib.sha256((upgrade.PROFILE.parent / name).read_bytes()).hexdigest()
+        actual = record['after']  # Named historical target; current release has its own seal.
         from sentinel import opening_latency_upgrade
-        assert actual == record['after'] or (opening_latency_upgrade.source_allowed(name, record['after'], actual) or protected_cohort_upgrade.source_allowed(name, record['after'], actual))
         assert upgrade.BASE_FILES[name] in record['before']
         assert all(upgrade.source_allowed(name, previous, actual)
                    for previous in record['before'])
@@ -122,32 +122,19 @@ def test_predecessor_guard_has_behavioral_falsifier(monkeypatch):
          upgrade.__dict__, namespace)
     monkeypatch.setattr(upgrade, 'source_allowed', namespace['source_allowed'])
     with pytest.raises(AssertionError):
-        test_scope_predecessors_and_current_bytes_are_exact()
+        test_scope_predecessors_and_historical_targets_are_exact()
 
 
 def test_checker_presence_guard_has_behavioral_falsifier(closure, monkeypatch):
-    source = inspect.getsource(admission.prove_compatibility)
-    needle = '            or idle_leader_upgrade.ADDITIONS - set(actual)\n'
-    assert source.count(needle) == 1
-    namespace = {}
-    exec(compile(source.replace(needle, ''), 'idle-addition-falsifier', 'exec'),
-         admission.__dict__, namespace)
-    monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+    mutants.remove_required_addition(monkeypatch, 'idle_leader')
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_missing_checker_cannot_keep_a_complete_current_closure(closure)
 
 
 def test_current_source_guard_has_behavioral_falsifier(closure, monkeypatch):
-    source = inspect.getsource(admission.prove_compatibility)
-    needle = ("any(name in actual and actual[name] != record['after']\n"
-              "                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile, protected_cohort_profile))\n"
-              "                   for name, record in idle_leader_profile['files'].items())")
-    assert source.count(needle) == 1
-    isolated = _without_profile_pins(source, {'opening_latency_profile', 'protected_cohort_profile'})
-    namespace = {}
-    exec(compile(isolated.replace(needle, 'False'), 'idle-current-source-falsifier', 'exec'),
-         admission.__dict__, namespace)
-    monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+    mutants.isolate_current_pin(monkeypatch, 'idle_leader')
+    test_adjacent_current_source_change_refuses_even_in_retained_manifest(closure, 'alert_service.py')
+    mutants.remove_current_pin(monkeypatch, 'idle_leader')
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_adjacent_current_source_change_refuses_even_in_retained_manifest(closure, 'alert_service.py')
 

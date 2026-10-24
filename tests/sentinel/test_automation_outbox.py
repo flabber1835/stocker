@@ -34,11 +34,16 @@ def pg():
 def conn(pg):
     connection = feed_store.connect(pg.sync_dsn)
     with connection.cursor() as cur:
-        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
-        for (table,) in cur.fetchall():
-            cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
+        # This server belongs solely to this module's disposable fixture.
+        # Current trigger functions must not survive a table-only reset.
+        cur.execute('DROP SCHEMA public CASCADE')
+        cur.execute('CREATE SCHEMA public')
     connection.commit()
     schema.ensure_schema(connection)
+    feed_store.migrate_schema(connection)
+    from sentinel.panel import operational_schema
+    operational_schema.install(connection)
+    connection.commit()
     yield connection
     connection.close()
 

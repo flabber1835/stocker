@@ -7,7 +7,6 @@ test_acquisition_wait.py
 test_action_lifecycle.py
 test_action_quarantine.py
 test_action_source_identity.py
-test_action_value_precision.py
 test_actions_wiring.py
 test_activation_completion_integration.py
 test_activation_completion_protocol.py
@@ -26,12 +25,10 @@ test_alias_capture_warmup.py
 test_alias_rejection_authority.py
 test_alpaca_activity_sse_accounting.py
 test_alpaca_boundary_overlay.py
-test_alpaca_certification_boundary.py
 test_alpaca_daily_formation.py
 test_alpaca_execution_entrypoint.py
 test_alpaca_metadata_authority.py
 test_alpaca_name_change_continuity.py
-test_alpaca_nasdaq.py
 test_alpaca_observation.py
 test_alpaca_operational_snapshot.py
 test_alpaca_postclose_candidates.py
@@ -43,7 +40,6 @@ test_alpaca_simulation_durability.py
 test_alpaca_simulation_harness.py
 test_alpaca_simulation_review_regressions.py
 test_alpaca_simulation_sessions.py
-test_alpaca_source_bounds.py
 test_alpaca_source_codec.py
 test_alpaca_tradability_boundary.py
 test_alpaca_transport.py
@@ -64,7 +60,6 @@ test_automation_p1_continuity.py
 test_automation_process_contracts.py
 test_automation_runtime.py
 test_automation_safety_seams.py
-test_automation_schedule.py
 test_automation_service.py
 test_automation_service_fault_paths.py
 test_automation_slow_callback_lease.py
@@ -92,12 +87,9 @@ test_bounded_historical_performance.py
 test_bounded_operational_feed.py
 test_bounded_operational_publication.py
 test_breadth_classifier.py
-test_broker_conformance.py
 test_callback_liveness.py
 test_callback_liveness_upgrade.py
 test_callback_publication_lifetime.py
-test_cancellation_confirmed.py
-test_canonical_session_kernel.py
 test_cash_grace_identity.py
 test_catchup.py
 test_catchup_atomicity.py
@@ -108,7 +100,6 @@ test_clock_sampling_upgrade.py
 test_close_cycle_upgrade.py
 test_close_valuation_quarantine.py
 test_coherent_seed_capture.py
-test_combined_event_economics.py
 test_concordance_witness.py
 test_concurrent_source_symbols.py
 test_concurrent_symbol_publication.py
@@ -133,7 +124,6 @@ test_deployment_fence.py
 test_deployment_pitr_hardening.py
 test_deployment_receipt_key_bootstrap.py
 test_discovery_poll_boundaries.py
-test_dividend_domain.py
 test_docker_layering_contract.py
 test_dual_plan_renewal.py
 test_dual_plan_renewal_upgrade.py
@@ -147,13 +137,11 @@ test_empty_account_binding.py
 test_env_automation_config.py
 test_execution_authority_gate.py
 test_execution_callback_death.py
-test_execution_contract.py
 test_execution_state_machine_model.py
 test_export_readiness.py
 test_exported_symbol_identity.py
 test_false_flat_race.py
 test_feed_deployment_provenance.py
-test_feed_domains.py
 test_feed_ingest.py
 test_feed_reobservation_regressions.py
 test_feed_static_architecture.py
@@ -162,7 +150,6 @@ test_feed_universe.py
 test_final_deploy_overnight_readiness.py
 test_fjdiu_seed_coverage.py
 test_formation_features.py
-test_formed_economics.py
 test_formed_restore.py
 test_formed_startup.py
 test_forward_cash_distributions.py
@@ -191,12 +178,10 @@ test_go_wallclock_entry_wiring.py
 test_guarded_administration_connection.py
 test_guarded_execution_broker.py
 test_high_impact_durable_remediation.py
-test_historical_command_symbol.py
 test_historical_cycle_recovery.py
 test_historical_formation.py
 test_historical_recovery_process_death.py
 test_historical_stress_checkpoints.py
-test_historical_symbol_identity.py
 test_history_mutation_publication.py
 test_host_python_compat.py
 test_identity_refresh_deadlock.py
@@ -230,8 +215,6 @@ test_issue211_trial_verification.py
 test_issue212_strategy_path.py
 test_issue222_import_order.py
 test_issue223_bil_evidence.py
-test_issue237_actions_semantic_v6.py
-test_issue237_tri_split.py
 test_issue241_go_preparation_feed_binding.py
 test_issue270_restore_validation.py
 test_issue282_restore_upgrade_fence.py
@@ -274,7 +257,6 @@ test_issue_258_manual_daily_boundary.py
 test_issue_259_seed_coherence.py
 test_journal_and_reconcile.py
 test_ldrc_authoritative.py
-test_live_funding.py
 test_live_paper_rehearsal.py
 test_maintenance_future_cursor_refusal.py
 test_maintenance_publication_frontier.py
@@ -290,7 +272,6 @@ test_native_fill_progression.py
 test_native_paper_rehearsal.py
 test_native_read_upgrade.py
 test_native_readonly.py
-test_nav_quantity_precision.py
 test_notification_recovery.py
 test_observation_startup.py
 test_observation_storage_envelope.py
@@ -299,7 +280,6 @@ test_open_time_callback_projection.py
 test_open_time_step_projection.py
 test_open_time_upgrade.py
 test_open_time_verification.py
-test_openfigi.py
 test_opening_submit_freshness_boundary.py
 test_operational_coherence.py
 test_operational_liveness_upgrade.py
@@ -310,7 +290,6 @@ test_operational_snapshot.py
 test_operational_surface.py
 test_operator_monitoring.py
 test_outage_regenesis_integration.py
-test_ownership.py
 test_p0_recovery_and_staleness.py
 test_panel.py
 test_panel_authority_reader.py
@@ -320,7 +299,6 @@ test_panel_plain_language.py
 test_panel_refresh_inspection.py
 test_paper_activation.py
 test_paper_administrative_calendar.py
-test_paper_allowlist.py
 test_paper_cli.py
 test_paper_close_nav_gate.py
 test_paper_composition_gateway.py
@@ -365,7 +343,6 @@ test_recovery_numeric_identity.py
 test_regular_quote_submission.py
 test_rejection_audit.py
 test_research_artefacts.py
-test_resource_envelope.py
 test_restore_receipt_environment.py
 test_resumable_historical_replay.py
 test_retained_activation_evidence.py
@@ -421,7 +398,6 @@ test_sep_reconciliation_action_order.py
 test_sep_retirement_mutation_authority.py
 test_sep_retirement_postgres.py
 test_sep_retirement_source_authority.py
-test_session_freshness.py
 test_shadow_acquisition_budget.py
 test_shadow_active_worker_health.py
 test_shadow_health_projection.py
@@ -455,7 +431,6 @@ test_supervisor_timing_admission.py
 test_symbol_identity_recovery.py
 test_system_authority.py
 test_system_simulation.py
-test_terminal.py
 test_terminal_historical_relevance.py
 test_terminal_identity.py
 test_terminal_leadership_return.py

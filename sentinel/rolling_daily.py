@@ -75,14 +75,10 @@ def commit_next(conn, *, checkpoint, observer, prior, pub, binding, context,
 
 def resume(conn, *, observation_id: str, starting_cash):
     """Read only the authenticated current closure, without warming or advancing."""
-    try:
-        schema.require_runtime_schema(conn)
-        runtime_schema.require_feed_schema(conn)
+    from sentinel import committed_read
+    with committed_read.proof_connection(conn) as proof:
+        schema.require_runtime_schema(proof)
+        runtime_schema.require_feed_schema(proof)
         context = initial._context(observation_id, starting_cash)
-        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        _, _, result = checkpoints.load(conn, context)
-        conn.commit()
+        _, _, result = checkpoints.load(proof, context)
         return result
-    except BaseException:
-        conn.rollback()
-        raise

@@ -17,6 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from psycopg.pq import TransactionStatus
 
 from sentinel import (
     authority, automation_runtime, informational_paper_mirror, paper)
@@ -228,12 +229,34 @@ class FakeConnection:
         self.lease_row = lease_row
         self.closed = 0
         self.rollbacks = 0
+        self.commits = 0
+        self.info = SimpleNamespace(transaction_status=TransactionStatus.IDLE)
+        self.pending_work = []
+        self.committed_work = []
+        self.statements = []
 
     def close(self) -> None:
         self.closed += 1
+        # Reused by the factory seam for successive owned connections. A real
+        # close releases uncommitted work before the next connection is opened.
+        self.pending_work.clear()
+        self.info.transaction_status = TransactionStatus.IDLE
 
     def rollback(self) -> None:
         self.rollbacks += 1
+        self.pending_work.clear()
+        self.info.transaction_status = TransactionStatus.IDLE
+
+    def commit(self) -> None:
+        self.commits += 1
+        self.committed_work.extend(self.pending_work)
+        self.pending_work.clear()
+        self.info.transaction_status = TransactionStatus.IDLE
+
+    def execute(self, sql, params=None):
+        cursor = self.cursor()
+        cursor.execute(sql, params)
+        return cursor
 
     def cursor(self):
         return FakeCursor(self)
@@ -251,9 +274,22 @@ class FakeCursor:
 
     def execute(self, _sql, _params=None) -> None:
         self.sql = _sql
+        self.conn.info.transaction_status = TransactionStatus.INTRANS
+        self.conn.statements.append((_sql, _params))
         return None
 
     def fetchone(self):
+        # This historical fake models the complete absence of the additive
+        # operational extension, so the real integrity owner uses its retained
+        # independent verifier. It never models installed coverage as passed.
+        if self.sql.startswith(('SELECT count(*) FROM pg_class',
+                'SELECT count(*) FROM pg_proc', 'SELECT count(*) FROM pg_trigger',
+                'SELECT count(*) FROM pg_event_trigger')):
+            return (0,)
+        if self.sql == "SELECT to_regclass('public.sentinel_processed_sessions')":
+            return (None,)
+        if self.sql == "SELECT to_regprocedure('public.sentinel_operational_installation_guard()') IS NOT NULL":
+            return (False,)
         if 'SELECT COALESCE(MAX(o.seq),0)' in self.sql:
             return (0, 'sim', 'SIM-ACCOUNT', NOW)
         if 'SELECT broker,broker_account_id,established_at' in self.sql:
@@ -262,6 +298,43 @@ class FakeCursor:
 
     def fetchall(self):
         return []
+
+
+def test_fake_integrity_owner_verifies_absent_extension_and_finishes_its_read():
+    conn = FakeConnection()
+    automation_runtime.require_observation_integrity(conn)
+    assert conn.info.transaction_status == TransactionStatus.IDLE
+    assert conn.rollbacks == 1 and conn.commits == 0
+    assert any(sql.startswith('SELECT count(*) FROM pg_class') for sql, _ in conn.statements)
+    assert any('SELECT COALESCE(MAX(o.seq),0)' in sql for sql, _ in conn.statements)
+
+
+def test_fake_integrity_owner_preserves_active_caller_work():
+    conn = FakeConnection()
+    conn.execute('SELECT caller_owned_read')
+    conn.pending_work.append('caller-owned mutation')
+    before = list(conn.statements)
+    with pytest.raises(automation_runtime.DataIntegrityFailure, match='idle owned connection'):
+        automation_runtime.require_observation_integrity(conn)
+    assert conn.info.transaction_status == TransactionStatus.INTRANS
+    assert conn.pending_work == ['caller-owned mutation']
+    assert conn.statements == before
+    assert conn.rollbacks == conn.commits == 0
+
+
+def test_fake_close_releases_only_uncommitted_work_for_next_owned_connection():
+    conn = FakeConnection()
+    conn.execute('SELECT committed_read')
+    conn.pending_work.append('committed mutation')
+    conn.commit()
+    conn.execute('SELECT uncommitted_read')
+    conn.pending_work.append('uncommitted mutation')
+    conn.close()
+    assert conn.closed == 1
+    assert conn.info.transaction_status == TransactionStatus.IDLE
+    assert conn.pending_work == []
+    assert conn.committed_work == ['committed mutation']
+    assert conn.rollbacks == 0 and conn.commits == 1
 
 
 class DictEvidence:
@@ -598,7 +671,16 @@ async def test_close_preflight_observes_monday_with_friday_identity_frontier(mon
         'decision_session': date(2026, 10, 12),
         'effective_session': date(2026, 10, 13)}), permit=ctx.permit)
     conn = FakeConnection()
-    conn.execute = lambda *a: SimpleNamespace(fetchone=lambda: ('v'*64,))
+    validation_query = ('SELECT validation_sha256 FROM sentinel_snapshot_validations '
+                        'WHERE candidate_id=%s')
+    original_execute = conn.execute
+    def validation_or_default(sql, params=None):
+        result = original_execute(sql, params)
+        if sql == validation_query:
+            assert params == ('c',)
+            return SimpleNamespace(fetchone=lambda: ('v'*64,))
+        return result
+    conn.execute = validation_or_default
     runtime = production(cfg)
     broker = SimulatedBroker()
     install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
@@ -626,6 +708,8 @@ async def test_close_preflight_observes_monday_with_friday_identity_frontier(mon
     result = await runtime.recover(ctx)
     assert sessions == ['2026-10-12']
     assert result.disposition is ExecuteDisposition.SUCCEEDED
+    assert any(sql.startswith('SELECT count(*) FROM pg_class') for sql, _ in conn.statements)
+    assert [params for sql, params in conn.statements if sql == validation_query] == [('c',)]
     assert not any(call.startswith(('submit:', 'cancel:')) for call in broker.calls)
 
 

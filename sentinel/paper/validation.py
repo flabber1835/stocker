@@ -341,7 +341,8 @@ def _validate_broker_grant(
             if _operation is BrokerOperation.SUBMIT:
                 _protected_allocation_or_refuse(
                     conn, plan=plan, shadow_equity=(
-                        sizing.get("shadow_equity") if dual_mode else None), state=state)
+                        sizing.get("shadow_equity") if dual_mode else None), state=state,
+                    retained_targets=sizing.get("retained_targets") if dual_mode else None)
             return
         if grant.operation_scope == "RECOVER":
             feed_inputs.coherent(conn)
@@ -383,7 +384,7 @@ def _validate_broker_grant(
             "preparation grant no longer names the latest closed published "
             "XNYS session")
 
-def _protected_allocation_or_refuse(conn, *, plan, state, shadow_equity=None):
+def _protected_allocation_or_refuse(conn, *, plan, state, shadow_equity=None, retained_targets=None):
     from sentinel.execution import protected_limits, target_reprojection
     policy = protected_limits.ProtectedLimitPolicy.from_env()
     if policy is None:
@@ -399,6 +400,8 @@ def _protected_allocation_or_refuse(conn, *, plan, state, shadow_equity=None):
     if projection is None:
         raise PaperActivationRefused("protected BUY allocation is absent")
     protected_limits.validate_projection(projection, require_current_policy=True)
+    if projection.opening_sizing.get("retained_targets") != retained_targets:
+        raise PaperActivationRefused("protected allocation differs from retained share authority")
     from sentinel.core.decision import _shadow_equity
     expected = Decimal(str(shadow_equity)) if shadow_equity is not None else _shadow_equity(state)
     if Decimal(projection.opening_sizing["shadow_equity"]) != expected:

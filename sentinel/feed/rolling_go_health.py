@@ -1,5 +1,6 @@
 """Measured read-only database proof for the rolling input contract."""
 from __future__ import annotations
+from sentinel.feed.normalized_layout import candidate_query
 
 from datetime import timezone
 import math
@@ -17,15 +18,19 @@ def _nodes(root):
 
 def _indexed(conn, query, params):
     plan = conn.execute("EXPLAIN (FORMAT JSON) " + query, params).fetchone()[0][0]["Plan"]
-    scans = [node for node in _nodes(plan) if node.get("Relation Name") == "sentinel_snapshot_bars"]
-    allowed = {"sentinel_snapshot_bars_pkey", "sentinel_snapshot_bars_c_order"}
+    relations = {"sentinel_snapshot_bars", "sentinel_candidate_blocks", "sentinel_normalized_blocks"}
+    scans = [node for node in _nodes(plan) if node.get("Relation Name") in relations]
+    allowed = {"sentinel_snapshot_bars_pkey", "sentinel_snapshot_bars_c_order",
+               "sentinel_candidate_blocks_pkey", "sentinel_normalized_blocks_pkey"}
     for scan in scans:
         if scan.get("Node Type") not in {"Index Scan", "Index Only Scan", "Bitmap Heap Scan"}:
             return False
         indexes = [node["Index Name"] for node in _nodes(scan) if "Index Name" in node]
         if not indexes or any(name not in allowed for name in indexes):
             return False
-    return bool(scans)
+    observed = {node.get("Relation Name") for node in scans}
+    return ("sentinel_snapshot_bars" in observed
+            or {"sentinel_candidate_blocks", "sentinel_normalized_blocks"} <= observed)
 
 
 def inspect(conn, *, database_url: str):
@@ -60,10 +65,10 @@ def inspect(conn, *, database_url: str):
             contender.close()
         sid = material.bars[0].security_id
         anchor_indexed = _indexed(conn,
-            "SELECT close_signal FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session=%s AND security_id=%s",
+            candidate_query(conn, "SELECT close_signal FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session=%s AND security_id=%s"),
             (candidate, material.warmup.sessions[-1], sid))
         frontier_indexed = _indexed(conn,
-            "SELECT security_id,close_unadjusted FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session=%s",
+            candidate_query(conn, "SELECT security_id,close_unadjusted FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session=%s"),
             (candidate, frontier))
         now = inputs.snapshots._now()
         source_final = publication_not_before(frontier)

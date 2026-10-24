@@ -44,7 +44,7 @@ def test_same_snapshot_proof_cannot_cross_publication_or_skip_session():
         require_history_compatible(**{**args, 'version':4}, proof=changed.model_dump(by_alias=True))
 
 
-def test_feature_loader_fences_future_and_expired_rows(monkeypatch):
+def test_feature_loader_fences_future_and_expired_rows(monkeypatch, conn):
     from contextlib import nullcontext
     from types import SimpleNamespace
     from sentinel.feed import calendar
@@ -64,7 +64,7 @@ def test_feature_loader_fences_future_and_expired_rows(monkeypatch):
         current_metadata=lambda **kw:({'1':SecurityMeta('1','ABC','Domestic Common Stock','1',
             first_session=str(window.start))},{}),resolver=SimpleNamespace(resolve=lambda *a:'1'))
     prior = SimpleNamespace(state_hash='a'*64,wealth_core={},pending=[],median5={})
-    value = window_features.load(None,prior=prior,refs=refs,
+    value = window_features.load(conn,prior=prior,refs=refs,
         publication=SimpleNamespace(window_end=str(window.end),version=1),session=day)
     assert value.sessions == tuple(calendar.previous_sessions(day,300))
     assert len(value.signals)==1 and value.signals[0].raw_close==20.

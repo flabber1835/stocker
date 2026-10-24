@@ -17,13 +17,17 @@ def _json(value: Mapping[str, Any]) -> str:
         ensure_ascii=True, default=str)
 
 
-def record_account_snapshot(conn, snapshot) -> None:
+def record_account_snapshot(conn, snapshot, *, display_reservation=None) -> None:
     """Append one already-authorized typed broker account result."""
     flags = {
         "trading_blocked": bool(snapshot.trading_blocked),
         "account_blocked": bool(snapshot.account_blocked),
         "trade_suspended_by_user": bool(snapshot.trade_suspended_by_user),
     }
+    if display_reservation is not None:
+        # Execution's GET-only observer produced these operator-only facts.
+        # Financial account guards never consume this table.
+        flags["operator_order_reservation"] = display_reservation
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_broker_account_evidence"

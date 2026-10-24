@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import replace
+import time
+from dataclasses import dataclass, replace
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -54,6 +55,8 @@ STATEMENT_TIMEOUT_MS = 8_000
 #: gets its own, tighter budget so a slow contract check costs the panel its
 #: verdict but never its frontier, its ingest row or its ownership row.
 READINESS_TIMEOUT_MS = 2_000
+FEED_PIN_RETRY_SECONDS = 2
+FEED_PIN_POLL_SECONDS = 0.1
 
 # The full cycle also carries plan and phase metadata consumed by detailed
 # progress/reconciliation. Only these presentation facts belong to the summary.
@@ -64,6 +67,8 @@ _AUTOMATION_CYCLE_ROW_FIELDS = frozenset({
     "retry_phase",
     "original_execution_deadline_at",
     "first_failure_at", "exception_fingerprint", "terminal_reason",
+    "availability_retry_unbounded", "callback_failure", "exception_type",
+    "availability_retry_clocks_aware",
     "protected_day_wait",
     "prepare_at", "execution_open_at", "execute_at", "execution_close_at",
     "created_at", "completed_at", "updated_at",
@@ -170,16 +175,24 @@ def _utc(dt) -> Optional[datetime]:
 
 
 def _bounded_dsn(dsn: str) -> str:
-    """Append libpq's `connect_timeout` so opening the connection cannot hang.
+    """Bind libpq's `connect_timeout` without changing its connection target.
 
     A statement timeout does nothing if the CONNECT never completes — a busy or
     unreachable Postgres leaves the socket waiting indefinitely by default, and
     the page hangs before it has run a single query.
     """
-    if "connect_timeout" in dsn:
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    values = conninfo_to_dict(dsn)
+    configured = values.get("connect_timeout")
+    if configured is not None and int(configured) > 0:
         return dsn
-    sep = "&" if "?" in dsn else "?"
-    return f"{dsn}{sep}connect_timeout={CONNECT_TIMEOUT_SECONDS}"
+    if configured is None and dsn.startswith(("postgresql://", "postgres://")):
+        # Keep existing URI spelling/escaping. ConnectionInfo.dsn instead uses
+        # keyword conninfo, whose quoting must be owned by libpq's parser.
+        sep = "&" if "?" in dsn else "?"
+        return f"{dsn}{sep}connect_timeout={CONNECT_TIMEOUT_SECONDS}"
+    return make_conninfo(dsn, connect_timeout=CONNECT_TIMEOUT_SECONDS)
 
 
 def _set_statement_timeout(conn, ms: int) -> None:
@@ -408,6 +421,124 @@ def _active_commands(conn):
     return {"counts": counts, "updated_at": updated_at}
 
 
+def _previous_buy_outcomes(conn, *, preview):
+    """Latest submitted BUY per proposed BUY, with exact bound lineage.
+
+    CANCELLED does not preserve Alpaca's expired/cancelled distinction. Render
+    zero filled shares as ended unfilled, without inventing a native reason.
+    """
+    identities = [leg.security_id for leg in preview.legs if leg.action == 'BUY']
+    if not identities:
+        return []
+    with conn.cursor() as cur:
+        cur.execute("""SELECT DISTINCT ON (c.security_id)
+            c.security_id,c.symbol,c.client_key,c.broker_order_id,c.side,
+            c.quantity,c.filled_quantity,c.state,c.updated_at
+            FROM sentinel_commands c
+            JOIN sentinel_account_binding b ON b.id=1
+              AND b.ownership_state='SENTINEL_OWNED'
+              AND c.deployment_id=b.deployment_id AND c.broker=b.broker
+              AND c.broker_account_id=b.broker_account_id AND c.takeover_epoch=b.takeover_epoch
+            JOIN sentinel_execution_plans p ON p.plan_id=c.plan_id
+              AND p.deployment_id=c.deployment_id AND p.broker=c.broker
+              AND p.broker_account_id=c.broker_account_id AND p.takeover_epoch=c.takeover_epoch
+            WHERE c.security_id=ANY(%s) AND c.side='BUY' AND c.broker_order_id IS NOT NULL
+              AND c.created_at<%s AND p.effective_session<%s
+            ORDER BY c.security_id,c.created_at DESC,c.updated_at DESC,c.client_key DESC
+            LIMIT 100""", (identities, preview.created_at, preview.effective_session))
+        rows = cur.fetchall()
+    from sentinel.panel.overview_data import order_outcomes
+    return order_outcomes(rows)
+
+
+def _current_trading_run(conn):
+    """Current-date intent/progress, independent of future notification eligibility."""
+    with conn.cursor() as cur:
+        cur.execute("""SELECT c.cycle_id,c.state,c.execute_at,c.updated_at,c.completed_at,
+            p.plan_id,c.plan_fingerprint,p.created_at,p.decision_session,p.effective_session,
+            p.target_basket,p.broker,p.broker_account_id,
+            ((c.effective_session+1)::timestamp AT TIME ZONE 'America/New_York')
+            FROM sentinel_automation_cycles c
+            JOIN sentinel_automation_control a ON a.id=1 AND c.control_generation=a.generation
+              AND c.deployment_id=a.deployment_id AND c.broker=a.broker
+              AND c.broker_account_id=a.broker_account_id AND c.takeover_epoch=a.takeover_epoch
+              AND c.certificate_sha256=a.certificate_sha256 AND c.config_sha256=a.config_sha256
+            JOIN sentinel_account_binding b ON b.id=1 AND b.ownership_state='SENTINEL_OWNED'
+              AND b.deployment_id=c.deployment_id AND b.broker=c.broker
+              AND b.broker_account_id=c.broker_account_id AND b.takeover_epoch=c.takeover_epoch
+            JOIN sentinel_execution_plans p ON p.plan_id=c.plan_id
+              AND p.deployment_id=c.deployment_id AND p.broker=c.broker
+              AND p.broker_account_id=c.broker_account_id AND p.takeover_epoch=c.takeover_epoch
+              AND p.decision_session=c.decision_session AND p.effective_session=c.effective_session
+            WHERE NOT c.historical_state_only AND p.superseded_by IS NULL
+              AND c.effective_session=(clock_timestamp() AT TIME ZONE 'America/New_York')::date
+              AND c.state IN ('PLAN_READY','WAITING_OPEN','EXECUTING','RECONCILING',
+                              'RETRY_WAIT','SUCCEEDED','FAILED','ABANDONED','SUPERSEDED')
+            ORDER BY c.created_at DESC LIMIT 2""")
+        rows = cur.fetchall()
+    if not rows:
+        return None
+    if len(rows) != 1:
+        raise ValueError('multiple current-date trading runs')
+    plan = dict(zip(('cycle_id','state','execute_at','updated_at','completed_at','plan_id',
+        'plan_fingerprint','created_at','decision_session','effective_session','target_basket',
+        'broker','broker_account_id','valid_until'), rows[0], strict=True))
+    from sentinel.execution import journal
+    stored = journal.load_plan(conn, plan['plan_id'])
+    if (stored is None or stored.fingerprint() != plan['plan_fingerprint']
+            or stored.target_basket != {sid:Decimal(str(value))
+                                        for sid,value in plan['target_basket'].items()}):
+        raise ValueError('current trading run economic plan identity changed')
+    from sentinel import dual_plan_authority
+    authority = dual_plan_authority.load_authority(conn, plan_id=plan['plan_id'])
+    if authority is None:
+        raise ValueError('current trading run has no immutable sizing authority')
+    with conn.cursor() as cur:
+        cur.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s",
+                    ('plan-opening-intents:v1:'+plan['plan_id'],))
+        opening = cur.fetchone()
+        if opening is not None:
+            raw = _json_mapping(opening[1], label='current trading opening intents')
+            if (str(opening[0]) != str(plan['effective_session'])
+                    or raw.get('kind') != 'plan-opening-intents/v1'
+                    or raw.get('plan_id') != plan['plan_id']
+                    or raw.get('plan_fingerprint') != plan['plan_fingerprint']):
+                raise ValueError('current trading opening intent identity changed')
+            plan['opening_intents'] = raw['intents']
+        cur.execute("""SELECT c.security_id,c.symbol,c.client_key,c.broker_order_id,c.side,c.quantity,
+            c.filled_quantity,c.state,c.updated_at,c.filled_average_price,c.order_terms
+            FROM sentinel_commands c JOIN sentinel_execution_plans p ON p.plan_id=c.plan_id
+              AND c.deployment_id=p.deployment_id AND c.broker=p.broker
+              AND c.broker_account_id=p.broker_account_id AND c.takeover_epoch=p.takeover_epoch
+            WHERE c.plan_id=%s ORDER BY c.created_at,c.client_key LIMIT 101""",
+            (plan['plan_id'],))
+        commands = [dict(zip(('security_id','ticker','client_key','broker_order_id','side',
+            'quantity','filled_quantity','state','observed_at','filled_average_price','order_terms'),
+            row, strict=True)) for row in cur.fetchall()]
+    from sentinel.panel.run_progress import project_run
+    run = project_run(plan, authority, commands)
+    failed = run.state in {'FAILED','ABANDONED','SUPERSEDED'} or any(
+        item.state in {'UNKNOWN','CANCEL_PENDING'} for item in run.orders)
+    status = model.FAIL if failed else model.WARN if run.state in {
+        'EXECUTING','RECONCILING','RETRY_WAIT'} else model.OK
+    return model.Row('trading_run', 'Today’s paper trading', run.state, status,
+        detail='Saved original intent and durable command progress; post-close verification is separate.',
+        as_of=max([run.updated_at]+[item.observed_at for item in run.orders]),
+        valid_until=plan['valid_until']-timedelta(microseconds=1), trading_run=run)
+
+
+def _first_inconsistent_observation(conn, *, cycle_id):
+    with conn.cursor() as cur:
+        cur.execute("""SELECT min(o.observed_at) FROM sentinel_observations o
+            JOIN sentinel_observation_provenance p ON p.observation_seq=o.seq
+            JOIN sentinel_automation_cycles c ON c.cycle_id=%s
+              AND c.broker=p.broker AND c.broker_account_id=p.broker_account_id
+            WHERE o.completeness='INCONSISTENT' AND o.observed_at>=c.execute_at""",
+            (cycle_id,))
+        row = cur.fetchone()
+    return _utc(row[0]) if row and row[0] is not None else None
+
+
 def _state_view(snapshot, *, expected_version=3) -> dict:
     state = snapshot["state"]
     session = snapshot["session"]
@@ -544,6 +675,29 @@ def _ownership(state_dir: Path, database_url: str = "") -> model.Row:
         return model.ownership_row(state=None, at=None, error=repr(exc))
 
 
+def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
+    """Reacquire only a refused source pin within the original page budget."""
+    from sentinel.feed import readers
+    from sentinel.feed.publication import CorpusLockUnavailable
+
+    deadline = clock() + FEED_PIN_RETRY_SECONDS
+    last_error = None
+    while True:
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise CorpusLockUnavailable('panel source pin retry deadline expired') from last_error
+        _set_statement_timeout(conn, max(1, int(remaining * 1000)))
+        try:
+            return readers.status_snapshot(conn)
+        except CorpusLockUnavailable as exc:
+            last_error = exc
+            conn.rollback()
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise
+            sleep(min(FEED_PIN_POLL_SECONDS, remaining))
+
+
 def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     """The feed frontier, the contract verdict and the latest ingest.
 
@@ -577,8 +731,7 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                               STATEMENT_TIMEOUT_MS, default=[])
         # Bind the cached verdict and frontier to one authenticated generation.
         # A rolling page load verifies receipts, not the full price window.
-        from sentinel.feed import readers
-        feed, front_err = _read(conn, readers.status_snapshot,
+        feed, front_err = _read(conn, _feed_status_snapshot,
                                STATEMENT_TIMEOUT_MS, default=(None, None))
         frontier, snap = feed
         if snap is None:
@@ -628,7 +781,9 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                                run_err, required_current=True)
         elif operational:
             ingest = replace(ingest, value=('NO OPERATIONAL JOB YET' if not run else
-                             f"OPERATIONAL SNAPSHOT · {run['current_chunk']}"))
+                             f"OPERATIONAL SNAPSHOT · {run['current_chunk']}"),
+                             detail=(run['current_chunk'] if run.get('status') == 'success'
+                                     else ingest.detail))
         rows = [
             # A frontier that TIMED OUT is not an unreadable database — the
             # connection is open and the ingest row right below was just read
@@ -765,6 +920,12 @@ def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | N
         "attempt_count": int(attempt_count),
         "phase_attempt_count": diagnostic.get("phase_attempt_count"),
         "phase_max_attempts": diagnostic.get("phase_max_attempts"),
+        "availability_retry_unbounded": diagnostic.get("availability_retry_unbounded"),
+        "callback_failure": diagnostic.get("callback_failure"),
+        "exception_type": diagnostic.get("exception_type"),
+        "availability_retry_clocks_aware": all(
+            isinstance(stamp, datetime) and stamp.utcoffset() is not None
+            for stamp in (next_wake, execution_open_at)),
         "retry_phase": diagnostic.get("retry_phase"),
         "first_failure_at": diagnostic.get("first_failure_at"),
         "latest_failure_at": diagnostic.get("latest_failure_at"),
@@ -921,42 +1082,10 @@ def _cycle_recovery(
         cycle: Mapping | None, *, phases: tuple[str, ...] | None = None,
         failure_domains: tuple[str, ...] | None = None,
                     ) -> model.RecoveryEvidence | None:
-    """Conservatively project only a durable, bounded automatic retry."""
-    if not cycle or str(cycle.get("state") or "").upper() != "RETRY_WAIT":
-        return None
-    retry_phase = str(cycle.get("retry_phase") or "").upper()
-    if phases is not None and retry_phase not in phases:
-        return None
-    failure_domain = str(cycle.get("failure_domain") or "").upper()
-    if (failure_domains is not None
-            and failure_domain not in failure_domains):
-        return None
-    if (failure_domains is None and retry_phase == "EXECUTE"
-            and not cycle.get("failure_code") and not cycle.get("failure_detail")
-            and cycle.get("phase_max_attempts") is None):
-        return model.RecoveryEvidence(
-            phase="CLEAN_RECOVERY_EXECUTION_WAKE", automatic=True,
-            next_attempt_at=cycle.get("next_wake_at"), deadline=model._clean_execution_deadline(cycle))
-    if failure_domains is None:
-        from sentinel.automation.model import ProtectedDayWait
-        try:
-            wait = ProtectedDayWait.model_validate(cycle.get("protected_day_wait"))
-            if (wait.plan_id == cycle.get("plan_id")
-                    and str(wait.effective_session) == str(cycle.get("effective_session"))
-                    and not cycle.get("failure_code") and not cycle.get("failure_detail")):
-                return model.RecoveryEvidence(
-                    phase="PROTECTED_DAY_ORDER_OBSERVATION", automatic=True,
-                    next_attempt_at=cycle.get("next_wake_at"),
-                    deadline=min(wait.deadline, wait.observed_at + timedelta(minutes=10)))
-        except (ValueError, TypeError, ArithmeticError):
-            pass
-    return model.RecoveryEvidence(
-        phase=f"AUTOMATION_{retry_phase or 'RECOVERY'}",
-        automatic=True,
-        attempt=cycle.get("phase_attempt_count"),
-        maximum_attempts=cycle.get("phase_max_attempts"),
-        next_attempt_at=cycle.get("next_wake_at"),
-        operator_required=bool(cycle.get("terminal_reason")))
+    """Project one scoped source recovery through the shared display policy."""
+    from sentinel.panel.retry_status import project_cycle_recovery
+    return project_cycle_recovery(
+        cycle, phases=phases, failure_domains=failure_domains).evidence
 
 
 def _runtime_valid_until(
@@ -1231,7 +1360,7 @@ def _matched_resting_reservation(conn, *, account, cycle, now):
         plan_id=cycle.get("plan_id"), effective_session=cycle.get("effective_session"))
     if (wait is None or account.get("account_id") != wait.deployment[2]
             or account.get("observed_at") is None
-            or abs((account["observed_at"] - wait.observed_at).total_seconds()) > 60):
+            or abs((account["observed_at"] - wait.observed_at).total_seconds()) > 600):
         return None
     with conn.cursor() as cur:
         cur.execute("SELECT deployment_id,broker,broker_account_id,takeover_epoch"
@@ -1240,36 +1369,57 @@ def _matched_resting_reservation(conn, *, account, cycle, now):
         cur.execute("SELECT seq,runtime_state FROM sentinel_observations ORDER BY seq DESC LIMIT 1")
         latest = cur.fetchone()
     if (binding is None or tuple(binding) != wait.deployment
-            or latest is None or tuple(latest) != (wait.observation_id, "RUNNING")):
+            or latest is None or latest[0] < wait.observation_id or latest[1] != "RUNNING"):
         return None
-    payload = journal.load_observation_payload(conn, wait.observation_id)
+    payload = journal.load_observation_payload(conn, latest[0])
     if (payload.get("completeness") != "COMPLETE"
             or payload.get("account_id") != wait.deployment[2]
-            or datetime.fromisoformat(payload["observed_at"]) != wait.observed_at):
+            or not wait.observed_at <= datetime.fromisoformat(payload["observed_at"]) <= now
+            or (latest[0] == wait.observation_id
+                and datetime.fromisoformat(payload["observed_at"]) != wait.observed_at)):
         return None
-    commands = {c.client_key: c for c in journal.load_commands(
-        conn, DeploymentIdentity(*wait.deployment)) if c.state in IN_FLIGHT}
+    all_commands = {c.client_key: c for c in journal.load_commands(
+        conn, DeploymentIdentity(*wait.deployment))}
+    commands = {key: c for key, c in all_commands.items() if c.state in IN_FLIGHT}
+    all_orders = {o["client_key"]: o for o in payload["orders"]}
     orders = {o["client_key"]: o for o in payload["orders"]
               if o["state"] in {state.value for state in IN_FLIGHT}}
     expected = {order.client_key for order in wait.commands}
-    if set(commands) != expected or set(orders) != expected:
+    if not set(commands) <= expected or set(orders) != set(commands):
         return None
+    remaining_facts = []
     for fact in wait.commands:
-        command, order = commands[fact.client_key], orders[fact.client_key]
+        command, order = all_commands.get(fact.client_key), all_orders.get(fact.client_key)
+        if command is None or order is None:
+            return None
         if (command.identity.plan_id != wait.plan_id or command.side.value != "BUY"
-                or command.state.value != fact.state or order["state"] != fact.state
+                or order["state"] != command.state.value
                 or command.broker_order_id != fact.broker_order_id
                 or order["broker_order_id"] != fact.broker_order_id
                 or command.security_id != fact.security_id or order["security_id"] != fact.security_id
                 or command.order_terms.to_dict() != fact.order_terms
                 or order.get("order_terms") != fact.order_terms
-                or command.quantity - command.filled_quantity != fact.remaining_quantity
-                or Decimal(order["quantity"]) - Decimal(order["filled_quantity"]) != fact.remaining_quantity
+                or not 0 <= command.quantity - command.filled_quantity <= fact.remaining_quantity
+                or Decimal(order["filled_quantity"]) != command.filled_quantity
                 or Decimal(order["quantity"]) != command.quantity
                 or order["side"] != "BUY" or order.get("external_replacement")
                 or order.get("replaced_by") or order.get("replaces")):
             return None
-    return wait.model_dump(mode="json", by_alias=True)
+        if command.state.value in {"ACKNOWLEDGED", "PARTIALLY_FILLED"}:
+            remaining_facts.append(dict(fact.model_dump(mode="json"), state=command.state.value,
+                remaining_quantity=str(command.quantity - command.filled_quantity)))
+        elif command.state.value not in {"FILLED", "CANCELLED", "REJECTED"}:
+            return None
+    if not remaining_facts:
+        return None  # No working holds remain; account cash must stand on its own.
+    value = wait.model_dump(mode="json", by_alias=True)
+    value.update(commands=remaining_facts, observation_id=latest[0],
+        observed_at=payload["observed_at"],
+        reserved_cash=str(sum((Decimal(f["remaining_quantity"]) * Decimal(f["limit_price"])
+                               for f in remaining_facts), Decimal(0))))
+    matched = protected_day_wait(value, now=now, plan_id=wait.plan_id,
+                                effective_session=wait.effective_session)
+    return matched.model_dump(mode="json", by_alias=True) if matched else None
 
 
 def _latest_backup_evidence(conn, kind: str) -> dict | None:
@@ -1323,18 +1473,24 @@ def _operator_evidence_rows(
             conn, _latest_account_evidence, STATEMENT_TIMEOUT_MS, default=None)
         bound, binding_error = _read(
             conn, _bound_account_id, STATEMENT_TIMEOUT_MS, default=None)
-        base, base_error = _read(
-            conn, lambda c: _latest_backup_evidence(c, "BASE_BACKUP"),
-            STATEMENT_TIMEOUT_MS, default=None)
-        restore, restore_error = _read(
-            conn, lambda c: _latest_backup_evidence(c, "RESTORE_DRILL"),
-            STATEMENT_TIMEOUT_MS, default=None)
-        runtime_backup, runtime_backup_error = _read(
-            conn, lambda c: _latest_backup_evidence(c, "RUNTIME_CHAIN"),
-            STATEMENT_TIMEOUT_MS, default=None)
-        maintenance, maintenance_error = _read(
-            conn, lambda c: _latest_backup_evidence(c, 'MAINTENANCE_PROGRESS'),
-            STATEMENT_TIMEOUT_MS, default=None)
+        from sentinel import local_paper
+        local = local_paper.require_bound_account(conn)
+        backups_suspended = local_paper.backups_suspended_for_account(conn)
+        base = restore = runtime_backup = maintenance = None
+        base_error = restore_error = runtime_backup_error = maintenance_error = None
+        if not backups_suspended:
+            base, base_error = _read(
+                conn, lambda c: _latest_backup_evidence(c, "BASE_BACKUP"),
+                STATEMENT_TIMEOUT_MS, default=None)
+            restore, restore_error = _read(
+                conn, lambda c: _latest_backup_evidence(c, "RESTORE_DRILL"),
+                STATEMENT_TIMEOUT_MS, default=None)
+            runtime_backup, runtime_backup_error = _read(
+                conn, lambda c: _latest_backup_evidence(c, "RUNTIME_CHAIN"),
+                STATEMENT_TIMEOUT_MS, default=None)
+            maintenance, maintenance_error = _read(
+                conn, lambda c: _latest_backup_evidence(c, 'MAINTENANCE_PROGRESS'),
+                STATEMENT_TIMEOUT_MS, default=None)
         lifecycle, lifecycle_error = _read(
             conn, _authority_lifecycle, STATEMENT_TIMEOUT_MS, default=None)
         verdict, verdict_error = _read(
@@ -1346,8 +1502,25 @@ def _operator_evidence_rows(
             conn, lambda c: _matched_resting_reservation(c, account=account, cycle=cycle, now=now),
             STATEMENT_TIMEOUT_MS, default=None)
 
+        operator_reservation = None
+        if local and reservation is None and reservation_error is None:
+            from sentinel.execution import account_status
+            operator_reservation, reservation_error = _read(
+                conn, lambda c: account_status.recorded_reservation(c, account=account, now=now),
+                STATEMENT_TIMEOUT_MS, default=None)
+
         account_detail = account_error or binding_error or reservation_error
         account_recovery = _observation_recovery(cycle)
+        account_valid_until = _runtime_valid_until(
+            cycle, (account or {}).get("observed_at"), broker_fact=True)
+        if operator_reservation is not None:
+            expiry = _utc(operator_reservation["valid_until"])
+            account_valid_until = min(account_valid_until, expiry) if account_valid_until else expiry
+        if reservation is not None:
+            original = ((cycle or {}).get("protected_day_wait")
+                        or (cycle or {}).get("protected_cohort") or {})
+            original_expiry = _utc(original.get("observed_at")) + timedelta(minutes=10)
+            account_valid_until = min(account_valid_until, original_expiry) if account_valid_until else original_expiry
         account_row = (
             model.alpaca_account_row(
                 available=None, error=account_detail,
@@ -1355,12 +1528,15 @@ def _operator_evidence_rows(
             if account_detail else
             model.alpaca_account_row(
                 available=account is not None, expected_account_id=bound,
-                valid_until=_runtime_valid_until(
-                    cycle, (account or {}).get("observed_at"),
-                    broker_fact=True),
+                valid_until=account_valid_until,
                 recovery=account_recovery,
                 matched_protected_reservation=reservation,
+                matched_operator_reservation=(operator_reservation or {}).get("reserved_cash"),
                 **(account or {})))
+        if account_row.status == model.OK:
+            from sentinel.panel.overview_data import account_overview
+            account_row = replace(account_row, paper_account=account_overview(
+                account, expected_account_id=bound))
 
         backup_error = base_error or restore_error or runtime_backup_error or maintenance_error
         backup_row = model.backup_restore_row(
@@ -1381,6 +1557,11 @@ def _operator_evidence_rows(
             runtime_valid_until=_runtime_valid_until(
                 cycle, (runtime_backup or {}).get("observed_at")),
             error=backup_error)
+        if backups_suspended:
+            backup_row = model.Row(
+                "backup_restore", "Backup and restore", "DISABLED BY OWNER",
+                model.OK, "Local PAPER iteration: backup creation, drills and verification are suspended.",
+                now, required_current=False)
 
         identity_error = lifecycle_error or verdict_error
         lifecycle = dict(lifecycle or {})
@@ -1396,6 +1577,17 @@ def _operator_evidence_rows(
             authority_verdict=runtime_verdict.get("verdict"),
             checked_at=runtime_verdict.get("checked_at"),
             error=identity_error)
+        if local:
+            from sentinel import identity as runtime_identity
+            local_paper.require_runtime(conn, {
+                "deployment_artifacts": runtime_identity.deployment_artifacts()})
+            identity_row = model.Row(
+                "runtime_identity", "Runtime identity",
+                "LOCAL PAPER " + os.environ["SENTINEL_GIT_COMMIT"][:12],
+                model.OK, "Owner-authorized PAPER runtime; image "
+                + os.environ["SENTINEL_RUNTIME_IMAGE_DIGEST"]
+                + ". Historical performance certification is separate.", now,
+                required_current=True)
 
         errors = []
         for label, error in (
@@ -1657,6 +1849,8 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                         runtime_detail=runtime_detail, checked_at=checked_at)
                 else:
                     lifecycle_view = dict(lifecycle or {})
+                    from sentinel import local_paper
+                    owner_local_runtime = local_paper.enabled()
                     verdict_binding_matches = bool(
                         control is not None
                         and control.get("certificate_sha256")
@@ -1667,6 +1861,11 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                         installed=True, runtime_verdict=runtime_verdict,
                         runtime_detail=runtime_detail, checked_at=checked_at,
                         verdict_binding_matches=verdict_binding_matches,
+                        owner_local_runtime=owner_local_runtime,
+                        runtime_git_commit=(os.environ.get('SENTINEL_GIT_COMMIT')
+                                            if owner_local_runtime else None),
+                        runtime_image_digest=(os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST')
+                                              if owner_local_runtime else None),
                         **lifecycle_view)
 
         raw_errors = (
@@ -1862,6 +2061,59 @@ def _scheduled_preopen_mirror(conn, cycle, active_publication, frontier, *, now=
                 + "; orders have not completed and post-close mirror evidence remains pending"))
 
 
+@dataclass(frozen=True)
+class RetiredPaperFailureEligibility:
+    account_observed_at: datetime
+    valid_until: datetime
+
+
+def _retired_local_paper_failure(conn) -> Optional[RetiredPaperFailureEligibility]:
+    """A healthy new generation may display prior failure as history, never completion."""
+    from sentinel import local_paper
+    from sentinel.automation import store
+    from sentinel.automation.health import read_health
+    from sentinel.execution import account_status
+    if not local_paper.require_bound_account(conn):
+        return None
+    control = store.load_control(conn)
+    if (not control.enabled or control.kill_switch_engaged
+            or _latest_automation_cycle(conn, generation=control.generation) is not None):
+        return None
+    health = read_health(conn)
+    if (not health.healthy or not health.operational_ready
+            or health.control_generation != control.generation
+            or not health.leader_active or not health.service_heartbeat_fresh
+            or health.authority_verdict != "PASS"
+            or health.authority_lifecycle_current is not True):
+        return None
+    account = _latest_account_evidence(conn)
+    if not account:
+        return None
+    now = datetime.now(timezone.utc)
+    proof = account_status.recorded_reservation(conn, account=account, now=now)
+    # Health counts known ACK/PARTIAL commands as outstanding too. Require
+    # every outstanding command to be covered by the exact native proof;
+    # UNKNOWN or foreign/uncovered outcomes never become historical warnings.
+    if health.broker_outcome_unresolved != (proof or {}).get("order_count", 0):
+        return None
+    row = model.alpaca_account_row(available=True, expected_account_id=_bound_account_id(conn),
+        matched_operator_reservation=(proof or {}).get("reserved_cash"), **account)
+    if row.effective_status(now) != model.OK or row.as_of is None or row.freshness is None:
+        return None
+    deadlines = [row.as_of+row.freshness]
+    if row.valid_until is not None:
+        deadlines.append(row.valid_until)
+    if proof is not None:
+        try:
+            reservation_until = datetime.fromisoformat(proof["valid_until"])
+        except (KeyError,TypeError,ValueError):
+            return None
+        if reservation_until.utcoffset() != timedelta(0) or reservation_until < now:
+            return None
+        deadlines.append(reservation_until)
+    return RetiredPaperFailureEligibility(account_observed_at=row.as_of, valid_until=min(deadlines))
+
+
 def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                     feed_store) -> model.Row:
     """Project PAPER independently of an already-proven shadow result."""
@@ -1874,6 +2126,26 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="PENDING", cycle_state=cycle_state,
             detail="activation waits for the next eligible session; no new order was sent")
     if cycle_state in {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
+        retired = _retired_local_paper_failure(conn)
+        if retired is not None:
+            current = publication.current(conn)
+            frontier = publication.frontier(conn, current) if current is not None else None
+            if current is None or not isinstance(frontier, str):
+                return model.paper_reconciliation_row(state="UNKNOWN", error="current publication/frontier is unavailable")
+            try:
+                integrity = informational_paper_mirror.require_transport_permitted(
+                    conn, current_frontier=frontier, current_publication_version=current.version)
+                if integrity.get("status") == informational_paper_mirror.MISMATCH:
+                    return model.paper_reconciliation_row(state="MISMATCH", detail="historical mirror mismatch remains recorded")
+            except informational_paper_mirror.InformationalPaperMirrorRefused as exc:
+                return model.paper_reconciliation_row(state="MISMATCH", detail=_short(exc))
+            return replace(model.paper_reconciliation_row(state="PRIOR_CYCLE_FAILED", cycle_state=cycle_state,
+                detail=("retired cycle " + cycle["cycle_id"] + " failed: "
+                    + str(cycle.get("failure_code") or cycle_state) + ": "
+                    + str(cycle.get("failure_detail") or "no recorded detail")
+                    + "; current healthy generation is waiting for its next decision; no completed reconciliation or qualification is claimed")),
+                as_of=retired.account_observed_at,
+                valid_until=retired.valid_until, required_current=False)
         return model.paper_reconciliation_row(
             state="CYCLE_FAILED", cycle_state=cycle_state,
             detail=("latest recorded decision " + str(cycle.get('decision_session') or 'unknown')
@@ -1955,6 +2227,16 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
         return model.paper_reconciliation_row(
             state="MISMATCH", cycle_state=cycle_state, detail=_short(exc))
     except informational_paper_mirror.InformationalPaperMirrorUnstamped as exc:
+        from sentinel import local_paper
+        if cycle_state == "WAITING_OPEN" and local_paper.require_bound_account(conn):
+            if mirror.get("status") == informational_paper_mirror.MISMATCH:
+                return model.paper_reconciliation_row(
+                    state="MISMATCH", cycle_state=cycle_state,
+                    detail="historical mirror share-unit mismatch remains recorded")
+            scheduled = _scheduled_preopen_mirror(
+                conn, cycle, active_publication, frontier)
+            if scheduled is not None:
+                return scheduled
         return model.paper_reconciliation_row(
             state=("MISMATCH" if cycle_state == "SUCCEEDED" else "PENDING"),
             cycle_state=cycle_state, detail=_short(exc))
@@ -1969,6 +2251,19 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
 
 def _shadow_holdings(state, session, nav):
     """Small projection of the canonical book and its own exact-session marks."""
+    ledger = state['ledger']
+    if not isinstance(ledger, Mapping) or not isinstance(ledger.get('receivables'), list):
+        raise ValueError('canonical dividend receivables are not an array')
+    receivables = Decimal(0)
+    for claim in ledger['receivables']:
+        if (not isinstance(claim, Mapping) or 'amount' not in claim
+                or isinstance(claim['amount'], bool)):
+            raise ValueError('canonical dividend receivable is invalid')
+        amount = Decimal(str(claim['amount']))
+        if not amount.is_finite() or amount < 0:
+            raise ValueError('canonical dividend receivable is invalid')
+        model._bounded_display_decimal(amount)
+        receivables += amount
     holdings = {}
     series = state['feed']['series']
     for episode in state['wealth_core']['episodes'].values():
@@ -1992,9 +2287,11 @@ def _shadow_holdings(state, session, nav):
     for item in holdings.values():
         value = item['quantity'] * item['raw_close'] if item['raw_close'] is not None else None
         item.update(value=value, weight=value/nav if value is not None else None)
+    from sentinel.panel.overview_data import shadow_slots
     return model.ShadowBook(session=session, cash=state['wealth_core']['cash'],
-        nav=nav, pending_operations=len(state['pending']),
-        holdings=[holdings[key] for key in sorted(holdings)])
+        receivables=receivables, nav=nav, pending_operations=len(state['pending']),
+        holdings=[holdings[key] for key in sorted(holdings)],
+        slots=shadow_slots(state['wealth_core']))
 
 
 def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
@@ -2035,7 +2332,8 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
 
 
 def _dual_authority_rows(
-        database_url: str, *, now: datetime, include_paper: bool = True
+        database_url: str, *, now: datetime, include_paper: bool = True,
+        propagate_corpus_lock: bool = False
         ) -> tuple[list[model.Row], dict, list[dict], list[str]]:
     """Project the sole shadow authority and separate PAPER transport state.
 
@@ -2068,6 +2366,7 @@ def _dual_authority_rows(
     from sentinel import informational_paper_mirror, shadow_runtime
     from sentinel.feed import readers as publication
     from sentinel.feed import store as feed_store
+    from sentinel.feed.publication import CorpusLockUnavailable
 
     conn = None
     try:
@@ -2076,20 +2375,28 @@ def _dual_authority_rows(
 
         result = None
         shadow_error = None
+        source_wait = None
         try:
             result = shadow_runtime.verified_shadow_status(
                 conn, observation_id=observation_id,
                 starting_cash=starting_cash)
         except shadow_runtime.ShadowRuntimeRefused as exc:
             shadow_error = _short(exc)
+            from sentinel.panel import shadow_source_wait
+            source_wait = shadow_source_wait.read(
+                conn, exc, observation_id=observation_id,
+                starting_cash=starting_cash, now=now)
+            if source_wait is not None:
+                result = source_wait.result
+                shadow_error = None
 
-        current = result is not None and result.sessions_lag == 0
+        current = source_wait is None and result is not None and result.sessions_lag == 0
         shadow = model.shadow_verification_row(
             verdict=(result.shadow_verdict if result is not None else None),
             verification=(result.verification if result is not None else None),
             session=(result.session if result is not None else None),
             sessions_lag=(result.sessions_lag if result is not None else None),
-            error=shadow_error)
+            error=shadow_error, source_wait=source_wait, now=now)
         verified = shadow.status == model.OK and current
 
         nav_value = None
@@ -2104,6 +2411,7 @@ def _dual_authority_rows(
                 return_value = f"{cumulative * Decimal(100):+.2f}%"
             except (InvalidOperation, TypeError, ValueError) as exc:
                 shadow_error = _short(exc)
+                source_wait = None
                 shadow = model.shadow_verification_row(
                     verdict=None, verification=None, session=None,
                     error=shadow_error)
@@ -2113,14 +2421,24 @@ def _dual_authority_rows(
             model.shadow_metric_row(
                 "shadow_nav", "Certified shadow NAV", nav_value,
                 verified=verified,
-                detail="broker-free strategy NAV; not Alpaca account equity"),
+                detail="broker-free strategy NAV; not Alpaca account equity",
+                source_wait=source_wait),
             model.shadow_metric_row(
                 "shadow_return", "Certified strategy return", return_value,
                 verified=verified,
-                detail="cumulative return from the certified shadow ledger"),
+                detail="cumulative return from the certified shadow ledger",
+                source_wait=source_wait),
         ]
         book_rows, book_errors = _verified_shadow_book_rows(
-            conn, result, verified=verified, now=datetime.now(timezone.utc))
+            conn, result, verified=(verified or source_wait is not None),
+            now=(source_wait.attested_at if source_wait else datetime.now(timezone.utc)))
+        if source_wait is not None:
+            book_rows = [replace(row, status=model.WARN,
+                value=f"LAST ATTESTED THROUGH {source_wait.session} · {row.value}",
+                detail=f"LAST ATTESTED THROUGH {source_wait.session} · CURRENT SESSION NOT VERIFIED · {row.detail}",
+                as_of=source_wait.attested_at, required_current=True,
+                valid_until=shadow.valid_until, recovery=shadow.recovery)
+                if row.status == model.OK else row for row in book_rows]
 
         if not include_paper:
             return [*rows, *book_rows], {}, [], book_errors
@@ -2131,6 +2449,8 @@ def _dual_authority_rows(
                 informational_paper_mirror=informational_paper_mirror,
                 publication=publication, feed_store=feed_store)
         except Exception as exc:                             # noqa: BLE001
+            if propagate_corpus_lock and isinstance(exc, CorpusLockUnavailable):
+                raise
             # PAPER evidence cannot erase a shadow result that already passed
             # its independent full-corpus verification above.
             detail = _short(exc)
@@ -2141,6 +2461,8 @@ def _dual_authority_rows(
         rows.extend(book_rows)
         return rows, {}, [], paper_errors
     except Exception as exc:                                 # noqa: BLE001
+        if propagate_corpus_lock and isinstance(exc, CorpusLockUnavailable):
+            raise
         detail = _short(exc)
         return ([
             model.shadow_verification_row(
@@ -2407,10 +2729,11 @@ def _trial_rows(database_url: str, *, now: datetime
 def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     reviewed_shadow = os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'shadow', 'dual'}
     rows, errors = _runtime_projection(database_url, include_book=not reviewed_shadow)
-    return ([row for row in rows if row.key in {'broker','paper_plan'}] if reviewed_shadow else rows), errors
+    return ([row for row in rows if row.key in {'broker','paper_plan','trading_run'}] if reviewed_shadow else rows), errors
 
 
-def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[model.Row], list[str]]:
+def _runtime_projection(database_url: str, *, include_book=True,
+                        now: datetime | None = None) -> tuple[list[model.Row], list[str]]:
     """Canonical state, current plan and durable broker evidence.
 
     This is a PostgreSQL projection only. In particular, the newest
@@ -2473,6 +2796,10 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
         recovery_cycle, _recovery_cycle_error = _read(
             conn, _latest_automation_cycle,
             STATEMENT_TIMEOUT_MS, default=None)
+        trading_row, trading_error = (None, None)
+        if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'dual','paper'}:
+            trading_row, trading_error = _read(
+                conn, _current_trading_run, STATEMENT_TIMEOUT_MS, default=None)
 
         state_view = None
         if state_error is None and state_snapshot is not None:
@@ -2572,12 +2899,31 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
                     runtime_state=observation["runtime_state"],
                     working_orders=working_orders, active_commands=active,
                     uncertain_commands=uncertain,
+                    command_counts=counts,
                     command_as_of=commands["updated_at"],
                     as_of=observation["observed_at"],
                     recovery=broker_recovery,
                     valid_until=_runtime_valid_until(
                         recovery_cycle, observation["observed_at"],
                         broker_fact=True))
+                if (trading_row is not None and observation['completeness']=='INCONSISTENT'
+                        and recovery_cycle and recovery_cycle.get('observation_callback')
+                        and recovery_cycle.get('cycle_id') == trading_row.trading_run.intent.cycle_id
+                        and not uncertain):
+                    first, first_error = _read(conn,
+                        lambda c: _first_inconsistent_observation(c, cycle_id=recovery_cycle['cycle_id']),
+                        STATEMENT_TIMEOUT_MS, default=None)
+                    if first_error:
+                        raise ValueError('first moving observation is unreadable')
+                    from sentinel.panel.run_progress import moving_snapshot_recovery
+                    wait = moving_snapshot_recovery(run=trading_row.trading_run,
+                        observation=observation, callback=recovery_cycle['observation_callback'],
+                        first_inconsistent=first, now=now or datetime.now(timezone.utc),
+                        failure_code=recovery_cycle.get('failure_code'))
+                    if wait is not None:
+                        broker = replace(broker, status=model.WARN, recovery=wait,
+                            valid_until=wait.deadline,
+                            detail=broker.detail+' · Reconciling fills; broker snapshot is not yet verified')
             except Exception as exc:                         # noqa: BLE001
                 observation_error = _short(exc)
                 broker = model.broker_row(
@@ -2593,6 +2939,10 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
                 ("commands", command_error))
             if error
         ]
+        if trading_error:
+            errors.append('current trading run: '+trading_error)
+            trading_row = model.Row('trading_run','Today’s paper trading','UNAVAILABLE',
+                                    model.UNKNOWN, detail=trading_error)
         if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual','paper'}:
             return [exposure, book, terminals, broker], errors
         from sentinel import paper_plan_preview
@@ -2605,11 +2955,23 @@ def _runtime_projection(database_url: str, *, include_book=True) -> tuple[list[m
         else:
             plan_row = model.Row('paper_plan','Next paper plan',
                 (f'{preview.effective_session} · changes unavailable' if any(leg.action == 'UNAVAILABLE' for leg in preview.legs)
-                 else f'{preview.effective_session} · {preview.buys} buys · {preview.sells} sells'),model.OK,
+                 else f'{preview.effective_session} · {preview.buys} '
+                      f'{"buy" if preview.buys == 1 else "buys"} · {preview.sells} '
+                      f'{"sell" if preview.sells == 1 else "sells"}'),model.OK,
                 detail='Saved plan; proposed changes use the dated recorded Alpaca observation. '
-                       'Opening prices and fresh account checks can change final quantities. No orders are submitted by this view.',
+                       'Fresh account, funding, corporate-action and execution checks can restrict saved targets. '
+                       'No orders are submitted by this view.',
                 as_of=preview.created_at,valid_until=preview.execute_at,paper_plan=preview)
-        return [exposure, book, terminals, broker, plan_row], errors
+            outcomes, outcome_error = _read(conn,
+                lambda c: _previous_buy_outcomes(c, preview=preview),
+                STATEMENT_TIMEOUT_MS, default=[])
+            if outcome_error:
+                # A supplementary projection cannot replace the saved plan;
+                # unreadable outcome provenance remains visible to operators.
+                errors.append('previous paper order outcomes: '+outcome_error)
+            else:
+                plan_row = replace(plan_row, order_outcomes=outcomes)
+        return [exposure, book, terminals, broker, plan_row, *([trading_row] if trading_row else [])], errors
     except Exception as exc:                                 # noqa: BLE001
         detail = _short(exc)
         return ([
@@ -2633,8 +2995,9 @@ def _bounded_dual_authority_rows(database_url, *, now, include_paper=True):
     monitored = monitor.read(database_url, include_paper=include_paper)
     if monitored is not None:
         return monitored
-    from sentinel.panel.authority_reader import reader
-    return reader.read(database_url, include_paper=include_paper)
+    from sentinel.panel.authority_reader import _unknown
+    return _unknown(include_paper,
+                    'background verification monitor is not initialized; no current verification is claimed')
 
 
 def _shadow_worker_row(state_dir, database_url):
@@ -2717,9 +3080,15 @@ def build_panel(*, state_dir: Path, database_url: str,
         *automation_rows[2:],
     ]
     completed_at = fixed_now or datetime.now(timezone.utc)
+    from sentinel import local_paper
+    try:
+        local_mode = local_paper.enabled()
+    except (RuntimeError, ValueError):
+        local_mode = False  # Existing runtime/account error rows remain visible.
     return model.Panel(rows=rows, now=completed_at, source_errors=errors,
                        trial_details=trial_details,
-                       trial_history=trial_history)
+                       trial_history=trial_history,
+                       local_paper_mode=local_mode)
 
 
 __all__ = ["DEFAULT_SLOTS", "build_panel"]
