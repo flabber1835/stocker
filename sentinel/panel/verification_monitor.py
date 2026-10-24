@@ -153,4 +153,16 @@ class Monitor:
             thread.join(timeout=2)
 
 
-monitor = Monitor()
+class DurableProjection:
+    """The production panel is only a consumer; Monitor remains a legacy fixture."""
+
+    def read(self, database_url, *, include_paper=True):
+        from sentinel.panel import read_projection
+        try:
+            return read_projection.read(database_url, include_paper=include_paper)
+        except Exception as exc:
+            return financial._unknown(include_paper,
+                'durable verification unavailable: '+type(exc).__name__)
+
+
+monitor = DurableProjection()

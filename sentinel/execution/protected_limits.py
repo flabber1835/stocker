@@ -4,6 +4,7 @@ These references are never executable quotes. Source rows are read again under
 the exact authenticated plan publication; current funding is a separate gate.
 """
 from __future__ import annotations
+from sentinel.feed.normalized_layout import candidate_query
 
 from dataclasses import dataclass, replace
 from datetime import date
@@ -241,8 +242,8 @@ def build_references(conn, *, plan, projection, policy=None):
             symbols[sid] = str(symbol)
         prices, seen = {}, set()
         with conn.cursor() as cur:
-            cur.execute("SELECT security_id,ticker,close_unadjusted FROM sentinel_snapshot_bars "
-                "WHERE candidate_id=%s AND session=%s AND security_id=ANY(%s)",
+            cur.execute(candidate_query(conn, "SELECT security_id,ticker,close_unadjusted FROM sentinel_snapshot_bars "
+                "WHERE candidate_id=%s AND session=%s AND security_id=ANY(%s)"),
                 (refs.candidate_id, str(plan.decision_session), sorted(wanted - {DEFENSIVE_SECURITY_ID})))
             for sid, ticker, close in cur.fetchall():
                 sid = str(sid)
@@ -251,8 +252,8 @@ def build_references(conn, *, plan, projection, policy=None):
                 seen.add(sid)
                 if close is not None:
                     prices[sid] = _positive(Decimal(str(close)), "prior RAW source close")
-            cur.execute("SELECT bil_close_unadjusted FROM sentinel_snapshot_benchmarks "
-                        "WHERE candidate_id=%s AND session=%s",
+            cur.execute(candidate_query(conn, "SELECT bil_close_unadjusted FROM sentinel_snapshot_benchmarks "
+                        "WHERE candidate_id=%s AND session=%s"),
                         (refs.candidate_id, str(plan.decision_session)))
             rows = cur.fetchall()
         if len(rows) > 1:

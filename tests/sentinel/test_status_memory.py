@@ -161,14 +161,20 @@ def test_database_batched_insert_refuses_missing_last_series(conn, monkeypatch):
     assert store.records() == []
 
 
-def test_observation_storage_is_part_of_economic_source_identity(tmp_path, monkeypatch):
-    from sentinel import observation_storage
+def test_observation_storage_changes_actual_runtime_source_and_preserves_economic_identity(tmp_path, monkeypatch):
+    from sentinel import observation_storage, identity
     from sentinel.core import decision
     before = decision.data_semantics_source_identity()['sha256']
     changed = tmp_path/'observation_storage.py'
-    changed.write_bytes(Path(observation_storage.__file__).read_bytes() + b'\n# simulated implementation edit\n')
+    before_source = Path(observation_storage.__file__).read_bytes()
+    changed.write_bytes(before_source)
+    runtime_before = identity.source_hash(tmp_path)
     monkeypatch.setattr(observation_storage, '__file__', str(changed))
-    assert decision.data_semantics_source_identity()['sha256'] != before
+    changed.write_bytes(before_source+b'\n# simulated implementation edit\n')
+    runtime_after = identity.source_hash(tmp_path)
+    assert runtime_before['files'] == runtime_after['files'] == 1
+    assert runtime_before['hash'] != runtime_after['hash']
+    assert decision.data_semantics_source_identity()['sha256'] == before
 
 
 @pytest.mark.parametrize('stored,expected', [

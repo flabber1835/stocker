@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -2052,38 +2052,57 @@ def _scheduled_preopen_mirror(conn, cycle, active_publication, frontier, *, now=
                 + "; orders have not completed and post-close mirror evidence remains pending"))
 
 
-def _retired_local_paper_failure(conn):
+@dataclass(frozen=True)
+class RetiredPaperFailureEligibility:
+    account_observed_at: datetime
+    valid_until: datetime
+
+
+def _retired_local_paper_failure(conn) -> Optional[RetiredPaperFailureEligibility]:
     """A healthy new generation may display prior failure as history, never completion."""
     from sentinel import local_paper
     from sentinel.automation import store
     from sentinel.automation.health import read_health
     from sentinel.execution import account_status
     if not local_paper.require_bound_account(conn):
-        return False
+        return None
     control = store.load_control(conn)
     if (not control.enabled or control.kill_switch_engaged
             or _latest_automation_cycle(conn, generation=control.generation) is not None):
-        return False
+        return None
     health = read_health(conn)
     if (not health.healthy or not health.operational_ready
             or health.control_generation != control.generation
             or not health.leader_active or not health.service_heartbeat_fresh
             or health.authority_verdict != "PASS"
             or health.authority_lifecycle_current is not True):
-        return False
+        return None
     account = _latest_account_evidence(conn)
     if not account:
-        return False
+        return None
     now = datetime.now(timezone.utc)
     proof = account_status.recorded_reservation(conn, account=account, now=now)
     # Health counts known ACK/PARTIAL commands as outstanding too. Require
     # every outstanding command to be covered by the exact native proof;
     # UNKNOWN or foreign/uncovered outcomes never become historical warnings.
     if health.broker_outcome_unresolved != (proof or {}).get("order_count", 0):
-        return False
+        return None
     row = model.alpaca_account_row(available=True, expected_account_id=_bound_account_id(conn),
         matched_operator_reservation=(proof or {}).get("reserved_cash"), **account)
-    return row.effective_status(now) == model.OK
+    if row.effective_status(now) != model.OK or row.as_of is None or row.freshness is None:
+        return None
+    deadlines = [row.as_of+row.freshness]
+    if row.valid_until is not None:
+        deadlines.append(row.valid_until)
+    if proof is not None:
+        try:
+            reservation_until = datetime.fromisoformat(proof["valid_until"])
+        except (KeyError,TypeError,ValueError):
+            return None
+        if reservation_until.utcoffset() != timedelta(0) or reservation_until < now:
+            return None
+        deadlines.append(reservation_until)
+    return RetiredPaperFailureEligibility(account_observed_at=row.as_of, valid_until=min(deadlines))
 
 
 def _dual_paper_row(conn, *, informational_paper_mirror, publication,
@@ -2098,7 +2117,8 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="PENDING", cycle_state=cycle_state,
             detail="activation waits for the next eligible session; no new order was sent")
     if cycle_state in {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
-        if _retired_local_paper_failure(conn):
+        retired = _retired_local_paper_failure(conn)
+        if retired is not None:
             current = publication.current(conn)
             frontier = publication.frontier(conn, current) if current is not None else None
             if current is None or not isinstance(frontier, str):
@@ -2110,11 +2130,13 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                     return model.paper_reconciliation_row(state="MISMATCH", detail="historical mirror mismatch remains recorded")
             except informational_paper_mirror.InformationalPaperMirrorRefused as exc:
                 return model.paper_reconciliation_row(state="MISMATCH", detail=_short(exc))
-            return model.paper_reconciliation_row(state="PRIOR_CYCLE_FAILED", cycle_state=cycle_state,
+            return replace(model.paper_reconciliation_row(state="PRIOR_CYCLE_FAILED", cycle_state=cycle_state,
                 detail=("retired cycle " + cycle["cycle_id"] + " failed: "
                     + str(cycle.get("failure_code") or cycle_state) + ": "
                     + str(cycle.get("failure_detail") or "no recorded detail")
-                    + "; current healthy generation is waiting for its next decision; no completed reconciliation or qualification is claimed"))
+                    + "; current healthy generation is waiting for its next decision; no completed reconciliation or qualification is claimed")),
+                as_of=retired.account_observed_at,
+                valid_until=retired.valid_until, required_current=False)
         return model.paper_reconciliation_row(
             state="CYCLE_FAILED", cycle_state=cycle_state,
             detail=("latest recorded decision " + str(cycle.get('decision_session') or 'unknown')

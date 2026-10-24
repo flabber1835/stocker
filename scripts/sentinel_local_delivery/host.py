@@ -11,10 +11,11 @@ import re
 import subprocess
 import uuid
 
-from .model import DeliveryRefused, atomic_json, digest, read_json, require
+from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, atomic_json, digest, read_json, require
 
 SERVICES = ('sentinel-shadow', 'sentinel-automation', 'sentinel-panel',
-            'sentinel-alert-dispatcher')
+            'sentinel-alert-dispatcher','sentinel-verifier','sentinel-execution-collector')
+LEGACY_SERVICES = SERVICES[:4]
 COMPOSE = ('docker-compose.sentinel.yml', 'docker-compose.sentinel-automation.yml',
            'docker-compose.sentinel-local-paper.yml')
 RUNTIME_KEYS = frozenset({'SENTINEL_GIT_COMMIT', 'SENTINEL_RUNTIME_IMAGE_DIGEST',
@@ -69,7 +70,7 @@ class Host:
                     ==digest(self.request), 'PROOF_CLEANUP_OWNERSHIP_CHANGED')
             self.run(['docker','rm','-f',name],timeout=20)
 
-    def git(self, *args):
+    def git_bytes(self, *args):
         metadata = self.source/'.git'
         if metadata.is_file():
             text = metadata.read_text().strip()
@@ -82,7 +83,10 @@ class Host:
                 metadata = self.source/metadata
         result = self.run(['git', '--no-optional-locks', '--git-dir', str(metadata),
                           '--work-tree', str(self.source), *args])
-        return result.stdout.decode().strip()
+        return result.stdout
+
+    def git(self, *args):
+        return self.git_bytes(*args).decode().strip()
 
     def load_values(self):
         values = self.literal.operational_values(self.literal.load(self.deployment/'.env', required=True))
@@ -97,8 +101,8 @@ class Host:
     def compose(self, values, *args, timeout=90):
         command = ['docker','compose','--profile','*','--project-name','sentinel',
                    '--project-directory',str(self.deployment),'--env-file','/dev/null']
-        for name in COMPOSE:
-            command += ['-f',str(self.deployment/name)]
+        for path in self.compose_paths(values):
+            command += ['-f',str(path)]
         arguments = list(args)
         owned_name = None
         if arguments and arguments[0]=='run':
@@ -122,8 +126,85 @@ class Host:
             "SET LOCAL max_parallel_workers_per_gather=0; "+statement+'; ROLLBACK;'],timeout=25)
         return json.loads(result.stdout)
 
-    def container(self, service):
+    def predecessor_services(self):
+        return LEGACY_SERVICES if self.request['predecessor']['commit'] == COMPAT_DRAIN_PREDECESSOR else SERVICES
+
+    def verify_compose(self, role):
+        for name in COMPOSE:
+            expected = ((self.source/name).read_bytes() if role=='candidate' else
+                        self.git_bytes('show',self.request['predecessor']['commit']+':'+name))
+            require((self.deployment/name).read_bytes()==expected,'INSTALLED_COMPOSE_STAGE_CHANGED')
+
+    def compose_paths(self, values):
+        """Render immutable old Git inputs or the qualified candidate inputs."""
+        if values.get('SENTINEL_GIT_COMMIT') == self.request['candidate']['commit']:
+            return tuple(self.source/name for name in COMPOSE)
+        require(values.get('SENTINEL_GIT_COMMIT') == self.request['predecessor']['commit'],
+                'COMPOSE_RUNTIME_OUTSIDE_REQUEST')
+        folder = self.operation_dir/'predecessor-compose-inputs'
+        require(not folder.is_symlink(),'COMPOSE_INPUT_DIRECTORY_UNSAFE')
+        folder.mkdir(mode=0o700,exist_ok=True)
+        paths = []
+        for name in COMPOSE:
+            raw = self.git_bytes('show',self.request['predecessor']['commit']+':'+name)
+            target = folder/name
+            require(not target.is_symlink(),'COMPOSE_INPUT_PATH_UNSAFE')
+            if not target.exists():
+                with target.open('xb') as stream:
+                    stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+            require(target.read_bytes()==raw,'PREDECESSOR_COMPOSE_INPUT_CHANGED')
+            paths.append(target)
+        return tuple(paths)
+
+    def install_compose(self):
+        """Repeatable exact qualified file installation after application stop."""
+        import tempfile
+        for name in COMPOSE:
+            raw = (self.source/name).read_bytes()
+            require(hashlib.sha256(raw).hexdigest() == self.request['qualification']['source_files'][name],
+                    'COMPOSE_SOURCE_NOT_QUALIFIED')
+            target = self.deployment/name
+            require(not target.is_symlink(),'COMPOSE_TARGET_UNSAFE')
+            old = self.git_bytes('show',self.request['predecessor']['commit']+':'+name)
+            require(target.read_bytes() in (old,raw),'COMPOSE_TARGET_CHANGED')
+            fd, temporary = tempfile.mkstemp(prefix='.compose-delivery-',dir=self.deployment)
+            try:
+                with os.fdopen(fd,'wb') as stream:
+                    stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+                os.replace(temporary,target)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+        require(all((self.deployment/name).read_bytes()==(self.source/name).read_bytes() for name in COMPOSE),
+                'COMPOSE_INSTALL_INCOMPLETE')
+        directory = os.open(self.deployment,os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+
+    @contextmanager
+    def private_environment(self, values):
+        import tempfile
+        require(all('\n' not in value and '\r' not in value for value in values.values()),
+                'PRIVATE_ENVIRONMENT_MULTILINE')
+        fd, name = tempfile.mkstemp(prefix='.delivery-private-env-',dir=self.operation_dir)
+        try:
+            with os.fdopen(fd,'w',encoding='utf-8') as stream:
+                os.fchmod(stream.fileno(),0o600)
+                stream.write(''.join(key+'='+value+'\n' for key,value in sorted(values.items())))
+                stream.flush(); os.fsync(stream.fileno())
+            yield name
+        finally:
+            Path(name).unlink(missing_ok=True)
+
+    def container(self, service, *, missing_ok=False):
         require(service in (*SERVICES,'sentinel-postgres'), 'SERVICE_OUTSIDE_DELIVERY_SCOPE')
+        if missing_ok:
+            matches=self.run(['docker','container','ls','--all','--quiet','--no-trunc',
+                '--filter','name=^/sentinel-'+service+'-1$']).stdout.decode().splitlines()
+            require(len(matches)<=1,'APPLICATION_CONTAINER_AMBIGUOUS')
+            if not matches:
+                return None
         return json.loads(self.run(['docker','inspect','sentinel-'+service+'-1']).stdout)[0]
 
     def postgres(self):
@@ -174,7 +255,8 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
         changed = self.git('diff','--name-only',old['commit'],selected['commit']).splitlines()
         require(sorted(changed)==sorted(self.request['allowed_delta']), 'CANDIDATE_DELTA_CHANGED')
         for name in COMPOSE:
-            require((self.source/name).read_bytes()==(self.deployment/name).read_bytes(),
+            require((self.deployment/name).read_bytes() in ((self.source/name).read_bytes(),
+                    self.git_bytes('show',old['commit']+':'+name)),
                     'INSTALLED_COMPOSE_CHANGED')
         metadata = json.loads(self.run(['docker','image','inspect',selected['image']]).stdout)[0]
         require(metadata['Id']==selected['image']

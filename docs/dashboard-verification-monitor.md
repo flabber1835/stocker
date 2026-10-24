@@ -1,5 +1,10 @@
 # Independent dashboard verification and background refresh
 
+Current ownership is superseded by the durable independent role in
+[operational architecture](operational-architecture-20261023.md). The original
+scope, finite clocks, failure behavior and historical qualification below remain
+preserved; historical release instructions do not override local PAPER delivery.
+
 Decision: 2026-10-11. The operator observed repeated CHECK IN PROGRESS and a
 worker-status timeout while the actual shadow publisher and paper scheduler
 were healthy. The financial reader currently uses one identity for independent
@@ -33,22 +38,21 @@ sizing records remain bound. Compare classification constants to their owning
 modules in PostgreSQL tests without importing broker modules in the panel's
 identity reader. These exclusions change display invalidation only.
 
-The panel owns one background monitor for its fixed configured database. It
-starts at HTTP application startup and checks both identities independently
-while no browser is connected. The HTTP path still reads current compact
-identities and operational facts; it does not trust a monitor snapshot after
-identity change. It reads the owned observations without starting extra jobs.
-Configuration changes replace the monitor's scope, never replay old results.
+A dedicated broker-free verifier role in the common immutable image owns both
+independent observations even when HTTP is stopped. It persists positive and
+negative versioned HMAC receipts with exact SHADOW/PAPER subject keys, original
+observation times and finite expiry. One finite session owner and execution slot
+serialize expensive observations. Each queued check retains the original
+five-minute queue plus five-minute work bounds and parent-death/reap rules.
 
-At most one expensive financial observer executes per panel process. Separate
-scope jobs share one finite execution slot and cannot multiply the existing
-1 GiB panel budget. A queued observation has at most five minutes to acquire
-that slot. Its five-minute work deadline starts only when acquired; its total
-queue plus work interval is at most ten minutes from the original request.
-Queueing and checking carry explicit finite recovery evidence and different
-wording. A stalled worker, failed observation, unreadable identity or exhausted
-bound remains a failure. Shutdown stops the monitor; finite subprocesses retain
-the existing parent-death and reap rules.
+The HTTP lifecycle starts no observer. It validates the exact installed
+invalidation/DDL-audit catalogs, reads constant-size independent revision keys
+and consumes authenticated receipts. Runtime, semantic environment, installation
+incarnation, dependency revision and independent DDL epoch bind each subject.
+Broker-owned mutations invalidate PAPER alone. Heartbeats, browser requests and
+process restarts cannot renew proof expiry. Missing, changed, negative, expired
+or malformed records withdraw current styling. A still-valid exact-subject proof
+can survive a panel restart. Receipt persistence confers no financial authority.
 
 ## Worker liveness
 

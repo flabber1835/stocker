@@ -1,5 +1,6 @@
 """Versioned market inputs for execution; never strategy or broker authority."""
 from __future__ import annotations
+from sentinel.feed.normalized_layout import candidate_query
 
 from decimal import Decimal
 from dataclasses import dataclass, field
@@ -80,16 +81,16 @@ def marks(conn, pub, *, session, security_ids, tickers):
         raise ExecutionInputsRefused("ROLLING_MARKS_REQUIRE_CURRENT_DECISION")
     marks, symbols = {}, dict(tickers)
     with conn.cursor() as cur:
-        cur.execute("SELECT security_id,ticker,close_unadjusted FROM sentinel_snapshot_bars "
-                    "WHERE candidate_id=%s AND session=%s AND security_id=ANY(%s)",
+        cur.execute(candidate_query(conn, "SELECT security_id,ticker,close_unadjusted FROM sentinel_snapshot_bars "
+                    "WHERE candidate_id=%s AND session=%s AND security_id=ANY(%s)"),
                     (refs.candidate_id, session, list(security_ids)))
         for sid, ticker, close in cur.fetchall():
             if refs.resolver.resolve(str(ticker), str(session)) != str(sid):
                 raise ExecutionInputsRefused("ROLLING_MARK_IDENTITY_CHANGED")
             marks[str(sid)] = Decimal(str(close))
             symbols[str(sid)] = str(ticker)
-        cur.execute("SELECT bil_close_unadjusted FROM sentinel_snapshot_benchmarks "
-                    "WHERE candidate_id=%s AND session=%s", (refs.candidate_id, session))
+        cur.execute(candidate_query(conn, "SELECT bil_close_unadjusted FROM sentinel_snapshot_benchmarks "
+                    "WHERE candidate_id=%s AND session=%s"), (refs.candidate_id, session))
         row = cur.fetchone()
     if row is None or set(security_ids) - set(marks):
         raise ExecutionInputsRefused("ROLLING_EXECUTION_MARKS_MISSING")

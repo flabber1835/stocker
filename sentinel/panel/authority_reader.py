@@ -155,11 +155,13 @@ def _unknown(include_paper, detail, retained=None, *, checking_until=None):
 class Reader:
     def __init__(self, *, runner=None, clock=time.monotonic, wall_clock=None,
                  evidence_reader=None, observer=None, expected_keys=None,
-                 unknown_factory=None, execution_slot=None, scope_label=None):
+                 unknown_factory=None, execution_slot=None, scope_label=None,
+                 key_factory=None):
         self.runner = runner or supervisor_io.run
         self.clock = clock
         self.wall_clock = wall_clock or (lambda: datetime.now(timezone.utc))
         self.evidence_reader = evidence_reader or _evidence
+        self.key_factory = key_factory or _key
         self.observer = observer or _observe
         self.expected_keys = expected_keys
         self.unknown = unknown_factory or _unknown
@@ -178,6 +180,7 @@ class Reader:
         self.pending_clock = None
         self.work_started = None
         self.work_clock = None
+        self.last_result_at = None
 
     def _work(self, key, database_url, include_paper):
         acquired = False
@@ -206,8 +209,8 @@ class Reader:
     def read(self, database_url, *, include_paper=True, allow_start=True,
              awaiting_until=None, awaiting_since=None):
         try:
-            key = _key(database_url, include_paper,
-                       self.evidence_reader(database_url, include_paper))
+            key = self.key_factory(database_url, include_paper,
+                                   self.evidence_reader(database_url, include_paper))
         except Exception as exc:
             with self.lock:
                 self.completed = None
@@ -219,12 +222,14 @@ class Reader:
                 self.retained = None
                 self.completed = None
                 self.failure = None
+                self.last_result_at = None
                 self.last_attempt = float('-inf')
             detail = 'full retained financial verification awaits its next bounded check'
             if self.answer is not None:
                 completed_key, value, error, completed_at = self.answer
                 self.answer = None  # Publish once; reads retain the original clock.
                 if completed_key == key:
+                    self.last_result_at = completed_at
                     if error is not None:
                         self.completed = None
                         detail = 'financial observer failed: '+error

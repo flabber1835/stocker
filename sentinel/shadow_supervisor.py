@@ -76,10 +76,14 @@ def _pending_file():
 def _arm_worker(supervisor_pid=None):
     # A positive, durable acknowledgement is required before launching work.
     # Never reuse an existing marker from an unacknowledged prior attempt.
-    attempt = uuid.uuid4().hex
-    _write_marker(_pending_file(), restart_recovery.make_pending(
-        attempt, supervisor_pid if supervisor_pid is not None else os.getpid()))
-    return attempt
+    from sentinel import shadow_drain
+    def arm():
+        attempt = uuid.uuid4().hex
+        _write_marker(_pending_file(), restart_recovery.make_pending(
+            attempt, supervisor_pid if supervisor_pid is not None else os.getpid()))
+        return attempt
+    return shadow_drain.arm_or_drain(LATCH_FILE.parent,
+        os.environ.get('SENTINEL_DATABASE_URL',''),_STATUS_INCARNATION,arm)
 
 
 def _clear_worker():
@@ -485,6 +489,12 @@ def _run_owned(owner_fd) -> int:
                 supervisor_io.report('REFUSED: shadow worker could not be durably armed: '
                                      + type(exc).__name__)
                 return EXIT_REFUSED
+            if attempt is None:
+                # An authenticated drain owns admission. Existing children
+                # finished before acknowledgement; heartbeat is liveness only.
+                heartbeat()
+                time.sleep(1)
+                continue
             started = time.monotonic()
             worker_env = dict(os.environ)
             worker_env[shadow_budget.DEADLINE_ENV] = (

@@ -3,6 +3,7 @@
 No broker state is read here. The execution reader remains the sole interpreter
 of scalar and material events; this module preserves its evidence and outputs.
 """
+from sentinel.feed.normalized_layout import candidate_query
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -145,19 +146,19 @@ def _material(conn, refs, pub):
             if payload['ticker'] in identity_symbols and payload['action'].lower() in {'tickerchangeto', 'tickerchangefrom', 'listed', 'delisted'}]
         item['identity_policy'] = refs.projection.applied_alias_rejections
         rows = conn.execute(
-            "SELECT security_id,ticker,close_signal,close_unadjusted,dividend_per_share,split_ratio "
+            candidate_query(conn, "SELECT security_id,ticker,close_signal,close_unadjusted,dividend_per_share,split_ratio "
             "FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session=%s AND ticker=ANY(%s) "
-            "ORDER BY security_id", (refs.candidate_id, day, symbols)).fetchall()
+            "ORDER BY security_id"), (refs.candidate_id, day, symbols)).fetchall()
         item["bars"] = [list(row) for row in rows]
         for sid, *_ in rows:
-            prior = conn.execute("SELECT session,close_signal,close_unadjusted FROM sentinel_snapshot_bars "
-                "WHERE candidate_id=%s AND security_id=%s AND session<%s ORDER BY session DESC LIMIT 1",
+            prior = conn.execute(candidate_query(conn, "SELECT session,close_signal,close_unadjusted FROM sentinel_snapshot_bars "
+                "WHERE candidate_id=%s AND security_id=%s AND session<%s ORDER BY session DESC LIMIT 1"),
                 (refs.candidate_id, sid, day)).fetchone()
             if prior:
                 item["predecessors"].append([sid, str(prior[0]), *prior[1:]])
-        pair = conn.execute("SELECT session,bil_close_signal,bil_close_unadjusted "
+        pair = conn.execute(candidate_query(conn, "SELECT session,bil_close_signal,bil_close_unadjusted "
             "FROM sentinel_snapshot_benchmarks WHERE candidate_id=%s AND session<=%s "
-            "ORDER BY session DESC LIMIT 2", (refs.candidate_id, day)).fetchall()
+            "ORDER BY session DESC LIMIT 2"), (refs.candidate_id, day)).fetchall()
         item["defensive"] = [[str(r[0]), *r[1:]] for r in reversed(pair)]
     validation_sha = conn.execute("SELECT validation_sha256 FROM sentinel_snapshot_validations "
                                   "WHERE candidate_id=%s", (refs.candidate_id,)).fetchone()[0]

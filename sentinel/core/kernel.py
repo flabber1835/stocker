@@ -160,7 +160,7 @@ def advance_session(
     last_known = dict(env.last_known)
     feed = _feed_from_dict(env.feed, published.meta, elig)
     if window_policy.enabled(running_identity):
-        from sentinel.core.window_features import install
+        from sentinel.core.window_material import install
         if published.window_features is None:
             raise ValueError('CURRENT_WINDOW_FEATURES_REQUIRED')
         feed = install(feed, prior=env, published=published)

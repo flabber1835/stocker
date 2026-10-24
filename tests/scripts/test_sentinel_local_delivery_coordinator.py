@@ -2,10 +2,12 @@
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import timedelta
+import hashlib
 import importlib
 import importlib.util
 import json
 import os
+import stat
 import subprocess
 from pathlib import Path
 import sys
@@ -47,6 +49,7 @@ class Host:
         self.calls=[];self.busy=False;self.canonical_count=0;self.clock=0;self.heartbeat=0
         self.items={name:self.item(selected['predecessor']['image'],True) for name in host_module.SERVICES}
         self.fail_after=None
+        self.drain_current=True;self.schema_complete=True;self.migration_count=0
     def item(self,image,running):
         return dict(Image=image,State=dict(Running=running,Health={'Status':'healthy'},
             OOMKilled=False,Restarting=False))
@@ -60,7 +63,15 @@ class Host:
         return new
     def probe(self,*args,**kwargs): return {'source':'a'*64,'shadow_config':'b'*64}
     def verify_candidate(self): self.calls.append('verify-candidate')
-    def container(self,name): return deepcopy(self.items[name])
+    def container(self,name,missing_ok=False):
+        if missing_ok and name not in self.items:return None
+        return deepcopy(self.items[name])
+    def predecessor_services(self):return host_module.SERVICES
+    def verify_compose(self,role):self.calls.append('verify-compose-'+role)
+    def install_compose(self):
+        self.calls.append('install-compose')
+        if self.fail_after=='compose':
+            self.fail_after=None;raise model.DeliveryRefused('LOST_ACK')
     def postgres(self): return deepcopy(self.request['predecessor']['postgres'])
     def install_values(self,current,new):
         assert current==self.values
@@ -70,7 +81,7 @@ class Host:
     def compose(self,values,*args,**kwargs):
         self.calls.append(args)
         if args[0]=='stop':
-            assert set(args[3:])==set(host_module.SERVICES)
+            assert set(args[3:])==set(self.predecessor_services())
             for item in self.items.values():item['State']['Running']=False
             name='stop'
         else:
@@ -107,6 +118,17 @@ def operation(tmp_path,monkeypatch):
     def idle(h,*args):model.require(not h.busy_worker,'WORKER_ACTIVE')
     host.busy_worker=False
     monkeypatch.setattr(evidence,'idle',idle)
+    monkeypatch.setattr(evidence,'drain_target',lambda h:{'target':'exact-original-container'})
+    def request_drain(h,*args):
+        model.require(not h.busy_worker,'WORKER_ACTIVE')
+        return {'method':'COOPERATIVE','acknowledgement':{'immutable':'incarnation-bound'}}
+    monkeypatch.setattr(evidence,'request_drain',request_drain)
+    def check_drain(h,*args):model.require(h.drain_current,'DRAIN_ACK_EXPIRED_OR_REPLACED')
+    monkeypatch.setattr(evidence,'check_drain',check_drain)
+    def migrate(h,*args):
+        h.migration_count+=1
+        return {'installation':{'installation_id':'immutable-current-schema'},'complete':h.schema_complete}
+    monkeypatch.setattr(evidence,'migrate_operational_schema',migrate)
     monkeypatch.setattr(evidence,'leader',lambda h:dict(current=True,holder='owner',generation=77,
         fence=8,heartbeat=h.heartbeat))
     monkeypatch.setattr(evidence,'panel',lambda *args:{'fresh':True,'green':True})
@@ -118,7 +140,7 @@ def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(oper
     host,journal,delivery=operation
     receipt=delivery.advance()
     assert receipt['stage']=='VERIFIED' and host.canonical_count==3
-    assert len(receipt['history'])==8 and host.heartbeat>0
+    assert len(receipt['history'])==len(model.STAGES)-1 and host.heartbeat>0
     assert host.notifications=={'old':'immutable-payload'}
     assert 'private-value' not in json.dumps(receipt)
     mutations=[c for c in host.calls if isinstance(c,tuple)]
@@ -128,11 +150,11 @@ def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(oper
     assert delivery.advance()==receipt and host.canonical_count==3
 
 
-@pytest.mark.parametrize('lost_ack',['stop','install','shadow','apps'])
+@pytest.mark.parametrize('lost_ack',['stop','compose','install','shadow','apps'])
 def test_lost_ack_resumes_only_exact_current_stage(operation,lost_ack):
     host,journal,delivery=operation;host.fail_after=lost_ack
     with pytest.raises(model.DeliveryRefused,match='LOST_ACK'):delivery.advance()
-    assert journal.read()['stage'] in {'STOP_REQUESTED','APPLICATIONS_STOPPED','START_REQUESTED'}
+    assert journal.read()['stage'] in {'STOP_REQUESTED','COMPOSE_INSTALL_REQUESTED','COMPOSE_INSTALLED','START_REQUESTED'}
     assert delivery.advance()['stage']=='VERIFIED' and host.canonical_count==3
 
 
@@ -148,10 +170,122 @@ def test_changed_preserved_state_refuses_before_application_stop(operation,kind)
     assert not any(isinstance(c,tuple) for c in host.calls)
 
 
-def test_active_worker_refuses_and_does_not_consume_preflight(operation):
-    host,journal,delivery=operation;delivery.step();host.busy_worker=True
+def test_active_worker_cannot_acknowledge_or_stop_applications(operation):
+    host,journal,delivery=operation;delivery.step();delivery.step();host.busy_worker=True
     with pytest.raises(model.DeliveryRefused,match='WORKER_ACTIVE'):delivery.step()
-    assert journal.read()['stage']=='PREFLIGHT_PASS'
+    assert journal.read()['stage']=='DRAIN_REQUESTED'
+    assert not any(isinstance(c,tuple) for c in host.calls)
+
+
+def test_expired_or_replaced_drain_never_reaches_stop(operation):
+    host,journal,delivery=operation
+    while journal.read()['stage']!='STOP_REQUESTED':delivery.step()
+    host.drain_current=False
+    with pytest.raises(model.DeliveryRefused,match='DRAIN_ACK'):
+        delivery.step()
+    assert journal.read()['stage']=='STOP_REQUESTED'
+    assert not any(isinstance(c,tuple) for c in host.calls)
+
+
+def test_pending_bootstrap_retains_same_stage_and_resumes_pages_without_repreflight(operation):
+    host,journal,delivery=operation
+    host.schema_complete=False
+    first=delivery.advance()
+    assert first['stage']=='SCHEMA_INSTALL_REQUESTED' and host.migration_count==1
+    assert host.canonical_count==2 and all(not item['State']['Running'] for item in host.items.values())
+    host.schema_complete=True
+    assert delivery.advance()['stage']=='VERIFIED' and host.migration_count==2
+    assert host.canonical_count==3
+
+
+def test_first_four_to_six_role_handoff_does_not_require_nonexistent_old_containers(operation):
+    host,journal,delivery=operation
+    host.predecessor_services=lambda:host_module.LEGACY_SERVICES
+    for name in host_module.SERVICES[4:]:host.items.pop(name)
+    assert delivery.advance()['stage']=='VERIFIED'
+    assert set(host.items)==set(host_module.SERVICES)
+    assert all(item['Image']==host.request['candidate']['image'] for item in host.items.values())
+
+
+def assert_compose_power_loss_recovery(operation,tmp_path,monkeypatch):
+    host,journal,delivery=operation
+    source,installed=tmp_path/'candidate-compose',tmp_path/'installed-compose'
+    source.mkdir();installed.mkdir()
+    original={name:('predecessor '+name).encode() for name in host_module.COMPOSE}
+    candidate={name:('qualified candidate '+name).encode() for name in host_module.COMPOSE}
+    for name in host_module.COMPOSE:
+        (source/name).write_bytes(candidate[name]);(installed/name).write_bytes(original[name])
+    actual=object.__new__(host_module.Host)
+    actual.source,actual.deployment=source,installed
+    actual.request={'predecessor':{'commit':'1'*40},'qualification':{'source_files':{
+        name:hashlib.sha256(value).hexdigest() for name,value in candidate.items()}}}
+    actual.git_bytes=lambda _show,subject:original[subject.split(':',1)[1]]
+    host.install_compose=actual.install_compose
+    while journal.read()['stage']!='COMPOSE_INSTALL_REQUESTED':delivery.step()
+    real_fsync=os.fsync
+    state={'lose_power':True,'directory_synced':False}
+    def fsync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode):
+            assert all((installed/name).read_bytes()==raw for name,raw in candidate.items())
+            if state['lose_power']:
+                # Emulate one rename lost at power failure. Its journal intent
+                # must remain reusable with a mixed exact old/new file set.
+                name=host_module.COMPOSE[0]
+                (installed/name).write_bytes(original[name])
+                raise OSError('SIMULATED_POWER_LOSS_BEFORE_DIRECTORY_SYNC')
+            state['directory_synced']=True
+        return real_fsync(fd)
+    monkeypatch.setattr(host_module.os,'fsync',fsync)
+    with pytest.raises(OSError,match='SIMULATED_POWER_LOSS'):
+        delivery.step()
+    assert journal.read()['stage']=='COMPOSE_INSTALL_REQUESTED'
+    assert not state['directory_synced']
+    state['lose_power']=False
+    assert delivery.step()['stage']=='COMPOSE_INSTALLED'
+    assert state['directory_synced']
+    assert all((installed/name).read_bytes()==raw for name,raw in candidate.items())
+
+
+def test_compose_directory_sync_precedes_durable_stage_and_survives_power_loss(operation,tmp_path,monkeypatch):
+    assert_compose_power_loss_recovery(operation,tmp_path,monkeypatch)
+
+
+def test_removing_compose_directory_sync_has_a_power_loss_falsifier(operation,tmp_path,monkeypatch):
+    import inspect
+    import textwrap
+    source=textwrap.dedent(inspect.getsource(host_module.Host.install_compose))
+    source=source.replace('        os.fsync(directory)','        pass  # removed directory durability guard')
+    scope=dict(vars(host_module))
+    exec(compile(source,'Compose durability falsifier','exec'),scope)
+    monkeypatch.setattr(host_module.Host,'install_compose',scope['install_compose'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        assert_compose_power_loss_recovery(operation,tmp_path,monkeypatch)
+
+
+@pytest.mark.parametrize('stage',['SCHEMA_INSTALL_REQUESTED','COMPOSE_INSTALL_REQUESTED'])
+def test_new_mutation_stages_preserve_original_preflight_expiry(operation,monkeypatch,stage):
+    host,journal,delivery=operation
+    while journal.read()['stage']!=stage:delivery.step()
+    before=host.migration_count if stage=='SCHEMA_INSTALL_REQUESTED' else host.calls.count('install-compose')
+    monkeypatch.setattr(coordinator,'utcnow',lambda:model.utcnow()+timedelta(minutes=16))
+    with pytest.raises(model.DeliveryRefused,match='INTERVAL_EXPIRED'):delivery.step()
+    assert (host.migration_count if stage=='SCHEMA_INSTALL_REQUESTED' else host.calls.count('install-compose'))==before
+
+
+def test_historical_verified_receipt_keeps_its_original_finite_stage_contract(tmp_path):
+    selected=request(tmp_path);selected['schema']=model.LEGACY_SCHEMA
+    model.write_new(tmp_path/'request.json',selected)
+    subject=model.digest(selected);artifacts={'historical_scope':'unchanged'};previous=subject;history=[]
+    for stage in model.LEGACY_STAGES[1:]:
+        event=dict(stage=stage,at=model.utcnow().isoformat(),previous=previous,artifacts_sha256=model.digest(artifacts))
+        event['sha256']=model.digest(event);previous=event['sha256'];history.append(event)
+    receipt=dict(schema=model.LEGACY_SCHEMA,operation_id=selected['operation_id'],request_sha256=subject,
+                 stage='VERIFIED',history=history,artifacts=artifacts)
+    model.write_new(tmp_path/'receipt.json',receipt)
+    journal=model.Journal(tmp_path)
+    assert journal.read()==receipt
+    with pytest.raises(model.DeliveryRefused,match='LEGACY_DELIVERY_CANNOT_RESUME'):
+        journal.advance('VERIFIED','NEW')
 
 
 @pytest.mark.parametrize('stage',['STOP_REQUESTED','START_REQUESTED'])
@@ -195,6 +329,7 @@ def test_nonblocking_real_host_lock_rejects_another_delivery(tmp_path):
 def test_timed_out_oneoff_cleanup_is_scoped_to_this_request(tmp_path,monkeypatch):
     host=host_module.Host.__new__(host_module.Host)
     host.request=request(tmp_path);host.deployment=tmp_path;host.clean={}
+    host.compose_paths=lambda values:tuple(tmp_path/name for name in host_module.COMPOSE)
     calls=[]
     def run(argv,**kwargs):
         calls.append(argv)

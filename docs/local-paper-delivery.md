@@ -15,8 +15,10 @@ does not merge a PR or grant financial authority. See the
 - An independently reviewed JSON list of the exact changed paths and its SHA256.
   The source-only builder accepts additions/modifications, not deletions,
   renames or dependency changes. Allowed roots are `sentinel/`, `scripts/`,
-  `tests/`, `docs/` and `tools/`; root build/configuration and environment files
-  remain refused. Qualification-only tools are host inputs bound by this exact
+  `tests/`, `docs/` and `tools/`, plus the exact reviewed `README.md`,
+  `docker-compose.sentinel-automation.yml` and
+  `docker-compose.sentinel-local-paper.yml` host artifacts. Other root build/
+  configuration and environment files remain refused. Qualification-only tools are host inputs bound by this exact
   path list and the full qualified source hashes; they are not copied into the
   runtime image. The builder and each resumed candidate check reject any extra
   changed path outside the reviewed list.
@@ -94,21 +96,42 @@ python3 -B <source>/scripts/sentinel_local_delivery.py resume \
 ```
 
 `advance` and `resume` use the same coordinator. Without `--one-stage`, they
-continue supported stages until completion or a refused gate. With it, they
+continue supported stages until completion, a pending bounded schema page, or a
+refused gate. With it, they
 perform only the next transition. An exclusive host lock prevents competing
 delivery operations. Inspect `status` and retained evidence after interruption.
 
 | Stage | Meaning and supported continuation |
 |---|---|
 | `NEW` | Read-only old/new canonical proof, current prepared future plan/source, configuration, native PAPER positions and zero open orders are checked. |
-| `PREFLIGHT_PASS` | The full proof and unchanged state are retained; a fresh idle sample permits recording stop intent. |
-| `STOP_REQUESTED` | Durable intent precedes graceful application stop. Resume verifies identities, original proof freshness and idle/pending-worker evidence before completing the stop. |
-| `APPLICATIONS_STOPPED` | All four applications are stopped. Install exact candidate runtime fields and start only shadow; recognize a matching interrupted start. |
-| `SHADOW_STARTED` | Wait for exact-image healthy shadow, then require its complete canonical proof to equal preflight. |
+| `PREFLIGHT_PASS` | Retain the full original proof and record the exact shadow container/drain target. |
+| `DRAIN_REQUESTED` | Request a finite authenticated incarnation-bound drain. Existing work finishes naturally; new worker admission is held. The exact-b2 bridge uses the separately qualified kernel barrier below. |
+| `DRAIN_ACKNOWLEDGED` | Preserve the original authenticated quiescent acknowledgement. Recheck it before recording stop intent. |
+| `STOP_REQUESTED` | Revalidate exact identities, original proof expiry and the still-valid drain, then stop predecessor application roles. |
+| `APPLICATIONS_STOPPED` | All predecessor application roles are stopped; no source/financial work is interrupted. Record additive schema-install intent. |
+| `SCHEMA_INSTALL_REQUESTED` | Install exact catalog-pinned operational extensions explicitly, then verify observation/mirror history in bounded committed pages. Pending pages retain this stage and resume their existing checkpoints. |
+| `SCHEMA_INSTALLED` | Preserve authenticated installation metadata and completed coverage, verify unchanged financial state, then record Compose-install intent. |
+| `COMPOSE_INSTALL_REQUESTED` | Install only the qualified Compose bytes. Interrupted per-file replacement accepts only exact predecessor or candidate bytes. |
+| `COMPOSE_INSTALLED` | Install exact candidate runtime fields and start only shadow; recognize a matching interrupted start. |
+| `SHADOW_STARTED` | Wait for exact-image healthy shadow, then require its full canonical proof to equal preflight. |
 | `SHADOW_VERIFIED` | Retain the fresh successor proof; verify unchanged state and record application-start intent. |
-| `START_REQUESTED` | Recheck successor proof freshness and unchanged state, then complete the exact candidate application start. |
-| `APPLICATIONS_STARTED` | Verify four healthy exact-image applications, advancing leadership, unchanged holdings/history and a fresh green dashboard with the same saved plan. |
+| `START_REQUESTED` | Recheck original successor proof freshness and unchanged state, then start all exact candidate application roles. |
+| `APPLICATIONS_STARTED` | Verify six healthy exact-image roles, advancing leadership, unchanged holdings/history and a fresh green dashboard with the same saved plan. |
 | `VERIFIED` | This operation completed at its recorded time; retain its receipt as a historical installation witness. |
+
+New requests use `sentinel.local-paper-delivery/2`. Completed version-1 receipts
+retain their original eight-transition historical scope; an unfinished version-1
+operation cannot resume under the new coordinator.
+
+The first exact `b2e308bb664718da373175f1a7d988d07b159ae2` predecessor has no native
+drain. Its qualified compatibility path first holds that exact shadow container's
+restart policy at `no`, stops only its single-thread supervisor through a bound
+Linux pidfd, proves no admitted child/pending/critical work, writes the fsynced
+finite authenticated barrier, then delivers fatal SIGKILL while it remains stopped.
+Busy work is resumed before barrier publication and its restart policy restored.
+Ambiguous publication remains stopped with restart disabled and requires recovery
+of the same operation. Other predecessors use cooperative drain. This bridge is
+not an account/financial recovery API and cannot signal another workload.
 
 A future current-generation `WAITING_OPEN` plan must have over fifteen minutes
 until execution, completed matching publication and no active source job,
@@ -141,7 +164,10 @@ small per-row hashes. Canonical corpus contention alone has a typed finite retry
 inside its original proof deadline. Broker observation uses PAPER GET requests
 for the exact configured account and requires zero open orders.
 
-Only shadow, automation, panel and alert dispatcher are rolled, shadow first.
+Only shadow, automation, panel, alert dispatcher, verifier and GET-only execution
+collector are rolled, shadow first. The sender has no broker credentials; the
+collector has no push signing key. The panel consumes durable finite proof
+receipts and never starts an expensive observer.
 PostgreSQL, its physical identity, canonical book, plans, controls, authority,
 commands, UNKNOWN outcomes, fills and notification history remain preserved.
 This command submits/cancels no orders and sends no synthetic notifications.

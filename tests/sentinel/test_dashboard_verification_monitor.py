@@ -240,19 +240,18 @@ def test_awaiting_monitor_has_original_finite_clock_and_rejects_rollback(monkeyp
         assert row.status==expected
 
 
-def test_lifespan_starts_monitor_before_any_browser_request(monkeypatch):
+def test_http_lifespan_cannot_start_independent_verification(monkeypatch):
     import asyncio
     from sentinel.panel import app
     calls=[]
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE','dual')
     monkeypatch.setattr(app,'_config',lambda:(None,'fixture'))
-    monkeypatch.setattr(monitoring.monitor,'start',lambda d,**k:calls.append((d,k)))
-    monkeypatch.setattr(monitoring.monitor,'stop',lambda:calls.append('stopped'))
+    monkeypatch.setattr(monitoring.Monitor,'start',lambda *a,**k:calls.append('started'))
     async def exercise():
         async with app._verification_lifespan(app.app):
-            assert calls==[('fixture',{'include_paper':True})]
+            assert calls==[]
     asyncio.run(exercise())
-    assert calls[-1]=='stopped'
+    assert calls==[]
 
 
 def test_financial_progress_is_available_in_collapsed_system_details():

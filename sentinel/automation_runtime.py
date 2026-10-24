@@ -193,10 +193,28 @@ def transient_refresh_failure(exc: BaseException
 
 
 def require_observation_integrity(conn) -> None:
+    from sentinel.execution import evidence_projection, evidence_schema
+    from psycopg.pq import TransactionStatus
+    # Reject before the owner rollback handler can discard caller work.
+    if conn.info.transaction_status!=TransactionStatus.IDLE:
+        raise DataIntegrityFailure('observation coverage advance requires an idle owned connection')
     try:
+        installed=evidence_schema.require_schema(conn,allow_absent=True)
+        if installed:
+            journal.advance_observation_integrity(conn)
+            conn.commit()
         journal.require_observation_integrity(conn)
-    except journal.ObservationEvidenceUncertifiable as exc:
-        raise DataIntegrityFailure(str(exc)) from exc
+    except BaseException as exc:
+        conn.rollback()
+        if isinstance(exc,(journal.ObservationIntegrityPending,evidence_projection.EvidenceCoveragePending)):
+            raise TransientInfrastructureFailure(str(exc)) from exc
+        if isinstance(exc,(journal.ObservationEvidenceUncertifiable,
+                evidence_projection.EvidenceCoverageRefused,evidence_schema.EvidenceSchemaRefused)):
+            raise DataIntegrityFailure(str(exc)) from exc
+        raise
+    else:
+        # Finish the final SELECT-only proof as part of this owned boundary.
+        conn.rollback()
 
 
 def classify_dependency_failure(

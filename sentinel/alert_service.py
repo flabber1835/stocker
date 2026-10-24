@@ -360,6 +360,8 @@ def _active_incident(health):
 
 
 async def run() -> int:
+    if os.environ.get('ALPACA_API_KEY') or os.environ.get('ALPACA_SECRET_KEY'):
+        raise ValueError('alert sender must not hold broker credentials')
     config = SentinelConfig.from_env()
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
@@ -434,8 +436,6 @@ async def run() -> int:
     database_incident_detail: str | None = None
     database_incident_reported = False
     last_probe_at: float | None = None
-    last_fill_poll_at: float | None = None
-    last_account_poll_at: float | None = None
     registered = False
     # A predecessor may have exited after an observation it could not persist.
     # Restart preserves the incident, but begins a fresh recovery interval.
@@ -489,42 +489,8 @@ async def run() -> int:
             continue
 
         try:
-            from sentinel import local_paper
-            from sentinel.execution import account_status
-            if (local_paper.enabled() and (last_account_poll_at is None
-                    or time.monotonic() - last_account_poll_at >= account_status.POLL_SECONDS)):
-                last_account_poll_at = time.monotonic()
-                try:
-                    await account_status.collect(conn, config=config)
-                except Exception as exc:
-                    conn.rollback()
-                    # Account freshness expires normally; never replace a
-                    # failed GET with a fabricated current observation.
-                    code = type(exc).__name__
-                    outbox.enqueue(conn,
-                        idempotency_key="account-status-collection:" + code,
-                        event_type="ACCOUNT_STATUS_COLLECTION_FAILED",
-                        severity="WARN", payload={"reason": code})
-                alert_health.heartbeat(conn, dispatcher_id=dispatcher_id)
-            from sentinel.execution import fill_notifications
-            if (os.environ.get(fill_notifications.SINCE_ENV)
-                    and (last_fill_poll_at is None
-                         or time.monotonic() - last_fill_poll_at >= fill_notifications.POLL_SECONDS)):
-                last_fill_poll_at = time.monotonic()
-                try:
-                    await fill_notifications.collect(conn, config=config)
-                except Exception as exc:
-                    conn.rollback()
-                    # No credential, URL, or provider response text is logged.
-                    code = (str(exc) if isinstance(exc, fill_notifications.FillNotificationRefused)
-                            else type(exc).__name__)
-                    outbox.enqueue(conn,
-                        idempotency_key="fill-notification-collection:" + code,
-                        event_type="FILL_NOTIFICATION_COLLECTION_FAILED",
-                        severity="CRITICAL" if isinstance(exc, fill_notifications.FillNotificationRefused) else "WARN",
-                        payload={"reason": code})
-                alert_health.heartbeat(conn, dispatcher_id=dispatcher_id)
-                health = read_health(conn)
+            # Provider GETs belong to execution_collector. A stalled broker
+            # cannot delay dispatch of a previously committed critical alert.
             _observe_health(
                 conn, health=health, max_attempts=automation.alert_max_attempts,
                 maximum_observation_gap_seconds=max(10.0, 2 * poll),

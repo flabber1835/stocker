@@ -9,7 +9,7 @@ from sentinel import informational_paper_mirror as mirror, local_paper
 from sentinel.automation import health, store
 from sentinel.execution import account_status
 from sentinel.feed import readers as publication
-from sentinel.panel import model, sources
+from sentinel.panel import model, sources, read_projection
 
 
 @pytest.fixture
@@ -32,7 +32,9 @@ def case(monkeypatch):
         lambda c, *, generation=None: old if generation is None else next(iter(current), None))
     monkeypatch.setattr(sources, "_latest_account_evidence", lambda c: account)
     monkeypatch.setattr(sources, "_bound_account_id", lambda c: "PAfixture")
-    monkeypatch.setattr(account_status, "recorded_reservation", lambda *a, **k: {"reserved_cash": "1040.73", "order_count": 1})
+    proof = {"reserved_cash": "1040.73", "order_count": 1,
+             "valid_until": (now+timedelta(minutes=5)).isoformat()}
+    monkeypatch.setattr(account_status, "recorded_reservation", lambda *a, **k: proof)
     monkeypatch.setattr(publication, "current", lambda c: SimpleNamespace(version=4))
     monkeypatch.setattr(publication, "frontier", lambda *a: "2026-10-21")
     monkeypatch.setattr(mirror, "require_transport_permitted", lambda *a, **k: {"status": mirror.NO_UNIT_CHANGE})
@@ -40,7 +42,7 @@ def case(monkeypatch):
         return sources._dual_paper_row(None, informational_paper_mirror=mirror,
             publication=publication, feed_store=None)
     return SimpleNamespace(control=control, health=live, account=account,
-        current=current, row=row, now=now)
+        current=current, row=row, now=now, proof=proof)
 
 
 def test_retired_error_is_visible_amber_without_claiming_completion(case):
@@ -87,7 +89,7 @@ def test_normal_release_keeps_prior_failure_red(case, monkeypatch):
 def test_native_hold_and_global_mirror_integrity_are_required(case, monkeypatch):
     monkeypatch.setattr(account_status, "recorded_reservation", lambda *a, **k: None)
     assert case.row().status == model.FAIL
-    monkeypatch.setattr(account_status, "recorded_reservation", lambda *a, **k: {"reserved_cash": "1040.73", "order_count": 1})
+    monkeypatch.setattr(account_status, "recorded_reservation", lambda *a, **k: case.proof)
     monkeypatch.setattr(mirror, "require_transport_permitted", lambda *a, **k: {"status": mirror.MISMATCH})
     assert case.row().status == model.FAIL and "MISMATCH" in case.row().value
     def pending(*a, **k):
@@ -96,6 +98,49 @@ def test_native_hold_and_global_mirror_integrity_are_required(case, monkeypatch)
     assert case.row().status == model.FAIL
     monkeypatch.setattr(publication, "current", lambda c: None)
     assert case.row().status == model.UNKNOWN
+
+
+def test_retired_eligibility_carries_original_account_expiry_through_receipt_restart(case,monkeypatch):
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY','private-retired-account-expiry-key-'*3)
+    case.account['observed_at']=case.now-timedelta(minutes=9)
+    eligibility=sources._retired_local_paper_failure(None)
+    assert isinstance(eligibility,sources.RetiredPaperFailureEligibility)
+    assert eligibility.account_observed_at==case.account['observed_at']
+    row=case.row()
+    assert row.valid_until==case.now+timedelta(minutes=1)
+    value,signature=read_projection.make('PAPER','a'*64,[row],[],observed_at=case.now)
+    import json
+    restored=json.loads(json.dumps(value))
+    decoded=read_projection.decode(restored,signature,current_subject='a'*64,scope='PAPER',
+                                   now=case.now+timedelta(seconds=61))[0][0]
+    assert decoded.valid_until==row.valid_until
+    assert decoded.effective_status(case.now+timedelta(seconds=61))==model.FAIL
+
+
+def test_native_reservation_close_tightens_retired_display_expiry(case):
+    close=case.now+timedelta(seconds=10)
+    case.proof['valid_until']=close.isoformat()
+    row=case.row()
+    assert row.status==model.WARN and row.valid_until==close
+    assert row.effective_status(close+timedelta(microseconds=1))==model.FAIL
+
+
+def test_removing_original_retired_expiry_has_a_falsifier(case,monkeypatch):
+    source=inspect.getsource(sources._dual_paper_row)
+    needle='valid_until=retired.valid_until, required_current=False'
+    assert source.count(needle)==1
+    namespace={}
+    exec(compile(source.replace(needle,'valid_until=None, required_current=False'),
+                 '<removed-original-account-expiry>','exec'),sources.__dict__,namespace)
+    monkeypatch.setattr(sources,'_dual_paper_row',namespace['_dual_paper_row'])
+    with pytest.raises(AssertionError):
+        test_native_reservation_close_tightens_retired_display_expiry(case)
+
+
+@pytest.mark.parametrize('deadline',[None,'invalid','2031-04-21T20:00:00'])
+def test_missing_or_unaware_native_reservation_deadline_cannot_retire_a_failure(case,deadline):
+    case.proof['valid_until']=deadline
+    assert case.row().status==model.FAIL
 
 
 def test_current_generation_guard_falsifier_is_detected(case, monkeypatch):

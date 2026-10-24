@@ -36,15 +36,9 @@ from sentinel.panel.sources import build_panel
 
 @asynccontextmanager
 async def _verification_lifespan(_app):
-    from sentinel.panel.verification_monitor import monitor
-    _state, database_url = _config()
-    mode = os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE', '').strip().lower()
-    if database_url and mode in {'dual', 'shadow'}:
-        monitor.start(database_url, include_paper=mode == 'dual')
-    try:
-        yield
-    finally:
-        monitor.stop()
+    # The independent verifier owns heavy reads. HTTP startup and requests
+    # consume finite durable receipts and cannot create a competing observer.
+    yield
 
 
 app = FastAPI(title="Caesar's Palace", docs_url=None, redoc_url=None,

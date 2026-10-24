@@ -128,7 +128,7 @@ is historical and does not supersede the current operating contract above.
 [Current installation boundary](sentinel-deployment-history.md#current-installation-boundary)
 
 <a id="sentinel--operational-deployment-ground-truth"></a>
-[Sentinel — operational deployment ground truth](sentinel-deployment-history.md#sentinel--operational-deployment-ground-truth)
+[Sentinel â€” operational deployment ground truth](sentinel-deployment-history.md#sentinel--operational-deployment-ground-truth)
 
 <a id="local-go-validation-before-publication"></a>
 [Local GO validation before publication](sentinel-deployment-history.md#local-go-validation-before-publication)
@@ -146,13 +146,13 @@ is historical and does not supersede the current operating contract above.
 [3. The frozen oracle outranks the prose](sentinel-deployment-history.md#3-the-frozen-oracle-outranks-the-prose)
 
 <a id="4-steps-02-are-resolved"></a>
-[4. Steps 0–2 are RESOLVED](sentinel-deployment-history.md#4-steps-02-are-resolved)
+[4. Steps 0â€“2 are RESOLVED](sentinel-deployment-history.md#4-steps-02-are-resolved)
 
 <a id="the-recovered-semantics-normative"></a>
 [The recovered semantics, normative](sentinel-deployment-history.md#the-recovered-semantics-normative)
 
 <a id="5-first-operational-requirement--retire-the-legacy-paper-book"></a>
-[5. First operational requirement — retire the legacy paper book](sentinel-deployment-history.md#5-first-operational-requirement--retire-the-legacy-paper-book)
+[5. First operational requirement â€” retire the legacy paper book](sentinel-deployment-history.md#5-first-operational-requirement--retire-the-legacy-paper-book)
 
 <a id="rules-this-sequence-must-satisfy"></a>
 [Rules this sequence must satisfy](sentinel-deployment-history.md#rules-this-sequence-must-satisfy)
@@ -185,7 +185,7 @@ is historical and does not supersede the current operating contract above.
 [10aa. A feed writer is authorized by the current clean checkout](sentinel-deployment-history.md#10aa-a-feed-writer-is-authorized-by-the-current-clean-checkout)
 
 <a id="rebuild--the-dockerfile-requires-the-lock--and-verify-the-image-identity"></a>
-[rebuild — the Dockerfile requires the lock — and verify the image identity](sentinel-deployment-history.md#rebuild--the-dockerfile-requires-the-lock--and-verify-the-image-identity)
+[rebuild â€” the Dockerfile requires the lock â€” and verify the image identity](sentinel-deployment-history.md#rebuild--the-dockerfile-requires-the-lock--and-verify-the-image-identity)
 
 <a id="10d-the-record-must-name-the-built-image-not-only-its-inputs"></a>
 [10d. The record must name the BUILT IMAGE, not only its inputs](sentinel-deployment-history.md#10d-the-record-must-name-the-built-image-not-only-its-inputs)
@@ -261,3 +261,35 @@ is historical and does not supersede the current operating contract above.
 
 <a id="backup-upgrade-checkpoint-september-2026"></a>
 [Backup upgrade checkpoint (September 2026)](sentinel-deployment-history.md#backup-upgrade-checkpoint-september-2026)
+
+
+## Current local PAPER architecture migration (October 23, 2026)
+
+The owner-authorized local PAPER profile uses the qualified feature checkout and
+the resumable local delivery coordinator. Its architecture and one-time b2e308bb
+quiescence bridge are specified in [the operational architecture decision](operational-architecture-20261023.md).
+The candidate adds a broker-free verifier and a GET-only execution collector to
+the shadow, automation, panel and notification-sender roles; all six roles use
+one exact qualified image. The sender has no broker credentials. Schema and
+bounded projection bootstrap occur explicitly after application quiescence;
+runtime reads never migrate or reseed coverage.
+
+Backups, archiving, restore drills and their verification remain suspended by
+the owner in this profile. PostgreSQL identity, volumes, canonical history and
+financial journals are preserved. This local PAPER profile does not authorize
+live endpoints or satisfy the separately reviewed live-operation requirements.
+# Current local PAPER architecture migration (October 23, 2026)
+
+The owner-authorized local PAPER profile uses the qualified feature checkout and
+the resumable local delivery coordinator. Its architecture and one-time b2e308bb
+quiescence bridge are specified in [the operational architecture decision](operational-architecture-20261023.md).
+The candidate adds a broker-free verifier and a GET-only execution collector to
+the shadow, automation, panel and notification-sender roles; all six roles use
+one exact qualified image. The sender has no broker credentials. Schema and
+bounded projection bootstrap occur explicitly after application quiescence;
+runtime reads never migrate or reseed coverage.
+
+Backups, archiving, restore drills and their verification remain suspended by
+the owner in this profile. PostgreSQL identity, volumes, canonical history and
+financial journals are preserved. This local PAPER profile does not authorize
+live endpoints or satisfy the separately reviewed live-operation requirements.

@@ -17,7 +17,8 @@ class Delivery:
     def _apps(self, role, *, running=None, healthy=False):
         image = self.host.request[role]['image']
         result = {}
-        for service in SERVICES:
+        names=self.host.predecessor_services() if role=='predecessor' else SERVICES
+        for service in names:
             item = self.host.container(service)
             require(item['Image']==image, 'APPLICATION_IMAGE_CHANGED')
             if running is not None:
@@ -28,6 +29,16 @@ class Delivery:
                     'APPLICATION_UNHEALTHY')
             result[service] = item
         return result
+
+    def _stopped_for_install(self):
+        old=self.host.request['predecessor']['image']
+        for service in SERVICES:
+            item=self.host.container(service,missing_ok=True)
+            if item is None:
+                require(service not in self.host.predecessor_services(),'PREDECESSOR_APPLICATION_MISSING')
+            else:
+                require(item['Image']==old and not item['State']['Running'],
+                        'APPLICATION_NOT_QUIESCENT_FOR_INSTALL')
 
     def _unchanged(self, artifacts, *, native=True):
         require(evidence.snapshot(self.host)==artifacts['preserved'], 'PRESERVED_STATE_CHANGED')
@@ -83,6 +94,7 @@ class Delivery:
             return receipt
         values = self.host.load_values()
         if stage=='NEW':
+            self.host.verify_compose('predecessor')
             old = self.host.request['predecessor']
             require(values['SENTINEL_GIT_COMMIT']==old['commit']
                 and all(values[k]==old['image'] for k in (
@@ -112,28 +124,67 @@ class Delivery:
             self._fresh(artifacts['preflight_at'])
             self._apps('predecessor',running=True,healthy=True)
             self._unchanged(artifacts)
-            evidence.idle(self.host,self.host.request['predecessor']['image'])
+            self.host.verify_compose('predecessor')
+            return self.journal.advance(stage,'DRAIN_REQUESTED',drain_target=evidence.drain_target(self.host))
+        if stage=='DRAIN_REQUESTED':
+            require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
+            self._fresh(artifacts['preflight_at'])
+            self._apps('predecessor'); self._unchanged(artifacts)
+            proof=evidence.request_drain(self.host,old,artifacts['drain_target'])
+            self._unchanged(artifacts)
+            return self.journal.advance(stage,'DRAIN_ACKNOWLEDGED',drain_proof=proof)
+        if stage=='DRAIN_ACKNOWLEDGED':
+            require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
+            self._fresh(artifacts['preflight_at'])
+            evidence.check_drain(self.host,old,artifacts['drain_target'],artifacts['drain_proof'])
+            self._unchanged(artifacts)
             return self.journal.advance(stage,'STOP_REQUESTED')
         if stage=='STOP_REQUESTED':
             require(current==old, 'PREMATURE_RUNTIME_INSTALLATION')
             self._fresh(artifacts['preflight_at'])
             self._apps('predecessor')
             self._unchanged(artifacts)
-            if self.host.container('sentinel-shadow')['State']['Running']:
-                evidence.idle(self.host,self.host.request['predecessor']['image'])
-            self.host.compose(old,'stop','--timeout','120',*SERVICES,timeout=150)
+            evidence.check_drain(self.host,old,artifacts['drain_target'],artifacts['drain_proof'])
+            self.host.compose(old,'stop','--timeout','120',*self.host.predecessor_services(),timeout=150)
             self._apps('predecessor',running=False)
             self._unchanged(artifacts)
             return self.journal.advance(stage,'APPLICATIONS_STOPPED')
         if stage=='APPLICATIONS_STOPPED':
+            require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
+            self._fresh(artifacts['preflight_at'])
             self._unchanged(artifacts)
+            self._stopped_for_install()
+            return self.journal.advance(stage,'SCHEMA_INSTALL_REQUESTED')
+        if stage=='SCHEMA_INSTALL_REQUESTED':
+            require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
+            self._fresh(artifacts['preflight_at']);self._unchanged(artifacts)
+            self._stopped_for_install()
+            migration=evidence.migrate_operational_schema(self.host,candidate)
+            self._unchanged(artifacts)
+            if not migration['complete']:
+                return receipt  # Durable page progress is resumed, never reset.
+            return self.journal.advance(stage,'SCHEMA_INSTALLED',operational_installation=migration['installation'])
+        if stage=='SCHEMA_INSTALLED':
+            require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
+            self._fresh(artifacts['preflight_at']);self._unchanged(artifacts)
+            self._stopped_for_install()
+            return self.journal.advance(stage,'COMPOSE_INSTALL_REQUESTED')
+        if stage=='COMPOSE_INSTALL_REQUESTED':
+            require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
+            self._fresh(artifacts['preflight_at']);self._unchanged(artifacts)
+            self._stopped_for_install()
+            self.host.install_compose()
+            return self.journal.advance(stage,'COMPOSE_INSTALLED')
+        if stage=='COMPOSE_INSTALLED':
+            self._fresh(artifacts['preflight_at']);self._unchanged(artifacts)
+            self.host.verify_compose('candidate')
             for service in SERVICES:
-                item=self.host.container(service)
-                if service=='sentinel-shadow' and item['Image']==self.host.request['candidate']['image']:
-                    require(current==candidate, 'SHADOW_WITH_WRONG_CONFIGURATION')
-                else:
-                    require(item['Image']==self.host.request['predecessor']['image']
-                        and item['State']['Running'] is False,'UNEXPECTED_APPLICATION_DURING_INSTALL')
+                item=self.host.container(service,missing_ok=True)
+                if service=='sentinel-shadow' and item and item['Image']==self.host.request['candidate']['image']:
+                    require(current==candidate,'SHADOW_WITH_WRONG_CONFIGURATION')
+                elif item is not None:
+                    require(item['Image']==self.host.request['predecessor']['image'] and not item['State']['Running'],
+                            'UNEXPECTED_APPLICATION_DURING_INSTALL')
             # Repeating only the exact atomic identity update is safe after a
             # lost host acknowledgement; financial state remains unchanged.
             self.host.install_values(current,candidate)
@@ -155,7 +206,10 @@ class Delivery:
             self._wait_shadow(); self._unchanged(artifacts)
             for service in SERVICES:
                 if service=='sentinel-shadow': continue
-                item=self.host.container(service)
+                item=self.host.container(service,missing_ok=True)
+                if item is None:
+                    require(service not in self.host.predecessor_services(),'PREDECESSOR_APPLICATION_MISSING')
+                    continue
                 require(item['Image']==self.host.request['predecessor']['image']
                     and item['State']['Running'] is False,'PREMATURE_APPLICATION_START')
             return self.journal.advance(stage,'START_REQUESTED')
@@ -164,7 +218,10 @@ class Delivery:
             self._wait_shadow(); self._unchanged(artifacts)
             for service in SERVICES:
                 if service=='sentinel-shadow': continue
-                item=self.host.container(service)
+                item=self.host.container(service,missing_ok=True)
+                if item is None:
+                    require(service not in self.host.predecessor_services(),'PREDECESSOR_APPLICATION_MISSING')
+                    continue
                 require(item['Image'] in (self.host.request['predecessor']['image'],
                                           self.host.request['candidate']['image']), 'FOREIGN_APPLICATION_IMAGE')
             self.host.compose(candidate,'up','-d','--no-deps','--no-build','--pull','never',
@@ -183,7 +240,9 @@ class Delivery:
 
     def advance(self):
         with self.host.owned():
-            for _ in range(9):
+            for _ in range(15):
+                before=self.journal.read()['stage']
                 receipt=self.step()
                 if receipt['stage']=='VERIFIED': return receipt
+                if receipt['stage']==before: return receipt
             require(False,'DELIVERY_STAGE_LIMIT')

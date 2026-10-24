@@ -31,6 +31,7 @@ WRITE_WORD = re.compile(
 class RecordingCursor:
     def __init__(self, conn):
         self.conn = conn
+        self.connection = conn
         self._row = None
 
     def __enter__(self):
@@ -63,15 +64,48 @@ class RecordingConnection:
         self.executed = []
         self.commits = 0
         self.rollbacks = 0
+        self.proof_rollbacks = 0
+        self.proof_scopes = []
+        self.in_transaction = False
+        self.pending_work = []
+        self.settings = {}
 
     def cursor(self):
         return RecordingCursor(self)
 
     def commit(self):
         self.commits += 1
+        self.pending_work.clear()
+        self.in_transaction = False
 
     def rollback(self):
         self.rollbacks += 1
+        self.pending_work.clear()
+        self.in_transaction = False
+
+    def transaction(self, *, force_rollback=False):
+        assert force_rollback is True, 'catalog proof must finish its owned read-only scope'
+        conn = self
+        class ReadOnlyProof:
+            def __enter__(self):
+                self.outer = conn.in_transaction
+                self.pending = list(conn.pending_work)
+                self.settings = dict(conn.settings)
+                conn.proof_scopes.append(('enter', self.outer))
+                conn.in_transaction = True
+                return self
+
+            def __exit__(self, *_args):
+                # Model a rolled-back savepoint when an outer caller owns work;
+                # never call the connection-wide rollback() method here.
+                conn.pending_work[:] = self.pending
+                conn.settings.clear()
+                conn.settings.update(self.settings)
+                conn.in_transaction = self.outer
+                conn.proof_rollbacks += 1
+                conn.proof_scopes.append(('rollback-proof', self.outer))
+                return False
+        return ReadOnlyProof()
 
 
 def _sql(conn):
@@ -134,7 +168,8 @@ def test_runtime_validation_refuses_missing_schema_without_any_write_or_ddl():
     assert statements
     assert all(WRITE_WORD.search(statement) is None for statement in statements)
     assert conn.commits == 0
-    assert conn.rollbacks == 1
+    assert conn.rollbacks == 0
+    assert conn.proof_rollbacks == 1 and not conn.in_transaction
 
 
 def test_runtime_validation_refuses_while_explicit_migration_lock_is_held():
@@ -148,7 +183,29 @@ def test_runtime_validation_refuses_while_explicit_migration_lock_is_held():
     assert "pg_try_advisory_xact_lock_shared" in statements[0]
     assert DDL_WORD.search(statements[0]) is None
     assert conn.commits == 0
-    assert conn.rollbacks == 1
+    assert conn.rollbacks == 0
+    assert conn.proof_rollbacks == 1 and not conn.in_transaction
+
+
+@pytest.mark.parametrize('refused', [False, True])
+def test_runtime_catalog_proof_preserves_existing_caller_work_and_settings(monkeypatch, refused):
+    conn = RecordingConnection(shared=not refused)
+    conn.in_transaction = True
+    conn.pending_work.append('existing caller write')
+    conn.settings['lock_timeout'] = '99ms'
+    monkeypatch.setattr(behavioral_schema, '_read_runtime_catalog', lambda _cursor: ({}, {}, {}, {}, {}))
+    monkeypatch.setattr(runtime_schema, '_validate_catalog', lambda _catalog: None)
+    monkeypatch.setattr(runtime_schema, '_validate_views', lambda _cursor: None)
+    if refused:
+        with pytest.raises(runtime_schema.FeedSchemaRefused, match='migration lock'):
+            runtime_schema.require_feed_schema(conn)
+    else:
+        runtime_schema.require_feed_schema(conn)
+    assert conn.in_transaction and conn.pending_work == ['existing caller write']
+    assert conn.settings == {'lock_timeout': '99ms'}
+    assert conn.commits == conn.rollbacks == 0 and conn.proof_rollbacks == 1
+    assert conn.proof_scopes == [('enter', True), ('rollback-proof', True)]
+    assert all(WRITE_WORD.search(statement) is None for statement in _sql(conn))
 
 
 def test_production_binding_uses_the_existing_controlled_schema_refusal():

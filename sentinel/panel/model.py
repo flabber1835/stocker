@@ -307,6 +307,8 @@ class Row:
     paper_account: Optional[PaperAccountOverview] = None
     order_outcomes: list[PaperOrderOutcome] = field(default_factory=list)
     trading_run: Optional[TradingRun] = None
+    #: A typed display fact; copy changes cannot grant scheduled readiness.
+    paper_alignment: Optional[str] = None
 
     def staleness(self, now: datetime) -> Optional[timedelta]:
         return None if self.as_of is None else now - self.as_of
@@ -324,6 +326,13 @@ class Row:
 
     def effective_status(self, now: datetime) -> str:
         """Apply the shared operator recoverability policy."""
+        if self.paper_alignment == 'PRIOR_CYCLE_FAILED':
+            if (self.key != 'paper_reconciliation' or self.status != WARN
+                    or not isinstance(self.valid_until,datetime)
+                    or self.valid_until.utcoffset() != timedelta(0)
+                    or self.is_future(now) or self.is_stale(now)):
+                return FAIL
+            return WARN
         return effective_status(
             self.status, stale=self.is_stale(now), future=self.is_future(now),
             required_current=self.required_current, recovery=self.recovery,
@@ -407,7 +416,7 @@ class Panel:
         non-runtime capability is not an outage.
         """
         scheduled = self.local_paper_mode and any(
-            r.key == 'paper_reconciliation' and 'SCHEDULED' in r.value
+            r.key == 'paper_reconciliation' and r.paper_alignment == 'SCHEDULED'
             and r.valid_until is not None and r.effective_status(self.now) == OK
             for r in self.rows)
         live = [
@@ -538,7 +547,7 @@ def paper_reconciliation_row(
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",
             "PAPER NOT VERIFIED · PRIOR CYCLE FAILED · NEXT DECISION PENDING", WARN,
-            detail + suffix)
+            detail + suffix, paper_alignment='PRIOR_CYCLE_FAILED')
     if normalized == "MISMATCH":
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",
@@ -550,7 +559,8 @@ def paper_reconciliation_row(
             "paper_reconciliation", "Alpaca PAPER mirror",
             "PAPER NOT VERIFIED · SCHEDULED · POST-CLOSE EVIDENCE PENDING", OK,
             detail + suffix, required_current=True,
-            valid_until=scheduled_until - timedelta(microseconds=1))
+            valid_until=scheduled_until - timedelta(microseconds=1),
+            paper_alignment='SCHEDULED')
     if normalized == "CLEAN":
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",

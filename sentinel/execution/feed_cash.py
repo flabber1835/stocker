@@ -1,4 +1,5 @@
 """Bound snapshot inputs for the existing paper-entitlement calculator."""
+from sentinel.feed.normalized_layout import candidate_query
 from datetime import timedelta
 from sentinel.execution import feed_inputs
 from sentinel.feed import calendar
@@ -33,9 +34,9 @@ class SnapshotCashInputs:
         if item is not None:
             return [tuple(row[:5]) for row in item['bars'] if row[0] in held]
         with self.conn.cursor() as cur:
-            cur.execute("SELECT security_id,ticker,close_signal,close_unadjusted,dividend_per_share "
+            cur.execute(candidate_query(self.conn, "SELECT security_id,ticker,close_signal,close_unadjusted,dividend_per_share "
                         "FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session=%s "
-                        "AND security_id=ANY(%s) ORDER BY security_id", (self.refs.candidate_id, wanted, held))
+                        "AND security_id=ANY(%s) ORDER BY security_id"), (self.refs.candidate_id, wanted, held))
             return cur.fetchall()
 
     def affected_equities(self, wanted, held):
@@ -93,8 +94,8 @@ class SnapshotCashInputs:
         if item is not None:
             return tuple(item['defensive'][-1][1:])
         with self.conn.cursor() as cur:
-            cur.execute("SELECT bil_close_signal,bil_close_unadjusted FROM sentinel_snapshot_benchmarks "
-                        "WHERE candidate_id=%s AND session=%s", (self.refs.candidate_id, wanted))
+            cur.execute(candidate_query(self.conn, "SELECT bil_close_signal,bil_close_unadjusted FROM sentinel_snapshot_benchmarks "
+                        "WHERE candidate_id=%s AND session=%s"), (self.refs.candidate_id, wanted))
             return cur.fetchone()
 
     def _retained(self, wanted):

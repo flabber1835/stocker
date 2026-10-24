@@ -9,7 +9,7 @@ import shutil
 import subprocess
 
 from .host import Host
-from .model import Journal, read_json, require, utcnow, write_new
+from .model import Journal, REVIEWED_HOST_ARTIFACTS, read_json, require, utcnow, write_new
 from .qualification import clean_candidate, git, sha256_file, source_files, validate_report
 
 BUILD_SCHEMA = 'sentinel.local-paper-build/1'
@@ -66,7 +66,9 @@ def allowed_delta(path, expected_sha):
     names = read_json(path)
     require(isinstance(names,list) and names and len(names) == len(set(names)), 'APPROVED_DELTA_SHAPE')
     for name in names:
-        require(isinstance(name,str) and name.startswith(('sentinel/','scripts/','tests/','docs/','tools/'))
+        require(isinstance(name,str)
+            and (name.startswith(('sentinel/','scripts/','tests/','docs/','tools/'))
+                 or name in REVIEWED_HOST_ARTIFACTS)
             and '\\' not in name and '..' not in name.split('/')
             and '/.env' not in name and not name.endswith('.env'), 'APPROVED_DELTA_PATH')
     return sorted(names)

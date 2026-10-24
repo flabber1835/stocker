@@ -7,9 +7,10 @@ constant, mutate controls, or invoke preparation, orders or maintenance.
 from __future__ import annotations
 
 import json
+import time
 
 from . import checks
-from .model import require
+from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, require
 
 
 _BINDING_KEYS = ('deployment_id', 'broker', 'broker_account_id', 'takeover_epoch')
@@ -24,17 +25,26 @@ def compare_configuration(host, previous, candidate, state):
     broker network are passed to the fingerprint processes. Compose output stays
     private to the host and is never included in evidence records.
     """
-    services = ('sentinel-shadow', 'sentinel-automation', 'sentinel-panel',
-                'sentinel-alert-dispatcher', 'sentinel-authorized-cli')
     rendered = [json.loads(host.compose(values, 'config', '--format', 'json').stdout)
                 for values in (previous, candidate)]
     environments = []
     for configuration, role in zip(rendered, ('predecessor', 'candidate')):
+        services = (*host.predecessor_services(),'sentinel-authorized-cli') if role=='predecessor' else (
+            'sentinel-shadow','sentinel-automation','sentinel-panel','sentinel-alert-dispatcher',
+            'sentinel-authorized-cli','sentinel-verifier','sentinel-execution-collector')
         require(all(configuration['services'][service]['image'] == host.request[role]['image']
                     for service in services), 'Rendered application image does not match the reviewed role')
         panel_environment = configuration['services']['sentinel-panel']['environment']
         require('ALPACA_API_KEY' not in panel_environment and 'ALPACA_SECRET_KEY' not in panel_environment,
                 'Panel unexpectedly receives broker credentials')
+        if role=='candidate':
+            sender=configuration['services']['sentinel-alert-dispatcher']['environment']
+            collector=configuration['services']['sentinel-execution-collector']['environment']
+            verifier=configuration['services']['sentinel-verifier']['environment']
+            require(not sender.get('ALPACA_API_KEY') and not sender.get('ALPACA_SECRET_KEY')
+                and not collector.get('SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY')
+                and not verifier.get('ALPACA_API_KEY') and not verifier.get('ALPACA_SECRET_KEY'),
+                'New operational roles have excessive credentials')
         environment = configuration['services']['sentinel-automation']['environment']
         environments.append({key: value for key, value in environment.items()
             if key.startswith('SENTINEL_AUTOMATION_') or key == 'SENTINEL_PAPER_DEBUG_WINDOW'})
@@ -159,6 +169,120 @@ def idle(host, image):
             'The exact shadow runtime is not healthy')
     result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c', checks.IDLE], timeout=15)
     return json.loads(result.stdout)
+
+
+def drain_target(host):
+    data=host.container('sentinel-shadow')
+    require(data['Image']==host.request['predecessor']['image'] and data['State']['Running'],
+            'DRAIN_PREDECESSOR_CHANGED')
+    return dict(container=data['Id'],image=data['Image'],restart_policy=data['HostConfig']['RestartPolicy'])
+
+
+def _compat_barrier(host, values, target):
+    config=json.loads(host.compose(values,'config','--format','json').stdout)
+    env=config['services']['sentinel-shadow']['environment']
+    private={'SENTINEL_PUBLICATION_RECEIPT_KEY':env['SENTINEL_PUBLICATION_RECEIPT_KEY'],
+             'SENTINEL_STATE_DIR':'/var/lib/sentinel'}
+    container=host.container('sentinel-shadow')
+    require(container['Id']==target['container'] and container['Image']==target['image'],
+            'COMPATIBILITY_DRAIN_CONTAINER_CHANGED')
+    require(container['HostConfig']['RestartPolicy']=={'Name':'no','MaximumRetryCount':0},
+            'COMPAT_RESTART_HOLD_CHANGED')
+    mounts=[item for item in container['Mounts'] if item['Destination']=='/var/lib/sentinel']
+    require(len(mounts)==1 and mounts[0]['Type']=='volume' and mounts[0]['Name']=='sentinel_sentinel_state',
+            'COMPATIBILITY_DRAIN_STATE_VOLUME_CHANGED')
+    with host.private_environment(private) as path:
+        result=host.run(['docker','run','--rm','--pull=never','--network','none','--read-only',
+            '--cpus','0.25','--memory','128m','--env-file',path,'--mount',
+            'type=volume,src='+mounts[0]['Name']+',dst=/var/lib/sentinel,readonly',
+            '--entrypoint','python',host.request['candidate']['image'],'-B','-c',checks.READ_COMPAT_DRAIN,
+            host.request['operation_id'],digest(host.request),target['container'],target['image']],timeout=15)
+    value=json.loads(result.stdout)
+    container=host.container('sentinel-shadow')
+    require(container['Id']==target['container'] and container['Image']==target['image'],
+            'COMPATIBILITY_DRAIN_CONTAINER_CHANGED')
+    require(container['HostConfig']['RestartPolicy']=={'Name':'no','MaximumRetryCount':0},
+            'COMPAT_RESTART_HOLD_CHANGED')
+    require(not container['State']['Running'] and not container['State']['Restarting'],
+            'COMPATIBILITY_BARRIER_NOT_STOPPED')
+    return dict(method='EXACT_B2_KERNEL_BARRIER',acknowledgement=value)
+
+
+def request_drain(host, values, target):
+    """Consume an incarnation-bound acknowledgement, never a sampled IDLE."""
+    data=host.container('sentinel-shadow')
+    require(data['Id']==target['container'] and data['Image']==target['image'],'DRAIN_TARGET_CHANGED')
+    if host.request['predecessor']['commit']==COMPAT_DRAIN_PREDECESSOR:
+        if not data['State']['Running']:
+            return _compat_barrier(host,values,target)
+        policy=target['restart_policy']
+        require(policy=={'Name':'unless-stopped','MaximumRetryCount':0},'COMPAT_RESTART_POLICY_UNREVIEWED')
+        require(data['HostConfig']['RestartPolicy'] in (policy,{'Name':'no','MaximumRetryCount':0}),
+                'COMPAT_RESTART_POLICY_CHANGED')
+        source=host.source/'sentinel/shadow_drain_compat.py'
+        raw=source.read_bytes()
+        import hashlib
+        require(hashlib.sha256(raw).hexdigest()==host.request['qualification']['source_files']['sentinel/shadow_drain_compat.py'],
+                'COMPATIBILITY_HELPER_NOT_QUALIFIED')
+        host.run(['docker','update','--restart=no',target['container']],timeout=15)
+        require(host.container('sentinel-shadow')['HostConfig']['RestartPolicy']=={'Name':'no','MaximumRetryCount':0},
+                'COMPAT_RESTART_HOLD_NOT_INSTALLED')
+        response=None
+        try:
+            result=host.run(['docker','exec','-i',target['container'],'python','-B','-',
+                host.request['operation_id'],digest(host.request),target['container'],target['image']],data=raw,timeout=15)
+            response=json.loads(result.stdout)
+        except DeliveryRefused:
+            # tini may tear down docker exec after the exact frozen parent dies.
+            # Only an authenticated finite barrier AND stopped container admits it.
+            pass
+        if response=={'status':'BUSY_BEFORE_BARRIER'}:
+            host.run(['docker','update','--restart=unless-stopped',target['container']],timeout=15)
+            require(host.container('sentinel-shadow')['HostConfig']['RestartPolicy']==policy,
+                    'COMPAT_RESTART_POLICY_NOT_RESTORED')
+            require(False,'DRAIN_BUSY_BEFORE_BARRIER')
+        return _compat_barrier(host,values,target)
+    request=json.loads(host.run(['docker','exec',target['container'],'python','-B','-m','sentinel.shadow_drain',
+        'request','--operation-id',host.request['operation_id'],'--request-sha256',digest(host.request)],timeout=15).stdout)
+    deadline=time.monotonic()+180
+    while time.monotonic()<deadline:
+        result=host.run(['docker','exec',target['container'],'python','-B','-m','sentinel.shadow_drain',
+            'acknowledged','--operation-id',host.request['operation_id'],'--request-sha256',digest(host.request)],timeout=15)
+        acknowledgement=json.loads(result.stdout)
+        if acknowledgement is not None:
+            require(acknowledgement['request']==request,'DRAIN_REQUEST_REPLACED')
+            return dict(method='COOPERATIVE',acknowledgement=acknowledgement)
+        time.sleep(2)
+    require(False,'DRAIN_ACKNOWLEDGEMENT_DEADLINE')
+
+
+def check_drain(host, values, target, proof):
+    data=host.container('sentinel-shadow')
+    require(data['Id']==target['container'] and data['Image']==target['image'],'DRAIN_TARGET_CHANGED')
+    if proof['method']=='EXACT_B2_KERNEL_BARRIER':
+        require(_compat_barrier(host,values,target)==proof,'COMPATIBILITY_BARRIER_CHANGED')
+    else:
+        require(proof['method']=='COOPERATIVE','DRAIN_METHOD_UNREVIEWED')
+        if not data['State']['Running']:
+            # A stopped exact container cannot admit work; finite request still
+            # binds the stage, rather than pretending its old live ack is fresh.
+            from datetime import datetime,timezone
+            expiry=datetime.fromisoformat(proof['acknowledgement']['request']['expires_at'])
+            require(datetime.now(timezone.utc)<expiry,'DRAIN_ACKNOWLEDGEMENT_EXPIRED')
+            return
+        result=host.run(['docker','exec',target['container'],'python','-B','-m','sentinel.shadow_drain',
+            'acknowledged','--operation-id',host.request['operation_id'],'--request-sha256',digest(host.request)],timeout=15)
+        require(json.loads(result.stdout)==proof['acknowledgement'],'DRAIN_ACKNOWLEDGEMENT_CHANGED')
+
+
+def migrate_operational_schema(host, candidate):
+    result=host.compose(candidate,'run','--rm','--no-deps','--pull','never','--entrypoint','python',
+        'sentinel-authorized-cli','-B','-c',checks.INSTALL_OPERATIONAL_SCHEMA,timeout=150)
+    value=json.loads(result.stdout)
+    require(isinstance(value,dict) and set(value)=={'installation','complete'}
+        and type(value['complete']) is bool and isinstance(value['installation'],dict),
+        'OPERATIONAL_MIGRATION_RESULT_MALFORMED')
+    return value
 
 
 def panel(host, state):

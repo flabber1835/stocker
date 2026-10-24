@@ -51,6 +51,14 @@ def row_from_observation(value):
         row['shadow_book'] = model.ShadowBook.model_validate(row['shadow_book'])
     if type(row.get('required_current', False)) is not bool:
         raise ValueError('observer current flag is malformed')
+    if row.get('paper_alignment') not in {None, 'SCHEDULED', 'PRIOR_CYCLE_FAILED'} or (
+            row.get('paper_alignment') is not None
+            and (row.get('key') != 'paper_reconciliation'
+                 or row.get('status') != (model.OK if row['paper_alignment']=='SCHEDULED' else model.WARN)
+                 or row.get('valid_until') is None
+                 or (row['paper_alignment']=='PRIOR_CYCLE_FAILED'
+                     and (row.get('required_current',False) or row.get('recovery') is not None)))):
+        raise ValueError('observer alignment fact is malformed')
     for field in ('as_of', 'valid_until'):
         boundary = row.get(field)
         if boundary is not None and (not isinstance(boundary, datetime)

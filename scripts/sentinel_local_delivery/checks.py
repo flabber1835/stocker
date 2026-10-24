@@ -9,6 +9,60 @@ from sentinel.automation_runtime import config_from_env
 print(config_from_env(json.load(sys.stdin)).fingerprint)
 '''
 
+INSTALL_OPERATIONAL_SCHEMA = r'''import json,time
+from sentinel import operational_schema,mirror_projection
+from sentinel.execution import journal,evidence_projection
+from sentinel.feed import store
+import os
+c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=15000)
+try:
+    installation=operational_schema.install_quiescent(c)
+    end=time.monotonic()+90
+    complete=False
+    while time.monotonic()<end:
+        proof=journal.bootstrap_observation_integrity(c,limit=128)
+        c.commit()
+        if proof['body']['stage']!='COMPLETE':
+            c.rollback()
+            continue
+        proof=journal.advance_observation_integrity(c,limit=128)
+        c.commit()
+        if proof['through']!=evidence_projection.head(c,'OBSERVATION')[1]:
+            c.rollback()
+            continue
+        c.rollback()
+        proof=mirror_projection.bootstrap_step(c,limit=128)
+        c.commit()
+        if proof['body']['stage']!='COMPLETE':
+            continue
+        version,through=c.execute('SELECT version,window_end FROM sentinel_corpus_publications ORDER BY version DESC LIMIT 1').fetchone()
+        c.rollback()
+        proof=mirror_projection.advance(c,checked_through=through,publication_version=version,limit=128)
+        c.commit()
+        if (proof['body']['stage']=='COMPLETE' and proof['through']==evidence_projection.head(c,'MIRROR')[1]
+                and proof['body']['checked_publication']==version and proof['body']['checked_through']==through.isoformat()):
+            c.rollback()
+            journal.require_observation_integrity(c)
+            mirror_projection.require_current(c,current_frontier=through,current_publication_version=version)
+            c.rollback()
+            complete=True
+            break
+        c.rollback()
+    print(json.dumps(dict(installation=installation,complete=complete),default=str,sort_keys=True))
+finally:
+    c.rollback();c.close()
+'''
+
+READ_COMPAT_DRAIN = r'''import json,os,sys
+from datetime import datetime,timezone
+from pathlib import Path
+from sentinel import shadow_drain_compat as bridge
+state=Path(os.environ.get('SENTINEL_STATE_DIR','/var/lib/sentinel'))
+value=bridge.validate(bridge._load(state),operation_id=sys.argv[1],request_sha256=sys.argv[2],
+    container_id=sys.argv[3],image=sys.argv[4],now=datetime.now(timezone.utc))
+print(json.dumps(value,sort_keys=True))
+'''
+
 SNAPSHOT_SQL = r'''WITH candidates AS (
  SELECT s.* FROM sentinel_automation_cycles s
  JOIN sentinel_automation_control c ON c.id=1

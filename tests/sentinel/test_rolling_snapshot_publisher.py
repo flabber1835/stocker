@@ -42,6 +42,10 @@ def conn(pg):
         admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
     c = store.connect(pg.sync_dsn.rsplit("/", 1)[0] + "/" + database)
     runtime_schema.migrate_feed_schema(c)
+    from sentinel.feed import normalized_layout, generation_admission
+    normalized_layout.install(c)
+    generation_admission.install(c)
+    c.commit()
     try:
         yield c
     finally:

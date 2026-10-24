@@ -206,8 +206,8 @@ def data_semantics_source_identity() -> dict[str, object]:
     loader change makes persisted path-dependent state stale instead of
     silently advancing it under new semantics.
     """
-    from sentinel.semantic_source_basis import economic_sources
-    return economic_sources(_DATA_SEMANTICS_MODULES, schema=DATA_SEMANTICS_IDENTITY_SCHEMA)
+    from sentinel.economic_manifest import identity
+    return identity(schema=DATA_SEMANTICS_IDENTITY_SCHEMA)
 
 
 def _as_mapping(value, *, label: str) -> Mapping:

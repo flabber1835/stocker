@@ -2406,3 +2406,14 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.
+# Incremental operational evidence coverage
+
+[The October 23 operational extension](operational-architecture-20261023.md)
+adds authenticated, account-bound observation and mirror coverage. Explicit
+quiescent bootstrap verifies historical evidence in bounded resumable pages.
+Routine checks authenticate that prefix and verify only a contiguous bounded
+change suffix under the existing writer transaction. Source mutations, missing
+tracking, schema changes and independent DDL-epoch drift withdraw that coverage.
+UNKNOWN outcomes and immutable order identities retain their existing meanings.
+The original independent full audit remains a qualification oracle; ordinary
+reads do not silently rebuild or reseal changed evidence.

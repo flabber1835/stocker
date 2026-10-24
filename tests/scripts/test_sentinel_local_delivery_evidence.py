@@ -1,5 +1,6 @@
 """Reusable delivery readers bind current facts and remain read-only."""
 import ast
+from contextlib import contextmanager
 from copy import deepcopy
 import importlib
 import importlib.util
@@ -139,6 +140,7 @@ def configuration_host(*, failure=None):
     host = Host()
     host.request.update(predecessor={'image': 'old-image'}, candidate={'image': 'new-image'})
     host.calls = []
+    host.predecessor_services=lambda:host_module.SERVICES
     def compose(values, *args):
         assert args == ('config', '--format', 'json')
         role = values['role']
@@ -177,6 +179,106 @@ def test_configuration_drift_foreign_image_or_panel_credentials_refuse(failure):
     host = configuration_host(failure=failure)
     with pytest.raises(model.DeliveryRefused):
         evidence.compare_configuration(host, {'role': 'predecessor'}, {'role': 'candidate'}, host.state)
+
+
+@pytest.mark.parametrize('result',['busy','stopped-disconnect','ambiguous-disconnect'])
+def test_initial_bridge_holds_restart_before_signal_and_restores_only_definite_busy(tmp_path,monkeypatch,result):
+    host=Host();host.source=tmp_path
+    raw=b'qualified compatibility helper'
+    path=tmp_path/'sentinel/shadow_drain_compat.py';path.parent.mkdir();path.write_bytes(raw)
+    import hashlib
+    host.request.update(operation_id='guarded-bridge',predecessor={'commit':model.COMPAT_DRAIN_PREDECESSOR,'image':'old'},
+        qualification={'source_files':{'sentinel/shadow_drain_compat.py':hashlib.sha256(raw).hexdigest()}})
+    policy={'Name':'unless-stopped','MaximumRetryCount':0}
+    item={'Id':'exact-container','Image':'old','State':{'Running':True},'HostConfig':{'RestartPolicy':deepcopy(policy)}}
+    target=dict(container='exact-container',image='old',restart_policy=deepcopy(policy))
+    host.container=lambda name:deepcopy(item)
+    calls=[]
+    def run(argv,**kwargs):
+        calls.append(argv)
+        if argv[:2]==['docker','update']:
+            item['HostConfig']['RestartPolicy']['Name']=argv[2].split('=')[1]
+            return SimpleNamespace(stdout=b'')
+        assert argv[:2]==['docker','exec']
+        assert item['HostConfig']['RestartPolicy']['Name']=='no'
+        if result=='busy':return SimpleNamespace(stdout=b'{"status":"BUSY_BEFORE_BARRIER"}')
+        if result=='stopped-disconnect':item['State']['Running']=False
+        raise model.DeliveryRefused('EXPECTED_EXEC_DISCONNECT')
+    host.run=run
+    def barrier(*args):
+        model.require(not item['State']['Running'],'BARRIER_NOT_STOPPED')
+        return {'method':'EXACT_B2_KERNEL_BARRIER','acknowledgement':{'immutable':True}}
+    monkeypatch.setattr(evidence,'_compat_barrier',barrier)
+    if result=='stopped-disconnect':
+        assert evidence.request_drain(host,{},target)['method']=='EXACT_B2_KERNEL_BARRIER'
+    else:
+        with pytest.raises(model.DeliveryRefused,match='BUSY_BEFORE_BARRIER' if result=='busy' else 'BARRIER_NOT_STOPPED'):
+            evidence.request_drain(host,{},target)
+    assert calls[0]==['docker','update','--restart=no','exact-container']
+    assert item['HostConfig']['RestartPolicy']['Name']==('unless-stopped' if result=='busy' else 'no')
+
+
+def compatibility_barrier_host(*, changed=None, before_read=False):
+    host=Host()
+    host.request.update(operation_id='guarded-bridge',candidate={'image':'qualified-candidate'})
+    item=dict(Id='exact-container',Image='old',State=dict(Running=False,Restarting=False),
+        HostConfig={'RestartPolicy':{'Name':'no','MaximumRetryCount':0}},
+        Mounts=[dict(Destination='/var/lib/sentinel',Type='volume',Name='sentinel_sentinel_state')])
+    target=dict(container=item['Id'],image=item['Image'])
+    def change():
+        if changed=='policy':item['HostConfig']['RestartPolicy']['Name']='unless-stopped'
+        elif changed=='running':item['State']['Running']=True
+        elif changed=='restarting':item['State']['Restarting']=True
+        elif changed=='container':item['Id']='another-container'
+        elif changed=='image':item['Image']='another-image'
+    if before_read:change()
+    host.container=lambda _name:deepcopy(item)
+    host.compose=lambda *args:SimpleNamespace(stdout=json.dumps({'services':{'sentinel-shadow':
+        {'environment':{'SENTINEL_PUBLICATION_RECEIPT_KEY':'private-test-key'}}}}).encode())
+    @contextmanager
+    def private_environment(_values):yield '/owner-private-env'
+    host.private_environment=private_environment
+    calls=[]
+    def run(argv,**kwargs):
+        calls.append(argv)
+        if not before_read:change()
+        return SimpleNamespace(stdout=b'{"immutable":"authenticated-barrier"}')
+    host.run=run
+    return host,target,calls
+
+
+@pytest.mark.parametrize('changed',['policy','running','restarting','container','image'])
+def test_recovered_compatibility_barrier_rechecks_hold_after_proof_read(changed):
+    host,target,calls=compatibility_barrier_host(changed=changed)
+    with pytest.raises(model.DeliveryRefused):
+        evidence._compat_barrier(host,{},target)
+    assert len(calls)==1
+
+
+def test_recovered_compatibility_barrier_requires_restart_hold_before_proof_read():
+    host,target,calls=compatibility_barrier_host(changed='policy',before_read=True)
+    with pytest.raises(model.DeliveryRefused,match='RESTART_HOLD_CHANGED'):
+        evidence._compat_barrier(host,{},target)
+    assert not calls
+
+
+def test_exact_stopped_compatibility_barrier_with_restart_hold_is_accepted():
+    host,target,calls=compatibility_barrier_host()
+    assert evidence._compat_barrier(host,{},target)==dict(method='EXACT_B2_KERNEL_BARRIER',
+        acknowledgement={'immutable':'authenticated-barrier'})
+    assert len(calls)==1
+
+
+def test_removing_post_read_inspection_has_a_restart_policy_falsifier(monkeypatch):
+    import inspect
+    source=inspect.getsource(evidence._compat_barrier)
+    before,after=source.split('    value=json.loads(result.stdout)\n',1)
+    after=after.replace("    container=host.container('sentinel-shadow')\n",'',1)
+    scope=dict(vars(evidence))
+    exec(compile(before+'    value=json.loads(result.stdout)\n'+after,'barrier inspection falsifier','exec'),scope)
+    monkeypatch.setattr(evidence,'_compat_barrier',scope['_compat_barrier'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_recovered_compatibility_barrier_rechecks_hold_after_proof_read('policy')
 
 
 def test_probe_uses_effective_shadow_subject_instead_of_release_literals():
