@@ -127,6 +127,76 @@ def test_removing_admission_lock_has_a_falsifier(tmp_path):
         assert_admission_exclusion(tmp_path,remove_guard=True)
 
 
+@pytest.mark.parametrize('args,expected',[
+    ([b'python',b'-m',b'sentinel.shadow_supervisor'],True),
+    ([b'python3',b'-m',b'sentinel.shadow_supervisor'],True),
+    ([b'/usr/local/bin/python3.12',b'-m',b'sentinel.shadow_supervisor'],True),
+    ([b'/sbin/docker-init',b'--',b'python',b'-m',b'sentinel.shadow_supervisor'],False),
+    ([b'python',b'-m',b'sentinel.shadow_supervisor',b'--health'],False),
+    ([b'python',b'-m',b'sentinel.shadow_supervisor',b'--service-health'],False),
+    ([b'python',b'-c',b'sentinel.shadow_supervisor'],False),
+    ([b'python',b'sentinel.shadow_supervisor'],False),
+    ([b'sh',b'-m',b'sentinel.shadow_supervisor'],False),
+    ([b'python',b'-u',b'-m',b'sentinel.shadow_supervisor'],False),
+])
+def test_supervisor_command_requires_exact_direct_module_invocation(args,expected):
+    assert compat._supervisor_command(b'\0'.join(args)+b'\0') is expected
+
+
+def process_commands(monkeypatch,tmp_path,commands):
+    proc=tmp_path/'proc';proc.mkdir()
+    for pid,args in commands.items():
+        directory=proc/str(pid);directory.mkdir()
+        (directory/'cmdline').write_bytes(b'\0'.join(args)+b'\0')
+    original_path=compat.Path
+    monkeypatch.setattr(compat,'Path',lambda value:proc if value=='/proc' else original_path(value))
+    observed=[]
+    def process(pid):
+        observed.append(pid)
+        return dict(pid=pid,state='S',parent=1,start_ticks=pid*100)
+    monkeypatch.setattr(compat,'_process',process)
+    return observed
+
+
+def assert_init_wrapper_is_not_a_supervisor(tmp_path,monkeypatch):
+    observed=process_commands(monkeypatch,tmp_path,{
+        1:[b'/sbin/docker-init',b'--',b'python',b'-m',b'sentinel.shadow_supervisor'],
+        7:[b'python',b'-m',b'sentinel.shadow_supervisor'],
+        8:[b'python',b'-m',b'sentinel.shadow_supervisor',b'--health'],
+        9:[b'python',b'-m',b'sentinel.shadow_supervisor',b'--service-health'],
+    })
+    assert compat._supervisors()['pid']==7
+    assert observed==[7]
+
+
+def test_process_discovery_excludes_docker_init_and_health_checks(tmp_path,monkeypatch):
+    assert_init_wrapper_is_not_a_supervisor(tmp_path,monkeypatch)
+
+
+def test_token_only_matching_has_a_docker_init_falsifier(tmp_path,monkeypatch):
+    def old_token_match(raw):
+        args=raw.split(b'\0')
+        return (b'sentinel.shadow_supervisor' in args
+            and b'--health' not in args and b'--service-health' not in args)
+    monkeypatch.setattr(compat,'_supervisor_command',old_token_match)
+    with pytest.raises(ValueError,match='sole exact predecessor supervisor unavailable'):
+        assert_init_wrapper_is_not_a_supervisor(tmp_path,monkeypatch)
+
+
+@pytest.mark.parametrize('owners',[(),(7,8)])
+def test_zero_or_multiple_direct_supervisors_refuse_before_pidfd_or_signals(tmp_path,monkeypatch,owners):
+    seed(tmp_path)
+    commands={1:[b'/sbin/docker-init',b'--',b'python',b'-m',b'sentinel.shadow_supervisor'],
+        9:[b'python',b'-m',b'sentinel.shadow_supervisor',b'--health']}
+    commands.update({pid:[b'python',b'-m',b'sentinel.shadow_supervisor'] for pid in owners})
+    process_commands(monkeypatch,tmp_path,commands)
+    monkeypatch.setattr(compat.os,'pidfd_open',lambda *args:pytest.fail('opened a pidfd'))
+    monkeypatch.setattr(compat.signal,'pidfd_send_signal',lambda *args:pytest.fail('sent a signal'))
+    with pytest.raises(ValueError,match='sole exact predecessor supervisor unavailable'):
+        bridge(tmp_path)
+    assert not (tmp_path/compat.NAME).exists()
+
+
 @contextmanager
 def private_parent(monkeypatch):
     child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)'],start_new_session=True)

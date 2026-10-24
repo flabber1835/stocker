@@ -58,14 +58,22 @@ def _process(pid):
     return {'pid':pid,'state':fields[0],'parent':int(fields[1]),'start_ticks':int(fields[19])}
 
 
+def _supervisor_command(raw):
+    args = raw.split(b'\0')
+    if args[-1:] == [b'']:
+        args.pop()
+    return (len(args) == 3
+        and args[0].rsplit(b'/',1)[-1] in {b'python',b'python3',b'python3.12'}
+        and args[1:] == [b'-m',b'sentinel.shadow_supervisor'])
+
+
 def _supervisors():
     found = []
     for path in Path('/proc').iterdir():
         if not path.name.isdigit():
             continue
         try:
-            args = (path/'cmdline').read_bytes().split(b'\0')
-            if b'sentinel.shadow_supervisor' in args and b'--health' not in args and b'--service-health' not in args:
+            if _supervisor_command((path/'cmdline').read_bytes()):
                 found.append(_process(int(path.name)))
         except FileNotFoundError:
             continue

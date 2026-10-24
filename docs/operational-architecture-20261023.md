@@ -199,7 +199,12 @@ acknowledgement. Preserve PostgreSQL identity and every existing financial row.
 
 The one-time `b2e308bb` bridge stops admission at a kernel process boundary.
 An exact-image helper identifies the sole single-thread supervisor by PID and
-start ticks, sends SIGSTOP only to that supervisor and observes the stopped
+start ticks. Process discovery accepts only a direct `python`, `python3` or
+`python3.12` executable invocation with exactly `-m sentinel.shadow_supervisor`;
+an absolute interpreter path is allowed. Docker's init wrapper and supervisor
+health-check invocations are not supervisor owners. Zero or multiple direct
+supervisor processes refuse before opening a pidfd or sending any signal.
+The helper sends SIGSTOP only to that supervisor and observes the stopped
 state. It then proves no worker or live descendant, no pending/critical work
 and a fresh authenticated same-incarnation IDLE state. A busy observation
 resumes the unchanged supervisor and refuses; no worker is signalled. After a
