@@ -11,6 +11,7 @@ from sentinel.feed import (
 )
 from sentinel.feed.rolling_contract import CanonicalBar, CanonicalBenchmark, RestartRequirement, digest
 from sentinel.feed.source_authority import SeedCoverageAccumulator, SeedListingProjection
+from sentinel.feed.canonical_transforms import benchmarks, alpaca_bar, sharadar_bar
 
 NORMALIZATION_VERSION = "sentinel.sharadar-rolling-comparison/1"
 CHUNK = "rolling-window"
@@ -44,26 +45,6 @@ def _populate(conn, lease, coverage, *, pulse, subphase, tickers=None, verifier=
                 progress.emit("rolling_identity", "working", subphase=subphase,
                               rows=index, job_id=lease.job_id)
     return counts
-
-
-def benchmarks(window, rows):
-    by_key = {}
-    for row in rows:
-        key = (str(row["date"]), str(row["ticker"]))
-        if key in by_key or key[1] not in {"SPY", "BIL"}:
-            raise ValueError("duplicate or unexpected benchmark identity")
-        by_key[key] = row
-    expected = {(str(day), ticker) for day in window.sessions for ticker in ("SPY", "BIL")}
-    if set(by_key) != expected:
-        raise ValueError("SPY/BIL must cover every session exactly")
-    for day in window.sessions:
-        spy, bil = by_key[(str(day), "SPY")], by_key[(str(day), "BIL")]
-        # Same mandatory BIL fields as the existing dedicated defensive writer.
-        yield CanonicalBenchmark(
-            session=day, spy_total_return=float(spy[_SFP_TOTAL_RETURN_COLUMN]),
-            bil_open_signal=float(bil["open"]), bil_close_signal=float(bil["close"]),
-            bil_close_adjusted=float(bil[_SFP_TOTAL_RETURN_COLUMN]),
-            bil_close_unadjusted=float(bil["closeunadj"]))
 
 
 def build(conn, lease, request, source):
@@ -136,12 +117,7 @@ def _build(conn, lease, request, source):
                 rows, resolve_identity=identity.resolver().resolve, dividends=dividends,
                 authoritative_splits=splits, report=report)
             while batch := list(islice(normalized, rolling_store.BATCH_SIZE)):
-                bars = [CanonicalBar(
-                    security_id=str(item.vendor.security_id), session=item.vendor.session,
-                    ticker=item.vendor.ticker, close_signal=item.close_signal,
-                    close_unadjusted=item.vendor.raw_close, open_unadjusted=item.vendor.raw_open,
-                    volume=item.vendor.volume, split_ratio=item.vendor.split_ratio,
-                    dividend_per_share=item.vendor.dividend_per_share) for item in batch]
+                bars = [sharadar_bar(item) for item in batch]
                 rolling_store.write_bars(conn, candidate, bars)
                 for key in sorted(report.split_no_event_evidence):
                     rolling_store._fold(no_event_hash, key)
@@ -281,25 +257,23 @@ def build_alpaca(conn, lease, request, source):
         expected_publication_version=request.expected_publication_version,
         dependencies_sha256=request.dependencies_sha256)
     jobs.advance(conn, lease, "STAGING", candidate_id=candidate)
+    from sentinel.feed.normalized_layout import SessionBlockWriter
+    writer = SessionBlockWriter(conn, candidate, normalization_version=ALPACA_NORMALIZATION,
+                                calendar_version=calendar.calendar_version())
     count = 0
     with progress.phase("rolling_normalization", job_id=lease.job_id) as counter, \
             closing(_alpaca_rows(conn, lease)) as rows:
-        canonical = (CanonicalBar(
-            security_id=selected[row["ticker"]]["asset_id"],
-            session=row["date"], ticker=row["ticker"],
-            close_signal=float(row["adjusted_close"]),
-            close_unadjusted=float(row["closeunadj"]),
-            open_unadjusted=float(row["open"]), volume=float(row["volume"]),
-            split_ratio=float(splits.get((row['ticker'], row['date']), '1')),
-            dividend_per_share=float(dividends.get((row["ticker"], row["date"]), "0")))
+        canonical = (alpaca_bar(row,asset_id=selected[row["ticker"]]["asset_id"],
+            split_ratio=splits.get((row['ticker'],row['date']),'1'),
+            dividend_per_share=dividends.get((row['ticker'],row['date']),'0'))
             for row in rows if row["ticker"] in admitted
             and row["date"] >= admitted[row["ticker"]])
-        while batch := list(islice(canonical, rolling_store.BATCH_SIZE)):
-            count += rolling_store.write_bars(conn, candidate, batch)
-            jobs.progress(conn, lease, rows=count, bytes_=0)
+        def advanced(rows):
+            jobs.progress(conn, lease, rows=rows, bytes_=0)
             pulse()
-            counter[0] = count
-    rolling_store.write_benchmarks(conn, candidate, benchmarks(request.window, source.sfp))
+            counter[0] = rows
+        count = writer.write_bars(canonical, progress=advanced)
+    writer.write_benchmarks(benchmarks(request.window, source.sfp))
     jobs.advance(conn, lease, "VALIDATING")
     # Derive expected keys from the retained provider prices and the admitted
     # asset map, never from candidate bars. Materialize via SQL: a server-side

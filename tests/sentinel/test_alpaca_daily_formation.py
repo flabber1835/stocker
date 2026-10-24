@@ -8,7 +8,7 @@ import pytest
 from sentinel import schema, shadow_runtime
 from sentinel import rolling_initialization as init, rolling_daily as daily
 from sentinel.core import formation_preview, window_features
-from sentinel.feed import calendar, operational_snapshot as op, rolling_publisher, rolling_builder
+from sentinel.feed import calendar, operational_snapshot as op, publisher_pipeline, rolling_builder
 from sentinel.feed.alpaca_source import AlpacaSource, _bounds
 from sentinel.feed.alpaca_transport import ASSETS, ACTION_URL, BAR_URL
 from sentinel.feed.rolling_contract import CurrentFormationWindow, PriceWindow, digest
@@ -67,7 +67,7 @@ def provider(conn,monkeypatch):
     schema.ensure_schema(conn)
     prices = Prices()
     classifier = FakeClassifier()
-    monkeypatch.setattr(rolling_publisher,'_operational_source',
+    monkeypatch.setattr(publisher_pipeline,'_operational_source',
         lambda window,conn,lease,**kw:AlpacaSource(window,conn,lease,client=prices,
             classifier=classifier,verify_during_coverage=kw['verify_during_coverage']))
     monkeypatch.setattr(rolling_builder,'MIN_ADMITTED_COMMON_STOCKS', 20)

@@ -84,6 +84,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.execution.target_reprojection",
     "sentinel.execution.opening_prices",
     "sentinel.execution.opening_sizing",
+    "sentinel.execution.held_targets",
     "sentinel.execution.numeric",
     "sentinel.feed.action_source",
     "sentinel.feed.actions",
@@ -205,8 +206,8 @@ def data_semantics_source_identity() -> dict[str, object]:
     loader change makes persisted path-dependent state stale instead of
     silently advancing it under new semantics.
     """
-    from sentinel.semantic_source_basis import economic_sources
-    return economic_sources(_DATA_SEMANTICS_MODULES, schema=DATA_SEMANTICS_IDENTITY_SCHEMA)
+    from sentinel.economic_manifest import identity
+    return identity(schema=DATA_SEMANTICS_IDENTITY_SCHEMA)
 
 
 def _as_mapping(value, *, label: str) -> Mapping:
@@ -586,6 +587,7 @@ def build_execution_plan(
         decision_session: date, effective_session: date, *,
         defensive_security: str | None = DEFENSIVE_SECURITY_ID,
         rollout_state: RolloutState | None = None,
+        retained_targets: Mapping[str, Decimal] | None = None,
         ) -> ProductionDecision:
     """Convert the durable current shadow/controller decision into one plan."""
 
@@ -655,6 +657,9 @@ def build_execution_plan(
         sized, target, observation, shadow_equity=shadow_equity, nav=nav,
         exposure=exposure, defensive_weight=defensive_weight,
         defensive_security=defensive_security)
+    from sentinel.execution import held_targets
+    sized = held_targets.apply(sized, targets=retained_targets,
+        canonical_target=target, marks=current_marks)
     basket = desired_basket(sized)
     for entry in target.opening_intents:
         basket[entry.security_id] = Decimal(0)

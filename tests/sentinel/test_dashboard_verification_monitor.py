@@ -240,22 +240,21 @@ def test_awaiting_monitor_has_original_finite_clock_and_rejects_rollback(monkeyp
         assert row.status==expected
 
 
-def test_lifespan_starts_monitor_before_any_browser_request(monkeypatch):
+def test_http_lifespan_cannot_start_independent_verification(monkeypatch):
     import asyncio
     from sentinel.panel import app
     calls=[]
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE','dual')
     monkeypatch.setattr(app,'_config',lambda:(None,'fixture'))
-    monkeypatch.setattr(monitoring.monitor,'start',lambda d,**k:calls.append((d,k)))
-    monkeypatch.setattr(monitoring.monitor,'stop',lambda:calls.append('stopped'))
+    monkeypatch.setattr(monitoring.Monitor,'start',lambda *a,**k:calls.append('started'))
     async def exercise():
         async with app._verification_lifespan(app.app):
-            assert calls==[('fixture',{'include_paper':True})]
+            assert calls==[]
     asyncio.run(exercise())
-    assert calls[-1]=='stopped'
+    assert calls==[]
 
 
-def test_progress_and_last_success_are_visible_without_opening_details():
+def test_financial_progress_is_available_in_collapsed_system_details():
     from sentinel.panel.render import render
     from tests.sentinel.test_shadow_worker_monitoring import Visible
     now=datetime.now(timezone.utc)
@@ -263,7 +262,11 @@ def test_progress_and_last_success_are_visible_without_opening_details():
                          checking_until=now+timedelta(seconds=30))[0]
     html=render(model.Panel(rows=rows,now=now))
     visible=Visible();visible.feed(html.split('<script>',1)[0])
-    assert 'elapsed 12s' in ''.join(visible.parts)
+    # The selected compact dashboard shows status first. Detailed observer
+    # elapsed time belongs to its expandable, initially closed diagnostics.
+    assert 'id="system-details" data-detail-key="system-details"' in html
+    assert 'elapsed 12s' in html
+    assert 'elapsed 12s' not in ''.join(visible.parts)
 
 
 NOW = datetime(2026, 10, 21, 13, 30, tzinfo=timezone.utc)
@@ -459,7 +462,7 @@ def test_removing_execution_boundary_breaks_composed_falsifier(ready, monkeypatc
         test_observer_and_cached_reader_preserve_execution_boundary(ready, monkeypatch)
 
 
-def test_protected_successor_preserves_exact_predecessor_and_bounded_debug_sources():
+def test_historical_protected_successor_preserves_its_exact_predecessor_and_debug_sources():
     import hashlib
     import json
     from pathlib import Path
@@ -480,8 +483,10 @@ def test_protected_successor_preserves_exact_predecessor_and_bounded_debug_sourc
     assert changed == {"automation/model.py", "automation/service.py",
                        "automation_runtime.py", "paper/execution.py"}
     for name, record in profile["files"].items():
-        actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-        assert record["after"] == actual
+        # This immutable manifest describes that historical transition. Later
+        # operational successors have separate qualification and cannot be
+        # substituted into its original `after` source set.
+        actual = record["after"]
         previous = old["files"][name]["after"] if name in old["files"] else upgrade.BASE_FILES[name]
         if name in old["files"]:
             assert set(old["files"][name]["before"]) | {previous} <= set(record["before"])

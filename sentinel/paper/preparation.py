@@ -749,6 +749,9 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     state, certificate.authorization_mode)
                 marks, tickers = _load_marks_and_tickers(
                     conn, state, through_text)
+                from sentinel.execution import held_targets
+                share_basis = held_targets.build_basis(conn, previous=existing_plan,
+                    state=state, binding=binding, rollout=rollout)
                 decision = build_execution_plan(
                     state=state, binding=binding, publication=pinned,
                     account_snapshot=account, observation=observation,
@@ -756,13 +759,15 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     decision_session=through_date,
                     effective_session=date.fromisoformat(
                         calendar.next_session(through_text)),
-                    rollout_state=rollout)
+                    rollout_state=rollout,
+                    retained_targets={sid: Decimal(qty) for sid, qty in share_basis["targets"].items()})
                 if local_resizing and decision.plan.plan_id == existing_plan.plan_id:
                     raise PaperActivationRefused('local window resizing did not produce fresh plan economics')
                 authority = dual_plan_authority.build_authority(
                     plan=decision.plan, shadow_result=dual_result,
                     publication=pinned, account_snapshot=account,
-                    observation=observation, marks=marks, tickers=tickers)
+                    observation=observation, marks=marks, tickers=tickers,
+                    held_share_targets=share_basis)
                 superseded = int(
                     existing_plan is not None
                     and existing_plan.plan_id != decision.plan.plan_id)

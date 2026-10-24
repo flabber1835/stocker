@@ -45,6 +45,27 @@ class InformationalPaperMirrorMismatch(InformationalPaperMirrorRefused):
     """A post-close action correction disproved the transported share units."""
 
 
+def _indexed(conn):
+    from sentinel import mirror_projection
+    from sentinel.operational_catalog import OperationalCatalogRefused
+    try:
+        return mirror_projection.installed(conn)
+    except OperationalCatalogRefused as exc:
+        raise InformationalPaperMirrorRefused(str(exc)) from exc
+
+
+def _projection_call(call, *args, **kwargs):
+    from sentinel.execution import evidence_projection, evidence_schema
+    from sentinel.operational_catalog import OperationalCatalogRefused
+    try:
+        return call(*args,**kwargs)
+    except evidence_projection.EvidenceCoveragePending as exc:
+        raise InformationalPaperMirrorPending(str(exc)) from exc
+    except (evidence_projection.EvidenceCoverageRefused,evidence_schema.EvidenceSchemaRefused,
+            OperationalCatalogRefused) as exc:
+        raise InformationalPaperMirrorRefused(str(exc)) from exc
+
+
 def _canonical(value: Any) -> str:
     try:
         return json.dumps(
@@ -194,6 +215,10 @@ def record_pending(
     })
     result = _insert_once(
         conn, cursor=_pending_cursor(plan.plan_id), value=value)
+    if _indexed(conn):
+        from sentinel import mirror_projection
+        _projection_call(mirror_projection.advance,conn,checked_through=plan.decision_session,
+            publication_version=publication_version)
     if commit:
         conn.commit()
     return result
@@ -281,6 +306,17 @@ def revalidate_all(
     """
     through = (checked_through if isinstance(checked_through, date)
                else date.fromisoformat(str(checked_through)))
+    if _indexed(conn):
+        from sentinel import mirror_projection
+        state=_projection_call(mirror_projection.advance,conn,checked_through=through,
+            publication_version=publication_version)
+        if commit:
+            conn.commit()
+        summary=_projection_call(mirror_projection.require_current,conn,current_frontier=through,
+            current_publication_version=publication_version)
+        return dict(schema=SCHEMA,status=summary['status'],checked_publication_version=int(publication_version),
+            checked_sessions=state['body']['plan_count'],
+            historical_mismatch_count=summary['historical_mismatch_count'],verdict='PAPER_NOT_VERIFIED')
     checked = 0
     mismatches = []
     for pending in _pending_records(conn):
@@ -337,6 +373,10 @@ def require_transport_permitted(
     """Refuse mutation when a due session lacks this publication's recheck."""
     frontier = (current_frontier if isinstance(current_frontier, date)
                 else date.fromisoformat(str(current_frontier)))
+    if _indexed(conn):
+        from sentinel import mirror_projection
+        return _projection_call(mirror_projection.require_current,conn,current_frontier=frontier,
+            current_publication_version=current_publication_version)
     pending_count = 0
     mismatch_count = 0
     for pending in _pending_records(conn):
@@ -379,6 +419,11 @@ def require_current_plan_status(
     if not identity or not _HEX64.fullmatch(fingerprint):
         raise InformationalPaperMirrorRefused(
             "the current automation cycle has no valid plan identity")
+    if _indexed(conn):
+        from sentinel import mirror_projection
+        return _projection_call(mirror_projection.plan_status,conn,plan_id=identity,
+            plan_fingerprint=fingerprint,current_frontier=current_frontier,
+            current_publication_version=current_publication_version)
     pending = _load_row(
         conn, _pending_cursor(identity), status=PENDING)
     if pending is None:

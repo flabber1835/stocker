@@ -1,5 +1,9 @@
 # Sentinel — architecture and build plan
 
+[Persistent account share targets](persistent-account-share-targets.md) keep
+execution quantities stable between strategy and controller allocation events.
+Price-driven weight drift is execution state and never feeds the strategy.
+
 
 [Current-window book formation](current-window-formation.md) restores 126
 broker-free ownership/controller transitions after 299 feature sessions. The
@@ -1410,3 +1414,33 @@ terminal branch finally resolved.
 Nearly all of these are falsifiable. Each should have a test that fails when it
 is violated, and #9, #10 and #11 in particular are the ones a well-meaning
 refactor is most likely to break silently.
+
+
+## Operational identities and read projections
+
+[The October 23 architecture decision](operational-architecture-20261023.md)
+separates the exact full runtime identity from the declared economic
+implementation and from immutable data-generation eligibility. A single exact
+initial extraction witness preserves the existing behavioral book identity;
+changed economic bytes acquire their actual identity and unknown dependency
+edges refuse. Operational changes always retain their actual runtime hashes.
+
+Normalized storage may share identical complete session blocks through an
+immutable physical layout without changing logical snapshot identities or
+source-observation authority. The dashboard consumes independently verified,
+authenticated, finite durable receipts keyed to exact scope revisions and the
+independent DDL epoch. A heartbeat cannot renew financial evidence.
+# Operational identities and read projections
+
+[The October 23 architecture decision](operational-architecture-20261023.md)
+separates the exact full runtime identity from the declared economic
+implementation and from immutable data-generation eligibility. A single exact
+initial extraction witness preserves the existing behavioral book identity;
+changed economic bytes acquire their actual identity and unknown dependency
+edges refuse. Operational changes always retain their actual runtime hashes.
+
+Normalized storage may share identical complete session blocks through an
+immutable physical layout without changing logical snapshot identities or
+source-observation authority. The dashboard consumes independently verified,
+authenticated, finite durable receipts keyed to exact scope revisions and the
+independent DDL epoch. A heartbeat cannot renew financial evidence.

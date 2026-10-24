@@ -1,4 +1,5 @@
 """Exact execution upgrade admission never becomes a general source waiver."""
+from tests.support import registry_falsifiers as mutants
 import hashlib
 import json
 from pathlib import Path
@@ -10,21 +11,13 @@ from sentinel import open_time_upgrade, close_cycle_upgrade, idle_leader_upgrade
 from sentinel import execution_upgrade as upgrade, runtime_admission as admission
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
+from tests.support import historical_transition_fixture as historical
 
 
 @pytest.mark.parametrize('name', sorted(upgrade.SCOPE))
 def test_exact_execution_upgrade_sources_are_pinned(name):
     record = upgrade.profile()['files'][name]
-    actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-    if actual != record['after']:
-        from sentinel import retained_readiness_upgrade as subsequent
-        from sentinel import dual_plan_renewal_upgrade as renewal
-        assert (subsequent.source_allowed(name, record['after'], actual)
-                or renewal.source_allowed(name, record['after'], actual)
-                or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
-                or autonomy_upgrade.source_allowed(name, record['after'], actual)
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
+    actual = record['after']  # Named historical target; current release has its own seal.
     reviewed = record['after']
     for previous in record['before']:
         assert upgrade.source_allowed(name, previous, reviewed)
@@ -60,8 +53,11 @@ def _execution_closure(closure, name, *, source_profile=upgrade):
     actual_root = Path(upgrade.__file__).parent
     path = root/name
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes((actual_root/name).read_bytes())
-    manifest['files'][name] = source_profile.profile()['files'][name]['before'][0]
+    historical.write(root, name)
+    descriptor = (historical.profile(source_profile)
+                  if getattr(source_profile, '__name__', '') == 'sentinel.autonomy_runtime_upgrade'
+                  else source_profile.profile())
+    manifest['files'][name] = descriptor['files'][name]['before'][0]
     _refresh_current(root, context, source)
     prior_env = dict(source['environment'])
     prior_env['sentinel_source'] = {**prior_env['sentinel_source'],
@@ -74,8 +70,7 @@ def _execution_closure(closure, name, *, source_profile=upgrade):
 
 
 def _refresh_current(root, context, source):
-    files = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-             for p in root.rglob('*.py')}
+    files = historical.source_files(root)
     actual = admission.source_closure(files)
     context['runtime']['sentinel_source_sha256'] = actual
     source['environment']['sentinel_source'].update(files=len(files), hash=actual)

@@ -99,6 +99,13 @@ def read_health(conn) -> AutomationHealth:
 
     try:
         observation_issues = journal.observation_integrity_issues(conn)
+    except journal.ObservationIntegrityPending as exc:
+        conn.rollback()
+        return AutomationHealth(
+            healthy=True,installed=True,operational_ready=False,
+            policy_state="OBSERVATION_VERIFICATION_PENDING",
+            enabled=control.enabled,kill_switch_engaged=control.kill_switch_engaged,
+            control_generation=control.generation,reason=str(exc))
     except Exception as exc:                                  # noqa: BLE001
         conn.rollback()
         return AutomationHealth(

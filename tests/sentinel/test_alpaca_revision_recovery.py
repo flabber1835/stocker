@@ -150,13 +150,13 @@ def test_backup_renewal_keeps_ready_candidate_and_does_not_repeat_downloads(conn
 def test_removed_publication_preflight_is_detected(conn, alpaca_path, monkeypatch, capsys):
     """A guard-removal falsifier; mutation exists only in this test process."""
     import inspect
-    from sentinel.feed import rolling_publisher
-    original = inspect.getsource(rolling_publisher._prepare)
+    from sentinel.feed import publisher_pipeline
+    original = inspect.getsource(publisher_pipeline.run)
     guard = 'backup_runtime_authority.require(conn, operation="operational publication preflight")'
     assert guard in original
-    namespace = dict(vars(rolling_publisher))
+    namespace = dict(vars(publisher_pipeline))
     exec(compile(original.replace(guard, 'pass'), '<removed publication preflight>', 'exec'), namespace)
-    monkeypatch.setattr(rolling_publisher, '_prepare', namespace['_prepare'])
+    monkeypatch.setattr(publisher_pipeline, 'run', namespace['run'])
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_backup_renewal_keeps_ready_candidate_and_does_not_repeat_downloads(
             conn, alpaca_path, monkeypatch, capsys)

@@ -22,7 +22,9 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.presentation import describe, CASINO_STAGE, CASINO_ACCENT, CASINO_CSS
+from sentinel.panel.presentation import describe
+from sentinel.panel.overview import overview_html
+from sentinel.panel.styles import CSS
 
 from sentinel.panel.model import (
     FAIL, OK, PENDING, TRIAL_ROW_KEYS, UNKNOWN, WARN, Panel, Row)
@@ -52,126 +54,6 @@ def _ago(delta) -> str:
     return f"{d}d {h}h ago" if h else f"{d}d ago"
 
 
-CSS = """
-:root{
-  --bg:#f6f7f9; --card:#ffffff; --ink:#11161d; --muted:#5d6773; --line:#e3e7ec;
-  --ok:#1a7f4b; --warn:#9a6400; --fail:#b3261e; --pending:#6b7480;
-  --okbg:#e8f5ee; --warnbg:#fdf3e0; --failbg:#fdeceb; --pendingbg:#eef1f4;
-  --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.10);
-}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --bg:#0e1116; --card:#161a21; --ink:#e8edf3; --muted:#98a2b0; --line:#252b34;
-    --ok:#5ed39a; --warn:#e8b45f; --fail:#ff7b72; --pending:#7d8794;
-    --okbg:#12261c; --warnbg:#2a2113; --failbg:#2c1615; --pendingbg:#1b2028;
-    --shadow:0 1px 2px rgba(0,0,0,.4);
-  }
-}
-:root[data-theme="dark"]{
-  --bg:#0e1116; --card:#161a21; --ink:#e8edf3; --muted:#98a2b0; --line:#252b34;
-  --ok:#5ed39a; --warn:#e8b45f; --fail:#ff7b72; --pending:#7d8794;
-  --okbg:#12261c; --warnbg:#2a2113; --failbg:#2c1615; --pendingbg:#1b2028;
-  --shadow:0 1px 2px rgba(0,0,0,.4);
-}
-*{box-sizing:border-box}
-body{
-  margin:0; background:var(--bg); color:var(--ink);
-  font:15px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"SF Pro Text",
-       "Segoe UI",Roboto,sans-serif;
-  -webkit-text-size-adjust:100%;
-  padding:max(16px,env(safe-area-inset-top))
-          max(16px,env(safe-area-inset-right))
-          max(24px,env(safe-area-inset-bottom))
-          max(16px,env(safe-area-inset-left));
-}
-.wrap{max-width:560px;margin:0 auto}
-header{display:block;margin:4px 2px 14px}
-h1{font-size:17px;font-weight:650;letter-spacing:.02em;margin:0}
-.brand{display:flex;align-items:center;gap:10px}
-.brand img{width:42px;height:42px;border-radius:10px;flex:0 0 auto}
-.state{
-  display:inline-block;margin-top:8px;font-size:12px;font-weight:650;letter-spacing:.06em;
-  padding:4px 10px;border-radius:999px;text-transform:uppercase;
-  overflow-wrap:anywhere;
-}
-.state.ok{background:var(--okbg);color:var(--ok)}
-.state.warn{background:var(--warnbg);color:var(--warn)}
-.state.fail{background:var(--failbg);color:var(--fail)}
-.state.pending{background:var(--pendingbg);color:var(--pending)}
-.state.unknown{background:var(--failbg);color:var(--fail)}
-.heartbeat{
-  display:block;margin-top:7px;color:var(--muted);font-size:12px;
-  font-variant-numeric:tabular-nums;letter-spacing:.03em;
-}
-.heartbeat::before{content:"●";color:var(--ok);margin-right:7px}
-.not-current .heartbeat{color:var(--fail);font-weight:650}
-.not-current .heartbeat::before{color:var(--fail)}
-.err{
-  background:var(--failbg);color:var(--fail);border-radius:12px;
-  padding:12px 14px;margin-bottom:12px;font-size:13px;
-}
-.row{
-  background:var(--card);border:1px solid var(--line);border-radius:14px;
-  padding:13px 15px;margin-bottom:10px;box-shadow:var(--shadow);
-  display:grid;grid-template-columns:18px 1fr;gap:2px 11px;
-}
-.dot{grid-row:1/span 3;font-size:13px;line-height:1.5;text-align:center}
-.dot.ok{color:var(--ok)} .dot.warn{color:var(--warn)}
-.dot.fail{color:var(--fail)} .dot.pending{color:var(--pending)}
-.dot.unknown{color:var(--fail)}
-.label{
-  font-size:11px;font-weight:600;letter-spacing:.10em;text-transform:uppercase;
-  color:var(--muted);
-}
-.value{
-  font-size:17px;font-weight:600;line-height:1.3;
-  font-variant-numeric:tabular-nums;overflow-wrap:anywhere;
-}
-.row.fail .value{color:var(--fail)}
-.detail{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
-.age{font-size:11px;color:var(--muted);margin-top:3px}
-.age.stale{color:var(--warn);font-weight:600}
-footer{
-  margin-top:16px;text-align:center;font-size:11px;color:var(--muted);
-  line-height:1.7;
-}
-footer code{font-size:11px}
-details{
-  background:var(--card);border:1px solid var(--line);border-radius:14px;
-  margin:10px 0;box-shadow:var(--shadow);overflow:hidden;
-}
-summary{cursor:pointer;padding:13px 15px;font-weight:650;list-style-position:inside}
-.detail-body{padding:0 15px 14px;overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
-th,td{padding:7px 6px;text-align:left;border-top:1px solid var(--line);vertical-align:top}
-th{color:var(--muted);font-weight:600;letter-spacing:.04em}
-.portfolio-table{min-width:650px;table-layout:auto;overflow-wrap:normal}
-.portfolio-table th,.portfolio-table td{white-space:nowrap;word-break:normal}
-.not-current .row.ok{border-color:var(--fail)}
-.not-current .dot.ok{color:var(--fail)}
-.refreshing-status .row.ok{border-color:var(--warn)}
-.refreshing-status .dot.ok,.refreshing-status .heartbeat{color:var(--warn)}
-.refreshing-status .heartbeat::before{color:var(--warn)}
-.refreshing-status .row.ok .value::before{content:"LAST KNOWN · ";color:var(--warn)}
-.push-card{
-  background:var(--card);border:1px solid var(--line);border-radius:14px;
-  padding:13px 15px;margin:10px 0;box-shadow:var(--shadow);
-}
-.push-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-button{
-  appearance:none;border:1px solid var(--line);border-radius:10px;
-  background:var(--ink);color:var(--card);font:inherit;font-weight:650;
-  min-height:44px;padding:9px 13px;cursor:pointer;
-}
-button.secondary{background:transparent;color:var(--ink)}
-button[hidden]{display:none}
-#push-status{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
-@media (max-width:360px){
-  body{font-size:14px}.row{padding:12px}.value{font-size:16px}
-}
-@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
-"""
-
 
 PUSH_SCRIPT = r"""
 (function(){
@@ -194,7 +76,7 @@ PUSH_SCRIPT = r"""
       return true;
     }
     if (receipt.delivery_status === "FAILED") {
-      message("Test notification failed. Check Alert delivery on the dashboard.");
+      message("Test notification failed. Check Notification delivery on the dashboard.");
       return true;
     }
     if (receipt.delivery_status === "CANCELLED") {
@@ -203,7 +85,7 @@ PUSH_SCRIPT = r"""
     }
     message(receipt.sender_available
       ? "A single test notification is queued; waiting for the push service."
-      : "Test queued, but the notification sender is unavailable. Check Alert delivery on the dashboard.");
+      : "Test queued, but the notification sender is unavailable. Check Notification delivery on the dashboard.");
     return false;
   }
   async function followTest(receipt) {
@@ -228,7 +110,7 @@ PUSH_SCRIPT = r"""
     var sub = await reg.pushManager.getSubscription();
     enable.textContent = sub ? "Send test notification" : "Enable notifications";
     remove.hidden = !sub;
-    message(sub ? "Notifications enabled on this device." : "Notifications are off on this device.");
+    message(sub ? "This browser has a notification subscription. Send a test to check delivery." : "Notifications are off on this device.");
   }
   if (!(window.isSecureContext && "serviceWorker" in navigator &&
         "PushManager" in window && "Notification" in window)) {
@@ -296,9 +178,17 @@ PUSH_SCRIPT = r"""
 """.strip()
 
 
-def _row_html(r: Row, now: datetime) -> str:
+def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False) -> str:
     st = r.effective_status(now)
     label, value, explanation = describe(r, st)
+    # Retained HTML is presentation only. Mutating an OK required-current row
+    # to WARN would make the authority classifier invent a failure.
+    display_status = WARN if refresh_pending and st == OK else st
+    detail = r.detail
+    if refresh_pending:
+        value = 'LAST KNOWN · ' + value.removeprefix('LAST KNOWN · ')
+        explanation = 'LAST KNOWN · not current · ' + explanation
+        detail = 'LAST KNOWN · not current · ' + detail
     stale = r.is_stale(now)
     age = _ago(r.staleness(now))
     age_html = ""
@@ -307,21 +197,26 @@ def _row_html(r: Row, now: datetime) -> str:
         suffix = " · STALE" if stale else ""
         age_html = f'<div class="{cls}">{_esc(age)}{suffix}</div>'
     return (
-        f'<div class="row {st}" id="status-{_esc(r.key)}" data-key="{_esc(r.key)}" data-status="{st}">'
-        f'<div class="dot {st}">{_DOT.get(st, "?")}</div>'
+        f'<div class="row {display_status}" id="status-{_esc(r.key)}" data-key="{_esc(r.key)}" data-status="{display_status}">'
+        f'<div class="dot {display_status}">{_DOT.get(display_status, "?")}</div>'
         f'<div class="label">{_esc(label)}</div>'
         f'<div class="value">{_esc(value)}</div>'
         f'<div class="detail">{_esc(explanation)}{age_html}</div>'
         + _holdings_html(r, now) + _paper_plan_html(r, now) +
         f'<details class="technical" data-detail-key="{_esc(r.key)}"><summary>Technical details</summary>'
-        f'<div class="detail-body">{_esc(r.label)} · {_esc(r.value)}<br>{_esc(r.detail)}</div></details>'
+        f'<div class="detail-body">{_esc(r.label)} · {_esc(r.value)}<br>{_esc(detail)}</div></details>'
         f"</div>"
     )
 
 
 def _holdings_html(row: Row, now: datetime) -> str:
     book = row.shadow_book
-    if book is None or row.effective_status(now) != 'ok':
+    status = row.effective_status(now)
+    historical = (row.status == 'warn' and status == 'warn'
+                  and row.required_current and row.recovery is not None
+                  and row.recovery.phase == 'SOURCE_FRONTIER'
+                  and row.recovery.active(now))
+    if not row.can_show_shadow_book(now):
         return ''
     def number(value, money=False):
         if value is None:
@@ -331,31 +226,43 @@ def _holdings_html(row: Row, now: datetime) -> str:
              number(holding.value, True), f'{holding.weight*100:.2f}%' if holding.weight is not None else 'Unavailable')
             for holding in book.holdings]
     rows.append(('Cash', '', '', number(book.cash, True), f'{book.cash/book.nav*100:.2f}%'))
+    if book.receivables > 0:
+        rows.append(('Dividend receivables (not cash)', '', '',
+                     number(book.receivables, True), f'{book.receivables/book.nav*100:.2f}%'))
     return ('<details class="technical" data-detail-key="shadow-holdings"><summary>View shadow holdings</summary>'
-            '<div class="detail-body"><p>Wealth Core stock-selection book as of ' + _esc(book.session)
+            '<div class="detail-body"><p>'
+            + ('LAST ATTESTED THROUGH ' + _esc(book.session) + ' · CURRENT SESSION NOT VERIFIED. '
+               if historical else '')
+            + 'Unscaled Wealth Core stock-selection book as of ' + _esc(book.session)
             + '. These simulated shares are separate from Alpaca holdings. Book value: '
             + number(book.nav, True) + '. The simulated strategy value includes the controller’s '
-            'stock allocation, Treasury-bill sleeve and transaction costs, so the two totals can differ.</p>'
-            + f'<p>{book.pending_operations} pending operations; these are not filled holdings. '
+            'Core allocation, Treasury-bill sleeve and transaction costs, so the two totals can differ.</p>'
+            + f'<p>{book.pending_operations} pending strategy operations; these are not filled holdings. '
+            'Weights are percentages of this Wealth Core book, not the Alpaca account. '
+            'Dividend receivables can include securities no longer held and are not spending cash. '
             'Unavailable prices are not treated as zero.</p><div style="overflow-x:auto">'
             + _table(('Ticker', 'Quantity', 'Close', 'Value', 'Book weight'), rows, portfolio=True) + '</div></div></details>')
 
 
 def _paper_plan_html(row: Row, now: datetime) -> str:
     plan = row.paper_plan
-    if plan is None or row.effective_status(now) != 'ok':
+    if not row.can_show_paper_plan(now):
         return ''
     def number(value):
         return 'Unavailable' if value is None else format(value,'f')
     rows = [(leg.ticker,leg.action,number(leg.current_quantity),
-             '$'+number(leg.opening_dollars)+' at open' if leg.opening_dollars else number(leg.target_quantity),
-             'Sized at open' if leg.opening_dollars else number(leg.change_quantity)) for leg in plan.legs]
+             '$'+number(leg.opening_dollars)+' budget' if leg.opening_dollars else number(leg.target_quantity),
+             'Sized at execution' if leg.opening_dollars else number(leg.change_quantity)) for leg in plan.legs]
     opened = plan.execute_at.astimezone(ZoneInfo('America/Los_Angeles'))
+    observed = (plan.observation_at.astimezone(ZoneInfo('America/Los_Angeles')).strftime(
+        '%Y-%m-%d at %I:%M:%S %p Pacific') if plan.observation_at else 'Unavailable')
     return ('<details class="technical" data-detail-key="next-paper-plan"><summary>View planned trades</summary>'
         '<div class="detail-body"><p>Trading date: '+_esc(plan.effective_session)+
         ' · scheduled '+_esc(opened.strftime('%I:%M %p Pacific'))+'. Decision close: '+_esc(plan.decision_session)+
-        '. These are proposed changes; opening quotes, corporate actions and fresh broker checks determine final orders.</p>'
-        '<p>Recorded broker shares as of '+_esc(plan.observation_at or 'Unavailable')+
+        '. These are saved targets, not orders or fills. Final orders depend on the selected execution policy, '
+        'corporate actions, and fresh account and funding checks. Targets show shares, or a dollar budget '
+        'sized when execution begins.</p>'
+        '<p>Recorded broker shares as of '+_esc(observed)+
         '. These estimates use that dated snapshot; they are not current broker holdings. No orders have been submitted by this view.</p><div style="overflow-x:auto">'+
         _table(('Ticker','Proposed action','Recorded shares','Target','Proposed share change'),rows,portfolio=True)+
         '</div></div></details>')
@@ -560,21 +467,30 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     if refresh_pending:
         headline_status = FAIL if operational in {FAIL, UNKNOWN} else WARN
         operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
-        rendered_rows = [replace(row, status=WARN if row.effective_status(now) == OK else row.effective_status(now),
-            detail='LAST KNOWN · not current · ' + row.detail) for row in rendered_rows]
-    rows = "".join(_row_html(r, now) for r in rendered_rows)
+    rows = "".join(_row_html(r, now, refresh_pending=refresh_pending) for r in rendered_rows)
+    overview = overview_html(panel, refresh_pending=refresh_pending)
     reasons = []
     for row in rendered_rows:
         status = row.effective_status(now)
         if status in {FAIL, UNKNOWN}:
             label, value, _ = describe(row, status)
-            reasons.append(f'<li><a href="#status-{_esc(row.key)}">'
+            reasons.append(f'<li><a href="#status-{_esc(row.key)}" '
+                           'onclick="document.getElementById(\'system-details\').open=true">'
                            f'{_esc(label)}: {_esc(value)}</a></li>')
     reason_html = ('<section class="status-reasons" aria-label="Checks needing attention">'
                    '<strong>Needs attention</strong><ul>'+''.join(reasons)+'</ul></section>'
                    if reasons else '')
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
+    compact_headline = ({OK: 'System ready', WARN: 'System waiting', FAIL: 'Needs attention'}
+                        .get(headline_status, 'Status unavailable'))
+    if refresh_pending:
+        compact_headline = 'Refreshing status · last known values'
+    elif headline_status == WARN:
+        broker = panel.row('broker')
+        if (broker is not None and broker.effective_status(now)==WARN
+                and broker.recovery is not None and broker.recovery.phase=='BROKER_FILL_SNAPSHOT'):
+            compact_headline = 'Reconciling fills'
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -588,27 +504,29 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/caesars-palace-180.png">
 <title>{_esc(page_name)}</title>
-<style>{CSS}{CASINO_CSS}</style>
+<style>{CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
              data-max-age-seconds="{document_age}">
-{CASINO_STAGE}
 <div class="wrap">
 <header>
   <div class="brand"><img src="/static/caesars-palace-192.png" alt="">
     <h1>{_esc(page_heading)}</h1></div>
-  <span id="operational-state" class="state {headline_status}">{_esc(operational_headline)}</span>
+  <p class="brand-subtitle">Sentinel · PAPER</p>
+  <span id="operational-state" class="state {headline_status}" title="{_esc(operational_headline)}">{_esc(compact_headline)}</span>
   {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
         aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO'}</span>
-  {CASINO_ACCENT}
 </header>
+{errs}
+<div id="portfolio-overview">{overview}</div>
+<details id="system-details" data-detail-key="system-details"><summary>System details</summary><div class="detail-body system-detail-body">
 <details class="mode-guide" data-detail-key="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
-  <p><strong>Your strategy, at a glance.</strong> The simulated portfolio is the strategy’s model book. Formation builds it by simulating earlier trading days; daily updates then carry it forward.</p>
-  <p>Market data comes from Alpaca, with OpenFIGI identifying common stocks. The paper account is separate: it uses simulated money and only trades after activation. A simulated portfolio check does not mean paper orders have been placed.</p>
+  <p><strong>Your strategy, at a glance.</strong> Wealth Core records the unscaled stock-selection book. The controller’s simulated strategy value combines its Core allocation, Treasury-bill sleeve and transaction costs. The Alpaca paper account has its own recorded holdings and value.</p>
+  <p>Alpaca supplies daily prices, corporate actions and listed-asset information. OpenFIGI classifies eligible equity instruments. Formation simulates earlier sessions to build the model book; daily updates carry it forward. A simulated portfolio check does not mean paper orders have been placed.</p>
+  {'<p>Owner-authorized local PAPER operation is active. PR release certification is suspended. Backup creation, restore drills and backup verification are disabled by owner instruction.</p>' if panel.local_paper_mode else ''}
   <p>Green means the check passed. Amber means waiting or review needed. Red means a failed or unreadable check. Open technical details for the precise reason.</p>
 </div></details>
-{errs}
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
   <div class="label">Notifications</div>
   <div id="push-status" aria-live="polite">Checking this device…</div>
@@ -618,6 +536,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   </div>
 </section>
 {rows}{details}
+</div></details>
 <footer>
   as of {_esc(stamp)} · refreshes every {refresh_seconds}s<br>
   This page shows status; it cannot place trades.<br>

@@ -307,61 +307,16 @@ def source_closure(files):
     return h.hexdigest()
 
 
+def _source_files(current):
+    """Read actual executable bytes; historical comparison happens afterward."""
+    return {p.relative_to(current).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in current.rglob('*.py') if '__pycache__' not in p.parts}
+
+
 def prove_compatibility(manifest, checkpoint, context, *, source=None):
     from sentinel import semantic_source_basis as basis
-    from sentinel.economic_migration import profile, legacy_profile
-    economic_profile = profile()
-    legacy_economic_profile = legacy_profile()
-    from sentinel.execution_upgrade import profile as execution_profile
-    execution_records = execution_profile()
-    from sentinel.retained_readiness_upgrade import profile as readiness_profile
-    readiness_records = readiness_profile()
-    from sentinel.dual_plan_renewal_upgrade import profile as renewal_profile
-    renewal_records = renewal_profile()
-    from sentinel.operational_liveness_upgrade import profile as liveness_profile
-    liveness_records = liveness_profile()
-    from sentinel import operational_runtime_upgrade as operational_upgrade
-    operational_profile = operational_upgrade.profile()
-    from sentinel import callback_liveness_upgrade as callback_upgrade
-    callback_profile = callback_upgrade.profile()
-    from sentinel import startup_contention_upgrade as startup_upgrade
-    startup_profile = startup_upgrade.profile()
-    from sentinel import unsent_recovery_upgrade as recovery_upgrade
-    recovery_profile = recovery_upgrade.profile()
-    from sentinel import shadow_ui_upgrade as ui_upgrade
-    ui_profile = ui_upgrade.profile()
-    from sentinel import dashboard_monitor_upgrade as monitor_upgrade
-    monitor_profile = monitor_upgrade.profile()
-    from sentinel import open_time_upgrade
-    open_time_profile = open_time_upgrade.profile()
-    from sentinel import close_cycle_upgrade
-    close_cycle_profile = close_cycle_upgrade.profile()
-    from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
-    autonomy_profile = autonomy_upgrade.profile()
-    from sentinel import native_read_upgrade
-    native_read_profile = native_read_upgrade.profile()
-    from sentinel import clock_sampling_upgrade
-    clock_sampling_profile = clock_sampling_upgrade.profile()
-    from sentinel import idle_leader_upgrade
-    idle_leader_profile = idle_leader_upgrade.profile()
-    from sentinel import opening_latency_upgrade
-    opening_latency_profile = opening_latency_upgrade.profile()
-    from sentinel import protected_cohort_upgrade
-    protected_cohort_profile = protected_cohort_upgrade.profile()
-    profiles = (legacy_economic_profile, economic_profile, execution_records, readiness_records,
-                renewal_records, liveness_records, operational_profile,
-                callback_profile, startup_profile, recovery_profile, ui_profile,
-                monitor_profile, open_time_profile, close_cycle_profile,
-                autonomy_profile, native_read_profile, clock_sampling_profile,
-                idle_leader_profile, opening_latency_profile, protected_cohort_profile)
-
-    def source_allowed(name, previous, actual, records=profiles):
-        for value in records:
-            record = value['files'].get(name)
-            if (record is not None and previous in record['before']
-                    and actual == record['after']):
-                return True
-        return False
+    from sentinel import structural_refactor_source_basis, transition_registry
+    transitions = transition_registry.load()
 
     manifest = SourceManifest.model_validate(manifest)
     source = source or identity.rehearsal_identity()
@@ -372,84 +327,19 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
         raise Refused('RETAINED_SOURCE_MANIFEST_ORIGIN_MISMATCH')
     env = deepcopy(source['environment'])
     current = identity._imported_package_root('sentinel')
-    actual = {p.relative_to(current).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-              for p in current.rglob('*.py') if '__pycache__' not in p.parts}
-    operational_additions = operational_upgrade.additions_allowed(actual)
-    recovery_additions = recovery_upgrade.additions_allowed(actual)
-    ui_additions = ui_upgrade.additions_allowed(actual)
-    monitor_additions = monitor_upgrade.additions_allowed(actual)
-    open_time_additions = open_time_upgrade.additions_allowed(actual)
-    close_cycle_additions = close_cycle_upgrade.additions_allowed(actual)
-    autonomy_additions = autonomy_upgrade.additions_allowed(actual)
-    native_read_additions = native_read_upgrade.additions_allowed(actual)
-    clock_sampling_additions = clock_sampling_upgrade.additions_allowed(actual)
-    idle_leader_additions = idle_leader_upgrade.additions_allowed(actual)
-    opening_latency_additions = opening_latency_upgrade.additions_allowed(actual)
-    protected_cohort_additions = protected_cohort_upgrade.additions_allowed(actual)
-    # Keep the predecessor's atomic addition check intact. Normalize only
-    # members with an exact authenticated successor, leaving its own checker
-    # and every other member subject to the predecessor's original check.
-    opening_predecessor = dict(actual)
-    for name, previous in opening_latency_profile['additions'].items():
-        if source_allowed(name, previous, actual.get(name), (protected_cohort_profile,)):
-            opening_predecessor[name] = previous
-    opening_latency_additions.update(
-        opening_latency_upgrade.additions_allowed(opening_predecessor))
-    # An earlier pinned addition can later receive only its exact reviewed
-    # transition; an unpinned neighboring edit still fails the closure gate.
-    for previous_profile, allowed in ((operational_profile, operational_additions),
-                                     (recovery_profile, recovery_additions),
-                                     (ui_profile, ui_additions),
-                                     (monitor_profile, monitor_additions),
-                                     (open_time_profile, open_time_additions),
-                                     (close_cycle_profile, close_cycle_additions),
-                                     (autonomy_profile, autonomy_additions),
-                                     (clock_sampling_profile, clock_sampling_additions),
-                                     (opening_latency_profile, opening_latency_additions)):
-        allowed.update(name for name, previous in previous_profile['additions'].items()
-                       if (actual.get(name) == previous
-                           or source_allowed(name, previous, actual.get(name), profiles[-9:])))
+    actual = _source_files(current)
     if (source_closure(actual) != context['runtime']['sentinel_source_sha256']
-            or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']
-            or set(manifest.files) - set(actual)
-            or native_read_upgrade.ADDITIONS - set(actual)
-            or clock_sampling_upgrade.ADDITIONS - set(actual)
-            or idle_leader_upgrade.ADDITIONS - set(actual)
-            or opening_latency_upgrade.ADDITIONS - set(actual)
-            or protected_cohort_upgrade.ADDITIONS - set(actual)
-            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions - recovery_additions - ui_additions - monitor_additions - open_time_additions - close_cycle_additions - autonomy_additions - native_read_additions - clock_sampling_additions - idle_leader_additions - opening_latency_additions - protected_cohort_additions
-            or (set(actual) & set(operational_profile['additions'])) - operational_additions
-            or (set(actual) & set(recovery_profile['additions'])) - recovery_additions
-            or (set(actual) & set(ui_profile['additions'])) - ui_additions
-            or (set(actual) & set(monitor_profile['additions'])) - monitor_additions
-            or (set(actual) & set(open_time_profile['additions'])) - open_time_additions
-            or (set(actual) & set(close_cycle_profile['additions'])) - close_cycle_additions
-            or (set(actual) & set(autonomy_profile['additions'])) - autonomy_additions
-            or (set(actual) & set(native_read_profile['additions'])) - native_read_additions
-            or (set(actual) & set(clock_sampling_profile['additions'])) - clock_sampling_additions
-            or (set(actual) & set(idle_leader_profile['additions'])) - idle_leader_additions
-            or (set(actual) & set(opening_latency_profile['additions'])) - opening_latency_additions
-            or (set(actual) & set(protected_cohort_profile['additions'])) - protected_cohort_additions
-            or any(name in actual and actual[name] != record['after']
-                   and not source_allowed(name, record['after'], actual[name], (clock_sampling_profile, idle_leader_profile, opening_latency_profile, protected_cohort_profile))
-                   for name, record in native_read_profile['files'].items())
-            or any(name in actual and actual[name] != record['after']
-                   and not source_allowed(name, record['after'], actual[name], (idle_leader_profile, opening_latency_profile, protected_cohort_profile))
-                   for name, record in clock_sampling_profile['files'].items())
-            or any(name in actual and actual[name] != record['after']
-                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile, protected_cohort_profile))
-                   for name, record in idle_leader_profile['files'].items())
-            or any(name in actual and actual[name] != record['after']
-                   and not source_allowed(name, record['after'], actual[name], (protected_cohort_profile,))
-                   for name, record in opening_latency_profile['files'].items())
-            or any(name in actual and actual[name] != record['after']
-                   for name, record in protected_cohort_profile['files'].items())):
+            or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
+    historical = structural_refactor_source_basis.historical_view(actual)
+    if not transitions.closure_allowed(manifest.files, historical, ADDITIONS):
+        raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
+    administrative = transitions.administrative(ADMINISTRATIVE, ADDITIONS)
     for name, previous in manifest.files.items():
-        if actual[name] == previous or name in (((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE-close_cycle_upgrade.SCOPE) | ADDITIONS) - native_read_upgrade.SCOPE - clock_sampling_upgrade.SCOPE - idle_leader_upgrade.SCOPE - opening_latency_upgrade.SCOPE - protected_cohort_upgrade.SCOPE):
+        if historical[name] == previous or name in administrative:
             continue
         module = SEAMS.get(name)
-        if source_allowed(name, previous, actual[name]):
+        if transitions.source_allowed(name, previous, historical[name]):
             continue
         if module is None:
             raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)

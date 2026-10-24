@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from sentinel.feed import rolling_jobs as jobs, rolling_publisher as publisher
+from sentinel.feed import publisher_pipeline, rolling_jobs as jobs, rolling_publisher as publisher
 from sentinel.feed import rolling_source, sharadar, snapshot_export
 from sentinel.feed.rolling_contract import FormationWindow, digest
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source, retry_now
@@ -777,7 +777,7 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
     from tests.sentinel.test_alpaca_operational_snapshot import FakeClient, FakeClassifier
 
     provider = FakeClient(window=window)
-    monkeypatch.setattr(publisher, "_operational_source",
+    monkeypatch.setattr(publisher_pipeline, "_operational_source",
         lambda observed_window, worker, lease, *, corrections, verify_during_coverage:
             AlpacaSource(observed_window, worker, lease, client=provider, classifier=FakeClassifier(),
                          verify_during_coverage=verify_during_coverage))

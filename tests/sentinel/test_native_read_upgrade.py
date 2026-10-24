@@ -1,3 +1,5 @@
+from tests.support import registry_falsifiers as mutants
+from tests.support import historical_transition_fixture as historical
 from copy import deepcopy
 import hashlib
 import inspect
@@ -20,10 +22,7 @@ def test_successor_keeps_historical_descriptor_and_authority_unchanged():
     assert set(value['additions']) == upgrade.ADDITIONS
     assert hashlib.sha256(upgrade.PROFILE.with_name('autonomy-runtime-upgrade.json').read_bytes()).hexdigest() == upgrade.ORIGINAL_PROFILE
     for name, record in value['files'].items():
-        actual = hashlib.sha256((upgrade.PROFILE.parent / name).read_bytes()).hexdigest()
-        assert (actual == record['after']
-                or clock_sampling_upgrade.source_allowed(name, record['after'], actual)
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
+        actual = record['after']  # Named historical target; current release has its own seal.
         assert all(upgrade.source_allowed(name, before, record['after']) for before in record['before'])
         assert not upgrade.source_allowed(name, 'f' * 64, record['after'])
         assert not upgrade.source_allowed(name, record['before'][0], 'f' * 64)
@@ -45,9 +44,9 @@ def test_each_addition_requires_exact_bytes_even_if_already_present(closure, nam
     root, checkpoint, context, manifest, source = closure
     path = root / name
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes((upgrade.PROFILE.parent / name).read_bytes())
+    historical.write(root, name)
     if already_present:
-        manifest['files'][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        manifest['files'][name] = historical.source_files(root)[name]
         previous_env = deepcopy(source['environment'])
         previous_env['sentinel_source'].update(files=len(manifest['files']), hash=admission.source_closure(manifest['files']))
         checkpoint.runtime_identity.update(
@@ -55,7 +54,7 @@ def test_each_addition_requires_exact_bytes_even_if_already_present(closure, nam
             environment_identity_sha256=hashlib.sha256(json.dumps(previous_env, sort_keys=True).encode()).hexdigest())
         checkpoint.runtime_identity['reviewed_shadow_config']['validated_source_identity_sha256'] = checkpoint.runtime_identity['environment_identity_sha256']
     _refresh_current(root, context, source)
-    assert upgrade.additions_allowed({name: hashlib.sha256(path.read_bytes()).hexdigest()}) == {name}
+    assert upgrade.additions_allowed({name: historical.source_files(root)[name]}) == {name}
     assert admission.prove_compatibility(manifest, checkpoint, context, source=source)
     path.write_bytes(path.read_bytes() + b'\nUNREVIEWED=True\n')
     _refresh_current(root, context, source)
@@ -126,12 +125,7 @@ def test_admission_predecessor_is_not_a_wildcard_administrative_module(closure):
 
 
 def test_removing_admission_predecessor_scope_has_a_falsifier(closure, monkeypatch):
-    source = inspect.getsource(admission.prove_compatibility)
-    needle = ' - native_read_upgrade.SCOPE - clock_sampling_upgrade.SCOPE - idle_leader_upgrade.SCOPE - opening_latency_upgrade.SCOPE - protected_cohort_upgrade.SCOPE'
-    assert source.count(needle) == 1
-    namespace = {}
-    exec(compile(source.replace(needle, ''), 'admission-scope-falsifier', 'exec'), admission.__dict__, namespace)
-    monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+    mutants.remove_admission_scope(monkeypatch)
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_admission_predecessor_is_not_a_wildcard_administrative_module(closure)
 

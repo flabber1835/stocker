@@ -1,5 +1,13 @@
 # Sentinel — the execution and recovery contract
 
+[Persistent account share targets](persistent-account-share-targets.md) supersede
+daily resizing for continuing episodes at unchanged controller exposure. The
+account target remains durable through partial fills and restarts.
+
+[Paper fill notification recovery](paper-fill-notification-recovery.md) permits
+notification-only receipts from exact, account-bound native execution activities
+without changing the financial fill ledger or its completeness requirements.
+
 [Protected cohort continuation](protected-cohort-continuation.md) narrowly
 permits positively reconciled existing protected cohorts to finish unsent legs
 under the original basis and cutoff while known DAY BUYs remain working.
@@ -2386,12 +2394,26 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     notification contract in `docs/sentinel-operator-monitoring.md`. Green is
     current and valid, amber has bounded reviewed automatic recovery, and red
     requires an operator. Green and recovery-to-green never send a push.
-66  A fill notification is derived only from one immutable `sentinel_fills`
+66  A fill notification is derived from one immutable `sentinel_fills`
     row joined to its immutable command identity. Crash reconstruction uses the
     same fill key, so each partial fill becomes one logical alert without making
     broker polling or the panel an execution input. A broker-native activity
     identity is account-global: observing its fill key under a different broker
     order is contradictory evidence and refuses the complete journal unit.
+    Owner-authorized local PAPER may instead retain an exact native execution
+    receipt in the notification outbox under the same identity. It grants no
+    financial fill-ledger, completeness, cash, or performance authority.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.
+# Incremental operational evidence coverage
+
+[The October 23 operational extension](operational-architecture-20261023.md)
+adds authenticated, account-bound observation and mirror coverage. Explicit
+quiescent bootstrap verifies historical evidence in bounded resumable pages.
+Routine checks authenticate that prefix and verify only a contiguous bounded
+change suffix under the existing writer transaction. Source mutations, missing
+tracking, schema changes and independent DDL-epoch drift withdraw that coverage.
+UNKNOWN outcomes and immutable order identities retain their existing meanings.
+The original independent full audit remains a qualification oracle; ordinary
+reads do not silently rebuild or reseal changed evidence.
