@@ -44,9 +44,13 @@ exactly once and defers any remaining new submissions to the original wake.
 Verify the actual current-profile PostgreSQL evidence: validated account-bound
 order observations/provenance, the exact-key partial-order witness needed to
 resolve UNKNOWN and the durable command event progression from one partially
-filled share to the original full quantity. A final positive order already in
-the ordinary snapshot needs no additional exact-key lookup; validate its final
-order/position witness without manufacturing another read.
+filled share to the original full quantity. A final positive order may be in
+the ordinary snapshot or in an account-validated exact-key lookup if terminal
+enumeration omitted it. Accept either canonical positive witness with the same
+complete identity/economics checks and accompanying position. Never require or
+manufacture a particular lookup route. Small direct tests and an in-memory
+guard-removal falsifier establish both accepted routes and refusal when neither
+contains a final positive witness before the composed process campaign runs.
 Check the same account, command/order/asset identity, original quantity, limit,
 DAY terms and cumulative average against the independent provider. The current
 dual PAPER recovery deliberately observes orders/positions without promoting

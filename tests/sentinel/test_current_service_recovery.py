@@ -38,6 +38,37 @@ from tests.support.current_service_faults import (ServiceProxyTransport, assert_
     wait_until, whole_service_process)
 
 
+def _require_final_order_witness(ordinary_sequences, exact_sequences):
+    """Positive canonical evidence is required; its lookup route is incidental."""
+    sequences = set(ordinary_sequences) | set(exact_sequences)
+    assert sequences, 'final positive order witness is missing from both canonical routes'
+    return sequences
+
+
+@pytest.mark.parametrize('ordinary,exact', [([3], []), ([], [3]), ([3], [4])])
+def test_final_order_witness_accepts_either_existing_canonical_route(ordinary, exact):
+    assert _require_final_order_witness(ordinary, exact) == set(ordinary) | set(exact)
+
+
+def test_final_order_witness_refuses_missing_both_routes():
+    with pytest.raises(AssertionError, match='missing from both'):
+        _require_final_order_witness([], [])
+
+
+def test_final_order_witness_falsifier_observes_removed_positive_evidence_guard(monkeypatch):
+    test_final_order_witness_refuses_missing_both_routes()
+    tree = ast.parse(inspect.getsource(_require_final_order_witness))
+    function = tree.body[0]
+    guards = [node for node in function.body if isinstance(node, ast.Assert)]
+    assert len(guards) == 1
+    function.body.remove(guards[0])
+    namespace = {}
+    exec(compile(ast.fix_missing_locations(tree), '<final-order-evidence-mutant>', 'exec'), namespace)
+    monkeypatch.setitem(globals(), '_require_final_order_witness', namespace['_require_final_order_witness'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_final_order_witness_refuses_missing_both_routes()
+
+
 @pytest.mark.parametrize('changed', [
     {'pid': 1}, {'parent_pid': 1}, {'state': 'Z'}, {'state': 'X'},
     {'start_ticks': 0}, {'start_ticks': 2},
@@ -333,7 +364,7 @@ def test_current_whole_service_restart_takes_over_real_lease_without_reposting_u
             assert cumulative == sorted(cumulative) and max(cumulative) == original.quantity
 
             partial_witnesses, final_witnesses = [], []
-            exact_partial_witnesses, ordinary_final_witnesses = [], []
+            exact_partial_witnesses, ordinary_final_witnesses, exact_final_witnesses = [], [], []
             sequences = conn.execute('SELECT seq FROM sentinel_observations ORDER BY seq').fetchall()
             assert 0 < len(sequences) <= 128, 'bounded fresh private observation history'
             for (sequence,) in sequences:
@@ -370,10 +401,14 @@ def test_current_whole_service_restart_takes_over_real_lease_without_reposting_u
                     elif witnessed['state'] == 'FILLED':
                         assert filled == original.quantity and positions[original.security_id] == original.quantity
                         final_witnesses.append(sequence)
-                        if not exact:
+                        if exact:
+                            exact_final_witnesses.append(sequence)
+                        else:
                             ordinary_final_witnesses.append(sequence)
             assert partial_witnesses and final_witnesses
-            assert exact_partial_witnesses and ordinary_final_witnesses
+            assert exact_partial_witnesses
+            assert _require_final_order_witness(ordinary_final_witnesses,
+                exact_final_witnesses) == set(final_witnesses)
             assert min(final_witnesses) > min(partial_witnesses)
             assert rolling_checkpoint.read(conn).model_dump(by_alias=True) == origin
             conn.rollback()
