@@ -10,6 +10,7 @@ from sentinel import open_time_upgrade, close_cycle_upgrade, idle_leader_upgrade
 from sentinel import retained_readiness_upgrade as upgrade, runtime_admission as admission
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
+from tests.support import historical_transition_fixture as historical
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
 
 
@@ -49,7 +50,8 @@ def test_exact_source_upgrade_requires_full_authenticated_origin_and_environment
 def test_neighboring_acquisition_guard_change_still_refuses(closure):
     root, checkpoint, context, manifest, source = _execution_closure(closure, 'feed/rolling_go_inputs.py', source_profile=upgrade)
     path = root/'feed/rolling_go_inputs.py'
-    raw = path.read_text()
+    raw = (Path(upgrade.__file__).parent/'feed/rolling_go_inputs.py').read_text()
+    historical.require_current_source('feed/rolling_go_inputs.py', hashlib.sha256(raw.encode()).hexdigest())
     assert 'if publication.chain_gaps(conn):' in raw
     path.write_text(raw.replace('if publication.chain_gaps(conn):', 'if False:'))
     _refresh_current(root, context, source)

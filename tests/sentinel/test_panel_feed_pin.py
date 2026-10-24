@@ -103,7 +103,7 @@ def test_full_feed_projection_recovers_or_stays_red_without_erasing_ingest(monke
     original = sources._feed_status_snapshot
     monkeypatch.setattr(sources, '_feed_status_snapshot', lambda conn: original(
         conn, clock=clock, sleep=clock.sleep))
-    rows, errors = sources._feed_rows('fixture')
+    rows, errors = sources._feed_rows('dbname=fixture')
     feed, ingest = rows
     assert not errors and ingest.status == model.OK and conn.closed
     assert feed.status == (model.UNKNOWN if persistent else model.OK)

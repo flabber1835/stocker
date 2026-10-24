@@ -375,23 +375,45 @@ def test_explicit_dispatch_keeps_historical_reference_out_of_quote_port(monkeypa
 
 
 class ReferenceConnection:
-    def __init__(self, stock_rows, bil_rows=None):
+    def __init__(self, stock_rows, bil_rows=None, *, installation_authority=False):
         self.stock_rows = stock_rows
         self.bil_rows = [(100,)] if bil_rows is None else bil_rows
         self.calls = []
+        self.catalog_calls = []
+        self.installation_authority = installation_authority
     def cursor(self):
         return self
     def __enter__(self):
         return self
     def __exit__(self, *_):
         pass
-    def execute(self, sql, params):
-        self.calls.append((sql, params))
+    def execute(self, sql, params=()):
         assert sql.startswith("SELECT ")
+        # This source double represents legacy rows with no installed optional
+        # normalized layout. Exercise its real read-only catalog guard.
+        if sql.startswith(('SELECT count(*) FROM pg_class ',
+                           'SELECT count(*) FROM pg_proc ',
+                           'SELECT count(*) FROM pg_trigger ',
+                           'SELECT count(*) FROM pg_event_trigger ')):
+            self.catalog_calls.append((sql, params))
+            self.rows = [(0,)]
+            return self
+        if sql == "SELECT to_regclass('public.sentinel_processed_sessions')":
+            self.catalog_calls.append((sql, params))
+            self.rows = [(None,)]
+            return self
+        if sql == "SELECT to_regprocedure('public.sentinel_operational_installation_guard()') IS NOT NULL":
+            self.catalog_calls.append((sql, params))
+            self.rows = [(self.installation_authority,)]
+            return self
         assert "close_unadjusted" in sql
+        self.calls.append((sql, params))
         self.rows = self.bil_rows if "benchmark" in sql else list(self.stock_rows)
+        return self
     def fetchall(self):
         return self.rows
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
 
 
 def source_fixture(monkeypatch, plan):
@@ -421,10 +443,13 @@ def test_source_factory_re_reads_raw_rows_and_revalidation_detects_price_edit(mo
     pub = source_fixture(monkeypatch, plan)
     conn = ReferenceConnection([("SEC-AAA", "AAA", 100), ("SEC-BBB", "BBB", 100)])
     refs = limits.build_references(conn, plan=plan, projection=projection)
+    catalog_reads = len(conn.catalog_calls)
+    assert catalog_reads > 0
     result = limits.resolve_protected(state, plan, projection, refs, limits.ProtectedLimitPolicy(100))
     select(monkeypatch)
     assert limits.revalidate_references(conn, plan=plan, projection=result) == refs
     assert len(conn.calls) == 4
+    assert len(conn.catalog_calls) > catalog_reads
     assert len(pub.authority_reads) == 2  # Fresh canonical context on each invocation.
     conn.stock_rows[0] = ("SEC-AAA", "AAA", 101)
     with pytest.raises(projections.TargetProjectionRefused, match="changed"):
@@ -439,6 +464,16 @@ def test_source_factory_refuses_publication_drift_before_raw_read(monkeypatch):
     with pytest.raises(projections.TargetProjectionRefused, match="publication"):
         limits.build_references(conn, plan=plan, projection=projection)
     assert conn.calls == []
+
+
+def test_source_factory_refuses_lost_installed_layout_before_raw_read(monkeypatch):
+    from sentinel.operational_catalog import OperationalCatalogRefused
+    _state, plan, projection, _refs = protected_case()
+    source_fixture(monkeypatch, plan)
+    conn = ReferenceConnection([], installation_authority=True)
+    with pytest.raises(OperationalCatalogRefused, match='OPERATIONAL_INSTALLED_COMPONENT_LOST'):
+        limits.build_references(conn, plan=plan, projection=projection)
+    assert conn.catalog_calls and conn.calls == []
 
 
 def test_source_factory_refuses_duplicate_or_rebound_identity(monkeypatch):

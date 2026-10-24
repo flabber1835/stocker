@@ -51,7 +51,11 @@ def test_installed_marker_requires_even_a_missing_component(component, monkeypat
     monkeypatch.setattr(op, 'installation', lambda conn, **kw: {'installed': True})
     component.require_schema = lambda *args, **kwargs: False
     with pytest.raises(op.OperationalSchemaRefused, match='COMPONENT_ABSENT'):
-        op.legacy_catalog(object(), ({'sentinel_processed_sessions': ('r',)}, {}, {}, {}, {}))
+        op.legacy_catalog(object(), (
+            {'sentinel_processed_sessions': ('r', 'p', False, False, False)},
+            {'sentinel_processed_sessions': {
+                'cursor_name': ('text', True), 'session': ('date', True),
+                'state': ('jsonb', False)}}, {}, {}, {}))
 
 
 def test_pure_predecessor_catalog_is_unchanged(component):

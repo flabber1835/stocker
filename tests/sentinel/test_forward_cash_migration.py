@@ -6,6 +6,7 @@ import hashlib
 import pytest
 from sentinel import economic_migration as migration
 from sentinel.feed.rolling_contract import digest
+from tests.support import historical_transition_fixture as historical
 
 
 def strategies():
@@ -56,24 +57,16 @@ def test_controller_and_wealth_model_cannot_migrate_as_cash_policy(field):
 
 
 def test_reviewed_source_profile_accepts_only_its_exact_bytes():
-    from sentinel import (
-        execution_upgrade, startup_contention_upgrade, open_time_upgrade,
-        close_cycle_upgrade, protected_cohort_upgrade,
-    )
     root = Path(migration.__file__).parent
     profile = migration.profile()
     for name, item in profile['files'].items():
         actual = hashlib.sha256((root/name).read_bytes()).hexdigest()
+        historical.require_current_source(name, actual)
         if actual != item['after']:
-            assert (execution_upgrade.source_allowed(name, item['after'], actual)
-                    or startup_contention_upgrade.source_allowed(
-                            name, item['after'], actual)
-                    or open_time_upgrade.source_allowed(name, item['after'], actual)
-                    or close_cycle_upgrade.source_allowed(name, item['after'], actual)
-                    or protected_cohort_upgrade.source_allowed(
-                            name, item['after'], actual)), name
             assert not migration.source_allowed(name, item['before'][0], actual)
-        assert migration.source_allowed(name, item['before'][0], item['after'])
+        # The old policy adapter's named historical target remains exact;
+        # the complete actual current package was independently checked above.
+        assert all(migration.source_allowed(name, before, item['after']) for before in item['before'])
         assert not migration.source_allowed(name, 'f'*64, actual)
         assert not migration.source_allowed(name, item['before'][0], 'f'*64)
     assert not migration.source_allowed('unknown.py', 'a'*64, 'b'*64)

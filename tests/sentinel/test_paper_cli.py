@@ -1000,6 +1000,9 @@ def attended_published_database(tmp_path_factory):
         patch.setattr(operational_snapshot, "_now", lambda: ATTENDED_NOW)
         try:
             store.migrate_schema(connection)
+            from sentinel.feed import normalized_layout, generation_admission
+            normalized_layout.install(connection)
+            generation_admission.install(connection)
             schema.ensure_schema(connection)
             job = operational_snapshot.enqueue(connection,
                 strategy_sha256=digest("order-date-component-source"),

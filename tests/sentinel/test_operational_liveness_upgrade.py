@@ -32,19 +32,12 @@ from tests.sentinel.test_rolling_retained_runtime_activation import (
 def test_only_exact_operational_source_transitions_are_allowed(name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
+    historical.require_current_source(name, actual)
+    reviewed = historical.target()[name]
+    assert (reviewed == record['after'] or historical.transition_registry.load().source_allowed(
+        name, record['after'], reviewed))
     if actual != record['after']:
-        assert (subsequent.source_allowed(name, record['after'], actual)
-                or callback_upgrade.source_allowed(name, record['after'], actual)
-                or startup_upgrade.source_allowed(name, record['after'], actual)
-                or recovery_upgrade.source_allowed(name, record['after'], actual)
-                or monitoring_upgrade.source_allowed(name, record['after'], actual)
-                or dashboard_upgrade.source_allowed(name, record['after'], actual)
-                or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
-                or autonomy_upgrade.source_allowed(name, record['after'], actual)
-                or clock_sampling_upgrade.source_allowed(name, record['after'], actual)
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual)
-                or (opening_latency_upgrade.source_allowed(name, record['after'], actual) or protected_cohort_upgrade.source_allowed(name, record['after'], actual)))
+        assert not upgrade.source_allowed(name, record['before'][0], actual)
     assert upgrade.source_allowed(name, record['before'][0], record['after'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
@@ -78,6 +71,10 @@ def test_exact_transition_requires_authenticated_origin_and_environment(closure,
     ('e9788eb7', 'b2275d003077e4e2b778477c5877145d4a9187ddba7880212f762561177429cb'),
 ])
 def test_complete_historical_source_manifest_is_admitted(closure, monkeypatch, revision, fixture_sha):
+    actual_root = Path(upgrade.__file__).parent
+    actual_current = {p.relative_to(actual_root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                      for p in actual_root.rglob('*.py') if '__pycache__' not in p.parts}
+    historical.require_current_release(observed=actual_current)
     fixture_root, checkpoint, context, _, source_value = closure
     raw = (Path(__file__).parent/'fixtures/retained-source-history'/(revision+'.json')).read_bytes()
     assert hashlib.sha256(raw).hexdigest() == fixture_sha
@@ -180,31 +177,16 @@ def test_actual_formed_book_upgrade_restarts_without_reformation_or_reacquisitio
 def test_operational_runtime_transition_is_exact_and_authenticated(closure, name):
     record = subsequent.profile()['files'][name]
     actual = hashlib.sha256((Path(subsequent.__file__).parent/name).read_bytes()).hexdigest()
+    historical.require_current_source(name, actual)
+    reviewed = historical.target()[name]
+    assert (reviewed == record['after'] or historical.transition_registry.load().source_allowed(
+        name, record['after'], reviewed))
     if actual != record['after']:
-        assert (callback_upgrade.source_allowed(name, record['after'], actual)
-                or startup_upgrade.source_allowed(name, record['after'], actual)
-                or recovery_upgrade.source_allowed(name, record['after'], actual)
-                or monitoring_upgrade.source_allowed(name, record['after'], actual)
-                or dashboard_upgrade.source_allowed(name, record['after'], actual)
-                or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
-                or autonomy_upgrade.source_allowed(name, record['after'], actual)
-                or clock_sampling_upgrade.source_allowed(name, record['after'], actual)
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual)
-                or (opening_latency_upgrade.source_allowed(name, record['after'], actual) or protected_cohort_upgrade.source_allowed(name, record['after'], actual)))
+        assert not subsequent.source_allowed(name, record['before'][0], actual)
     for previous in record['before']:
-        assert (subsequent.source_allowed(name, previous, actual)
-                or callback_upgrade.source_allowed(name, previous, actual)
-                or startup_upgrade.source_allowed(name, previous, actual)
-                or recovery_upgrade.source_allowed(name, previous, actual)
-                or monitoring_upgrade.source_allowed(name, previous, actual)
-                or dashboard_upgrade.source_allowed(name, previous, actual)
-                or open_time_upgrade.source_allowed(name, previous, actual)
-                or close_cycle_upgrade.source_allowed(name, previous, actual)
-                or autonomy_upgrade.source_allowed(name, previous, actual)
-                or clock_sampling_upgrade.source_allowed(name, previous, actual)
-                or idle_leader_upgrade.source_allowed(name, previous, actual)
-                or (opening_latency_upgrade.source_allowed(name, previous, actual) or protected_cohort_upgrade.source_allowed(name, previous, actual)))
+        # The old adapter is evaluated at its authenticated named target;
+        # complete current executable acceptance was independently checked above.
+        assert subsequent.source_allowed(name, previous, record['after'])
         assert not subsequent.source_allowed(name, previous, 'f'*64)
     assert not subsequent.source_allowed(name, 'f'*64, actual)
     root, checkpoint, context, manifest, source_value = _execution_closure(
@@ -225,9 +207,11 @@ def test_operational_runtime_transition_is_exact_and_authenticated(closure, name
 def test_new_observer_requires_exact_pin_even_in_a_retained_manifest(closure, already_present):
     root, checkpoint, context, manifest, source_value = closure
     name = 'panel/authority_reader.py'
+    actual = hashlib.sha256((Path(subsequent.__file__).parent/name).read_bytes()).hexdigest()
+    historical.require_current_source(name, actual)
     path = root/name
     path.parent.mkdir()
-    path.write_bytes((Path(subsequent.__file__).parent/name).read_bytes())
+    historical.write(root, name, expected=subsequent.profile()['additions'][name])
     _refresh_current(root, context, source_value)
     assert admission.prove_compatibility(manifest, checkpoint, context, source=source_value)
     path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_OBSERVER = True\n')

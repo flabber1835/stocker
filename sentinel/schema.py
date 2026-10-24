@@ -1478,8 +1478,11 @@ def _read_catalog(cur):
 def _read_runtime_catalog(cur):
     """Preserve the historical catalog witness after exact extension checks."""
     catalog = _read_catalog(cur)
-    from sentinel.operational_schema import legacy_catalog
-    return legacy_catalog(cur.connection, catalog)
+    from sentinel.operational_schema import InstallationCatalogRefused, legacy_catalog
+    try:
+        return legacy_catalog(cur.connection, catalog)
+    except InstallationCatalogRefused as exc:
+        raise _operator_refusal(str(exc)) from exc
 
 
 def _behavioral_relations(relations) -> set[str]:

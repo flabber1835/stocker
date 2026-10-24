@@ -13,6 +13,7 @@ from sentinel import open_time_upgrade, close_cycle_upgrade
 from sentinel import callback_liveness_upgrade as upgrade, runtime_admission as admission
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
+from tests.support import historical_transition_fixture as historical
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
 from tests.sentinel.test_rolling_retained_runtime_activation import (
     conn, pg, source, ready, operational_source, executable)
@@ -24,21 +25,12 @@ from tests.sentinel.test_operational_liveness_upgrade import (
 def test_callback_transition_is_exact_and_neighbor_change_refuses(closure, name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
+    historical.require_current_source(name, actual)
+    reviewed = historical.target()[name]
+    assert (reviewed == record['after'] or historical.transition_registry.load().source_allowed(
+        name, record['after'], reviewed))
     if actual != record['after']:
-        from sentinel.startup_contention_upgrade import source_allowed
-        from sentinel.operational_runtime_upgrade import source_allowed as subsequent
-        from sentinel.unsent_recovery_upgrade import source_allowed as recovery
-        from sentinel.shadow_ui_upgrade import source_allowed as monitoring
-        from sentinel.dashboard_monitor_upgrade import source_allowed as dashboard
-        assert (source_allowed(name, record['after'], actual) or subsequent(name, record['after'], actual)
-                or recovery(name, record['after'], actual) or monitoring(name, record['after'], actual)
-                or dashboard(name, record['after'], actual)
-                or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
-                or autonomy_upgrade.source_allowed(name, record['after'], actual)
-                or clock_sampling_upgrade.source_allowed(name, record['after'], actual)
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual)
-                or (opening_latency_upgrade.source_allowed(name, record['after'], actual) or protected_cohort_upgrade.source_allowed(name, record['after'], actual)))
+        assert not upgrade.source_allowed(name, record['before'][0], actual)
     assert all(upgrade.source_allowed(name, previous, record['after']) for previous in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
@@ -60,7 +52,7 @@ def test_callback_transition_is_exact_and_neighbor_change_refuses(closure, name)
 
 
 def test_complete_preceding_release_source_is_authenticated(closure, monkeypatch):
-    _, checkpoint, context, _, value = closure
+    fixture_root, checkpoint, context, _, value = closure
     raw = (Path(__file__).parent/'fixtures/retained-source-history/f52301f2.json').read_bytes()
     assert hashlib.sha256(raw).hexdigest() == 'a3607d47a07375793f771a118b502a2abde3bc2330acb63ff8cf09deb9a027d7'
     manifest = json.loads(raw)
@@ -68,8 +60,12 @@ def test_complete_preceding_release_source_is_authenticated(closure, monkeypatch
     root = Path(upgrade.__file__).parent
     actual = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in root.rglob('*.py') if '__pycache__' not in path.parts}
+    historical.require_current_release(observed=actual)
+    root = fixture_root / 'complete-callback-historical-target'
+    historical_actual = historical.complete_target(root)
     current_env = value['environment']
-    current_env['sentinel_source'].update(path=str(root), files=len(actual), hash=admission.source_closure(actual))
+    current_env['sentinel_source'].update(path=str(root), files=len(historical_actual),
+        hash=admission.source_closure(historical_actual))
     old_env = deepcopy(current_env)
     old_env['sentinel_source'].update(files=len(manifest['files']), hash=admission.source_closure(manifest['files']))
     old_sha = hashlib.sha256(json.dumps(old_env, sort_keys=True).encode()).hexdigest()

@@ -210,10 +210,14 @@ def test_equivalence_manifest_covers_every_canonical_definition():
 
 
 @pytest.mark.parametrize('definition,owner', [
+    ('_local_window_resizing', 'preparation'),
     ('prepare_paper_plan', 'preparation'),
+    ('_target_projection_or_refuse', 'targets'),
     ('_execute_current_paper_plan', 'execution'),
     ('recover_automated_paper_cycle', 'recovery'),
     ('_validate_automation_grant', 'validation'),
+    ('_validate_broker_grant', 'validation'),
+    ('_protected_allocation_or_refuse', 'validation'),
     ('_opening_resolution_freshness_or_refuse', 'execution'),
 ])
 def test_paper_delta_registry_rejects_an_unreviewed_canonical_fingerprint(

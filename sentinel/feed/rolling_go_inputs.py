@@ -7,7 +7,7 @@ from statistics import median
 from sentinel import rolling_checkpoint, schema
 from sentinel.core.rolling_inputs import cold_start_inputs, readiness_inputs, summarize_readiness
 from sentinel.feed import calendar, operational_snapshot as snapshots, publication
-from sentinel.feed import preparation_wait, rolling_jobs, runtime_schema
+from sentinel.feed import preparation_wait, rolling_jobs, runtime_schema, writer_schedule
 from sentinel.feed.rolling_contract import digest
 from sentinel.feed.readiness_impl import Readiness, PASS, FAIL, MIN_FRONTIER_POPULATION_RATIO
 from sentinel.feed.authority import MIN_FRONTIER_DOMAIN_COVERAGE
@@ -192,8 +192,9 @@ def prepare(conn, *, target_session, budget_seconds=3600, resume_job_id=None,
         require_first_deployment(conn)
         return _prepare(conn, target_session=target_session, budget_seconds=budget_seconds,
                         wait=True, resume_job_id=resume_job_id, absolute_deadline=absolute_deadline)
-    except BaseException:
-        conn.rollback()
+    except BaseException as exc:
+        if not writer_schedule.connection_discarded(exc):
+            conn.rollback()
         raise
 
 
@@ -259,6 +260,7 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
                 raise RollingGoRefused("ROLLING_PREPARATION_PUBLICATION_CHANGED")
         conn.commit()
         return {"schema": SCHEMA, "status": "PUBLISHED", **binding}
-    except BaseException:
-        conn.rollback()
+    except BaseException as exc:
+        if not writer_schedule.connection_discarded(exc):
+            conn.rollback()
         raise

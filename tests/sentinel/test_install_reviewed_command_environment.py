@@ -149,11 +149,12 @@ def test_real_installer_adapter_preserves_narrowed_reviewed_environment(tmp_path
     obj.commit, obj.reviewed_validation = review.git_commit, review
     obj.phase = lambda _: None
     reads = []
+    reviewed_root = install.go.ROOT if stage == 'causal' else deploy.ROOT
     def command(argv, **kwargs):
         if argv[:2] == ['docker', 'rm']:
             return subprocess.CompletedProcess(argv, 0, stdout='', stderr='')
         assert kwargs['check'] is False
-        assert kwargs['cwd'] == str(deploy.ROOT)
+        assert kwargs['cwd'] == str(reviewed_root)
         if argv[0] == 'bash':
             output = '-f compose.yml'
         else:

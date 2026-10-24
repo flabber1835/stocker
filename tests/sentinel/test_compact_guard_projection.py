@@ -211,13 +211,13 @@ def test_projection_requires_prospective_attestation(compact, attested):
         compact.read()
 
 
-def test_unscoped_projection_refuses_without_loading():
+def test_unscoped_projection_refuses_without_loading(conn):
     with pytest.raises(verified.VerificationScopeRefused, match='SCOPE_REQUIRED'):
         verified.projected_material(None, slot='rolling-checkpoint', key='key',
             load=lambda: pytest.fail('unscoped projection loaded'),
             projection_slot='test', project=lambda v: v)
     with pytest.raises(rolling.Refused, match='SCOPE_REQUIRED'):
-        rolling._guard_status(None, observation_id='primary', starting_cash='50000')
+        rolling._guard_status(conn, observation_id='primary', starting_cash='50000')
 
 
 @pytest.mark.parametrize('failure', ['approval', 'handover'])
@@ -341,7 +341,7 @@ def test_original_record_identity_falsifier_detects_removed_binding(compact, mon
 
 
 def test_readiness_falsifier_detects_removed_current_validation(compact, monkeypatch):
-    monkeypatch.setattr(rolling, '_guard_status', _mutant(rolling._guard_status,
+    monkeypatch.setattr(rolling, '_guard_status_owned', _mutant(rolling._guard_status_owned,
         '_current(conn, checkpoint, pub)', 'None'))
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_current_validation_repeats_after_projection_is_warm(compact, 'readiness')

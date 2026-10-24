@@ -724,11 +724,17 @@ def issue369_pg():
 def db(issue369_pg):
     conn = feed_store.connect(issue369_pg.sync_dsn)
     with conn.cursor() as cur:
-        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
-        for (table,) in cur.fetchall():
-            cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
+        # This server belongs only to the requesting module's private fixture.
+        # Reset functions too: a table-only reset leaves an orphaned current
+        # operational projection that the real catalog guard must refuse.
+        cur.execute('DROP SCHEMA public CASCADE')
+        cur.execute('CREATE SCHEMA public')
     conn.commit()
     schema.ensure_schema(conn)
+    feed_store.migrate_schema(conn)
+    from sentinel.panel import operational_schema
+    operational_schema.install(conn)
+    conn.commit()
     yield conn
     conn.close()
 

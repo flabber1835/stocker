@@ -5,7 +5,7 @@ from sentinel import backup_runtime_authority, rolling_initialization as initial
 from sentinel import rolling_daily as daily, rolling_daily_checkpoint as checkpoints
 from sentinel import rolling_authority as authority, rolling_reconstruction_evidence as evidence
 from sentinel.execution import journal
-from sentinel.feed import calendar, rolling_go_inputs as inputs, operational_snapshot as snapshots, publication
+from sentinel.feed import calendar, rolling_go_inputs as inputs, operational_snapshot as snapshots, publication, writer_schedule
 from sentinel.feed.rolling_contract import digest
 
 
@@ -71,8 +71,9 @@ def advance_one(conn, *, through, observation_id, starting_cash):
             authority.append(conn, value)
             conn.commit()
             return result_with_receipt(result, value)
-    except BaseException:
-        conn.rollback()
+    except BaseException as exc:
+        if not writer_schedule.connection_discarded(exc):
+            conn.rollback()
         raise
 
 

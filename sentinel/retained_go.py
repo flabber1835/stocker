@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 
 from sentinel import rolling_checkpoint as origin, rolling_runtime, runtime_admission
-from sentinel.feed import rolling_go_inputs as inputs
+from sentinel.feed import rolling_go_inputs as inputs, writer_schedule
 from sentinel.feed.rolling_contract import digest
 
 MANIFEST_ENV = 'SENTINEL_RETAINED_SOURCE_MANIFEST'
@@ -58,7 +58,9 @@ def _with_backup_wait(conn, operation, *, deadline):
         shadow_budget.require_remaining(deadline)
         try:
             return operation()
-        except backup_runtime_authority.BackupRuntimeUnavailable:
+        except backup_runtime_authority.BackupRuntimeUnavailable as exc:
+            if writer_schedule.connection_discarded(exc):
+                raise
             conn.rollback()
             shadow_budget.require_remaining(deadline)
             remaining = max(0.0, (deadline-shadow_budget.now()).total_seconds())

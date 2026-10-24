@@ -144,13 +144,14 @@ def emit_failure(phase, exc):
 
 
 c = None
+discard_connection = False
 schema_attempted = False
 daily_attempted = False
 phase = 'RUNTIME_IMPORT'
 try:
     from datetime import datetime, timezone
     from sentinel import backup_guard, schema
-    from sentinel.feed import calendar, rolling_go_inputs, publication, store, progress
+    from sentinel.feed import calendar, rolling_go_inputs, publication, store, progress, writer_schedule
     from sentinel.shadow_runtime import publication_not_before
 
     def latest_source_final(now):
@@ -215,6 +216,9 @@ try:
     }, sort_keys=True), flush=True)
 except BaseException as exc:
     if c is not None:
+        discard_connection = writer_schedule.connection_discarded(exc)
+        if discard_connection:
+            raise
         try:
             c.rollback()
         except BaseException:
@@ -222,7 +226,7 @@ except BaseException as exc:
     emit_failure(phase, exc)
     raise
 finally:
-    if c is not None:
+    if c is not None and not discard_connection:
         c.close()
 '''.strip()
 

@@ -17,6 +17,7 @@ from sentinel import shadow_ui_upgrade as monitoring_upgrade
 from sentinel import dashboard_monitor_upgrade as dashboard_upgrade
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
+from tests.support import historical_transition_fixture as historical
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
 from tests.sentinel.test_rolling_retained_runtime_activation import (
     conn, pg, source, ready, operational_source, executable)
@@ -28,16 +29,12 @@ from tests.sentinel.test_operational_liveness_upgrade import (
 def test_only_exact_reviewed_service_upgrade_is_allowed(closure, name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
+    historical.require_current_source(name, actual)
+    reviewed = historical.target()[name]
+    assert (reviewed == record['after'] or historical.transition_registry.load().source_allowed(
+        name, record['after'], reviewed))
     if actual != record['after']:
-        assert (subsequent.source_allowed(name, record['after'], actual)
-                or recovery_upgrade.source_allowed(name, record['after'], actual)
-                or monitoring_upgrade.source_allowed(name, record['after'], actual)
-                or dashboard_upgrade.source_allowed(name, record['after'], actual)
-                or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
-                or autonomy_upgrade.source_allowed(name, record['after'], actual)
-                or clock_sampling_upgrade.source_allowed(name, record['after'], actual)
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
+        assert not upgrade.source_allowed(name, record['before'][0], actual)
     assert all(upgrade.source_allowed(name, prior, record['after']) for prior in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed(name, record['before'][0], 'f'*64)
@@ -55,7 +52,7 @@ def test_only_exact_reviewed_service_upgrade_is_allowed(closure, name):
 
 
 def test_complete_previous_release_is_bound_to_verified_git_manifest(closure, monkeypatch):
-    _, checkpoint, context, _, value = closure
+    fixture_root, checkpoint, context, _, value = closure
     raw = (Path(__file__).parent/'fixtures/retained-source-history/4c9f8769.json').read_bytes()
     assert hashlib.sha256(raw).hexdigest() == '020ea190598072c53e7c806ad1da72fc54a0a58de7298467b3469e9c070dcca9'
     manifest = json.loads(raw)
@@ -63,8 +60,12 @@ def test_complete_previous_release_is_bound_to_verified_git_manifest(closure, mo
     root = Path(upgrade.__file__).parent
     actual = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
               for p in root.rglob('*.py') if '__pycache__' not in p.parts}
+    historical.require_current_release(observed=actual)
+    root = fixture_root / 'complete-startup-historical-target'
+    historical_actual = historical.complete_target(root)
     current_env = value['environment']
-    current_env['sentinel_source'].update(path=str(root), files=len(actual), hash=admission.source_closure(actual))
+    current_env['sentinel_source'].update(path=str(root), files=len(historical_actual),
+        hash=admission.source_closure(historical_actual))
     old_env = deepcopy(current_env)
     old_env['sentinel_source'].update(files=len(manifest['files']), hash=admission.source_closure(manifest['files']))
     old_sha = hashlib.sha256(json.dumps(old_env, sort_keys=True).encode()).hexdigest()
@@ -116,3 +117,49 @@ def test_complete_pr500_manifest_is_pinned_to_verified_release():
 
 
 __all__ = ['closure', 'conn', 'pg', 'source', 'ready', 'operational_source', 'executable']
+
+
+@pytest.mark.parametrize('defect', ['neighbor', 'missing', 'extra'])
+def test_current_source_counterpart_refuses_a_forged_reader_map(monkeypatch, defect):
+    actual = historical.require_current_release(focus='panel/model.py')
+    broken = dict(actual)
+    if defect == 'neighbor':
+        broken['panel/model.py'] = 'f' * 64
+    elif defect == 'missing':
+        del broken['panel/model.py']
+    else:
+        broken['unreviewed_extra.py'] = 'f' * 64
+    monkeypatch.setattr(historical, '_executable_source_files', lambda _root: broken)
+    with pytest.raises(AssertionError, match='current executable source is not fully sealed'):
+        historical.require_current_source('panel/model.py', actual['panel/model.py'])
+
+
+def test_current_source_counterpart_detects_a_widened_seal(monkeypatch):
+    historical.require_current_release(focus='panel/model.py')
+    monkeypatch.setattr(historical.structural, 'historical_view',
+                        lambda _actual: historical.baseline_catalog()['files'])
+    with pytest.raises(AssertionError, match='neighboring current source was accepted'):
+        historical.require_current_release(focus='panel/model.py')
+
+
+def test_removing_current_source_proof_is_detected_before_the_historical_case(monkeypatch):
+    class ReachedHistoricalCase(Exception):
+        pass
+    actual = historical.require_current_release(focus='panel/model.py')
+    broken = {**actual, 'panel/model.py': 'f' * 64}
+    monkeypatch.setattr(historical, '_executable_source_files', lambda _root: broken)
+    def reached(*_args, **_kwargs):
+        raise ReachedHistoricalCase
+    monkeypatch.setitem(globals(), '_execution_closure', reached)
+    with pytest.raises(AssertionError, match='current executable source is not fully sealed'):
+        test_only_exact_reviewed_service_upgrade_is_allowed(None, 'panel/model.py')
+    monkeypatch.setattr(historical, 'require_current_source', lambda *_args: None)
+    with pytest.raises(ReachedHistoricalCase):
+        test_only_exact_reviewed_service_upgrade_is_allowed(None, 'panel/model.py')
+
+
+def test_old_adapter_still_refuses_foreign_bytes_after_current_source_proof(monkeypatch):
+    historical.require_current_release(focus='panel/model.py')
+    monkeypatch.setattr(upgrade, 'source_allowed', lambda *_args: True)
+    with pytest.raises(AssertionError):
+        test_only_exact_reviewed_service_upgrade_is_allowed(None, 'panel/model.py')

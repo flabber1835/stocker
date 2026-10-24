@@ -13,6 +13,16 @@ from sentinel.strategy import production_strategy
 
 @pytest.fixture
 def case(monkeypatch):
+    commit = "a" * 40
+    image = "sha256:" + "b" * 64
+    monkeypatch.setenv(local_paper.MODE_ENV, local_paper.MODE)
+    monkeypatch.setenv(local_paper.ACCOUNT_ENV, "PAexact")
+    monkeypatch.setenv("ALPACA_BASE_URL", authority.PAPER_BASE_URL)
+    monkeypatch.setenv("SENTINEL_GIT_COMMIT", commit)
+    monkeypatch.setenv("SENTINEL_IMAGE_SOURCE_REVISION", commit)
+    monkeypatch.setenv("SENTINEL_RUNTIME_IMAGE_DIGEST", image)
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", "PROTECTED_LIMIT_DAY_V1")
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_CAP_BPS", "100")
     strategy = production_strategy()[1]
     assert authority.canonical_sha256(strategy) == upgrade.PERSISTENT_SHARE_STRATEGY
     identity = dict(deployment_id="test", broker="alpaca", broker_account_id="PAexact", takeover_epoch=1,
@@ -29,14 +39,15 @@ def case(monkeypatch):
     monkeypatch.setattr(standing.binding_mod, "require", lambda c: bound)
     monkeypatch.setattr(standing, "load_rollout_state", lambda c: SimpleNamespace(mode=authority.RolloutMode.CONTROLLER,
         version=9, certificate_sha256="certificate"))
-    monkeypatch.setattr(local_paper, "require_bound_account", lambda c: True)
-    monkeypatch.setattr(local_paper, "require_runtime", lambda *a: None)
-    monkeypatch.setattr(local_paper, "require_execution_config", lambda *a: None)
     from sentinel import observation_authority
     monkeypatch.setattr(observation_authority, "current_metadata_snapshot_identity",
         lambda c: dict(snapshot_date="2026-10-22"))
-    kwargs=dict(runtime_identity={}, strategy_identity=strategy, required_mode=authority.RolloutMode.CONTROLLER,
-        required_operation="AUTOMATION", execution_config_sha256="config",
+    artifacts = dict(schema="sentinel.runtime-artifacts/1", git_commit=commit,
+        runtime_image_digest=image, test_image_digest=image)
+    configuration = authority.execution_config_identity(paper_base_url=authority.PAPER_BASE_URL)
+    kwargs=dict(runtime_identity=dict(deployment_artifacts=artifacts), strategy_identity=strategy,
+        required_mode=authority.RolloutMode.CONTROLLER,
+        required_operation="AUTOMATION", execution_config_sha256=authority.canonical_sha256(configuration),
         publication_policy_implementation_sha256="policy", publication_chain_root_sha256="root",
         current_publication_version=4, automation_config_sha256="automation")
     return certificate, kwargs
@@ -66,14 +77,16 @@ def test_other_signed_predecessor_refuses(case):
 
 def test_normal_release_has_no_exception(case, monkeypatch):
     certificate, kwargs = case
-    monkeypatch.setattr(local_paper, "require_bound_account", lambda c: False)
-    monkeypatch.setattr(standing, "runtime_artifact_identity", lambda r: dict(git_commit="commit",runtime_image_digest="image",test_image_digest="test"))
-    certificate.claims["bindings"].update(git_commit="commit",runtime_image_digest="image",test_image_digest="test",runtime_identity_sha256=None)
+    monkeypatch.delenv(local_paper.MODE_ENV)
+    artifacts = kwargs["runtime_identity"]["deployment_artifacts"]
+    certificate.claims["bindings"].update(
+        **{key: artifacts[key] for key in ("git_commit", "runtime_image_digest", "test_image_digest")},
+        runtime_identity_sha256=None)
     with pytest.raises(authority.AuthorityRefused, match="strategy identity"):
         standing.require_standing_observation_authority(None, **kwargs)
 
 
-@pytest.mark.parametrize("guard", ["require_runtime", "require_execution_config"])
+@pytest.mark.parametrize("guard", ["validate_runtime_identity", "validate_execution_policy"])
 def test_local_runtime_and_execution_guards_still_refuse(case, monkeypatch, guard):
     _certificate, kwargs = case
     def refuse(*a): raise authority.AuthorityRefused("actual local identity refused")

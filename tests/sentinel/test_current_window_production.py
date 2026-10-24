@@ -339,17 +339,45 @@ def test_split_changes_shares_once_without_creating_a_stop(conn, ready, operatio
     assert not advance(conn).appended
 
 
-def test_go_replaces_unadmitted_old_policy_snapshot_on_same_frontier(conn, ready):
-    from sentinel.feed import rolling_go_inputs
+def test_go_admits_current_strategy_without_replacing_immutable_source_generation(conn, ready):
+    from sentinel.feed import generation_admission, rolling_go_inputs, rolling_jobs
     job = op.enqueue(conn, strategy_sha256=digest('previous policy'), dependencies_sha256=digest('fixture'))
     conn.commit()
     previous = op.prepare(conn, job)
+    _, selected = rolling_go_inputs.production_strategy()
+    with rolling_go_inputs.pinned(conn) as pub:
+        generation = generation_admission.generation(conn, pub)
+        original_request = rolling_jobs.status(conn, previous['job_id'])['request']
+        assert original_request['strategy_sha256'] != digest(selected)
+        assert not generation_admission.admitted(conn, pub, selected)
+        publications = conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0]
+        receipts = conn.execute('SELECT count(*) FROM sentinel_generation_strategy_admissions').fetchone()[0]
+    conn.rollback()
     current = rolling_go_inputs.prepare(conn, target_session='2026-09-14')
-    assert current['status'] == 'PUBLISHED'
-    assert current['data_version'] == previous['data_version'] + 1
-    assert current['snapshot_id'] != previous['snapshot_id']
+    assert current['status'] == 'ALREADY_CURRENT'
+    assert current['data_version'] == previous['data_version']
+    assert current['snapshot_id'] == previous['snapshot_id']
+    with rolling_go_inputs.pinned(conn) as pub:
+        assert generation_admission.generation(conn, pub) == generation
+        assert generation_admission.admitted(conn, pub, selected)
+        assert rolling_jobs.status(conn, previous['job_id'])['request'] == original_request
+        assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == publications
+        assert conn.execute('SELECT count(*) FROM sentinel_generation_strategy_admissions').fetchone()[0] == receipts + 1
+        receipt = conn.execute('SELECT receipt,receipt_sha256,hmac_sha256,admitted_at '
+            'FROM sentinel_generation_strategy_admissions WHERE publication_version=%s AND strategy_sha256=%s',
+            (pub.version, digest(selected))).fetchone()
+        assert receipt[0]['scope'] == 'DATA_ONLY' and receipt[0]['operational_go'] is False
+        assert receipt[0]['generation'] == generation.model_dump()
+    conn.rollback()
     again = rolling_go_inputs.prepare(conn, target_session='2026-09-14')
     assert again['status'] == 'ALREADY_CURRENT' and again['snapshot_id'] == current['snapshot_id']
+    with rolling_go_inputs.pinned(conn) as pub:
+        assert generation_admission.generation(conn, pub) == generation
+        assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == publications
+        assert conn.execute('SELECT count(*) FROM sentinel_generation_strategy_admissions').fetchone()[0] == receipts + 1
+        assert conn.execute('SELECT receipt,receipt_sha256,hmac_sha256,admitted_at '
+            'FROM sentinel_generation_strategy_admissions WHERE publication_version=%s AND strategy_sha256=%s',
+            (pub.version, digest(selected))).fetchone() == receipt
 
 
 def test_fresh_window_book_reaches_paper_plan_without_historical_formation(conn, ready, monkeypatch):

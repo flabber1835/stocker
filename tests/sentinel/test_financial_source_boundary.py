@@ -62,13 +62,41 @@ def test_unknown_financial_source_flows_through_real_semantic_bundle(monkeypatch
                                'sha256': hashlib.sha256(changed).hexdigest()}]
 
 
-def test_financial_source_mapping_is_required_for_original_signed_strategy(monkeypatch):
+def test_historical_financial_mapping_does_not_replace_current_economic_owner(monkeypatch):
     from sentinel.strategy import production_strategy
     from sentinel.feed.rolling_contract import digest
     expected = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
     assert digest(production_strategy()[1]) == expected
     monkeypatch.setattr(basis, 'economic_contribution', lambda _module, raw: hashlib.sha256(raw).hexdigest())
-    assert digest(production_strategy()[1]) != expected
+    assert digest(production_strategy()[1]) == expected
+
+
+def test_current_economic_bytes_are_required_for_original_signed_strategy(monkeypatch):
+    from sentinel import economic_manifest as economic
+    from sentinel.strategy import production_strategy
+    from sentinel.feed.rolling_contract import digest
+    expected = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+    original = production_strategy()[1]
+    assert digest(original) == expected
+    read = economic._module_raw
+    target = 'sentinel.core.input_domains'
+    raw = read(target)
+    old, new = b'raw_close=row.close_unadjusted', b'raw_close=row.close_signal'
+    assert raw.count(old) == 1
+    changed = raw.replace(old, new)
+    monkeypatch.setattr(economic, '_module_raw', lambda name: changed if name == target else read(name))
+    current = production_strategy()[1]
+    assert current['data_semantics_source_sha256'] != original['data_semantics_source_sha256']
+    assert digest(current) != expected
+
+
+def test_frozen_current_economic_identity_has_behavioral_falsifier(monkeypatch):
+    from sentinel import economic_manifest as economic
+    from sentinel.core.decision import DATA_SEMANTICS_IDENTITY_SCHEMA
+    frozen = economic.identity(schema=DATA_SEMANTICS_IDENTITY_SCHEMA)
+    monkeypatch.setattr(economic, 'identity', lambda *, schema: {**frozen, 'schema': schema})
+    with pytest.raises(AssertionError):
+        test_current_economic_bytes_are_required_for_original_signed_strategy(monkeypatch)
 
 
 def test_closed_financial_mapping_has_behavioral_falsifier(monkeypatch):

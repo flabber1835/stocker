@@ -86,14 +86,14 @@ def test_source_propagates_only_typed_contention_and_closes_connection(monkeypat
         raise CorpusLockUnavailable('busy')
     monkeypatch.setattr(shadow_runtime, 'verified_shadow_status', busy)
     arguments = dict(now=datetime.now(timezone.utc), include_paper=False)
-    ordinary = sources._dual_authority_rows('fixture', **arguments)
+    ordinary = sources._dual_authority_rows('dbname=fixture', **arguments)
     assert ordinary[0][0].status == model.UNKNOWN and ordinary[3]
     with pytest.raises(CorpusLockUnavailable):
-        sources._dual_authority_rows('fixture', **arguments, propagate_corpus_lock=True)
+        sources._dual_authority_rows('dbname=fixture', **arguments, propagate_corpus_lock=True)
     def corrupt(*_, **__):
         raise ValueError('invalid book')
     monkeypatch.setattr(shadow_runtime, 'verified_shadow_status', corrupt)
-    invalid = sources._dual_authority_rows('fixture', **arguments, propagate_corpus_lock=True)
+    invalid = sources._dual_authority_rows('dbname=fixture', **arguments, propagate_corpus_lock=True)
     assert invalid[0][0].status == model.UNKNOWN and invalid[3]
     assert len(connections) == 3 and all(c.closed for c in connections)
 

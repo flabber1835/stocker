@@ -10,7 +10,40 @@ import json
 from pathlib import Path
 
 from sentinel import transition_registry
+from sentinel import structural_refactor_source_basis as structural
+# Capture the canonical executable reader before individual legacy fixtures
+# install their explicitly scoped historical marker reader on the module.
+from sentinel.runtime_admission import _source_files as _executable_source_files
 from tests.support.publisher_source_proofs import baseline_catalog
+
+
+def require_current_release(*, focus='runtime_admission.py', observed=None):
+    """Authenticate actual current bytes before any historical counterpart.
+
+    The exact complete imported package is independently read, not inferred
+    from a fixture marker, old adapter target or inspection checkout mirror.
+    """
+    actual = _executable_source_files(transition_registry.ROOT)
+    if observed is not None:
+        assert observed == actual, 'observed current source differs from executable bytes'
+    baseline = structural.historical_view(actual)
+    assert baseline is not actual, 'current executable source is not fully sealed'
+    assert baseline == baseline_catalog()['files'], 'current source lost its immutable baseline'
+    assert focus in actual
+    neighbor = {**actual, focus: 'f' * 64}
+    assert structural.historical_view(neighbor) is neighbor, 'neighboring current source was accepted'
+    missing = {name: value for name, value in actual.items() if name != focus}
+    assert structural.historical_view(missing) is missing, 'missing current source was accepted'
+    assert 'unreviewed_fixture_extra.py' not in actual
+    extra = {**actual, 'unreviewed_fixture_extra.py': 'f' * 64}
+    assert structural.historical_view(extra) is extra, 'extra current source was accepted'
+    return actual
+
+
+def require_current_source(name, observed_sha256):
+    """Keep an individual actual-file assertion tied to the complete seal."""
+    actual = require_current_release(focus=name)
+    assert observed_sha256 == actual[name], 'current file hash differs from the canonical source reader'
 
 
 @lru_cache(maxsize=1)

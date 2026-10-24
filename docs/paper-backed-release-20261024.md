@@ -69,7 +69,35 @@ and source-boundary proofs, the historical transition matrix and actual installe
 runtime layout before final CI. Do not alter a financial expectation, original
 book, source witness, historical profile or rejection rule to refresh this seal.
 
+Historical adapter qualification keeps two explicit counterparts. First retain
+each test's hash of the actual imported current file and authenticate the full
+402-module current package using the canonical runtime source reader and sealed
+structural transition. Its historical view must equal the independently pinned
+364-module baseline. A focused neighboring-byte change, missing member and extra
+member must each retain its own rejected mapping before an old adapter case runs.
+Only then exercise an old adapter with authenticated named historical inputs.
+Those fixtures are labelled historical hash records, not executable source; no
+individual old adapter is claimed to accept the refactored current bytes.
+Keep the original unknown-predecessor, neighboring-change, profile-tampering and
+origin/environment checks. Mutation controls must detect removal of the separate
+current-source proof as well as an over-permissive historical adapter. This
+strengthens the current-byte coverage while restoring the declared historical
+scope; it does not substitute recorded expectations for actual source checking.
+
 ## Qualification and transition
+
+The lifecycle counterpart registry must also cover the already documented
+owner-PAPER window renewal and persistent account-share changes from
+`e8774960`, `ccfd3040` and `fdbbae91`. Review their actual function diffs before
+recording the current normalized ASTs: local renewal remains limited to the same
+decision day, explicit PREPARE/debug policy, authenticated recovered lineage and
+terminal commands; retained share targets are passed into and checked by the
+fresh protected allocation guard. Record the new private local-renewal helper
+and those four changed lifecycle functions in the current-delta registry only.
+Preserve the historical extraction manifest, source hash and historical ASTs.
+Run the local-window, persistent-target, broker-guard and unreviewed-fingerprint
+falsifiers. This registry records those existing reviewed decisions and grants
+no authority or new execution-window permission.
 
 Restore normal CI on an ordinary new feature-branch commit. Preserve historical
 skip-CI results as local evidence, not passed GitHub checks. All-hour automated

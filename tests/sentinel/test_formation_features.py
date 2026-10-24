@@ -8,6 +8,7 @@ from sentinel.core import formation_features, window_features
 from sentinel.feed import rolling_store, calendar
 from sentinel.feed.rolling_contract import CanonicalBar, CurrentFormationWindow
 from stock_strategy_shared.wealth_core.feed import SecurityMeta
+from tests.sentinel.test_rolling_snapshot_publisher import conn, pg  # noqa: F401
 
 
 @pytest.fixture
@@ -44,11 +45,11 @@ def fixture(monkeypatch):
     return axis, rows, reads, refs, pub, prior
 
 
-def test_every_formation_window_is_exact_and_each_row_is_read_once(fixture):
+def test_every_formation_window_is_exact_and_each_row_is_read_once(fixture, conn):
     axis, rows, reads, refs, pub, prior = fixture
-    cached = formation_features.FormationFeatures(None, refs=refs, publication=pub)
+    cached = formation_features.FormationFeatures(conn, refs=refs, publication=pub)
     for day in axis[299:]:
-        expected = window_features.load(None, prior=prior, refs=refs, publication=pub, session=day)
+        expected = window_features.load(conn, prior=prior, refs=refs, publication=pub, session=day)
         actual = cached.load(prior=prior, session=day)
         assert actual.model_dump() == expected.model_dump()
         assert actual.sha256 == expected.sha256
@@ -56,9 +57,9 @@ def test_every_formation_window_is_exact_and_each_row_is_read_once(fixture):
     assert cached.rows_read == len(rows)
 
 
-def test_future_and_expired_rows_do_not_enter_features_and_backward_read_rebuilds(fixture):
+def test_future_and_expired_rows_do_not_enter_features_and_backward_read_rebuilds(fixture, conn):
     axis, rows, reads, refs, pub, prior = fixture
-    cached = formation_features.FormationFeatures(None, refs=refs, publication=pub)
+    cached = formation_features.FormationFeatures(conn, refs=refs, publication=pub)
     first = cached.load(prior=prior, session=axis[299])
     for index, row in enumerate(rows):
         if str(row.session) > axis[300]:

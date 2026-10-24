@@ -63,6 +63,10 @@ class OperationalSchemaRefused(RuntimeError):
     """The operational extension is absent, partial, changed or unowned."""
 
 
+class InstallationCatalogRefused(OperationalSchemaRefused):
+    """The collected base catalog cannot safely supply installation metadata."""
+
+
 def _require(value, reason):
     if not value:
         raise OperationalSchemaRefused(reason)
@@ -155,6 +159,15 @@ def legacy_catalog(conn, catalog):
     names = lambda module: set(module.extension_tables) | set(getattr(module, 'extension_views', ()))
     present = any(names(module) & set(relations) for module in modules)
     marker_possible = 'sentinel_processed_sessions' in relations
+    if marker_possible:
+        required = {'cursor_name': ('text', True), 'session': ('date', True),
+                    'state': ('jsonb', False)}
+        observed = columns.get('sentinel_processed_sessions', {})
+        if (relations['sentinel_processed_sessions'] != ('r', 'p', False, False, False)
+                or any(observed.get(name, ())[:2] != definition
+                       for name, definition in required.items())):
+            raise InstallationCatalogRefused(
+                'OPERATIONAL_INSTALLATION_CATALOG_CHANGED: sentinel_processed_sessions')
     marker = installation(conn, required=False) if marker_possible else None
     if not present and marker is None:
         return catalog

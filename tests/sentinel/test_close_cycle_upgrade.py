@@ -8,6 +8,7 @@ from sentinel import close_cycle_upgrade as upgrade, runtime_admission as admiss
 from sentinel import autonomy_runtime_upgrade, economic_migration, idle_leader_upgrade
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
+from tests.support import historical_transition_fixture as historical
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
 from tests.sentinel.test_rolling_retained_runtime_activation import (
     conn, pg, source, ready, operational_source, executable)
@@ -20,10 +21,12 @@ from tests.sentinel.test_operational_liveness_upgrade import (
 def test_exact_transition_and_neighbor_refusal(closure, name):
     record = upgrade.profile()['files'][name]
     actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-    assert (actual == record['after']
-            or autonomy_runtime_upgrade.source_allowed(name, record['after'], actual)
-            or economic_migration.source_allowed(name, record['after'], actual)
-            or idle_leader_upgrade.source_allowed(name, record['after'], actual))
+    historical.require_current_source(name, actual)
+    reviewed = historical.target()[name]
+    assert (reviewed == record['after'] or historical.transition_registry.load().source_allowed(
+        name, record['after'], reviewed))
+    if actual != record['after']:
+        assert not upgrade.source_allowed(name, record['before'][0], actual)
     assert all(upgrade.source_allowed(name, p, record['after']) for p in record['before'])
     assert not upgrade.source_allowed(name, 'f'*64, actual)
     assert not upgrade.source_allowed('feed/repair.py', record['before'][0], actual)

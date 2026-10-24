@@ -1,8 +1,30 @@
 """Catalog bootstrap exception and durable fence on actual PostgreSQL."""
+import uuid
+
+import psycopg
+from psycopg import sql
 import pytest
 
 from sentinel import deployment_fence as fence, schema
-from tests.sentinel.test_rolling_snapshot_publisher import conn, pg
+from sentinel.feed import store
+from tests.sentinel.test_rolling_snapshot_publisher import pg  # noqa: F401
+
+
+@pytest.fixture
+def conn(pg):
+    """Base feed DDL only; operational snapshot extensions are a later layer."""
+    database = 'deployment_fence_' + uuid.uuid4().hex
+    with psycopg.connect(pg.sync_dsn, autocommit=True) as admin:
+        admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(database)))
+    connection = store.connect(pg.sync_dsn.rsplit('/', 1)[0] + '/' + database)
+    try:
+        store.migrate_schema(connection)
+        connection.commit()
+        yield connection
+    finally:
+        connection.close()
+        with psycopg.connect(pg.sync_dsn, autocommit=True) as admin:
+            admin.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(database)))
 
 
 def test_feed_only_bootstrap_then_durable_fenced_database(conn):

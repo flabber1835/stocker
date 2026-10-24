@@ -370,6 +370,16 @@ An unconditional rollback or a blanket idle precondition would discard work or
 refuse legitimate composed paper calls. Explicit migrations and the bounded
 connection-owning evidence-advance operation still require an idle connection.
 
+Before reading the central installation marker, the historical catalog adapter
+checks the already collected relation and column witness for the cursor name,
+session and JSON state that the marker query needs. It performs no extra catalog
+poll or repair. An absent table remains available to the existing empty/legacy
+classification; a present malformed table refuses before its contents are read.
+The adapter reports this structural failure as an installation-catalog refusal,
+and the public behavioral `require_runtime_schema` boundary translates only that
+failure into `SchemaMigrationRefused`. It issues no DDL and preserves borrowed
+caller work, settings and locks through its existing rollback-only proof.
+
 Canonical rolling status and compact guard status prove the committed book.
 When their caller is idle they own its repeatable-read, read-only proof
 transaction and return it idle. When borrowing an already active caller,

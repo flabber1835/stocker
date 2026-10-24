@@ -22,7 +22,7 @@ import time
 from typing import Mapping, Optional, Sequence
 
 from sentinel import schema, shadow_runtime
-from sentinel.feed import calendar, ingest, readiness
+from sentinel.feed import calendar, ingest, readiness, writer_schedule
 from sentinel.feed import store as feed_store
 
 
@@ -346,11 +346,15 @@ def advance_once(config: ShadowServiceConfig, *,
         if retained["input_contract"] != rolling_runtime.SCHEMA:
             raise ShadowServiceRefused("unknown shadow runtime input contract")
         conn = feed_store.connect(config.database_url)
+        discard_connection = False
         try:
             return rolling_runtime.service_advance(conn, through=target,
                 observation_id=config.observation_id, starting_cash=config.starting_cash,
                 acquisition_deadline=acquisition_deadline).to_dict()
-        except Exception as exc:
+        except BaseException as exc:
+            discard_connection = writer_schedule.connection_discarded(exc)
+            if discard_connection or not isinstance(exc, Exception):
+                raise
             from sentinel.rolling_reconstruction_evidence import InputsUnavailable
             from sentinel.feed.rolling_jobs import JobDeadlineExceeded
             from sentinel.feed.source_wait import SourceCoveragePending
@@ -368,8 +372,9 @@ def advance_once(config: ShadowServiceConfig, *,
                 raise ShadowServiceRetry("rolling shadow source/backup unavailable") from exc
             raise ShadowServiceRefused("rolling shadow service refused: " + str(exc)) from exc
         finally:
-            conn.rollback()
-            conn.close()
+            if not discard_connection:
+                conn.rollback()
+                conn.close()
     retained_lineage = retained.get("lineage")
     retained_session = (
         retained.get("latest_session")

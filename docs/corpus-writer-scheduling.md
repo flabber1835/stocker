@@ -45,6 +45,25 @@ connection so bookkeeping cannot mask the primary error; the durable owner lease
 then follows its existing expiry/reclaim path. Healthy reusable connections keep
 the original failure recording and scratch cleanup.
 
+The same disposed-session marker must survive foreground preparation waits,
+expired-session recovery, retained-GO backup waits, the rolling-input coordinator
+and the shadow service connection owner. Those owners inspect the existing
+disposal predicate before exception rollback, retry, source-revision successor
+creation, service error translation or final cleanup; a disposed connection
+receives no further database call, even when its close attempt failed. The
+original cancellation or database exception escapes unchanged. Unmarked failures
+retain their existing rollback, close, finite retry and typed service
+classification. Recovery observes the last committed job stage and cannot
+reclaim it before the retained owner lease expires; the successor uses a higher
+fence within the original request deadline and reuses only independently
+verified retained source parts.
+
+Host acquisition CODE owners honor the same discarded-session predicate before
+failure rollback, typed availability/expiry translation and final close; marked
+exceptions remain exact and no success/retry evidence is emitted. Unmarked
+failures and successful healthy connections retain ordinary rollback/close and
+bounded retry behavior.
+
 ## Identity, qualification and delivery
 
 Scheduling changes when a mutation can begin, not its economic computation.
