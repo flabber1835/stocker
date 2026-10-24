@@ -197,7 +197,7 @@ def test_shared_observer_codec_round_trip_preserves_bounds_and_dated_book():
 
 def test_one_stylesheet_keeps_push_controller_and_removes_unused_animation():
     html = render(example_panel())
-    assert html.count('<style>') == 1 and html.count('--bg:') == 1
+    assert html.count('<style>') == 1 and html.count('--bg:') == 2
     assert 'casino-stage' not in html and 'casino-accent' not in html
     assert '@keyframes' not in html
     assert 'id="push-enable"' in html and 'id="push-remove"' in html

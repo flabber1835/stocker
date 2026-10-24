@@ -106,7 +106,7 @@ def test_source_wait_copy_requires_structured_phase_and_never_claims_verificatio
 
 
 def test_current_styles_keep_narrow_screen_values_and_accessibility_without_decoration():
-    assert '@media(max-width:360px){body{font-size:14px}.row{padding:12px}.value{font-size:16px}}' in CSS
+    assert '@media(max-width:360px){.value{font-size:16px}}' in CSS
     assert 'prefers-reduced-motion:reduce' in CSS and 'animation:none!important' in CSS
     assert 'summary:focus-visible,a:focus-visible' in CSS
     assert 'repeat(2,minmax(0,1fr))' in CSS

@@ -1,4 +1,4 @@
-"""The current mobile presentation; one palette and no decorative animation."""
+"""The current mobile presentation and effective themes, without decoration."""
 
 CSS = r"""
 :root,:root[data-theme="dark"],:root[data-theme="light"]{
@@ -7,6 +7,12 @@ CSS = r"""
  --okbg:#20392f;--warnbg:#493b23;--failbg:#492c32;--pendingbg:#30283c;
  --shadow:0 8px 28px #0002;
 }
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]):not([data-theme="dark"]){
+ --bg:#0e0e19;--card:#1b1c2b;--ink:#faf4e8;--muted:#c5bdaf;--line:#494338;
+ --ok:#80e4b2;--warn:#ffcb78;--fail:#ff918b;--pending:#c0bfd3;
+ --okbg:#12261c;--warnbg:#2a2113;--failbg:#2c1615;--pendingbg:#1b2028;
+ --shadow:0 1px 2px rgba(0,0,0,.4);
+}}
 *{box-sizing:border-box}
 body{margin:0;color:var(--ink);font:15px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
  -webkit-text-size-adjust:100%;background:radial-gradient(ellipse at 50% 0%,#342039 0,transparent 52%),#16111f;
@@ -40,7 +46,7 @@ h1{font-family:Georgia,serif;font-size:clamp(16px,4.9vw,25px);font-weight:650;ma
 .value{font-size:22px;font-weight:600;line-height:1.3;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .row.fail .value{color:var(--fail)}.detail{font-size:13px;color:var(--muted);overflow-wrap:anywhere;line-height:1.6;margin-top:3px}
 .age{font-size:11px;color:var(--muted);margin-top:3px}.age.stale{color:var(--warn);font-weight:600}
-footer code{font-size:11px}
+footer{text-align:center}footer code{font-size:11px}
 details{background:linear-gradient(135deg,#222333f5,#171926f5);border:1px solid #494338;border-radius:14px;
  margin:10px 0;box-shadow:var(--shadow);overflow:hidden}
 summary{cursor:pointer;padding:13px 15px;font-weight:650;list-style-position:inside}
@@ -57,7 +63,7 @@ th{color:var(--muted);font-weight:600;letter-spacing:.04em}
 .not-current .row.ok{border-color:var(--fail)}.not-current .dot.ok{color:var(--fail)}
 .refreshing-status .row.ok{border-color:var(--warn)}
 .refreshing-status .dot.ok,.refreshing-status .heartbeat{color:var(--warn)}.refreshing-status .heartbeat::before{color:var(--warn)}
-.refreshing-status .row.ok .value::before{content:"LAST KNOWN \00B7 ";color:var(--warn)}
+.refreshing-status .row.ok .value::before{content:"LAST KNOWN · ";color:var(--warn)}
 .push-card{background:linear-gradient(135deg,#222333f5,#171926f5);border:1px solid #494338;border-radius:14px;
  padding:13px 15px;margin:10px 0;box-shadow:var(--shadow)}
 .push-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
@@ -65,7 +71,7 @@ button{appearance:none;border:1px solid #b38b47;border-radius:10px;background:li
  color:#18151d;font:inherit;font-weight:650;min-height:44px;padding:9px 13px;cursor:pointer}
 button.secondary{background:transparent;color:#f7d78c}button[hidden]{display:none}
 #push-status{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
-@media(max-width:360px){body{font-size:14px}.row{padding:12px}.value{font-size:16px}}
+@media(max-width:360px){.value{font-size:16px}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important}}
 .overview{display:grid;gap:14px}.overview-card{min-width:0;background:linear-gradient(135deg,#2c2336,#211a2b);
  border:1px solid #56435c;border-radius:17px;padding:20px;box-shadow:var(--shadow)}

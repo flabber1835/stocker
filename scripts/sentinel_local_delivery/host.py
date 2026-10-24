@@ -51,11 +51,13 @@ class Host:
             raise
         if result.returncode:
             # Expanded child errors may contain secrets. Keep them owner-private.
-            path = self.operation_dir/'private-command-error.log'
-            with path.open('wb') as stream:
+            path = self.operation_dir/('private-command-error-'+uuid.uuid4().hex+'.log')
+            with path.open('xb') as stream:
                 os.chmod(path, 0o600)
                 stream.write(result.stdout+b'\n'+result.stderr)
-            raise DeliveryRefused('CHILD_OPERATION_REFUSED')
+                stream.flush()
+                os.fsync(stream.fileno())
+            raise DeliveryRefused('CHILD_OPERATION_REFUSED: '+path.name)
         return result
 
     def _cleanup_owned(self, name):

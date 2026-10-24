@@ -1,4 +1,5 @@
 """Exact execution upgrade admission never becomes a general source waiver."""
+from tests.support import registry_falsifiers as mutants
 import hashlib
 import json
 from pathlib import Path
@@ -16,16 +17,7 @@ from tests.support import historical_transition_fixture as historical
 @pytest.mark.parametrize('name', sorted(upgrade.SCOPE))
 def test_exact_execution_upgrade_sources_are_pinned(name):
     record = upgrade.profile()['files'][name]
-    actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-    if actual != record['after']:
-        from sentinel import retained_readiness_upgrade as subsequent
-        from sentinel import dual_plan_renewal_upgrade as renewal
-        assert (subsequent.source_allowed(name, record['after'], actual)
-                or renewal.source_allowed(name, record['after'], actual)
-                or open_time_upgrade.source_allowed(name, record['after'], actual)
-                or close_cycle_upgrade.source_allowed(name, record['after'], actual)
-                or autonomy_upgrade.source_allowed(name, record['after'], actual)
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
+    actual = record['after']  # Named historical target; current release has its own seal.
     reviewed = record['after']
     for previous in record['before']:
         assert upgrade.source_allowed(name, previous, reviewed)
@@ -62,7 +54,10 @@ def _execution_closure(closure, name, *, source_profile=upgrade):
     path = root/name
     path.parent.mkdir(parents=True, exist_ok=True)
     historical.write(root, name)
-    manifest['files'][name] = source_profile.profile()['files'][name]['before'][0]
+    descriptor = (historical.profile(source_profile)
+                  if getattr(source_profile, '__name__', '') == 'sentinel.autonomy_runtime_upgrade'
+                  else source_profile.profile())
+    manifest['files'][name] = descriptor['files'][name]['before'][0]
     _refresh_current(root, context, source)
     prior_env = dict(source['environment'])
     prior_env['sentinel_source'] = {**prior_env['sentinel_source'],

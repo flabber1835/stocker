@@ -34,6 +34,40 @@ def _fixtures():
     return Path(__file__).parents[1] / 'sentinel/fixtures/retained-source-history'
 
 
+def profile(module):
+    """Current registry validation of one immutable historical descriptor."""
+    checker = module.__name__.removeprefix('sentinel.')
+    spec = next(item for item in transition_registry.PROFILES if item.checker == checker)
+    return transition_registry.load_profiles()[spec.key]
+
+
+def source_allowed(module, name, previous, actual):
+    checker = module.__name__.removeprefix('sentinel.')
+    key = next(item.key for item in transition_registry.PROFILES if item.checker == checker)
+    return transition_registry.load().source_allowed(name, previous, actual, (key,))
+
+
+def additions_allowed(module, actual):
+    checker = module.__name__.removeprefix('sentinel.')
+    key = next(item.key for item in transition_registry.PROFILES if item.checker == checker)
+    return transition_registry.load().additions_allowed(actual)[key]
+
+
+def copy_registry_root(root):
+    """Plain isolated profile/checker fixture, never production state."""
+    names = set()
+    for spec in transition_registry.PROFILES:
+        names.update((spec.filename, spec.checker + '.py'))
+        value = json.loads((transition_registry.ROOT / spec.filename).read_bytes())
+        names.update(value.get('retained_profiles', {}))
+    names.update(('core/cash_distributions.py', 'economic_migration.py'))
+    for name in names:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((transition_registry.ROOT / name).read_bytes())
+    return root
+
+
 def complete_target(root):
     """The protected-cohort historical target, based on its pinned main base.
 
@@ -83,8 +117,17 @@ def target():
 
 
 def _marker(name, sha):
-    return ('# Named historical hash fixture; executable source is not present.\n'
-            f'# path={name}\n# sha256={sha}\n').encode()
+    result = ('# Named historical hash fixture; complete executable source is not present.\n'
+              f'# path={name}\n# sha256={sha}\n').encode()
+    if name == 'paper/preparation.py' and sha == '63db97a452c0115f5248fbf45182e04b161dbed751b7f16aa458fa1ddcdc5a20':
+        # Plain 11-line guard witness from Git1e447868, used only by the
+        # neighboring-command-guard mutation case. It is not a module image.
+        path = Path(__file__).with_name('simplification_baseline') / 'paper_preparation_guard.txt'
+        guard = path.read_bytes()
+        if hashlib.sha256(guard).hexdigest() != '71a611a70a84f210bda8fee9148c8d7c1b6707fce89a3d7b87db17b40e09614a':
+            raise ValueError('historical command guard witness changed')
+        result += b'\n# Original guard excerpt; this fixture is not executed.\n' + guard
+    return result
 
 
 def write(root, name, expected=None):

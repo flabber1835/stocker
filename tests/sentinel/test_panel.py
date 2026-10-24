@@ -2011,4 +2011,4 @@ class TestItRenders:
         for var in ("--bg", "--card", "--ink", "--ok", "--warn", "--fail"):
             assert var in base, f"{var} has no default definition"
         assert ':root,:root[data-theme="dark"],:root[data-theme="light"]{' in base
-        assert CSS.count('--bg:') == 1
+        assert CSS.count('--bg:') == 2

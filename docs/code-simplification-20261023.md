@@ -90,6 +90,15 @@ unknown neighboring edits, partial additions, altered checkers, missing files,
 foreign origins and economic mutations. Specific successor edges remain
 explicit; no blanket transitive compatibility or generic AST wildcard is added.
 
+Each registry entry pins three separate witnesses: the original JSON bytes,
+the exact original checker bytes, and the canonical JSON policy payload. The
+payload pin is independent of the raw-byte digest and preserves schema,
+predecessor, original-source, scope and witness constraints even if a caller
+supplies a new raw digest. Exact scope/addition sets and structural record
+validation remain independent backstops. This replaces the repeated historical
+validators with one closed policy-witness check; historical JSON and checker
+files are unchanged.
+
 Bind the exact reviewed structural transition to the verified starting source
 closure. New current helper files and modified operational files require their
 exact reviewed hashes in this transition. Historical profiles are not re-pinned.

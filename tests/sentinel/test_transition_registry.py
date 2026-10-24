@@ -160,6 +160,73 @@ def test_unknown_historical_witness_bytes_refuse(tmp_path, monkeypatch, kind):
         registry.load()
 
 
+@pytest.mark.parametrize('defect', ['extra_file', 'missing_file', 'extra_addition',
+    'bad_predecessor', 'valid_predecessor', 'schema', 'original', 'witness'])
+def test_supplied_new_digest_never_widens_independent_profile_shape(
+        tmp_path, monkeypatch, defect, _supply_policy=False):
+    historical.copy_registry_root(tmp_path)
+    key = 'native_read' if defect == 'original' else 'protected_cohort'
+    spec = next(item for item in registry.PROFILES if item.key == key)
+    path = tmp_path / spec.filename
+    value = json.loads(path.read_bytes())
+    sample = next(iter(value['files']))
+    if defect == 'extra_file':
+        value['files']['core/unknown.py'] = deepcopy(value['files'][sample])
+    elif defect == 'missing_file':
+        value['files'].pop(sample)
+    elif defect == 'extra_addition':
+        value['additions']['foreign.py'] = 'a' * 64
+    elif defect == 'bad_predecessor':
+        value['files'][sample]['before'] = ['not-a-source-hash']
+    elif defect == 'valid_predecessor':
+        value['files'][sample]['before'] = ['f' * 64]
+    elif defect == 'schema':
+        value['schema'] = 'sentinel.unknown-policy/1'
+    elif defect == 'original':
+        value['original_admission_sha256'] = 'f' * 64
+    else:
+        value['predecessor_witnesses'][0]['manifest_sha256'] = 'f' * 64
+    raw = json.dumps(value).encode()
+    path.write_bytes(raw)
+    supplied = dict(sha256=hashlib.sha256(raw).hexdigest())
+    if _supply_policy:
+        supplied['policy_sha256'] = hashlib.sha256(json.dumps(value,sort_keys=True,
+            separators=(',',':'),ensure_ascii=True,allow_nan=False).encode()).hexdigest()
+    monkeypatch.setattr(registry, 'ROOT', tmp_path)
+    monkeypatch.setattr(registry, 'PROFILES', tuple(
+        replace(item, **supplied) if item.key == spec.key else item
+        for item in registry.PROFILES))
+    with pytest.raises(ValueError, match='PROFILE_SHAPE_CHANGED|SOURCE_RECORD_CHANGED|PROFILE_POLICY_CHANGED'):
+        registry.load()
+
+
+def test_independent_scope_guard_has_supplied_digest_behavioral_falsifier(tmp_path, monkeypatch):
+    source = inspect.getsource(registry.load_profiles)
+    needle = "or set(value.get('files', {})) != spec.scope"
+    assert source.count(needle) == 1
+    namespace = {}
+    exec(compile(source.replace(needle, 'or False'), 'missing-independent-scope', 'exec'),
+         registry.__dict__, namespace)
+    monkeypatch.setattr(registry, 'load_profiles', namespace['load_profiles'])
+    # Supply the independently tested payload pin only within this mutant to
+    # isolate the structural scope backstop from the policy-content guard.
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_supplied_new_digest_never_widens_independent_profile_shape(
+            tmp_path, monkeypatch, 'extra_file', _supply_policy=True)
+
+
+def test_independent_policy_payload_guard_has_behavioral_falsifier(tmp_path, monkeypatch):
+    source = inspect.getsource(registry.load_profiles)
+    needle = '_sha(policy) != spec.policy_sha256'
+    assert source.count(needle) == 1
+    namespace = {}
+    exec(compile(source.replace(needle, 'False'), 'missing-policy-witness', 'exec'),
+         registry.__dict__, namespace)
+    monkeypatch.setattr(registry, 'load_profiles', namespace['load_profiles'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_supplied_new_digest_never_widens_independent_profile_shape(tmp_path, monkeypatch, 'valid_predecessor')
+
+
 def test_unsealed_refactor_cannot_normalize_unknown_current_source(monkeypatch):
     monkeypatch.setattr(refactor, 'TRANSITION_SHA256', '0' * 64)
     actual = {'runtime_admission.py': 'f' * 64}

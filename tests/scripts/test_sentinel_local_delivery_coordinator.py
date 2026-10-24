@@ -232,3 +232,18 @@ def test_direct_offline_image_timeout_has_owned_cleanup_guard(tmp_path,monkeypat
         host.run(['docker','run','--rm','--network','none','exact-image'])
     removals=[c for c in calls if c[:3]==['docker','rm','-f']]
     assert len(removals)==(0 if foreign else 1)
+
+
+def test_failed_commands_keep_distinct_private_evidence_without_printing_secrets(tmp_path,monkeypatch):
+    host=host_module.Host.__new__(host_module.Host)
+    host.request=request(tmp_path);host.clean={};host.operation_dir=tmp_path
+    def fail(argv,**kwargs):
+        return subprocess.CompletedProcess(argv,1,stdout=b'private-result',stderr=b'private-secret')
+    monkeypatch.setattr(host_module.subprocess,'run',fail)
+    for _ in range(2):
+        with pytest.raises(model.DeliveryRefused,match='CHILD_OPERATION_REFUSED') as error:
+            host.run(['read-only-program'])
+        assert 'private-secret' not in str(error.value)
+    files=list(tmp_path.glob('private-command-error-*.log'))
+    assert len(files)==2 and all(path.read_bytes()==b'private-result\nprivate-secret' for path in files)
+    assert all(path.stat().st_mode&0o077==0 for path in files)

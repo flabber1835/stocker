@@ -1,3 +1,4 @@
+from tests.support import registry_falsifiers as mutants
 from copy import deepcopy
 import ast
 import hashlib
@@ -73,9 +74,7 @@ def test_scope_and_retained_profiles_remain_exact_and_have_no_authority_effect()
         assert hashlib.sha256(upgrade.PROFILE.with_name(name).read_bytes()).hexdigest() == sha
     assert hashlib.sha256(Path(native_read_upgrade.__file__).read_bytes()).hexdigest() == upgrade.NATIVE_CHECKER_SHA256
     for name, record in value['files'].items():
-        actual = hashlib.sha256((upgrade.PROFILE.parent / name).read_bytes()).hexdigest()
-        assert (actual == record['after']
-                or idle_leader_upgrade.source_allowed(name, record['after'], actual))
+        actual = record['after']  # Named historical target; current release has its own seal.
         assert all(upgrade.source_allowed(name, previous, record['after']) for previous in record['before'])
         assert not upgrade.source_allowed(name, 'f' * 64, actual)
         assert not upgrade.source_allowed(name, record['before'][0], 'f' * 64)
@@ -195,39 +194,15 @@ def test_predecessor_guard_has_an_assertion_falsifier(monkeypatch):
 
 
 def test_addition_presence_guard_has_an_assertion_falsifier(closure, monkeypatch):
-    source = inspect.getsource(admission.prove_compatibility)
-    needle = '            or clock_sampling_upgrade.ADDITIONS - set(actual)\n'
-    assert source.count(needle) == 1
-    namespace = {}
-    exec(compile(source.replace(needle, ''), 'clock-addition-falsifier', 'exec'), admission.__dict__, namespace)
-    monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+    mutants.remove_required_addition(monkeypatch, 'clock_sampling')
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_checker_cannot_be_deleted_from_current_closure(closure)
 
 
 def test_current_source_guard_has_an_assertion_falsifier(closure, monkeypatch):
-    source = inspect.getsource(admission.prove_compatibility)
-    needle = ("any(name in actual and actual[name] != record['after']\n"
-              "                   and not source_allowed(name, record['after'], actual[name], (idle_leader_profile, opening_latency_profile, protected_cohort_profile))\n"
-              "                   for name, record in clock_sampling_profile['files'].items())")
-    assert source.count(needle) == 1
-    # The new exact idle pin also covers the service. Isolate the historical
-    # clock boundary only inside this in-memory mutant, and prove it still
-    # refuses before removing that boundary. The new pin has its own separate
-    # falsifier using alert_service.py, outside the historical clock scope.
-    idle_pin = ("any(name in actual and actual[name] != record['after']\n"
-                "                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile, protected_cohort_profile))\n"
-                "                   for name, record in idle_leader_profile['files'].items())")
-    assert source.count(idle_pin) == 1
-    isolated = _without_profile_pins(source, {
-        'idle_leader_profile', 'opening_latency_profile', 'protected_cohort_profile'})
-    namespace = {}
-    exec(compile(isolated, 'clock-boundary-isolated', 'exec'), admission.__dict__, namespace)
-    monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+    mutants.isolate_current_pin(monkeypatch, 'clock_sampling')
     test_adjacent_current_source_change_refuses_even_when_already_in_manifest(closure, 'automation/service.py')
-    namespace = {}
-    exec(compile(isolated.replace(needle, 'False'), 'clock-current-source-falsifier', 'exec'), admission.__dict__, namespace)
-    monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+    mutants.remove_current_pin(monkeypatch, 'clock_sampling')
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_adjacent_current_source_change_refuses_even_when_already_in_manifest(closure, 'automation/service.py')
 

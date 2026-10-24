@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 BASE_REVISION = '0067e90b9f3a0e3e0b8c859fe4a90212e750ef16'
-TRANSITION_SHA256 = 'e9f2fb14a4360c6829edf4fa8f7221c03b54af55e2c22d71df81c65b23f13ab0'
+TRANSITION_SHA256 = '21f95cd270fc64805233575c85f40280392539e84171fac5e2a0abea4f41c38b'
 TRANSITION = Path(__file__).with_name('structural-refactor-transition.json')
 ECONOMIC_PATHS = {
     'sentinel.execution.held_targets': 'execution/held_targets.py',

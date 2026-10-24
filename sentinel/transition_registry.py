@@ -85,8 +85,14 @@ def load_profiles():
         value = json.loads(_read_exact(spec.filename, spec.sha256))
         if (not isinstance(value, dict) or set(value) != spec.keys
                 or not isinstance(value.get('schema'), str)
-                or value.get('authority_effect', 'NONE') != 'NONE'):
+                or value.get('authority_effect', 'NONE') != 'NONE'
+                or set(value.get('files', {})) != spec.scope
+                or set(value.get('additions', {})) != spec.additions):
             raise ValueError('TRANSITION_PROFILE_SHAPE_CHANGED:' + spec.key)
+        policy = json.dumps(value, sort_keys=True, separators=(',', ':'),
+                            ensure_ascii=True, allow_nan=False).encode()
+        if _sha(policy) != spec.policy_sha256:
+            raise ValueError('TRANSITION_PROFILE_POLICY_CHANGED:' + spec.key)
         _records(value['files'])
         additions = value.get('additions', {})
         if not isinstance(additions, dict):
