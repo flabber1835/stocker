@@ -1,5 +1,6 @@
 """Explicit immutable-generation prices. No publication or decision authority."""
 from __future__ import annotations
+from sentinel.feed.normalized_layout import candidate_query
 
 from dataclasses import dataclass, replace
 from datetime import date
@@ -14,28 +15,15 @@ from sentinel.feed import calendar, rolling_store
 from sentinel.feed.rolling_builder import NORMALIZATION_VERSION
 from sentinel.feed.rolling_contract import CanonicalBar, CanonicalBenchmark
 from sentinel.feed.store import streaming_cursor
+from sentinel.core.input_domains import _vendor, _defensive
 
 
 class RollingReaderRefused(RuntimeError):
     pass
 
 
-def _vendor(row: CanonicalBar) -> VendorBar:
-    return VendorBar(
-        session=row.session.isoformat(), security_id=row.security_id,
-        ticker=row.ticker, raw_close=row.close_unadjusted,
-        raw_open=row.open_unadjusted, volume=row.volume,
-        split_ratio=row.split_ratio, dividend_per_share=row.dividend_per_share,
-        tradeable=bool(row.close_unadjusted and row.volume),
-        signal_close=row.close_signal)
 
 
-def _defensive(row: CanonicalBenchmark) -> DefensiveBar:
-    return DefensiveBar(
-        session=row.session.isoformat(), security_id="SENTINEL:BIL", ticker="BIL",
-        open_signal=row.bil_open_signal, close_signal=row.bil_close_signal,
-        close_adjusted=row.bil_close_adjusted,
-        close_unadjusted=row.bil_close_unadjusted)
 
 
 @dataclass(frozen=True)
@@ -102,9 +90,9 @@ class RollingPriceReader:
         """Stream only the requested interval; never join an implicit latest view."""
         self._range(start, end)
         columns = rolling_store.BAR_COLUMNS
-        sql = (f"SELECT {','.join(columns)} FROM sentinel_snapshot_bars "
+        sql = (candidate_query(self.conn, f"SELECT {','.join(columns)} FROM sentinel_snapshot_bars "
                "WHERE candidate_id=%s AND session BETWEEN %s AND %s "
-               'ORDER BY session,security_id COLLATE "C"')
+               'ORDER BY session,security_id COLLATE "C"'))
         with streaming_cursor(self.conn, sql, (self.candidate_id, start, end)) as cur:
             for row in cur:
                 yield _vendor(CanonicalBar.model_validate(dict(zip(columns, row))))
@@ -118,8 +106,8 @@ class RollingPriceReader:
         columns = rolling_store.BENCHMARK_COLUMNS
         with self.conn.cursor() as cur:
             cur.execute(
-                f"SELECT {','.join(columns)} FROM sentinel_snapshot_benchmarks "
-                "WHERE candidate_id=%s AND session BETWEEN %s AND %s ORDER BY session",
+                candidate_query(self.conn, f"SELECT {','.join(columns)} FROM sentinel_snapshot_benchmarks "
+                "WHERE candidate_id=%s AND session BETWEEN %s AND %s ORDER BY session"),
                 (self.candidate_id, expected[0], session))
             benchmarks = tuple(CanonicalBenchmark.model_validate(dict(zip(columns, row)))
                                for row in cur.fetchall())
@@ -136,10 +124,10 @@ class RollingPriceReader:
             # One bounded indexed lookup per identity, not a whole-window reload.
             with self.conn.cursor() as cur:
                 cur.execute(
-                    "SELECT b.security_id,b.session,b.ticker,b.close_unadjusted,b.close_signal "
+                    candidate_query(self.conn, "SELECT b.security_id,b.session,b.ticker,b.close_unadjusted,b.close_signal "
                     "FROM unnest(%s::text[],%s::date[]) AS a(security_id,session) "
                     "JOIN sentinel_snapshot_bars b ON b.security_id=a.security_id "
-                    "AND b.session=a.session WHERE b.candidate_id=%s",
+                    "AND b.session=a.session WHERE b.candidate_id=%s"),
                     (list(anchor_sessions), list(anchor_sessions.values()), self.candidate_id))
                 for sid, day, ticker, raw, signal in cur.fetchall():
                     if signal is not None:

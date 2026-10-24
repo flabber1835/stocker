@@ -108,13 +108,17 @@ def _pass(conn, *, batch_rows):
         "(SELECT a.part_id FROM sentinel_acquisition_parts a WHERE NOT "
         "sentinel_acquisition_part_pinned(a.part_id) AND NOT EXISTS "
         "(SELECT 1 FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id) LIMIT 32)").rowcount
+    from sentinel.feed import normalized_layout
+    released_blocks = (normalized_layout.release_retired(conn)
+                       if normalized_layout.available(conn) else 0)
     return dict(status="COMPLETE", candidate_id=candidate, deleted_rows=deleted,
                 released_evidence=len(evidence), deleted_scratch_rows=scratch,
                 retired_candidate_id=retired_candidate, retired_count=int(retired_candidate is not None),
                 retained=retained, retained_count=len(retained), scan_cursor=scanned,
                 deleted_acquisition_rows=acquisition, deleted_acquisition_parts=acquisition_parts,
+                released_normalized_blocks=released_blocks,
                 more_work=bool(deleted or retired_candidate or len(rows) == 32 or evidence or scratch
-                               or acquisition or acquisition_parts))
+                               or acquisition or acquisition_parts or released_blocks))
 
 
 def maintain(conn, *, batch_rows=BATCH_ROWS):

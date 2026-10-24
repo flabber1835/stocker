@@ -258,6 +258,9 @@ def write_benchmarks(conn, candidate_id: str,
 def _rows(conn, candidate_id, *, table, columns, order, start=None, end=None):
     # Server-side cursor bounds memory independently of the universe size.
     rolling_work.checkpoint()
+    if table in ('sentinel_snapshot_bars', 'sentinel_snapshot_benchmarks'):
+        from sentinel.feed.normalized_layout import read_table
+        table = read_table(conn, 'BARS' if table.endswith('_bars') else 'BENCHMARKS')
     with conn.cursor(name="snapshot_" + uuid.uuid4().hex) as cur:
         cur.itersize = BATCH_SIZE
         bounds, params = '', [candidate_id]
@@ -349,6 +352,9 @@ def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
                      candidate_id))
         if cur.rowcount != 1:
             raise SnapshotStorageRefused("candidate changed during sealing")
+    from sentinel.feed import normalized_layout
+    if normalized_layout.available(conn):
+        normalized_layout.seal_layout(conn, candidate_id, manifest)
     return manifest
 
 
@@ -367,6 +373,8 @@ def manifest(conn, candidate_id: str) -> SnapshotManifest:
             or value.reference_sha256 != reference
             or value.source_evidence_sha256 != source):
         raise SnapshotStorageRefused("snapshot manifest differs from its candidate")
+    from sentinel.feed.normalized_layout import require_layout
+    require_layout(conn, candidate_id, value)
     if not retired(conn, candidate_id):
         verify_evidence(conn, value.reference_sha256)
         verify_evidence(conn, value.source_evidence_sha256)

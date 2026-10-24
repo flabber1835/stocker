@@ -389,6 +389,7 @@ class TestTheWhitelistIsCOMPLETEAgainstCompose:
                  if not v or len(v) < 15]
         assert not empty, f"no stated reason for: {empty}"
 
+
     def test_workflow_selected_identities_are_never_carried(self, mod):
         expected_owner = {
             "SENTINEL_RUNTIME_IMAGE_REF": "deployment/promotion workflow",
@@ -399,6 +400,19 @@ class TestTheWhitelistIsCOMPLETEAgainstCompose:
             reason = mod.DELIBERATELY_UNSET[name]
             assert owner in reason
             assert "stale" in reason
+
+
+@pytest.mark.parametrize('name', [
+    'SENTINEL_LOCAL_PAPER_MODE', 'SENTINEL_LOCAL_PAPER_ACCOUNT_ID',
+    'SENTINEL_LOCAL_PAPER_BACKUP_POLICY', 'SENTINEL_TEST_IMAGE_DIGEST',
+    'SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY', 'SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256',
+])
+def test_new_deployment_context_is_never_inherited_from_legacy_env(tmp_path, mod, name):
+    result, destination = run(tmp_path, OLD + name + '=LEAKCANARY_DEPLOYMENT_CONTEXT\n')
+    assert result.returncode == 0
+    assert name in mod.DELIBERATELY_UNSET
+    assert name not in mod.parse_env(destination)
+    assert 'LEAKCANARY_DEPLOYMENT_CONTEXT' not in result.stdout + result.stderr
 
 
 def _assert_legacy_execution_policy_is_not_selected(directory, mod):

@@ -204,13 +204,16 @@ class Visible(HTMLParser):
         if not self.closed_details: self.parts.append(value)
 
 
-def test_last_known_numbers_and_failure_reasons_are_visible_without_expanding_details():
+def test_last_known_numbers_stay_in_details_while_failures_remain_visible():
     previous = model.Row('shadow_nav', 'Certified shadow NAV', '$50,575.09', model.OK, as_of=NOW)
     rows, _, _, errors = _unknown(True, 'verification running', [previous], checking_until=NOW+timedelta(seconds=300))
     rows.append(model.Row('automation_alerts', 'Automation alerts', '2 unacked', model.FAIL))
     html = render(model.Panel(rows=rows, source_errors=errors, now=NOW+timedelta(seconds=1)))
     visible = Visible(); visible.feed(html.split('<script>', 1)[0])
-    assert 'LAST KNOWN · $50,575.09' in ''.join(visible.parts)
+    # The accepted plan-first layout keeps diagnostics in System details;
+    # its attention summary must still expose the failing check directly.
+    assert 'LAST KNOWN · $50,575.09' in html
+    assert 'LAST KNOWN · $50,575.09' not in ''.join(visible.parts)
     assert 'Needs attention' in ''.join(visible.parts)
     assert 'href="#status-automation_alerts"' in html
 

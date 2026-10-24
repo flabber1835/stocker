@@ -203,6 +203,12 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                 predecessors = detail.get("prospective_predecessors")
                 recovered = 'recovery_authorization_generation' in detail
                 fields = {'prospective_predecessors'}
+                continuation = 'owner_paper_continuation' in detail
+                if continuation:
+                    from sentinel import local_paper
+                    if detail['owner_paper_continuation'] != local_paper.MODE:
+                        raise AutomationRefused('unknown owner PAPER continuation')
+                    fields.add('owner_paper_continuation')
                 debug = 'paper_debug_configuration' in detail
                 if debug:
                     fields.add('paper_debug_configuration')
@@ -234,7 +240,13 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                          cycle.takeover_epoch,cycle.decision_session,cycle.control_generation))
                     rows = cur.fetchall()
                     known = [str(row[0]) for row in rows]
-                    if not recovered:
+                    if continuation:
+                        if not debug or recovered:
+                            raise AutomationRefused('local PAPER continuation requires its explicit window')
+                        from sentinel.automation import store, local_paper_continuation
+                        prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
+                        local_paper_continuation.require(conn, spec=spec, cycles=prior, config=debug_config)
+                    elif not recovered:
                         if debug:
                             from sentinel.automation import store
                             prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
@@ -250,7 +262,7 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                         "SELECT EXISTS(SELECT 1 FROM sentinel_automation_cycle_events "
                         "WHERE cycle_id=ANY(%s::text[]) AND (from_state IN ('EXECUTING','RECONCILING') "
                         "OR to_state IN ('EXECUTING','RECONCILING')))", (known,))
-                    if cur.fetchone()[0]:
+                    if cur.fetchone()[0] and not continuation:
                         raise AutomationRefused('prospective cycle predecessor reached transport')
                 conn.rollback()
                 if known != predecessors:

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pytest
 
 from sentinel.feed import operational_snapshot as op, publication, rolling_jobs as jobs
-from sentinel.feed import rolling_publisher, rolling_store, runtime_schema, store
+from sentinel.feed import publisher_pipeline, rolling_publisher, rolling_store, runtime_schema, store
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: F401
 
@@ -12,7 +12,7 @@ from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # n
 @pytest.fixture
 def operational_source(source, monkeypatch):
     from sentinel.feed.retained_source import RetainedSource
-    monkeypatch.setattr(rolling_publisher, "_operational_source",
+    monkeypatch.setattr(publisher_pipeline, "_operational_source",
         lambda window, conn, lease, *, corrections, verify_during_coverage:
             RetainedSource(window, conn, lease, corrections=corrections,
                            verify_during_coverage=verify_during_coverage))

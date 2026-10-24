@@ -497,7 +497,8 @@ def test_fixed_nonpositive_tick_availability_falsifier(monkeypatch):
 
 
 def test_action_evidence_falsifier(monkeypatch):
-    monkeypatch.setattr(limits, "_factor", _broken(limits._factor, "if multiplier != 1:", "if False:"))
+    monkeypatch.setattr(limits, "share_action_factor", _broken(
+        projections.share_action_factor, "if multiplier != 1:", "if False:"))
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_nonunit_share_factor_requires_durable_event_evidence()
 
@@ -511,15 +512,16 @@ def test_native_source_id_falsifier(monkeypatch):
 
 
 def test_unavailable_core_buy_guard_falsifier(monkeypatch):
-    monkeypatch.setattr(limits, "order_terms_for", _broken(limits.order_terms_for,
-        'if projection.opening_sizing["allocation_status"] == "CORE_REFERENCE_UNAVAILABLE":', 'if False:'))
+    monkeypatch.setattr(limits.ProtectedOrderTerms, "for_security", _broken(
+        limits.ProtectedOrderTerms.for_security,
+        'if self.allocation_status == "CORE_REFERENCE_UNAVAILABLE":', 'if False:'))
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_missing_core_reference_keeps_nonopening_target_and_blocks_all_buys(monkeypatch)
 
 
 def test_core_envelope_falsifier_detects_removed_guard(monkeypatch):
     original = inspect.getsource(limits.resolve_protected)
-    target = 'if not missing_core and held > core_budget:'
+    target = 'if not missing_core and held - retained_value > max(Fraction(0), core_budget - retained_value):'
     assert original.count(target) == 1
     namespace = {}
     exec(compile(original.replace(target, 'if False:'), '<removed-core-envelope>', 'exec'),

@@ -6,20 +6,20 @@ MUTANTS = {
         "sentinel.feed.rolling_builder", "coverage_proof = coverage.require_complete(**bounds)",
         "coverage_proof = {}", "test_bad_source_never_publishes[missing_equity]"),
     "comparison_cas": (
-        "sentinel.feed.rolling_publisher",
+        "sentinel.feed.publisher_pipeline",
         "if attempt is None or attempt[0] != (latest[0] if latest else None):", "if False:",
         "test_compare_and_swap_loser_preserves_winner"),
     "legacy_cas": (
-        "sentinel.feed.rolling_publisher",
+        "sentinel.feed.publisher_pipeline",
         'if _legacy_version(conn) != request.expected_publication_version:\n'
         '        raise ComparisonRefused("legacy publication changed during preparation")',
         'if False:\n        raise ComparisonRefused("legacy publication changed during preparation")',
         "test_legacy_publication_change_invalidates_ready"),
     "monotonic_frontier": (
-        "sentinel.feed.rolling_publisher", "if latest is not None and request.window.end < latest[1]:",
+        "sentinel.feed.publisher_pipeline", "if latest is not None and request.window.end < latest[1]:",
         "if False:", "test_old_comparison_cannot_replace_newer_frontier"),
     "post_validation_lease": (
-        "sentinel.feed.rolling_publisher",
+        "sentinel.feed.publisher_pipeline",
         "jobs._owned(conn, lease)  # Recheck time after proof loading, before visibility.",
         "pass  # mutated", "test_post_validation_lease_is_rechecked"),
     "reference_null_semantics": (

@@ -1475,6 +1475,13 @@ def _read_catalog(cur):
     return relations, columns, constraints, indexes, triggers
 
 
+def _read_runtime_catalog(cur):
+    """Preserve the historical catalog witness after exact extension checks."""
+    catalog = _read_catalog(cur)
+    from sentinel.operational_schema import legacy_catalog
+    return legacy_catalog(cur.connection, catalog)
+
+
 def _behavioral_relations(relations) -> set[str]:
     return {
         name for name in relations
@@ -2080,12 +2087,12 @@ def _migrate_order_terms(cur, catalog) -> None:
 
 
 def _finish_behavioral_version(cur) -> None:
-    catalog = _read_catalog(cur)
+    catalog = _read_runtime_catalog(cur)
     version = _validate_ledgered(cur, catalog, allow_previous=True)
     _validate_stage4_runtime(cur, catalog)
     if version == 1:
         _migrate_order_terms(cur, catalog)
-        catalog = _read_catalog(cur)
+        catalog = _read_runtime_catalog(cur)
     _validate_ledgered(cur, catalog)
     _validate_stage4_runtime(cur, catalog)
 
@@ -2201,12 +2208,14 @@ def require_runtime_schema(conn) -> None:
     A local lock timeout bounds even catalog reads queued behind an explicit
     migration so status/heartbeat paths fail visibly rather than hang forever.
     """
-    try:
+    # Roll back only this proof (a nested savepoint when borrowing a caller's
+    # transaction), never the caller's existing work, settings or locks.
+    with conn.transaction(force_rollback=True):
         with conn.cursor() as cur:
             cur.execute(
                 f"SET LOCAL lock_timeout TO '{_SCHEMA_LOCK_TIMEOUT_MS}ms'")
             cur.execute("SET LOCAL search_path TO public, pg_temp")
-            catalog = _read_catalog(cur)
+            catalog = _read_runtime_catalog(cur)
             relations, columns, constraints, indexes, triggers = catalog
             _validate_backup_infrastructure(
                 relations, columns, constraints, indexes, triggers)
@@ -2216,11 +2225,6 @@ def require_runtime_schema(conn) -> None:
                     "validation cannot bootstrap or migrate it")
             _validate_ledgered(cur, catalog)
             _validate_stage4_runtime(cur, catalog)
-        # Read-only proof: leave no transaction open across scheduler sleeps.
-        conn.rollback()
-    except BaseException:
-        conn.rollback()
-        raise
 
 
 def ensure_schema(conn) -> None:
@@ -2248,7 +2252,7 @@ def ensure_schema(conn) -> None:
                 f"SET LOCAL lock_timeout TO '{_SCHEMA_LOCK_TIMEOUT_MS}ms'")
             cur.execute(
                 "SELECT pg_advisory_xact_lock(%s,%s)", _SCHEMA_LOCK)
-            catalog = _read_catalog(cur)
+            catalog = _read_runtime_catalog(cur)
             relations, columns, constraints, indexes, triggers = catalog
             _validate_backup_infrastructure(
                 relations, columns, constraints, indexes, triggers)
@@ -2267,9 +2271,9 @@ def ensure_schema(conn) -> None:
                     for statement in DDL:
                         if statement.startswith('ALTER TABLE sentinel_automation_service_instances'):
                             cur.execute(statement)
-                    _migrate_generation_cycles(cur, _read_catalog(cur))
-                    _migrate_backup_progress(cur, _read_catalog(cur))
-                    _validate_stage4_runtime(cur, _read_catalog(cur))
+                    _migrate_generation_cycles(cur, _read_runtime_catalog(cur))
+                    _migrate_backup_progress(cur, _read_runtime_catalog(cur))
+                    _validate_stage4_runtime(cur, _read_runtime_catalog(cur))
                     _finish_behavioral_version(cur)
                     conn.commit()
                     return
@@ -2278,14 +2282,14 @@ def ensure_schema(conn) -> None:
                         if (statement.startswith('ALTER TABLE sentinel_web_push_subscriptions')
                                 or statement.startswith('UPDATE sentinel_web_push_subscriptions')):
                             cur.execute(statement)
-                    _validate_stage4_runtime(cur, _read_catalog(cur))
+                    _validate_stage4_runtime(cur, _read_runtime_catalog(cur))
                     _finish_behavioral_version(cur)
                     conn.commit()
                     return
                 if stage4_sha == _PRE_GENERATION_CATALOG_SHA256:
                     _migrate_generation_cycles(cur, catalog)
-                    _migrate_backup_progress(cur, _read_catalog(cur))
-                    final_catalog = _read_catalog(cur)
+                    _migrate_backup_progress(cur, _read_runtime_catalog(cur))
+                    final_catalog = _read_runtime_catalog(cur)
                     _validate_ledgered(cur, final_catalog, allow_previous=True)
                     _validate_stage4_runtime(cur, final_catalog)
                     _finish_behavioral_version(cur)
@@ -2293,7 +2297,7 @@ def ensure_schema(conn) -> None:
                     return
                 if stage4_sha == _PRE_BACKUP_PROGRESS_CATALOG_SHA256:
                     _migrate_backup_progress(cur, catalog)
-                    _validate_stage4_runtime(cur, _read_catalog(cur))
+                    _validate_stage4_runtime(cur, _read_runtime_catalog(cur))
                     _finish_behavioral_version(cur)
                     conn.commit()
                     return
@@ -2330,14 +2334,14 @@ def ensure_schema(conn) -> None:
                     "INSERT INTO sentinel_notification_policy"
                     " (id,web_push_activated_at)"
                     " VALUES (1,clock_timestamp())")
-            final_catalog = _read_catalog(cur)
+            final_catalog = _read_runtime_catalog(cur)
             _validate_backup_infrastructure(*final_catalog)
             _validate_ledgered(cur, final_catalog, allow_previous=True)
             if _semantic_catalog_sha256(
                     *final_catalog, _STAGE4_TABLES) == _PRE_GENERATION_CATALOG_SHA256:
                 _migrate_generation_cycles(cur, final_catalog)
-                _migrate_backup_progress(cur, _read_catalog(cur))
-                final_catalog = _read_catalog(cur)
+                _migrate_backup_progress(cur, _read_runtime_catalog(cur))
+                final_catalog = _read_runtime_catalog(cur)
             _validate_stage4_runtime(cur, final_catalog)
             _finish_behavioral_version(cur)
         conn.commit()

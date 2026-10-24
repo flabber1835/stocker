@@ -22,6 +22,7 @@ from sentinel import rolling_runtime as runtime, shadow_runtime
 from sentinel.feed import rolling_go_inputs as inputs
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
+from tests.support import historical_transition_fixture as historical
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
 from tests.sentinel.test_rolling_retained_runtime_activation import (
     conn, pg, source, ready, operational_source, executable, _start, OBS)
@@ -77,13 +78,12 @@ def test_exact_transition_requires_authenticated_origin_and_environment(closure,
     ('e9788eb7', 'b2275d003077e4e2b778477c5877145d4a9187ddba7880212f762561177429cb'),
 ])
 def test_complete_historical_source_manifest_is_admitted(closure, monkeypatch, revision, fixture_sha):
-    _, checkpoint, context, _, source_value = closure
+    fixture_root, checkpoint, context, _, source_value = closure
     raw = (Path(__file__).parent/'fixtures/retained-source-history'/(revision+'.json')).read_bytes()
     assert hashlib.sha256(raw).hexdigest() == fixture_sha
     manifest = json.loads(raw)
-    root = Path(upgrade.__file__).parent
-    actual = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-              for path in root.rglob('*.py') if '__pycache__' not in path.parts}
+    root = fixture_root / 'complete-historical-target'
+    actual = historical.complete_target(root)
     current_env = source_value['environment']
     current_env['sentinel_source'].update(path=str(root), files=len(actual),
         hash=admission.source_closure(actual))

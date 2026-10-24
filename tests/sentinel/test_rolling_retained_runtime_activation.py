@@ -3,7 +3,6 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-from pathlib import Path
 
 import pytest
 from sentinel import rolling_initialization as initial, rolling_runtime as runtime
@@ -15,14 +14,20 @@ from tests.sentinel.test_current_window_production import ready  # noqa: F401
 from tests.sentinel.test_operational_snapshot import operational_source  # noqa: F401
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: F401
 from tests.sentinel.test_rolling_daily import refresh, OBS
+from tests.support import historical_transition_fixture as historical_source
 
 
 @pytest.fixture
-def executable(ready, monkeypatch, request):
-    """Runtime attestation I/O is controlled; canonical book/DB/HMAC stay real."""
-    root = Path(admission.__file__).parent
-    actual = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-              for p in root.rglob('*.py') if '__pycache__' not in p.parts}
+def executable(ready, monkeypatch, request, tmp_path):
+    """Named historical attestation; canonical execution, book/DB/HMAC stay real.
+
+    This fixture exercises old admission edges against their authenticated
+    historical target. Current candidate closure and neighboring byte refusals
+    use the real executable reader in the separate structural boundary tests.
+    """
+    root = tmp_path / 'named-historical-runtime'
+    actual = historical_source.complete_target(root)
+    monkeypatch.setattr(admission, '_source_files', historical_source.source_files)
     old = {key: value for key, value in actual.items() if key not in admission.ADDITIONS}
     if getattr(request, 'param', None) == 'execution':
         from sentinel.execution_upgrade import profile
@@ -53,8 +58,7 @@ def executable(ready, monkeypatch, request):
                   'idle_leader_preceding': 'c0be72ed'}
     if getattr(request, 'param', None) in historical:
         revision = historical[request.param]
-        manifest = json.loads((Path(__file__).parent/
-            ('fixtures/retained-source-history/' + revision + '.json')).read_bytes())
+        manifest = historical_source.manifest(revision)
         old = manifest['files']
     if getattr(request, 'param', None) == 'callback_liveness':
         from sentinel.callback_liveness_upgrade import profile

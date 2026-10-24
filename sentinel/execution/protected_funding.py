@@ -240,19 +240,32 @@ def _assert_basis(basis, *, plan, projection, deployment, policy) -> None:
 
 def _assert_funding_account(*, basis, account, deployment, activity_state, broker) -> None:
     """Reuse a basis without crediting a deposit, saving or native BP deficit."""
+    _assert_available_account(account, deployment, require_equity=True)
+    _assert_current_evidence(basis=basis, account=account,
+        activity_state=activity_state, composition=_plan_cash_composition(broker),
+        activity_error=ProtectedFundingNotReady,
+        activity_message="native cash-activity evidence changed or is incomplete")
+
+
+def _assert_available_account(account, deployment, *, require_equity=False) -> None:
+    """Pure eligibility checks; callers still acquire their own fresh facts."""
     from sentinel.execution.contract import available_purchase_cash
 
     if not deployment.matches_account(account.identity):
         raise ProtectedFundingRefused("fresh account differs from the funding subject")
     available_purchase_cash(account)
-    if not account.equity.is_finite() or account.equity <= 0:
+    if require_equity and (not account.equity.is_finite() or account.equity <= 0):
         raise ProtectedFundingRefused("paper account equity is unusable")
     if (account.status.upper() != "ACTIVE" or account.trading_blocked
             or account.account_blocked or account.trade_suspended_by_user):
         raise ProtectedFundingNotReady("paper account is unavailable")
     if account.buying_power - account.cash > HEADROOM:
         raise ProtectedFundingRefused("buying power above cash exposes margin")
-    composition = _plan_cash_composition(broker)
+
+
+def _assert_current_evidence(*, basis, account, activity_state, composition,
+                             activity_error, activity_message) -> None:
+    """Preserve evidence variants and each boundary's refusal classification."""
     if isinstance(basis, PlanCashFundingBasis):
         if composition != basis.broker_composition_sha256 or activity_state is not None:
             raise ProtectedFundingRefused("funding broker composition or evidence variant changed")
@@ -263,7 +276,7 @@ def _assert_funding_account(*, basis, account, deployment, activity_state, broke
             raise ProtectedFundingRefused("funding evidence variant changed")
         if (activity_state is None or activity_state.processed_through < basis.observed_at
                 or _sha(_activity_identity(activity_state)) != basis.cash_activity_sha256):
-            raise ProtectedFundingNotReady("native cash-activity evidence changed or is incomplete")
+            raise activity_error(activity_message)
 
 
 def prove_cohort_continuation(conn, *, plan, projection, deployment, reconciliation,
@@ -309,6 +322,7 @@ def prove_cohort_continuation(conn, *, plan, projection, deployment, reconciliat
                             activity_state=activity_state, broker=broker)
     commands = journal.load_commands(conn, deployment)
     cohort = {}
+    protected_terms = None
     for command in commands:
         if command.state not in IN_FLIGHT and command.state is not CommandState.PLANNED:
             continue
@@ -322,7 +336,9 @@ def prove_cohort_continuation(conn, *, plan, projection, deployment, reconciliat
                 continue
             raise ProtectedFundingNotReady("another or uncertain obligation blocks protected continuation")
         maximum_cost(command)
-        if command.order_terms != protected_limits.order_terms_for(projection, command.security_id):
+        if protected_terms is None:
+            protected_terms = protected_limits.order_terms(projection, plan=plan)
+        if command.order_terms != protected_terms.for_security(command.security_id):
             raise ProtectedFundingRefused("cohort command differs from immutable protected terms")
         if command.state is CommandState.PLANNED:
             from sentinel.execution import commands as command_arithmetic
@@ -475,16 +491,7 @@ def maximum_cost(command) -> Decimal:
 def available_for_purchase(*, basis_cash: Decimal, account: BrokerAccountSnapshot,
                            commands, candidate, deployment, plan_id: str) -> Decimal:
     """Pure gross-ceiling arithmetic; terminal savings are never recycled."""
-    from sentinel.execution.contract import available_purchase_cash
-
-    if not deployment.matches_account(account.identity):
-        raise ProtectedFundingRefused("fresh account differs from the funding subject")
-    available_purchase_cash(account)  # Typed amounts, 1x multiplier, active flags.
-    if (account.status.upper() != "ACTIVE" or account.trading_blocked
-            or account.account_blocked or account.trade_suspended_by_user):
-        raise ProtectedFundingNotReady("paper account is unavailable")
-    if account.buying_power - account.cash > Decimal("1.00"):
-        raise ProtectedFundingRefused("buying power above cash exposes margin")
+    _assert_available_account(account, deployment)
     if candidate.identity.deployment != deployment or candidate.identity.plan_id != plan_id:
         raise ProtectedFundingRefused("candidate differs from the funding cohort")
     other = Fraction(0)
@@ -542,19 +549,12 @@ def validate_submission(conn, *, client_key, instrument, quantity, order_terms,
         raise ProtectedFundingRefused("protected projection, policy or funding basis is absent")
     _assert_basis(basis, plan=plan, projection=projection,
                   deployment=binding.identity, policy=policy)
-    composition = _plan_cash_composition(broker)
-    if isinstance(basis, PlanCashFundingBasis):
-        if composition != basis.broker_composition_sha256 or activity_state is not None:
-            raise ProtectedFundingRefused("funding broker composition or evidence variant changed")
-        if account.cash > basis.cash + HEADROOM:
-            raise ProtectedFundingRefused("fresh cash increased beyond the fixed funding basis")
-    else:
-        if composition is not None:
-            raise ProtectedFundingRefused("funding evidence variant changed")
-        if (activity_state is None or activity_state.processed_through < basis.observed_at
-                or _sha(_activity_identity(activity_state)) != basis.cash_activity_sha256):
-            raise ProtectedFundingRefused("native cash activity changed or is incomplete after the funding basis")
-    references = protected_limits.revalidate_references(conn, plan=plan, projection=projection)
+    _assert_current_evidence(basis=basis, account=account,
+        activity_state=activity_state, composition=_plan_cash_composition(broker),
+        activity_error=ProtectedFundingRefused,
+        activity_message="native cash activity changed or is incomplete after the funding basis")
+    references, protected_terms = protected_limits.submission_protection(
+        conn, plan=plan, projection=projection)
     if references.symbols.get(instrument.security_id) != instrument.symbol:
         raise ProtectedFundingRefused("BUY symbol differs from its authenticated source identity")
     if (references.source_provider == "ALPACA_OPENFIGI"
@@ -572,8 +572,7 @@ def validate_submission(conn, *, client_key, instrument, quantity, order_terms,
             or candidate.filled_quantity != 0 or candidate.broker_order_id is not None
             or candidate.instrument != instrument or candidate.quantity != quantity
             or candidate.order_terms != order_terms
-            or candidate.order_terms != protected_limits.order_terms_for(
-                projection, candidate.security_id)):
+            or candidate.order_terms != protected_terms.for_security(candidate.security_id)):
         raise ProtectedFundingRefused("pre-transport command differs from its immutable protection")
     available_for_purchase(
         basis_cash=(basis.plan_cash_ceiling if isinstance(basis, PlanCashFundingBasis) else basis.cash),

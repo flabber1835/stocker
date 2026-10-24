@@ -1,20 +1,21 @@
-from sentinel import protected_cohort_upgrade
 from collections import Counter
 from copy import deepcopy
+from dataclasses import replace
 import hashlib
-import importlib
 import inspect
 import json
 from pathlib import Path
+import textwrap
 from types import SimpleNamespace
 
 import pytest
 
 from sentinel import autonomy_runtime_upgrade as upgrade, runtime_admission as admission
-from sentinel import opening_latency_upgrade
+from sentinel import transition_registry as registry
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_retained_source_compatibility import closure
 from tests.sentinel.test_paper_composition_upgrade import _execution_closure, _refresh_current
+from tests.support import historical_transition_fixture as historical
 
 
 def test_profile_has_closed_scope_and_named_additions():
@@ -29,21 +30,23 @@ def test_profile_has_closed_scope_and_named_additions():
         'feed/rolling_builder.py', 'feed/runtime_schema.py', 'schema.py', 'shadow_worker.py',
     })
     assert upgrade.ADDITIONS == {'trading_environment.py', 'autonomy_runtime_upgrade.py'}
-    value = upgrade.profile()
+    value = historical.profile(upgrade)
     assert set(value['files']) == upgrade.SCOPE
     assert set(value['additions']) == upgrade.ADDITIONS
 
 
 @pytest.mark.parametrize('name', sorted(upgrade.SCOPE))
 def test_exact_predecessors_and_full_authenticated_closure(closure, name):
-    record = upgrade.profile()['files'][name]
-    actual = hashlib.sha256((Path(upgrade.__file__).parent / name).read_bytes()).hexdigest()
+    record = historical.profile(upgrade)['files'][name]
+    actual = historical.target()[name]
+    transitions = registry.load()
     assert (actual == record['after']
-            or (opening_latency_upgrade.source_allowed(name, record['after'], actual) or protected_cohort_upgrade.source_allowed(name, record['after'], actual)))
-    assert all(upgrade.source_allowed(name, old, record['after']) for old in record['before'])
-    assert not upgrade.source_allowed(name, 'f' * 64, actual)
-    assert not upgrade.source_allowed(name, record['before'][0], 'f' * 64)
-    assert not upgrade.source_allowed('core/kernel.py', record['before'][0], actual)
+            or transitions.source_allowed(name, record['after'], actual,
+                ('opening_latency','protected_cohort')))
+    assert all(historical.source_allowed(upgrade,name,old,record['after']) for old in record['before'])
+    assert not historical.source_allowed(upgrade,name,'f' * 64,actual)
+    assert not historical.source_allowed(upgrade,name,record['before'][0],'f' * 64)
+    assert not historical.source_allowed(upgrade,'core/kernel.py',record['before'][0],actual)
     root, checkpoint, context, manifest, source = _execution_closure(
         closure, name, source_profile=upgrade)
     assert admission.prove_compatibility(manifest, checkpoint, context, source=source) == digest(
@@ -55,25 +58,26 @@ def test_exact_predecessors_and_full_authenticated_closure(closure, name):
         admission.prove_compatibility(manifest, checkpoint, context, source=source)
 
 
-@pytest.mark.parametrize('kind', ['profile', 'module', 'admission'])
-def test_profile_module_and_admission_implementation_authentication(tmp_path, monkeypatch, kind):
-    if kind == 'module':
-        path = tmp_path / 'module.py'
-        path.write_bytes(Path(upgrade.__file__).read_bytes() + b'\nUNREVIEWED=True\n')
-        monkeypatch.setattr(upgrade, '__file__', str(path))
-    else:
-        path = tmp_path / upgrade.PROFILE.name
-        path.write_bytes(upgrade.PROFILE.read_bytes() + (b' ' if kind == 'profile' else b''))
-        (tmp_path / 'runtime_admission.py').write_bytes(
-            Path(admission.__file__).read_bytes() + (b'\nUNREVIEWED=True\n' if kind == 'admission' else b''))
-        monkeypatch.setattr(upgrade, 'PROFILE', path)
-    with pytest.raises(ValueError, match='PROFILE_CHANGED|IMPLEMENTATION_CHANGED'):
-        upgrade.profile()
+@pytest.mark.parametrize('kind', ['profile', 'module', 'admission_successor'])
+def test_current_registry_authenticates_historical_profile_checker_and_admission_successor(
+        tmp_path, monkeypatch, kind):
+    historical.copy_registry_root(tmp_path)
+    names = {'profile':'autonomy-runtime-upgrade.json',
+             'module':'autonomy_runtime_upgrade.py',
+             'admission_successor':next(spec.filename for spec in registry.PROFILES
+                                       if spec.key=='native_read')}
+    path = tmp_path/names[kind]
+    assert path.is_file()
+    path.write_bytes(path.read_bytes()+b'\nUNREVIEWED=True\n')
+    monkeypatch.setattr(registry,'ROOT',tmp_path)
+    with pytest.raises(ValueError, match='TRANSITION_WITNESS_CHANGED'):
+        registry.load()
 
 
 @pytest.mark.parametrize('defect', ['extra_file', 'missing_file', 'extra_addition', 'bad_predecessor'])
 def test_descriptor_structure_stays_closed_even_when_its_digest_is_supplied(tmp_path, monkeypatch, defect):
-    value = deepcopy(upgrade.profile())
+    historical.copy_registry_root(tmp_path)
+    value = deepcopy(historical.profile(upgrade))
     if defect == 'extra_file':
         value['files']['core/kernel.py'] = value['files']['shadow_worker.py']
     elif defect == 'missing_file':
@@ -85,11 +89,12 @@ def test_descriptor_structure_stays_closed_even_when_its_digest_is_supplied(tmp_
     raw = json.dumps(value).encode()
     path = tmp_path / upgrade.PROFILE.name
     path.write_bytes(raw)
-    (tmp_path / 'runtime_admission.py').write_bytes(Path(admission.__file__).read_bytes())
-    monkeypatch.setattr(upgrade, 'PROFILE', path)
-    monkeypatch.setattr(upgrade, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
-    with pytest.raises(ValueError, match='SHAPE_CHANGED|SOURCE_RECORD_CHANGED'):
-        upgrade.profile()
+    monkeypatch.setattr(registry,'ROOT',tmp_path)
+    monkeypatch.setattr(registry,'PROFILES',tuple(
+        replace(spec,sha256=hashlib.sha256(raw).hexdigest()) if spec.key=='autonomy' else spec
+        for spec in registry.PROFILES))
+    with pytest.raises(ValueError, match='PROFILE_SHAPE_CHANGED|SOURCE_RECORD_CHANGED|PROFILE_POLICY_CHANGED'):
+        registry.load()
 
 
 @pytest.mark.parametrize('name', sorted(upgrade.ADDITIONS))
@@ -97,9 +102,10 @@ def test_descriptor_structure_stays_closed_even_when_its_digest_is_supplied(tmp_
 def test_additions_need_exact_bytes_including_when_previously_present(closure, name, already_in_manifest):
     root, checkpoint, context, manifest, source = closure
     path = root / name
-    path.write_bytes((Path(upgrade.__file__).parent / name).read_bytes())
+    historical.write(root,name)
+    actual = historical.source_files(root)[name]
     if already_in_manifest:
-        previous = hashlib.sha256(path.read_bytes()).hexdigest()
+        previous = actual
         manifest['files'][name] = previous
         previous_env = deepcopy(source['environment'])
         previous_env['sentinel_source'].update(
@@ -110,8 +116,8 @@ def test_additions_need_exact_bytes_including_when_previously_present(closure, n
         checkpoint.runtime_identity['reviewed_shadow_config']['validated_source_identity_sha256'] = (
             checkpoint.runtime_identity['environment_identity_sha256'])
     _refresh_current(root, context, source)
-    assert upgrade.additions_allowed({name: hashlib.sha256(path.read_bytes()).hexdigest()}) == {name}
-    assert upgrade.additions_allowed({name: 'f' * 64}) == set()
+    assert historical.additions_allowed(upgrade,{name:actual}) == {name}
+    assert historical.additions_allowed(upgrade,{name:'f' * 64}) == set()
     assert admission.prove_compatibility(manifest, checkpoint, context, source=source)
     path.write_bytes(path.read_bytes() + b'\nUNREVIEWED=True\n')
     _refresh_current(root, context, source)
@@ -123,39 +129,20 @@ def test_source_matching_reuses_validated_profiles_for_many_changed_files(closur
     root, checkpoint, context, manifest, source = closure
     for name in ('shadow_worker.py', 'execution/contract.py', 'feed/alpaca_source.py'):
         _execution_closure(closure, name, source_profile=upgrade)
-    modules = ('economic_migration', 'execution_upgrade', 'retained_readiness_upgrade',
-               'dual_plan_renewal_upgrade', 'operational_liveness_upgrade',
-               'operational_runtime_upgrade', 'callback_liveness_upgrade',
-               'startup_contention_upgrade', 'unsent_recovery_upgrade',
-               'shadow_ui_upgrade', 'dashboard_monitor_upgrade', 'open_time_upgrade',
-               'close_cycle_upgrade', 'autonomy_runtime_upgrade')
-    addition_modules = {'operational_runtime_upgrade', 'unsent_recovery_upgrade',
-                        'shadow_ui_upgrade', 'dashboard_monitor_upgrade',
-                        'open_time_upgrade', 'close_cycle_upgrade', 'autonomy_runtime_upgrade'}
     calls = Counter()
-    for name in modules:
-        module = importlib.import_module('sentinel.' + name)
-        original = module.profile
-        def counted(name=name, original=original):
-            calls[name] += 1
-            return original()
-        monkeypatch.setattr(module, 'profile', counted)
-    economic = importlib.import_module('sentinel.economic_migration')
-    original_legacy = economic.legacy_profile
-    def counted_legacy():
-        calls['legacy_economic'] += 1
-        return original_legacy()
-    monkeypatch.setattr(economic, 'legacy_profile', counted_legacy)
+    original = registry.load_profiles
+    def counted():
+        calls['validated_registry'] += 1
+        return original()
+    monkeypatch.setattr(registry,'load_profiles',counted)
     assert admission.prove_compatibility(manifest, checkpoint, context, source=source)
-    assert calls == ({name: 1 + (name in addition_modules) for name in modules}
-                     | {'legacy_economic': 1})
+    assert calls == {'validated_registry':1}
 
 
 @pytest.mark.parametrize('name', ['core/kernel.py', 'core/session.py', 'rolling_runtime.py',
                                  'strategy.py', 'shadow_observation.py', 'core/rolling_inputs.py'])
 def test_original_cash_source_transitions_survive_v2_without_rewriting_history(closure, name):
-    from sentinel import economic_migration
-    original = economic_migration.legacy_profile()
+    original = registry.load_profiles()['legacy_economic']
     source_profile = SimpleNamespace(profile=lambda: original)
     _, checkpoint, context, manifest, source = _execution_closure(
         closure, name, source_profile=source_profile)
@@ -163,19 +150,15 @@ def test_original_cash_source_transitions_survive_v2_without_rewriting_history(c
 
 
 def test_v2_changed_paths_bridge_only_the_authenticated_original_transitions():
-    from sentinel import economic_migration
-    legacy = economic_migration.legacy_profile()
-    current = economic_migration.profile()
+    transitions = registry.load()
+    legacy, current = (transitions.profiles[key] for key in ('legacy_economic','economic'))
     for name in set(legacy['files']) & set(current['files']):
         record = legacy['files'][name]
-        actual = hashlib.sha256((Path(upgrade.__file__).parent / name).read_bytes()).hexdigest()
+        actual = historical.target()[name]
         for previous in (*record['before'], record['after']):
-            assert (economic_migration.source_allowed(name, previous, actual)
-                    or protected_cohort_upgrade.source_allowed(name, previous, actual))
-            assert not (economic_migration.source_allowed(name, previous, 'f' * 64)
-                        or protected_cohort_upgrade.source_allowed(name, previous, 'f' * 64))
-        assert not (economic_migration.source_allowed(name, 'f' * 64, actual)
-                    or protected_cohort_upgrade.source_allowed(name, 'f' * 64, actual))
+            assert transitions.source_allowed(name,previous,actual,('economic','protected_cohort'))
+            assert not transitions.source_allowed(name,previous,'f' * 64,('economic','protected_cohort'))
+        assert not transitions.source_allowed(name,'f' * 64,actual,('economic','protected_cohort'))
 
 
 def test_original_descriptor_is_independently_pinned(tmp_path, monkeypatch):
@@ -204,26 +187,25 @@ def test_full_proof_refuses_an_unreviewed_predecessor_even_with_matching_origin(
 
 
 def test_removing_local_predecessor_check_is_detected(closure, monkeypatch):
-    source = inspect.getsource(admission.prove_compatibility)
+    source = textwrap.dedent(inspect.getsource(registry.Transitions.source_allowed))
     needle = "record is not None and previous in record['before']"
     assert source.count(needle) == 1
     namespace = {}
     exec(compile(source.replace(needle, 'record is not None'),
-                 'predecessor-falsifier', 'exec'), admission.__dict__, namespace)
-    monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+                 'predecessor-falsifier', 'exec'), registry.__dict__, namespace)
+    monkeypatch.setattr(registry.Transitions,'source_allowed',namespace['source_allowed'])
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_full_proof_refuses_an_unreviewed_predecessor_even_with_matching_origin(closure)
 
 
 def test_reintroducing_per_file_profile_reads_is_detected(closure, monkeypatch):
-    source = inspect.getsource(admission.prove_compatibility)
-    needle = '        for value in records:'
+    source = textwrap.dedent(inspect.getsource(registry.Transitions.source_allowed))
+    needle = '    for key in self.profiles if keys is None else keys:'
     assert source.count(needle) == 1
-    replacement = ('        from sentinel.economic_migration import profile as reparse\n'
-                   '        reparse()\n' + needle)
+    replacement = '    load_profiles()\n'+needle
     namespace = {}
     exec(compile(source.replace(needle, replacement), 'profile-read-falsifier', 'exec'),
-         admission.__dict__, namespace)
-    monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+         registry.__dict__, namespace)
+    monkeypatch.setattr(registry.Transitions,'source_allowed',namespace['source_allowed'])
     with pytest.raises(AssertionError):
         test_source_matching_reuses_validated_profiles_for_many_changed_files(closure, monkeypatch)

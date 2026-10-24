@@ -186,6 +186,42 @@ def _require_unsent_renewal(conn, plan):
             "wait for the next decision after dispatched intent")
 
 
+def _local_window_resizing(conn, plan, grant, *, decision_session=None):
+    from sentinel import local_paper
+    if plan is None or (decision_session is not None and plan.decision_session != decision_session):
+        return False
+    if not local_paper.require_bound_account(conn):
+        return False
+    from sentinel.execution import target_reprojection
+    from sentinel.execution.protected_limits import ProtectedLimitPolicy
+    projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+    policy = ProtectedLimitPolicy.from_env()
+    if (projection is None or projection.opening_sizing is None or policy is None
+            or projection.opening_sizing.get('policy') == policy.to_dict()):
+        return False
+    if grant is None or grant.operation_scope != 'PREPARE' or policy.debug_window is None:
+        raise PaperActivationRefused('changed local PAPER window requires native continuation preparation')
+    from sentinel.automation import integrity, store
+    cycle = store.load_cycle(conn, grant.cycle_id)
+    integrity.validate_cycle_lineage(conn, cycle)
+    if (cycle.control_generation != grant.control_generation
+            or cycle.config_sha256 != grant.config_sha256
+            or cycle.effective_session != plan.effective_session):
+        raise PaperActivationRefused('local window resizing differs from the native cycle')
+    with conn.cursor() as cur:
+        cur.execute('SELECT detail FROM sentinel_automation_cycle_events WHERE cycle_id=%s AND from_state IS NULL', (cycle.cycle_id,))
+        genesis = cur.fetchone()[0]
+    if genesis.get('owner_paper_continuation') != local_paper.MODE:
+        raise PaperActivationRefused('local window resizing requires recovered predecessor lineage')
+    from sentinel.execution.states import TERMINAL
+    deployment = binding_mod.require(conn).identity
+    if (any(command.state not in TERMINAL for command in journal.load_commands(
+            conn, deployment, plan_id=plan.plan_id))
+            or journal.in_flight_commands(conn, deployment)):
+        raise PaperRetryableRefused('local window resizing waits for terminal commands')
+    return True
+
+
 def _default_paper_strategy():
     """Load the shared compact champion production profile."""
     from sentinel.strategy import production_strategy
@@ -491,7 +527,18 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         raise PaperActivationRefused(
                             f"dual sizing authority refused renewal: {exc}") from exc
 
-            if (dual_mode and renewal_rollout is None and existing_plan is not None
+            local_resizing = (dual_mode and _local_window_resizing(
+                conn, existing_plan, automation_grant, decision_session=through_date))
+            if local_resizing:
+                _assert_plan_authorities(
+                    conn, state=dual_state, plan=existing_plan, binding=binding,
+                    pinned=pinned, frontier=through_text,
+                    today=date.fromisoformat(calendar.next_session(through_text)),
+                    runtime_identity=identity, rollout=rollout,
+                    require_effective_today=False, retained_shadow=True)
+                dual_plan_authority.rederive_plan(conn, plan=existing_plan, binding=binding,
+                    rollout_state=rollout, expected_shadow_result=dual_result)
+            if (dual_mode and not local_resizing and renewal_rollout is None and existing_plan is not None
                     and existing_plan.decision_session == through_date):
                 state = dual_state
                 _assert_concordance_witness_authority(
@@ -702,6 +749,9 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     state, certificate.authorization_mode)
                 marks, tickers = _load_marks_and_tickers(
                     conn, state, through_text)
+                from sentinel.execution import held_targets
+                share_basis = held_targets.build_basis(conn, previous=existing_plan,
+                    state=state, binding=binding, rollout=rollout)
                 decision = build_execution_plan(
                     state=state, binding=binding, publication=pinned,
                     account_snapshot=account, observation=observation,
@@ -709,11 +759,15 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     decision_session=through_date,
                     effective_session=date.fromisoformat(
                         calendar.next_session(through_text)),
-                    rollout_state=rollout)
+                    rollout_state=rollout,
+                    retained_targets={sid: Decimal(qty) for sid, qty in share_basis["targets"].items()})
+                if local_resizing and decision.plan.plan_id == existing_plan.plan_id:
+                    raise PaperActivationRefused('local window resizing did not produce fresh plan economics')
                 authority = dual_plan_authority.build_authority(
                     plan=decision.plan, shadow_result=dual_result,
                     publication=pinned, account_snapshot=account,
-                    observation=observation, marks=marks, tickers=tickers)
+                    observation=observation, marks=marks, tickers=tickers,
+                    held_share_targets=share_basis)
                 superseded = int(
                     existing_plan is not None
                     and existing_plan.plan_id != decision.plan.plan_id)

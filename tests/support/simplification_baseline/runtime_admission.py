@@ -1,0 +1,530 @@
+"""Explicit compatible executable admission over immutable rolling provenance."""
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import dataclass
+import hashlib
+import hmac
+import json
+import os
+from pathlib import Path
+from typing import Literal
+
+from pydantic import Field
+from sentinel import identity, rolling_checkpoint as origin, shadow_runtime
+from sentinel.feed import publication
+from sentinel.feed.rolling_contract import Contract, Digest, canonical_json, digest
+
+SCHEMA = 'sentinel.retained-runtime-admission/1'
+PREFIX = 'runtime-admission:v1:'
+Refused = origin.RollingColdStartRefused
+ADDITIONS = {'runtime_admission.py', 'semantic_source_basis.py', 'retained_go.py', 'retained_parity.py',
+             'economic_migration.py', 'core/cash_distributions.py', 'execution_upgrade.py',
+             'retained_readiness_upgrade.py', 'dual_plan_renewal_upgrade.py',
+             'operational_liveness_upgrade.py', 'operational_runtime_upgrade.py',
+             'callback_liveness_upgrade.py', 'startup_contention_upgrade.py',
+             'unsent_recovery_upgrade.py', 'shadow_ui_upgrade.py', 'dashboard_monitor_upgrade.py',
+             'open_time_upgrade.py', 'close_cycle_upgrade.py'}
+ADMINISTRATIVE = {'shadow_supervisor.py', 'observation_authority.py', 'observation_startup.py'}
+SEAMS = {'core/decision.py': 'sentinel.core.decision',
+         'rolling_checkpoint.py': 'sentinel.rolling_checkpoint',
+         'rolling_daily_checkpoint.py': 'sentinel.rolling_daily_checkpoint'}
+
+
+class SourceManifest(Contract):
+    schema_id: Literal['sentinel.retained-source-manifest/1'] = Field(alias='schema')
+    revision: str = Field(pattern=r'^[0-9a-f]{40}$')
+    files: dict[str, Digest]
+    seam_sources: dict[str, str] = Field(default_factory=dict)
+
+
+class Admission(Contract):
+    schema_id: Literal['sentinel.retained-runtime-admission/1'] = Field(default=SCHEMA, alias='schema')
+    authority_effect: Literal['NONE'] = 'NONE'
+    observation_id: str
+    origin_sha256: Digest
+    book_runtime_sha256: Digest
+    process_sha256: Digest
+    strategy_sha256: Digest
+    manifest_sha256: Digest
+    pitr: dict
+
+
+class EconomicAdmission(Admission):
+    schema_id: Literal['sentinel.retained-runtime-admission/2'] = Field(
+        default='sentinel.retained-runtime-admission/2', alias='schema')
+    migration_profile_sha256: Digest
+    origin_strategy_sha256: Digest
+
+
+def process_binding(runtime):
+    # Genesis provenance remains immutable; the live publication is independently
+    # checked by every rolling reader. A GO publication subject cannot rebase it.
+    return {key: value for key, value in runtime.items()
+            if key != 'validated_data_publication_sha256'}
+
+
+def current_context(*, observation_id, starting_cash):
+    """Actual-image GO context, not authorization or persisted configuration."""
+    from sentinel import rolling_initialization as initial
+    source = identity.rehearsal_identity()
+    env, artifacts = source['environment'], source['deployment_artifacts']
+    if identity.certification_verdict(env, artifacts)['certified'] is not True:
+        raise Refused('RETAINED_CURRENT_EXECUTABLE_UNCERTIFIED')
+    name = initial.shadow._observation_id(observation_id)
+    cash = shadow_runtime._starting_cash(starting_cash)
+    if os.environ.get('SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY', shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY) != shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY:
+        raise Refused('RETAINED_PUBLICATION_POLICY_CHANGED')
+    controller, strategy = shadow_runtime._strategy()
+    reviewed = {'schema': 'sentinel.shadow-reviewed-config/1', 'observation_id': name,
+        'starting_cash': format(cash.normalize(), 'f'),
+        'execution_model': shadow_runtime.SHADOW_EXECUTION_MODEL,
+        'cutoff_policy': shadow_runtime.SHADOW_CUTOFF_POLICY,
+        'publication_timing_policy': shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY,
+        'validated_source_identity_sha256': source['identity_hash']}
+    runtime = {'schema': 'sentinel.shadow-runtime-identity/1',
+        'validated_source_identity_sha256': source['identity_hash'],
+        'environment_identity_sha256': source['identity_hash'],
+        'sentinel_source_sha256': env['sentinel_source']['hash'],
+        'wealth_core_source_sha256': env['wealth_core_source']['hash'],
+        'git_commit': artifacts['git_commit'], 'runtime_image_digest': artifacts['runtime_image_digest'],
+        'validated_shadow_config_sha256': digest(reviewed),
+        'validated_data_publication_sha256': os.environ.get('SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256', '0'*64),
+        'reviewed_shadow_config': reviewed}
+    return {'observation_id': name, 'starting_cash': reviewed['starting_cash'],
+            'controller': controller, 'strategy': strategy, 'runtime': runtime}
+
+
+def _key(context):
+    return PREFIX + context['observation_id'] + ':' + digest(process_binding(context['runtime']))
+
+
+def _signature(value):
+    return publication._receipt_hmac({'purpose': SCHEMA, 'admission': value})
+
+
+def _require_context(checkpoint, context):
+    from sentinel.economic_migration import compatible
+    old = checkpoint.runtime_identity['reviewed_shadow_config']
+    new = context['runtime']['reviewed_shadow_config']
+    without_source = lambda value: {k: v for k, v in value.items() if k != 'validated_source_identity_sha256'}
+    if (checkpoint.observation_id != context['observation_id']
+            or checkpoint.starting_cash != context['starting_cash']
+            or (checkpoint.strategy_identity != context['strategy']
+                and not compatible(checkpoint.strategy_identity, context['strategy']))
+            or without_source(old) != without_source(new)):
+        raise Refused('RETAINED_BOOK_CONFIGURATION_CHANGED')
+
+
+def _require_binding(value, checkpoint, context):
+    _require_context(checkpoint, context)
+    if (value.observation_id != context['observation_id']
+            or value.origin_sha256 != digest(checkpoint.model_dump(by_alias=True))
+            or value.book_runtime_sha256 != digest(checkpoint.runtime_identity)
+            or value.process_sha256 != digest(process_binding(context['runtime']))
+            or value.strategy_sha256 != digest(context['strategy'])):
+        raise Refused('RETAINED_RUNTIME_ADMISSION_BINDING_CHANGED')
+    if checkpoint.strategy_identity != context['strategy']:
+        from sentinel.economic_migration import PROFILE_SHA256
+        if (not isinstance(value, EconomicAdmission)
+                or value.migration_profile_sha256 != PROFILE_SHA256
+                or value.origin_strategy_sha256 != digest(checkpoint.strategy_identity)):
+            raise Refused('RETAINED_ECONOMIC_MIGRATION_ADMISSION_REQUIRED')
+
+
+def _decode(row, checkpoint):
+    raw = row[1]
+    if (not isinstance(raw, dict) or set(raw) != {'admission', 'hmac_sha256'}
+            or not isinstance(raw['admission'], dict)
+            or not hmac.compare_digest(str(raw['hmac_sha256']), _signature(raw['admission']))):
+        raise Refused('RETAINED_RUNTIME_ADMISSION_AUTHENTICATION_FAILED')
+    cls = EconomicAdmission if raw['admission'].get('schema') == 'sentinel.retained-runtime-admission/2' else Admission
+    value = cls.model_validate(raw['admission'])
+    if raw['admission'] != value.model_dump(by_alias=True) or str(row[0]) != checkpoint.session:
+        raise Refused('RETAINED_RUNTIME_ADMISSION_SHAPE_CHANGED')
+    return value
+
+
+def read(conn, context, checkpoint):
+    row = conn.execute('SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s', (_key(context),)).fetchone()
+    if row is None:
+        return None
+    value = _decode(row, checkpoint)
+    _require_binding(value, checkpoint, context)
+    return value
+
+
+def _require_retained_strategy(conn, checkpoint, context, stored):
+    if stored in (checkpoint.strategy_identity, context['strategy']):
+        return
+    from sentinel.economic_migration import (
+        POLICY, LEGACY_POLICY, PROFILE_SHA256, LEGACY_PROFILE_SHA256,
+        compatible, legacy_profile,
+    )
+    policy = stored.get('cash_distribution_policy')
+    if (policy not in (POLICY, LEGACY_POLICY)
+            or context['strategy'].get('cash_distribution_policy') != POLICY
+            or not compatible(stored, context['strategy'])):
+        raise Refused('RETAINED_ECONOMIC_CHECKPOINT_IDENTITY_CHANGED')
+    expected_profile = PROFILE_SHA256
+    if policy == LEGACY_POLICY:
+        legacy_profile()
+        expected_profile = LEGACY_PROFILE_SHA256
+    prefix = PREFIX + context['observation_id'] + ':'
+    # Select only the small administrative namespace, never financial history.
+    rows = conn.execute('SELECT cursor_name,session,state FROM sentinel_processed_sessions '
+        "WHERE cursor_name LIKE %s AND state->'admission'->>'strategy_sha256'=%s",
+        (prefix + '%', digest(stored)))
+    found = False
+    for cursor, session, raw in rows:
+        value = _decode((session, raw), checkpoint)
+        if (not isinstance(value, EconomicAdmission)
+                or cursor != prefix + value.process_sha256
+                or value.observation_id != context['observation_id']
+                or value.origin_sha256 != digest(checkpoint.model_dump(by_alias=True))
+                or value.book_runtime_sha256 != digest(checkpoint.runtime_identity)
+                or value.strategy_sha256 != digest(stored)
+                or value.migration_profile_sha256 != expected_profile
+                or value.origin_strategy_sha256 != digest(checkpoint.strategy_identity)):
+            raise Refused('RETAINED_INTERMEDIATE_ADMISSION_BINDING_CHANGED')
+        found = True
+    if not found:
+        raise Refused('RETAINED_INTERMEDIATE_ADMISSION_REQUIRED')
+
+
+def bind_context(conn, context):
+    checkpoint = origin.read(conn)
+    if checkpoint is None:
+        return
+    if checkpoint.runtime_identity == context['runtime']:
+        return  # The ordinary checkpoint guards retain their exact contract.
+    if (checkpoint.runtime_identity.get('schema') != 'sentinel.shadow-runtime-identity/1'
+            or context['runtime'].get('schema') != 'sentinel.shadow-runtime-identity/1'):
+        return  # Unknown identities cannot gain a compatibility fallback.
+    _require_context(checkpoint, context)
+    if process_binding(checkpoint.runtime_identity) != process_binding(context['runtime']):
+        from sentinel import local_paper
+        if local_paper.require_bound_account(conn):
+            actual = identity.rehearsal_identity()
+            local_paper.require_runtime(conn, actual)
+            artifacts = actual['deployment_artifacts']
+            if (context['runtime'].get('git_commit') != artifacts['git_commit']
+                    or context['runtime'].get('runtime_image_digest') != artifacts['runtime_image_digest']
+                    or context['runtime'].get('environment_identity_sha256') != actual['identity_hash']):
+                raise Refused('LOCAL_PAPER_RETAINED_PROCESS_IDENTITY_CHANGED')
+        elif read(conn, context, checkpoint) is None:
+            raise Refused('RETAINED_RUNTIME_ADMISSION_REQUIRED')
+    from sentinel import rolling_daily_checkpoint as daily
+    current = daily.read(conn)
+    stored = checkpoint.strategy_identity if current is None else current.strategy_identity
+    _require_retained_strategy(conn, checkpoint, context, stored)
+    context['runtime'] = checkpoint.runtime_identity
+    context['strategy'] = stored
+
+
+def _retained_checkpoint_uncached(conn, context=None):
+    """Authenticate both identities without loading or rewriting a strategy book."""
+    checkpoint = origin.read(conn)
+    if checkpoint is None:
+        return None, None, None
+    if context is None:
+        context = current_context(observation_id=os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID', 'primary'),
+            starting_cash=os.environ.get('SENTINEL_SHADOW_STARTING_CASH', '50000'))
+    selected = context['strategy']
+    bind_context(conn, context)
+    from sentinel import rolling_daily_checkpoint as daily
+    retained = daily.read(conn) or checkpoint
+    if (retained.observation_id != context['observation_id']
+            or retained.starting_cash != context['starting_cash']
+            or retained.runtime_identity != context['runtime']
+            or retained.strategy_identity != context['strategy']
+            or (retained is not checkpoint
+                and retained.origin_sha256 != digest(checkpoint.model_dump(by_alias=True)))):
+        raise Refused('RETAINED_PUBLICATION_CHECKPOINT_BINDING_CHANGED')
+    return retained, context, selected
+
+
+@dataclass(frozen=True)
+class _RetainedCheckpointBinding:
+    observation_id: str
+    starting_cash: str
+    runtime_identity: dict
+    strategy_identity: dict
+    state_sha256: str
+    session: str
+    publication: dict
+
+
+def _retained_checkpoint(conn):
+    """Reuse only a canonical binding under the original owned proof scope."""
+    from sentinel import structural_verification
+    if not structural_verification.active():
+        return _retained_checkpoint_uncached(conn)
+    present = conn.execute('SELECT EXISTS (SELECT 1 FROM sentinel_processed_sessions '
+        'WHERE cursor_name=%s)', (origin.CURSOR,)).fetchone()[0]
+    if not present:
+        return None, None, None
+    context = current_context(observation_id=os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID', 'primary'),
+        starting_cash=os.environ.get('SENTINEL_SHADOW_STARTING_CASH', '50000'))
+    def load():
+        retained, bound, selected = _retained_checkpoint_uncached(conn, deepcopy(context))
+        if retained is None:
+            return None, None, None
+        binding = _RetainedCheckpointBinding(
+            observation_id=retained.observation_id, starting_cash=retained.starting_cash,
+            runtime_identity=retained.runtime_identity, strategy_identity=retained.strategy_identity,
+            state_sha256=retained.state_sha256, session=retained.session,
+            publication=retained.publication)
+        return binding, bound, selected
+    return structural_verification.material(conn, slot='retained-runtime-checkpoint',
+        key={**context, 'controller': context['controller'].to_dict()}, load=load)
+
+
+def retained_publication_strategy(conn, pub):
+    """Exact authenticated retained publication, never arbitrary input reuse."""
+    retained, context, _ = _retained_checkpoint(conn)
+    if retained is None:
+        return None
+    return context['strategy'] if retained.publication == pub.to_dict() else None
+
+
+def require_retained_state(conn, *, strategy, state_strategy, state_sha256, session):
+    """Bind dual-shadow adapter input to the current executable's admission."""
+    retained, context, selected = _retained_checkpoint(conn)
+    if (retained is None or strategy != selected or state_strategy != context['strategy']
+            or state_sha256 != retained.state_sha256 or session != retained.session):
+        raise Refused('RETAINED_ADAPTER_STATE_BINDING_CHANGED')
+
+
+def source_closure(files):
+    h = hashlib.sha256()
+    for name, sha in sorted(files.items()):
+        path = Path(name)
+        if (path.is_absolute() or '..' in path.parts or path.as_posix() != name
+                or not name.endswith('.py') or '\\' in name or '__pycache__' in path.parts):
+            raise Refused('RETAINED_SOURCE_MANIFEST_PATH_INVALID')
+        h.update(name.encode() + b'\0' + sha.encode() + b'\n')
+    return h.hexdigest()
+
+
+def prove_compatibility(manifest, checkpoint, context, *, source=None):
+    from sentinel import semantic_source_basis as basis
+    from sentinel.economic_migration import profile, legacy_profile
+    economic_profile = profile()
+    legacy_economic_profile = legacy_profile()
+    from sentinel.execution_upgrade import profile as execution_profile
+    execution_records = execution_profile()
+    from sentinel.retained_readiness_upgrade import profile as readiness_profile
+    readiness_records = readiness_profile()
+    from sentinel.dual_plan_renewal_upgrade import profile as renewal_profile
+    renewal_records = renewal_profile()
+    from sentinel.operational_liveness_upgrade import profile as liveness_profile
+    liveness_records = liveness_profile()
+    from sentinel import operational_runtime_upgrade as operational_upgrade
+    operational_profile = operational_upgrade.profile()
+    from sentinel import callback_liveness_upgrade as callback_upgrade
+    callback_profile = callback_upgrade.profile()
+    from sentinel import startup_contention_upgrade as startup_upgrade
+    startup_profile = startup_upgrade.profile()
+    from sentinel import unsent_recovery_upgrade as recovery_upgrade
+    recovery_profile = recovery_upgrade.profile()
+    from sentinel import shadow_ui_upgrade as ui_upgrade
+    ui_profile = ui_upgrade.profile()
+    from sentinel import dashboard_monitor_upgrade as monitor_upgrade
+    monitor_profile = monitor_upgrade.profile()
+    from sentinel import open_time_upgrade
+    open_time_profile = open_time_upgrade.profile()
+    from sentinel import close_cycle_upgrade
+    close_cycle_profile = close_cycle_upgrade.profile()
+    from sentinel import autonomy_runtime_upgrade as autonomy_upgrade
+    autonomy_profile = autonomy_upgrade.profile()
+    from sentinel import native_read_upgrade
+    native_read_profile = native_read_upgrade.profile()
+    from sentinel import clock_sampling_upgrade
+    clock_sampling_profile = clock_sampling_upgrade.profile()
+    from sentinel import idle_leader_upgrade
+    idle_leader_profile = idle_leader_upgrade.profile()
+    from sentinel import opening_latency_upgrade
+    opening_latency_profile = opening_latency_upgrade.profile()
+    from sentinel import protected_cohort_upgrade
+    protected_cohort_profile = protected_cohort_upgrade.profile()
+    profiles = (legacy_economic_profile, economic_profile, execution_records, readiness_records,
+                renewal_records, liveness_records, operational_profile,
+                callback_profile, startup_profile, recovery_profile, ui_profile,
+                monitor_profile, open_time_profile, close_cycle_profile,
+                autonomy_profile, native_read_profile, clock_sampling_profile,
+                idle_leader_profile, opening_latency_profile, protected_cohort_profile)
+
+    def source_allowed(name, previous, actual, records=profiles):
+        for value in records:
+            record = value['files'].get(name)
+            if (record is not None and previous in record['before']
+                    and actual == record['after']):
+                return True
+        return False
+
+    manifest = SourceManifest.model_validate(manifest)
+    source = source or identity.rehearsal_identity()
+    _require_context(checkpoint, context)
+    old = checkpoint.runtime_identity
+    if (manifest.revision != old['git_commit']
+            or source_closure(manifest.files) != old['sentinel_source_sha256']):
+        raise Refused('RETAINED_SOURCE_MANIFEST_ORIGIN_MISMATCH')
+    env = deepcopy(source['environment'])
+    current = identity._imported_package_root('sentinel')
+    actual = {p.relative_to(current).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in current.rglob('*.py') if '__pycache__' not in p.parts}
+    operational_additions = operational_upgrade.additions_allowed(actual)
+    recovery_additions = recovery_upgrade.additions_allowed(actual)
+    ui_additions = ui_upgrade.additions_allowed(actual)
+    monitor_additions = monitor_upgrade.additions_allowed(actual)
+    open_time_additions = open_time_upgrade.additions_allowed(actual)
+    close_cycle_additions = close_cycle_upgrade.additions_allowed(actual)
+    autonomy_additions = autonomy_upgrade.additions_allowed(actual)
+    native_read_additions = native_read_upgrade.additions_allowed(actual)
+    clock_sampling_additions = clock_sampling_upgrade.additions_allowed(actual)
+    idle_leader_additions = idle_leader_upgrade.additions_allowed(actual)
+    opening_latency_additions = opening_latency_upgrade.additions_allowed(actual)
+    protected_cohort_additions = protected_cohort_upgrade.additions_allowed(actual)
+    # Keep the predecessor's atomic addition check intact. Normalize only
+    # members with an exact authenticated successor, leaving its own checker
+    # and every other member subject to the predecessor's original check.
+    opening_predecessor = dict(actual)
+    for name, previous in opening_latency_profile['additions'].items():
+        if source_allowed(name, previous, actual.get(name), (protected_cohort_profile,)):
+            opening_predecessor[name] = previous
+    opening_latency_additions.update(
+        opening_latency_upgrade.additions_allowed(opening_predecessor))
+    # An earlier pinned addition can later receive only its exact reviewed
+    # transition; an unpinned neighboring edit still fails the closure gate.
+    for previous_profile, allowed in ((operational_profile, operational_additions),
+                                     (recovery_profile, recovery_additions),
+                                     (ui_profile, ui_additions),
+                                     (monitor_profile, monitor_additions),
+                                     (open_time_profile, open_time_additions),
+                                     (close_cycle_profile, close_cycle_additions),
+                                     (autonomy_profile, autonomy_additions),
+                                     (clock_sampling_profile, clock_sampling_additions),
+                                     (opening_latency_profile, opening_latency_additions)):
+        allowed.update(name for name, previous in previous_profile['additions'].items()
+                       if (actual.get(name) == previous
+                           or source_allowed(name, previous, actual.get(name), profiles[-9:])))
+    if (source_closure(actual) != context['runtime']['sentinel_source_sha256']
+            or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']
+            or set(manifest.files) - set(actual)
+            or native_read_upgrade.ADDITIONS - set(actual)
+            or clock_sampling_upgrade.ADDITIONS - set(actual)
+            or idle_leader_upgrade.ADDITIONS - set(actual)
+            or opening_latency_upgrade.ADDITIONS - set(actual)
+            or protected_cohort_upgrade.ADDITIONS - set(actual)
+            or set(actual) - set(manifest.files) - ADDITIONS - operational_additions - recovery_additions - ui_additions - monitor_additions - open_time_additions - close_cycle_additions - autonomy_additions - native_read_additions - clock_sampling_additions - idle_leader_additions - opening_latency_additions - protected_cohort_additions
+            or (set(actual) & set(operational_profile['additions'])) - operational_additions
+            or (set(actual) & set(recovery_profile['additions'])) - recovery_additions
+            or (set(actual) & set(ui_profile['additions'])) - ui_additions
+            or (set(actual) & set(monitor_profile['additions'])) - monitor_additions
+            or (set(actual) & set(open_time_profile['additions'])) - open_time_additions
+            or (set(actual) & set(close_cycle_profile['additions'])) - close_cycle_additions
+            or (set(actual) & set(autonomy_profile['additions'])) - autonomy_additions
+            or (set(actual) & set(native_read_profile['additions'])) - native_read_additions
+            or (set(actual) & set(clock_sampling_profile['additions'])) - clock_sampling_additions
+            or (set(actual) & set(idle_leader_profile['additions'])) - idle_leader_additions
+            or (set(actual) & set(opening_latency_profile['additions'])) - opening_latency_additions
+            or (set(actual) & set(protected_cohort_profile['additions'])) - protected_cohort_additions
+            or any(name in actual and actual[name] != record['after']
+                   and not source_allowed(name, record['after'], actual[name], (clock_sampling_profile, idle_leader_profile, opening_latency_profile, protected_cohort_profile))
+                   for name, record in native_read_profile['files'].items())
+            or any(name in actual and actual[name] != record['after']
+                   and not source_allowed(name, record['after'], actual[name], (idle_leader_profile, opening_latency_profile, protected_cohort_profile))
+                   for name, record in clock_sampling_profile['files'].items())
+            or any(name in actual and actual[name] != record['after']
+                   and not source_allowed(name, record['after'], actual[name], (opening_latency_profile, protected_cohort_profile))
+                   for name, record in idle_leader_profile['files'].items())
+            or any(name in actual and actual[name] != record['after']
+                   and not source_allowed(name, record['after'], actual[name], (protected_cohort_profile,))
+                   for name, record in opening_latency_profile['files'].items())
+            or any(name in actual and actual[name] != record['after']
+                   for name, record in protected_cohort_profile['files'].items())):
+        raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
+    for name, previous in manifest.files.items():
+        if actual[name] == previous or name in (((ADMINISTRATIVE-ui_upgrade.SCOPE-open_time_upgrade.SCOPE-close_cycle_upgrade.SCOPE) | ADDITIONS) - native_read_upgrade.SCOPE - clock_sampling_upgrade.SCOPE - idle_leader_upgrade.SCOPE - opening_latency_upgrade.SCOPE - protected_cohort_upgrade.SCOPE):
+            continue
+        module = SEAMS.get(name)
+        if source_allowed(name, previous, actual[name]):
+            continue
+        if module is None:
+            raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)
+        contribution = basis.canonical_contribution(module, (current/name).read_bytes())
+        if previous != contribution:
+            prior_bytes = manifest.seam_sources.get(name, '').encode()
+            if (hashlib.sha256(prior_bytes).hexdigest() != previous
+                    or basis.canonical_contribution(module, prior_bytes) != contribution):
+                raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)
+    env['sentinel_source'].update(hash=old['sentinel_source_sha256'], files=len(manifest.files))
+    restored = hashlib.sha256(json.dumps(env, sort_keys=True).encode()).hexdigest()
+    if restored != old['environment_identity_sha256']:
+        raise Refused('RETAINED_COMPUTATIONAL_ENVIRONMENT_CHANGED')
+    return digest(manifest.model_dump(by_alias=True))
+
+
+def _fence(conn):
+    from sentinel.automation.store import load_control
+    from sentinel.execution.states import CommandState, blocks_overlapping
+    control = load_control(conn, for_update=True)
+    if control.enabled or not control.kill_switch_engaged:
+        raise Refused('RETAINED_ADMISSION_REQUIRES_DISABLED_KILLED_STATE')
+    for row in conn.execute('SELECT state FROM sentinel_commands'):
+        if blocks_overlapping(CommandState(row[0])):
+            raise Refused('RETAINED_ADMISSION_REQUIRES_COMMAND_RECONCILIATION')
+
+
+def admit(conn, *, context, manifest):
+    """One administrative append after full historical closure authentication."""
+    from sentinel import backup_runtime_authority, rolling_runtime
+    from sentinel.execution import journal
+    try:
+        with journal.writer_lock(conn):
+            actual = current_context(observation_id=context['observation_id'], starting_cash=context['starting_cash'])
+            if (process_binding(actual['runtime']) != process_binding(context['runtime'])
+                    or actual['strategy'] != context['strategy']):
+                raise Refused('RETAINED_ADMISSION_CURRENT_PROCESS_CHANGED')
+            _fence(conn)
+            checkpoint = origin.read(conn)
+            if checkpoint is None:
+                raise Refused('RETAINED_ORIGIN_REQUIRED')
+            _require_context(checkpoint, context)
+            existing = read(conn, context, checkpoint)
+            if existing:
+                rolling_runtime._closure(conn, dict(context))
+                conn.rollback()
+                return existing
+            manifest_sha = prove_compatibility(manifest, checkpoint, context)
+            from sentinel import rolling_daily_checkpoint as daily
+            retained = daily.read(conn)
+            original = {**context, 'runtime': checkpoint.runtime_identity,
+                        'strategy': checkpoint.strategy_identity if retained is None else retained.strategy_identity}
+            rolling_runtime._closure(conn, original)
+            backup_runtime_authority.require(conn, operation='compatible retained runtime admission')
+            migration = checkpoint.strategy_identity != context['strategy']
+            cls, extra = Admission, {}
+            if migration:
+                from sentinel.economic_migration import PROFILE_SHA256
+                cls, extra = EconomicAdmission, {'migration_profile_sha256': PROFILE_SHA256,
+                    'origin_strategy_sha256': digest(checkpoint.strategy_identity)}
+            value = cls(**extra, observation_id=context['observation_id'],
+                origin_sha256=digest(checkpoint.model_dump(by_alias=True)),
+                book_runtime_sha256=digest(checkpoint.runtime_identity),
+                process_sha256=digest(process_binding(context['runtime'])),
+                strategy_sha256=digest(context['strategy']), manifest_sha256=manifest_sha,
+                pitr=publication._publication_recovery_target(conn))
+            payload = value.model_dump(by_alias=True)
+            result = conn.execute('INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES (%s,%s,%s::jsonb) ON CONFLICT DO NOTHING',
+                (_key(context), checkpoint.session, canonical_json({'admission': payload, 'hmac_sha256': _signature(payload)})))
+            if result.rowcount != 1:
+                raise Refused('RETAINED_RUNTIME_ADMISSION_CAS_CHANGED')
+            _fence(conn)
+            backup_runtime_authority.require(conn, operation='compatible retained runtime admission commit')
+            conn.commit()
+            return value
+    except BaseException:
+        conn.rollback()
+        raise

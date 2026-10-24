@@ -42,6 +42,10 @@ def conn(pg):
         admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
     c = store.connect(pg.sync_dsn.rsplit("/", 1)[0] + "/" + database)
     runtime_schema.migrate_feed_schema(c)
+    from sentinel.feed import normalized_layout, generation_admission
+    normalized_layout.install(c)
+    generation_admission.install(c)
+    c.commit()
     try:
         yield c
     finally:
@@ -246,25 +250,48 @@ def test_resource_refusal_never_publishes_or_waits(conn, source, monkeypatch):
 def test_crash_restarts_from_durable_components_or_ready(conn, source, monkeypatch, boundary):
     job = enqueue(conn)
     deadline = jobs.status(conn, job)["deadline"]
+    dsn = conn.info.dsn
     owner = rolling_store if boundary == "seal" else rolling_source.SharadarSource
     name = "seal" if boundary == "seal" else "corroborate"
     original = getattr(owner, name)
     def crash(*args, **kwargs):
         raise KeyboardInterrupt()
     monkeypatch.setattr(owner, name, crash)
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt) as interrupted:
         publisher.prepare(conn, job)
-    state = jobs.status(conn, job)
-    assert state["state"] == "INTERRUPTED"
-    assert state["resume_state"] == ("ACQUIRING" if boundary == "seal" else "READY")
-    assert len(jobs.components(conn, job)) > 10
-    assert count(conn, "sentinel_snapshot_comparisons") == 0
-    assert count(conn, "sentinel_price_candidates") == (0 if boundary == "seal" else 1)
-    retry_now(conn, job)
-    monkeypatch.setattr(owner, name, original)
-    publisher.prepare(conn, job)
-    assert count(conn, "sentinel_price_candidates") == 1
-    assert jobs.status(conn, job)["deadline"] == deadline
+    assert conn.closed == (boundary == "seal")
+    assert publisher.writer_schedule.connection_discarded(interrupted.value) == (boundary == "seal")
+    if not conn.closed:
+        conn.rollback()
+    # A signal inside the corpus turn disposes that session. Recovery uses a
+    # fresh connection and the original durable job, as after actual process loss.
+    with store.connect(dsn) as recovered:
+        state = jobs.status(recovered, job)
+        assert state["state"] == ("ACQUIRING" if boundary == "seal" else "INTERRUPTED")
+        assert state["resume_state"] == ("ACQUIRING" if boundary == "seal" else "READY")
+        assert state["deadline"] == deadline
+        components = jobs.components(recovered, job)
+        assert len(components) > 10
+        assert count(recovered, "sentinel_snapshot_comparisons") == 0
+        assert count(recovered, "sentinel_price_candidates") == (0 if boundary == "seal" else 1)
+        if boundary == "seal":
+            assert state["owner"] is not None
+            # Expire only this fixture's abandoned lease; never rewrite the
+            # request deadline or create a replacement job/candidate.
+            recovered.execute("UPDATE sentinel_snapshot_jobs "
+                "SET lease_until=clock_timestamp()-interval '1 second' WHERE job_id=%s", (job,))
+            recovered.commit()
+        else:
+            assert state["owner"] is None
+            retry_now(recovered, job)
+        monkeypatch.setattr(owner, name, original)
+        result = publisher.prepare(recovered, job)
+        assert publisher.prepare(recovered, job) == result
+        assert count(recovered, "sentinel_price_candidates") == 1
+        assert count(recovered, "sentinel_snapshot_comparisons") == 1
+        assert jobs.components(recovered, job) == components
+        assert jobs.status(recovered, job)["deadline"] == deadline
+        assert jobs.status(recovered, job)["fence"] == state["fence"] + 1
 
 
 @pytest.mark.parametrize("boundary", ["seal", "ready"])
@@ -388,13 +415,14 @@ def test_compare_and_swap_loser_preserves_winner(conn, source, monkeypatch):
 
 
 def test_publication_transaction_rolls_back_before_visibility(conn, source, monkeypatch):
-    original = publisher.published
+    from sentinel.feed import publisher_pipeline
+    original = publisher_pipeline.published
     def fail_ack(conn, job):
         value = original(conn, job)
         if value:
             raise RuntimeError("injected before commit")
         return value
-    monkeypatch.setattr(publisher, "published", fail_ack)
+    monkeypatch.setattr(publisher_pipeline, "published", fail_ack)
     with pytest.raises(RuntimeError, match="before commit"):
         publisher.prepare(conn, enqueue(conn))
     assert count(conn, "sentinel_snapshot_comparisons") == 0
@@ -430,10 +458,11 @@ def test_backup_refusal_preserves_staging_publication_boundary(conn, source, mon
 
 
 def test_legacy_publication_change_invalidates_ready(conn, source, monkeypatch):
+    from sentinel.feed import publisher_pipeline
     original = rolling_source.SharadarSource.corroborate
     def changed(self):
         original(self)
-        monkeypatch.setattr(publisher, "_legacy_version", lambda conn: 42)
+        monkeypatch.setattr(publisher_pipeline, "_legacy_version", lambda conn: 42)
     monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", changed)
     with pytest.raises(publisher.ComparisonRefused, match="legacy publication changed during"):
         publisher.prepare(conn, enqueue(conn))
@@ -554,9 +583,10 @@ def test_comparison_catalog_is_immutable(conn, source):
 
 
 def test_old_comparison_cannot_replace_newer_frontier(conn, source, monkeypatch):
+    from sentinel.feed import publisher_pipeline
     result = publisher.prepare(conn, enqueue(conn))
-    latest = publisher._latest(conn)
-    monkeypatch.setattr(publisher, "_latest", lambda conn: (latest[0], latest[1] + timedelta(days=1)))
+    latest = publisher_pipeline._latest(conn)
+    monkeypatch.setattr(publisher_pipeline, "_latest", lambda conn: (latest[0], latest[1] + timedelta(days=1)))
     with pytest.raises(publisher.ComparisonRefused, match="older window"):
         publisher.prepare(conn, enqueue(conn))
     assert count(conn, "sentinel_snapshot_comparisons") == 1
@@ -578,10 +608,17 @@ def test_retry_after_is_not_shortened(conn, source, monkeypatch):
 def test_writer_contention_is_a_durable_retry(conn, source):
     from sentinel.feed.publication import CORPUS_LOCK_KEY, CorpusBusy
     job = enqueue(conn)
+    # This fixture intentionally retains its competing writer. Exercise the
+    # real PostgreSQL queue with a stricter session bound, without waiting out
+    # or extending the production drain bound or original request deadline.
+    conn.execute("SET lock_timeout='250ms'")
+    conn.commit()
     with store.connect(conn.info.dsn) as other:
         other.execute("SELECT pg_advisory_lock(%s)", (CORPUS_LOCK_KEY,))
-        with pytest.raises(CorpusBusy):
+        with pytest.raises(CorpusBusy) as caught:
             publisher.prepare(conn, job)
+    assert caught.value.__cause__.sqlstate == "55P03"
+    assert conn.execute("SHOW lock_timeout").fetchone()[0] == "250ms"
     state = jobs.status(conn, job)
     assert state["state"] == "RETRY_WAIT" and state["reason"] == "CORPUS_WRITER_BUSY"
     assert source["calls"] == []

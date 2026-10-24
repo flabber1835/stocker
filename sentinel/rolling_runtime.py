@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
 
-from sentinel import backup_runtime_authority, rolling_initialization as initial
+from sentinel import backup_runtime_authority, committed_read, rolling_initialization as initial
 from sentinel import rolling_checkpoint as origin, rolling_daily as daily
 from sentinel import rolling_daily_checkpoint as checkpoints, rolling_authority as authority
 from sentinel import shadow_observation as shadow
@@ -80,13 +80,17 @@ def _guard_projection(value):
 
 def _guard_status(conn, *, observation_id, starting_cash):
     """Fresh status from private structural inputs; no full state escapes."""
+    with committed_read.proof_connection(conn) as proof:
+        return _guard_status_owned(proof,observation_id=observation_id,starting_cash=starting_cash)
+
+
+def _guard_status_owned(conn, *, observation_id, starting_cash):
     from sentinel import structural_verification
     if not structural_verification.active():
         raise Refused('ROLLING_GUARD_SCOPE_REQUIRED')
     try:
         inputs.require_schemas(conn)
         context = initial._context(observation_id, starting_cash)
-        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         with inputs.pinned(conn) as pub:
             if not inputs.is_rolling(pub):
                 raise Refused('ROLLING_PUBLICATION_REQUIRED')
@@ -151,11 +155,17 @@ def _result(result, value):
 
 def classify(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
              unchanged_through=None):
-    """Own an idle read-only transaction; structural status grants no live GO."""
+    """Prove committed status without ending an active caller transaction."""
+    with committed_read.proof_connection(conn) as proof:
+        return _classify_owned(proof,observation_id=observation_id,starting_cash=starting_cash,
+            structural_only=structural_only,clock=clock,unchanged_through=unchanged_through)
+
+
+def _classify_owned(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
+                    unchanged_through=None):
     try:
         inputs.require_schemas(conn)
         context = initial._context(observation_id, starting_cash)
-        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         with inputs.pinned(conn) as pub:
             if not inputs.is_rolling(pub):
                 raise Refused("ROLLING_PUBLICATION_REQUIRED")

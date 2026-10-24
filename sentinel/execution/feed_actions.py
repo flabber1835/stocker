@@ -1,4 +1,5 @@
 """Snapshot action inputs for the existing execution reconciliation policy."""
+from sentinel.feed.normalized_layout import candidate_query
 from datetime import date
 
 from sentinel.execution import feed_inputs, reconcile
@@ -27,13 +28,13 @@ def snapshot_lookup(conn, *, refs, pub, start, end):
     actions = [(date.fromisoformat(p["date"]), p["value"], source, p["action"], p["ticker"], p["contraticker"])
                for source, p, _ in refs.actions if raw_start <= p["date"] <= raw_end]
     with conn.cursor() as cur:
-        cur.execute("SELECT security_id,session,ticker,split_ratio FROM sentinel_snapshot_bars "
+        cur.execute(candidate_query(conn, "SELECT security_id,session,ticker,split_ratio FROM sentinel_snapshot_bars "
                     "WHERE candidate_id=%s AND session>%s AND session<=%s AND split_ratio<>1 "
-                    "ORDER BY session,security_id", (refs.candidate_id, start, end))
+                    "ORDER BY session,security_id"), (refs.candidate_id, start, end))
         equity = [(*row, pub.run_id, pub.version) for row in cur.fetchall()]
-        cur.execute("SELECT session,bil_close_signal,bil_close_unadjusted "
+        cur.execute(candidate_query(conn, "SELECT session,bil_close_signal,bil_close_unadjusted "
                     "FROM sentinel_snapshot_benchmarks WHERE candidate_id=%s "
-                    "AND session>=%s AND session<=%s ORDER BY session", (refs.candidate_id, predecessor, end))
+                    "AND session>=%s AND session<=%s ORDER BY session"), (refs.candidate_id, predecessor, end))
         benchmarks = list(cur.fetchall())
         cur.execute("SELECT validation_sha256 FROM sentinel_snapshot_validations WHERE candidate_id=%s",
                     (refs.candidate_id,))
@@ -69,8 +70,8 @@ def snapshot_lookup(conn, *, refs, pub, start, end):
 
     def mapping(symbol, effective):
         with conn.cursor() as cur:
-            cur.execute("SELECT security_id,split_ratio FROM sentinel_snapshot_bars "
-                        "WHERE candidate_id=%s AND ticker=%s AND session=%s ORDER BY security_id",
+            cur.execute(candidate_query(conn, "SELECT security_id,split_ratio FROM sentinel_snapshot_bars "
+                        "WHERE candidate_id=%s AND ticker=%s AND session=%s ORDER BY security_id"),
                         (refs.candidate_id, symbol, effective))
             return [(*row, pub.run_id, pub.version) for row in cur.fetchall()]
     return reconcile.reconcile_action_material(start=start, end=end, action_rows=actions,

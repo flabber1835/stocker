@@ -258,7 +258,7 @@ def test_private_sizing_acquires_commitment_and_keeps_canonical_cold_loader(conn
     monkeypatch.setattr(dual, '_verified_guard_intent', private)
     monkeypatch.setattr(dual, 'verified_shadow_intent', public)
     monkeypatch.setattr(sizing, '_rederive_plan', derive)
-    plan = SimpleNamespace(decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
+    plan = SimpleNamespace(plan_id='exact', decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
     def read():
         return sizing._rederive_guard_plan(conn, plan=plan, binding='account', rollout_state='rollout',
             observation_id='primary', starting_cash='50000')
@@ -277,7 +277,7 @@ def test_public_sizing_keeps_hashing_mutated_caller_state(conn, compact, monkeyp
         state_hash = STATE
     expected = SimpleNamespace(state=MutableState(), record_sha256=RECORD,
         runtime_authority_sha256=intent.runtime_authority_sha256)
-    plan = SimpleNamespace(decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
+    plan = SimpleNamespace(plan_id='exact', decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
     def derive(*_a, **kwargs):
         if kwargs['expected_shadow_result'].state.state_hash != STATE:
             raise sizing.DualPlanAuthorityRefused('mutated supplied state')
@@ -307,7 +307,7 @@ def test_private_cold_sizing_refuses_changed_commitments(conn, compact, monkeypa
     monkeypatch.setattr(dual, '_verified_guard_intent', lambda *_a, **_k: compact.read())
     monkeypatch.setattr(dual, 'verified_shadow_intent', lambda *_a, **_k: full)
     monkeypatch.setattr(sizing, '_rederive_plan', lambda *_a, **_k: proof)
-    plan = SimpleNamespace(decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
+    plan = SimpleNamespace(plan_id='exact', decision_session=SESSION, to_dict=lambda: {'plan': 'exact'})
     with pytest.raises(sizing.DualPlanAuthorityRefused, match='commitment changed'):
         sizing._rederive_guard_plan(conn, plan=plan, binding='account', rollout_state='rollout',
             observation_id='primary', starting_cash='50000')

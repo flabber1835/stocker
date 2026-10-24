@@ -36,15 +36,9 @@ from sentinel.panel.sources import build_panel
 
 @asynccontextmanager
 async def _verification_lifespan(_app):
-    from sentinel.panel.verification_monitor import monitor
-    _state, database_url = _config()
-    mode = os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE', '').strip().lower()
-    if database_url and mode in {'dual', 'shadow'}:
-        monitor.start(database_url, include_paper=mode == 'dual')
-    try:
-        yield
-    finally:
-        monitor.stop()
+    # The independent verifier owns heavy reads. HTTP startup and requests
+    # consume finite durable receipts and cannot create a competing observer.
+    yield
 
 
 app = FastAPI(title="Caesar's Palace", docs_url=None, redoc_url=None,
@@ -282,9 +276,15 @@ def panel_json() -> JSONResponse:
                  "future": r.is_future(p.now),
                  "required_current": r.required_current,
                  "shadow_book": (r.shadow_book.model_dump(mode='json')
-                                 if r.shadow_book and r.effective_status(p.now) == model.OK else None),
+                                 if r.can_show_shadow_book(p.now) else None),
                  "paper_plan": (r.paper_plan.model_dump(mode='json')
-                                if r.paper_plan and r.effective_status(p.now) == model.OK else None),
+                                if r.can_show_paper_plan(p.now) else None),
+                 "paper_account": (r.paper_account.model_dump(mode='json')
+                                   if r.can_show_paper_account(p.now) else None),
+                 "order_outcomes": [item.model_dump(mode='json')
+                                    for item in r.visible_order_outcomes(p.now)],
+                 "trading_run": (r.trading_run.model_dump(mode='json')
+                                 if r.can_show_trading_run(p.now) else None),
                  "valid_until": (
                      r.valid_until.isoformat() if r.valid_until else None),
                  "recovery": (

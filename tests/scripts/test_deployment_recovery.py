@@ -220,6 +220,7 @@ def test_unfenced_migration_stops_before_backup_and_schema_commands():
     obj._try_emergency_kill = lambda: False
     obj._direct_stop_automation = lambda: None
     obj._direct_stop_shadow = lambda: None
+    obj._direct_stop_observers = lambda: None  # Separate role-lifecycle tests own this boundary.
     calls = []
     def invoke(argv, **kwargs):
         calls.append(argv)

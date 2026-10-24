@@ -1,5 +1,16 @@
 # AGENTS.md
 
+## Owner instruction: restore backed-up PAPER releases (2026-10-24)
+
+The owner has reinstated backups, WAL archiving, maintenance, backup verification,
+private restore qualification, CI and PR delivery. Required CI must pass before
+the authorized merge and full PAPER installation of PR 538. This supersedes the
+dated function-first delivery/backup suspension. Preserve its distinct PAPER
+financial authority while restoring durability through the separately selected,
+qualified policy in docs/paper-backed-release-20261024.md. Keep LIVE forbidden,
+the canonical book and command journal intact, UNKNOWN outcomes explicit and
+long-only/unlevered guards enforced. The backtest remains protected.
+
 # Sentinel
 
 This repository contains one production architecture. Stocker is gone.

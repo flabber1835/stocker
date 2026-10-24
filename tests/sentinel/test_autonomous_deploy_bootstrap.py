@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import json
 import os
 from pathlib import Path
 import stat
 from types import SimpleNamespace
 import sys
+from textwrap import dedent
 
 import pytest
 
@@ -20,6 +22,48 @@ sys.path.insert(0, str(SCRIPTS))
 core = importlib.import_module("sentinel_autonomous_deploy")
 driver = importlib.import_module("sentinel_autonomous_deploy_driver")
 bootstrap = importlib.import_module("sentinel_autonomous_deploy_bootstrap")
+
+
+def test_bootstrap_status_discovery_cannot_reconfigure_database_dependencies(monkeypatch):
+    """New archive/mount intent must remain inert until the durable fence."""
+    original = {'archive_mode': 'off', 'mount': 'installed-volume', 'running': True}
+    postgres = dict(original)
+    calls = []
+    observed = {'ownership': 'OWNED', 'broker': 'alpaca',
+                'deployment_id': 'fixture', 'broker_account_id': 'PAfixture'}
+    monkeypatch.setattr(bootstrap, '_compose_args', lambda _env: ['docker', 'compose'])
+    def invoke(argv, **kwargs):
+        calls.append(argv)
+        assert argv[-2:] == ['sentinel', 'status'] and 'run' in argv
+        # Model Compose's actual dependency-up behavior on a changed graph.
+        if '--no-deps' not in argv:
+            postgres.update(archive_mode='on', mount='new-backup-mount')
+        return SimpleNamespace(returncode=0, stdout=json.dumps(observed), stderr='')
+    monkeypatch.setattr(bootstrap, '_run', invoke)
+    def require_observation_only(reader):
+        assert reader({}) == observed
+        assert postgres == original, 'discovery changed the primary database before fencing'
+    require_observation_only(bootstrap._existing_status)
+    assert len(calls) == 1
+    source = dedent(inspect.getsource(bootstrap._existing_status))
+    assert ', "--no-deps"' in source
+    namespace = {}
+    exec(compile(source.replace(', "--no-deps"', '', 1),
+                 '<discovery-dependency-guard-mutant>', 'exec'), vars(bootstrap), namespace)
+    with pytest.raises(AssertionError, match='before fencing'):
+        require_observation_only(namespace['_existing_status'])
+
+
+def test_bootstrap_status_unavailable_never_starts_dependencies(monkeypatch):
+    calls = []
+    monkeypatch.setattr(bootstrap, '_compose_args', lambda _env: ['docker', 'compose'])
+    def unavailable(argv, **kwargs):
+        calls.append(argv)
+        assert '--no-deps' in argv
+        return SimpleNamespace(returncode=1, stdout='', stderr='database unavailable')
+    monkeypatch.setattr(bootstrap, '_run', unavailable)
+    assert bootstrap._existing_status({}) is None
+    assert len(calls) == 1 and not any('up' in argv or 'start' in argv for argv in calls)
 
 
 def test_repository_parser_accepts_registry_refs_and_rejects_local_tags():
@@ -229,8 +273,8 @@ def test_operator_services_start_and_verify_in_every_install_mode(tmp_path, mode
     obj.base_compose = ['docker', 'compose', '-f', 'canonical.yml', '-f', 'backup.yml']
     obj.start_operator_services()
     started = [argv[-1] for argv, _ in calls if 'up' in argv]
-    assert started == (['sentinel-panel'] if transport == 'unconfigured'
-                       else ['sentinel-panel', 'sentinel-alert-dispatcher'])
+    assert started == (['sentinel-panel', 'sentinel-verifier'] if transport == 'unconfigured'
+                       else ['sentinel-panel', 'sentinel-alert-dispatcher', 'sentinel-verifier'])
     assert all('--wait' in argv and '--wait-timeout' in argv for argv, _ in calls if 'up' in argv)
     assert all('sentinel-automation' not in argv and 'sentinel-shadow' not in argv for argv, _ in calls)
     probes = [(argv, kwargs) for argv, kwargs in calls if 'exec' in argv]
@@ -239,7 +283,7 @@ def test_operator_services_start_and_verify_in_every_install_mode(tmp_path, mode
     assert obj.base_compose == ['docker', 'compose', '-f', 'canonical.yml', '-f', 'backup.yml']
 
 
-@pytest.mark.parametrize('service', ['sentinel-panel', 'sentinel-alert-dispatcher'])
+@pytest.mark.parametrize('service', ['sentinel-panel', 'sentinel-alert-dispatcher', 'sentinel-verifier'])
 @pytest.mark.parametrize('condition', ['absent', 'stopped', 'stale', 'crashed-after-backup'])
 def test_public_installation_cannot_succeed_when_operator_service_is_lost(
         tmp_path, service, condition):
@@ -284,7 +328,7 @@ def test_activation_recovery_keeps_full_restore_or_reuses_exact_milestone(tmp_pa
 
 
 @pytest.mark.parametrize('mode', ['dual', 'paper'])
-@pytest.mark.parametrize('service', ['sentinel-panel', 'sentinel-alert-dispatcher'])
+@pytest.mark.parametrize('service', ['sentinel-panel', 'sentinel-alert-dispatcher', 'sentinel-verifier'])
 def test_public_activation_rechecks_operator_services_before_kill_release(tmp_path, mode, service):
     calls = []
     def run(argv, **kwargs):
@@ -312,7 +356,7 @@ def test_public_activation_rechecks_operator_services_before_kill_release(tmp_pa
     assert not any(args[0] == 'release-paper-automation-kill-switch' for args in calls)
 
 
-@pytest.mark.parametrize('service', ['sentinel-panel', 'sentinel-alert-dispatcher'])
+@pytest.mark.parametrize('service', ['sentinel-panel', 'sentinel-alert-dispatcher', 'sentinel-verifier'])
 def test_active_installation_final_backup_cannot_hide_a_service_crash(tmp_path, service):
     lost = False
     def run(argv, **kwargs):

@@ -210,7 +210,9 @@ The default is quiet:
 - a red incident, kill engagement, dead-lettered alert, or nonrecoverable
   failure sends once per immutable logical event;
 - every unique durable `sentinel_fills` row sends one fill notification,
-  including each distinct partial fill.
+  including each distinct partial fill. Owner-authorized local PAPER also
+  collects exact native order activities into notification-only outbox receipts
+  under that same identity; see [the recovery contract](paper-fill-notification-recovery.md).
 
 The old `AUTOMATION_EXECUTED` label for entry into `RECONCILING` is forbidden:
 submission/reconciliation is not execution completion. When retained as an
@@ -224,6 +226,9 @@ side and security metadata; the fill supplies quantity, price, and time. A
 missing or contradictory join is red evidence and never fabricated.
 
 The state transition or fill is committed before notification materialization.
+The local PAPER collector instead commits the authenticated native activity
+and immutable notification together in the existing outbox. It grants no
+financial ledger or complete-history authority.
 On every dispatcher claim, committed events and fills without an outbox row are
 reconstructed with the same idempotency key. This closes the crash window and
 converges to one logical alert. Transport is at-least-once: a crash after a

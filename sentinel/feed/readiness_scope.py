@@ -52,6 +52,15 @@ def require(conn):
         _require_pin(conn, scope)
 
 
+def require_owned_publication(conn, pub):
+    """Strict mutation boundary; an absent optional reuse scope grants nothing."""
+    scope = _current.get()
+    if (scope is None or scope.owner is not conn or scope.backend_pid != conn.info.backend_pid
+            or scope.database != _database(conn) or scope.publication != digest(pub.to_dict())):
+        raise publication.CorpusIncoherent('READINESS_OWNED_PUBLICATION_PIN_REQUIRED')
+    _require_pin(conn, scope)
+
+
 def capture(conn):
     """Opaque lifetime token for other read-only work under this exact pin."""
     scope = _current.get()

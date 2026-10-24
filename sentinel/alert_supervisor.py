@@ -1,4 +1,4 @@
-"""Independent wall-clock enforcement for the broker-free alert dispatcher."""
+"""Independent wall-clock enforcement for the bounded alert dispatcher."""
 import os
 import select
 import signal

@@ -1,22 +1,24 @@
 """One finite read-only financial observation; retained values are presentation."""
-from dataclasses import asdict, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
-import pickle
 from threading import Lock, Thread
 import time
 
 from sentinel import supervisor_io
 from sentinel.panel import model
+from sentinel.panel.observer_codec import (
+    MAX_BYTES, pack, row_from_observation as _row_from_observation, validate_envelope)
 from sentinel.retained_input_namespaces import PAPER_CURSOR_NAMES, PAPER_CURSOR_PREFIXES
 
 DEADLINE_SECONDS = 300
 RETRY_SECONDS = 30
-MAX_BYTES = 32 * 1024
 FRESH_SECONDS = 600
 REFRESH_SECONDS = FRESH_SECONDS - DEADLINE_SECONDS
+CORPUS_LOCK_RETRY_SECONDS = 20
+CORPUS_LOCK_POLL_SECONDS = 0.5
 # Canonical execution/trial namespaces sharing the processed-session table.
 # No broker import or observation can become a dependency of shadow proof.
 
@@ -64,24 +66,43 @@ def _evidence(database_url, include_paper):
         conn.close()
 
 
-def _observe(database_url, include_paper, expected_key):
+def retry_corpus_lock(operation, *, clock=time.monotonic, sleep=time.sleep):
+    """Retry only a refused corpus pin inside the original finite observer."""
+    from sentinel.feed.publication import CorpusLockUnavailable
+
+    work_deadline = clock() + DEADLINE_SECONDS
+    retry_deadline = None
+    while True:
+        try:
+            return operation()
+        except CorpusLockUnavailable:
+            now = clock()
+            if retry_deadline is None:
+                retry_deadline = min(work_deadline, now + CORPUS_LOCK_RETRY_SECONDS)
+            remaining = retry_deadline - now
+            if remaining <= 0:
+                raise
+            sleep(min(CORPUS_LOCK_POLL_SECONDS, remaining))
+
+
+def _observe_once(database_url, include_paper, expected_key):
     from sentinel.panel.sources import _dual_authority_rows
     if _key(database_url, include_paper, _evidence(database_url, include_paper)) != expected_key:
         raise ValueError('financial evidence changed before observation')
     rows, details, history, errors = _dual_authority_rows(
-        database_url, now=datetime.now(timezone.utc), include_paper=include_paper)
+        database_url, now=datetime.now(timezone.utc), include_paper=include_paper,
+        propagate_corpus_lock=True)
     if details or history or len(rows) > 7:
         raise ValueError('unexpected financial observer shape')
-    value = {'rows': [asdict(row) for row in rows], 'errors': errors,
-             'observed_at': datetime.now(timezone.utc)}
-    for raw, row in zip(value['rows'], rows):
-        raw['shadow_book'] = row.shadow_book.model_dump(mode='json') if row.shadow_book else None
+    value = pack(rows, errors, observed_at=datetime.now(timezone.utc))
     if _key(database_url, include_paper, _evidence(database_url, include_paper)) != expected_key:
         raise ValueError('financial evidence changed during observation')
-    if (len(json.dumps(value, default=str, allow_nan=False).encode()) > MAX_BYTES
-            or len(pickle.dumps(value)) > MAX_BYTES):
-        raise ValueError('financial observer result exceeds bound')
     return value
+
+
+def _observe(database_url, include_paper, expected_key):
+    return retry_corpus_lock(lambda: _observe_once(
+        database_url, include_paper, expected_key))
 
 
 def _key(database_url, include_paper, evidence):
@@ -131,45 +152,16 @@ def _unknown(include_paper, detail, retained=None, *, checking_until=None):
     return rows, {}, [], ['financial verification: '+detail]
 
 
-def _row_from_observation(value):
-    """Materialize nested dataclass evidence before public projection."""
-    row = dict(value)
-    if row.get('shadow_book') is not None:
-        if row.get('key') != 'book':
-            raise ValueError('holdings are only permitted on the canonical book')
-        row['shadow_book'] = model.ShadowBook.model_validate(row['shadow_book'])
-    if type(row.get('required_current', False)) is not bool:
-        raise ValueError('observer current flag is malformed')
-    boundary = row.get('valid_until')
-    if boundary is not None and (not isinstance(boundary, datetime)
-                                 or boundary.utcoffset() is None):
-        raise ValueError('observer validity clock is malformed')
-    recovery = row.get('recovery')
-    if recovery is not None:
-        if not isinstance(recovery, dict):
-            raise ValueError('observer recovery is malformed')
-        recovery = model.RecoveryEvidence(**recovery)
-        if (not isinstance(recovery.phase, str) or len(recovery.phase) > 1000
-                or type(recovery.automatic) is not bool
-                or type(recovery.operator_required) is not bool
-                or any(bound is not None and type(bound) is not int
-                       for bound in (recovery.attempt, recovery.maximum_attempts))
-                or any(clock is not None and (not isinstance(clock, datetime)
-                                              or clock.utcoffset() is None)
-                       for clock in (recovery.next_attempt_at, recovery.deadline))):
-            raise ValueError('observer recovery fields are malformed')
-        row['recovery'] = recovery
-    return model.Row(**row)
-
-
 class Reader:
     def __init__(self, *, runner=None, clock=time.monotonic, wall_clock=None,
                  evidence_reader=None, observer=None, expected_keys=None,
-                 unknown_factory=None, execution_slot=None, scope_label=None):
+                 unknown_factory=None, execution_slot=None, scope_label=None,
+                 key_factory=None):
         self.runner = runner or supervisor_io.run
         self.clock = clock
         self.wall_clock = wall_clock or (lambda: datetime.now(timezone.utc))
         self.evidence_reader = evidence_reader or _evidence
+        self.key_factory = key_factory or _key
         self.observer = observer or _observe
         self.expected_keys = expected_keys
         self.unknown = unknown_factory or _unknown
@@ -188,6 +180,7 @@ class Reader:
         self.pending_clock = None
         self.work_started = None
         self.work_clock = None
+        self.last_result_at = None
 
     def _work(self, key, database_url, include_paper):
         acquired = False
@@ -216,8 +209,8 @@ class Reader:
     def read(self, database_url, *, include_paper=True, allow_start=True,
              awaiting_until=None, awaiting_since=None):
         try:
-            key = _key(database_url, include_paper,
-                       self.evidence_reader(database_url, include_paper))
+            key = self.key_factory(database_url, include_paper,
+                                   self.evidence_reader(database_url, include_paper))
         except Exception as exc:
             with self.lock:
                 self.completed = None
@@ -229,12 +222,14 @@ class Reader:
                 self.retained = None
                 self.completed = None
                 self.failure = None
+                self.last_result_at = None
                 self.last_attempt = float('-inf')
             detail = 'full retained financial verification awaits its next bounded check'
             if self.answer is not None:
                 completed_key, value, error, completed_at = self.answer
                 self.answer = None  # Publish once; reads retain the original clock.
                 if completed_key == key:
+                    self.last_result_at = completed_at
                     if error is not None:
                         self.completed = None
                         detail = 'financial observer failed: '+error
@@ -247,38 +242,36 @@ class Reader:
                                 expected.add('paper_reconciliation')
                             if self.expected_keys is not None:
                                 expected = self.expected_keys
-                            if (not isinstance(value, dict)
-                                    or set(value) != {'rows', 'errors', 'observed_at'}
-                                    or not isinstance(value['rows'], list)
-                                    or len(value['rows']) != len(expected)
-                                    or {row['key'] for row in value['rows']} != expected
-                                    or not isinstance(value['errors'], list)
-                                    or len(value['errors']) > 4
-                                    or any(not isinstance(error, str) or len(error) > 1000
-                                           for error in value['errors'])):
-                                raise ValueError('observer shape is incomplete')
-                            for row in value['rows']:
-                                if (not isinstance(row, dict)
-                                        or any(not isinstance(row.get(field), str)
-                                               for field in ('key', 'label', 'value', 'status', 'detail'))
-                                        or row['status'] not in {model.OK, model.PENDING, model.WARN,
-                                                                 model.FAIL, model.UNKNOWN}
-                                        or any(len(row[field]) > 1000
-                                               for field in ('label', 'value', 'detail'))):
-                                    raise ValueError('observer row is malformed')
+                            validate_envelope(value, expected)
                             observed = value['observed_at']
                             # Validate arrival separately from later UI consumption.
                             # An idle page cannot make an originally valid answer malformed.
                             age = completed_at-observed
                             if not timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):
                                 raise ValueError('observer result is not fresh')
-                            rows = [replace(_row_from_observation(row), as_of=observed,
+                            original_rows = [_row_from_observation(row) for row in value['rows']]
+                            if any(row.is_future(observed) for row in original_rows):
+                                raise ValueError('observer row timestamp is in the future')
+                            historical_source_wait = any(
+                                row.key == 'shadow_verification'
+                                and row.status in {model.WARN, model.FAIL}
+                                and row.recovery is not None
+                                and row.recovery.phase == 'SOURCE_FRONTIER'
+                                for row in original_rows)
+                            rows = [replace(row,
+                                as_of=((row.as_of or observed)
+                                       if historical_source_wait and row.key != 'paper_reconciliation'
+                                       else observed),
                                 freshness=timedelta(seconds=FRESH_SECONDS),
-                                required_current=(row.get('required_current', False)
-                                                  or row['status'] != model.WARN))
-                                for row in value['rows']]
+                                required_current=(row.required_current or row.status != model.WARN))
+                                for row in original_rows]
                             if (any(row.key == 'shadow_verification'
                                    and row.status == model.OK for row in rows)
+                                    or any(row.key == 'shadow_verification'
+                                           and row.status == model.WARN
+                                           and row.recovery is not None
+                                           and row.recovery.phase == 'SOURCE_FRONTIER'
+                                           for row in rows)
                                     or self.expected_keys == frozenset({'paper_reconciliation'})):
                                 self.retained = rows
                             self.completed = (rows, value['errors'], observed)
@@ -357,6 +350,3 @@ class Reader:
                 return self.unknown(include_paper, self.scope_label+' awaits the next monitor check',
                                     self.retained, checking_until=awaiting_until)
             return self.unknown(include_paper, self.failure or detail, self.retained)
-
-
-reader = Reader()

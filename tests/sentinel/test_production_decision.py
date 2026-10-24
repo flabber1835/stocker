@@ -426,31 +426,29 @@ def test_publication_and_runtime_strategy_identity_are_complete():
 
 def test_data_semantics_identity_moves_when_only_a_decoder_source_moves(
         monkeypatch, tmp_path):
+    from sentinel.core import window_features, window_material
     facade = tmp_path / "facade.py"
     decoder = tmp_path / "decoder.py"
-    facade.write_text("VALUE = 1\n")
-    decoder.write_text("VALUE = 1\n")
-    modules = {
-        "test.facade": SimpleNamespace(__file__=str(facade)),
-        "test.decoder": SimpleNamespace(__file__=str(decoder)),
-    }
-    monkeypatch.setattr(
-        decision_module, "_DATA_SEMANTICS_MODULES", tuple(modules))
-    monkeypatch.setattr(
-        decision_module.importlib, "import_module", modules.__getitem__)
+    facade.write_bytes(Path(window_features.__file__).read_bytes())
+    original = Path(window_material.__file__).read_bytes()
+    decoder.write_bytes(original)
+    monkeypatch.setattr(window_features, '__file__', str(facade))
+    monkeypatch.setattr(window_material, '__file__', str(decoder))
 
     before = data_semantics_source_identity()
-    decoder.write_text("VALUE = 2\n")
+    assert original.count(b'index=299') == 1
+    decoder.write_bytes(original.replace(b'index=299', b'index=298'))
     after = data_semantics_source_identity()
 
     assert before["schema"] == DATA_SEMANTICS_IDENTITY_SCHEMA
     assert before["sha256"] != after["sha256"]
-    assert before["files"][0] == after["files"][0]
-    assert before["files"][1]["sha256"] != after["files"][1]["sha256"]
+    prior_files = {item['module']:item['sha256'] for item in before['files']}
+    current_files = {item['module']:item['sha256'] for item in after['files']}
+    assert prior_files['sentinel.core.window_features'] == current_files['sentinel.core.window_features']
+    assert prior_files['sentinel.core.window_material'] != current_files['sentinel.core.window_material']
 
 
 @pytest.mark.parametrize("module_name,old,new", [
-    ("sentinel.execution.numeric", "Context(prec=28)", "Context(prec=6)"),
     ("sentinel.feed.corporate_action_authority",
      "cash_per_old_share=final", "cash_per_old_share=stale"),
     ("sentinel.feed.actions_reconcile_v7",
@@ -468,12 +466,12 @@ def test_cash_adjudication_changes_invalidate_persisted_strategy_identity(
     original = Path(module.__file__).read_text(encoding="utf-8")
     assert original.count(old) == 1
     source = tmp_path / "cash_semantics.py"
-    source.write_text(original, encoding="utf-8")
+    source.write_bytes(original.encode('utf-8'))
     monkeypatch.setattr(module, "__file__", str(source))
     config = SimpleNamespace(strategy_id="sentinel-test", digest="controller-rule")
 
     retained = runtime_strategy_identity(config)
-    source.write_text(original.replace(old, new), encoding="utf-8")
+    source.write_bytes(original.replace(old, new).encode('utf-8'))
     revised = runtime_strategy_identity(config)
 
     assert retained["controller_rule_sha256"] == revised["controller_rule_sha256"]
@@ -481,28 +479,59 @@ def test_cash_adjudication_changes_invalidate_persisted_strategy_identity(
     assert retained["data_semantics_source_sha256"] != revised["data_semantics_source_sha256"]
 
 
-def test_data_semantics_bundle_names_transitive_book_dependencies():
+def test_execution_decimal_edit_changes_actual_runtime_source_without_reforming_strategy(monkeypatch,tmp_path):
+    from fractions import Fraction
+    from sentinel import identity
+    from sentinel.execution import numeric
+    original = Path(numeric.__file__).read_bytes()
+    assert original.count(b'Context(prec=28)') == 1
+    source = tmp_path/'execution'/'numeric.py'
+    source.parent.mkdir()
+    source.write_bytes(original)
+    monkeypatch.setattr(numeric,'__file__',str(source))
+    economic_before = data_semantics_source_identity()['sha256']
+    runtime_before = identity.source_hash(tmp_path)
+    source.write_bytes(original.replace(b'Context(prec=28)',b'Context(prec=6)'))
+    runtime_after = identity.source_hash(tmp_path)
+    assert runtime_before['files'] == runtime_after['files'] == 1
+    assert runtime_before['hash'] != runtime_after['hash']
+    assert data_semantics_source_identity()['sha256'] == economic_before
+    candidate = {}
+    exec(compile(source.read_bytes(),str(source),'exec'),candidate)
+    assert candidate['display_decimal'](Fraction(1,7)) != numeric.display_decimal(Fraction(1,7))
+
+
+def test_economic_bundle_names_transitive_book_dependencies_and_runtime_owns_execution():
     required = {
         "sentinel.breadth.classifier",
         "sentinel.controller.machine",
         "sentinel.core.catchup",
         "sentinel.core.kernel",
         "sentinel.core.session",
-        "sentinel.execution.target_reprojection",
+        "sentinel.core.window_material",
+        "sentinel.core.formation_identity",
         "sentinel.feed.actions_map",
         "sentinel.feed.source_corrections",
         "sentinel.feed.correction_model",
         "sentinel.feed.domains",
-        "sentinel.feed.operational_coherence",
         "sentinel.feed.staging",
-        "sentinel.paper",
         "sentinel.regime.spy",
         "stock_strategy_shared.split_reconciliation",
         "stock_strategy_shared.terminal_coalescing",
         "stock_strategy_shared.wealth_core.sharadar_domains",
     }
 
-    assert required <= set(decision_module._DATA_SEMANTICS_MODULES)  # noqa: SLF001
+    from sentinel import economic_manifest
+    profile = economic_manifest.manifest()
+    closure = set(profile['pure_contracts']) | set(profile['input_compilers'])
+    assert required <= closure
+    runtime_only = {'sentinel.execution.target_reprojection', 'sentinel.feed.operational_coherence',
+                    'sentinel.paper', 'sentinel.feed.retention', 'sentinel.shadow_runtime'}
+    assert not runtime_only & closure
+    package = Path(decision_module.__file__).resolve().parents[1]
+    assert all((package.joinpath(*name.split('.')[1:]).with_suffix('.py').is_file()
+                or (package.joinpath(*name.split('.')[1:])/'__init__.py').is_file())
+               for name in runtime_only)
 
 
 def test_concordance_identity_refuses_pinned_one_rollout():

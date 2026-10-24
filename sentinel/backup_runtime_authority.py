@@ -73,6 +73,9 @@ def _is_media_error(exc: Exception) -> bool:
 
 
 def enabled() -> bool:
+    from sentinel import local_paper
+    if local_paper.backups_suspended():
+        return False
     value = str(os.environ.get(AUTHORITY_ENV, "")).strip()
     if value not in ("", AUTHORITY_VALUE):
         raise BackupRuntimeRefused("unsupported runtime backup authority policy")
@@ -82,7 +85,9 @@ def enabled() -> bool:
         marker = None
     if marker is not None and marker != POLICY_BYTES:
         raise BackupRuntimeRefused("invalid baked runtime backup authority policy")
-    return marker is not None or value == AUTHORITY_VALUE
+    local_required = (local_paper.enabled()
+                      and local_paper.backup_policy() == local_paper.BACKUP_POLICY)
+    return local_required or marker is not None or value == AUTHORITY_VALUE
 
 
 def _read_text(conn, path: str, *, missing_ok: bool) -> str | None:
@@ -600,6 +605,9 @@ def _require(conn, *, operation: str,
 def require(conn, *, operation: str,
             base_backup: str | None = None) -> dict:
     """Prove the restore horizon; disappearing media remains a retryable fence."""
+    from sentinel import local_paper
+    if local_paper.backups_suspended_for_account(conn):
+        return {"enabled": False}
     try:
         return _require(
             conn, operation=operation, base_backup=base_backup)
@@ -623,7 +631,8 @@ def require_staging(conn, *, operation: str) -> dict:
     publish or become book/order authority until ``require`` passes separately.
     Missing media, archive failures and unsupported policies still fence work.
     """
-    if not enabled():
+    from sentinel import local_paper
+    if local_paper.backups_suspended_for_account(conn) or not enabled():
         return {'enabled': False, 'scope': 'NON_AUTHORITATIVE_STAGING'}
     try:
         result = backup_guard.require_bulk_writes_permitted(conn, operation=operation)

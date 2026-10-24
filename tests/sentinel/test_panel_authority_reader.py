@@ -11,6 +11,7 @@ import pytest
 
 from sentinel import supervisor_io
 from sentinel.panel import authority_reader as reader, model, sources
+from tests.sentinel.test_operational_catalog_integration import cluster, conn  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -18,6 +19,91 @@ def named_observer_identity_fixture(monkeypatch):
     # Unit and process-pipe tests have no database. Real SQL keys are qualified
     # separately; this seam never replaces the complete observer in production.
     monkeypatch.setattr(reader, '_evidence', lambda *args: 'f'*64)
+
+
+@pytest.mark.parametrize('dsn,expected', [
+    ('postgresql://paper:private@127.0.0.1:5432/isolated',
+     'postgresql://paper:private@127.0.0.1:5432/isolated?connect_timeout=4'),
+    ('postgresql://paper:private@127.0.0.1:5432/isolated?sslmode=require',
+     'postgresql://paper:private@127.0.0.1:5432/isolated?sslmode=require&connect_timeout=4'),
+])
+def test_observer_connect_bound_preserves_uri_style_and_target(dsn, expected):
+    from psycopg.conninfo import conninfo_to_dict
+    bounded = sources._bounded_dsn(dsn)
+    assert bounded == expected
+    assert conninfo_to_dict(bounded) == {
+        **conninfo_to_dict(dsn), 'connect_timeout': str(sources.CONNECT_TIMEOUT_SECONDS)}
+
+
+def test_observer_connect_bound_preserves_keyword_target_password_and_quoted_values():
+    from psycopg.conninfo import conninfo_to_dict
+    dsn = (r"user='paper user' password='a b\'c\\d' host=127.0.0.1 "
+           r"dbname='paper book' port=5432 options='-c statement_timeout=8000'")
+    expected = {'user': 'paper user', 'password': "a b'c\\d", 'host': '127.0.0.1',
+                'dbname': 'paper book', 'port': '5432', 'options': '-c statement_timeout=8000',
+                'connect_timeout': str(sources.CONNECT_TIMEOUT_SECONDS)}
+    assert conninfo_to_dict(sources._bounded_dsn(dsn)) == expected
+
+
+@pytest.mark.parametrize('timeout', [2, 9])
+@pytest.mark.parametrize('uri', [False, True])
+def test_observer_preserves_explicit_positive_connect_timeout(timeout, uri):
+    dsn = (f'postgresql://paper@127.0.0.1:5432/isolated?connect_timeout={timeout}' if uri else
+           f'user=paper host=127.0.0.1 port=5432 dbname=isolated connect_timeout={timeout}')
+    assert sources._bounded_dsn(dsn) == dsn
+
+
+@pytest.mark.parametrize('uri', [False, True])
+def test_observer_zero_connect_timeout_gets_finite_default_without_target_change(uri):
+    from psycopg.conninfo import conninfo_to_dict
+    dsn = ('postgresql://paper@127.0.0.1:5432/isolated?connect_timeout=0' if uri else
+           'user=paper host=127.0.0.1 port=5432 dbname=isolated connect_timeout=0')
+    assert conninfo_to_dict(sources._bounded_dsn(dsn)) == {
+        **conninfo_to_dict(dsn), 'connect_timeout': str(sources.CONNECT_TIMEOUT_SECONDS)}
+
+
+def test_connect_timeout_text_in_password_is_not_a_connection_option():
+    from psycopg.conninfo import conninfo_to_dict
+    dsn = "user=paper password='private connect_timeout text' host=127.0.0.1 dbname=isolated"
+    assert conninfo_to_dict(sources._bounded_dsn(dsn)) == {
+        **conninfo_to_dict(dsn), 'connect_timeout': str(sources.CONNECT_TIMEOUT_SECONDS)}
+
+
+def test_keyword_conninfo_guard_has_a_removed_fix_falsifier(monkeypatch):
+    from psycopg.conninfo import conninfo_to_dict
+    dsn = 'user=paper dbname=isolated host=127.0.0.1 port=5432'
+    def require_original_target():
+        assert conninfo_to_dict(sources._bounded_dsn(dsn)) == {
+            'user': 'paper', 'dbname': 'isolated', 'host': '127.0.0.1',
+            'port': '5432', 'connect_timeout': str(sources.CONNECT_TIMEOUT_SECONDS)}
+    require_original_target()
+    def uri_only(dsn):
+        if 'connect_timeout' in dsn:
+            return dsn
+        return dsn+('&' if '?' in dsn else '?')+'connect_timeout=4'
+    monkeypatch.setattr(sources, '_bounded_dsn', uri_only)
+    with pytest.raises(AssertionError):
+        require_original_target()
+
+
+def test_actual_connection_info_dsn_reaches_private_shadow_observer_without_invented_book(conn):
+    from psycopg.conninfo import conninfo_to_dict
+    dsn = conn.info.dsn
+    assert not dsn.startswith(('postgresql://', 'postgres://'))
+    conn.rollback()
+    bounded = conninfo_to_dict(sources._bounded_dsn(dsn))
+    assert {key: value for key, value in bounded.items() if key != 'connect_timeout'} == {
+        key: value for key, value in conninfo_to_dict(dsn).items() if key != 'connect_timeout'}
+    rows, details, history, errors = sources._dual_authority_rows(
+        dsn, now=datetime.now(timezone.utc), include_paper=False)
+    assert not details and not history
+    assert not any('shadow authority database:' in error for error in errors), errors
+    by_key = {row.key: row for row in rows}
+    # This private database deliberately has no canonical book/publication.
+    # A successful connection must preserve that honest unavailable outcome.
+    assert by_key['shadow_verification'].status in {model.FAIL, model.UNKNOWN}
+    assert by_key['book'].shadow_book is None
+    assert by_key['book'].status in {model.FAIL, model.UNKNOWN}
 
 
 def result():
@@ -38,6 +124,101 @@ def complete(value, timeout=3):
     while value.pending is not None and time.monotonic() < limit:
         time.sleep(.01)
     assert value.pending is None, 'test observer did not complete'
+
+
+def test_current_verified_exposure_uses_observer_clock_instead_of_plan_creation(monkeypatch):
+    now = datetime(2026, 10, 22, 21, 54, tzinfo=timezone.utc)
+    created = now.replace(hour=21, minute=0)
+    rollout = {'mode': 'CONTROLLER', 'version': 9, 'certificate_sha256': 'a'*64}
+    plan = {'target_exposure': 0.55, 'decision_session': '2026-10-22',
+            'rollout_mode': rollout['mode'], 'rollout_version': rollout['version'],
+            'rollout_certificate_sha256': rollout['certificate_sha256'], 'created_at': created}
+    exposure = sources._exposure_row(
+        {'session': '2026-10-22', 'updated_at': now,
+         'decision': {'session': '2026-10-22', 'target_core_exposure': 0.55}},
+        plan, rollout, state_error=None, plan_error=None, rollout_error=None)
+    assert exposure.as_of == created
+    answer = result()
+    answer['rows'][0] = asdict(model.shadow_verification_row(
+        verdict='SHADOW_GO', verification='VERIFIED', session='2026-10-22'))
+    answer['observed_at'] = now
+    answer['rows'] = [asdict(exposure) if row['key'] == 'exposure'
+                      else {**row, 'as_of': created} for row in answer['rows']]
+    value = reader.Reader(runner=lambda *a, **kw: answer, wall_clock=lambda: now)
+    value.read('fixture'); complete(value)
+    output = value.read('fixture')
+    assert all(row.as_of == now for row in output[0])
+    assert all(row.effective_status(now) == model.OK for row in output[0])
+    actual, _ = surfaces(monkeypatch, output, now)
+    assert actual['operational'] == model.OK and actual['overall'] == model.OK
+    value.wall_clock = lambda: now+timedelta(seconds=reader.FRESH_SECONDS+1)
+    expired = value.read('fixture', allow_start=False)
+    assert expired[0][0].status == model.UNKNOWN
+
+
+def test_preserving_every_source_clock_falsely_expires_current_exposure(monkeypatch):
+    import inspect, textwrap
+    body = textwrap.dedent(inspect.getsource(reader.Reader.read))
+    guard = "if historical_source_wait and row.key != 'paper_reconciliation'"
+    assert guard in body
+    namespace = {}
+    exec(compile(body.replace(guard, 'if True'), 'all-clocks-falsifier', 'exec'),
+         reader.__dict__, namespace)
+    monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
+    with pytest.raises(AssertionError):
+        test_current_verified_exposure_uses_observer_clock_instead_of_plan_creation(monkeypatch)
+
+
+@pytest.mark.parametrize('historical', [False, True])
+def test_future_original_row_is_rejected_before_clock_normalization(historical):
+    now = datetime(2026, 10, 22, 21, 54, tzinfo=timezone.utc)
+    answer = result()
+    answer['observed_at'] = now
+    answer['rows'] = [{**row, 'as_of': now} for row in answer['rows']]
+    if historical:
+        answer['rows'][0].update(status=model.WARN, required_current=True,
+            recovery=asdict(model.RecoveryEvidence(phase='SOURCE_FRONTIER',
+                automatic=True, deadline=now+timedelta(hours=1))))
+    next(row for row in answer['rows'] if row['key'] == 'exposure')['as_of'] = (
+        now + model.MAXIMUM_FUTURE_SKEW + timedelta(microseconds=1))
+    value = reader.Reader(runner=lambda *a, **kw: answer, wall_clock=lambda: now)
+    value.read('fixture'); complete(value)
+    rows, _, _, errors = value.read('fixture', allow_start=False)
+    assert rows[0].status == model.UNKNOWN
+    assert errors and 'malformed or stale' in errors[0]
+    assert value.completed is None and value.retained is None
+
+
+@pytest.mark.parametrize('skew', [timedelta(0), model.MAXIMUM_FUTURE_SKEW])
+def test_current_original_row_within_skew_keeps_future_deadlines(skew):
+    now = datetime(2026, 10, 22, 21, 54, tzinfo=timezone.utc)
+    deadline = now+timedelta(hours=1)
+    answer = result()
+    answer['observed_at'] = now
+    exposure = next(row for row in answer['rows'] if row['key'] == 'exposure')
+    exposure.update(as_of=now+skew, valid_until=deadline,
+        recovery=asdict(model.RecoveryEvidence(phase='CURRENT_PROOF',
+            automatic=True, deadline=deadline)))
+    value = reader.Reader(runner=lambda *a, **kw: answer, wall_clock=lambda: now)
+    value.read('fixture'); complete(value)
+    rows, _, _, errors = value.read('fixture', allow_start=False)
+    projected = next(row for row in rows if row.key == 'exposure')
+    assert not errors and projected.effective_status(now) == model.OK
+    assert projected.as_of == now
+    assert projected.valid_until == projected.recovery.deadline == deadline
+
+
+def test_future_original_row_guard_has_a_falsifier(monkeypatch):
+    import inspect, textwrap
+    body = textwrap.dedent(inspect.getsource(reader.Reader.read))
+    guard = 'if any(row.is_future(observed) for row in original_rows):'
+    assert guard in body
+    namespace = {}
+    exec(compile(body.replace(guard, 'if False:'), 'future-row-clock-falsifier', 'exec'),
+         reader.__dict__, namespace)
+    monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
+    with pytest.raises(AssertionError):
+        test_future_original_row_is_rejected_before_clock_normalization(False)
 
 
 def test_answer_expiring_while_ui_idle_is_a_bounded_refresh_not_unreadable():

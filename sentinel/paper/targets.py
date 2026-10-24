@@ -363,10 +363,12 @@ def _target_projection_or_refuse(
         from sentinel.execution import protected_limits
         policy = protected_limits.ProtectedLimitPolicy.from_env()
         if policy is not None:
+            from sentinel.execution import held_targets
+            retained = held_targets.plan_targets(conn, plan=plan, state=state)
             references = protected_limits.build_references(
                 conn, plan=plan, projection=projected, policy=policy)
             projected = protected_limits.resolve_protected(
-                state, plan, projected, references, policy)
+                state, plan, projected, references, policy, retained_targets=retained)
         elif plan.opening_intents:
             from sentinel.execution import opening_sizing
             from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable

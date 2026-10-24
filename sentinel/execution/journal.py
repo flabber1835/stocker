@@ -1186,6 +1186,14 @@ def record_observation(conn, observation: BrokerObservation,
                 raise RuntimeError(
                     f"broker observation provenance {seq} already exists; "
                     "observation identities must be append-only")
+        # New observations and their authenticated coverage commit together.
+        # A missing bootstrap remains explicit migration work; it cannot be
+        # replaced by a caller-generated success flag or a lifetime rescan.
+        from sentinel.execution import observation_projection
+        try:
+            observation_projection.advance(conn)
+        except observation_projection.coverage.EvidenceCoveragePending:
+            pass
     return seq
 
 
@@ -1197,6 +1205,10 @@ class ObservationIntegrityIssue:
 
 class ObservationEvidenceUncertifiable(RuntimeError):
     """Historical account-era broker evidence is incomplete or contradictory."""
+
+
+class ObservationIntegrityPending(RuntimeError):
+    """Installed tracking has bounded producer verification still outstanding."""
 
 
 def _decoded_json(value, expected_type):
@@ -1223,9 +1235,11 @@ _OBSERVATION_INTEGRITY_SELECT = (
     "   ON s.cursor_name=('broker-observation:v4:' || o.seq::text)")
 
 
-def _orphaned_observation_issues(conn, account_binding):
+def _orphaned_observation_issues(conn, account_binding, *, only_cursor=None, only_seq=None):
     broker, account, established_at = account_binding
     established_at = _aware_utc(established_at, 'account establishment timestamp')
+    exact_join = ' AND o.seq=%s' if only_cursor is not None else ''
+    exact_params = (only_seq,) if only_cursor is not None else ()
     after = ''
     while True:
         with conn.cursor() as cur:
@@ -1234,13 +1248,15 @@ def _orphaned_observation_issues(conn, account_binding):
                 " s.state->>'broker',s.state->>'account_id',s.state->>'observed_at',"
                 " s.state->>'started_at',s.state->>'kind',o.observed_at"
                 ' FROM sentinel_processed_sessions s LEFT JOIN sentinel_observations o'
-                " ON s.cursor_name=('broker-observation:v4:' || o.seq::text)"
+                " ON s.cursor_name=('broker-observation:v4:' || o.seq::text)" + exact_join +
                 ' LEFT JOIN sentinel_observation_provenance p ON p.observation_seq=o.seq'
                 " WHERE s.cursor_name LIKE 'broker-observation:v4:%%'"
                 ' AND (o.seq IS NULL OR (o.observed_at<%s'
                 ' AND (p.observed_at IS NULL OR p.observed_at<%s))) AND s.cursor_name>%s'
+                ' AND (%s::text IS NULL OR s.cursor_name=%s)'
                 ' ORDER BY s.cursor_name LIMIT %s',
-                (established_at, established_at, after, OBSERVATION_INTEGRITY_PAGE_SIZE))
+                (*exact_params, established_at, established_at, after, only_cursor, only_cursor,
+                 OBSERVATION_INTEGRITY_PAGE_SIZE))
             rows = cur.fetchall()
         if not rows:
             return
@@ -1521,13 +1537,63 @@ def _verify_observation_integrity_row(row):
     return None, expected_payload
 
 
-def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
+def audit_observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
+    """Independent full-history audit; never selected by an installed hot path."""
     issues = []
     for row in _observation_integrity_rows(conn, orphan_issues=issues):
         issue, _payload = _verify_observation_integrity_row(row)
         if issue is not None:
             issues.append(issue)
     return tuple(issues)
+
+
+@dataclass(frozen=True)
+class ObservationKeyVerification:
+    issues: tuple[ObservationIntegrityIssue, ...]
+    material_sha256: str
+
+
+def verify_observation_integrity_key(conn, key) -> ObservationKeyVerification:
+    """Verify one exact changed key with the original semantic validator."""
+    raw=str(key)
+    name=raw if raw.startswith('broker-observation:v4:') else 'broker-observation:v4:'+raw
+    suffix=name.removeprefix('broker-observation:v4:')
+    issues=[];payload=None;sequence=None
+    if suffix.isdigit() and int(suffix)>0 and str(int(suffix))==suffix:
+        sequence=int(suffix)
+        row=conn.execute(_OBSERVATION_INTEGRITY_SELECT+' WHERE o.seq=%s',(sequence,)).fetchone()
+        if row is not None:
+            issue,payload=_verify_observation_integrity_row(row)
+            if issue is not None: issues.append(issue)
+    bound=conn.execute('SELECT broker,broker_account_id,established_at FROM sentinel_account_binding WHERE id=1').fetchone()
+    if bound is not None:
+        issues.extend(_orphaned_observation_issues(conn,bound,only_cursor=name,only_seq=sequence))
+    encoded=json.dumps({'key':name,'payload':payload},sort_keys=True,separators=(',',':'),default=str)
+    return ObservationKeyVerification(tuple(issues),hashlib.sha256(encoded.encode()).hexdigest())
+
+
+def bootstrap_observation_integrity(conn, *, limit=128):
+    from sentinel.execution import observation_projection
+    return observation_projection.bootstrap_step(conn,limit=limit)
+
+
+def advance_observation_integrity(conn, *, limit=128):
+    from sentinel.execution import observation_projection
+    return observation_projection.advance(conn,limit=limit)
+
+
+def observation_integrity_issues(conn) -> tuple[ObservationIntegrityIssue, ...]:
+    from sentinel.execution import evidence_schema, observation_projection
+    try:
+        if not evidence_schema.require_schema(conn,allow_absent=True):
+            return audit_observation_integrity_issues(conn)
+        observation_projection.require_current(conn)
+        return ()
+    except observation_projection.coverage.EvidenceCoveragePending as exc:
+        raise ObservationIntegrityPending(str(exc)) from exc
+    except (evidence_schema.EvidenceSchemaRefused,
+            observation_projection.coverage.EvidenceCoverageRefused) as exc:
+        raise ObservationEvidenceUncertifiable(str(exc)) from exc
 
 
 def load_observation_payload(conn, seq: int) -> dict:

@@ -19,7 +19,7 @@ from tests.v5 import test_opening_identity as identity_checks
 from tests.v5 import test_publication_regressions as publication_checks
 from tests.v5 import test_opening_rounding as rounding_checks
 from tests.v5 import test_shadow_publication_identity as shadow_checks
-from sentinel import shadow_observation, shadow_runtime
+from sentinel import shadow_observation
 from sentinel.feed import universe
 from sentinel.feed.universe import IdentityResolver
 from sentinel.execution.alpaca import AlpacaExecutionBroker
@@ -27,7 +27,7 @@ from sentinel import automation_runtime
 from sentinel.paper import execution as paper_execution
 from sentinel.paper.model import PaperRetryableRefused
 from sentinel.controller import ex3_v6
-from sentinel.core import decision
+from sentinel.core import decision, formation_identity
 from sentinel.execution import opening_prices, opening_sizing, executor, target_reprojection
 from sentinel.execution.plan import OpeningIntent
 from sentinel.paper import targets
@@ -45,10 +45,10 @@ def run():
     cases = (
         ("warmup_signal_shape_ignored",
          lambda: shadow_checks.test_rebased_warmup_still_refuses_real_revisions("signal"),
-         shadow_runtime, "_signal_price_identity", lambda *a, **k: None),
+         formation_identity, "_signal_price_identity", lambda *a, **k: None),
         ("warmup_spy_shape_ignored",
          lambda: shadow_checks.test_rebased_warmup_still_refuses_real_revisions("spy"),
-         shadow_runtime, "_exact_price_ratio", lambda *a: ["1", "1"]),
+         formation_identity, "_exact_price_ratio", lambda *a: ["1", "1"]),
         ("daily_signal_predecessor_ignored",
          lambda: shadow_checks.test_daily_identity_binds_the_canonical_predecessor("missing"),
          shadow_observation, "_signal_price_identity", rewritten(

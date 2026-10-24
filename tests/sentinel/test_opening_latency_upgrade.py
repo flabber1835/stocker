@@ -1,4 +1,5 @@
 """Closed reviewed source transitions preserve retained book provenance."""
+from tests.support import registry_falsifiers as mutants
 from copy import deepcopy
 import hashlib
 import inspect
@@ -16,14 +17,12 @@ from tests.sentinel.test_operational_liveness_upgrade import (
     test_complete_historical_source_manifest_is_admitted as _historical)
 
 
-def test_profile_scope_predecessors_and_current_bytes_are_exact():
+def test_profile_scope_predecessors_and_historical_targets_are_exact():
     value = upgrade.profile()
     assert value['authority_effect'] == 'NONE'
     assert value['base_revision'] == upgrade.BASE_REVISION
     for name, record in value['files'].items():
-        actual = hashlib.sha256((upgrade.PROFILE.parent / name).read_bytes()).hexdigest()
-        assert (actual == record['after']
-                or protected_cohort_upgrade.source_allowed(name, record['after'], actual))
+        actual = record['after']  # Named historical target; current release has its own seal.
         assert upgrade.BASE_FILES[name] in record['before']
         assert all(upgrade.source_allowed(name, previous, actual)
                    or protected_cohort_upgrade.source_allowed(name, previous, actual)
@@ -148,15 +147,7 @@ def test_complete_predecessor_manifests_are_independently_pinned(closure, monkey
 
 @pytest.mark.parametrize('name', sorted(upgrade.ADDITIONS))
 def test_required_addition_has_behavioral_falsifier(closure, monkeypatch, name):
-    # Isolate the admission backstop from the independently tested atomic
-    # checker; either intact guard is sufficient to reject a missing member.
-    monkeypatch.setattr(upgrade, 'additions_allowed', lambda actual: set(upgrade.ADDITIONS) & set(actual))
-    source = inspect.getsource(admission.prove_compatibility)
-    needle = '            or opening_latency_upgrade.ADDITIONS - set(actual)\n'
-    assert source.count(needle) == 1
-    namespace = {}
-    exec(compile(source.replace(needle, ''), 'opening-checker-falsifier', 'exec'), admission.__dict__, namespace)
-    monkeypatch.setattr(admission, 'prove_compatibility', namespace['prove_compatibility'])
+    mutants.remove_required_addition(monkeypatch, 'opening_latency')
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_missing_addition_cannot_keep_a_current_source_closure(closure, name)
 

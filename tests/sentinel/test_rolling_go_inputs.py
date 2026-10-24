@@ -205,7 +205,7 @@ def test_strategy_request_is_bound_to_current_source(conn, published, monkeypatc
     controller, strategy = inputs.production_strategy()
     monkeypatch.setattr(inputs, "production_strategy", lambda: (controller, {**strategy, "strategy": "wrong"}))
     _read_only(conn)
-    with pytest.raises(inputs.RollingGoRefused, match="STRATEGY_CHANGED"):
+    with pytest.raises(inputs.RollingGoRefused, match="STRATEGY_ADMISSION_REQUIRED"):
         inputs.readiness(conn)
 
 

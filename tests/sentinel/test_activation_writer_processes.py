@@ -229,8 +229,13 @@ def test_actual_host_handoff_owns_processes_and_all_three_lock_boundaries(
                       and not (tmp_path/'shadow'/'shadow-supervisor-pending.json').exists())
                 events.append('start-real-shadow')
                 return SimpleNamespace(stdout='', returncode=0)
+            if args[-1] == 'sentinel-execution-collector':
+                assert 'reconcile-resumed' in events and '--wait' in args and '--no-deps' in args
+                events.append('start-fixture-collector')
+                return SimpleNamespace(stdout='', returncode=0)
             assert args[-3:] == ['up', '-d', 'sentinel-automation']
             assert 'reconcile-resumed' in events
+            assert 'start-fixture-collector' in events
             assert lock_is_available(conn)
             events.append('start-real-dispatcher')
             processes['automation'] = subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(120)'])

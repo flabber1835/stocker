@@ -139,6 +139,7 @@ class Campaign:
         self.c, self.pg, self.tmp, self.failure = c, pg, tmp, failure
         self.events, self.worker = [], None
         self.running = dict(shadow=True, automation=False)
+        self.collector_running = False  # Read-only observer, outside financial writer ownership.
         self.backups = 0
         self.control_cfg = AutomationConfig()
         monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY','offline-disposable-publication-receipt-key-only')
@@ -210,7 +211,7 @@ class Campaign:
 
     def operators(self):
         self.events.append('operators')
-        fail_at = 2 if self.failure == 'final-operator-health' else 1
+        fail_at = 3 if self.failure == 'final-operator-health' else 1
         if self.failure in {'operator-health','final-operator-health'} and self.events.count('operators') == fail_at:
             raise core.DeployRefused('injected operator health failure')
 
@@ -292,10 +293,19 @@ class Campaign:
             payload=dict(session=('2026-08-12' if self.failure=='session-advanced' else DECISION.isoformat()),shadow_verdict='SHADOW_GO',verification='VERIFIED')
             if self.failure=='shadow-json': return self.result('{"session":NaN}')
             return self.result(json.dumps(payload))
+        if 'exec' in args and 'sentinel-execution-collector' in args and '--health' in args:
+            assert self.collector_running is True
+            self.events.append('collector-health')
+            if self.failure == 'collector-health': raise core.DeployRefused('injected collector health failure')
+            return self.result()
         if 'up' in args:
             service=args[-1].removeprefix('sentinel-')
             self.events.append('start-'+service)
             if self.failure=='start-'+service: raise core.DeployRefused('injected service startup failure')
+            if service == 'execution-collector':
+                assert '--wait' in args and '--no-deps' in args
+                self.collector_running = True
+                return self.result()
             self.running[service]=True
             if service=='automation' and self.failure!='leader-absent':
                 ready=self.tmp/'leader-ready.json'
@@ -312,6 +322,12 @@ class Campaign:
             self.obj.prepare_activate_start(CERT, DECISION.isoformat())
             health=self.obj.verify_operational(CERT)
             self.obj.persist_success(health)
+        operator_checks = [i for i, event in enumerate(self.events) if event == 'operators']
+        assert len(operator_checks) == 3
+        finalization = self.events.index('phase:finalize: reuse verified recovery milestone, persist facts, and retain receipt')
+        assert (operator_checks[0] < self.events.index('restore')
+                < self.events.index('collector-health') < operator_checks[1]
+                < finalization < operator_checks[2])
         return health
 
     def preserve(self):
@@ -335,7 +351,8 @@ def test_remaining_sequence_actual_physical_restore_leader_and_receipt(conn,pg,t
         assert 'PRIVATE_TEST_VALUE=preserve' in campaign.dotenv.read_text()
         assert campaign.dotenv.stat().st_mode & 0o777 == 0o600
         assert campaign.events.index('restore') < campaign.events.index('release-paper-automation-kill-switch')
-        assert campaign.events.index('start-shadow') < campaign.events.index('start-automation')
+        assert (campaign.events.index('start-shadow') < campaign.events.index('start-execution-collector')
+                < campaign.events.index('start-automation') < campaign.events.index('collector-health'))
         campaign.preserve()
     finally:
         campaign.stop('automation')
@@ -437,7 +454,8 @@ def test_restore_crossing_open_or_close_has_the_right_activation_boundary(
 FAULTS=['plan-mismatch','plan-json','prepare-paper-plan','reconciliation','activate-paper-automation',
  'activate-noop','wrong-certificate','operator-health','semantic-restore','cutoff','writer-reappeared',
  'release-paper-automation-kill-switch','release-noop','start-shadow','shadow-health','session-advanced',
- 'shadow-json','resumed-reconciliation','control-changed','start-automation','leader-absent','leader-stall',
+ 'shadow-json','resumed-reconciliation','control-changed','start-execution-collector','collector-health',
+ 'start-automation','leader-absent','leader-stall',
  'leader-changed','revoked','final-operator-health','persist-dotenv','receipt-conflict']
 
 @pytest.mark.parametrize('failure',FAULTS)
@@ -458,13 +476,15 @@ def test_each_remaining_failure_fences_without_success_receipt(conn,pg,tmp_path,
             'release-noop':'release-paper-automation-kill-switch','start-shadow':'start-shadow',
             'shadow-health':'start-shadow','session-advanced':'shadow-status','shadow-json':'shadow-status',
             'resumed-reconciliation':'start-shadow','control-changed':'start-shadow',
+            'start-execution-collector':'start-execution-collector','collector-health':'collector-health',
             'start-automation':'start-automation','leader-absent':'start-automation',
             'leader-stall':'start-automation','leader-changed':'start-automation','revoked':'start-automation',
             'final-operator-health':'start-automation','persist-dotenv':'start-automation','receipt-conflict':'start-automation',
         }[failure]
         assert reached in campaign.events, ('fault boundary was never reached',failure,campaign.events)
         if failure in {'final-operator-health','persist-dotenv','receipt-conflict'}:
-            assert campaign.events.count('operators')==2, 'failure occurred before final completion boundary'
+            assert campaign.events.count('operators')==3, 'failure occurred before final completion boundary'
+            assert 'phase:finalize: reuse verified recovery milestone, persist facts, and retain receipt' in campaign.events
         if failure=='wrong-certificate':
             with pytest.raises(AutomationRefused,match='immutable history'):
                 store.load_control(conn)

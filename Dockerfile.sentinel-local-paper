@@ -1,0 +1,6 @@
+FROM ghcr.io/flabber1835/stocker/sentinel@sha256:a3a758cf33552fa0183a535c47e9163eb1d3f0e3c80c4feacf4fd4ee8f6d0bea
+ARG SOURCE_GIT_SHA
+LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
+LABEL sentinel.delivery=owner-authorized-local-paper
+ENV SENTINEL_IMAGE_SOURCE_REVISION=${SOURCE_GIT_SHA}
+COPY sentinel/ /app/sentinel/

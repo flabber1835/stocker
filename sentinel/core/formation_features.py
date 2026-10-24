@@ -1,10 +1,11 @@
 """Bounded price work reuse within one immutable formation generation."""
+from sentinel.feed.normalized_layout import candidate_query
 from array import array
 from math import isnan
 
 from stock_strategy_shared.wealth_core.feed import SecuritySeries
 from stock_strategy_shared.wealth_core.window_signals import feature
-from sentinel.core.window_features import Signal, WindowFeatures, protected
+from sentinel.core.window_material import Signal, WindowFeatures, protected
 from sentinel.feed import calendar, rolling_store, store
 from sentinel.feed.rolling_contract import CanonicalBar
 
@@ -81,8 +82,8 @@ class FormationFeatures:
             ring.expire(lower)
         if start is not None:
             columns = rolling_store.BAR_COLUMNS
-            query = (f"SELECT {','.join(columns)} FROM sentinel_snapshot_bars WHERE candidate_id=%s "
-                     'AND session BETWEEN %s AND %s ORDER BY session,security_id COLLATE "C"')
+            query = (candidate_query(self.conn, f"SELECT {','.join(columns)} FROM sentinel_snapshot_bars WHERE candidate_id=%s "
+                     'AND session BETWEEN %s AND %s ORDER BY session,security_id COLLATE "C"'))
             with store.streaming_cursor(self.conn, query, (self.candidate_id, start, session)) as cursor:
                 previous = None
                 for encoded in cursor:
