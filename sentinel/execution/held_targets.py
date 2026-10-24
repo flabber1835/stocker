@@ -139,13 +139,19 @@ def build_basis(conn, *, previous, state, binding, rollout):
 
 
 def verify_basis(conn, *, basis, state, binding, rollout):
-    from sentinel.execution import journal
+    from sentinel.execution import journal, target_reprojection
     if not isinstance(basis, dict) or basis.get("schema") != SCHEMA:
         raise TargetProjectionRefused("retained share target basis is absent or unsupported")
     previous_id = basis.get("previous_plan_id")
     previous = None if previous_id is None else journal.load_plan(conn, previous_id)
     if previous_id is not None and previous is None:
         raise TargetProjectionRefused("retained share predecessor is missing")
+    if previous is not None:
+        projection = target_reprojection.load_projection(conn, plan_id=previous_id)
+        if (basis.get("previous_plan_fingerprint") != previous.fingerprint()
+                or basis.get("previous_projection_fingerprint") != (
+                    None if projection is None else projection.fingerprint())):
+            raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")
     expected = build_basis(conn, previous=previous, state=state, binding=binding, rollout=rollout)
     if expected != basis:
         raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")

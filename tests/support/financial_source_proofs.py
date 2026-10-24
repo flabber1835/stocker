@@ -1,8 +1,8 @@
 """Mechanical inverses for two exact structural financial extractions.
 
-Constants were independently read from Git0067e90b; only the small moved factor
-and removed duplicate check are copied. Whole modules reconstruct to their
-original catalog byte hashes.
+Constants were independently read from Git0067e90b. Only the small moved factor
+is reconstructed; the original early predecessor guard remains unchanged.
+Whole modules reconstruct to their original catalog byte hashes.
 """
 import ast
 import hashlib
@@ -44,15 +44,6 @@ def reconstruct_held(raw):
         '                                          evidence=events)',
         '            factor *= _factor(SimpleNamespace(\n'
         '                action_multipliers={sid: multiplier}, action_evidence=events), sid)')
-    value = _replace(value,
-        'def verify_basis(conn, *, basis, state, binding, rollout):\n'
-        '    from sentinel.execution import journal\n',
-        'def verify_basis(conn, *, basis, state, binding, rollout):\n'
-        '    from sentinel.execution import journal, target_reprojection\n')
-    value = _replace(value,
-        '    expected = build_basis(conn, previous=previous, state=state, binding=binding, rollout=rollout)',
-        REMOVED_DUPLICATE_CHECK +
-        '    expected = build_basis(conn, previous=previous, state=state, binding=binding, rollout=rollout)')
     return value.encode()
 
 
@@ -89,5 +80,4 @@ def prove_factor_body():
 BASE_FACTOR = 'def _factor(projection, sid):\n    from sentinel.execution import target_reprojection as units\n    multiplier = projection.action_multipliers.get(sid, Decimal(1))\n    _positive(multiplier, "effective share multiplier")\n    events = [item for item in projection.action_evidence if item.get("security_id") == sid]\n    if not events:\n        if multiplier != 1:\n            raise TargetProjectionRefused("non-unit effective shares require durable action evidence")\n        return Fraction(multiplier)\n    published, exact = Fraction(1), Fraction(1)\n    for item in events:\n        if not item.get("source_row_id"):\n            raise TargetProjectionRefused("effective share evidence lacks source identity")\n        approximate, rational = units._evidence_factor(item)\n        published *= approximate\n        exact *= rational\n    if not units._fractions_close(Fraction(multiplier), published, units._RATIO_REPRESENTATION_TOLERANCE):\n        raise TargetProjectionRefused("effective share evidence differs from projection")\n    return exact\n'
 BASE_FACTOR_SHA256 = 'd696f4cdcaecda2149f9d0bd01e9aeab453b683795edbfbba5091841bf2440b9'
 REVIEWED_FACTOR_SPAN = 'def share_action_factor(*, security_id: str, multiplier: Decimal,\n                        evidence: Sequence[Mapping[str, object]]) -> Fraction:\n    """Recover exact evidenced units without rounding intended account shares."""\n    if not isinstance(multiplier, Decimal) or not multiplier.is_finite() or multiplier <= 0:\n        raise TargetProjectionRefused("effective share multiplier must be positive finite Decimal")\n    events = [item for item in evidence if item.get("security_id") == security_id]\n    if not events:\n        if multiplier != 1:\n            raise TargetProjectionRefused("non-unit effective shares require durable action evidence")\n        return Fraction(multiplier)\n    published, exact = Fraction(1), Fraction(1)\n    for item in events:\n        if not item.get("source_row_id"):\n            raise TargetProjectionRefused("effective share evidence lacks source identity")\n        approximate, rational = _evidence_factor(item)\n        published *= approximate\n        exact *= rational\n    if not _fractions_close(Fraction(multiplier), published, _RATIO_REPRESENTATION_TOLERANCE):\n        raise TargetProjectionRefused("effective share evidence differs from projection")\n    return exact\n\n\n'
-REMOVED_DUPLICATE_CHECK = '    if previous is not None:\n        projection = target_reprojection.load_projection(conn, plan_id=previous_id)\n        if (basis.get("previous_plan_fingerprint") != previous.fingerprint()\n                or basis.get("previous_projection_fingerprint") != (\n                    None if projection is None else projection.fingerprint())):\n            raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")\n'
 

@@ -3,6 +3,7 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal as D
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -230,7 +231,7 @@ def test_another_account_cannot_seed_targets(conn):
             binding=_binding(account_id="another"), rollout=_controller_rollout())
 
 
-def test_absent_and_changed_parent_projection_change_reuse_token(conn):
+def test_absent_and_changed_parent_projection_change_reuse_token(conn, monkeypatch):
     before, after = state(), state(session="2026-08-12")
     previous = build(before, defensive="SENTINEL:BIL").plan
     save(conn, before, previous)
@@ -244,8 +245,31 @@ def test_absent_and_changed_parent_projection_change_reuse_token(conn):
         (projections.CURSOR_PREFIX + previous.plan_id,))
     conn.commit()
     assert held_targets.predecessor_version(conn, current.plan_id) != token
+    from sentinel.execution import feed_actions
+    monkeypatch.setattr(authority, "load_authority", lambda *args, **kwargs:
+        pytest.fail("a known parent mismatch read unrelated sizing authority"))
+    monkeypatch.setattr(feed_actions, "action_lookup", lambda *args, **kwargs:
+        pytest.fail("a known parent mismatch read unrelated action/feed evidence"))
     with pytest.raises(projections.TargetProjectionRefused, match="do not re-derive"):
         held_targets.verify_basis(conn, basis=basis, state=after, binding=_binding(), rollout=_controller_rollout())
+
+
+def test_early_parent_guard_falsifier_detects_unrelated_authority_read(conn, monkeypatch):
+    source = inspect.getsource(held_targets.verify_basis)
+    guard = (
+        '    if previous is not None:\n'
+        '        projection = target_reprojection.load_projection(conn, plan_id=previous_id)\n'
+        '        if (basis.get("previous_plan_fingerprint") != previous.fingerprint()\n'
+        '                or basis.get("previous_projection_fingerprint") != (\n'
+        '                    None if projection is None else projection.fingerprint())):\n'
+        '            raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")\n')
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, ''), 'removed-early-parent-guard', 'exec'),
+         vars(held_targets), namespace)
+    monkeypatch.setattr(held_targets, 'verify_basis', namespace['verify_basis'])
+    with pytest.raises(pytest.fail.Exception, match="known parent mismatch read unrelated sizing authority"):
+        test_absent_and_changed_parent_projection_change_reuse_token(conn, monkeypatch)
 
 
 def test_rehashed_forged_basis_still_refuses_parent_mismatch(conn):

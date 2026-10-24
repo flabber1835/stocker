@@ -72,8 +72,19 @@ Allocation construction and its independent verifier remain separate.
 
 Expose typed share-unit evidence validation for both prior-close references and
 persistent targets. Remove artificial namespace objects and private cross-module
-calls. Reuse a loaded predecessor within one immutable re-derivation, retaining
-its fingerprint, action evidence, episode continuity and historical behavior.
+calls. Preserve the early predecessor plan/projection fingerprint check before
+re-deriving the basis. It must refuse a missing or changed parent with the
+original typed error before reading sizing authority, action history or feed
+publication. The later independent re-derivation retains its own projection
+read, action evidence, episode continuity and historical behavior.
+
+The combined qualification caught that removing this early check delayed a
+clear parent mismatch until unrelated feed I/O. Restore the exact original
+guard and keep its cheap additional read; no new cache or private context is
+introduced to avoid that read. The existing missing-parent regression already
+fails against the removed guard and is strengthened to reject unrelated I/O.
+An explicit falsifier removes only this guard in memory and checks that the
+regression detects the resulting forbidden sizing-authority read.
 
 ## One strict retained-runtime registry
 
@@ -133,7 +144,7 @@ The same sealed structural transition contains exactly two additional economic
 source mappings: `execution/held_targets.py` and
 `execution/target_reprojection.py`. Only their exact reviewed candidate bytes
 contribute their independently authenticated `0067e90b` source hashes. The first
-uses the public share-action factor and removes the redundant predecessor read;
+uses the public share-action factor and preserves the original early predecessor guard;
 the second adds that typed factor without changing its existing projection
 implementation. Qualification mechanically reconstructs each complete baseline
 module and verifies its original byte hash, proves the extracted factor against
