@@ -23,6 +23,7 @@ cli = importlib.import_module(SPEC.name+'.cli')
 builder = importlib.import_module(SPEC.name+'.builder')
 qualification = importlib.import_module(SPEC.name+'.qualification')
 model = importlib.import_module(SPEC.name+'.model')
+host_module = importlib.import_module(SPEC.name+'.host')
 
 OLD, NEW = 'a'*40, 'b'*40
 OLD_IMAGE, NEW_IMAGE = 'sha256:'+'c'*64, 'sha256:'+'d'*64
@@ -35,6 +36,7 @@ def inputs(tmp_path,monkeypatch):
     files = {'sentinel/module.py': 'value = 1\n','scripts/example.py':'pass\n',
              'tests/test_example.py':'def test_example(): assert True\n',
              'docs/current.md':'Current contract\n','Dockerfile.sentinel':'FROM exact-runtime\n'}
+    files.update({name:'services: {} # reviewed predecessor '+name+'\n' for name in host_module.COMPOSE})
     for name,content in files.items():
         path=source/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content)
     approved=['sentinel/module.py']
@@ -160,7 +162,15 @@ def fake_host(inputs):
     old,new=images()
     class Host:
         calls=[]
-        def __init__(self,request,folder): self.request=request;self.clean={};self.folder=folder
+        def __init__(self,request,folder):
+            self.request=request;self.clean={};self.folder=folder
+            self.source=Path(request['source']);self.operation_dir=Path(folder)
+        def git_bytes(self,*args):
+            assert len(args)==2 and args[0]=='show' and args[1].startswith(OLD+':')
+            name=args[1].removeprefix(OLD+':')
+            assert name in host_module.COMPOSE
+            self.calls.append(('immutable-compose',OLD,name))
+            return inputs.files[name].encode()
         @contextmanager
         def owned(self):
             self.calls.append('lock')
@@ -176,6 +186,15 @@ def fake_host(inputs):
             assert 'production_strategy()[1]' in command[-1]
             return SimpleNamespace(stdout=json.dumps({'strategy':'e'*64}).encode())
         def probe(self,commit,image):
+            # The real probe renders installed predecessor configuration even
+            # while probing candidate source. Exercise the real routing seam
+            # rather than returning an identity without reading its inputs.
+            paths=host_module.Host.compose_paths(self,{'SENTINEL_GIT_COMMIT':OLD})
+            assert paths==tuple(self.operation_dir/'predecessor-compose-inputs'/name
+                for name in host_module.COMPOSE)
+            assert all(path.read_bytes()==inputs.files[path.name].encode() for path in paths)
+            candidate=host_module.Host.compose_paths(self,{'SENTINEL_GIT_COMMIT':NEW})
+            assert candidate==tuple(self.source/name for name in host_module.COMPOSE)
             return dict(source=('1' if commit==OLD else '2')*64,shadow_config='3'*64,wealth='4'*64)
     return Host
 
@@ -210,6 +229,31 @@ def test_offline_build_has_only_exact_tracked_runtime_source_and_retained_eviden
     assert model.read_json(inputs.folder/'build.json')==result
     assert host.calls[0]=='lock' and host.calls[-1]=='unlock'
     with pytest.raises(model.DeliveryRefused,match='ALREADY_STARTED'):
+        run_build(inputs,monkeypatch)
+
+
+def test_builder_binds_both_runtime_routes_and_retains_immutable_predecessor_compose(inputs,monkeypatch):
+    result,_,host=run_build(inputs,monkeypatch)
+    reads=[call for call in host.calls if isinstance(call,tuple) and call[0]=='immutable-compose']
+    assert reads==[('immutable-compose',OLD,name) for _ in range(2) for name in host_module.COMPOSE]
+    folder=inputs.folder/'predecessor-compose-inputs'
+    assert all((folder/name).read_bytes()==inputs.files[name].encode() for name in host_module.COMPOSE)
+    assert result['foundation']['commit']==OLD and result['commit']==NEW
+    instance=host(dict(source=str(inputs.source),deployment=str(inputs.deployment),
+        predecessor=builder.baseline(inputs.previous),candidate={'commit':NEW}),inputs.folder)
+    (folder/host_module.COMPOSE[0]).write_bytes(b'unreviewed replacement')
+    with pytest.raises(model.DeliveryRefused,match='PREDECESSOR_COMPOSE_INPUT_CHANGED'):
+        host_module.Host.compose_paths(instance,{'SENTINEL_GIT_COMMIT':OLD})
+
+
+def test_missing_builder_runtime_context_is_killed_by_real_compose_routing(inputs,monkeypatch):
+    source=inspect.getsource(builder.build)
+    needle='        predecessor=old,candidate=dict(commit=commit)'
+    assert source.count(needle)==1
+    namespace={}
+    exec(compile(source.replace(needle,''),'missing-build-routing-context','exec'),vars(builder),namespace)
+    monkeypatch.setattr(builder,'build',namespace['build'])
+    with pytest.raises(KeyError,match='candidate'):
         run_build(inputs,monkeypatch)
 
 

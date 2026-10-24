@@ -16,6 +16,39 @@ from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, require
 _BINDING_KEYS = ('deployment_id', 'broker', 'broker_account_id', 'takeover_epoch')
 _NOTIFICATION_GROUPS = frozenset({
     'alerts', 'delivered_alerts', 'events', 'fanouts', 'recipients', 'delivered_recipients'})
+# Host readers stay stdlib-only. A regression binds this complete contract to
+# the runtime read_projection.SUBJECT_ENV without importing runtime dependencies.
+_VERIFICATION_SUBJECT_ENV = frozenset({
+    'SENTINEL_GIT_COMMIT', 'SENTINEL_RUNTIME_IMAGE_DIGEST', 'SENTINEL_IMAGE_SOURCE_REVISION',
+    'SENTINEL_TEST_IMAGE_DIGEST', 'SENTINEL_REVIEWED_DEPLOYMENT_MODE',
+    'SENTINEL_SHADOW_OBSERVATION_ID', 'SENTINEL_SHADOW_STARTING_CASH',
+    'SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256', 'SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256',
+    'SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256', 'SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256',
+    'SENTINEL_LOCAL_PAPER_MODE', 'SENTINEL_LOCAL_PAPER_ACCOUNT_ID',
+    'SENTINEL_AUTHORIZED_RUNTIME', 'SENTINEL_RUNTIME_BACKUP_AUTHORITY',
+    'SENTINEL_RECOVERED_ORDER_AUTHORITY', 'SENTINEL_PAPER_BUY_POLICY',
+    'SENTINEL_PAPER_BUY_CAP_BPS', 'SENTINEL_PAPER_DEBUG_WINDOW',
+    'SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY'})
+_PAPER_SUBJECT_ENV = frozenset({
+    'SENTINEL_PAPER_BUY_POLICY', 'SENTINEL_PAPER_BUY_CAP_BPS', 'SENTINEL_PAPER_DEBUG_WINDOW'})
+_ROLE_AUTHORITY_ENV = frozenset({
+    'SENTINEL_AUTHORIZED_RUNTIME', 'SENTINEL_RUNTIME_BACKUP_AUTHORITY',
+    'SENTINEL_RECOVERED_ORDER_AUTHORITY'})
+
+
+def _require_verification_subject(configuration):
+    services = configuration['services']
+    environments = {name: services[name]['environment'] for name in (
+        'sentinel-panel', 'sentinel-verifier', 'sentinel-shadow', 'sentinel-authorized-cli')}
+    panel, verifier = environments['sentinel-panel'], environments['sentinel-verifier']
+    for key in sorted(_VERIFICATION_SUBJECT_ENV):
+        require(panel.get(key, '') == verifier.get(key, ''), 'VERIFICATION_SUBJECT_MISMATCH: '+key)
+    for key in sorted(_VERIFICATION_SUBJECT_ENV - _PAPER_SUBJECT_ENV - _ROLE_AUTHORITY_ENV):
+        require(panel.get(key, '') == environments['sentinel-shadow'].get(key, ''),
+                'VERIFICATION_BOOK_SUBJECT_MISMATCH: '+key)
+    for key in sorted(_PAPER_SUBJECT_ENV):
+        require(panel.get(key, '') == environments['sentinel-authorized-cli'].get(key, ''),
+                'VERIFICATION_PAPER_SUBJECT_MISMATCH: '+key)
 
 
 def compare_configuration(host, previous, candidate, state):
@@ -45,6 +78,7 @@ def compare_configuration(host, previous, candidate, state):
                 and not collector.get('SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY')
                 and not verifier.get('ALPACA_API_KEY') and not verifier.get('ALPACA_SECRET_KEY'),
                 'New operational roles have excessive credentials')
+            _require_verification_subject(configuration)
         environment = configuration['services']['sentinel-automation']['environment']
         environments.append({key: value for key, value in environment.items()
             if key.startswith('SENTINEL_AUTOMATION_') or key == 'SENTINEL_PAPER_DEBUG_WINDOW'})

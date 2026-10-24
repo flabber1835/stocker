@@ -130,7 +130,8 @@ def build(*, source, deployment, predecessor_receipt, qualification, qualificati
     report = validate_report(qualification,qualification_sha256,source,commit,old['commit'])
     approved = allowed_delta(approved_delta,approved_delta_sha256)
     changed = _changed(source,old['commit'],commit,approved)
-    host = host_type(dict(source=str(source),deployment=str(deployment)),folder)
+    host = host_type(dict(source=str(source),deployment=str(deployment),
+        predecessor=old,candidate=dict(commit=commit)),folder)
     foundation_tag = 'sentinel-local-paper:'+old['commit'][:8]
     tag = 'sentinel-local-paper:'+commit[:8]
     require(tag != foundation_tag, 'LOCAL_IMAGE_TAG_COLLISION')

@@ -136,7 +136,7 @@ def test_canonical_adapter_passes_dynamic_authenticated_subject_and_keeps_full_p
     assert 'starting_cash=50000' not in checks.CANONICAL
 
 
-def configuration_host(*, failure=None):
+def configuration_host(*, failure=None, mutate=None):
     host = Host()
     host.request.update(predecessor={'image': 'old-image'}, candidate={'image': 'new-image'})
     host.calls = []
@@ -150,10 +150,23 @@ def configuration_host(*, failure=None):
         services = {name: {'image': host.request[role]['image'], 'environment': {}}
             for name in (*host_module.SERVICES, 'sentinel-authorized-cli')}
         services['sentinel-automation']['environment'] = environment
+        shared = {key: 'fixture:'+key for key in evidence._VERIFICATION_SUBJECT_ENV}
+        shared['SENTINEL_SHADOW_STARTING_CASH'] = '50000'
+        for name in ('sentinel-panel', 'sentinel-verifier', 'sentinel-shadow', 'sentinel-authorized-cli'):
+            services[name]['environment'].update(shared)
+        # Role-specific execution grants are deliberately different from the
+        # read-only panel/verifier subject, and shadow has no execution policy.
+        for key in evidence._ROLE_AUTHORITY_ENV:
+            services['sentinel-shadow']['environment'][key] = 'shadow-grant'
+            services['sentinel-authorized-cli']['environment'][key] = 'execution-grant'
+        for key in evidence._PAPER_SUBJECT_ENV:
+            services['sentinel-shadow']['environment'].pop(key)
         if failure == 'image' and role == 'candidate':
             services['sentinel-panel']['image'] = 'foreign'
         if failure == 'panel-secret':
             services['sentinel-panel']['environment']['ALPACA_API_KEY'] = 'fictional-secret'
+        if mutate is not None and role == 'candidate':
+            mutate(services)
         return SimpleNamespace(stdout=json.dumps({'services': services}).encode())
     def run(argv, **kwargs):
         host.calls.append((argv, kwargs))
@@ -179,6 +192,81 @@ def test_configuration_drift_foreign_image_or_panel_credentials_refuse(failure):
     host = configuration_host(failure=failure)
     with pytest.raises(model.DeliveryRefused):
         evidence.compare_configuration(host, {'role': 'predecessor'}, {'role': 'candidate'}, host.state)
+
+
+def test_host_verification_contract_covers_every_runtime_subject_key():
+    tree = ast.parse((ROOT/'sentinel/panel/read_projection.py').read_text(encoding='utf-8'))
+    assignment = next(node for node in tree.body if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == 'SUBJECT_ENV' for target in node.targets))
+    assert evidence._VERIFICATION_SUBJECT_ENV == frozenset(ast.literal_eval(assignment.value.args[0]))
+
+
+def test_local_verification_default_cash_matches_actual_shadow_and_execution_subject():
+    import yaml
+    overlay = yaml.safe_load((ROOT/'docker-compose.sentinel-local-paper.yml').read_text(encoding='utf-8'))
+    base = yaml.safe_load((ROOT/'docker-compose.sentinel-automation.yml').read_text(encoding='utf-8'))
+    key = 'SENTINEL_SHADOW_STARTING_CASH'
+    expected = base['services']['sentinel-shadow']['environment'][key]
+    assert expected == '${SENTINEL_SHADOW_STARTING_CASH:-50000}'
+    assert base['services']['sentinel-authorized-cli']['environment'][key] == expected
+    for service in ('sentinel-panel', 'sentinel-verifier'):
+        assert overlay['services'][service]['environment'][key] == expected
+
+
+@pytest.mark.parametrize('key', sorted(evidence._VERIFICATION_SUBJECT_ENV))
+def test_candidate_panel_and_verifier_must_share_the_exact_full_subject(key):
+    def change(services):
+        services['sentinel-verifier']['environment'][key] = 'different-subject'
+    host = configuration_host(mutate=change)
+    with pytest.raises(model.DeliveryRefused, match='VERIFICATION_SUBJECT_MISMATCH: '+key):
+        evidence.compare_configuration(host, {'role': 'predecessor'}, {'role': 'candidate'}, host.state)
+    assert not host.calls  # Refuse before any canonical/application handoff.
+
+
+@pytest.mark.parametrize('key', sorted(evidence._VERIFICATION_SUBJECT_ENV
+    - evidence._PAPER_SUBJECT_ENV - evidence._ROLE_AUTHORITY_ENV))
+def test_matching_readers_cannot_select_a_different_canonical_book_subject(key):
+    def change(services):
+        for name in ('sentinel-panel', 'sentinel-verifier'):
+            services[name]['environment'][key] = 'different-subject'
+    host = configuration_host(mutate=change)
+    with pytest.raises(model.DeliveryRefused, match='VERIFICATION_BOOK_SUBJECT_MISMATCH: '+key):
+        evidence.compare_configuration(host, {'role': 'predecessor'}, {'role': 'candidate'}, host.state)
+    assert not host.calls
+
+
+@pytest.mark.parametrize('key', sorted(evidence._PAPER_SUBJECT_ENV))
+def test_matching_readers_cannot_select_a_different_execution_policy(key):
+    def change(services):
+        for name in ('sentinel-panel', 'sentinel-verifier'):
+            services[name]['environment'][key] = 'different-policy'
+    host = configuration_host(mutate=change)
+    with pytest.raises(model.DeliveryRefused, match='VERIFICATION_PAPER_SUBJECT_MISMATCH: '+key):
+        evidence.compare_configuration(host, {'role': 'predecessor'}, {'role': 'candidate'}, host.state)
+    assert not host.calls
+
+
+def test_role_polling_clocks_do_not_become_financial_subjects():
+    def change(services):
+        services['sentinel-panel']['environment']['SENTINEL_PANEL_POLL_SECONDS'] = '7'
+        services['sentinel-verifier']['environment']['SENTINEL_SHADOW_POLL_SECONDS'] = '30'
+        services['sentinel-shadow']['environment']['SENTINEL_SHADOW_POLL_SECONDS'] = '300'
+    host = configuration_host(mutate=change)
+    evidence.compare_configuration(host, {'role': 'predecessor'}, {'role': 'candidate'}, host.state)
+    assert len(host.calls) == 2
+
+
+def test_removing_rendered_subject_guard_has_a_capital_mismatch_falsifier(monkeypatch):
+    import inspect
+    source = inspect.getsource(evidence.compare_configuration)
+    guard = '            _require_verification_subject(configuration)\n'
+    assert source.count(guard) == 1
+    scope = dict(vars(evidence))
+    exec(compile(source.replace(guard, ''), 'removed verification subject guard', 'exec'), scope)
+    monkeypatch.setattr(evidence, 'compare_configuration', scope['compare_configuration'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_matching_readers_cannot_select_a_different_canonical_book_subject(
+            'SENTINEL_SHADOW_STARTING_CASH')
 
 
 @pytest.mark.parametrize('result',['busy','stopped-disconnect','ambiguous-disconnect'])
