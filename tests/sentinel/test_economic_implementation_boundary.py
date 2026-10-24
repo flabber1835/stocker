@@ -15,7 +15,10 @@ from sentinel import economic_manifest as economic
 ROOT = Path(__file__).resolve().parents[2]
 WITNESS = ROOT / 'tests/support/architecture-b2-functions.json'
 WITNESS_SHA256 = '80b2c608ff35d7fe80c1d9eefd02a768f891ab5c3bccd277a1b2b547c48f6af2'
-BEHAVIORAL = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+PREDECESSOR_STRATEGY_SHA256 = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
+IDENTITY_WITNESS = ROOT / 'tests/support/architecture-b2-economic-identity.json'
+IDENTITY_WITNESS_SHA256 = '5547702880b5c41578c4fc312bebf38dab768222d3f5b8041481b324c1f15ebe'
 INITIALIZERS = frozenset({'sentinel','sentinel.breadth','sentinel.controller','sentinel.core',
     'sentinel.execution','sentinel.feed','sentinel.feed.source_authority','sentinel.regime',
     'stock_strategy_shared','stock_strategy_shared.wealth_core'})
@@ -40,6 +43,35 @@ def witness():
     assert hashlib.sha256(raw).hexdigest() == WITNESS_SHA256
     value = json.loads(raw)
     assert value['revision'] == economic.PREDECESSOR
+    return value
+
+
+def predecessor_identity():
+    """Plain exact-b2 Git reconstruction, independently matched to its image.
+
+    These old contributions are historical input records; actual candidate
+    closure tests below continue to read all current files without substitution.
+    """
+    raw = IDENTITY_WITNESS.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == IDENTITY_WITNESS_SHA256
+    value = json.loads(raw)
+    assert value['schema'] == 'sentinel.predecessor-economic-identity/1'
+    assert value['revision'] == economic.PREDECESSOR
+    assert value['runtime_image'] == 'sha256:213e53efe9849a53a5b61966af6f252aa31ea697416d40712603098a0c8e7002'
+    semantics = value['data_semantics']
+    canonical = lambda material: json.dumps(material, sort_keys=True,
+        separators=(',', ':'), ensure_ascii=True, allow_nan=False).encode('ascii')
+    assert len(semantics['files']) == 116
+    assert hashlib.sha256(canonical({key:semantics[key] for key in ('schema','files')})).hexdigest() == (
+        semantics['sha256']) == PREDECESSOR_DATA_SEMANTICS_SHA256
+    contributions = {record['module']:record['sha256'] for record in semantics['files']}
+    definitions = witness()['files']
+    for path in MOVES:
+        name = path.removesuffix('.py').replace('/', '.')
+        assert contributions[name] == definitions[path]['source_sha256']
+    assert value['strategy']['data_semantics_source_sha256'] == semantics['sha256']
+    assert hashlib.sha256(canonical(value['strategy'])).hexdigest() == (
+        value['strategy_sha256']) == PREDECESSOR_STRATEGY_SHA256
     return value
 
 
@@ -191,7 +223,7 @@ def test_sql_adapter_uses_the_shared_compiler_and_preserves_order():
 def test_current_exact_economic_implementation_keeps_original_book_identity():
     result = economic.identity(schema='qualification-economic-boundary')
     profile = economic.manifest()
-    assert result['sha256'] == BEHAVIORAL
+    assert result['sha256'] == predecessor_identity()['data_semantics']['sha256']
     assert result['implementation_sha256'] == profile['implementation_sha256']
     assert result['economic_implementation']['preserved_behavior'] is True
     assert set(profile['pure_contracts']) != set(profile['input_compilers'])
@@ -201,13 +233,33 @@ def test_current_exact_economic_implementation_keeps_original_book_identity():
         assert name not in profile['pure_contracts'] and name not in profile['input_compilers']
 
 
+def test_complete_current_production_strategy_matches_exact_predecessor():
+    from sentinel.strategy import production_strategy
+    predecessor = predecessor_identity()
+    _, current = production_strategy()
+    assert current == predecessor['strategy']
+    canonical = json.dumps(current, sort_keys=True, separators=(',', ':'),
+                           ensure_ascii=True, allow_nan=False).encode('ascii')
+    assert hashlib.sha256(canonical).hexdigest() == PREDECESSOR_STRATEGY_SHA256
+    assert current['data_semantics_source_sha256'] == PREDECESSOR_DATA_SEMANTICS_SHA256
+
+
+def test_complete_strategy_hash_in_nested_source_domain_is_detected(monkeypatch):
+    original = economic.identity
+    def wrong_domain(*, schema):
+        return {**original(schema=schema), 'sha256': PREDECESSOR_STRATEGY_SHA256}
+    monkeypatch.setattr(economic, 'identity', wrong_domain)
+    with pytest.raises(AssertionError):
+        test_complete_current_production_strategy_matches_exact_predecessor()
+
+
 def test_unknown_economic_edit_gets_actual_identity(monkeypatch):
     read = economic._module_raw
     target = 'sentinel.core.input_domains'
     monkeypatch.setattr(economic,'_module_raw',lambda name: read(name)+b'\n# unknown economic neighboring edit\n'
                         if name == target else read(name))
     result = economic.identity(schema='qualification-economic-boundary')
-    assert result['sha256'] == result['implementation_sha256'] != BEHAVIORAL
+    assert result['sha256'] == result['implementation_sha256'] != PREDECESSOR_DATA_SEMANTICS_SHA256
     assert result['economic_implementation']['preserved_behavior'] is False
 
 
@@ -235,7 +287,7 @@ def test_concrete_economic_dependencies_cannot_change_without_new_identity(monke
     assert raw.count(old) == 1
     monkeypatch.setattr(economic,'_module_raw',lambda name:raw.replace(old,new) if name==target else read(name))
     result = economic.identity(schema='qualification-economic-boundary')
-    assert result['sha256'] == result['implementation_sha256'] != BEHAVIORAL
+    assert result['sha256'] == result['implementation_sha256'] != PREDECESSOR_DATA_SEMANTICS_SHA256
     assert result['economic_implementation']['preserved_behavior'] is False
 
 
@@ -348,7 +400,7 @@ def test_operational_sources_are_not_read_as_economic_contributors(monkeypatch):
         assert name not in {'sentinel.feed.retention','sentinel.feed.publisher_pipeline','sentinel.rolling_runtime'}
         return read(name)
     monkeypatch.setattr(economic,'_module_raw',audited)
-    assert economic.identity(schema='qualification-economic-boundary')['sha256'] == BEHAVIORAL
+    assert economic.identity(schema='qualification-economic-boundary')['sha256'] == PREDECESSOR_DATA_SEMANTICS_SHA256
 
 
 def assert_pure_dependencies(raw, *, module_name=None):

@@ -199,7 +199,7 @@ def fake_host(inputs):
     return Host
 
 
-def run_build(inputs,monkeypatch):
+def run_build(inputs,monkeypatch,*,host_type=None):
     calls=[]
     def build(command,**kwargs):
         calls.append(command)
@@ -209,7 +209,7 @@ def run_build(inputs,monkeypatch):
         kwargs['stdout'].write(b'Completed source-only Docker build\n')
         return SimpleNamespace(returncode=0)
     monkeypatch.setattr(builder.subprocess,'run',build)
-    host=fake_host(inputs)
+    host=host_type or fake_host(inputs)
     result=builder.build(source=inputs.source,deployment=inputs.deployment,
         predecessor_receipt=inputs.previous,qualification=inputs.report_path,
         qualification_sha256=inputs.report_sha,approved_delta=inputs.delta,
@@ -230,6 +230,58 @@ def test_offline_build_has_only_exact_tracked_runtime_source_and_retained_eviden
     assert host.calls[0]=='lock' and host.calls[-1]=='unlock'
     with pytest.raises(model.DeliveryRefused,match='ALREADY_STARTED'):
         run_build(inputs,monkeypatch)
+
+
+@pytest.mark.parametrize('drift',['strategy','wealth'])
+def test_builder_refuses_economic_drift_and_retains_failed_build_evidence(inputs,monkeypatch,drift):
+    previous_strategy=dict(strategy='production',data_semantics_source_sha256='1'*64)
+    candidate_strategy=dict(previous_strategy,data_semantics_source_sha256='2'*64)
+    previous_fingerprint=model.digest(previous_strategy)
+    candidate_fingerprint=(model.digest(candidate_strategy) if drift=='strategy'
+                           else previous_fingerprint)
+    base=fake_host(inputs)
+    class DriftHost(base):
+        identities={}
+        fingerprints={}
+        def run(self,command,**kwargs):
+            result=super().run(command,**kwargs)
+            if command[:2]==['docker','run']:
+                image=command[command.index('--entrypoint')+2]
+                assert image in {OLD_IMAGE,NEW_IMAGE}
+                fingerprint=candidate_fingerprint if image==NEW_IMAGE else previous_fingerprint
+                self.fingerprints[image]=fingerprint
+                return SimpleNamespace(stdout=json.dumps({'strategy':fingerprint}).encode())
+            return result
+        def probe(self,commit,image):
+            identity=super().probe(commit,image)
+            if drift=='wealth' and commit==NEW:
+                identity['wealth']='5'*64
+            self.identities[commit]=identity
+            return identity
+    with pytest.raises(model.DeliveryRefused,match='ECONOMIC_RUNTIME_CHANGED'):
+        run_build(inputs,monkeypatch,host_type=DriftHost)
+    assert (DriftHost.identities[NEW]['wealth']==DriftHost.identities[OLD]['wealth']) == (drift=='strategy')
+    assert (candidate_fingerprint==previous_fingerprint) == (drift=='wealth')
+    assert DriftHost.fingerprints[NEW_IMAGE]==candidate_fingerprint
+    assert not (inputs.folder/'build.json').exists()
+    started=model.read_json(inputs.folder/'build-started.json')
+    assert started['commit']==NEW and started['foundation']==OLD_IMAGE
+    assert (inputs.folder/'build.log').read_bytes()==b'Completed source-only Docker build\n'
+    assert (inputs.folder/'source-context'/'sentinel'/'module.py').read_text()=='value = 1\n'
+
+
+@pytest.mark.parametrize('drift',['strategy','wealth'])
+def test_removed_builder_economic_guard_is_killed_by_drift_regression(inputs,monkeypatch,drift):
+    source=inspect.getsource(builder.build)
+    needle=("        require(identity['wealth'] == old_identity['wealth']\n"
+            "                and strategy == _economic(host,old['commit'],old['image']), 'ECONOMIC_RUNTIME_CHANGED')\n")
+    assert source.count(needle)==1
+    namespace={}
+    exec(compile(source.replace(needle,''),'removed-builder-economic-guard','exec'),
+        vars(builder),namespace)
+    monkeypatch.setattr(builder,'build',namespace['build'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_builder_refuses_economic_drift_and_retains_failed_build_evidence(inputs,monkeypatch,drift)
 
 
 def test_builder_binds_both_runtime_routes_and_retains_immutable_predecessor_compose(inputs,monkeypatch):

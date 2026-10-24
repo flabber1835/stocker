@@ -1242,7 +1242,7 @@
     "stock_strategy_shared.wealth_core": "fd8bed82bbb9d18481f7422216933a6b5a85066688c770ebad7dbfe1a6abe2fa",
     "stock_strategy_shared.wealth_core.sharadar_domains": "4bebd224c7597913280dc731fcd04db10102f6b85250e8d74003754b53b550ba"
   },
-  "module_sha256": "ef800081ef19ba9a30125faee1ae0dc7300151d42c523510d4553dcd27e5ae5e",
+  "module_sha256": "6bb5f0a1ad597e9302b974eec1fcd8b2cdf4ac14bfbc8f05b605117fd6f849d1",
   "operational_ports": {
     "sentinel.backup_runtime_authority": "RECOVERY",
     "sentinel.binding": "EXECUTION_ONLY",
@@ -1297,7 +1297,7 @@
     "sentinel.source_diagnostic": "DIAGNOSTICS",
     "sentinel.trial_evidence": "EXECUTION_ONLY"
   },
-  "predecessor_behavioral_sha256": "caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095",
+  "predecessor_data_semantics_sha256": "38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb",
   "predecessor_files": {
     "sentinel": "94a4acb0177af19ec0a02856b3cdfd159abfe981b7f5780ac9b1ee2cff861d3a",
     "sentinel.breadth": "566a5d57c43f7396fb23b02d6e39cdb048b0ea20520d42bf0edc1e88076d7055",

@@ -29,6 +29,21 @@ source acceptance. Unknown economic edits change/refuse economic identity. A
 future operational-only edit still needs actual runtime admission and cannot
 inherit financial authority from an economic identifier.
 
+Identity domains remain explicit. The exact predecessor's nested
+`data_semantics_source_sha256` is
+`38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb`.
+The complete production strategy object, including that nested value, hashes
+to `caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095`.
+The economic extraction manifest preserves only the former in its explicitly
+named `predecessor_data_semantics_sha256` field. Its predecessor source list,
+historical normalization helpers and complete strategy object are independently
+authenticated from exact `b2e308bb` Git bytes and the exact predecessor image.
+Qualification compares both domains and the complete current strategy object.
+Putting the complete strategy hash into its nested source field changes the
+assembled strategy and must fail. This restores the intended extraction
+contract without changing contributors, policy, the canonical book or the
+builder's unchanged full-strategy equality guard.
+
 A new DATA_ONLY strategy receipt requires the caller's original live publication
 pin, exact publication identity, connection and backend. Check that strict scope
 before assessment and immediately before inserting the receipt. The optional

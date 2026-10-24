@@ -15,10 +15,10 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '0cc4a7032e4766c2dad2ad8cded314d6901438faf28958225c6db46b4e7bc10c'
+MANIFEST_SHA256 = '06d0a444d9effafe1b5542899fe06d0d537e4b0631ec2ac7c7895caf989cf6ca'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
-PREDECESSOR_BEHAVIORAL_SHA256 = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
 
 
 class EconomicManifestRefused(ValueError):
@@ -145,12 +145,12 @@ def manifest():
     if MANIFEST_SHA256 == '0'*64 or _sha(raw) != MANIFEST_SHA256:
         raise EconomicManifestRefused('ECONOMIC_MANIFEST_NOT_AUTHENTICATED')
     value = json.loads(raw)
-    expected = {'schema','predecessor_revision','predecessor_behavioral_sha256','predecessor_files',
+    expected = {'schema','predecessor_revision','predecessor_data_semantics_sha256','predecessor_files',
                 'pure_contracts','input_compilers','dependencies','operational_ports',
                 'implementation_sha256','module_sha256'}
     if (set(value) != expected or value['schema'] != 'sentinel.economic-implementation/2'
             or value['predecessor_revision'] != PREDECESSOR
-            or value['predecessor_behavioral_sha256'] != PREDECESSOR_BEHAVIORAL_SHA256
+            or value['predecessor_data_semantics_sha256'] != PREDECESSOR_DATA_SEMANTICS_SHA256
             or set(value['pure_contracts']) & set(value['input_compilers'])
             or set(value['dependencies']) != set(value['pure_contracts']) | set(value['input_compilers'])):
         raise EconomicManifestRefused('ECONOMIC_MANIFEST_SHAPE_CHANGED')
@@ -184,8 +184,8 @@ def identity(*, schema):
             raise EconomicManifestRefused('ECONOMIC_DEPENDENCY_CHANGED:'+name)
         actual[name] = _sha(raw)
     implementation = _sha(_canonical(actual))
-    behavioral = (value['predecessor_behavioral_sha256'] if actual == expected else implementation)
+    data_semantics = (value['predecessor_data_semantics_sha256'] if actual == expected else implementation)
     return dict(schema=schema,files=[dict(module=name,sha256=sha) for name,sha in sorted(actual.items())],
-        sha256=behavioral,implementation_sha256=implementation,
+        sha256=data_semantics,implementation_sha256=implementation,
         economic_implementation=dict(schema=value['schema'],manifest_sha256=MANIFEST_SHA256,
             predecessor_revision=PREDECESSOR,preserved_behavior=actual == expected))
