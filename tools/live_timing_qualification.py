@@ -48,6 +48,21 @@ class TimingRefused(RuntimeError):
     """Bounded public refusal; never include a DSN, credentials or raw driver error."""
 
 
+def failure_frames(exc):
+    """Bounded code locations, without exception values or frame locals."""
+    frames, walked, current = [], 0, exc.__traceback__
+    while current is not None and walked < 64:
+        code = current.tb_frame.f_code
+        filename = code.co_filename.replace('\\', '/').rsplit('/', 1)[-1]
+        filename = filename if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,76}\.py', filename) else '<external>'
+        function = code.co_name
+        function = function if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,79}|<module>|<lambda>', function) else '<external>'
+        frames.append({'file': filename, 'function': function, 'line': current.tb_lineno})
+        frames = frames[-10:]
+        current, walked = current.tb_next, walked + 1
+    return frames
+
+
 def require(condition, code):
     if not condition:
         raise TimingRefused(code)
@@ -386,6 +401,9 @@ def prepare(args, config, scheduler, resources, *, claim_owned=None):
         store.migrate_schema(conn)
         binding.bind(conn, deployment_id='real-clock-' + args.campaign_id, broker='alpaca',
                      broker_account_id=os.environ['SENTINEL_LOCAL_PAPER_ACCOUNT_ID'])
+        # bind commits its write, then reads the returned binding. End that
+        # trailing read before the migration owner requires an idle connection.
+        conn.commit()
         secret = secrets.token_urlsafe(48)
         stack.enter_context(patch.dict(os.environ, SENTINEL_PUBLICATION_RECEIPT_KEY=secret))
         operational_schema.install_quiescent(conn)
@@ -717,8 +735,13 @@ def main(argv=None):
                         report.update(gateway(args, campaign, config, timing))
     except Exception as exc:
         report['failure_type'] = type(exc).__name__
+        report['failure_frames'] = failure_frames(exc)
         if isinstance(exc, TimingRefused):
             report['failure_code'] = str(exc)
+        elif (type(exc).__module__ == 'sentinel.operational_schema'
+                and type(exc).__name__ == 'OperationalSchemaRefused'
+                and exc.args == ('OPERATIONAL_OPERATION_REQUIRES_IDLE_CONNECTION',)):
+            report['failure_code'] = 'OPERATIONAL_OPERATION_REQUIRES_IDLE_CONNECTION'
     finally:
         # Prepare can refuse before it creates the campaign directory. Avoid
         # creating/replacing caller-selected paths merely to report that error.

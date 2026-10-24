@@ -600,6 +600,9 @@ class _CountingConnection:
         self.rollbacks += 1
         return self.inner.rollback()
 
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
 
 class _FailingEvidenceCursor:
     def __init__(self, inner):

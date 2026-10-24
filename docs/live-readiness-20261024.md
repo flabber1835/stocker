@@ -104,6 +104,13 @@ It must not move clocks, enable an out-of-session debug window or claim that a
 synthetic-business-clock functional test proves opening latency. The next actual
 eligible session is a separate required evidence run, not an invented success.
 
+Private setup must commit the binding owner's trailing read transaction before
+the ordinary idle-connection migration boundary; do not relax that boundary.
+Failure reports retain at most ten sanitized code locations from at most 64
+traceback frames (basename, function and line only). Never serialize exception
+values, locals, source excerpts or complete paths. External refusal messages are
+not public diagnostics; only explicitly allowlisted constant codes may be copied.
+
 ## Current-path process recovery
 
 Extend private functional recovery coverage to the current protected DAY path:

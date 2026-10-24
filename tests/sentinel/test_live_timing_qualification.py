@@ -480,3 +480,47 @@ def test_owned_claim_still_retains_its_original_failure_report(tmp_path, monkeyp
     assert timing.main(argv) == 1
     report = timing.read_object(campaign / 'prepare-report.json')
     assert report['result'] == 'REFUSED' and report['failure_code'] == 'ORIGINAL_PRIVATE_PREPARATION_FAILURE'
+
+
+def test_owned_failure_keeps_only_bounded_code_locations(tmp_path, monkeypatch, capsys):
+    campaign = tmp_path / 'campaign'
+    argv = mock_main_boundary(monkeypatch, campaign, 'prepare')
+    private_value = 'private-error-content-must-not-be-printed'
+    def nested_failure(depth):
+        if depth:
+            return nested_failure(depth - 1)
+        raise RuntimeError(private_value)
+    def own_and_fail(_args, *_unused, claim_owned, **_kwargs):
+        campaign.mkdir()
+        timing.write_new(campaign / 'prepare-claim.json', {'owner': 'this-invocation'})
+        claim_owned()
+        nested_failure(40)
+    monkeypatch.setattr(timing, 'prepare', own_and_fail)
+    assert timing.main(argv) == 1
+    report = timing.read_object(campaign / 'prepare-report.json')
+    assert report['failure_type'] == 'RuntimeError' and 'failure_code' not in report
+    assert len(report['failure_frames']) == 10
+    for frame in report['failure_frames']:
+        assert set(frame) == {'file', 'function', 'line'}
+        assert '/' not in frame['file'] and '\\' not in frame['file']
+        assert type(frame['line']) is int and frame['line'] > 0
+    assert private_value not in capsys.readouterr().out
+
+
+def test_external_refusal_text_is_not_public_unless_explicitly_allowlisted(tmp_path, monkeypatch):
+    from sentinel.operational_schema import OperationalSchemaRefused
+    for index, reason in enumerate(('OPERATIONAL_OPERATION_REQUIRES_IDLE_CONNECTION', 'PRIVATE_OTHER_REASON')):
+        campaign = tmp_path / str(index)
+        argv = mock_main_boundary(monkeypatch, campaign, 'prepare')
+        def own_and_fail(_args, *_unused, claim_owned, **_kwargs):
+            campaign.mkdir()
+            timing.write_new(campaign / 'prepare-claim.json', {'owner': 'this-invocation'})
+            claim_owned()
+            raise OperationalSchemaRefused(reason)
+        monkeypatch.setattr(timing, 'prepare', own_and_fail)
+        assert timing.main(argv) == 1
+        report = timing.read_object(campaign / 'prepare-report.json')
+        if index == 0:
+            assert report['failure_code'] == reason
+        else:
+            assert 'failure_code' not in report
