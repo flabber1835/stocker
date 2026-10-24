@@ -1,6 +1,11 @@
 # Sentinel current operating contract
 
-Current owner instruction: local PAPER operation. This document describes the
+Current owner instruction: backed-up PAPER releases through CI and PR delivery.
+The 2026-10-24 [release restoration decision](paper-backed-release-20261024.md)
+supersedes the earlier backup suspension and direct local delivery exception.
+The transition must preserve the installed account/book and earn real durability
+proofs before financial activation; authorization is not a claim that the old
+archive-off installation has already been converted. This document describes the
 selected behavior; [historical deployment decisions](sentinel-deployment-history.md)
 retain their original dates and certification scope.
 
@@ -87,11 +92,15 @@ See [plan-first dashboard](dashboard-plan-first.md),
 
 ## Qualification and local installation
 
-The owner-authorized local workflow remains active until the owner restores the
-release workflow. Develop on the local feature branch, qualify the exact change,
-commit a clean source tree, build an immutable image offline from the verified
-foundation and use the tracked resumable local delivery command. No PR merge or
-remote publication is implied by local delivery.
+The owner restored the release workflow on 2026-10-24. Develop on a feature
+branch, qualify changes, run required exact-head CI, merge the approved PR and
+verify protected main validation and signed immutable image publication. Use the
+canonical full installer and separate dual PAPER activation described in
+[CI-certified installation](ci-certified-paper-installation.md),
+[installation/activation separation](installation-activation-separation.md) and
+[the restored release decision](paper-backed-release-20261024.md). Preserve the
+distinct owner-authorized PAPER financial context; restoring backups does not
+authorize a new book, LIVE, or unrelated historical certification claims.
 
 Installation preserves PostgreSQL identity and all financial/source/notification
 history. One owned operation compares the exact old/new canonical state read-only,
@@ -107,18 +116,23 @@ source-compatibility boundary and focused qualification requirements.
 The [local delivery guide](local-paper-delivery.md) documents the tracked CLI,
 qualification inputs, durable stages and supported recovery boundaries.
 
-## Suspended maintenance and protected workloads
+## Restored durability and protected workloads
 
-Backups, backup maintenance, archives, restore drills and backup verification
-remain disabled by explicit owner instruction. Do not re-enable them when a test
-passes or invoke backup-dependent release/activation paths for local delivery.
+Backups, WAL archiving, maintenance, backup verification and private restore
+qualification are authorized again. Backed-up owner PAPER operation explicitly
+selects `SENTINEL_LOCAL_PAPER_BACKUP_POLICY=REQUIRED_V1`; its ordinary real guards
+and exact-image restore evidence must pass. Empty selection preserves dated
+legacy suspended behavior; it is not the selected policy for the new full
+installation. Unknown policy values refuse.
+
 The existing backtest and its sources, data, outputs, processes and resources
-remain untouched. Do not reset/prune Docker or WSL or restart PostgreSQL as part
-of an application installation.
-
-Historical signed-release and backup operating contracts remain available as
-history. Reinstating them requires a later explicit owner instruction; preserving
-their evidence does not activate them.
+remain untouched. Do not reset/prune Docker or WSL. The restored full-install
+transition may narrowly fence writers and recreate only PostgreSQL to enable
+archiving/add the independent backup mount while preserving its exact data volume
+and physical system identity. This is separate from the old application-only
+delivery command, which retains its archive-off invariants and is not the new
+full-install path. Use canonical media ownership, actual capacity checks and one
+eligible exact-image recovery milestone; never manufacture backup readiness.
 
 ## Historical section links
 

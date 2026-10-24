@@ -1,0 +1,15 @@
+{
+  "schema": "sentinel.current-session-qualification-owner/1",
+  "owner": "execution.current-session-worker-recovery",
+  "selector": "tools/current_session_service_recovery.py::test_current_whole_service_restart_takes_over_real_lease_without_reposting_unknown",
+  "invocation": "MANUAL_ONLY",
+  "expected_scenarios": 1,
+  "qualification_scope": "GENERATED_FUNCTIONAL_WHOLE_WORKER_CURRENT_SESSION",
+  "financial_clocks": "SYNTHETIC",
+  "service_and_lease_clocks": "ACTUAL",
+  "installation_gate": false,
+  "authority_effect": "NONE",
+  "native_broker_calls": 0,
+  "live_money_qualified": false,
+  "opening_timing_qualified": false
+}

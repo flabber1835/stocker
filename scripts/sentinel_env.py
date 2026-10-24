@@ -414,6 +414,21 @@ def _paper_debug_window_values(env: Mapping[str, str]) -> None:
 
 def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> None:
     _restore_scratch_values(env)
+    local_mode = str(env.get("SENTINEL_LOCAL_PAPER_MODE", "")).strip()
+    local_account = str(env.get("SENTINEL_LOCAL_PAPER_ACCOUNT_ID", ""))
+    backup_policy = str(env.get("SENTINEL_LOCAL_PAPER_BACKUP_POLICY", "")).strip()
+    if local_mode not in {"", "OWNER_AUTHORIZED_FUNCTION_FIRST_V1"}:
+        _fail("INVALID_LOCAL_PAPER_MODE", key="SENTINEL_LOCAL_PAPER_MODE")
+    if backup_policy not in {"", "REQUIRED_V1"}:
+        _fail("INVALID_LOCAL_PAPER_BACKUP_POLICY", key="SENTINEL_LOCAL_PAPER_BACKUP_POLICY")
+    if local_mode or local_account or backup_policy:
+        if (not local_mode or re.fullmatch(r"PA[A-Za-z0-9]+", local_account) is None):
+            _fail("LOCAL_PAPER_ACCOUNT_MODE_REQUIRED")
+        if env.get("ALPACA_BASE_URL", PAPER_URL) != PAPER_URL:
+            _fail("PAPER_ENDPOINT_REQUIRED", key="ALPACA_BASE_URL")
+        if (env.get("SENTINEL_PAPER_BUY_POLICY", "").strip() != "PROTECTED_LIMIT_DAY_V1"
+                or env.get("SENTINEL_PAPER_BUY_CAP_BPS", "").strip() != "100"):
+            _fail("LOCAL_PAPER_PROTECTED_POLICY_REQUIRED")
     buy_policy = str(env.get("SENTINEL_PAPER_BUY_POLICY", "")).strip()
     buy_cap = str(env.get("SENTINEL_PAPER_BUY_CAP_BPS", "")).strip()
     if buy_policy not in {"", "PROTECTED_LIMIT_DAY_V1"}:

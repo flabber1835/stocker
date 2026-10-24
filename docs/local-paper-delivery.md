@@ -1,6 +1,9 @@
 # Resumable local PAPER delivery
 
-This is the current owner-authorized software delivery path. It uses the tracked
+This records the earlier application-only software delivery path. The owner
+restored backed-up CI/PR releases on 2026-10-24; use
+[the full release transition](paper-backed-release-20261024.md) for that work.
+The application-only path retains its original archive-off invariants and uses the tracked
 `scripts/sentinel_local_delivery.py` command on the Linux/WSL Docker host. It
 does not merge a PR or grant financial authority. See the
 [current operating contract](sentinel-deployment.md) and

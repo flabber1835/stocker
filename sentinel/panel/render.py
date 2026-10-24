@@ -389,6 +389,20 @@ def _detail_sections(panel: Panel) -> str:
         for title, content in sections)
 
 
+def _local_paper_guide(panel: Panel) -> str:
+    if not panel.local_paper_mode:
+        return ''
+    backup = panel.row('backup_restore')
+    if backup is not None and backup.value == 'DISABLED BY OWNER':
+        detail = ('Backup creation, restore drills and backup verification are disabled '
+                  'by owner instruction.')
+    else:
+        detail = ('Backup and restore readiness has its own current evidence check below. '
+                  'Owner PAPER mode alone does not prove a usable backup or restore.')
+    return ('<p>Owner-authorized local PAPER operation is active. '
+            + detail + '</p>')
+
+
 def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
            refresh_pending: bool = False) -> str:
     now = panel.now
@@ -524,7 +538,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 <details class="mode-guide" data-detail-key="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
   <p><strong>Your strategy, at a glance.</strong> Wealth Core records the unscaled stock-selection book. The controller’s simulated strategy value combines its Core allocation, Treasury-bill sleeve and transaction costs. The Alpaca paper account has its own recorded holdings and value.</p>
   <p>Alpaca supplies daily prices, corporate actions and listed-asset information. OpenFIGI classifies eligible equity instruments. Formation simulates earlier sessions to build the model book; daily updates carry it forward. A simulated portfolio check does not mean paper orders have been placed.</p>
-  {'<p>Owner-authorized local PAPER operation is active. PR release certification is suspended. Backup creation, restore drills and backup verification are disabled by owner instruction.</p>' if panel.local_paper_mode else ''}
+  {_local_paper_guide(panel)}
   <p>Green means the check passed. Amber means waiting or review needed. Red means a failed or unreadable check. Open technical details for the precise reason.</p>
 </div></details>
 <section id="push-card" class="push-card" hidden aria-label="Notifications">

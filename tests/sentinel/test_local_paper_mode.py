@@ -15,6 +15,7 @@ def owner(monkeypatch):
     monkeypatch.setenv(local_paper.MODE_ENV, local_paper.MODE)
     monkeypatch.setenv(local_paper.ACCOUNT_ENV, "PATESTACCOUNT")
     monkeypatch.setenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+    monkeypatch.delenv(local_paper.BACKUP_POLICY_ENV, raising=False)
     monkeypatch.setattr(binding, "require", lambda conn: SimpleNamespace(
         broker="alpaca", broker_account_id="PATESTACCOUNT"))
 

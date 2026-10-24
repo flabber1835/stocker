@@ -11,6 +11,17 @@ if TYPE_CHECKING:
 MODE_ENV = "SENTINEL_LOCAL_PAPER_MODE"
 MODE = "OWNER_AUTHORIZED_FUNCTION_FIRST_V1"
 ACCOUNT_ENV = "SENTINEL_LOCAL_PAPER_ACCOUNT_ID"
+BACKUP_POLICY_ENV = "SENTINEL_LOCAL_PAPER_BACKUP_POLICY"
+BACKUP_POLICY = "REQUIRED_V1"
+
+
+def backup_policy(values: Mapping[str, str] | None = None) -> str:
+    """Select durability separately from the owner PAPER financial mode."""
+    values = os.environ if values is None else values
+    selected = values.get(BACKUP_POLICY_ENV, "").strip()
+    if selected not in ("", BACKUP_POLICY):
+        raise RuntimeError("unsupported local PAPER backup policy")
+    return selected
 
 
 def enabled(values: Mapping[str, str] | None = None) -> bool:
@@ -18,6 +29,7 @@ def enabled(values: Mapping[str, str] | None = None) -> bool:
     selected = values.get(MODE_ENV, "").strip()
     if not selected:
         return False
+    backup_policy(values)
     if selected != MODE:
         raise RuntimeError("unsupported local PAPER operating mode")
     from sentinel.config import assert_paper_url, DEFAULT_BASE_URL
@@ -25,6 +37,20 @@ def enabled(values: Mapping[str, str] | None = None) -> bool:
     if not re.fullmatch(r"PA[A-Za-z0-9]+", values.get(ACCOUNT_ENV, "")):
         raise RuntimeError("local PAPER mode requires the owner's exact paper account")
     return True
+
+
+def backups_suspended(values: Mapping[str, str] | None = None) -> bool:
+    """Only the legacy owner PAPER selection suspends normal durability."""
+    values = os.environ if values is None else values
+    selected = backup_policy(values)
+    return enabled(values) and not selected
+
+
+def backups_suspended_for_account(conn) -> bool:
+    """Verify the actual owner binding even when real backups are selected."""
+    suspended = backups_suspended()
+    bound = bound_account(conn)
+    return bound is not None and suspended
 
 
 def bound_account(conn) -> AccountBinding | None:

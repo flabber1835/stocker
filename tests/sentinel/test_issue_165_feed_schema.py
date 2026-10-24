@@ -294,6 +294,7 @@ def _migration_trace(monkeypatch, *, bootstrap=False):
     obj._try_emergency_kill = lambda: trace.append("kill") or True
     obj._direct_stop_automation = lambda: trace.append("stop automation")
     obj._direct_stop_shadow = lambda: trace.append("stop shadow")
+    obj._direct_stop_observers = lambda: trace.append("stop observers")
     obj._automation_status = lambda: {"enabled": False, "kill_switch_engaged": True}
     conn = SimpleNamespace(rollback=lambda: None, close=lambda: None)
     monkeypatch.setenv("SENTINEL_DATABASE_URL", "postgresql://unused/fixture")
@@ -340,7 +341,7 @@ def _migration_trace(monkeypatch, *, bootstrap=False):
 
 def _require_migration_order(trace, *, compatibility_read=False):
     assert trace == [
-        "kill", "stop automation", "stop shadow", "postgres", "fence",
+        "kill", "stop automation", "stop shadow", "stop observers", "postgres", "fence",
         *(["compatibility read"] if compatibility_read else []),
         "base backup", "backup verification", "physical replay", "fence",
         "behavioral migration", "feed migration", "kill",

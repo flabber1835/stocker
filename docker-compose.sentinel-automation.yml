@@ -2,7 +2,13 @@
 # immutable Sentinel runtime image as every other Sentinel service. Authority is
 # provided by the execution/certificate/account gates below, not by a second
 # image repository.
+x-sentinel-owner-paper-context: &sentinel-owner-paper-context
+  SENTINEL_LOCAL_PAPER_MODE: ${SENTINEL_LOCAL_PAPER_MODE:-}
+  SENTINEL_LOCAL_PAPER_ACCOUNT_ID: ${SENTINEL_LOCAL_PAPER_ACCOUNT_ID:-}
+  SENTINEL_LOCAL_PAPER_BACKUP_POLICY: ${SENTINEL_LOCAL_PAPER_BACKUP_POLICY:-}
+
 x-sentinel-authorized-environment: &sentinel-authorized-environment
+  <<: *sentinel-owner-paper-context
   ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
   ALPACA_API_KEY: ${ALPACA_API_KEY:-}
   ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
@@ -138,6 +144,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "sentinel.alert_service"]
     environment:
+      <<: *sentinel-owner-paper-context
       ALPACA_BASE_URL: https://paper-api.alpaca.markets
       ALPACA_API_KEY: ""
       ALPACA_SECRET_KEY: ""
@@ -189,8 +196,23 @@ services:
     security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "sentinel.panel.verification_service"]
     environment:
+      <<: *sentinel-owner-paper-context
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
       SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:?set exact built Git commit}
+      SENTINEL_RUNTIME_IMAGE_DIGEST: ${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable runtime image digest}
+      SENTINEL_TEST_IMAGE_DIGEST: ${SENTINEL_TEST_IMAGE_DIGEST:?set immutable certification test image digest}
+      SENTINEL_PAPER_BUY_POLICY: ${SENTINEL_PAPER_BUY_POLICY:-}
+      SENTINEL_PAPER_BUY_CAP_BPS: ${SENTINEL_PAPER_BUY_CAP_BPS:-}
+      SENTINEL_REVIEWED_DEPLOYMENT_MODE: ${SENTINEL_REVIEWED_DEPLOYMENT_MODE:-}
+      SENTINEL_SHADOW_OBSERVATION_ID: ${SENTINEL_SHADOW_OBSERVATION_ID:-primary}
+      SENTINEL_SHADOW_STARTING_CASH: ${SENTINEL_SHADOW_STARTING_CASH:-50000}
+      SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY: ${SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY:-ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2}
+      SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256: ${SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256:-}
+      SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256: ${SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256:-}
+      SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256: ${SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256:-}
+      SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256: ${SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256:-}
     volumes:
       - sentinel_state:/var/lib/sentinel:ro
     healthcheck:
@@ -215,6 +237,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "sentinel.execution_collector"]
     environment:
+      <<: *sentinel-owner-paper-context
       ALPACA_BASE_URL: https://paper-api.alpaca.markets
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
@@ -245,6 +268,7 @@ services:
     volumes:
       - sentinel_state:/var/lib/sentinel
     environment:
+      <<: *sentinel-owner-paper-context
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
       SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
@@ -255,6 +279,7 @@ services:
       OPENFIGI_API_KEY: ${OPENFIGI_API_KEY:-}
       SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:?set exact built Git commit}
       SENTINEL_RUNTIME_IMAGE_DIGEST: ${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable runtime image digest}
+      SENTINEL_TEST_IMAGE_DIGEST: ${SENTINEL_TEST_IMAGE_DIGEST:?set immutable certification test image digest}
       SENTINEL_RUNTIME_BACKUP_AUTHORITY: REQUIRED_V1
       SENTINEL_FEED_AUTHORIZED: DEPLOYED_REVIEWED_IMAGE_V1
       SENTINEL_FEED_SERVICE_MODE: SHADOW

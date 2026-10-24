@@ -82,7 +82,8 @@ def test_local_backup_and_runtime_copy_do_not_claim_restore_or_release_verificat
     assert 'recent database backup can actually be restored' not in explanation
     label, _, explanation = describe(runtime, model.OK)
     assert label == 'Installed local software'
-    assert 'PR release certification is suspended' in explanation
+    assert 'historical strategy certification' in explanation
+    assert 'PR release certification is suspended' not in explanation
     assert 'authority certificate’s original software references' in explanation
     assert 'matches the reviewed release' not in explanation
     assert 'image sha256:original' in _row_html(runtime, NOW)

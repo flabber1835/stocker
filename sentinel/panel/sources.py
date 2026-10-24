@@ -1475,9 +1475,10 @@ def _operator_evidence_rows(
             conn, _bound_account_id, STATEMENT_TIMEOUT_MS, default=None)
         from sentinel import local_paper
         local = local_paper.require_bound_account(conn)
+        backups_suspended = local_paper.backups_suspended_for_account(conn)
         base = restore = runtime_backup = maintenance = None
         base_error = restore_error = runtime_backup_error = maintenance_error = None
-        if not local:
+        if not backups_suspended:
             base, base_error = _read(
                 conn, lambda c: _latest_backup_evidence(c, "BASE_BACKUP"),
                 STATEMENT_TIMEOUT_MS, default=None)
@@ -1556,7 +1557,7 @@ def _operator_evidence_rows(
             runtime_valid_until=_runtime_valid_until(
                 cycle, (runtime_backup or {}).get("observed_at")),
             error=backup_error)
-        if local:
+        if backups_suspended:
             backup_row = model.Row(
                 "backup_restore", "Backup and restore", "DISABLED BY OWNER",
                 model.OK, "Local PAPER iteration: backup creation, drills and verification are suspended.",
@@ -1583,9 +1584,9 @@ def _operator_evidence_rows(
             identity_row = model.Row(
                 "runtime_identity", "Runtime identity",
                 "LOCAL PAPER " + os.environ["SENTINEL_GIT_COMMIT"][:12],
-                model.OK, "Owner-authorized local branch; image "
+                model.OK, "Owner-authorized PAPER runtime; image "
                 + os.environ["SENTINEL_RUNTIME_IMAGE_DIGEST"]
-                + ". PR release certification is suspended.", now,
+                + ". Historical performance certification is separate.", now,
                 required_current=True)
 
         errors = []

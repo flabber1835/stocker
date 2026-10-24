@@ -1,5 +1,10 @@
 # Whole private-service recovery preparation
 
+CI scope update, 2026-10-24: [the explicit manual owner and runbook](ci-session-qualification-scope.md)
+now own the actual-session composition. Its original qualified selector/results
+retain their original source subject; the fourteen pure falsifiers remain in
+the all-hour Sentinel CI collection. This profile is not an installation gate.
+
 Decision: 2026-10-24, before implementation. Extend the current callback-death
 qualification to an entire disposable `ProductionAutomation.run` process. This
 is offline functional preparation, not deployment, native broker acceptance,
@@ -23,10 +28,11 @@ module clocks remain explicitly synthetic. Only the outer service-loop clock,
 its host/Postgres clock sample and database lease/mutation clocks are real. This
 is not real-clock financial-callback evidence. The scenario never moves host or
 database time, changes exchange dates, extends a submission window or qualifies
-an opening. If the actual next-session execute wake has already arrived, skip
-this finite pre-open profile before formation/authority/control activation;
-never manufacture an earlier instant. Retained qualification must explicitly
-show that the scenario actually executed, rather than treating a skip as proof.
+an opening. If the actual next-session execute wake has already arrived, the
+manual runner reports BLOCKED before formation/authority/control activation;
+the direct scenario also refuses. Never manufacture an earlier instant or treat
+an unavailable scenario as a passing result. The former pytest skip is no longer
+part of the all-hour CI collection.
 On a weekend the service can positively recover an existing command before its
 Monday execution wake, but must not create a new order before that immutable wake.
 

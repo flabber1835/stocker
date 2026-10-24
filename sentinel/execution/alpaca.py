@@ -2421,7 +2421,7 @@ def _base_restore_increase_fence_reason(conn, deployment, today: date) -> str:
 
 def upgrade_restore_reason(conn) -> str:
     from sentinel import local_paper
-    if local_paper.require_bound_account(conn):
+    if local_paper.backups_suspended_for_account(conn):
         return ""
     with conn.cursor() as cur:
         cur.execute(
@@ -2453,7 +2453,7 @@ def upgrade_restore_reason(conn) -> str:
 def postmaster_day_order_fence_reason(
         conn, today, *, recovery_generation=None) -> str:
     from sentinel import local_paper
-    if local_paper.require_bound_account(conn):
+    if local_paper.backups_suspended_for_account(conn):
         return ""
     try:
         opened, closed = calendar.session_window(today)
@@ -2719,7 +2719,7 @@ def execution_increase_fence_reason(*, conn, deployment, today) -> str:
     if deployment.broker != "alpaca":
         return ""
     from sentinel import local_paper
-    if local_paper.require_bound_account(conn):
+    if local_paper.backups_suspended_for_account(conn):
         return ""
     return (
         _base_restore_increase_fence_reason(conn, deployment, today)

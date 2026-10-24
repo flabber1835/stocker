@@ -1,15 +1,15 @@
 # AGENTS.md
 
-## Owner instruction: function-first local PAPER operation (2026-10-21)
+## Owner instruction: restore backed-up PAPER releases (2026-10-24)
 
-Until the owner reinstates the release workflow, local branch changes are
-deployed directly to the paper system. Do not use PR delivery. Backups,
-maintenance, restore drills, backup verification and backup-dependent release
-gates are suspended. Do not re-enable them automatically after a test succeeds.
-The owner authorizes paper trades needed to demonstrate actual execution.
-Keep live endpoints forbidden, the canonical book and command journal intact,
-UNKNOWN outcomes explicit, and long-only/unlevered account guards enforced.
-These instructions supersede conflicting PR and backup requirements below.
+The owner has reinstated backups, WAL archiving, maintenance, backup verification,
+private restore qualification, CI and PR delivery. Required CI must pass before
+the authorized merge and full PAPER installation of PR 538. This supersedes the
+dated function-first delivery/backup suspension. Preserve its distinct PAPER
+financial authority while restoring durability through the separately selected,
+qualified policy in docs/paper-backed-release-20261024.md. Keep LIVE forbidden,
+the canonical book and command journal intact, UNKNOWN outcomes explicit and
+long-only/unlevered guards enforced. The backtest remains protected.
 
 # Sentinel
 

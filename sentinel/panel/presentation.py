@@ -103,8 +103,8 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
     if key == 'runtime_identity' and row.value.startswith('LOCAL PAPER '):
         label = 'Installed local software'
         explanation = ('Shows the owner-authorized local commit and image. '
-                       'PR release certification is suspended; this is separate from the '
-                       'authority certificate’s original software references.')
+                       'This is separate from the authority certificate’s original software '
+                       'references and historical strategy certification.')
     scheduled_paper = key == 'paper_reconciliation' and row.value == (
         'PAPER NOT VERIFIED · SCHEDULED · POST-CLOSE EVIDENCE PENDING')
     if scheduled_paper:

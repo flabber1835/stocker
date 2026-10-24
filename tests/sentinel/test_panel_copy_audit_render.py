@@ -11,7 +11,8 @@ NOW = datetime(2026, 10, 22, 22, tzinfo=timezone.utc)
 
 def test_guide_discloses_local_profile_without_imposing_it_on_reviewed_operation():
     row = model.Row('shadow_verification', 'Shadow', 'VERIFIED', model.OK)
-    local = render.render(model.Panel(rows=[row], now=NOW, local_paper_mode=True))
+    suspended = model.Row('backup_restore', 'Backup', 'DISABLED BY OWNER', model.OK)
+    local = render.render(model.Panel(rows=[row, suspended], now=NOW, local_paper_mode=True))
     other = render.render(model.Panel(rows=[row], now=NOW, local_paper_mode=False))
     for html in (local, other):
         assert 'OpenFIGI classifies eligible equity instruments' in html
