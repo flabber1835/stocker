@@ -374,11 +374,12 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
             or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     historical = structural_refactor_source_basis.historical_view(actual)
-    backed = _backed_owner_scope(old, context, actual=actual)
-    if backed is not None and not backed.matches_manifest(manifest.revision, manifest.files):
-        raise Refused('RETAINED_SOURCE_MANIFEST_ORIGIN_MISMATCH')
+    backed = None
     if not transitions.closure_allowed(manifest.files, historical, ADDITIONS):
-        if backed is None:
+        # Supported historical edges retain their complete original verifier.
+        # Only this supplementary edge requires the backed owner PAPER proof.
+        backed = _backed_owner_scope(old, context, actual=actual)
+        if backed is None or not backed.matches_manifest(manifest.revision, manifest.files):
             raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     administrative = transitions.administrative(ADMINISTRATIVE, ADDITIONS)
     for name, previous in manifest.files.items():
