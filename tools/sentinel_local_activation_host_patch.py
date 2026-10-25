@@ -37,14 +37,14 @@ def install(module, old, new):
     exec(compile(reviewed_definition(old, new), '<qualified local activation host patch>', 'exec'), module.__dict__)
 
 
-def interpreter_source(source, deployed, manifest):
+def interpreter_source(source, deployed, manifest, python='/usr/bin/python3'):
     target = str(Path(deployed)/'scripts/sentinel_activation_coordinator.py')
     loader = str(Path(source)/'tools/sentinel_local_activation_host_patch.py')
-    return ('#!/usr/bin/python3\nimport os,sys\nfrom pathlib import Path\nargs=sys.argv[1:]\n'
+    return ('#!'+python+'\nimport os,sys\nfrom pathlib import Path\nargs=sys.argv[1:]\n'
         +'if args and str(Path(args[0]).resolve()) == '+repr(target)+':\n'
-        +" os.execv('/usr/bin/python3', ['/usr/bin/python3', '-B', "+repr(loader)
+        +' os.execv('+repr(python)+', ['+repr(python)+", '-B', "+repr(loader)
         +', '+repr(str(manifest))+']+args)\n'
-        +"os.execv('/usr/bin/python3', ['/usr/bin/python3']+args)\n")
+        +'os.execv('+repr(python)+', ['+repr(python)+']+args)\n')
 
 
 def verify(manifest):

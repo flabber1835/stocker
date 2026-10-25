@@ -71,7 +71,7 @@ def test_interpreter_scopes_the_exact_coordinator(tmp_path):
     (source/'tools').mkdir(parents=True)
     (source/'tools/sentinel_local_activation_host_patch.py').write_text('import sys,json; print(json.dumps(sys.argv[1:]))')
     manifest = tmp_path/'manifest.json'; wrapper = tmp_path/'activation-python'
-    wrapper.write_text(patch.interpreter_source(source, deployed, manifest)); wrapper.chmod(0o700)
+    wrapper.write_text(patch.interpreter_source(source, deployed, manifest, python=sys.executable)); wrapper.chmod(0o700)
     entry = str(deployed/'scripts/sentinel_activation_coordinator.py')
     result = contract.subprocess.run([str(wrapper), entry, '--request', '/private/request.json'],
         capture_output=True, text=True, timeout=10)
