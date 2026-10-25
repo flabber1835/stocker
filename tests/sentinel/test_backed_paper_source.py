@@ -19,7 +19,7 @@ import psycopg
 import pytest
 
 from sentinel import backed_paper_source as backed
-from sentinel import binding, identity, local_paper
+from sentinel import backup_runtime_authority, binding, identity, local_paper
 from sentinel import rolling_checkpoint as origin, rolling_daily_checkpoint as daily
 from sentinel import rolling_runtime, runtime_admission as admission, schema, shadow_runtime
 from sentinel import structural_refactor_source_basis as structural
@@ -379,6 +379,11 @@ def boundary(conn, handover, monkeypatch, request):
     monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', handover.context['runtime']['runtime_image_digest'])
     monkeypatch.setattr(admission, 'current_context', lambda **_: deepcopy(handover.context))
     monkeypatch.setattr(identity, 'rehearsal_identity', lambda: deepcopy(handover.source))
+    # Durability has its own real backup qualification. Supply its explicit
+    # interface here so journal.writer_lock's earlier backup/account check
+    # cannot stand in for the exact admission/account guard under test.
+    monkeypatch.setattr(backup_runtime_authority, 'require',
+        lambda *_args, **_kwargs: {'synthetic_account_boundary': True})
     origin.write(conn, handover.checkpoint)
     conn.commit()
     handover.conn = conn
@@ -526,7 +531,6 @@ def test_receipt_account_guard_removal_is_detected(boundary, monkeypatch):
 
 
 def _commit_binding_change(case, monkeypatch):
-    from sentinel import backup_runtime_authority
     _bind(case)
     # This test owns only account/SQL/receipt behavior. It supplies explicit
     # synthetic book and durability interfaces, not a backup readiness claim.
@@ -541,7 +545,7 @@ def _commit_binding_change(case, monkeypatch):
     monkeypatch.setattr(backup_runtime_authority, 'require', durability)
     with pytest.raises(admission.Refused, match='^BACKED_PAPER_ACCOUNT_BINDING_REQUIRED$'):
         admission.admit(case.conn, context=case.context, manifest=case.manifest)
-    assert operations == ['compatible retained runtime admission',
+    assert operations == ['plan/execution writer mutation', 'compatible retained runtime admission',
         'compatible retained runtime admission commit']
     assert case.conn.execute('SELECT count(*) FROM sentinel_processed_sessions '
         'WHERE cursor_name=%s', (admission._key(case.context),)).fetchone()[0] == 0
