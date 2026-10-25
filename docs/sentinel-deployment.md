@@ -97,6 +97,10 @@ See [plan-first dashboard](dashboard-plan-first.md),
 
 ## Qualification and local installation
 
+[GO child image identity](go-probe-artifact-identity.md) records the complete
+runtime/test artifact handoff required by retained owner-PAPER preparation and
+read-only financial probes.
+
 The owner restored the release workflow on 2026-10-24. Develop on a feature
 branch, qualify changes, run required exact-head CI, merge the approved PR and
 verify protected main validation and signed immutable image publication. Use the

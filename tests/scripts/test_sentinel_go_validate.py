@@ -498,6 +498,7 @@ def test_readiness_runs_exact_runtime_digest_and_requires_alpaca_authority():
             "SENTINEL_BACKUP_DIR": "/private-backup",
             "SENTINEL_GIT_COMMIT": "f" * 40,
             "SENTINEL_RUNTIME_IMAGE_DIGEST": DIGEST_A,
+            "SENTINEL_TEST_IMAGE_DIGEST": DIGEST_A,
         }, runtime_ref=DIGEST_B, commit=COMMIT, now_text=NOW_TEXT)
 
     assert gate.status == go.PASS
@@ -506,8 +507,10 @@ def test_readiness_runs_exact_runtime_digest_and_requires_alpaca_authority():
     assert probe_env["SENTINEL_RUNTIME_IMAGE_REF"] == DIGEST_B
     assert probe_env["SENTINEL_GIT_COMMIT"] == COMMIT
     assert probe_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] == DIGEST_B
+    assert probe_env["SENTINEL_TEST_IMAGE_DIGEST"] == DIGEST_A
     assert [probe_argv[i + 1] for i, value in enumerate(probe_argv)
-            if value == "--env"] == ["SENTINEL_GIT_COMMIT", "SENTINEL_RUNTIME_IMAGE_DIGEST"]
+            if value == "--env"] == ["SENTINEL_GIT_COMMIT", "SENTINEL_RUNTIME_IMAGE_DIGEST",
+                                     "SENTINEL_TEST_IMAGE_DIGEST"]
     assert not go._BROKER_AUTH_ENV.intersection(probe_env)
 
     missing = go.probe_sharadar_readiness(
@@ -562,6 +565,7 @@ def test_database_health_probe_is_read_only_pinned_and_reports_exact_margin():
             "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-db-probe",
             "SENTINEL_GIT_COMMIT": "f" * 40,
             "SENTINEL_RUNTIME_IMAGE_DIGEST": DIGEST_A,
+            "SENTINEL_TEST_IMAGE_DIGEST": DIGEST_A,
         }, runtime_ref=DIGEST_B, commit=COMMIT, now_text=NOW_TEXT,
         bounded_ingest_milliseconds=1_000,
         full_forward_decision_replay_milliseconds=2_000)
@@ -580,8 +584,10 @@ def test_database_health_probe_is_read_only_pinned_and_reports_exact_margin():
     assert child_env["SENTINEL_RUNTIME_IMAGE_REF"] == DIGEST_B
     assert child_env["SENTINEL_GIT_COMMIT"] == COMMIT
     assert child_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] == DIGEST_B
+    assert child_env["SENTINEL_TEST_IMAGE_DIGEST"] == DIGEST_A
     assert [command[i + 1] for i, value in enumerate(command)
-            if value == "--env"] == ["SENTINEL_GIT_COMMIT", "SENTINEL_RUNTIME_IMAGE_DIGEST"]
+            if value == "--env"] == ["SENTINEL_GIT_COMMIT", "SENTINEL_RUNTIME_IMAGE_DIGEST",
+                                     "SENTINEL_TEST_IMAGE_DIGEST"]
     assert not go._BROKER_AUTH_ENV.intersection(child_env)
     code = command[-1]
     assert "schema.require_runtime_schema(c)" in code
@@ -739,6 +745,7 @@ def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary(capit
             "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-compose",
             "SENTINEL_GIT_COMMIT": "stale-host-commit",
             "SENTINEL_RUNTIME_IMAGE_DIGEST": "stale-host-image",
+            "SENTINEL_TEST_IMAGE_DIGEST": DIGEST_A,
             **({"SENTINEL_SHADOW_STARTING_CASH": capital} if capital else {}),
         }, commit=COMMIT, candidate_image_digest=DIGEST_A,
         runtime_image_digest=DIGEST_B, source_identity_sha256=IDENTITY,
@@ -761,9 +768,11 @@ def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary(capit
         if "tools.sentinel_operational_parity" not in call:
             continue
         injected = [call[index + 1] for index, item in enumerate(call) if item == "--env"]
-        assert injected == ["SENTINEL_GIT_COMMIT", "SENTINEL_RUNTIME_IMAGE_DIGEST"]
+        assert injected == ["SENTINEL_GIT_COMMIT", "SENTINEL_RUNTIME_IMAGE_DIGEST",
+                            "SENTINEL_TEST_IMAGE_DIGEST"]
         assert child_env["SENTINEL_GIT_COMMIT"] == COMMIT
         assert child_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] == child_env["SENTINEL_RUNTIME_IMAGE_REF"]
+        assert child_env["SENTINEL_TEST_IMAGE_DIGEST"] == DIGEST_A
     assert not go._BROKER_AUTH_ENV.intersection(forward_env)
     assert subjects == {
         "data_publication": go.data_publication_subject_value({
