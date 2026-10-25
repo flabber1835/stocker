@@ -48,18 +48,18 @@ def local_overlay(base_sources, tmp_path, monkeypatch):
         filename=str(contract.ROOT/'scripts/sentinel_go_validate.py'))
 
 
-@pytest.mark.parametrize('route', contract.ROUTES)
+@pytest.mark.parametrize('route', contract.ROUTES[:-1])
 def test_local_overlay_passes_the_real_child_contract(local_overlay, route, monkeypatch):
     contract.test_owned_go_child_receives_complete_actual_artifact_identity(route, monkeypatch)
 
 
-@pytest.mark.parametrize('route', contract.ROUTES)
+@pytest.mark.parametrize('route', contract.ROUTES[:-1])
 @pytest.mark.parametrize('defect', ('missing', 'malformed', 'foreign'))
 def test_local_overlay_preserves_identity_refusals(local_overlay, route, defect, monkeypatch):
     contract.test_child_does_not_invent_or_repair_unproven_test_identity(route, defect, monkeypatch)
 
 
-@pytest.mark.parametrize('route', contract.ROUTES)
+@pytest.mark.parametrize('route', contract.ROUTES[:-1])
 def test_local_overlay_forwarding_has_real_falsifiers(local_overlay, route, monkeypatch):
     contract.test_removing_test_identity_forwarding_is_detected_by_real_child(route, monkeypatch)
 

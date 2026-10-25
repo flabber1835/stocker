@@ -77,3 +77,22 @@ operator-reviewed bundle/digest interface. Queue a new request; never replay a
 refused one. Full semantic/physical recovery, reconciliation and maintenance
 handoff remain prerequisites to kill release. The local operation is PAPER-only,
 requires REQUIRED_V1 backups and preserves the backtest and canonical book.
+
+## Activation review handoff
+
+The completed local GO passed on October 25. The subsequent read-only activation
+review independently exposed the same omission in
+`_reviewed_shadow_lineage_preflight`: its explicit environment list carries the
+runtime digest but drops the test digest. Forward the caller's existing test
+digest unchanged there too. Do not default or replace it. Extend the real-child
+qualification and its missing/malformed/foreign identity cases to this route.
+
+The owner-authorized local activation repair may replace only this qualified
+host function in memory. Compare the entire original module against the proposed
+module after removing that one tuple member; pin the original module's SHA256.
+Run the unmodified coordinator's `--request` entry under its usual systemd owner,
+locks and current-image verification, with a separate immutable local-patch
+manifest, qualified commit/report hashes, and retained start/result evidence.
+Keep the installed checkout, signed runtime and original GO bundle unchanged.
+The original coordinator must still perform every authority, restore,
+reconciliation and backup-handoff gate before releasing the kill switch.

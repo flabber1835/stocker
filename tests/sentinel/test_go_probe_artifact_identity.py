@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -22,11 +23,12 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import sentinel_go_validate as go
 import sentinel_go_validate_entry as entry
 import sentinel_go_24x7_entry as source_final
+import sentinel_autonomous_deploy as deploy
 
 COMMIT = 'a' * 40
 DIGEST = 'sha256:' + 'b' * 64
 TEST_KEY = 'SENTINEL_TEST_IMAGE_DIGEST'
-ROUTES = ('preparation', 'parity', 'readiness', 'database')
+ROUTES = ('preparation', 'parity', 'readiness', 'database', 'activation')
 FUNCTIONS = {'parity': 'probe_active_wealth_parity',
              'readiness': 'probe_sharadar_readiness',
              'database': 'probe_database_financial_health'}
@@ -46,7 +48,7 @@ class Runner:
     def __init__(self):
         self.calls = []
 
-    def run(self, argv, *, env=None, cwd=ROOT):
+    def run(self, argv, *, env=None, cwd=ROOT, **unused):
         command = list(argv)
         self.calls.append((command, dict(env or {})))
         if command == ['bash', 'scripts/sentinel-compose.sh', '--explain']:
@@ -79,7 +81,15 @@ def configured():
 def command_for(route, values, monkeypatch):
     runner = Runner()
     kwargs = dict(env=deepcopy(values), commit=COMMIT)
-    if route == 'preparation':
+    if route == 'activation':
+        review = SimpleNamespace(runtime_image_digest=DIGEST,
+            source_identity_sha256='c' * 64, shadow_configuration_sha256='d' * 64,
+            data_publication_sha256='e' * 64, bundle_sha256='f' * 64,
+            mode='dual', git_commit=COMMIT)
+        with pytest.raises(deploy.DeployRefused, match='not safely resumable'):
+            deploy._reviewed_shadow_lineage_preflight(review, env=values, invoke=runner.run)
+        matches = [call for call in runner.calls if call[0][:2] == ['docker', 'compose']]
+    elif route == 'preparation':
         # The real verified entry selects this same source-final overlay.
         monkeypatch.setattr(entry, '_VERIFIED_ORCHESTRATION', True)
         monkeypatch.setattr(entry.go_lock, 'lifecycle_lock_is_held', lambda *_: True)
@@ -117,7 +127,7 @@ def compose_environment(values):
 def child_environment(command, values):
     result = compose_environment(values)
     for index, item in enumerate(command[:command.index('--entrypoint')]):
-        if item == '--env':
+        if item in {'--env', '-e'}:
             name, separator, literal = command[index + 1].partition('=')
             if separator:
                 result[name] = literal
@@ -168,7 +178,16 @@ def test_child_does_not_invent_or_repair_unproven_test_identity(route, defect, m
 
 @pytest.mark.parametrize('route', ROUTES)
 def test_removing_test_identity_forwarding_is_detected_by_real_child(route, monkeypatch):
-    if route == 'preparation':
+    if route == 'activation':
+        function = deploy._reviewed_shadow_lineage_preflight
+        raw = inspect.getsource(function)
+        needle = '        "SENTINEL_TEST_IMAGE_DIGEST",\n'
+        assert raw.count(needle) == 1
+        namespace = {}
+        exec(compile(raw.replace(needle, ''), 'removed activation test image handoff', 'exec'),
+            function.__globals__, namespace)
+        monkeypatch.setattr(deploy, function.__name__, namespace[function.__name__])
+    elif route == 'preparation':
         assert TEST_KEY in entry._FEED_ENV_KEYS
         monkeypatch.setattr(entry, '_FEED_ENV_KEYS', tuple(k for k in entry._FEED_ENV_KEYS if k != TEST_KEY))
     else:
