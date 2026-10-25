@@ -151,6 +151,7 @@ def read(conn, context, checkpoint):
         return None
     value = _decode(row, checkpoint)
     _require_binding(value, checkpoint, context)
+    _require_backed_owner_scope(conn, checkpoint.runtime_identity, context)
     return value
 
 
@@ -202,6 +203,7 @@ def bind_context(conn, context):
             or context['runtime'].get('schema') != 'sentinel.shadow-runtime-identity/1'):
         return  # Unknown identities cannot gain a compatibility fallback.
     _require_context(checkpoint, context)
+    _require_backed_owner_scope(conn, checkpoint.runtime_identity, context)
     if process_binding(checkpoint.runtime_identity) != process_binding(context['runtime']):
         from sentinel import local_paper
         if local_paper.require_bound_account(conn):
@@ -276,8 +278,14 @@ def _retained_checkpoint(conn):
             state_sha256=retained.state_sha256, session=retained.session,
             publication=retained.publication)
         return binding, bound, selected
-    return structural_verification.material(conn, slot='retained-runtime-checkpoint',
+    result = structural_verification.material(conn, slot='retained-runtime-checkpoint',
         key={**context, 'controller': context['controller'].to_dict()}, load=load)
+    retained, _, _ = result
+    if retained is not None:
+        # Account and mode authorization are deliberately outside material().
+        # A pure retained-source cache hit cannot retain an earlier account grant.
+        _require_backed_owner_scope(conn, retained.runtime_identity, context)
+    return result
 
 
 def retained_publication_strategy(conn, pub):
@@ -313,6 +321,40 @@ def _source_files(current):
             for p in current.rglob('*.py') if '__pycache__' not in p.parts}
 
 
+def _backed_owner_scope(runtime, context, *, actual=None):
+    """Identify the closed backed-PAPER edge, including existing admissions."""
+    from sentinel import backed_paper_source
+    # Historical book authentication intentionally uses its original process
+    # identity. Only a different executable can consume this successor edge.
+    if (runtime.get('git_commit') != backed_paper_source.ORIGIN_REVISION
+            or runtime.get('sentinel_source_sha256') != backed_paper_source.ORIGIN_SOURCE_SHA256
+            or process_binding(runtime) == process_binding(context['runtime'])):
+        return None
+    if actual is None:
+        actual = _source_files(identity._imported_package_root('sentinel'))
+    if source_closure(actual) != context['runtime']['sentinel_source_sha256']:
+        raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
+    scope = backed_paper_source.scope_for(revision=runtime['git_commit'],
+        source_sha256=runtime['sentinel_source_sha256'], actual=actual)
+    if scope is None:
+        raise Refused('BACKED_PAPER_SOURCE_SCOPE_REQUIRED')
+    scope.require_mode()
+    return scope
+
+
+def _require_backed_owner_scope(conn, runtime, context):
+    """Fresh deployment/account facts; never strategy or controller inputs."""
+    scope = _backed_owner_scope(runtime, context)
+    if scope is not None:
+        from sentinel import local_paper
+        try:
+            bound = local_paper.bound_account(conn)
+        except RuntimeError as exc:
+            raise Refused('BACKED_PAPER_ACCOUNT_BINDING_REQUIRED') from exc
+        if bound is None:
+            raise Refused('BACKED_PAPER_ACCOUNT_BINDING_REQUIRED')
+
+
 def prove_compatibility(manifest, checkpoint, context, *, source=None):
     from sentinel import semantic_source_basis as basis
     from sentinel import structural_refactor_source_basis, transition_registry
@@ -332,8 +374,12 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
             or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     historical = structural_refactor_source_basis.historical_view(actual)
+    backed = _backed_owner_scope(old, context, actual=actual)
+    if backed is not None and not backed.matches_manifest(manifest.revision, manifest.files):
+        raise Refused('RETAINED_SOURCE_MANIFEST_ORIGIN_MISMATCH')
     if not transitions.closure_allowed(manifest.files, historical, ADDITIONS):
-        raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
+        if backed is None:
+            raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     administrative = transitions.administrative(ADMINISTRATIVE, ADDITIONS)
     for name, previous in manifest.files.items():
         if historical[name] == previous or name in administrative:
@@ -342,10 +388,16 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
         if transitions.source_allowed(name, previous, historical[name]):
             continue
         if module is None:
+            if backed is not None and backed.source_allowed(name, previous, historical[name]):
+                continue
             raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)
-        contribution = basis.canonical_contribution(module, (current/name).read_bytes())
+        prior_bytes = manifest.seam_sources.get(name, '').encode()
+        current_bytes = (current/name).read_bytes()
+        if (name == 'core/decision.py' and backed is not None
+                and backed.decision_compatible(prior_bytes, current_bytes)):
+            continue
+        contribution = basis.canonical_contribution(module, current_bytes)
         if previous != contribution:
-            prior_bytes = manifest.seam_sources.get(name, '').encode()
             if (hashlib.sha256(prior_bytes).hexdigest() != previous
                     or basis.canonical_contribution(module, prior_bytes) != contribution):
                 raise Refused('RETAINED_ECONOMIC_SOURCE_CHANGED:' + name)
@@ -382,9 +434,11 @@ def admit(conn, *, context, manifest):
             if checkpoint is None:
                 raise Refused('RETAINED_ORIGIN_REQUIRED')
             _require_context(checkpoint, context)
+            _require_backed_owner_scope(conn, checkpoint.runtime_identity, context)
             existing = read(conn, context, checkpoint)
             if existing:
                 rolling_runtime._closure(conn, dict(context))
+                _require_backed_owner_scope(conn, checkpoint.runtime_identity, context)
                 conn.rollback()
                 return existing
             manifest_sha = prove_compatibility(manifest, checkpoint, context)
@@ -413,6 +467,7 @@ def admit(conn, *, context, manifest):
                 raise Refused('RETAINED_RUNTIME_ADMISSION_CAS_CHANGED')
             _fence(conn)
             backup_runtime_authority.require(conn, operation='compatible retained runtime admission commit')
+            _require_backed_owner_scope(conn, checkpoint.runtime_identity, context)
             conn.commit()
             return value
     except BaseException:

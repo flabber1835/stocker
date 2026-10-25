@@ -21,6 +21,7 @@ class _StatusBinding:
     publication: dict
     snapshot: dict
     state_sha256: str
+    runtime_identity: dict
 
 
 @dataclass(frozen=True)
@@ -50,10 +51,14 @@ def selected(conn):
 
 def _closure(conn, context, *, status_only=False):
     if status_only:
-        from sentinel import structural_verification
-        return structural_verification.material(conn, slot='rolling-checkpoint',
+        from sentinel import runtime_admission, structural_verification
+        process_context = dict(context)
+        result = structural_verification.material(conn, slot='rolling-checkpoint',
             key={**context, 'controller': context['controller'].to_dict()},
             load=lambda: _status_closure(conn, context))
+        runtime_admission._require_backed_owner_scope(
+            conn, result[0].runtime_identity, process_context)
+        return result
     return _load_closure(conn, context, status_only=False)
 
 
@@ -63,7 +68,7 @@ def _status_closure(conn, context):
     # only these bindings; copying its entire origin input per broker guard is
     # unnecessary. The returned strategy state remains detached by the scope.
     bound = _StatusBinding(checkpoint.session, checkpoint.publication, checkpoint.snapshot,
-                           checkpoint.state_sha256)
+                           checkpoint.state_sha256, checkpoint.runtime_identity)
     return bound, None, result, attested, previous
 
 
@@ -85,7 +90,7 @@ def _guard_status(conn, *, observation_id, starting_cash):
 
 
 def _guard_status_owned(conn, *, observation_id, starting_cash):
-    from sentinel import structural_verification
+    from sentinel import runtime_admission, structural_verification
     if not structural_verification.active():
         raise Refused('ROLLING_GUARD_SCOPE_REQUIRED')
     try:
@@ -98,11 +103,14 @@ def _guard_status_owned(conn, *, observation_id, starting_cash):
                                 'WHERE cursor_name=%s)', (origin.CURSOR,)).fetchone()[0]:
                 origin.require_fresh(conn)
                 return None
+            process_context = dict(context)
             checkpoint, intent, attested = structural_verification.projected_material(
                 conn, slot='rolling-checkpoint',
                 key={**context, 'controller': context['controller'].to_dict()},
                 load=lambda: _status_closure(conn, context),
                 projection_slot='rolling-guard-inputs', project=_guard_projection)
+            runtime_admission._require_backed_owner_scope(
+                conn, checkpoint.runtime_identity, process_context)
             if attested is None:
                 raise Refused('ROLLING_RUNTIME_ATTESTATION_REQUIRED')
             if isinstance(attested, authority.ReconstructionReceipt):
