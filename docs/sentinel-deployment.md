@@ -9,6 +9,11 @@ archive-off installation has already been converted. This document describes the
 selected behavior; [historical deployment decisions](sentinel-deployment-history.md)
 retain their original dates and certification scope.
 
+The backed owner PAPER source handover also requires the
+[closed retained-origin transition](backed-paper-retained-origin.md). Its exact
+origin/current-source proof and fresh account scope preserve the canonical book;
+they do not extend ordinary or LIVE admission.
+
 ## Architecture and authority
 
 Wealth Core owns the deterministic canonical holdings and immutable shadow book.

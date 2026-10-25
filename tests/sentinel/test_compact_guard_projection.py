@@ -62,7 +62,7 @@ def compact(conn, monkeypatch):
         readiness_sha256='1'*64, timing={}, pitr={})
     state = LargeState(strategy_identity={'strategy': 'retained'},
                        last_decision={'session': SESSION})
-    value = [rolling._StatusBinding(SESSION, deepcopy(pub), deepcopy(snapshot), STATE),
+    value = [rolling._StatusBinding(SESSION, deepcopy(pub), deepcopy(snapshot), STATE, {}),
         None, SimpleNamespace(session=SESSION, state=state, record_sha256=RECORD), certificate, None]
     ready = [True]
     def load(connection, current):
