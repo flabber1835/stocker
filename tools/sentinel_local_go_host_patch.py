@@ -96,6 +96,19 @@ def install(go, entry, *, old_go, old_entry, new_go, new_entry, filename):
     entry._FEED_ENV_KEYS = forwarded
 
 
+def interpreter_source(*, source, deployment, manifest, python='/usr/bin/python3'):
+    paths = [Path(value) for value in (source, deployment, manifest, python)]
+    require(all(path.is_absolute() for path in paths), 'HOST_PATCH_LAUNCHER_PATH')
+    target = str(paths[1]/'scripts/sentinel_go_verified_entry.py')
+    loader = str(paths[0]/'tools/sentinel_local_go_host_patch.py')
+    return ('#!'+str(paths[3])+'\nimport os,sys\nfrom pathlib import Path\n'
+        +'args=sys.argv[1:]\n'
+        +'if args and str(Path(args[0]).resolve()) == '+repr(target)+':\n'
+        +' os.execv('+repr(str(paths[3]))+', ['+repr(str(paths[3]))
+        +", '-B', "+repr(loader)+', '+repr(str(paths[2]))+']+args[1:])\n'
+        +'os.execv('+repr(str(paths[3]))+', ['+repr(str(paths[3]))+']+args)\n')
+
+
 def _document(path):
     def unique(items):
         result = {}
@@ -171,6 +184,10 @@ def main(argv=None):
     require(manifest_path.is_absolute() and not manifest_path.is_symlink(), 'HOST_PATCH_MANIFEST_PATH')
     manifest = _document(manifest_path)
     source, deployed = verify(manifest)
+    launcher = manifest_path.parent/'host-python'
+    require(sha(launcher.read_bytes()) == manifest['launcher_sha256']
+        and Path(os.environ.get('SENTINEL_HOST_PYTHON', '')).resolve() == launcher.resolve(),
+        'HOST_PATCH_LAUNCHER_CHANGED')
     os.chdir(deployed)
     sys.path.insert(0, str(deployed/'scripts'))
     import sentinel_env

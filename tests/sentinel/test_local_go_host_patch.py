@@ -1,7 +1,9 @@
 """The local overlay runs the same real-child contracts over pinned base code."""
 import importlib.util
+import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 import pytest
@@ -81,3 +83,34 @@ def test_local_overlay_requires_the_exact_installed_base_bytes(base_sources):
     values[0] += b'\n# different installed source\n'
     with pytest.raises(patch.Refused, match='BASE_BYTES_CHANGED'):
         patch.reviewed_definitions(*values)
+
+
+def test_interpreter_launcher_delegates_ordinary_python_calls(tmp_path):
+    launcher = tmp_path/'host-python'
+    launcher.write_text(patch.interpreter_source(source=contract.ROOT,
+        deployment=tmp_path/'installed', manifest=tmp_path/'manifest.json', python=sys.executable))
+    launcher.chmod(0o700)
+    completed = subprocess.run([str(launcher), '-B', '-c', 'print("ordinary interpreter")'],
+        capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0 and completed.stdout.strip() == 'ordinary interpreter'
+
+
+def test_interpreter_launcher_scopes_only_the_exact_original_entry(tmp_path):
+    source, deployed = tmp_path/'patch', tmp_path/'installed'
+    (source/'tools').mkdir(parents=True)
+    # Only transport is a fixture here; the real loader has the whole-module
+    # and real-child qualifications above.
+    (source/'tools/sentinel_local_go_host_patch.py').write_text('import sys,json;print(json.dumps(sys.argv[1:]))')
+    manifest = tmp_path/'manifest.json'
+    launcher = tmp_path/'host-python'
+    launcher.write_text(patch.interpreter_source(source=source, deployment=deployed,
+        manifest=manifest, python=sys.executable))
+    launcher.chmod(0o700)
+    completed = subprocess.run([str(launcher), str(deployed/'scripts/sentinel_go_verified_entry.py'),
+        '--target', 'DUAL_RUN_OBSERVATION'], capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0
+    assert json.loads(completed.stdout) == [str(manifest), '--target', 'DUAL_RUN_OBSERVATION']
+    other = tmp_path/'sentinel_go_verified_entry.py'
+    other.write_text('print("other entry")')
+    completed = subprocess.run([str(launcher), str(other)], capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0 and completed.stdout.strip() == 'other entry'
