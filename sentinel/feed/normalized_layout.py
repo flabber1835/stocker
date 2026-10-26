@@ -12,7 +12,7 @@ from typing import Literal
 
 from sentinel.feed.rolling_contract import CanonicalBar, CanonicalBenchmark, canonical_json, digest
 from sentinel.transaction_contract import TransactionPort, borrow
-from sentinel.feed import read_contract
+from sentinel.feed import read_contract, rolling_work
 from sentinel.feed.read_contract import _BAR_VIEW, _BENCHMARK_VIEW
 
 SCHEMA = 'sentinel.normalized-session-block/1'
@@ -227,7 +227,9 @@ class SessionBlockWriter:
 
     def write_benchmarks(self, rows):
         for row in rows:
+            rolling_work.checkpoint()
             self._store('BENCHMARKS',str(row.session),[row])
+            rolling_work.checkpoint()
 
 
 def seal_layout(conn, candidate_id, manifest):

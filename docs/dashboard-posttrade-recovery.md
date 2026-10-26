@@ -150,3 +150,22 @@ only raw WARN ingest/building rows may reuse its fixed deadline. A still-positiv
 but aged authority verdict may become "recheck pending after data" only during a
 healthy bounded automatic refresh; it loses PASS styling. Lifecycle failures,
 negative/unknown verdicts, stopped workers and other red rows remain red.
+
+## Long normalized work and the observed publisher halt
+
+The October 26 publisher refused at the owned job boundary after an extended
+atomic normalized-block write. Normalized bar iteration already checkpoints its
+owner; benchmark-block iteration must also checkpoint before and after each
+stored session. Reuse rolling_work's caller-supplied heartbeat in the same
+transaction. Never commit partial candidate work, revive an expired lease,
+increase its 600-second maximum or extend the immutable job deadline.
+
+Distinguish an otherwise live, same-owner/same-fence ACTIVE job whose lease alone
+expired as JobLeaseExpired, a typed JobWaiting refusal. Roll back and allow the
+normal new fenced claim; no work continues on the expired permit. The supervisor
+already retries JobWaiting. Missing/terminal jobs, changed owners/fences and
+other integrity refusals remain terminal; JobDeadlineExceeded keeps its separate
+existing behavior. Prove slow benchmark iteration, exact deadline exhaustion,
+expired individual work and fence loss on real private PostgreSQL, plus a
+falsifier removing the checkpoints. Do not clear the current critical incident
+until its underlying cause is repaired and the operator recovery contract passes.
