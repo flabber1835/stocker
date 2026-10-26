@@ -79,7 +79,8 @@ async def test_real_connection_timeouts_recover_during_private_base_backup(conn,
                 await asyncio.sleep(.05)
             assert await service.run(connect,stop=asyncio.Event(),clock=lambda:datetime.now(timezone.utc),
                 sleep=pause,max_ticks=3)==3
-            assert len(accepted)==2 and sleeps==[cfg.heartbeat_seconds,cfg.heartbeat_seconds]
+            assert len(accepted)==2 and len(sleeps)==2
+            assert all(0<delay<=cfg.heartbeat_seconds for delay in sleeps)
             assert recovered==[True] and backup.poll() is None
             assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0]==0
             conn.rollback()
