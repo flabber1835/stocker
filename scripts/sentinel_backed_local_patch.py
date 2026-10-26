@@ -6,6 +6,7 @@ application handoff. The historical archive-off command retains its own guards.
 from contextlib import contextmanager, ExitStack
 import fcntl
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -19,6 +20,21 @@ from sentinel_lock_ownership import owns_exclusive_flock
 
 COMPOSE = ('docker-compose.sentinel.yml', 'docker-compose.sentinel-backup.yml',
            'docker-compose.sentinel-automation.yml')
+IMAGE_SERVICES = (*SERVICES, 'sentinel', 'sentinel-authorized-cli')
+
+
+def immutable_image_overlay(folder, image):
+    require(re.fullmatch(r'sha256:[0-9a-f]{64}', image), 'BACKED_OVERLAY_IMAGE_INVALID')
+    path = folder/('application-images-'+image.removeprefix('sha256:')+'.json')
+    raw = (json.dumps({'services': {name: {'image': image, 'pull_policy': 'never'}
+        for name in IMAGE_SERVICES}}, sort_keys=True, separators=(',', ':'))+'\n').encode()
+    require(not path.is_symlink(), 'BACKED_IMAGE_OVERLAY_UNSAFE')
+    if not path.exists():
+        with path.open('xb') as stream:
+            os.chmod(path, 0o600)
+            stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+    require(path.read_bytes()==raw, 'BACKED_IMAGE_OVERLAY_CHANGED')
+    return path
 
 
 def postgres_facts(item):
@@ -57,7 +73,13 @@ class BackedHost(Host):
         require(values['SENTINEL_GIT_COMMIT'] in {
             self.request['predecessor']['commit'],self.request['candidate']['commit']},
             'BACKED_COMPOSE_RUNTIME_OUTSIDE_REQUEST')
-        return tuple(self.source/name for name in COMPOSE)
+        role = ('candidate' if values['SENTINEL_GIT_COMMIT']==self.request['candidate']['commit']
+                else 'predecessor')
+        image = self.request[role]['image']
+        require(values['SENTINEL_RUNTIME_IMAGE_DIGEST']==image
+            and values['SENTINEL_LOCAL_PAPER_IMAGE']==image, 'BACKED_IMAGE_SELECTOR_CHANGED')
+        overlay = immutable_image_overlay(self.operation_dir, image)
+        return (*tuple(self.source/name for name in COMPOSE), overlay)
 
     def verify_compose(self, role):
         for name in COMPOSE:
@@ -146,7 +168,8 @@ def main(argv=None):
             draft=factory(dict(source=args.source,deployment=args.deployment),folder)
             witness=read_json(args.predecessor_receipt)
             # The draft graph needs only the two already bound source revisions.
-            draft.request.update(predecessor=dict(commit=witness['git_commit']),candidate=dict(commit=args.commit))
+            draft.request.update(predecessor=dict(commit=witness['git_commit'],
+                image=builder._inspect(draft,witness['runtime_image'])['Id']),candidate=dict(commit=args.commit))
             result=builder.build(source=args.source,deployment=args.deployment,
                 predecessor_receipt=args.predecessor_receipt,qualification=args.qualification,
                 qualification_sha256=args.qualification_sha256,approved_delta=args.allowed_delta,

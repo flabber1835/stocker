@@ -61,3 +61,16 @@ requires healthy exact-image roles, advancing leadership, preserved future plan,
 healthy recurring maintenance and genuinely green finite dashboard receipts.
 Only then acknowledge the reviewed recovered incidents, retaining their causes.
 This is local PAPER operational qualification, not CI or live-money approval.
+
+The backed graph spells authorized service images as repository digests. A local
+source-layer image has an actual immutable image ID without a registry manifest.
+The host delivery driver therefore appends an operation-private Compose overlay
+containing only the eight application image selectors and `pull_policy: never`.
+The selected ID must equal the request's exact predecessor or candidate image;
+the overlay cannot contain PostgreSQL, environment, mounts or commands. Existing
+overlay bytes must match the deterministic rendering. The three canonical backed
+Compose inputs and all database guards remain unchanged. Qualify this separately
+as a host-tool fix, bind the executing tool commit/hash in retained evidence, and
+keep the already qualified runtime commit/image and its completed full restore.
+Host tooling can advance independently of the installed runtime; do not relabel
+or rebuild identical runtime code merely to deliver an image-selector correction.

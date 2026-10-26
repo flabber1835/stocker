@@ -1,6 +1,7 @@
 """Backed application roll preserves the legacy path and requires real proof."""
 from copy import deepcopy
 import importlib
+import json
 import os
 from pathlib import Path
 import sys
@@ -78,3 +79,61 @@ def test_postgres_archive_off_cannot_become_a_backed_baseline():
         'Config':{'Cmd':['postgres','-c','archive_mode=off']}}
     with pytest.raises(patch.DeliveryRefused,match='ARCHIVE_OFF'):
         patch.postgres_facts(data)
+
+
+def test_image_overlay_changes_only_exact_application_selectors(tmp_path):
+    image='sha256:'+'a'*64
+    path=patch.immutable_image_overlay(tmp_path,image)
+    expected={'services':{name:{'image':image,'pull_policy':'never'}
+        for name in (*patch.SERVICES,'sentinel','sentinel-authorized-cli')}}
+    assert json.loads(path.read_text())==expected
+    assert 'sentinel-postgres' not in expected['services']
+    assert patch.immutable_image_overlay(tmp_path,image)==path
+
+
+@pytest.mark.parametrize('image',['mutable:latest','repo@sha256:'+'a'*64,'sha256:'+'a'*63])
+def test_image_overlay_refuses_nonlocal_or_mutable_selectors(tmp_path,image):
+    with pytest.raises(patch.DeliveryRefused,match='OVERLAY_IMAGE_INVALID'):
+        patch.immutable_image_overlay(tmp_path,image)
+
+
+def test_image_overlay_refuses_changed_retained_bytes(tmp_path):
+    image='sha256:'+'a'*64
+    path=patch.immutable_image_overlay(tmp_path,image)
+    path.write_text('{}')
+    with pytest.raises(patch.DeliveryRefused,match='OVERLAY_CHANGED'):
+        patch.immutable_image_overlay(tmp_path,image)
+
+
+def test_image_overlay_refuses_symlink(tmp_path):
+    image='sha256:'+'a'*64
+    path=patch.immutable_image_overlay(tmp_path,image)
+    target=tmp_path/'other';path.rename(target);path.symlink_to(target)
+    with pytest.raises(patch.DeliveryRefused,match='OVERLAY_UNSAFE'):
+        patch.immutable_image_overlay(tmp_path,image)
+
+
+def test_image_overlay_tamper_guard_has_a_falsifier(tmp_path,monkeypatch):
+    original=patch.require
+    monkeypatch.setattr(patch,'require',lambda value,reason:
+        None if reason=='BACKED_IMAGE_OVERLAY_CHANGED' else original(value,reason))
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_image_overlay_refuses_changed_retained_bytes(tmp_path)
+
+
+def test_backed_compose_adds_image_overlay_without_changing_backing(tmp_path):
+    host=object.__new__(patch.BackedHost)
+    host.source=tmp_path;host.operation_dir=tmp_path
+    old='1'*40;new='2'*40;old_image='sha256:'+'a'*64;new_image='sha256:'+'b'*64
+    host.request={'predecessor':{'commit':old,'image':old_image},
+        'candidate':{'commit':new,'image':new_image}}
+    for commit,image in [(old,old_image),(new,new_image)]:
+        values={'SENTINEL_GIT_COMMIT':commit,'SENTINEL_RUNTIME_IMAGE_DIGEST':image,
+            'SENTINEL_LOCAL_PAPER_IMAGE':image}
+        paths=host.compose_paths(values)
+        assert paths[:3]==tuple(tmp_path/name for name in patch.COMPOSE)
+        assert len(paths)==4
+        assert all(item['image']==image for item in json.loads(paths[-1].read_text())['services'].values())
+        values['SENTINEL_LOCAL_PAPER_IMAGE']=old_image if image==new_image else new_image
+        with pytest.raises(patch.DeliveryRefused,match='SELECTOR_CHANGED'):
+            host.compose_paths(values)
