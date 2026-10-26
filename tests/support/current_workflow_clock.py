@@ -17,16 +17,22 @@ class _DateTimeType(type):
 class BusinessClock:
     def __init__(self, instant):
         self.instant = instant.astimezone(timezone.utc)
+        self.wall_offset = None
         owner = self
         class DateTime(RealDateTime, metaclass=_DateTimeType):
             @classmethod
             def now(cls, tz=None):
-                value = owner.instant
+                value = owner.now()
                 return value.astimezone(tz) if tz is not None else value.replace(tzinfo=None)
         self.datetime = DateTime
 
     def now(self):
-        return self.instant
+        return (RealDateTime.now(timezone.utc)+self.wall_offset
+                if self.wall_offset is not None else self.instant)
+
+    def follow_wall(self):
+        """Observation phase after terminal trading; never rewind business time."""
+        self.wall_offset = max(timedelta(0), self.instant-RealDateTime.now(timezone.utc))
 
     def install(self, monkeypatch):
         # These are explicit Python wall-clock inputs used by the production

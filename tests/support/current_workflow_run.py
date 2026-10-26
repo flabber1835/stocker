@@ -286,6 +286,9 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
         assert all(row==('DELIVERED','DELIVERED',201) for row in receipts)
         conn.rollback()
         print('CURRENT_WORKFLOW verifier + HTTP',flush=True)
+        clock.follow_wall()
+        assert execution_collector.collect_once('ACCOUNT',reader=reader,
+            config=campaign.sentinel_config)=='COLLECTED'
         _verification_and_http(conn,dsn,clock,cycle,monkeypatch,tmp_path)
         assert rolling_checkpoint.read(conn).model_dump(by_alias=True)==origin
         conn.rollback()

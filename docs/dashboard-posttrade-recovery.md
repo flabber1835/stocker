@@ -78,3 +78,11 @@ change a production binding, lease clock, observation or admission guard. The
 next-open HTTP reader still excludes a plan when its execution time has already
 passed on the actual database clock. These tests prove callback composition,
 not actual exchange opening latency.
+
+After the simulated basket is terminal and its push receipts are delivered,
+the HTTP observation phase follows an advancing wall clock, retaining a positive
+offset only when the simulated business session is still in the future. It
+never rewinds business time or changes PostgreSQL clocks. Refresh the native
+GET-only account snapshot in that phase before producing receipts. Receipt
+authentication, future-fact refusal and source-freshness checks remain active.
+This avoids certifying real database timestamps with a frozen earlier envelope.
