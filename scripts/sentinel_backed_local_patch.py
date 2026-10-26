@@ -47,15 +47,81 @@ def postgres_facts(item):
         volume=mounts[0]['Name'], source=mounts[0]['Source'], command=item['Config']['Cmd'])
 
 
+def predecessor_witness(path, *, inspect_image=None, trail=()):
+    """Consume completed receipts without asserting another activation."""
+    path = Path(path)
+    require(path.is_absolute() and '..' not in path.parts
+        and not any(item.is_symlink() for item in (path,*path.parents)),
+        'BACKED_PREDECESSOR_PATH_UNSAFE')
+    sha256_file(path)  # Refuse symlinks and missing receipt files before resolve.
+    selected = path.resolve()
+    require(len(trail)<16 and selected not in trail, 'BACKED_PREDECESSOR_CHAIN_INVALID')
+    record = read_json(selected)
+    if record.get('schema')=='sentinel.activation-receipt/1':
+        require(selected.name=='activation-receipt.json'
+            and record.get('operational_ready') is True
+            and record.get('activation_mode')=='dual' and record.get('completed_at'),
+            'BACKED_ACTIVE_PREDECESSOR_REQUIRED')
+        root = selected.parents[5]
+        require((root/'.git').exists(), 'BACKED_PREDECESSOR_ROOT_INVALID')
+        image=record['runtime_image']
+        if inspect_image is not None:
+            inspected=inspect_image(image)
+            require(inspected['Config']['Labels']['org.opencontainers.image.revision']==record['git_commit'],
+                'BACKED_PREDECESSOR_RUNTIME_CHANGED')
+            image=inspected['Id']
+        return dict(git_commit=record['git_commit'],runtime_image=image,
+            control_generation=record['control_generation'],certificate_sha256=record['certificate_sha256'],
+            roots=(root,),postgres=None,system=None)
+    require(selected.name=='receipt.json' and record.get('stage')=='VERIFIED',
+        'BACKED_VERIFIED_PREDECESSOR_REQUIRED')
+    journal = Journal(selected.parent)
+    require(journal.read()==record, 'BACKED_PREDECESSOR_JOURNAL_CHANGED')
+    request = journal.request
+    built = read_json(selected.parent/'build.json')
+    candidate = request['candidate']
+    require(built.get('schema')==builder.BUILD_SCHEMA
+        and built.get('commit')==candidate['commit'] and built.get('image')==candidate['image']
+        and built.get('source_identity')==candidate['source_identity']
+        and built.get('source')==request['source'] and built.get('deployment')==request['deployment']
+        and built.get('foundation')==request['predecessor'], 'BACKED_PREDECESSOR_BUILD_CHANGED')
+    qualification = built['qualification']
+    require(qualification['report_path']==request['qualification']['report_path']
+        and qualification['report_sha256']==request['qualification']['report_sha256']
+        and sha256_file(qualification['report_path'])==qualification['report_sha256'],
+        'BACKED_PREDECESSOR_QUALIFICATION_CHANGED')
+    report = read_json(qualification['report_path'])
+    require(report.get('commit')==candidate['commit'] and report.get('final') is True
+        and report.get('source_files_unchanged') is True
+        and report.get('source_files')==request['qualification']['source_files'],
+        'BACKED_PREDECESSOR_QUALIFICATION_SUBJECT_CHANGED')
+    prior = built['predecessor_receipt']
+    require(sha256_file(prior['path'])==prior['sha256'], 'BACKED_PREDECESSOR_ANCHOR_CHANGED')
+    anchor = predecessor_witness(prior['path'],inspect_image=inspect_image,trail=(*trail,selected))
+    foundation = request['predecessor']
+    require(foundation['commit']==anchor['git_commit']
+        and foundation['image']==anchor['runtime_image'], 'BACKED_PREDECESSOR_FOUNDATION_CHANGED')
+    pg, preserved = record['artifacts']['postgres'],record['artifacts']['preserved']
+    require(pg==foundation['postgres'] and preserved['system']==foundation['system']
+        and 'archive_mode=on' in pg['command']
+        and (anchor['postgres'] is None or (pg==anchor['postgres']
+            and preserved['system']==anchor['system'])), 'BACKED_PREDECESSOR_PRESERVATION_CHANGED')
+    root=Path(request['source']).resolve()
+    require((root/'.git').exists(), 'BACKED_PREDECESSOR_ROOT_INVALID')
+    return dict(anchor,git_commit=candidate['commit'],runtime_image=candidate['image'],
+        roots=tuple(dict.fromkeys((*anchor['roots'],root))),postgres=pg,system=preserved['system'])
+
+
 class BackedHost(Host):
     supports_post_trade = True
     def __init__(self, request, operation_dir, *, predecessor_receipt=None):
         super().__init__(request,operation_dir)
         built = self.operation_dir/'build.json'
         self.predecessor_receipt = Path(predecessor_receipt or read_json(built)['predecessor_receipt']['path'])
-        require(self.predecessor_receipt.name=='activation-receipt.json', 'BACKED_ACTIVATION_RECEIPT_REQUIRED')
-        self.predecessor_root = self.predecessor_receipt.parents[5]
-        require((self.predecessor_root/'.git').exists(), 'BACKED_PREDECESSOR_ROOT_INVALID')
+        witness=predecessor_witness(self.predecessor_receipt,
+            inspect_image=lambda ref:builder._inspect(self,ref))
+        self.predecessor_roots=witness['roots']
+        self.predecessor_root=self.predecessor_roots[0]
 
     def load_values(self):
         values = super().load_values()
@@ -112,7 +178,8 @@ class BackedHost(Host):
         values=self.load_values()
         authority=Path(values['SENTINEL_AUTHORITY_ARTIFACTS_DIR'])
         paths=[authority/'activation-coordinator.lock',authority/'autonomous-deploy.lock',
-            self.predecessor_root/'artifacts/sentinel/go-validation/go-validation.lock']
+            *(root/'artifacts/sentinel/go-validation/go-validation.lock'
+              for root in self.predecessor_roots)]
         with ExitStack() as stack:
             for path in paths:
                 require(path.is_absolute() and not path.is_symlink(), 'BACKED_OWNER_LOCK_PATH')
@@ -137,10 +204,7 @@ def require_restore(value,request):
 
 
 def active_baseline(path, host):
-    record=read_json(path)
-    require(record.get('schema')=='sentinel.activation-receipt/1'
-        and record.get('operational_ready') is True and record.get('activation_mode')=='dual'
-        and record.get('completed_at'), 'BACKED_ACTIVE_PREDECESSOR_REQUIRED')
+    record=predecessor_witness(path,inspect_image=lambda ref:builder._inspect(host,ref))
     values=host.load_values()
     reference=record['runtime_image']
     image=builder._inspect(host,reference)
@@ -152,6 +216,8 @@ def active_baseline(path, host):
     require(state['generation']==record['control_generation']
         and state['certificate']==record['certificate_sha256'], 'BACKED_PREDECESSOR_AUTHORITY_CHANGED')
     pg=postgres_facts(host.container('sentinel-postgres'))
+    require(record['postgres'] is None or (pg==record['postgres'] and state['system']==record['system']),
+        'BACKED_VERIFIED_POSTGRES_CHANGED')
     # The primary command must equal the unchanged canonical backed Compose graph.
     configuration=json.loads(host.compose(values,'config','--format','json').stdout)
     require(pg['command']==configuration['services']['sentinel-postgres']['command'],
@@ -167,7 +233,8 @@ def main(argv=None):
             folder=builder.safe_directory(folder,create=True)
             def factory(request,op):return BackedHost(request,op,predecessor_receipt=args.predecessor_receipt)
             draft=factory(dict(source=args.source,deployment=args.deployment),folder)
-            witness=read_json(args.predecessor_receipt)
+            witness=predecessor_witness(args.predecessor_receipt,
+                inspect_image=lambda ref:builder._inspect(draft,ref))
             # The draft graph needs only the two already bound source revisions.
             draft.request.update(predecessor=dict(commit=witness['git_commit'],
                 image=builder._inspect(draft,witness['runtime_image'])['Id']),candidate=dict(commit=args.commit))

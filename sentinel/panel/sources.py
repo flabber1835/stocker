@@ -698,7 +698,8 @@ def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
             sleep(min(FEED_PIN_POLL_SECONDS, remaining))
 
 
-def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
+def _feed_rows(database_url: str, *, post_close_wait=None,
+               now: Optional[datetime] = None) -> tuple[list[model.Row], list[str]]:
     """The feed frontier, the contract verdict and the latest ingest.
 
     One connection for all three: three page-load connections to serve one
@@ -804,6 +805,13 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                            frontier_ahead=ahead),
             ingest,
         ]
+        if (post_close_wait is not None and not run_err and not front_err
+                and ingest.status not in {model.FAIL, model.UNKNOWN}):
+            from sentinel.panel import postclose_feed_wait
+            rows[0] = postclose_feed_wait.project(rows[0], post_close_wait,
+                frontier=str(frontier) if frontier else None,
+                sessions_behind=behind, ready=ready,
+                now=now or datetime.now(timezone.utc))
         # `source_errors` is the banner across the top of the page and it means
         # "the panel could not read the world". A single slow query does not
         # qualify — the rows below say so themselves, in the right place. Only a
@@ -3057,7 +3065,13 @@ def build_panel(*, state_dir: Path, database_url: str,
     own = _ownership(Path(state_dir), database_url)
     if own.status is model.UNKNOWN:
         errors.append("ownership binding")
-    feed_rows, feed_errs = _feed_rows(database_url)
+    worker = (_shadow_worker_row(state_dir, database_url)
+              if mode in {'dual', 'shadow'} else None)
+    from sentinel.panel import postclose_feed_wait
+    feed_now = fixed_now or datetime.now(timezone.utc)
+    post_close_wait = postclose_feed_wait.from_rows(financial_rows, worker, now=feed_now)
+    feed_rows, feed_errs = (_feed_rows(database_url, post_close_wait=post_close_wait, now=feed_now)
+                           if post_close_wait is not None else _feed_rows(database_url))
     errors.extend(feed_errs)
     # Reviewed dual mode changes performance authority, not visibility into
     # the execution membrane. Durable runtime rows are always projected.
@@ -3071,7 +3085,7 @@ def build_panel(*, state_dir: Path, database_url: str,
 
     rows = [
         *financial_rows,
-        *([_shadow_worker_row(state_dir, database_url)] if mode in {'dual', 'shadow'} else []),
+        *([worker] if worker is not None else []),
         own,
         automation_rows[0],
         *operator_rows,

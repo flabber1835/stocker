@@ -94,3 +94,34 @@ classification and refuse invalid connection factories; no clock sample or
 scheduling progress can be created from a missing connection. This removes a
 structurally unreachable normal-return cleanup branch rather than excluding it
 from the automation branch-coverage requirement.
+
+## Closing-data preparation display
+
+The exchange close makes today's source frontier due, but acquisition and
+publication start after that close. The feed display must cover the interval
+before a new ingest record exists and between bounded source retries. Reuse the
+existing authenticated SOURCE_FRONTIER wait and its historical canonical book,
+with a current healthy shadow publisher. Require exactly the next closed session
+after that book/frontier, its actual scheduled close, and the original next-open
+deadline. A request or heartbeat cannot extend that deadline. Match the separately
+read feed frontier to that authenticated historical session and require a still
+valid, affirmative data-contract verdict. Only that single-session lag may read
+amber, explicitly "waiting for closing data"; it never becomes current data or GO.
+
+Missing/expired/foreign historical evidence, a stopped/stale/unreadable publisher,
+multiple missing sessions, future clocks/frontiers, failed or expired contract
+checks and explicit ingest failures retain their ordinary failure classification.
+Other red rows and source errors remain visible. HTML, JSON and operational
+health share the same projection, with the original earliest evidence expiry.
+No provider request, data write, execution authority or scheduler change is added.
+
+Subsequent backed local patches may consume the preceding operation's completed
+VERIFIED receipt. Validate its original digest-linked journal, exact build and
+qualification subjects, unchanged retained predecessor-receipt hash and a bounded,
+acyclic chain back to the original completed dual activation. The current runtime
+must match the latest verified candidate; the original control/certificate anchor
+and the preserved archive-on PostgreSQL identity must still match. Hold the
+canonical authority locks and retained source GO locks. An incomplete, altered,
+foreign or cyclic predecessor grants no installation permission. This does not
+reopen old operations or bypass current-source, restore, idle handoff or readiness
+gates. Wait for acquisition and publication to reach their supported idle state.
