@@ -2219,6 +2219,8 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="PENDING" if pending else "CLEAN",
             cycle_state=cycle_state,
             detail=(
+                "trading cycle completed; waiting for post-close market-data "
+                "and share-unit verification" if pending and cycle_state=='SUCCEEDED' else
                 "raw plan remains pre-open unproven; post-close market-data "
                 "unit check is pending" if pending else
                 "post-close unit evidence and durable broker reconciliation "

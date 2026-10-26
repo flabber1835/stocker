@@ -6,7 +6,7 @@ import time
 
 from . import evidence
 from .host import RUNTIME_KEYS, SERVICES
-from .model import digest, require, utcnow
+from .model import digest, handoff_mode, require, utcnow
 
 
 class Delivery:
@@ -114,6 +114,9 @@ class Delivery:
             require(evidence.snapshot(self.host)==state and self.host.postgres()==pg,
                     'STATE_CHANGED_DURING_PREFLIGHT')
             native = evidence.native_positions(self.host,values)
+            if handoff_mode(self.host.request)=='POST_TRADE':
+                require(native==new_proof.get('settled_native_positions'),
+                        'POST_TRADE_NATIVE_RECONCILIATION_CHANGED')
             return self.journal.advance(stage,'PREFLIGHT_PASS',preserved=state,postgres=pg,
                 canonical_proof=new_proof,preflight_at=utcnow().isoformat(),native_positions=native,
                 predecessor_runtime={key:values[key] for key in RUNTIME_KEYS},

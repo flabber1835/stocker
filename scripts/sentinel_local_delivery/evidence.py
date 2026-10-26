@@ -10,7 +10,7 @@ import json
 import time
 
 from . import checks
-from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, require
+from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, handoff_mode, require
 
 
 _BINDING_KEYS = ('deployment_id', 'broker', 'broker_account_id', 'takeover_epoch')
@@ -93,9 +93,14 @@ def compare_configuration(host, previous, candidate, state):
 
 def snapshot(host):
     """Select exactly one current, prepared future cycle and its source closure."""
-    current = host.sql(checks.SNAPSHOT_SQL)
+    mode = handoff_mode(host.request)
+    if mode=='POST_TRADE':
+        require(getattr(host,'supports_post_trade',False)
+            and host.load_values().get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1',
+            'POST_TRADE_BACKED_ADAPTER_REQUIRED')
+    current = host.sql(checks.snapshot_sql(mode))
     require(isinstance(current, dict) and current.get('candidate_count') == 1,
-            'Exactly one current-generation future WAITING_OPEN plan is required')
+            'Exactly one current-generation plan matching the handoff mode is required')
     control, cycle, plan = current['control'], current['cycle'], current['plan']
     bound = current.get('binding')
     values = host.load_values()
@@ -123,6 +128,12 @@ def snapshot(host):
     require(current['ready'] is True and cycle['plan_id'] == plan['plan_id']
             and cycle['control_generation'] == control['generation'],
             'Saved plan is not ready with sufficient future execution margin')
+    if mode=='POST_TRADE':
+        require(cycle.get('state')=='SUCCEEDED' and cycle.get('completed_at') is not None
+            and cycle.get('failure_code') is None and cycle.get('failure_detail') is None
+            and isinstance(current.get('reconciliation'),dict)
+            and str(current['reconciliation']['seq'])==str(cycle.get('last_clean_reconciliation_id')),
+            'POST_TRADE_POSITIVE_RECONCILIATION_REQUIRED')
     for key in (*_BINDING_KEYS, 'certificate_sha256', 'rollout_mode',
                 'rollout_version', 'config_sha256'):
         require(cycle[key] == control[key], 'Plan/control binding changed: '+key)
@@ -151,6 +162,8 @@ def canonical_check(host, values, state):
         account=state['control']['broker_account_id'], binding=bound,
         config=state['control']['config_sha256'],
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
+    if handoff_mode(host.request)=='POST_TRADE':
+        expected.update(handoff_mode='POST_TRADE',reconciliation_id=state['reconciliation']['seq'])
     result = host.compose(values, 'run', '--rm', '--no-deps', '--pull', 'never',
         '--entrypoint', 'python', 'sentinel-authorized-cli', '-B', '-c', checks.CANONICAL,
         json.dumps(expected, sort_keys=True), timeout=300)
@@ -331,6 +344,8 @@ def panel(host, state):
     data = host.container('sentinel-panel')
     expected = dict(plan=state['plan']['plan_id'],
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
+    if handoff_mode(host.request)=='POST_TRADE':
+        expected['handoff_mode']='POST_TRADE'
     result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c', checks.PANEL,
         json.dumps(expected, sort_keys=True)], timeout=35)
     return json.loads(result.stdout)

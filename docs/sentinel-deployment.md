@@ -2,6 +2,8 @@
 
 [Bounded database recovery](database-recovery-local-patch.md) records the owner's
 2026-10-26 local patch exception and its backed application-roll requirements.
+[Dashboard continuity and post-trade handoff](dashboard-posttrade-recovery.md)
+extends that authorized local patch after the completed opening cycle.
 
 Current owner instruction: backed-up PAPER releases through CI and PR delivery.
 The 2026-10-24 [release restoration decision](paper-backed-release-20261024.md)

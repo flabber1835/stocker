@@ -137,3 +137,38 @@ def test_backed_compose_adds_image_overlay_without_changing_backing(tmp_path):
         values['SENTINEL_LOCAL_PAPER_IMAGE']=old_image if image==new_image else new_image
         with pytest.raises(patch.DeliveryRefused,match='SELECTOR_CHANGED'):
             host.compose_paths(values)
+
+
+def settled_host():
+    host=backed_host();host.supports_post_trade=True;host.request['handoff_mode']='POST_TRADE'
+    host.state['cycle'].update(state='SUCCEEDED',completed_at='2031-04-22T14:00:00Z',
+        last_clean_reconciliation_id='247',failure_code=None,failure_detail=None)
+    host.state['reconciliation']={'seq':247,'fingerprint':'original','provenance':'original'}
+    return host
+
+
+def test_post_trade_preserves_a_completed_reconciled_plan():
+    host=settled_host()
+    assert fixture.evidence.snapshot(host)==host.state
+    assert host.calls==[fixture.checks.snapshot_sql('POST_TRADE')]
+
+
+@pytest.mark.parametrize('fault',['adapter','policy','state','completed','reconciliation','wrong_observation','failure'])
+def test_post_trade_refuses_unsettled_or_unsupported_handoffs(fault):
+    host=settled_host()
+    if fault=='adapter':host.supports_post_trade=False
+    elif fault=='policy':host.load_values=lambda:{'SENTINEL_LOCAL_PAPER_BACKUP_POLICY':''}
+    elif fault=='state':host.state['cycle']['state']='RECONCILING'
+    elif fault=='completed':host.state['cycle']['completed_at']=None
+    elif fault=='reconciliation':host.state['reconciliation']=None
+    elif fault=='wrong_observation':host.state['reconciliation']['seq']=248
+    else:host.state['cycle']['failure_code']='UNKNOWN_OUTCOME'
+    with pytest.raises(fixture.model.DeliveryRefused):fixture.evidence.snapshot(host)
+
+
+def test_reconciliation_guard_removal_has_a_falsifier(monkeypatch):
+    original=fixture.evidence.require
+    monkeypatch.setattr(fixture.evidence,'require',lambda value,reason:
+        None if reason=='POST_TRADE_POSITIVE_RECONCILIATION_REQUIRED' else original(value,reason))
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_post_trade_refuses_unsettled_or_unsupported_handoffs('wrong_observation')

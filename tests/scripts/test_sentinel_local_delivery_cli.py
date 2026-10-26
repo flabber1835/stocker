@@ -78,7 +78,7 @@ def validate(value):
 
 
 def request(inputs, paths):
-    return dict(schema=model.SCHEMA,operation_id='reviewed-inputs',source=str(inputs.source),
+    return dict(schema=model.SCHEMA,handoff_mode='PRE_OPEN',operation_id='reviewed-inputs',source=str(inputs.source),
         deployment=str(inputs.deployment),predecessor=builder.baseline(inputs.previous),
         candidate=dict(commit=NEW,image=NEW_IMAGE,
             source_identity={'source':'2'*64,'wealth':'4'*64,'shadow_config':'3'*64}),

@@ -27,7 +27,7 @@ host_module = importlib.import_module(SPEC.name+'.host')
 
 
 def request(tmp_path):
-    return dict(schema=model.SCHEMA, operation_id='fictional-delivery', source=str(tmp_path),
+    return dict(schema=model.SCHEMA, handoff_mode='PRE_OPEN',operation_id='fictional-delivery', source=str(tmp_path),
         deployment=str(tmp_path), predecessor=dict(commit='1'*40,image='sha256:'+'1'*64,
             postgres={'system':'unchanged'},system='123456789'),
         candidate=dict(commit='2'*40,image='sha256:'+'2'*64,
@@ -35,6 +35,24 @@ def request(tmp_path):
         qualification=dict(report_path=str(tmp_path/'qualification.json'),report_sha256='5'*64,
             commit='2'*40,passed=True,source_files={'sentinel/example.py':'6'*64}),
         allowed_delta=['sentinel/example.py'],created_at=model.utcnow().isoformat())
+
+
+def test_previous_requests_keep_preopen_semantics_and_cannot_inject_posttrade(tmp_path):
+    value=request(tmp_path);value['schema']=model.PREVIOUS_SCHEMA;value.pop('handoff_mode')
+    assert model.handoff_mode(model.validate_request(value))=='PRE_OPEN'
+    model.write_new(tmp_path/'request.json',value)
+    journal=model.Journal(tmp_path)
+    assert journal.read()['schema']==model.PREVIOUS_SCHEMA
+    assert journal.advance('NEW','PREFLIGHT_PASS')['stage']=='PREFLIGHT_PASS'
+    value['handoff_mode']='POST_TRADE'
+    with pytest.raises(model.DeliveryRefused,match='REQUEST_SHAPE'):model.validate_request(value)
+
+
+def test_plain_archive_off_adapter_cannot_acquire_posttrade_permission(tmp_path):
+    selected=request(tmp_path);selected['handoff_mode']='POST_TRADE'
+    from types import SimpleNamespace
+    with pytest.raises(model.DeliveryRefused,match='BACKED_ADAPTER_REQUIRED'):
+        host_module.Host.verify_candidate(SimpleNamespace(request=selected))
 
 
 class Host:
@@ -274,7 +292,7 @@ def test_new_mutation_stages_preserve_original_preflight_expiry(operation,monkey
 
 
 def test_historical_verified_receipt_keeps_its_original_finite_stage_contract(tmp_path):
-    selected=request(tmp_path);selected['schema']=model.LEGACY_SCHEMA
+    selected=request(tmp_path);selected['schema']=model.LEGACY_SCHEMA;selected.pop('handoff_mode')
     model.write_new(tmp_path/'request.json',selected)
     subject=model.digest(selected);artifacts={'historical_scope':'unchanged'};previous=subject;history=[]
     for stage in model.LEGACY_STAGES[1:]:

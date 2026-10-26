@@ -16,7 +16,7 @@ from .qualification import sha256_file, validate_report
 
 
 def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_type=Host,
-            baseline_reader=None):
+            baseline_reader=None,handoff_mode='PRE_OPEN'):
     folder = builder.safe_directory(operation_dir)
     require(not (folder/'request.json').exists() and not (folder/'receipt.json').exists(),
             'DELIVERY_OPERATION_ALREADY_PREPARED')
@@ -40,7 +40,7 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
         built['commit'],old['commit'])
     require(sorted(built['changed_files']) == built['allowed_delta'], 'BUILD_DELTA_CHANGED')
     builder._changed(built['source'],old['commit'],built['commit'],built['allowed_delta'])
-    request = validate_request(dict(schema=SCHEMA,operation_id=operation_id,
+    request = validate_request(dict(schema=SCHEMA,operation_id=operation_id,handoff_mode=handoff_mode,
         source=built['source'],deployment=built['deployment'],predecessor=old,
         candidate=dict(commit=built['commit'],image=built['image'],source_identity=built['source_identity']),
         qualification=dict(report_path=qualified['report_path'],report_sha256=qualified['report_sha256'],
@@ -72,6 +72,7 @@ def parser():
     new = commands.add_parser('prepare',help='Create an immutable operation from its completed build')
     for name in ('operation-dir','build-record','build-sha256','operation-id'):
         new.add_argument('--'+name,required=True)
+    new.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE'),default='PRE_OPEN')
     view = commands.add_parser('status',help='Inspect the digest-linked receipt without host operations')
     view.add_argument('--operation-dir',required=True)
     for command in ('advance','resume'):
@@ -95,7 +96,7 @@ def main(argv=None):
                 build_sha256=sha256_file(Path(args.operation_dir)/'build.json'))
         elif args.command == 'prepare':
             prepare(operation_dir=args.operation_dir,build_record=args.build_record,
-                build_sha256=args.build_sha256,operation_id=args.operation_id)
+                build_sha256=args.build_sha256,operation_id=args.operation_id,handoff_mode=args.handoff_mode)
             output = status(args.operation_dir)
         elif args.command == 'status':
             output = status(args.operation_dir)

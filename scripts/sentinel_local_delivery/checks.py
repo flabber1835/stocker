@@ -63,13 +63,13 @@ value=bridge.validate(bridge._load(state),operation_id=sys.argv[1],request_sha25
 print(json.dumps(value,sort_keys=True))
 '''
 
-SNAPSHOT_SQL = r'''WITH candidates AS (
+_SNAPSHOT_SQL = r'''WITH candidates AS (
  SELECT s.* FROM sentinel_automation_cycles s
  JOIN sentinel_automation_control c ON c.id=1
    AND s.deployment_id=c.deployment_id AND s.broker=c.broker
    AND s.broker_account_id=c.broker_account_id AND s.takeover_epoch=c.takeover_epoch
    AND s.control_generation=c.generation AND s.config_sha256=c.config_sha256
- WHERE s.state='WAITING_OPEN' AND NOT s.historical_state_only
+ WHERE __CANDIDATE_FILTER__ AND NOT s.historical_state_only
 ), latest_publication AS (
  SELECT * FROM sentinel_corpus_publications ORDER BY version DESC LIMIT 1
 )
@@ -84,9 +84,8 @@ SELECT json_build_object(
  'cycle',to_jsonb(s)-'updated_at'-'last_fence_token'-'next_wake_at',
  'plan',json_build_object('plan_id',p.plan_id,'fingerprint',md5(to_jsonb(p)::text),
    'target_basket',p.target_basket,'publication_fingerprint',p.publication_fingerprint),
- 'ready',s.state='WAITING_OPEN' AND s.failure_code IS NULL AND s.failure_detail IS NULL
-   AND s.completed_at IS NULL AND s.execute_at>clock_timestamp()+interval '15 minutes'
-   AND p.superseded_by IS NULL,
+ 'ready',(__READY_FILTER__) AND p.superseded_by IS NULL,
+ __SETTLED_FACT__
  'inflight',(SELECT count(*) FROM sentinel_commands WHERE state IN
    ('SEND_PENDING','ACKNOWLEDGED','UNKNOWN','PARTIALLY_FILLED','CANCEL_PENDING')),
  'other_active',(SELECT count(*) FROM sentinel_automation_cycles x
@@ -115,7 +114,8 @@ SELECT json_build_object(
  'fills_count',(SELECT count(*) FROM sentinel_fills),
  'fills_md5',(SELECT md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.broker_order_id,x.fill_key),''))
    FROM sentinel_fills x),
- 'book_cursors_md5',(SELECT md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.cursor_name),''))
+ 'book_cursors_md5',(SELECT md5(coalesce(string_agg(md5(jsonb_build_array(
+   x.cursor_name,x.session,x.xmin::text,x.ctid::text)::text),'' ORDER BY x.cursor_name),''))
    FROM sentinel_processed_sessions x WHERE x.cursor_name IN
      ('rolling-cold-start:v1','rolling-daily-checkpoint:v1')
      OR x.cursor_name LIKE 'rolling-daily-input:v1:%'
@@ -137,6 +137,40 @@ SELECT json_build_object(
  JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id
  CROSS JOIN latest_publication pub WHERE c.id=1
 '''
+
+def handoff_filters(mode):
+    if mode=='PRE_OPEN':
+        candidate = "s.state='WAITING_OPEN'"
+        ready = ("s.state='WAITING_OPEN' AND s.failure_code IS NULL AND s.failure_detail IS NULL "
+            "AND s.completed_at IS NULL AND s.execute_at>clock_timestamp()+interval '15 minutes'")
+    elif mode=='POST_TRADE':
+        candidate = ("s.state='SUCCEEDED' AND s.effective_session="
+            "(clock_timestamp() AT TIME ZONE 'America/New_York')::date")
+        ready = ("s.state='SUCCEEDED' AND s.failure_code IS NULL AND s.failure_detail IS NULL "
+            "AND s.completed_at IS NOT NULL AND s.execute_at<=s.completed_at "
+            "AND s.completed_at<=clock_timestamp() "
+            "AND s.execution_close_at>clock_timestamp()+interval '15 minutes'")
+    else:
+        raise ValueError('unknown handoff mode')
+    return candidate,ready
+
+
+def snapshot_sql(mode='PRE_OPEN'):
+    candidate,ready = handoff_filters(mode)
+    settled = ''
+    if mode=='POST_TRADE':
+        settled = """'reconciliation',(SELECT json_build_object('seq',o.seq,
+            'fingerprint',md5(to_jsonb(o)::text),'provenance',md5(to_jsonb(r)::text))
+            FROM sentinel_observations o JOIN sentinel_observation_provenance r ON r.observation_seq=o.seq
+            WHERE o.seq::text=s.last_clean_reconciliation_id AND o.runtime_state='RUNNING'
+              AND o.completeness='COMPLETE' AND r.broker=c.broker
+              AND r.broker_account_id=c.broker_account_id AND r.canonical_payload_sha256 IS NOT NULL),"""
+    return (_SNAPSHOT_SQL.replace('__CANDIDATE_FILTER__',candidate)
+        .replace('__READY_FILTER__',ready).replace('__SETTLED_FACT__',settled))
+
+
+SNAPSHOT_SQL = snapshot_sql()
+
 
 NOTIFICATION_SQL = r'''SELECT json_build_object(
  'alerts',(SELECT coalesce(jsonb_object_agg(a.alert_id,md5(jsonb_build_array(
@@ -204,6 +238,17 @@ def verify_once():
         assert proof['verdict']=='MATCH'
         saved=authority.load_authority(conn,plan_id=plan.plan_id)
         assert saved['schema']=='sentinel.dual-plan-sizing-authority/2'
+        settled_native_positions=None
+        if expected.get('handoff_mode')=='POST_TRADE':
+            settled=journal.load_observation_payload(conn,expected['reconciliation_id'])
+            assert settled['completeness']=='COMPLETE'
+            assert settled['broker']==bound.broker and settled['account_id']==bound.broker_account_id
+            settled_native_positions={}
+            for position in settled['positions']:
+                asset=position['broker_id']
+                amount=Decimal(position['quantity'])
+                assert asset and asset not in settled_native_positions and amount.is_finite() and amount>0
+                settled_native_positions[asset]=str(amount)
         policy=protected_limits.ProtectedLimitPolicy.from_env()
         assert policy is not None
         assert policy.cap_bps==100 and policy.debug_window is None
@@ -244,6 +289,8 @@ def verify_once():
             push_controller_sha256=hashlib.sha256(PUSH_SCRIPT.encode()).hexdigest(),
             service_worker_sha256=hashlib.sha256(SERVICE_WORKER.encode()).hexdigest(),
             transaction_read_only=conn.read_only)
+        if settled_native_positions is not None:
+            output['settled_native_positions']=settled_native_positions
         conn.rollback()
     return output
 
@@ -320,12 +367,14 @@ observed=datetime.fromisoformat(page['as_of'])
 now=datetime.now(timezone.utc)
 assert observed.utcoffset() is not None and now-timedelta(seconds=120)<=observed<=now+timedelta(seconds=5)
 rows={row['key']:row for row in page['rows']}
-plan=rows.get('paper_plan',{}).get('paper_plan')
+post_trade=expected.get('handoff_mode')=='POST_TRADE'
+plan=(rows.get('trading_run',{}).get('trading_run') or {}).get('intent') if post_trade else rows.get('paper_plan',{}).get('paper_plan')
 assert isinstance(plan,dict) and plan.get('plan_id')==expected['plan']
 assert str(plan.get('decision_session'))==expected['decision']
 assert str(plan.get('effective_session'))==expected['effective']
-assert rows['automation_cycle']['value']=='WAITING_OPEN'
-assert page['color']=='green' and not page['source_errors']
+assert rows['automation_cycle']['value']==('SUCCEEDED' if post_trade else 'WAITING_OPEN')
+assert page['color'] in (('green','amber') if post_trade else ('green',)) and not page['source_errors']
+assert not any(row.get('color')=='red' for row in page['rows'])
 assert rows['alert_dispatcher']['status']=='ok'
 assert rows['automation_alerts']['status']=='ok'
 assert rows['feed']['status']=='ok' and rows['feed']['value']==expected['decision']+' · 0 sessions behind'

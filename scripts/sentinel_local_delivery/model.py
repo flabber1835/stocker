@@ -9,7 +9,8 @@ from pathlib import Path
 import re
 import tempfile
 
-SCHEMA = 'sentinel.local-paper-delivery/2'
+SCHEMA = 'sentinel.local-paper-delivery/3'
+PREVIOUS_SCHEMA = 'sentinel.local-paper-delivery/2'
 LEGACY_SCHEMA = 'sentinel.local-paper-delivery/1'
 LEGACY_STAGES = ('NEW', 'PREFLIGHT_PASS', 'STOP_REQUESTED', 'APPLICATIONS_STOPPED',
                  'SHADOW_STARTED', 'SHADOW_VERIFIED', 'START_REQUESTED', 'APPLICATIONS_STARTED', 'VERIFIED')
@@ -88,10 +89,15 @@ def atomic_json(path, value):
 
 
 def validate_request(value):
-    require(isinstance(value, dict) and set(value) == {
+    fields = {
         'schema', 'operation_id', 'source', 'deployment', 'predecessor',
-        'candidate', 'qualification', 'allowed_delta', 'created_at'}, 'REQUEST_SHAPE')
-    require(value['schema'] in {SCHEMA,LEGACY_SCHEMA}, 'REQUEST_SCHEMA')
+        'candidate', 'qualification', 'allowed_delta', 'created_at'}
+    require(isinstance(value,dict), 'REQUEST_SHAPE')
+    if value.get('schema')==SCHEMA:
+        fields.add('handoff_mode')
+    require(set(value)==fields, 'REQUEST_SHAPE')
+    require(value['schema'] in {SCHEMA,PREVIOUS_SCHEMA,LEGACY_SCHEMA}, 'REQUEST_SCHEMA')
+    require(handoff_mode(value) in {'PRE_OPEN','POST_TRADE'}, 'REQUEST_HANDOFF_MODE')
     require(isinstance(value['operation_id'], str) and
             re.fullmatch(r'[a-z0-9][a-z0-9-]{0,79}', value['operation_id']) is not None,
             'REQUEST_OPERATION_ID')
@@ -149,6 +155,10 @@ def validate_request(value):
     return value
 
 
+def handoff_mode(request):
+    return request.get('handoff_mode','PRE_OPEN')
+
+
 class Journal:
     """A single-operation stage journal with a checked digest-linked history."""
     def __init__(self, folder):
@@ -160,8 +170,8 @@ class Journal:
     def read(self):
         path = self.folder/'receipt.json'
         if not path.exists():
-            require(self.request['schema']==SCHEMA,'LEGACY_DELIVERY_CANNOT_RESUME')
-            return dict(schema=SCHEMA, operation_id=self.request['operation_id'],
+            require(self.request['schema'] in {SCHEMA,PREVIOUS_SCHEMA},'LEGACY_DELIVERY_CANNOT_RESUME')
+            return dict(schema=self.request['schema'], operation_id=self.request['operation_id'],
                         request_sha256=self.subject, stage='NEW', history=[], artifacts={})
         value = read_json(path)
         require(set(value) == {'schema', 'operation_id', 'request_sha256', 'stage',
@@ -189,7 +199,7 @@ class Journal:
         return value
 
     def advance(self, expected, stage, **artifacts):
-        require(self.request['schema']==SCHEMA,'LEGACY_DELIVERY_CANNOT_RESUME')
+        require(self.request['schema'] in {SCHEMA,PREVIOUS_SCHEMA},'LEGACY_DELIVERY_CANNOT_RESUME')
         current = self.read()
         require(current['stage'] == expected and STAGES.index(stage) == STAGES.index(expected)+1,
                 'RECEIPT_STAGE_CONFLICT')

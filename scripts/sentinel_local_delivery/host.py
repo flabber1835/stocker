@@ -11,7 +11,7 @@ import re
 import subprocess
 import uuid
 
-from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, atomic_json, digest, read_json, require
+from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, atomic_json, digest, handoff_mode, read_json, require
 
 SERVICES = ('sentinel-shadow', 'sentinel-automation', 'sentinel-panel',
             'sentinel-alert-dispatcher','sentinel-verifier','sentinel-execution-collector')
@@ -247,6 +247,8 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
             '--entrypoint','python',image,'-B','-c',code,json.dumps(config,sort_keys=True)],timeout=90).stdout)
 
     def verify_candidate(self):
+        require(handoff_mode(self.request)=='PRE_OPEN' or getattr(self,'supports_post_trade',False),
+                'POST_TRADE_BACKED_ADAPTER_REQUIRED')
         selected = self.request['candidate']; old = self.request['predecessor']
         require(self.git('rev-parse','HEAD')==selected['commit']
                 and not self.git('status','--porcelain'), 'CANDIDATE_SOURCE_NOT_CLEAN')

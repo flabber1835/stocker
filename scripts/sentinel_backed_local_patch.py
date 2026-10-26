@@ -48,6 +48,7 @@ def postgres_facts(item):
 
 
 class BackedHost(Host):
+    supports_post_trade = True
     def __init__(self, request, operation_dir, *, predecessor_receipt=None):
         super().__init__(request,operation_dir)
         built = self.operation_dir/'build.json'
@@ -184,7 +185,7 @@ def main(argv=None):
                 predecessor=built['foundation'],candidate=dict(commit=built['commit'])),folder)
             cli.prepare(operation_dir=folder,build_record=args.build_record,build_sha256=args.build_sha256,
                 operation_id=args.operation_id,host_type=BackedHost,
-                baseline_reader=lambda path:active_baseline(path,host))
+                baseline_reader=lambda path:active_baseline(path,host),handoff_mode=args.handoff_mode)
             output=cli.status(folder)
         elif args.command=='status':output=cli.status(folder)
         else:

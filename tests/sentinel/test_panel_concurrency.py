@@ -46,19 +46,14 @@ def test_http_builds_share_one_slot(monkeypatch, owner, contender):
         assert entered.wait(3)
         try:
             second = pool.submit(client.get, contender)
-            try:
-                response = second.result(timeout=2)
-            except TimeoutError:
-                pytest.fail('contending request entered or waited for the expensive build')
-            assert response.status_code == 503
-            assert response.headers['retry-after'] == '5'
-            assert response.headers['cache-control'] == 'no-store'
-            if contender == '/':
-                assert 'http-equiv="refresh"' in response.text
-            else:
-                assert response.json()['status'] == 'UNKNOWN'
+            with pytest.raises(TimeoutError):
+                second.result(timeout=.05)
             assert len(calls) == 1
             assert client.get('/health').status_code == 200
+            release.set()
+            response = second.result(timeout=3)
+            assert response.status_code == 200
+            assert response.headers['cache-control'] == 'no-store'
         finally:
             release.set()
             first.result(timeout=3)
@@ -94,6 +89,7 @@ def test_deployed_panel_cannot_multiply_workers():
 
 @pytest.mark.parametrize('contender', ROUTES)
 def test_contending_phone_keeps_last_known_but_machine_health_never_reuses_it(monkeypatch, contender):
+    monkeypatch.setattr(panel_app.singleflight,'WAIT_SECONDS',.03)
     entered, release = Event(), Event()
     calls = []
     value = model.Panel(rows=[model.Row('position', 'Position', 'Retained holding', model.OK)],
@@ -154,3 +150,30 @@ def test_removed_presentation_allocation_guard_is_detected(monkeypatch):
     monkeypatch.setattr(panel_app.last_known, 'remember', namespace['remember'])
     with pytest.raises(AssertionError):
         test_last_known_presentation_has_a_strict_allocation_bound()
+
+
+def test_single_build_guard_has_a_falsifier(monkeypatch):
+    import textwrap
+    source=textwrap.dedent(inspect.getsource(panel_app.singleflight.Builds.read))
+    namespace=dict(panel_app.singleflight.__dict__)
+    exec(compile(source.replace('owner = flight is None','owner = True'),
+                 'removed single build guard','exec'),namespace)
+    monkeypatch.setattr(panel_app.singleflight.Builds,'read',namespace['read'])
+    with pytest.raises(AssertionError):
+        test_http_builds_share_one_slot(monkeypatch,'/','/panel.json')
+
+
+def test_inflight_request_cannot_cross_configuration(monkeypatch):
+    entered,release=Event(),Event()
+    coordinator=panel_app.singleflight.Builds()
+    def build():
+        entered.set();assert release.wait(3);return 'first'
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first=pool.submit(coordinator.read,'first',build)
+        assert entered.wait(1)
+        try:
+            with pytest.raises(panel_app.singleflight.BuildUnavailable,match='configuration'):
+                coordinator.read('other',lambda:'foreign')
+        finally:release.set()
+        assert first.result(timeout=2)=='first'
+    assert coordinator.read('other',lambda:'new')=='new'

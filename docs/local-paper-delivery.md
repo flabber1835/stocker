@@ -122,7 +122,12 @@ delivery operations. Inspect `status` and retained evidence after interruption.
 | `APPLICATIONS_STARTED` | Verify six healthy exact-image roles, advancing leadership, unchanged holdings/history and a fresh green dashboard with the same saved plan. |
 | `VERIFIED` | This operation completed at its recorded time; retain its receipt as a historical installation witness. |
 
-New requests use `sentinel.local-paper-delivery/2`. Completed version-1 receipts
+New requests use `sentinel.local-paper-delivery/3`, with an explicit
+`handoff_mode=PRE_OPEN` by default. The backed adapter also accepts
+`prepare --handoff-mode POST_TRADE` under the distinct
+[completed-cycle contract](dashboard-posttrade-recovery.md). Version-2 requests
+retain their original PRE_OPEN meaning and original handoff clocks; an expired
+deferred request cannot become a post-trade operation. Completed version-1 receipts
 retain their original eight-transition historical scope; an unfinished version-1
 operation cannot resume under the new coordinator.
 
