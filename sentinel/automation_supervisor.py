@@ -9,6 +9,7 @@ through the existing lease and recovery protocol.
 from __future__ import annotations
 
 import math
+import errno
 import os
 import signal
 import socket
@@ -209,7 +210,16 @@ def main() -> int:
 
     while not stopping:
         holder_id = _holder_id()
-        child = _spawn(holder_id)
+        try:
+            child = _spawn(holder_id)
+        except (TimeoutError, OSError) as exc:
+            if not isinstance(exc, TimeoutError) and exc.errno not in {errno.EAGAIN, errno.ENOMEM}:
+                raise
+            supervisor_io.report(
+                'automation supervisor launch deferred: ' + type(exc).__name__,
+                file=sys.stderr)
+            time.sleep(min(1.0, poll_seconds))
+            continue
         started = time.monotonic()
         watch = CallbackWatch()
         database_unreadable_since: float | None = None

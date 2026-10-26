@@ -195,7 +195,8 @@ def test_configuration_drift_foreign_image_or_panel_credentials_refuse(failure):
 
 
 def test_host_verification_contract_covers_every_runtime_subject_key():
-    tree = ast.parse((ROOT/'sentinel/panel/read_projection.py').read_text(encoding='utf-8'))
+    import sentinel
+    tree = ast.parse((Path(sentinel.__file__).parent/'panel/read_projection.py').read_text(encoding='utf-8'))
     assignment = next(node for node in tree.body if isinstance(node, ast.Assign)
         and any(isinstance(target, ast.Name) and target.id == 'SUBJECT_ENV' for target in node.targets))
     assert evidence._VERIFICATION_SUBJECT_ENV == frozenset(ast.literal_eval(assignment.value.args[0]))

@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[Bounded database recovery](database-recovery-local-patch.md) records the owner's
+2026-10-26 local patch exception and its backed application-roll requirements.
+
 Current owner instruction: backed-up PAPER releases through CI and PR delivery.
 The 2026-10-24 [release restoration decision](paper-backed-release-20261024.md)
 supersedes the earlier backup suspension and direct local delivery exception.

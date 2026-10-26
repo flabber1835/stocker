@@ -101,10 +101,17 @@ def snapshot(host):
     values = host.load_values()
     require(current['system'] == host.request['predecessor']['system'],
             'PostgreSQL physical system identity changed')
-    require(current['archive_mode'] == 'off'
-            and current['archive_command'] in ('', '(disabled)')
-            and current['fsync'] == 'on' and current['full_page_writes'] == 'on',
-            'Database durability or suspended archive policy changed')
+    if values.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY') == 'REQUIRED_V1':
+        require(current['archive_mode'] == 'on' and bool(current['archive_command'])
+            and 'archive_command='+current['archive_command'] in host.request['predecessor']['postgres']['command'],
+            'Backed database archive policy changed')
+    else:
+        require(not values.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')
+            and current['archive_mode'] == 'off'
+            and current['archive_command'] in ('', '(disabled)'),
+            'Database suspended archive policy changed')
+    require(current['fsync'] == 'on' and current['full_page_writes'] == 'on',
+            'Database durability changed')
     require(control['enabled'] is True and control['kill_switch_engaged'] is False
             and control['authority_verdict'] == 'PASS'
             and control['broker'] == 'alpaca'

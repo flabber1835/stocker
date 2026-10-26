@@ -428,15 +428,23 @@ class AutomationService:
             self, *, now: datetime, conn_factory,
             clock: Callable[[], datetime] | None = None) -> datetime:
         """Bind host scheduling time to fresh PostgreSQL wall time."""
-        clock_conn = conn_factory()
+        from sentinel.dependency_availability import database_unavailable
+        clock_conn = None
         try:
+            clock_conn = conn_factory()
             outer_start = time.monotonic()
             before = _utc(clock()) if clock is not None else now
             query_start = time.monotonic()
             database_now = _utc(integrity.database_now(clock_conn))
             query_end = time.monotonic()
+        except Exception as exc:
+            if database_unavailable(exc):
+                raise TransientInfrastructureFailure(
+                    'fresh database clock unavailable: ' + type(exc).__name__) from exc
+            raise
         finally:
-            clock_conn.close()
+            if clock_conn is not None:
+                clock_conn.close()
         after = _utc(clock()) if clock is not None else now
         outer_end = time.monotonic()
         limit = float(self.config.maximum_clock_skew_seconds)
@@ -1764,7 +1772,16 @@ class AutomationService:
         ticks = 0
         idle_permit: LeaderPermit | None = None
         while not stop.is_set() and (max_ticks is None or ticks < max_ticks):
-            conn = conn_factory()
+            try:
+                conn = conn_factory()
+            except Exception as exc:
+                from sentinel.dependency_availability import database_unavailable
+                if not database_unavailable(exc):
+                    raise
+                idle_permit = None
+                await sleep(min(self.config.heartbeat_seconds,
+                                self.config.control_poll_seconds))
+                continue
             try:
                 now = _utc(clock())
                 try:

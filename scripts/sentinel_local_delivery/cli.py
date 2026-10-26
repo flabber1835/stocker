@@ -15,7 +15,8 @@ from .model import (DeliveryRefused, Journal, SCHEMA, read_json, require,
 from .qualification import sha256_file, validate_report
 
 
-def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_type=Host):
+def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_type=Host,
+            baseline_reader=None):
     folder = builder.safe_directory(operation_dir)
     require(not (folder/'request.json').exists() and not (folder/'receipt.json').exists(),
             'DELIVERY_OPERATION_ALREADY_PREPARED')
@@ -32,7 +33,7 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
         and sha256_file(built['log']) == built['log_sha256'], 'BUILD_ARTIFACTS_CHANGED')
     predecessor = built['predecessor_receipt']
     require(sha256_file(predecessor['path']) == predecessor['sha256'], 'PREDECESSOR_RECEIPT_CHANGED')
-    old = builder.baseline(predecessor['path'])
+    old = (baseline_reader or builder.baseline)(predecessor['path'])
     require(old == built['foundation'], 'BUILD_FOUNDATION_CHANGED')
     qualified = built['qualification']
     report = validate_report(qualified['report_path'],qualified['report_sha256'],built['source'],
