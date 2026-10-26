@@ -67,7 +67,7 @@ def test_original_sizing_intent_survives_weekend_without_freshness_claim():
         now=NOW+timedelta(days=2)).trades==0
 
 
-@pytest.mark.parametrize('fault',['fingerprint','account','incomplete','future_snapshot','duplicate','opening_held'])
+@pytest.mark.parametrize('fault',['fingerprint','account','incomplete','future_snapshot','duplicate','opening_held','empty_opening_frame'])
 def test_original_sizing_preview_refuses_contradictory_authority(fault):
     selected,authority=original_authority()
     if fault=='fingerprint':authority['plan_fingerprint']='b'*64
@@ -75,10 +75,22 @@ def test_original_sizing_preview_refuses_contradictory_authority(fault):
     elif fault=='incomplete':authority['broker_observation']['completeness']='INCONSISTENT'
     elif fault=='future_snapshot':authority['broker_observation']['observed_at']=NOW+timedelta(seconds=1)
     elif fault=='duplicate':authority['broker_observation']['positions']*=2
+    elif fault=='empty_opening_frame':selected['opening_intents']={}
     else:
         selected['target_basket']['one']='0'
         selected['opening_intents']=[dict(security_id='one',slot_id=0,intended_dollars='2000')]
     with pytest.raises(ValueError):preview.project_original_intent(selected,authority)
+
+
+def test_empty_opening_frame_guard_has_a_falsifier(monkeypatch):
+    import inspect
+    source=inspect.getsource(preview.project_original_intent).replace(
+        'elif not isinstance(openings,dict) or not openings:', 'elif False:')
+    namespace=dict(preview.__dict__)
+    exec(compile(source,'removed original opening-frame guard','exec'),namespace)
+    monkeypatch.setattr(preview,'project_original_intent',namespace['project_original_intent'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_original_sizing_preview_refuses_contradictory_authority('empty_opening_frame')
 
 
 @pytest.mark.parametrize('legacy', [[], [('one','CONFLICT')]])

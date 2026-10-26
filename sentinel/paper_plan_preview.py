@@ -153,13 +153,15 @@ def project_original_intent(plan, authority):
             raise ValueError('duplicate original position')
         positions[sid] = quantity(item['quantity'])
     selected = dict(plan)
-    openings = selected.get('opening_intents') or []
+    openings = selected.get('opening_intents',[])
     if isinstance(openings,list):
         if openings:
             selected['opening_intents'] = dict(kind='plan-opening-intents/v1',plan_id=plan['plan_id'],
                 plan_fingerprint=plan['plan_fingerprint'],intents=openings)
         else:
             selected.pop('opening_intents',None)
+    elif not isinstance(openings,dict) or not openings:
+        raise ValueError('original plan opening intent is malformed')
     if any(positions.get(item['security_id'],Decimal(0)) != 0
            for item in selected.get('opening_intents',{}).get('intents',[])):
         raise ValueError('original plan has contradictory opening intents')
