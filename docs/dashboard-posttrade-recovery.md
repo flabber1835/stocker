@@ -169,3 +169,16 @@ existing behavior. Prove slow benchmark iteration, exact deadline exhaustion,
 expired individual work and fence loss on real private PostgreSQL, plus a
 falsifier removing the checkpoints. Do not clear the current critical incident
 until its underlying cause is repaired and the operator recovery contract passes.
+
+For an inspected critical publisher incident that prevents ordinary healthy
+application handoff, the operator may use the existing broker-free `shadow-run
+--once` entry with the exactly qualified, physically and semantically restored
+candidate image. Stop the latched shadow service first and hold its persistent
+publisher owner lock for the complete foreground invocation. Retain both
+incident markers throughout this repair. Use the unchanged operational account,
+source configuration and original durable job deadlines; no execution entry or
+authority/control mutation is part of this operation. Record the exact image,
+outcome and original incident bytes. Only after current source and canonical
+shadow verification succeeds may the operator archive both markers under the
+existing incident-clearance rule and restart the service. Ordinary healthy
+PRE_OPEN handoff requirements still apply to installing the full application.
