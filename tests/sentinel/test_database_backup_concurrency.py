@@ -56,7 +56,7 @@ async def test_real_connection_timeouts_recover_during_private_base_backup(conn,
                 assert time.monotonic()<deadline
                 await asyncio.sleep(.05)
             conn.rollback()
-            connections=[]; sleeps=[]; recovered=[]
+            connections=[]; sleeps=[]; recovered=tmp_path/'recovered.txt'
             def connect():
                 connections.append(True)
                 if len(connections) in {2,4}:
@@ -65,13 +65,13 @@ async def test_real_connection_timeouts_recover_during_private_base_backup(conn,
                         user='postgres',dbname='private-timeout-probe',connect_timeout=2)
                 return feed_store.connect(pg.sync_dsn)
             async def recover(context):
-                recovered.append(True)
+                recovered.write_text('fresh clock recovered')
                 return recovery_success(context)
             async def unexpected(context):raise AssertionError('provider/broker callback before valid sample')
             service=service_for(cfg,recover=recover,refresh=unexpected,prepare=unexpected,execute=unexpected)
             async def pause(seconds):
                 sleeps.append(seconds)
-                assert not recovered and backup.poll() is None
+                assert not recovered.exists() and backup.poll() is None
                 assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0]==0
                 assert conn.execute('SELECT holder_id FROM sentinel_automation_lease WHERE id=1').fetchone()[0] is None
                 assert conn.execute('SELECT count(*) FROM sentinel_automation_cycles').fetchone()[0]==0
@@ -81,7 +81,7 @@ async def test_real_connection_timeouts_recover_during_private_base_backup(conn,
                 sleep=pause,max_ticks=3)==3
             assert len(accepted)==2 and len(sleeps)==2
             assert all(0<delay<=cfg.heartbeat_seconds for delay in sleeps)
-            assert recovered==[True] and backup.poll() is None
+            assert recovered.read_text()=='fresh clock recovered' and backup.poll() is None
             assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0]==0
             conn.rollback()
             assert backup.wait(timeout=90)==0,log.read_text()

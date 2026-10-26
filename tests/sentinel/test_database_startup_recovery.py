@@ -111,3 +111,25 @@ def test_removing_database_classifier_is_detected(monkeypatch):
     monkeypatch.setattr(module,'database_unavailable',lambda exc:False)
     with pytest.raises(psycopg.errors.ConnectionTimeout):
         test_connection_failure_cannot_invent_a_clock_sample(monkeypatch)
+
+
+def test_stop_during_failed_replacement_cannot_target_a_reaped_session(monkeypatch):
+    handlers={}; attempts=[]; killed=[]; pauses=[]
+    old=SimpleNamespace(pid=12345,poll=lambda:0)
+    monkeypatch.setattr(supervisor.SentinelConfig,'from_env',lambda:SimpleNamespace(database_url='private'))
+    monkeypatch.setattr(supervisor,'config_from_env',lambda:object())
+    monkeypatch.setattr(supervisor.signal,'signal',lambda n,handler:handlers.setdefault(n,handler))
+    monkeypatch.setattr(supervisor.supervisor_io,'report',lambda *a,**k:None)
+    monkeypatch.setattr(supervisor.supervisor_io,'run',lambda *a,**k:None)
+    monkeypatch.setattr(supervisor,'_terminate',lambda child:killed.append(child.pid))
+    def spawn(holder):
+        attempts.append(holder)
+        if len(attempts)==1:return old
+        raise TimeoutError('replacement holder unavailable')
+    def pause(seconds):
+        pauses.append(seconds)
+        if len(pauses)==2:handlers[supervisor.signal.SIGTERM](None,None)
+    monkeypatch.setattr(supervisor,'_spawn',spawn)
+    monkeypatch.setattr(supervisor.time,'sleep',pause)
+    assert supervisor.main()==0
+    assert len(attempts)==2 and killed==[12345]

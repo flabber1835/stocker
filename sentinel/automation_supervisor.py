@@ -297,6 +297,9 @@ def main() -> int:
 
         if stopping:
             break
+        # The old session was reaped. A failed next launch must not leave a
+        # stale PID available to the stop handler after that PID is reused.
+        child = None
         time.sleep(min(1.0, poll_seconds))
 
     if child is not None:
