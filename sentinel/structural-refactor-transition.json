@@ -397,7 +397,7 @@
     "automation_recovery.py": "798a7c79afff42ccd05724bf1c4061677c73470b10e8f8129ba3f1d3810c7d5b",
     "automation_resilience.py": "f5a5e7ce395b494e48fde85bab01995b4e3be1d12454508aae4084d8491731a6",
     "automation_runtime.py": "41ec879535c2b9d758ff8798dc0a049592a57f1f0d40da10a94d4f7e10729a71",
-    "automation_supervisor.py": "4fe844ef5fa599ec600afea69697e05f5156832d1f57ee78d5c143701d381194",
+    "automation_supervisor.py": "6360a9cd2401df18cdf2cadbae4389821adc4e3d7cf5e075f5e2b21bc5784bdd",
     "automation_worker.py": "29789548d282a0867dd4b258c9f38908c7b301670adae280437d0049ab8d9570",
     "autonomy_runtime_upgrade.py": "9a25f82d6e9f73f699be5773cdd2982f9f5e9032d23eb00dee4ae5b8907a691f",
     "backed_paper_source.py": "4fa844f7c13d017a9306ba858c2770a7347989e7971b8b16e59a1a802763e40a",
