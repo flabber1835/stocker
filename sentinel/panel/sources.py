@@ -3079,6 +3079,9 @@ def build_panel(*, state_dir: Path, database_url: str,
     errors.extend(runtime_errs)
     automation_rows, automation_errs = _automation_rows(database_url)
     errors.extend(automation_errs)
+    feed_rows, automation_rows = postclose_feed_wait.project_progress(
+        feed_rows, automation_rows, financial_rows, worker,
+        now=fixed_now or datetime.now(timezone.utc))
     operator_rows, operator_errs = _operator_evidence_rows(
         database_url, now=now)
     errors.extend(operator_errs)

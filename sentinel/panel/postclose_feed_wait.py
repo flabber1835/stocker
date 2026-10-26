@@ -63,3 +63,54 @@ def project(row: model.Row, wait: ClosingDataWait | None, *, frontier: str | Non
         valid_until=deadline,
         recovery=model.RecoveryEvidence(phase='POST_CLOSE_SOURCE_WAIT', automatic=True,
                                         deadline=deadline))
+
+
+def publication_deadline(financial_rows, worker, *, now):
+    """Only a scoped signed publication result and fresh publisher explain work."""
+    values={row.key:row for row in financial_rows}
+    row=values.get('shadow_verification')
+    if (len(values)!=len(financial_rows) or worker is None or worker.key!='shadow_worker'
+            or worker.effective_status(now)!=model.OK or not worker.required_current
+            or worker.as_of is None or worker.valid_until is None or row is None
+            or row.status!=model.WARN or row.effective_status(now)!=model.WARN
+            or not row.required_current or row.as_of is None or row.recovery is None
+            or row.recovery.phase!='SOURCE_PUBLICATION' or not row.recovery.active(now)
+            or row.valid_until!=row.recovery.deadline):
+        return None
+    decision=calendar.latest_closed_session(now)
+    opened=calendar.session_window(calendar.next_session(decision))[0]
+    return row.valid_until if calendar.session_window(decision)[1]<=now<row.valid_until<opened else None
+
+
+def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now):
+    """Withdraw old PASS; preserve failures while confirmed publication runs."""
+    publication=publication_deadline(financial_rows,worker,now=now)
+    if publication is not None:
+        feed_rows=[replace(row,status=model.WARN,value='DATA PUBLICATION IN PROGRESS',
+            detail=('Live atomic publisher confirmed; last committed progress '
+                    f'{row.as_of.isoformat() if row.as_of else "unavailable"} · {row.detail}'),
+            valid_until=publication,recovery=model.RecoveryEvidence(
+                phase='SOURCE_PUBLICATION',automatic=True,deadline=publication))
+            if row.key in {'feed','ingest'} and row.status==model.WARN
+                and row.recovery is not None and row.recovery.phase=='FEED_INGEST'
+            else row for row in feed_rows]
+    wait=from_rows(financial_rows,worker,now=now)
+    deadline=wait.deadline if wait is not None else publication
+    values={row.key:row for row in automation_rows}
+    control,cycle=values.get('automation'),values.get('automation_cycle')
+    if (deadline is None or control is None or control.effective_status(now)!=model.OK
+            or cycle is None or cycle.status!=model.WARN
+            or cycle.effective_status(now)!=model.WARN or cycle.recovery is None
+            or cycle.recovery.phase not in {'AUTOMATION_REFRESHING_DATA','AUTOMATION_REFRESH_AVAILABILITY'}
+            or not cycle.recovery.active(now) or cycle.recovery.deadline is None):
+        return feed_rows,automation_rows
+    deadline=min(deadline,cycle.recovery.deadline)
+    automation_rows=[replace(row,status=model.WARN,value='RECHECK PENDING AFTER DATA',
+        detail='Previous PASS is not current execution authority; automatic refresh must '
+               'finish before fresh trading checks. Last recorded check: '+row.detail,
+        valid_until=deadline,recovery=model.RecoveryEvidence(
+            phase='AUTHORITY_RECHECK_AFTER_DATA',automatic=True,deadline=deadline))
+        if row.key=='authority' and row.status==model.OK and row.as_of is not None
+            and row.is_stale(now) and not row.is_future(now)
+        else row for row in automation_rows]
+    return feed_rows,automation_rows

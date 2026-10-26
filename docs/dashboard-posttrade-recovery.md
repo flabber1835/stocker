@@ -125,3 +125,25 @@ canonical authority locks and retained source GO locks. An incomplete, altered,
 foreign or cyclic predecessor grants no installation permission. This does not
 reopen old operations or bypass current-source, restore, idle handoff or readiness
 gates. Wait for acquisition and publication to reach their supported idle state.
+
+Long atomic candidate writes renew their job lease inside the publishing
+transaction. Other readers see the last committed heartbeat, so that timestamp
+alone cannot classify the writer as stalled. After the observer's existing
+bounded corpus-pin retries exhaust, only the actual CorpusLockUnavailable type
+may produce a publication-wait result. Require the current operational job's
+validated request/hash and closed-session target, original immutable deadline,
+registered owner, and a live transaction updating that exact job tuple while
+holding the corpus writer lock. Match pg_stat_activity.backend_xid to the visible
+tuple's xmax, plus the granted exclusive advisory lock; an arbitrary live backend
+or an expired committed lease alone is insufficient. No lease is revived.
+
+This signed display result contains no portfolio values, holdings, completed
+financial verification or GO. It names publication in progress until the earlier
+of the original job deadline and actual next-session open. Recheck the normal
+subject before/after observation. Missing/foreign/dead writer evidence, negative
+job states, wrong targets and other exceptions retain the original refusal.
+The independent fresh publisher row remains required. During that proven state,
+only raw WARN ingest/building rows may reuse its fixed deadline. A still-positive
+but aged authority verdict may become "recheck pending after data" only during a
+healthy bounded automatic refresh; it loses PASS styling. Lifecycle failures,
+negative/unknown verdicts, stopped workers and other red rows remain red.
