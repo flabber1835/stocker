@@ -1,6 +1,7 @@
 """Real exception classes and public loops at the two incident boundaries."""
 import asyncio
 import errno
+import inspect
 from types import SimpleNamespace
 
 import psycopg
@@ -133,3 +134,15 @@ def test_stop_during_failed_replacement_cannot_target_a_reaped_session(monkeypat
     monkeypatch.setattr(supervisor.time,'sleep',pause)
     assert supervisor.main()==0
     assert len(attempts)==2 and killed==[12345]
+
+
+def test_stale_process_identity_guard_has_a_falsifier(monkeypatch):
+    raw=inspect.getsource(supervisor.main)
+    needle='        child = None\n'
+    assert raw.count(needle)==1
+    namespace={}
+    exec(compile(raw.replace(needle,''),'<removed stale session guard>','exec'),
+        supervisor.main.__globals__,namespace)
+    monkeypatch.setattr(supervisor,'main',namespace['main'])
+    with pytest.raises(AssertionError):
+        test_stop_during_failed_replacement_cannot_target_a_reaped_session(monkeypatch)
