@@ -213,7 +213,13 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
         assert plan.target_basket and not http.orders
         from sentinel import paper_plan_preview
         preview = paper_plan_preview.read(conn)
-        assert preview is not None and preview.plan_id==plan.plan_id
+        # The generated business clock can still be before today's open while
+        # the real database clock is already after it. The public next-open
+        # reader must retain its real-clock stale-plan refusal in that case.
+        if conn.execute('SELECT clock_timestamp()<%s', (cycle.execute_at,)).fetchone()[0]:
+            assert preview is not None and preview.plan_id==plan.plan_id
+        else:
+            assert preview is None
         conn.rollback()
         cycle = transition(CycleState.WAITING_OPEN)
         clock.instant = cycle.execute_at+timedelta(seconds=1)

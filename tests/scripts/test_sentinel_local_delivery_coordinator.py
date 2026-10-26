@@ -168,6 +168,35 @@ def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(oper
     assert delivery.advance()==receipt and host.canonical_count==3
 
 
+@pytest.mark.parametrize('changed', [False, True])
+def test_posttrade_native_positions_must_match_settled_reconciliation(operation, monkeypatch, changed):
+    host, journal, delivery = operation
+    selected = dict(host.request, handoff_mode='POST_TRADE')
+    model.atomic_json(journal.folder/'request.json', selected)
+    host.request = selected
+    delivery.journal = model.Journal(journal.folder)
+    settled = dict(host.native)
+    if changed:
+        settled['native-id'] = '18'
+    monkeypatch.setattr(coordinator.evidence, 'canonical_check',
+        lambda *_args: {'settled_native_positions': settled})
+    if changed:
+        with pytest.raises(model.DeliveryRefused, match='POST_TRADE_NATIVE_RECONCILIATION_CHANGED'):
+            delivery.step()
+        assert delivery.journal.read()['stage'] == 'NEW'
+        assert not any(isinstance(call, tuple) for call in host.calls)
+    else:
+        assert delivery.step()['stage'] == 'PREFLIGHT_PASS'
+
+
+def test_removing_posttrade_native_comparison_has_a_falsifier(operation, monkeypatch):
+    original = coordinator.require
+    monkeypatch.setattr(coordinator, 'require', lambda value, reason:
+        None if reason == 'POST_TRADE_NATIVE_RECONCILIATION_CHANGED' else original(value, reason))
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_posttrade_native_positions_must_match_settled_reconciliation(operation, monkeypatch, True)
+
+
 @pytest.mark.parametrize('lost_ack',['stop','compose','install','shadow','apps'])
 def test_lost_ack_resumes_only_exact_current_stage(operation,lost_ack):
     host,journal,delivery=operation;host.fail_after=lost_ack

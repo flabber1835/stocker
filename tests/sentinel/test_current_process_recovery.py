@@ -133,7 +133,8 @@ def test_current_protected_day_survives_two_callback_deaths_without_duplicate_ec
             cycle = transition(CycleState.EXECUTING)
             print('CURRENT_PROCESS_RECOVERY accepted-partial response-loss SIGKILL', flush=True)
             with pytest.raises((SoftwareDefect, EOFError)):
-                invoke(campaign.execute, 'EXECUTE')
+                unexpected = invoke(campaign.execute, 'EXECUTE')
+                pytest.fail('callback returned before the injected broker fault: '+repr(unexpected))
             first = provider.snapshot()
             assert len(first['state']['orders']) == 1 and len(first['state']['events']) == 1
             key = first['first_key']

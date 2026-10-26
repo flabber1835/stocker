@@ -67,3 +67,12 @@ settled/current-session admission and refusal, completed fill/history preservati
 and source identity. Retain private physical/semantic restore and actual old/new
 canonical/runtime evidence before local application handoff; update existing PR
 540 without waiting for CI or merging it, as the owner authorized.
+
+The broad private composition uses synthetic market time with real PostgreSQL
+lease/mutation clocks. Its generated, initially empty account binding must
+predate its synthetic first observation, including when CI runs after the open.
+Seed that historical binding date before installing evidence projections; never
+change a production binding, lease clock, observation or admission guard. The
+next-open HTTP reader still excludes a plan when its execution time has already
+passed on the actual database clock. These tests prove callback composition,
+not actual exchange opening latency.

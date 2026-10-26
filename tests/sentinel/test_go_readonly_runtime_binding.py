@@ -25,6 +25,7 @@ NOW = datetime(2026, 10, 8, 10, tzinfo=timezone.utc)
 @pytest.mark.parametrize('nondefault_book', [False, True], ids=['default-book', 'configured-book'])
 def test_production_readers_receive_selected_certified_identity(monkeypatch, phased, installed_contract, nondefault_book):
     """Ambient identity must not replace the Git/certification observations."""
+    monkeypatch.delenv('SENTINEL_TEST_IMAGE_DIGEST', raising=False)
     gate = lambda name: go.make_gate(name, go.PASS, go._utc_text(NOW), {'fixture': True})
     tests = go.TestSummary(IMAGE, IMAGE, IDENTITY, passed=1, exit_code=0,
         suites_completed=3, non_forward_historical_exclusions=go.NON_FORWARD_HISTORICAL_EXCLUSIONS)
@@ -72,7 +73,8 @@ def test_production_readers_receive_selected_certified_identity(monkeypatch, pha
             assert env['SENTINEL_RUNTIME_IMAGE_REF'] == IMAGE
             assert not set(env) & go._BROKER_AUTH_ENV
             forwarded = [argv[index + 1] for index, part in enumerate(argv) if part == '--env']
-            expected = ['SENTINEL_GIT_COMMIT', 'SENTINEL_RUNTIME_IMAGE_DIGEST']
+            expected = ['SENTINEL_GIT_COMMIT', 'SENTINEL_RUNTIME_IMAGE_DIGEST',
+                        'SENTINEL_TEST_IMAGE_DIGEST']
             if nondefault_book:
                 expected += ['SENTINEL_SHADOW_OBSERVATION_ID', 'SENTINEL_SHADOW_STARTING_CASH']
                 assert env['SENTINEL_SHADOW_OBSERVATION_ID'] == 'configured-book'

@@ -3,6 +3,7 @@
 No legacy autouse guard substitutions, production credentials or existing data.
 The host independently qualifies the exact deliverable image after this workflow.
 """
+from datetime import timedelta
 from decimal import Decimal
 import hashlib
 import json
@@ -97,8 +98,17 @@ def current(conn, monkeypatch):
     monkeypatch.setenv('SENTINEL_SHADOW_STARTING_CASH','50000')
     monkeypatch.setenv('SENTINEL_DATABASE_URL',conn.info.dsn)
     monkeypatch.delenv('SENTINEL_FEED_SERVICE_MODE', raising=False)
+    clock,closed = prospective_clock(monkeypatch)
     binding.bind(conn, deployment_id='isolated-current-workflow', broker='alpaca',
                  broker_account_id=ACCOUNT)
+    # This is generated account inception, before any observations/projections.
+    # Its native business observations may represent this morning even when
+    # CI starts in the afternoon. Keep real DB lease/mutation clocks untouched.
+    assert conn.info.dbname.startswith('operational_')
+    assert conn.execute('SELECT count(*) FROM sentinel_observations').fetchone()[0] == 0
+    assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
+    conn.execute('UPDATE sentinel_account_binding SET established_at=%s WHERE id=1',
+                 (clock.now()-timedelta(days=1),))
     conn.commit()
     operational_schema.install_quiescent(conn)
     from sentinel.execution import journal
@@ -118,7 +128,6 @@ def current(conn, monkeypatch):
             break
     else:
         raise AssertionError('bounded mirror bootstrap did not complete')
-    clock,closed = prospective_clock(monkeypatch)
     prices = BroadPrices(CurrentFormationWindow.through(closed),clock)
     monkeypatch.setattr(publisher_pipeline, '_operational_source',
         lambda window, conn, lease, **kw: AlpacaSource(window, conn, lease,

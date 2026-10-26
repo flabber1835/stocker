@@ -48,6 +48,8 @@ def checkpoint_query():
 
 
 def assert_checkpoint_update_detected(conn,query):
+    from sentinel.schema import ensure_schema
+    ensure_schema(conn)
     conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
         "VALUES ('rolling-daily-checkpoint:v1','2031-04-21',jsonb_build_object('large',repeat('checkpoint',1000000)))")
     conn.commit();before=conn.execute(query).fetchone()[0];conn.rollback()

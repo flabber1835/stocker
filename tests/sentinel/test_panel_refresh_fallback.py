@@ -109,6 +109,8 @@ def test_reverting_status_separation_reproduces_the_phone_screenshot():
 @pytest.mark.parametrize('negative', [False, True])
 def test_actual_busy_http_response_retains_facts_without_inventing_failures(monkeypatch, negative):
     app = importlib.import_module('sentinel.panel.app')
+    # Exercise the stalled-build fallback after the finite joining wait.
+    monkeypatch.setattr(app.singleflight, 'WAIT_SECONDS', 0.02)
     entered, release = Event(), Event()
     panel = healthy_panel()
     if negative:
