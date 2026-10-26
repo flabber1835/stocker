@@ -59,7 +59,12 @@ current-source backup maintenance owner; do not falsify an installation or
 signed authority receipt. Keep the old release/evidence recoverable. Completion
 requires healthy exact-image roles, advancing leadership, preserved future plan,
 healthy recurring maintenance and genuinely green finite dashboard receipts.
-Only then acknowledge the reviewed recovered incidents, retaining their causes.
+Historical predecessor incidents may be acknowledged before preflight captures
+notification history, after independently confirming the old services recovered.
+Record the actual failure and qualification, and explicitly state that the new
+patch is still pending installation. This is owner-authorized incident review,
+not an assertion of deployment readiness. Capture those durable acknowledgements
+in the immutable handoff history; completion still requires every gate above.
 This is local PAPER operational qualification, not CI or live-money approval.
 
 The backed graph spells authorized service images as repository digests. A local
