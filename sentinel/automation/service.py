@@ -5,6 +5,8 @@ administration.  Its callbacks are supplied by the separately guarded runtime.
 """
 from __future__ import annotations
 
+from contextlib import closing
+
 import asyncio
 import ctypes
 import hashlib
@@ -429,22 +431,18 @@ class AutomationService:
             clock: Callable[[], datetime] | None = None) -> datetime:
         """Bind host scheduling time to fresh PostgreSQL wall time."""
         from sentinel.dependency_availability import database_unavailable
-        clock_conn = None
         try:
-            clock_conn = conn_factory()
-            outer_start = time.monotonic()
-            before = _utc(clock()) if clock is not None else now
-            query_start = time.monotonic()
-            database_now = _utc(integrity.database_now(clock_conn))
-            query_end = time.monotonic()
+            with closing(conn_factory()) as clock_conn:
+                outer_start = time.monotonic()
+                before = _utc(clock()) if clock is not None else now
+                query_start = time.monotonic()
+                database_now = _utc(integrity.database_now(clock_conn))
+                query_end = time.monotonic()
         except Exception as exc:
             if database_unavailable(exc):
                 raise TransientInfrastructureFailure(
                     'fresh database clock unavailable: ' + type(exc).__name__) from exc
             raise
-        finally:
-            if clock_conn is not None:
-                clock_conn.close()
         after = _utc(clock()) if clock is not None else now
         outer_end = time.monotonic()
         limit = float(self.config.maximum_clock_skew_seconds)

@@ -41,6 +41,28 @@ def test_clock_programming_error_still_escapes(monkeypatch):
         service._assert_clock_skew(now=clock(), conn_factory=failed, clock=clock)
 
 
+@pytest.mark.parametrize('error,expected', [
+    (psycopg.errors.ConnectionTimeout, TransientInfrastructureFailure),
+    (psycopg.ProgrammingError, psycopg.ProgrammingError),
+])
+def test_failed_clock_query_closes_owned_connection(monkeypatch, error, expected):
+    from sentinel.automation import integrity
+
+    service, state, clock, factory = sampler(monkeypatch)
+    def failed(_connection):
+        raise error('injected clock query failure')
+    monkeypatch.setattr(integrity, 'database_now', failed)
+    with pytest.raises(expected):
+        service._assert_clock_skew(now=clock(), conn_factory=factory, clock=clock)
+    assert state['sampling'] and state['closed']
+
+
+def test_missing_clock_connection_cannot_create_a_sample():
+    with pytest.raises(AttributeError):
+        service_for(config())._assert_clock_skew(
+            now=AFTER_WEDNESDAY_CLOSE, conn_factory=lambda: None)
+
+
 @pytest.mark.asyncio
 async def test_main_connection_outage_waits_then_uses_a_fresh_connection(monkeypatch):
     service = service_for(config())

@@ -86,3 +86,11 @@ never rewinds business time or changes PostgreSQL clocks. Refresh the native
 GET-only account snapshot in that phase before producing receipts. Receipt
 authentication, future-fact refusal and source-freshness checks remain active.
 This avoids certifying real database timestamps with a frozen earlier envelope.
+
+The clock sampler owns only a successfully allocated connection. Use a closing
+scope around that connection so both normal sampling and query failures close
+it, while allocation failures have nothing to close. Preserve availability
+classification and refuse invalid connection factories; no clock sample or
+scheduling progress can be created from a missing connection. This removes a
+structurally unreachable normal-return cleanup branch rather than excluding it
+from the automation branch-coverage requirement.
