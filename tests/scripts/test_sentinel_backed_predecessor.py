@@ -59,6 +59,7 @@ def complete(case, *, final_stage='VERIFIED', artifacts=None):
 def test_completed_patch_retains_original_activation_and_exact_candidate(chain):
     actual=patch.predecessor_witness(complete(chain))
     assert actual['git_commit']==NEW and actual['runtime_image']==NEW_IMAGE
+    assert actual['foundation_reference']=='sentinel-local-paper:'+NEW[:8]
     assert actual['control_generation']==50 and actual['certificate_sha256']=='c'*64
     assert actual['postgres']==chain['pg'] and actual['system']=='1234'
     assert actual['roots']==(chain['anchor_root'],chain['source'])
@@ -119,6 +120,16 @@ def test_foreign_signed_anchor_image_revision_is_refused(chain):
     with pytest.raises(patch.DeliveryRefused,match='RUNTIME_CHANGED'):
         patch.predecessor_witness(chain['anchor'],inspect_image=lambda ref:
             dict(Id=OLD_IMAGE,Config={'Labels':{'org.opencontainers.image.revision':NEW}}))
+
+
+def test_original_signed_foundation_reference_survives_image_resolution(chain):
+    value=json.loads(chain['anchor'].read_text())
+    value['runtime_image']='registry/sentinel@sha256:'+'9'*64
+    chain['anchor'].write_text(json.dumps(value))
+    actual=patch.predecessor_witness(chain['anchor'],inspect_image=lambda ref:
+        dict(Id=OLD_IMAGE,Config={'Labels':{'org.opencontainers.image.revision':OLD}}))
+    assert actual['runtime_image']==OLD_IMAGE
+    assert actual['foundation_reference']==value['runtime_image']
 
 
 def test_removing_exact_candidate_image_guard_is_detected(chain,monkeypatch):

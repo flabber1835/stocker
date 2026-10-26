@@ -72,7 +72,7 @@ def predecessor_witness(path, *, inspect_image=None, trail=()):
             image=inspected['Id']
         return dict(git_commit=record['git_commit'],runtime_image=image,
             control_generation=record['control_generation'],certificate_sha256=record['certificate_sha256'],
-            roots=(root,),postgres=None,system=None)
+            roots=(root,),postgres=None,system=None,foundation_reference=record['runtime_image'])
     require(selected.name=='receipt.json' and record.get('stage')=='VERIFIED',
         'BACKED_VERIFIED_PREDECESSOR_REQUIRED')
     journal = Journal(selected.parent)
@@ -109,7 +109,8 @@ def predecessor_witness(path, *, inspect_image=None, trail=()):
     root=Path(request['source']).resolve()
     require((root/'.git').exists(), 'BACKED_PREDECESSOR_ROOT_INVALID')
     return dict(anchor,git_commit=candidate['commit'],runtime_image=candidate['image'],
-        roots=tuple(dict.fromkeys((*anchor['roots'],root))),postgres=pg,system=preserved['system'])
+        roots=tuple(dict.fromkeys((*anchor['roots'],root))),postgres=pg,system=preserved['system'],
+        foundation_reference='sentinel-local-paper:'+candidate['commit'][:8])
 
 
 class BackedHost(Host):
@@ -243,7 +244,7 @@ def main(argv=None):
                 qualification_sha256=args.qualification_sha256,approved_delta=args.allowed_delta,
                 approved_delta_sha256=args.allowed_delta_sha256,operation_dir=folder,commit=args.commit,
                 host_type=factory,baseline_reader=lambda path:active_baseline(path,draft),
-                foundation_reference=witness['runtime_image'])
+                foundation_reference=witness['foundation_reference'])
             output=dict(build_record=str(folder/'build.json'),build_sha256=sha256_file(folder/'build.json'),
                 commit=result['commit'],image=result['image'])
         elif args.command=='prepare':

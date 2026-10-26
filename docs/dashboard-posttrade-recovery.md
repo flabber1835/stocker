@@ -125,6 +125,9 @@ canonical authority locks and retained source GO locks. An incomplete, altered,
 foreign or cyclic predecessor grants no installation permission. This does not
 reopen old operations or bypass current-source, restore, idle handoff or readiness
 gates. Wait for acquisition and publication to reach their supported idle state.
+Dockerfile FROM uses the retained signed reference or existing local source-layer
+tag, whose exact image ID and foundation are checked before and after building.
+A bare local image ID is not treated as a Docker registry reference.
 
 Long atomic candidate writes renew their job lease inside the publishing
 transaction. Other readers see the last committed heartbeat, so that timestamp
