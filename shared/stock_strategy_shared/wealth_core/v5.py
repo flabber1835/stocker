@@ -19,7 +19,7 @@ def config():
 
 def admission(*, equity: float, cash: float, price: float | None,
               cost_bps: float = 10.0) -> tuple[float | None, str]:
-    """The close binds dollars only; settled total cash funds feasibility."""
+    """Bind dollars only after cash and the intent can fund a share at close."""
     if (not all(math.isfinite(x) for x in (equity, cash, cost_bps))
             or equity <= 0 or cash < 0 or cost_bps < 0):
         raise ValueError("invalid V5 admission economics")
@@ -28,9 +28,13 @@ def admission(*, equity: float, cash: float, price: float | None,
         return None, "CASH_SCARCITY"
     if price is None or not math.isfinite(price) or price <= 0:
         return None, "INVALID_CLOSE_MARKET"
-    if cash + EPSILON < price * (1 + cost_bps / 10_000):
+    if affordable_whole_shares(cash, price, cost_bps) < 1:
         return None, "TOTAL_CASH_ONE_SHARE_UNAFFORDABLE_AT_CLOSE"
-    return float(Fraction(str(equity)) / 20), ""
+    intended = float(Fraction(str(equity)) / 20)
+    if opening_quantity(intended=intended, cash=cash, price=price,
+                        cost_bps=cost_bps) < 1:
+        return None, "INTENDED_BUDGET_ONE_SHARE_UNAFFORDABLE_AT_CLOSE"
+    return intended, ""
 
 
 def opening_quantity(*, intended: float, cash: float, price: float,

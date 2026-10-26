@@ -366,6 +366,12 @@ storage. This preserves exactly cash-affordable whole shares without emitting
 negative cash through divergent binary multiplication order. See
 [issue 373 remediation](economic-audit-373-remediation.md).
 
+[Zero-share entry admission](zero-share-entry-admission.md) requires both
+settled cash and the unchanged NAV/20 intended budget to afford one share at
+the current raw close, using the opening sizing function. Known infeasibility
+cannot reserve a slot and create a deterministic zero-share requeue loop.
+Future opening gaps retain the existing safe cancellation behavior.
+
 ## Source-lot provenance
 
 Execution and marking use the **aggregated** security-level quantity — that is
