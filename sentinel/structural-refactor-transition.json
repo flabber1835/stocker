@@ -570,7 +570,7 @@
     "feed/maintenance.py": "130584735d2e9ee4beece362065b0133c23d84486076ba196ec2872ab21acc3d",
     "feed/maintenance_impl.py": "2a37b14eaafa41172c423576c52cd02c77f55d92765d87d601191ec7c7000736",
     "feed/manual_daily.py": "5eee0531321d72ffb6856dbb63b4a6b3839707240b8db35f52f88c20d8ea88a2",
-    "feed/normalized_layout.py": "e0e6b7f2a42547d629fb776d73e5b6f78ac453bb5d37c6d4b392752fb6f0ae0a",
+    "feed/normalized_layout.py": "04abc293b9d23c0834e4cbabc8b708c9d95732486c86ba0fd32db52b5a76a05a",
     "feed/observation_timing.py": "2c42b87b92e64380211a160d8c9a2e9d6d0b791560015ca65b487bd3cb3fcb4c",
     "feed/openfigi.py": "1cb1f7a0413e4c3a0a051e335178f626867a796d397b1951c99b6711971cc3f5",
     "feed/operational_coherence.py": "d11015c0b85ee1ec69f553ee3e1eaafd3c248fdd83265863a23741dac82f4564",

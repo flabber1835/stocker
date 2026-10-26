@@ -182,3 +182,27 @@ outcome and original incident bytes. Only after current source and canonical
 shadow verification succeeds may the operator archive both markers under the
 existing incident-clearance rule and restart the service. Ordinary healthy
 PRE_OPEN handoff requirements still apply to installing the full application.
+
+## Bounded action predecessor materialization
+
+The retained action writer issued a descending LIMIT 1 lookup for every
+action/security coordinate. The shared normalized view's real query plan expands
+all earlier session blocks and sorts their matches before applying that limit.
+Repeating it for a broad universe creates multiplicative database work.
+
+Preserve the financial action compiler byte for byte. Its existing storage port
+recognizes only that exact point query and its original three parameters. For
+shared blocks, use an ordered descending reference subquery and a correlated
+LATERAL payload lookup with an optimization barrier. This keeps block traversal
+ordered and permits LIMIT 1 to stop after the first matching prior block. Keep
+the legacy branch and choose the latest result across both physical layouts.
+Use the same record field types and strict earlier-session predicate. Missing
+IDs and price gaps must retain the original query's results and refusals.
+
+Do not change financial compiler hashes, the economic manifest, stored history,
+schema, action interpretation or prices, and do not cache across publications.
+Prove results against the original view query on real PostgreSQL, including
+legacy/shared layouts and gaps. EXPLAIN ANALYZE must show that a yesterday match
+decodes one shared block; restoring the old route must falsify that work bound.
+Suspend only an exactly identified owned recovery worker before replacing its
+code; retain its committed READY candidate and immutable job/incident evidence.

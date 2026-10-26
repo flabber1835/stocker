@@ -137,9 +137,40 @@ def read_table(conn, kind: Literal['BARS','BENCHMARKS']):
     return read_contract.table_name(kind,shared=available(conn))
 
 
+_PREDECESSOR_POINT = (
+    'SELECT session,close_signal,close_unadjusted FROM sentinel_snapshot_bars '
+    'WHERE candidate_id=%s AND security_id=%s AND session<%s ORDER BY session DESC LIMIT 1')
+
+_ORDERED_PREDECESSOR = """WITH args AS MATERIALIZED (
+ SELECT %s::uuid AS candidate_id,%s::text AS security_id,%s::date AS session)
+SELECT session,close_signal,close_unadjusted FROM (
+ (SELECT x.session,x.close_signal,x.close_unadjusted FROM args a
+  CROSS JOIN LATERAL (
+   SELECT session,close_signal,close_unadjusted FROM sentinel_snapshot_bars
+   WHERE candidate_id=a.candidate_id AND security_id=a.security_id AND session<a.session
+   ORDER BY session DESC LIMIT 1) x)
+ UNION ALL
+ (SELECT q.session,q.close_signal,q.close_unadjusted FROM args a
+  CROSS JOIN LATERAL (SELECT r.session,p.close_signal,p.close_unadjusted FROM (
+   SELECT session,block_sha256 FROM sentinel_candidate_blocks
+   WHERE candidate_id=a.candidate_id AND kind='BARS' AND session<a.session
+   ORDER BY session DESC OFFSET 0) r
+  CROSS JOIN LATERAL (
+   SELECT p.close_signal,p.close_unadjusted FROM sentinel_normalized_blocks b
+   CROSS JOIN LATERAL jsonb_to_recordset((b.canonical_payload::jsonb)->'rows') AS p(
+    security_id text,session date,ticker text,close_signal double precision,close_unadjusted double precision,
+    open_unadjusted double precision,volume double precision,split_ratio double precision,dividend_per_share double precision)
+   WHERE b.block_sha256=r.block_sha256 AND p.security_id=a.security_id OFFSET 0) p
+  ORDER BY r.session DESC LIMIT 1) q)
+) history ORDER BY session DESC LIMIT 1"""
+
+
 def candidate_query(conn, statement):
     """One physical-read owner; parameters and economic predicates stay intact."""
-    return read_contract.route(statement,shared=available(conn))
+    shared = available(conn)
+    if shared and statement == _PREDECESSOR_POINT:
+        return _ORDERED_PREDECESSOR
+    return read_contract.route(statement,shared=shared)
 
 
 def require_schema(conn, *, allow_absent=False):
