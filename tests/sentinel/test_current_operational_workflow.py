@@ -109,6 +109,8 @@ def current(conn, monkeypatch):
     assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
     conn.execute('UPDATE sentinel_account_binding SET established_at=%s WHERE id=1',
                  (clock.now()-timedelta(days=1),))
+    conn.execute('UPDATE sentinel_notification_policy SET web_push_activated_at=%s WHERE id=1',
+                 (clock.now()-timedelta(days=1),))
     conn.commit()
     operational_schema.install_quiescent(conn)
     from sentinel.execution import journal

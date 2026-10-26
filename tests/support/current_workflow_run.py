@@ -167,8 +167,7 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
         window=lambda:(timing.execution_open_at,timing.execution_close_at),
         forbid_quotes=True,marketable_limit_fills=True)
     _browser(conn)
-    since = conn.execute('SELECT clock_timestamp()-INTERVAL \'1 minute\'').fetchone()[0]
-    conn.rollback()
+    since = clock.now()-timedelta(minutes=1)
     monkeypatch.setenv('SENTINEL_FILL_NOTIFICATIONS_SINCE',since.isoformat())
     monkeypatch.setenv('SENTINEL_FEED_SERVICE_MODE','AUTOMATION')
 
@@ -265,7 +264,11 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
         for _ in range(20):
             before = conn.execute("SELECT count(*) FROM sentinel_alert_outbox WHERE event_type='BROKER_FILL'").fetchone()[0]
             conn.rollback()
-            assert execution_collector.collect_once('FILL',reader=reader,config=campaign.sentinel_config)=='COLLECTED'
+            outcome = execution_collector.collect_once('FILL',reader=reader,config=campaign.sentinel_config)
+            refusal = conn.execute("SELECT payload FROM sentinel_alert_outbox "
+                "WHERE event_type='FILL_NOTIFICATION_COLLECTION_FAILED' ORDER BY created_at DESC LIMIT 1").fetchone()
+            conn.rollback()
+            assert outcome=='COLLECTED', (outcome,refusal)
             after = conn.execute("SELECT count(*) FROM sentinel_alert_outbox WHERE event_type='BROKER_FILL'").fetchone()[0]
             conn.rollback()
             if after==before:break
