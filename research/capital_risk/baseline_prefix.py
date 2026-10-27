@@ -50,7 +50,11 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
         args += ["/driver/verify_prefix.py","--actual","/out/run-001",
                  "--expected","/frozen/baseline-comparison","--output","/out/prefix-review.json"]
     else:
-        args += ["-m","research.pooled_vacancy_funding.backtest","--policy",POLICY,
+        startup=("import runpy;from stock_strategy_shared.wealth_core import v5;"
+                 "assert v5.__file__.startswith('/fixed/shared/');"
+                 f"assert v5.ORIGINAL_ADMISSION_PROFILE=={POLICY!r};"
+                 "runpy.run_module('research.pooled_vacancy_funding.backtest',run_name='__main__')")
+        args += ["-c",startup,"--policy",POLICY,
                  "--bundle","/frozen/bundle","--archive","/frozen/archive/corpus.zip",
                  "--previous","/frozen/references/owned55",
                  "--compact","/frozen/references/compact/champion-daily.csv",
