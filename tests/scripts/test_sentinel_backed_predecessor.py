@@ -50,7 +50,12 @@ def complete(case, *, final_stage='VERIFIED', artifacts=None):
     (folder/'build.json').write_text(json.dumps(case['built']))
     journal=patch.Journal(folder)
     for before,after in zip(journal.stages,journal.stages[1:]):
-        fields=(artifacts or dict(postgres=case['pg'],preserved={'system':'1234'})) if after=='PREFLIGHT_PASS' else {}
+        fields={}
+        if after=='PREFLIGHT_PASS':
+            fields=dict(postgres=case['pg'],preserved={'system':'1234'},
+                native_positions={'native-asset':'17'},notification_history={key:{} for key in (
+                    'alerts','delivered_alerts','events','fanouts','recipients','delivered_recipients')})
+            fields.update(artifacts or {})
         journal.advance(before,after,**fields)
         if after==final_stage:break
     return folder/'receipt.json'
@@ -63,6 +68,9 @@ def test_completed_patch_retains_original_activation_and_exact_candidate(chain):
     assert actual['control_generation']==50 and actual['certificate_sha256']=='c'*64
     assert actual['postgres']==chain['pg'] and actual['system']=='1234'
     assert actual['roots']==(chain['anchor_root'],chain['source'])
+    assert actual['native_positions']=={'native-asset':'17'}
+    assert actual['notification_history']=={key:{} for key in (
+        'alerts','delivered_alerts','events','fanouts','recipients','delivered_recipients')}
 
 
 @pytest.mark.parametrize('field',['commit','image','source_identity','source','deployment','foundation'])

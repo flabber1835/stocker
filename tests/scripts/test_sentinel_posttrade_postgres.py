@@ -43,8 +43,25 @@ def test_posttrade_uses_actual_database_clock_and_refuses_unsafe_cycles(conn,cha
 
 
 def checkpoint_query():
-    return re.search(r"'book_cursors_md5',\((SELECT.*?)\),\s*'push_subscriptions'",
+    selected=re.search(r"'book_cursors_md5',\((SELECT.*?)\),\s*'issuer_evidence'",
+        checks.SNAPSHOT_SQL,re.S)
+    assert selected is not None,'current checkpoint MVCC projection was not found'
+    return selected.group(1)
+
+
+def test_checkpoint_projection_stops_before_the_separate_issuer_preservation_domain():
+    query=checkpoint_query()
+    assert 'to_jsonb(x)' not in query and 'xmin' in query and 'ctid' in query
+    assert "'issuer_evidence'" not in query and checks._ISSUER_EVIDENCE_FILTER not in query
+    assert query.count('FROM sentinel_processed_sessions x')==1
+
+
+def test_obsolete_projection_boundary_has_a_falsifier(monkeypatch):
+    obsolete=re.search(r"'book_cursors_md5',\((SELECT.*?)\),\s*'push_subscriptions'",
         checks.SNAPSHOT_SQL,re.S).group(1)
+    monkeypatch.setattr(sys.modules[__name__],'checkpoint_query',lambda:obsolete)
+    with pytest.raises(AssertionError):
+        test_checkpoint_projection_stops_before_the_separate_issuer_preservation_domain()
 
 
 def assert_checkpoint_update_detected(conn,query):

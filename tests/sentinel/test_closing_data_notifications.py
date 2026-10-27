@@ -165,6 +165,8 @@ def test_source_type_notification_guard_has_a_falsifier(monkeypatch):
     (SourceDataPending('invalid provider row'), 'REFRESH', False),
     (TransientInfrastructureFailure('database unavailable'), 'REFRESH', False),
     (ClosingDataPending('closing frontier pending'), 'PREPARE', False),
+    (ClosingDataPending('publisher attempt expired',
+        publisher_deadline_at=datetime(2026, 10, 27, tzinfo=timezone.utc)), 'REFRESH', False),
 ])
 def test_service_persists_positive_classification_only_for_reviewed_refresh_wait(monkeypatch, exception, phase, quiet):
     cfg, cycle, permit = closing_cycle()
@@ -185,9 +187,10 @@ def test_service_persists_positive_classification_only_for_reviewed_refresh_wait
     assert detail['failure_code'] == type(exception).__name__
 
 
-def test_closing_exception_and_original_job_deadline_survive_actual_child_codec(monkeypatch):
-    deadline = datetime(2026, 10, 27, 22, 2, 40, tzinfo=timezone.utc)
-    worker_deadline = deadline-timedelta(minutes=1)
+@pytest.mark.parametrize('has_deadlines', [True, False])
+def test_closing_exception_and_original_job_deadline_survive_actual_child_codec(monkeypatch, has_deadlines):
+    deadline = datetime(2026, 10, 27, 22, 2, 40, tzinfo=timezone.utc) if has_deadlines else None
+    worker_deadline = deadline-timedelta(minutes=1) if deadline is not None else None
 
     async def callback(_context):
         raise ClosingDataPending('publication has the source pin',
@@ -196,8 +199,8 @@ def test_closing_exception_and_original_job_deadline_survive_actual_child_codec(
 
     channel = child(monkeypatch, callback)
     envelope = json.loads(channel.payloads[0])
-    assert envelope['publisher_deadline_at'] == deadline.isoformat()
-    assert envelope['worker_deadline_at'] == worker_deadline.isoformat()
+    assert envelope['publisher_deadline_at'] == (deadline.isoformat() if deadline is not None else None)
+    assert envelope['worker_deadline_at'] == (worker_deadline.isoformat() if worker_deadline is not None else None)
     with pytest.raises(ClosingDataPending) as failure:
         service._decode_child_callback(channel.payloads[0])
     assert type(failure.value) is ClosingDataPending

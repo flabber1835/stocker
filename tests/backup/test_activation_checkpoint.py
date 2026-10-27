@@ -1,5 +1,6 @@
 """Actual checkpoint coordinator against strict external command responses."""
 from copy import deepcopy
+import inspect
 import json
 from pathlib import Path
 import re
@@ -28,6 +29,7 @@ class Commands:
         self.receipt = dict(base_backup=self.selected['name'], metadata_sha256='b'*64,
             marker=self.selected['marker'], target_lsn=self.selected['target_lsn'],
             system_identifier='123', physical_only=False, runtime_image=IMAGE)
+        self.producer = None
         self.barrier = dict(system_identifier='123', lsn='0/F000000',
             wal='00000001000000000000000E')
         self.end = 14
@@ -60,6 +62,8 @@ class Commands:
             sql = argv[-1]
             if "'system_id'" in sql:
                 return json.dumps(self.observation)
+            if "kind='BASE_BACKUP'" in sql:
+                return json.dumps(self.producer) if self.producer is not None else ''
             if "kind='RESTORE_DRILL'" in sql:
                 return json.dumps(self.receipt) if self.receipt else ''
             if 'INSERT INTO sentinel_backup_recovery_markers' in sql:
@@ -84,6 +88,14 @@ def commands(monkeypatch, tmp_path):
     return Commands()
 
 
+def verified_producer(commands):
+    return dict(authentic=True, proof=dict(schema='sentinel.verified-base/1',
+        physical_verified=True, metadata_sha256=commands.selected['metadata_sha256'],
+        base_backup=commands.selected['name'], marker=commands.selected['marker'],
+        marker_lsn=commands.selected['target_lsn'],
+        system_identifier=commands.observation['system_id']))
+
+
 @pytest.mark.parametrize('raw', [
     '{"system_identifier":"123","lsn":"0/F000000","lsn":"0/E000000","wal":"00000001000000000000000E"}',
     '{"system_identifier":"123","lsn":NaN,"wal":"00000001000000000000000E"}',
@@ -103,16 +115,60 @@ def test_reuses_exact_full_proof_and_archives_committed_state_without_copy(comma
     assert result['state_wal'] == commands.barrier['wal']
     assert result['new_base_created'] is False and result['full_restore_performed'] is False
     assert result['method'] == 'REUSED_FULL_RESTORE_AND_ARCHIVED_STATE'
+    assert result['base_evidence_sha256'] == result['full_restore_receipt_sha256']
 
 
-@pytest.mark.parametrize('field,value', [('runtime_image','sha256:'+'e'*64),
-    ('runtime_image','mutable:latest'), ('physical_only',True), ('physical_only',0),
+def test_verified_producer_reuses_base_without_claiming_a_restore(commands, capsys):
+    commands.producer = verified_producer(commands)
+    commands.receipt = None
+    assert checkpoint.reuse(Path('/backups'), commands) == '/backups/base/' + commands.selected['name']
+    result = json.loads(capsys.readouterr().out.split('activation_recovery_checkpoint:')[1])
+    assert result['method'] == 'REUSED_VERIFIED_BASE_AND_ARCHIVED_STATE'
+    assert re.fullmatch('[0-9a-f]{64}', result['base_evidence_sha256'])
+    assert 'full_restore_receipt_sha256' not in result
+    assert result['new_base_created'] is False and result['full_restore_performed'] is False
+    assert not any("kind='RESTORE_DRILL'" in a[-1] for a in commands.calls)
+    assert not any('base-backup' in ' '.join(a) or 'restore-drill' in ' '.join(a) for a in commands.calls)
+
+
+@pytest.mark.parametrize('field,value', [('runtime_image','mutable:latest'),
+    ('physical_only',True), ('physical_only',0),
     ('system_identifier','456'), ('metadata_sha256','c'*64), ('target_lsn','0/1'),
     ('marker','foreign'), ('base_backup','base-20261014T000000Z')])
 def test_ineligible_receipt_cannot_reuse_or_write_marker(commands, field, value):
     commands.receipt[field] = value
     assert checkpoint.reuse(Path('/backups'), commands) is None
     assert not any('INSERT' in a[-1] for a in commands.calls)
+
+
+@pytest.mark.parametrize('field,value', [('physical_verified', False),
+    ('physical_verified', 1), ('system_identifier', '456'), ('metadata_sha256', 'c'*64),
+    ('marker_lsn', '0/1'), ('marker', 'foreign'), ('base_backup', 'base-20261014T000000Z')])
+def test_wrong_verified_producer_refuses_before_marker_or_legacy_fallback(commands, field, value):
+    commands.producer = verified_producer(commands)
+    commands.producer['proof'][field] = value
+    with pytest.raises(maintenance.Refused, match='producer evidence identity mismatch'):
+        checkpoint.reuse(Path('/backups'), commands)
+    assert not any('INSERT' in a[-1] or "kind='RESTORE_DRILL'" in a[-1] for a in commands.calls)
+
+
+def test_unauthenticated_verified_producer_refuses_before_marker_or_legacy_fallback(commands):
+    commands.producer = verified_producer(commands)
+    commands.producer['authentic'] = False
+    with pytest.raises(maintenance.Refused, match='producer evidence is unauthenticated'):
+        checkpoint.reuse(Path('/backups'), commands)
+    assert not any('INSERT' in a[-1] or "kind='RESTORE_DRILL'" in a[-1] for a in commands.calls)
+
+
+def test_malformed_chain_refuses_before_marker_or_legacy_fallback(commands):
+    def malformed(argv, timeout):
+        value = commands(argv, timeout)
+        if argv[:2] == ['bash', 'scripts/sentinel-backup-status.sh']:
+            return value.replace('segments=4', 'segments=3')
+        return value
+    with pytest.raises(maintenance.Refused, match='interval contradicts selected metadata'):
+        checkpoint.reuse(Path('/backups'), malformed)
+    assert not any('INSERT' in a[-1] or "kind='RESTORE_DRILL'" in a[-1] for a in commands.calls)
 
 
 @pytest.mark.parametrize('reason', ['absent', 'age', 'wal'])
@@ -127,6 +183,18 @@ def test_normal_fresh_milestone_needed_only_before_new_marker(commands, reason):
         commands.observation['lsn'] = '2/0C000000'
     assert checkpoint.reuse(Path('/backups'), commands) is None
     assert not commands.recorded and not any('INSERT' in a[-1] for a in commands.calls)
+
+
+def test_removed_base_evidence_gate_is_detected_by_actual_missing_proof_test(commands, monkeypatch):
+    source = inspect.getsource(checkpoint.reuse)
+    guard = 'if receipt is None:\n        return None'
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, 'if False:\n        return None', 1),
+                 'activation-base-evidence-falsifier', 'exec'), checkpoint.__dict__, namespace)
+    monkeypatch.setattr(checkpoint, 'reuse', namespace['reuse'])
+    with pytest.raises(AssertionError):
+        test_normal_fresh_milestone_needed_only_before_new_marker(commands, 'absent')
 
 
 @pytest.mark.parametrize('field,value', [('system_identifier','456'),
@@ -169,11 +237,17 @@ def test_pending_archive_can_catch_up_without_another_marker(commands, monkeypat
     assert sum('INSERT INTO sentinel_backup_recovery_markers' in a[-1] for a in commands.calls) == 1
 
 
-def test_public_milestone_reuses_proof_under_verified_owner(commands,monkeypatch):
+@pytest.mark.parametrize('proof_kind', ['legacy', 'producer'])
+def test_public_milestone_reuses_proof_under_verified_owner(commands,monkeypatch,proof_kind):
     from types import SimpleNamespace
     import sentinel_install_backup as install
     monkeypatch.setenv(install.LOCK_ROOT_ENV,'/backups')
     monkeypatch.setattr(install,'lock_is_held',lambda:True)
+    if proof_kind == 'producer':
+        commands.producer = verified_producer(commands)
+        commands.receipt = None
+    else:
+        commands.receipt['runtime_image'] = 'sha256:' + 'e'*64
     def runner(argv,**kwargs):
         assert kwargs['private_group'] is True
         return SimpleNamespace(returncode=0,stdout=commands(argv,kwargs['timeout']),stderr='')
@@ -181,7 +255,7 @@ def test_public_milestone_reuses_proof_under_verified_owner(commands,monkeypatch
     assert not any('sentinel-base-backup.sh' in a or 'sentinel-restore-drill.sh' in a for a in commands.calls)
 
 
-def test_absent_receipt_falls_back_once_to_exact_fresh_full_milestone(commands,monkeypatch):
+def test_explicit_full_milestone_without_any_base_proof_creates_one_fresh_milestone(commands,monkeypatch):
     from types import SimpleNamespace
     import sentinel_install_backup as install
     monkeypatch.setenv(install.LOCK_ROOT_ENV,'/backups')
@@ -191,12 +265,14 @@ def test_absent_receipt_falls_back_once_to_exact_fresh_full_milestone(commands,m
     exact='/backups/base/base-20261014T020000Z'
     def runner(argv,**kwargs):
         calls.append(argv)
-        if argv[0]=='bash':
+        if argv[0]=='bash' and not (argv[1]=='scripts/sentinel-backup-status.sh'
+                and argv[-1].endswith(commands.selected['name'])):
             value='verified_base_backup:'+exact if argv[1]=='scripts/sentinel-base-backup.sh' else ''
         else:value=commands(argv,kwargs['timeout'])
         return SimpleNamespace(returncode=0,stdout=value,stderr='')
     assert install.milestone('full',runner=runner,reuse_current=True)==exact
     assert [a for a in calls if a[0]=='bash']==[
+        ['bash','scripts/sentinel-backup-status.sh','--backup','/backups/base/'+commands.selected['name']],
         ['bash','scripts/sentinel-base-backup.sh'],
         ['bash','scripts/sentinel-backup-status.sh','--backup',exact],
         ['bash','scripts/sentinel-restore-drill.sh','--backup',exact]]

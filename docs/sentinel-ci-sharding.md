@@ -40,6 +40,12 @@ module inventory, requiring every module exactly once and propagating failed
 workers. Duplicate/non-passing JUnit refusal and exact-attempt receipts remain
 unchanged.
 
+Closing-data notification tests also belong to the automation coverage worker:
+they exercise the service's typed child-error codec and bounded quiet-retry
+branches. Their complete module is registered once in `AUTOMATION`, so it is
+excluded from ordinary shards. Keep the existing 100% service branch gate;
+running these tests elsewhere does not contribute to that worker's coverage.
+
 Every worker runs the production code from the single built test lens without
 rebuilding it. Its receipt binds the same source commit, tree, workflow run and
 attempt, runtime image ID, test-lens image ID, and exact JUnit bytes. The

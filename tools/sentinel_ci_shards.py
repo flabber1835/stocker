@@ -12,6 +12,7 @@ SHARDS = 4
 AUTOMATION = frozenset({
     "test_activation_startup_contention.py",
     "test_automation_clock_sampling.py",
+    "test_closing_data_notifications.py",
     "test_database_startup_recovery.py",
     "test_idle_leader_progress.py",
     "test_automation_generation.py",
