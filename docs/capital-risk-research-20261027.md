@@ -98,10 +98,52 @@ but cannot start a backtest. Its public output is an allowlisted nonfinancial
 verification receipt. No data or decrypted financial output is an Actions
 artifact. Temporary plaintext remains only on the fresh hosted VM.
 
-The ciphertext upload was denied by automatic approval review because explicit
-owner approval for this public destination had not been recorded. No payload was
-uploaded. The empty staging prerelease and new research-only secret exist. The
-staging request remains local and is deliberately absent from the branch, so
-publishing the reviewed transfer code does not dispatch a download. Only after
-the destination is authorized and both exact assets are uploaded and verified
-may that request be added to the branch to trigger the staging workflow.
+The owner subsequently explicitly approved uploading the two encrypted research
+assets to that public research staging release, with the key kept separately.
+This resolves the earlier automatic approval rejection for that destination.
+The branch request is added only after both remote assets match their exact
+SHA256 and length commitments. No other destination or plaintext payload is
+authorized by that approval.
+
+Two direct uploads of the 1.76 GB data ciphertext failed with `tls: bad record
+MAC`; GitHub retained no data asset. Recovery transfers the identical ciphertext
+as sequential 64 MiB parts to the same approved release. Each part has its own
+server-verified SHA256 and size; the request also retains the original full-file
+SHA256 and size. The hosted downloader verifies each part while concatenating,
+then verifies the original aggregate ciphertext before GCM authentication. This
+changes transport framing only, not plaintext, nonce, tag, input manifest or key.
+Only one temporary encrypted part is staged locally at a time, bounded to 64 MiB,
+and is removed after its exact remote commitment is verified. Complete remote
+parts are reused on retry; an existing mismatched name refuses rather than
+overwriting. No shared storage or protected experiment file is cleaned up.
+
+## Fresh baseline prefix admission
+
+After hosted staging passes, the first financial job is deliberately bounded to
+32 fresh canonical formation transitions, following the unchanged 299-session
+feature warmup. It runs the retained fixed image and original backtest module,
+original fixed policy and exact frozen inputs. Its output is disjoint from all
+completed experiments. No completed checkpoint initializes this book.
+
+The worker has no network, capabilities, production mounts or credentials. It
+uses one CPU, 2 GiB RAM without swap, a read-only root and input mounts, a private
+64 MiB temporary filesystem and a host-owned private output directory. The
+research key remains on the hosted orchestration process and is never forwarded
+to Docker. Worker stdout/stderr is captured privately; public workflow logs show
+only an allowlisted progress/admission receipt.
+
+The 32 canonical formation records must equal the retained baseline's first 32
+records exactly, including state/input/chain hashes, decisions, evidence and
+accounting. The new checkpoint's canonical roundtrip and every committed journal
+prefix must pass, with no tails. A second zero-transition restore must preserve
+all financial bytes and the exact cursor. This is a direct canonical
+restore/serialize proof, not a backtest invocation with a zero limit (the
+original CLI defines zero as unlimited). The entire output, including private
+logs and reviews, is authenticated-encrypted before Actions upload. Only the
+small nonfinancial receipt is plaintext. Failure refuses further baseline or
+variant execution; it never repins the comparison or edits financial state.
+
+This prefix proof establishes fresh initialization and restart compatibility.
+It does not satisfy the separate full 4,639-close baseline gate. Later baseline
+segments must bind factual overlays to their own actual predecessors, preserve
+recovered tails and prove the complete financial path before interpreting arms.

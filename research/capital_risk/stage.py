@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 from datetime import datetime, timezone
 import json
 import os
@@ -30,27 +31,42 @@ def validate_request(request):
             or not re.fullmatch(r"[a-f0-9]{64}", request["manifest_sha256"])
             or set(request["assets"]) != {"data.tar.crseal", "runtime.tar.crseal"}):
         raise ValueError("REFUSED_STAGE_REQUEST")
-    for value in request["assets"].values():
-        if (set(value) != {"sha256", "bytes"} or not isinstance(value["bytes"], int)
+    for name,value in request["assets"].items():
+        if (set(value) not in ({"sha256", "bytes"}, {"sha256", "bytes", "parts"})
+                or not isinstance(value["bytes"], int)
                 or not 36 < value["bytes"] <= MAX_ASSET
                 or not re.fullmatch(r"[a-f0-9]{64}", value["sha256"])):
             raise ValueError("REFUSED_ASSET_COMMITMENT")
+        if "parts" in value:
+            parts=value["parts"]
+            if not isinstance(parts,list) or not 1<=len(parts)<=32:
+                raise ValueError("REFUSED_PART_COUNT")
+            for index,part in enumerate(parts):
+                if (set(part)!={"name","sha256","bytes"}
+                        or part["name"]!=f"{name}.part-{index:04d}"
+                        or not isinstance(part["bytes"],int) or not 0<part["bytes"]<=64*1024**2
+                        or not re.fullmatch(r"[a-f0-9]{64}",part["sha256"])):
+                    raise ValueError("REFUSED_PART_COMMITMENT")
+            if sum(p["bytes"] for p in parts)!=value["bytes"]:
+                raise ValueError("REFUSED_PART_TOTAL")
 
 
 def acquire(name, spec, root):
-    url = f"https://github.com/flabber1835/stocker/releases/download/{RELEASE}/{name}"
     path = root / name
-    with urllib.request.urlopen(url, timeout=60) as response, path.open("xb") as output:
-        if response.headers.get("Content-Length") and int(response.headers["Content-Length"]) != spec["bytes"]:
-            raise ValueError("REFUSED_DOWNLOAD_LENGTH")
-        total = 0
-        while part := response.read(1024*1024):
-            total += len(part)
-            if total > spec["bytes"]:
-                raise ValueError("REFUSED_DOWNLOAD_SIZE")
-            output.write(part)
-        if total != spec["bytes"]:
-            raise ValueError("REFUSED_DOWNLOAD_TRUNCATION")
+    parts=spec.get("parts",[dict(name=name,**spec)])
+    with path.open("xb") as output:
+        for part in parts:
+            url = f"https://github.com/flabber1835/stocker/releases/download/{RELEASE}/{part['name']}"
+            with urllib.request.urlopen(url, timeout=60) as response:
+                if response.headers.get("Content-Length") and int(response.headers["Content-Length"]) != part["bytes"]:
+                    raise ValueError("REFUSED_DOWNLOAD_LENGTH")
+                total,digest = 0,hashlib.sha256()
+                while block := response.read(1024*1024):
+                    total += len(block)
+                    if total > part["bytes"]: raise ValueError("REFUSED_DOWNLOAD_SIZE")
+                    output.write(block);digest.update(block)
+                if total != part["bytes"] or digest.hexdigest()!=part["sha256"]:
+                    raise ValueError("REFUSED_DOWNLOAD_PART_OR_LENGTH")
     return path
 
 
