@@ -7,6 +7,7 @@ constant, mutate controls, or invoke preparation, orders or maintenance.
 from __future__ import annotations
 
 import json
+import re
 import time
 
 from . import checks
@@ -101,6 +102,13 @@ def snapshot(host):
     current = host.sql(checks.snapshot_sql(mode))
     require(isinstance(current, dict) and current.get('candidate_count') == 1,
             'Exactly one current-generation plan matching the handoff mode is required')
+    issuer = current.get('issuer_evidence')
+    require(isinstance(issuer, dict) and set(issuer) == {'count', 'md5'}
+            and type(issuer['count']) is int and issuer['count'] >= 0
+            and isinstance(issuer['md5'], str)
+            and re.fullmatch('[0-9a-f]{32}', issuer['md5']) is not None
+            and (issuer['count'] != 0 or issuer['md5'] == checks.EMPTY_ISSUER_EVIDENCE_MD5),
+            'ISSUER_EVIDENCE_PRESERVATION_MALFORMED')
     control, cycle, plan = current['control'], current['cycle'], current['plan']
     bound = current.get('binding')
     values = host.load_values()

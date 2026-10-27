@@ -63,6 +63,18 @@ value=bridge.validate(bridge._load(state),operation_id=sys.argv[1],request_sha25
 print(json.dumps(value,sort_keys=True))
 '''
 
+ISSUER_EVIDENCE_PREFIXES = (
+    'issuer-admission-enrollment:v1:', 'issuer-reference-snapshot:v1:',
+    'issuer-plan-admission:v1:', 'issuer-episode-claim:v1:',
+    'issuer-entry-shortfall:v1:',
+)
+EMPTY_ISSUER_EVIDENCE_MD5 = 'd41d8cd98f00b204e9800998ecf8427e'
+# Exact operational prefixes preserve their complete rows in the existing
+# bounded snapshot. LIKE keeps prefix meaning independent of database collation.
+_ISSUER_EVIDENCE_FILTER = ' OR '.join(
+    "x.cursor_name LIKE '"+prefix+"%'"
+    for prefix in ISSUER_EVIDENCE_PREFIXES)
+
 _SNAPSHOT_SQL = r'''WITH candidates AS (
  SELECT s.* FROM sentinel_automation_cycles s
  JOIN sentinel_automation_control c ON c.id=1
@@ -120,6 +132,9 @@ SELECT json_build_object(
      ('rolling-cold-start:v1','rolling-daily-checkpoint:v1')
      OR x.cursor_name LIKE 'rolling-daily-input:v1:%'
      OR x.cursor_name LIKE 'shadow-observation:v1:%'),
+ 'issuer_evidence',(SELECT json_build_object('count',count(*),
+   'md5',md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.cursor_name),'')))
+   FROM sentinel_processed_sessions x WHERE __ISSUER_EVIDENCE_FILTER__),
  'push_subscriptions',(SELECT json_build_object(
    'active',count(*) FILTER (WHERE x.retired_at IS NULL),
    'retired',count(*) FILTER (WHERE x.retired_at IS NOT NULL),
@@ -166,7 +181,8 @@ def snapshot_sql(mode='PRE_OPEN'):
               AND o.completeness='COMPLETE' AND r.broker=c.broker
               AND r.broker_account_id=c.broker_account_id AND r.canonical_payload_sha256 IS NOT NULL),"""
     return (_SNAPSHOT_SQL.replace('__CANDIDATE_FILTER__',candidate)
-        .replace('__READY_FILTER__',ready).replace('__SETTLED_FACT__',settled))
+        .replace('__READY_FILTER__',ready).replace('__SETTLED_FACT__',settled)
+        .replace('__ISSUER_EVIDENCE_FILTER__',_ISSUER_EVIDENCE_FILTER))
 
 
 SNAPSHOT_SQL = snapshot_sql()

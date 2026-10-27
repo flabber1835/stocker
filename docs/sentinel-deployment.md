@@ -68,6 +68,11 @@ normal operation does not silently acquire one.
 
 ## Quantities, prices and recovery
 
+[Verified issuer admission](paper-issuer-admission.md) defines the owner-authorized
+PAPER new-entry safeguard and exact-episode grandfathering. It preserves canonical
+strategy/book history and existing holdings, blocks unresolved or duplicate issuer
+entries, and never prevents ordinary reductions or invents convergence.
+
 - Continuing positions keep their durable account share targets at unchanged
   controller exposure. Entries, strategy exits, exposure changes and authenticated
   share-unit actions retain their normal sizing rules.

@@ -62,7 +62,8 @@ class Host:
         self.values.update(SENTINEL_GIT_COMMIT=selected['predecessor']['commit'],
             SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256='a'*64,
             SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256='b'*64,SECRET='private-value')
-        self.state={'control':{'generation':77},'plan':'immutable-plan','commands':'unchanged'}
+        self.state={'control':{'generation':77},'plan':'immutable-plan','commands':'unchanged',
+            'issuer_evidence':{'count':0,'md5':'d41d8cd98f00b204e9800998ecf8427e'}}
         self.native={'native-id':'17'};self.notifications={'old':'immutable-payload'}
         self.calls=[];self.busy=False;self.canonical_count=0;self.clock=0;self.heartbeat=0
         self.items={name:self.item(selected['predecessor']['image'],True) for name in host_module.SERVICES}
@@ -184,7 +185,7 @@ def test_retained_predecessor_avoids_broken_old_reader_but_keeps_new_and_started
     assert roles==(['candidate'] if retained else ['predecessor','candidate'])
 
 
-@pytest.mark.parametrize('fault',['book','image','configuration','history'])
+@pytest.mark.parametrize('fault',['book','image','configuration','history','issuer'])
 def test_startup_proof_reuse_refuses_changed_subject_before_other_apps_start(operation,fault):
     host,journal,delivery=operation
     while journal.read()['stage']!='SHADOW_STARTED':delivery.step()
@@ -192,6 +193,7 @@ def test_startup_proof_reuse_refuses_changed_subject_before_other_apps_start(ope
     if fault=='book':host.state['book']='changed'
     elif fault=='image':host.items['sentinel-shadow']['Image']='foreign'
     elif fault=='configuration':host.values['SECRET']='changed'
+    elif fault=='issuer':host.state['issuer_evidence']['md5']='a'*32
     else:host.notifications['old']='changed'
     with pytest.raises(model.DeliveryRefused):delivery.step()
     assert journal.read()['stage']=='SHADOW_STARTED'
@@ -230,18 +232,31 @@ def test_changed_source_is_refused_before_each_installation_mutation(operation,s
 
 @pytest.mark.parametrize('stage', ['DRAIN_REQUESTED','STOP_REQUESTED','COMPOSE_INSTALLED',
                                  'START_REQUESTED','APPLICATIONS_STARTED'])
-@pytest.mark.parametrize('kind', ['state','book','native','history'])
+@pytest.mark.parametrize('kind', ['state','book','native','history','issuer'])
 def test_live_preservation_changes_refuse_at_each_operational_boundary(operation,stage,kind):
     host,journal,delivery=operation
     while journal.read()['stage']!=stage:delivery.step()
     if kind=='state':host.state['commands']='changed'
     elif kind=='book':host.state['book_cursors_md5']='changed'
     elif kind=='native':host.native['native-id']='18'
+    elif kind=='issuer':host.state['issuer_evidence']={'count':1,'md5':'a'*32}
     else:host.notifications['old']='changed'
     mutations=[c for c in host.calls if isinstance(c,tuple)]
     with pytest.raises(model.DeliveryRefused):delivery.step()
     assert journal.read()['stage']==stage
     assert [c for c in host.calls if isinstance(c,tuple)]==mutations
+
+
+def test_issuer_evidence_preservation_has_a_removed_guard_falsifier(operation,monkeypatch):
+    original=coordinator.evidence.snapshot
+    def omit_issuer(host):
+        result=original(host)
+        result.pop('issuer_evidence')
+        return result
+    monkeypatch.setattr(coordinator.evidence,'snapshot',omit_issuer)
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_live_preservation_changes_refuse_at_each_operational_boundary(
+            operation,'STOP_REQUESTED','issuer')
 
 
 def test_missing_mutation_source_check_has_a_falsifier(operation,monkeypatch):

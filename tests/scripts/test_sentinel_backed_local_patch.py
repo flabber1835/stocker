@@ -1,10 +1,12 @@
 """Backed application roll preserves the legacy path and requires real proof."""
 from copy import deepcopy
 import importlib
+import inspect
 import json
 import os
 from pathlib import Path
 import sys
+import textwrap
 
 import pytest
 
@@ -56,7 +58,8 @@ def test_reintroducing_image_specific_restore_gate_is_detected(monkeypatch):
         test_application_validation_does_not_query_or_run_a_restore(monkeypatch)
 
 
-@pytest.mark.parametrize('fault',[None,'state','receipt','runtime','proof','stage'])
+@pytest.mark.parametrize('fault',[None,'state','receipt','runtime','proof','stage',
+    'issuer_count','issuer_hash','issuer_shape','issuer_boolean','issuer_missing'])
 def test_retained_predecessor_proof_requires_exact_unchanged_subject(tmp_path,monkeypatch,fault):
     from types import SimpleNamespace
     prior=tmp_path/'prior';prior.mkdir()
@@ -74,11 +77,18 @@ def test_retained_predecessor_proof_requires_exact_unchanged_subject(tmp_path,mo
         request={'candidate':dict(old,image='foreign') if fault=='runtime' else old},read=lambda:record))
     host=object.__new__(patch.BackedHost)
     host.operation_dir=tmp_path;host.predecessor_receipt=path;host.request={'predecessor':old}
-    state={'book':'changed' if fault=='state' else 'same'}
+    state={'book':'changed' if fault=='state' else 'same',
+        'issuer_evidence':{'count':0,'md5':patch.checks.EMPTY_ISSUER_EVIDENCE_MD5}}
+    if fault=='issuer_count':state['issuer_evidence']['count']=1
+    elif fault=='issuer_hash':state['issuer_evidence']['md5']='a'*32
+    elif fault=='issuer_shape':state['issuer_evidence']['extra']='unbound'
+    elif fault=='issuer_boolean':state['issuer_evidence']['count']=False
+    elif fault=='issuer_missing':state.pop('issuer_evidence')
     if fault in {'receipt','runtime','proof','stage'}:
         with pytest.raises(patch.DeliveryRefused):host.predecessor_canonical_proof(state)
     else:
-        assert host.predecessor_canonical_proof(state)==(None if fault=='state' else {'book':'verified'})
+        missing_proof=fault=='state' or (isinstance(fault,str) and fault.startswith('issuer_'))
+        assert host.predecessor_canonical_proof(state)==(None if missing_proof else {'book':'verified'})
 
 
 def test_removed_retained_predecessor_anchor_guard_is_detected(tmp_path,monkeypatch):
@@ -87,6 +97,39 @@ def test_removed_retained_predecessor_anchor_guard_is_detected(tmp_path,monkeypa
         None if reason=='BACKED_PREDECESSOR_ANCHOR_CHANGED' else original(ok,reason))
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
         test_retained_predecessor_proof_requires_exact_unchanged_subject(tmp_path,monkeypatch,'receipt')
+
+
+def test_legacy_empty_issuer_bridge_has_a_falsifier(tmp_path,monkeypatch):
+    source=textwrap.dedent(inspect.getsource(patch.BackedHost.predecessor_canonical_proof))
+    needle="type(issuer['count']) is int and issuer['count']==0"
+    assert source.count(needle)==1
+    namespace={}
+    exec(compile(source.replace(needle,"type(issuer['count']) is int"),
+        'missing-empty-issuer-bridge-guard','exec'),vars(patch),namespace)
+    monkeypatch.setattr(patch.BackedHost,'predecessor_canonical_proof',namespace['predecessor_canonical_proof'])
+    with pytest.raises(AssertionError):
+        test_retained_predecessor_proof_requires_exact_unchanged_subject(
+            tmp_path,monkeypatch,'issuer_count')
+
+
+@pytest.mark.parametrize('changed',[False,True])
+def test_current_receipts_preserve_their_full_nonempty_issuer_snapshot(tmp_path,monkeypatch,changed):
+    from types import SimpleNamespace
+    prior=tmp_path/'prior';prior.mkdir()
+    path=prior/'receipt.json'
+    state={'book':'same','issuer_evidence':{'count':2,'md5':'a'*32}}
+    record=dict(stage='VERIFIED',artifacts=dict(preserved=deepcopy(state),
+        canonical_proof={'book':'verified'},successor_proof_sha256=patch.digest({'book':'verified'})))
+    path.write_text(json.dumps(record))
+    old=dict(commit='1'*40,image='sha256:'+'a'*64)
+    built=dict(predecessor_receipt=dict(path=str(path),sha256=patch.sha256_file(path)))
+    (tmp_path/'build.json').write_text(json.dumps(built))
+    monkeypatch.setattr(patch,'Journal',lambda _folder:SimpleNamespace(
+        request={'candidate':old},read=lambda:record))
+    host=object.__new__(patch.BackedHost)
+    host.operation_dir=tmp_path;host.predecessor_receipt=path;host.request={'predecessor':old}
+    if changed:state['issuer_evidence']['md5']='b'*32
+    assert host.predecessor_canonical_proof(state)==(None if changed else {'book':'verified'})
 
 
 def test_postgres_archive_off_cannot_become_a_backed_baseline():

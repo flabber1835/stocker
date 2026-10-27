@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import sys
 
-from sentinel_local_delivery import builder, cli
+from sentinel_local_delivery import builder, checks, cli
 from sentinel_local_delivery.coordinator import Delivery
 from sentinel_local_delivery.host import Host, SERVICES
 from sentinel_local_delivery.model import DeliveryRefused, Journal, read_json, require, digest
@@ -217,7 +217,18 @@ class BackedHost(Host):
         require(selected['commit']==old['commit'] and selected['image']==old['image'],
             'BACKED_PREDECESSOR_PROOF_RUNTIME_CHANGED')
         artifacts=record['artifacts']
-        if artifacts['preserved']!=state:
+        preserved=artifacts['preserved']
+        comparison=state
+        if 'issuer_evidence' not in preserved:
+            issuer=state.get('issuer_evidence')
+            if not (isinstance(issuer,dict) and set(issuer)=={'count','md5'}
+                    and type(issuer['count']) is int and issuer['count']==0
+                    and issuer['md5']==checks.EMPTY_ISSUER_EVIDENCE_MD5):
+                return None
+            # A predecessor cannot attest rows which its snapshot did not name.
+            # Only their proven absence adds no old-image canonical fact.
+            comparison={key:value for key,value in state.items() if key!='issuer_evidence'}
+        if preserved!=comparison:
             return None
         proof=artifacts['canonical_proof']
         require(isinstance(proof,dict) and proof and

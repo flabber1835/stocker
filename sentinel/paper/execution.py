@@ -359,13 +359,19 @@ async def _execute_current_paper_plan(
                 clock = lambda: datetime.now(ZoneInfo(calendar.EXCHANGE_TZ))
             else:
                 clock = lambda: now_et
+            from sentinel.execution.issuer_runtime import PaperIssuerAdmission, policy_selected
+            issuer_admission = (PaperIssuerAdmission(
+                conn=conn, binding=binding.identity, clock=clock)
+                if policy_selected(conn, binding.identity) else None)
             broker = _guard_broker(
                 conn=conn, broker=broker, grant=grant, base_url=base_url,
                 now_provider=clock,
                 strategy_provider=lambda: _default_paper_strategy()[1],
                 automation_config_sha256=automation_config_sha256,
                 dual_shadow_observation_id=dual_shadow_observation_id,
-                dual_shadow_starting_cash=dual_shadow_starting_cash)
+                dual_shadow_starting_cash=dual_shadow_starting_cash,
+                issuer_admission_check=(
+                    issuer_admission.final_check if issuer_admission else None))
 
             account = await broker.account_snapshot()
             from sentinel.execution import protected_funding, protected_limits
@@ -476,6 +482,12 @@ async def _execute_current_paper_plan(
                 target_basket=target_projection.target_basket,
                 observation=observation,
                 minimum_quantity_increment=minimum_increment)
+            if issuer_admission is not None and any(
+                    delta.is_increase and delta.security_id != 'SENTINEL:BIL'
+                    for delta in projected_deltas):
+                issuer_admission.prepare(
+                    publication=pinned, state=state, plan=plan,
+                    projection=target_projection, reconciliation=preflight)
 
             from sentinel.execution.share_units import material_restrictions
             from sentinel.core.decision import shadow_target, DEFENSIVE_SECURITY_ID
@@ -567,6 +579,7 @@ async def _execute_current_paper_plan(
                         authorize_dual_mutations
                         if dual_mode else None),
                     security_restrictions=restrictions,
+                    buy_admission=(issuer_admission.check_buy if issuer_admission else None),
                     informational_current_book=dual_mode)
             final_reconciliation = session.reconciliation
             if (final_reconciliation is not None

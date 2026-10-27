@@ -77,8 +77,14 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "49f8b1955068a161a944b6904c212e0f63e93f46bd1cd37188e31a4dff74c9aa",
+      "generated_ast_sha256": "f40493cec7b33b085b6bcb26cd8911293fcdabdf31d85388124d752afd361b02",
       "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
+      "issuer_admission_acceptance": [
+        "tests/sentinel/test_issuer_runtime.py",
+        "tests/sentinel/test_issuer_executor_gate.py",
+        "tests/sentinel/test_issuer_guarded_gate.py"
+      ],
+      "issuer_admission_design": "docs/paper-issuer-admission.md",
       "module": "execution",
       "open_time_acceptance": [
         "tests/sentinel/test_open_time_verification.py::test_gateway_guarded_reads_reuse_first_canonical_proof",
@@ -101,7 +107,7 @@
       ],
       "protected_cohort_design": "docs/protected-cohort-continuation.md",
       "protected_cohort_reason": "Initial admission still requires quiescent account/cash evidence. Only an existing protected basis permits identity-only account preflight, followed by the canonical fresh COMPLETE same-plan cohort proof under the financial writer before nonquiescent continuation. Fresh cash/activity, owned working DAY identities and immutable terms must agree; ordinary admission, restrictions, all spending bounds and the original pre-POST cutoff remain unchanged.",
-      "reason": "Admit the sealed bare transport before composition and preserve reviewed informational current-book scope through execution preflight and settlement. PR #491: Pass independently verified dual scope to the exact retained-state plan guard; all existing sizing, reconciliation, opening-window and broker authority guards remain. PR #511: Warm the immutable proof scope inside the existing writer and publication pin before the gateway verifies the retained book; do not extend its locks, callback deadline or opening-increase window.",
+      "reason": "Admit the sealed bare transport before composition and preserve reviewed informational current-book scope through execution preflight and settlement. PR #491: Pass independently verified dual scope to the exact retained-state plan guard; all existing sizing, reconciliation, opening-window and broker authority guards remain. PR #511: Warm the immutable proof scope inside the existing writer and publication pin before the gateway verifies the retained book; do not extend its locks, callback deadline or opening-increase window. Owner-authorized PAPER issuer admission: bind the existing account policy to the executor and final guarded submit, retaining positive targets and per-security deferral reasons. No canonical strategy or controller change.",
       "retained_acceptance": [
         "tests/sentinel/test_retained_admission_chain.py",
         "tests/sentinel/test_rolling_retained_runtime_activation.py"
@@ -121,8 +127,14 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "678047439f4e65e77a2c7cc3fbb0db2651fa8c5ed7e06004b8f3954cd5fab61e",
+      "generated_ast_sha256": "69b26dccb108b0a91158eb33b72fca2c188b1a8e237695b347e2a7a643abf763",
       "historical_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
+      "issuer_admission_acceptance": [
+        "tests/sentinel/test_issuer_runtime.py",
+        "tests/sentinel/test_issuer_executor_gate.py",
+        "tests/sentinel/test_issuer_guarded_gate.py"
+      ],
+      "issuer_admission_design": "docs/paper-issuer-admission.md",
       "module": "validation",
       "open_time_acceptance": [
         "tests/sentinel/test_open_time_verification.py::test_gateway_guarded_reads_reuse_first_canonical_proof",
@@ -138,7 +150,7 @@
       ],
       "protected_buy_design": "docs/free-data-execution-proposal.md",
       "protected_buy_reason": "Keep all fresh broker-read brackets and derive protected funding internally from committed rows and the actual certified wrapper; no caller-provided funding proof or fallback from missing activity.",
-      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation. PR #511: Reuse only the exact live gateway owner scope; retain fresh signed authority, grant, lease, plan, time and mutation checks around every broker operation."
+      "reason": "Verify the one newly constructed generation-fenced wrapper before returning it to any paper operation. PR #511: Reuse only the exact live gateway owner scope; retain fresh signed authority, grant, lease, plan, time and mutation checks around every broker operation. Owner-authorized PAPER issuer admission: bind the existing account policy to the executor and final guarded submit, retaining positive targets and per-security deferral reasons. No canonical strategy or controller change."
     },
     "_informational_active_symbols": {
       "generated_ast_sha256": "40752dd7a661317132596995792cf2ca3445eafcf83e1ea52de614f2f61272f0",

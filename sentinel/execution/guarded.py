@@ -15,6 +15,7 @@ call with no intervening await.
 from __future__ import annotations
 
 import re
+import inspect
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -241,7 +242,8 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     def __init__(
             self, *, inner: ExecutionBroker, grant: ExecutionGrant,
-            guard: ExecutionBrokerGuard, protected_funding=None) -> None:
+            guard: ExecutionBrokerGuard, protected_funding=None,
+            issuer_admission_check=None) -> None:
         if not isinstance(grant, (PaperPreparationGrant, ManualExecutionGrant,
                                   AutomationExecutionGrant, AttendedPaperExecutionGrant)):
             raise TypeError("grant must be a typed execution grant")
@@ -256,6 +258,9 @@ class GuardedExecutionBroker(ExecutionBroker):
         if protected_funding is not None and not callable(protected_funding):
             raise TypeError("protected_funding must be a canonical funding callback")
         self._protected_funding = protected_funding
+        if issuer_admission_check is not None and not callable(issuer_admission_check):
+            raise TypeError('issuer_admission_check must be a synchronous canonical callback')
+        self._issuer_admission_check = issuer_admission_check
         self.capabilities = inner.capabilities
         self.certification_name = getattr(inner, "certification_name", None)
         if isinstance(grant, AttendedPaperExecutionGrant):
@@ -512,6 +517,32 @@ class GuardedExecutionBroker(ExecutionBroker):
             raise PreTransportAuthorityRefused(
                 "selected protected BUY policy requires immutable LIMIT/DAY terms")
 
+    def _require_issuer_admission(self, *, client_key, instrument, side,
+                                  quantity, order_terms) -> None:
+        if side is not Side.BUY or instrument.security_id == 'SENTINEL:BIL':
+            return
+        try:
+            if self._issuer_admission_check is None:
+                from sentinel import local_paper
+                if not local_paper.enabled():
+                    return
+                raise OrderEvidenceNotReady('issuer admission authority is absent')
+            result = self._issuer_admission_check(client_key=client_key,
+                instrument=instrument, side=side, quantity=quantity,
+                order_terms=order_terms)
+            if inspect.isawaitable(result):
+                if inspect.iscoroutine(result):
+                    result.close()
+                raise TypeError('issuer admission callback must be synchronous')
+            if getattr(result, 'allowed', None) is not True:
+                raise OrderEvidenceNotReady(str(getattr(result, 'reason', '') or
+                    'issuer admission callback returned no affirmative decision'))
+        except OrderEvidenceNotReady:
+            raise
+        except Exception as exc:
+            raise OrderEvidenceNotReady(
+                f'issuer admission unavailable: {type(exc).__name__}: {exc}') from exc
+
     async def _prepare_submit(self, *, client_key: str,
                               instrument: BrokerInstrument, side: Side,
                               quantity: Decimal, order_terms: OrderTerms) -> None:
@@ -617,6 +648,8 @@ class GuardedExecutionBroker(ExecutionBroker):
             except Exception as exc:
                 raise PreTransportAuthorityRefused(
                     'increase quote or affordability unavailable before transport: ' + type(exc).__name__) from exc
+        self._require_issuer_admission(client_key=client_key,
+            instrument=instrument, side=side, quantity=quantity, order_terms=order_terms)
         await self._authorize_mutation(BrokerOperation.SUBMIT)
         if side is Side.BUY and self.supports_market_clock:
             try:

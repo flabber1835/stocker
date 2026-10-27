@@ -12,5 +12,8 @@ PAPER_CURSOR_PREFIXES = (
     'trial-account:v2:', 'trial-verification:v3:', 'trial-fill-interval:v1:',
     'trial-close-nav:v1:', 'paper-performance-invalid:v1:',
     'protected-buy-funding:v1:',
+    'issuer-admission-enrollment:v1:', 'issuer-reference-snapshot:v1:',
+    'issuer-plan-admission:v1:', 'issuer-episode-claim:v1:',
+    'issuer-entry-shortfall:v1:',
 )
 PAPER_CURSOR_NAMES = ('broker-recovery-db-incarnation:v1',)
