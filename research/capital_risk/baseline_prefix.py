@@ -62,6 +62,8 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
 
 
 def worker_stage(name):
+    if re.fullmatch(r"capital-risk-br-screen-[0-9]+-[0-9]+",name):
+        return "weighted-screen"
     if re.fullmatch(r"capital-risk-timing-pilot-[0-9]+-[0-9]+(?:-review)?",name):
         return "timing-pilot"
     if re.fullmatch(r"capital-risk-timeout-proof-[0-9]+-[0-9]+",name):
@@ -81,6 +83,7 @@ def worker_stage(name):
 
 def worker_arm(name):
     stage=worker_stage(name)
+    if stage=='weighted-screen':return 'BR'
     if stage=='timing-pilot':return 'B'
     if stage=="short-core-window":
         return re.fullmatch(r"capital-risk-core-window-(?:stress2021|recent2025)-(b0|b|c|v)-[0-9]+-[0-9]+(?:-(?:input|review))?",name).group(1).upper()

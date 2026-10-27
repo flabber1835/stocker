@@ -30,6 +30,7 @@ def validate_request(value, protocol):
 
 def encrypt(root, asset, key, contract, *, arm='BG',stage='quick-screen'):
     if (arm,stage) not in {('BG','quick-screen'),('CORE_GATE','core-integration'),
+            ('BR','weighted-screen'),
             ('B','timing-pilot'),
             *((a,'short-core-window') for a in ('B','B0','C','V','QUAL'))}:
         raise ValueError('REFUSED_ENCRYPTED_OUTPUT_SCOPE')
