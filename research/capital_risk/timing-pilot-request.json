@@ -1,0 +1,9 @@
+{
+  "schema": "research.capital-risk-timing-request/1",
+  "trial_id": "baseline-timing-pilot-001",
+  "stage": "timing-pilot",
+  "pilot_protocol_sha256": "ccc79e2cde6bdaa8fe872e94d2f4aeb25d2e5958512ead04ca42469f1439004a",
+  "qualification_admission_sha256": "677c43729b149cb36c3f342bc7e42ea93a3b292202a9f76553e0305bae613eb2",
+  "worker_source_sha256": "b58bbb782aa214952c6f65413507bda5304ec0607b7cd45ea2379eea52c4d59e",
+  "observer_source_sha256": "5dd3c0bf411cfa649babcf591a44a6d23f3a6f71aa0b0d736d7f9e2873994a37"
+}
