@@ -62,3 +62,46 @@ artifacts. Successor jobs verify every prefix and resume the next unsent
 session. Actual capacity and throughput determine concurrency and estimates.
 The eight-arm frontier and all negative results are retained. No favorable
 research result grants production admission.
+
+## Encrypted staging decision
+
+The first hosted probe passed with 4 CPUs, 15.7 GB available RAM, 93.0 GB free
+disk and Linux Docker. Staging uses a research-only, non-latest prerelease
+`research-capital-risk-inputs-20261027`, with two encrypted assets below GitHub's
+2 GiB per-asset limit. No existing workflow listens for releases; production
+publication remains fenced to successful main-push Sentinel safety runs.
+These assets are research inputs, never a deployable release or promotion.
+
+An independently generated 256-bit research key is stored as the new Actions
+secret `CAPITAL_RISK_RESEARCH_KEY_20261027`. The local recovery copy is protected
+with Windows CurrentUser DPAPI. It is never committed, printed or placed in
+process arguments. Existing secrets are neither read nor changed. The frozen
+runtime image is exported read-only; no local container or replay is started.
+
+Each asset uses cryptography's streaming AES-256-GCM with a fresh random 96-bit
+nonce and a full 128-bit tag. The versioned header is authenticated. The framing
+is `CRSEAL01 || nonce[12] || ciphertext || tag[16]`. A SHA256 commitment also
+binds each ciphertext in the branch request. Decryption writes a private partial
+file and authenticates the entire payload before making it available to parsers
+or Docker. Failed authentication deletes that partial file. The staging key is
+provided only to the decrypt step; the replay container never receives it.
+
+The data tar contains only explicitly inventoried frozen source, bundle,
+archive, references, four repair fact/evidence sets and baseline comparison
+journals. Its first member is a versioned manifest. Extraction accepts only
+unique regular files with confined relative POSIX paths, exact manifest sizes
+and hashes, and bounded total size; symlinks, devices and extra members refuse.
+All 514 source files, recorded bundle/archive/reference hashes and the exact
+retained image ID are verified at the hosted destination before replay admission.
+The staging workflow may load that image and verify its frozen `/fixed` source,
+but cannot start a backtest. Its public output is an allowlisted nonfinancial
+verification receipt. No data or decrypted financial output is an Actions
+artifact. Temporary plaintext remains only on the fresh hosted VM.
+
+The ciphertext upload was denied by automatic approval review because explicit
+owner approval for this public destination had not been recorded. No payload was
+uploaded. The empty staging prerelease and new research-only secret exist. The
+staging request remains local and is deliberately absent from the branch, so
+publishing the reviewed transfer code does not dispatch a download. Only after
+the destination is authorized and both exact assets are uploaded and verified
+may that request be added to the branch to trigger the staging workflow.

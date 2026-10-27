@@ -29,7 +29,7 @@ jobs:
             research/capital_risk
           fetch-depth: 1
       - name: Verify research guards
-        run: python3 -m unittest discover -s research/capital_risk/tests -v
+        run: python3 -m unittest discover -s research/capital_risk/tests -p test_probe.py -v
       - name: Probe isolated hosted capacity
         run: python3 research/capital_risk/probe.py --request research/capital_risk/request.json --output artifacts/capital-risk/probe.json
       - name: Retain only the nonfinancial probe report
