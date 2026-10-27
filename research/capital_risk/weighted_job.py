@@ -18,7 +18,8 @@ def validate_request(request):
         stage='weighted-screen',original_protocol_sha256=PROTOCOL,
         contract_sha256=sha256_file(HERE/'weighted-screen-protocol.json'),
         policy_sha256=sha256_file(HERE/'weighted_policy.py'),features_sha256=sha256_file(HERE/'weighted_features.py'),
-        screen_sha256=sha256_file(HERE/'weighted_screen.py'))
+        screen_sha256=sha256_file(HERE/'weighted_screen.py'),
+        dispatch_authorization='EXACT_R_ENCRYPTED_ACTIONS_FLOW_APPROVED_20261027')
     need(request==expected,'REFUSED_R_REQUEST')
     validate_plan(json.loads((HERE/'weighted-screen-protocol.json').read_bytes()))
 

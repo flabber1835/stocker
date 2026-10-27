@@ -6,5 +6,6 @@
   "contract_sha256": "da55232c2530ddfc312e25ad81536d9deb9d9f972eaef7250a1272e6c96dd0a2",
   "policy_sha256": "6800eb9819a36acaef0f016f131b80a04607cc93fa5d0e985b7a4a7add85a7e8",
   "features_sha256": "bb34bb6c869e3f07de6ec893b2dc4fe760d4cd040b317d9769768a3db9950e14",
-  "screen_sha256": "cfe022c276095ab9cc90e272d54be1e8aaa61ff408e15344662d84a482c81918"
+  "screen_sha256": "cfe022c276095ab9cc90e272d54be1e8aaa61ff408e15344662d84a482c81918",
+  "dispatch_authorization": "EXACT_R_ENCRYPTED_ACTIONS_FLOW_APPROVED_20261027"
 }

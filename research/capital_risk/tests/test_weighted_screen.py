@@ -112,6 +112,7 @@ class AuthorityTests(unittest.TestCase):
         if not p.exists():self.fail('Versioned weighted request required')
         r=json.loads(p.read_bytes());validate_request(r)
         with self.assertRaises(ValueError):validate_request({**r,'contract_sha256':'0'*64})
+        with self.assertRaises(ValueError):validate_request({**r,'dispatch_authorization':'UNAPPROVED'})
         name='capital-risk-br-screen-123-1';self.assertEqual((worker_stage(name),worker_arm(name)),('weighted-screen','BR'))
         with self.assertRaises(ValueError):worker_stage(name+'-fresh-restart')
 

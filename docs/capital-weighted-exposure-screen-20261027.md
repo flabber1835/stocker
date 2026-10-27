@@ -101,13 +101,13 @@ or evidence reading; actual candidate account calculation runs hosted only.
 
 ## Workflow storage approval boundary
 
-Automatic approval review rejected installation of the new push-triggered R
-workflow: its exact encrypted R evidence payload and public GitHub Actions
-artifact destination require explicit consent distinct from the timing pilot.
-No R workflow was installed and no job was launched. Complete and publish the
-static implementation and reviewed proposal on PR542, then request only that
-specific destination/workflow approval. Do not use an existing workflow or local
-financial evaluation as a route around the rejection.
+The owner explicitly answered "Approve the R workflow and encrypted GitHub
+artifacts" to the complete R feature/account/checkpoint/log payload, public
+flabber1835/stocker GitHub Actions artifact destination, seven-day retention and
+single 15-minute workflow question. This resolves the earlier automatic approval
+review rejection for this exact new flow, independently of the timing pilot.
+Install the reviewed workflow and launch one approved request push. Do not infer
+permission for another experiment, new destination or a broader campaign.
 
 The reviewable flow retrieves only the already approved encrypted inputs/runtime
 from the existing research release. It runs one offline comparison and uploads
