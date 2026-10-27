@@ -99,9 +99,14 @@ def test_future_hold_only_plan_preserves_absent_opening_sizing_instead_of_invent
 
 
 def test_snapshot_binds_all_registered_issuer_rows_in_the_existing_bounded_read():
+    from sentinel.execution.issuer_admission import PREFIXES
     from sentinel.retained_input_namespaces import PAPER_CURSOR_PREFIXES
-    registered = {prefix for prefix in PAPER_CURSOR_PREFIXES if prefix.startswith('issuer-')}
+    registered = set(PREFIXES)
     assert set(checks.ISSUER_EVIDENCE_PREFIXES) == registered
+    assert all(prefix.startswith('protected-buy-funding:v1:issuer-policy:v1:')
+        and any(prefix.startswith(parent) for parent in PAPER_CURSOR_PREFIXES)
+        for prefix in registered)
+    assert not any(prefix.startswith('issuer-') for prefix in PAPER_CURSOR_PREFIXES)
     for mode in ('PRE_OPEN', 'POST_TRADE'):
         statement = checks.snapshot_sql(mode)
         issuer = statement.split("'issuer_evidence',", 1)[1].split("'push_subscriptions',", 1)[0]

@@ -1,6 +1,6 @@
 """Explicit, broker-read-only enrollment of the current local PAPER account.
 
-The operator supplies the existing sealed administrative-read composition. This
+The operator supplies the existing sealed preparation-read composition. This
 operation records execution policy only; it cannot prepare a plan, replay the
 shadow, submit an order, or change an existing account/book binding.
 """
@@ -14,6 +14,7 @@ from sentinel.authority import load_rollout_state, require_observation_safety_au
 from sentinel.config import assert_paper_url
 from sentinel.execution import feed_inputs, issuer_admission, issuer_runtime, journal
 from sentinel.execution import reconcile as reconciliation
+from sentinel.execution.guarded import PaperPreparationGrant
 from sentinel.feed.issuer_reference import load_snapshot
 from sentinel.handover import assert_no_legacy_path
 from sentinel.paper.inspection import (
@@ -27,8 +28,8 @@ async def enroll_current_paper_account(*, conn, broker, base_url: str,
         now: datetime | None = None) -> issuer_admission.Enrollment:
     """Enroll once from verified current ownership and a fresh attributed account.
 
-    ``broker`` must be the ADMIN_INSPECT administrative-read wrapper already used
-    by inspect-paper-account, never a bare adapter or an execution grant. The
+    ``broker`` must be the canonical generation-fenced wrapper constructed by
+    paper.validation._guard_broker with an exact PaperPreparationGrant. The
     existing backup-protected writer lock owns the final append/commit boundary.
     An existing enrollment is returned without reseeding it or contacting a
     broker. A missing enrollment never initializes itself on the execution path.
@@ -43,23 +44,30 @@ async def enroll_current_paper_account(*, conn, broker, base_url: str,
     instant = now or datetime.now(timezone.utc)
     if instant.tzinfo is None or instant.utcoffset() is None:
         raise PaperActivationRefused('issuer enrollment requires an aware current time')
-    _require_certified_paper_broker(broker, expected_wrapper_kind='administrative-read')
+    _require_certified_paper_broker(broker, expected_wrapper_kind='generation-fenced-execution')
+    grant = getattr(broker, 'grant', None)
+    if type(grant) is not PaperPreparationGrant:
+        raise PaperActivationRefused('issuer enrollment requires an exact read-only PaperPreparationGrant')
     schema.require_runtime_schema(conn)
     journal.require_observation_integrity(conn)
     with journal.writer_lock(conn):
         binding = assert_no_legacy_path(conn)
-        try:
-            return issuer_admission.load_enrollment(conn, binding=binding.identity)
-        except issuer_admission.IssuerAdmissionRefused as exc:
-            if str(exc) != 'ISSUER_ADMISSION_NOT_ENROLLED':
-                raise
-        rollout = load_rollout_state(conn)
-        require_observation_safety_authority(conn, required_operation='SAFETY_READ',
-            required_mode=rollout.mode, paper_base_url=base_url)
+        if grant.expected_account != binding.broker_account_id:
+            raise PaperActivationRefused('issuer enrollment preparation grant account differs from binding')
         with feed_inputs.pinned(conn, commit=False) as current:
             feed_inputs.require_shadow_mode(current, True)
             feed_inputs.coherent(conn)
             frontier = str(feed_inputs.frontier(conn, current))
+            if grant.decision_session.isoformat() != frontier:
+                raise PaperActivationRefused('issuer enrollment preparation grant session differs from current frontier')
+            try:
+                return issuer_admission.load_enrollment(conn, binding=binding.identity)
+            except issuer_admission.IssuerAdmissionRefused as exc:
+                if str(exc) != 'ISSUER_ADMISSION_NOT_ENROLLED':
+                    raise
+            rollout = load_rollout_state(conn)
+            require_observation_safety_authority(conn, required_operation='SAFETY_READ',
+                required_mode=rollout.mode, paper_base_url=base_url)
             # This authenticates the committed current book. It has no replay,
             # warm-up, catch-up or economic-state write path.
             shadow = dual_reconciliation.verified_shadow_intent(conn,

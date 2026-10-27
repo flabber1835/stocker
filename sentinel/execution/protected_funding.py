@@ -22,6 +22,10 @@ from sentinel.execution.states import CommandState, IN_FLIGHT, RuntimeState
 
 
 PREFIX = "protected-buy-funding:v1:"
+# The funding owner delegates this typed execution-metadata subtree. It never
+# contains a cash basis; every funding key must stay outside the entire branch.
+ISSUER_POLICY_BRANCH = "issuer-policy:"
+ISSUER_POLICY_PREFIX = PREFIX + ISSUER_POLICY_BRANCH + "v1:"
 HEADROOM = Decimal("1.00")
 
 
@@ -31,6 +35,12 @@ class ProtectedFundingRefused(ValueError):
 
 class ProtectedFundingNotReady(ProtectedFundingRefused):
     """The fixed promise does not currently fit its conservative allowance."""
+
+
+def _funding_key(plan_id: str) -> str:
+    if not isinstance(plan_id, str) or not plan_id or plan_id.startswith(ISSUER_POLICY_BRANCH):
+        raise ProtectedFundingRefused("funding plan id enters reserved issuer-policy namespace")
+    return PREFIX + plan_id
 
 
 class _FundingBasis(BaseModel):
@@ -198,9 +208,10 @@ def _require_writer(conn) -> None:
 
 
 def load_basis(conn, *, plan_id: str) -> FundingBasis | PlanCashFundingBasis | None:
+    key = _funding_key(plan_id)
     with conn.cursor() as cur:
         cur.execute("SELECT session,state FROM sentinel_processed_sessions"
-                    " WHERE cursor_name=%s", (PREFIX + plan_id,))
+                    " WHERE cursor_name=%s", (key,))
         row = cur.fetchone()
     if row is None:
         return None
@@ -402,6 +413,7 @@ def record_quiescent_basis(conn, *, plan, projection, binding, reconciliation,
                            account, activity_state, observed_at: datetime,
                            paper_base_url: str, broker=None) -> FundingBasis | PlanCashFundingBasis:
     """Earn once through the existing strict account and cash contract."""
+    key = _funding_key(plan.plan_id)
     from sentinel.config import assert_paper_url
     from sentinel.execution.protected_limits import ProtectedLimitPolicy
     from sentinel.paper.inspection import _account_evidence_is_quiescent, _account_or_refuse
@@ -464,7 +476,7 @@ def record_quiescent_basis(conn, *, plan, projection, binding, reconciliation,
     with conn.cursor() as cur:
         cur.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state)"
                     " VALUES (%s,%s,%s::jsonb) ON CONFLICT (cursor_name) DO NOTHING",
-                    (PREFIX + plan.plan_id, plan.effective_session, _canonical(value)))
+                    (key, plan.effective_session, _canonical(value)))
     if load_basis(conn, plan_id=plan.plan_id) != basis:
         raise ProtectedFundingRefused("concurrent funding basis differs")
     conn.commit()

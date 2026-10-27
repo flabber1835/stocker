@@ -15,16 +15,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from sentinel.execution import journal
 from sentinel.execution.contract import Side
 from sentinel.execution.identity import DeploymentIdentity
+from sentinel.execution.protected_funding import ISSUER_POLICY_PREFIX
 from sentinel.execution.states import CommandState, IN_FLIGHT, RuntimeState
 from sentinel.feed.issuer_reference import IssuerReferenceSnapshot
 from sentinel.feed.rolling_contract import Digest, digest
 
-ENROLLMENT_PREFIX = 'issuer-admission-enrollment:v1:'
-SOURCE_PREFIX = 'issuer-reference-snapshot:v1:'
-PLAN_PREFIX = 'issuer-plan-admission:v1:'
-CLAIM_PREFIX = 'issuer-episode-claim:v1:'
-SHORTFALL_PREFIX = 'issuer-entry-shortfall:v1:'
+ENROLLMENT_PREFIX = ISSUER_POLICY_PREFIX + 'enrollment:'
+SOURCE_PREFIX = ISSUER_POLICY_PREFIX + 'source:'
+PLAN_PREFIX = ISSUER_POLICY_PREFIX + 'plan:'
+CLAIM_PREFIX = ISSUER_POLICY_PREFIX + 'claim:'
+SHORTFALL_PREFIX = ISSUER_POLICY_PREFIX + 'shortfall:'
 PREFIXES = (ENROLLMENT_PREFIX, SOURCE_PREFIX, PLAN_PREFIX, CLAIM_PREFIX, SHORTFALL_PREFIX)
+LEGACY_PREFIXES = ('issuer-admission-enrollment:v1:', 'issuer-reference-snapshot:v1:',
+    'issuer-plan-admission:v1:', 'issuer-episode-claim:v1:', 'issuer-entry-shortfall:v1:')
 DEFENSIVE_SECURITY_ID = 'SENTINEL:BIL'
 POLICY = 'SEC_OPERATING_ISSUER_NEW_PAPER_EPISODE_V1'
 POLICY_SHA256 = digest({'policy': POLICY, 'baseline': 'ONCE_POSITIVELY_ATTRIBUTED_EPISODES',
@@ -178,6 +181,14 @@ def _lock(conn):
         " AND objsubid=1 AND mode='ExclusiveLock' AND granted)", (journal.WRITER_LOCK_KEY,)).fetchone()
     if row is None or row[0] is not True:
         raise IssuerAdmissionRefused('ISSUER_ADMISSION_WRITER_LOCK_REQUIRED')
+
+
+def _refuse_legacy_records(conn):
+    clauses = ' OR '.join('(cursor_name >= %s AND cursor_name < %s)' for _ in LEGACY_PREFIXES)
+    bounds = tuple(value for prefix in LEGACY_PREFIXES for value in (prefix, prefix + '~'))
+    if conn.execute('SELECT cursor_name FROM sentinel_processed_sessions WHERE '
+                    + clauses + ' LIMIT 1', bounds).fetchone() is not None:
+        raise IssuerAdmissionRefused('ISSUER_ADMISSION_LEGACY_NAMESPACE_PRESENT')
 
 
 def _append(conn, key, session, kind, body):
@@ -348,6 +359,7 @@ def _store_source(conn, snapshot, session):
 def enroll(conn, *, binding, state, reconciliation, snapshot, instruments, now, commands=None):
     """Explicit one-time enrollment; existing accounts can never be reseeded."""
     _lock(conn)
+    _refuse_legacy_records(conn)
     owner, now = _binding(binding), _now(now)
     key = ENROLLMENT_PREFIX + _scope(owner)
     if _read(conn, key, 'enrollment') is not None:
@@ -414,6 +426,7 @@ def load_plan_evidence(conn, *, plan, projection):
 def prepare_plan_evidence(conn, *, binding, state, plan, projection, reconciliation,
                           snapshot, instruments, now, commands=None):
     _lock(conn)
+    _refuse_legacy_records(conn)
     owner, now = _binding(binding), _now(now)
     enrollment = load_enrollment(conn, binding=owner)
     _reconciliation(owner, reconciliation, now)
@@ -510,6 +523,7 @@ def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None
         raise IssuerAdmissionRefused('ISSUER_ADMISSION_CLAIM_ENROLLMENT_CHANGED')
     if own and set(keys).issubset(baseline):
         return Decision(allowed=True, reason='GRANDFATHERED_EPISODE', security_id=security_id, episode_keys=keys)
+    _refuse_legacy_records(conn)
     source = _source(conn, value)
     issuer = _resolve(source, value.instruments, security_id, now)
     reason, conflicts = None, set()

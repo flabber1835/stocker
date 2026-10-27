@@ -1,14 +1,18 @@
 """One-time account enrollment uses the authenticated current book and GETs only."""
 import asyncio
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
 
-from sentinel.execution.contract import BrokerAccountIdentity, BrokerAccountSnapshot
+from sentinel.execution.contract import (
+    BrokerAccountIdentity, BrokerAccountSnapshot, BrokerCapabilities, BrokerInstrument, Side)
 from sentinel.config import LiveEndpointRefused
+from sentinel.execution.guarded import (
+    ExecutionBrokerGuard, GuardedExecutionBroker, ManualExecutionGrant,
+    PaperPreparationGrant, PreTransportAuthorityRefused)
 from sentinel.execution.states import CommandState
 from sentinel.paper import issuer_enrollment as operation
 from sentinel.paper.model import PaperActivationRefused
@@ -43,8 +47,8 @@ def enrollment_context(store, source, monkeypatch):
         yield publication
 
     def certified(_broker, *, expected_wrapper_kind):
-        assert expected_wrapper_kind == 'administrative-read'
-        events.append('administrative-read')
+        assert expected_wrapper_kind == 'generation-fenced-execution'
+        events.append('sealed-preparation-read')
 
     def verified(conn, **kwargs):
         assert conn is store and store.locked
@@ -54,6 +58,8 @@ def enrollment_context(store, source, monkeypatch):
         return SimpleNamespace(state=value)
 
     class ReadOnlyBroker:
+        grant = PaperPreparationGrant(BINDING.broker_account_id, date(2026, 10, 26))
+
         async def account_snapshot(self):
             assert store.locked
             events.append('account-GET')
@@ -166,7 +172,7 @@ def test_bare_or_nonlocal_or_live_operation_is_not_supported(enrollment_context,
         run(enrollment_context)
 
 
-def test_certified_administrative_wrapper_is_required_before_broker_read(enrollment_context, monkeypatch):
+def test_certified_preparation_wrapper_is_required_before_broker_read(enrollment_context, monkeypatch):
     def refused(*_args, **_kwargs):
         raise PaperActivationRefused('unsealed broker')
 
@@ -174,3 +180,85 @@ def test_certified_administrative_wrapper_is_required_before_broker_read(enrollm
     with pytest.raises(PaperActivationRefused, match='unsealed'):
         run(enrollment_context)
     assert 'account-GET' not in enrollment_context.events
+
+
+@pytest.mark.parametrize('grant', [
+    ManualExecutionGrant(BINDING.broker_account_id, 'plan', date(2026, 10, 27), True),
+    SimpleNamespace(expected_account=BINDING.broker_account_id, decision_session=date(2026, 10, 26)),
+    None,
+])
+def test_execution_or_untyped_grants_refuse_before_account_read(enrollment_context, grant):
+    enrollment_context.broker.grant = grant
+    with pytest.raises(PaperActivationRefused, match='exact read-only PaperPreparationGrant'):
+        run(enrollment_context)
+    assert 'account-GET' not in enrollment_context.events
+
+
+@pytest.mark.parametrize('grant,reason', [
+    (PaperPreparationGrant('another-account', date(2026, 10, 26)), 'account differs'),
+    (PaperPreparationGrant(BINDING.broker_account_id, date(2026, 10, 27)), 'session differs'),
+])
+def test_preparation_grant_must_match_exact_account_and_frontier(enrollment_context, grant, reason):
+    enrollment_context.broker.grant = grant
+    with pytest.raises(PaperActivationRefused, match=reason):
+        run(enrollment_context)
+    assert 'account-GET' not in enrollment_context.events
+    assert 'fresh-reconcile' not in enrollment_context.events
+
+
+def test_preparation_grant_subclass_cannot_borrow_enrollment_authority(enrollment_context):
+    class OtherGrant(PaperPreparationGrant):
+        pass
+
+    enrollment_context.broker.grant = OtherGrant(BINDING.broker_account_id, date(2026, 10, 26))
+    with pytest.raises(PaperActivationRefused, match='exact read-only'):
+        run(enrollment_context)
+    assert 'account-GET' not in enrollment_context.events
+
+
+def preparation_wrapper(inner, events):
+    inner.capabilities = BrokerCapabilities()
+    grant = PaperPreparationGrant(BINDING.broker_account_id, date(2026, 10, 26))
+
+    async def before_read(received, _operation):
+        assert received is grant
+        events.append('prepare-read-authority')
+
+    async def after_read(received, _operation, _result):
+        assert received is grant
+        events.append('prepare-read-result-authority')
+
+    async def before_mutation(*_args):
+        pytest.fail('read-only preparation grant consulted mutation authority')
+
+    return GuardedExecutionBroker(inner=inner, grant=grant,
+        guard=ExecutionBrokerGuard(before_read, after_read, before_mutation))
+
+
+def test_real_preparation_wrapper_composes_with_supported_enrollment(enrollment_context):
+    context = enrollment_context
+    wrapped = preparation_wrapper(context.broker, context.events)
+    enrolled = run(context, broker=wrapped)
+    assert {ep.security_id for ep in enrolled.episodes} == {'A', 'A2'}
+    assert context.events.index('prepare-read-authority') < context.events.index('account-GET')
+    assert context.events.index('account-GET') < context.events.index('prepare-read-result-authority')
+
+
+def test_real_preparation_wrapper_structurally_forbids_both_mutations():
+    events = []
+
+    class Inner:
+        async def submit(self, **_kwargs):
+            pytest.fail('preparation enrollment reached submit transport')
+
+        async def cancel(self, *_args):
+            pytest.fail('preparation enrollment reached cancel transport')
+
+    wrapped = preparation_wrapper(Inner(), events)
+    native = BrokerInstrument('A', 'AAA', 'native-A')
+    with pytest.raises(PreTransportAuthorityRefused, match='preparation grant is read-only'):
+        asyncio.run(wrapped.submit(client_key='sntl-readonly', instrument=native,
+            side=Side.SELL, quantity=Decimal(1)))
+    with pytest.raises(PreTransportAuthorityRefused, match='preparation grant is read-only'):
+        asyncio.run(wrapped.cancel('broker-order'))
+    assert events == []

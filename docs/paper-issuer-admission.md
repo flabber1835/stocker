@@ -72,6 +72,13 @@ record to the exact deployment, broker, account and takeover epoch, policy diges
 authenticated canonical snapshot and complete clean account observation. Require
 no UNKNOWN or working broker outcome during enrollment. Preserve all current
 controls and account/book lineage.
+Use the existing sealed generation-fenced broker with its structurally read-only
+`PaperPreparationGrant`, naming the exact bound account and current decision
+session. The existing signed `PREPARE_READ` and `SAFETY_READ` permissions cover
+these observations; no pre-binding administrative certificate is required.
+Reject execution-capable grants, a different account/session, bare adapters and
+changed wrapper configuration before the account read. The ordinary preparation
+wrapper independently forbids both submit and cancel before transport.
 
 Freeze only genuine pre-existing positively attributed holding episodes, using
 security_id plus canonical slot_id/signal_date ownership. Record exact provenance
@@ -116,7 +123,27 @@ an unexecuted episode into a grandfathered or already-admitted account position.
 Use typed, authenticated, versioned execution namespaces in existing
 sentinel_processed_sessions. No new behavioral schema, Compose topology, broker
 credential, deployment environment knob or canonical state field is required.
-Register namespaces as operational/PAPER evidence, not economic book inputs.
+Reserve the explicit `protected-buy-funding:v1:issuer-policy:v1:` child domain
+inside the existing operational BUY-safety namespace. Its five typed children
+are `enrollment:`, `source:`, `plan:`, `claim:` and `shortfall:`. They retain
+issuer envelopes and never represent cash funding bases or grant cash authority.
+The funding owner continues exact plan-key lookup and refuses any plan ID
+starting with the reserved `issuer-policy:` branch before reading or writing its key. Canonical
+`sentinel-<fingerprint>` plan IDs cannot alias this reserved child domain.
+
+Keep the existing `PAPER_CURSOR_PREFIXES`, trigger definitions, catalog pins,
+immutable installation marker and DDL epoch byte-identical. The parent prefix
+already classifies these children as operational/PAPER evidence. A separately
+added top-level prefix would change the generated cursor trigger and require an
+unnecessary schema migration; it is not used. Qualify this against the exact
+predecessor operational contracts and prove issuer appends advance only PAPER
+read revisions. No database function replacement or coverage-receipt rebinding
+belongs in this installation.
+The initial unsuccessful attempt stopped at `NEW` before issuer records or
+service replacement; do not copy or transform any data from abandoned top-level
+issuer keys. Their unexpected presence refuses enrollment and new entry.
+After enrollment, reverting to software without issuer admission requires
+fencing BUY transport first; database compatibility does not confer that policy.
 The owner-local PAPER mode requires enrollment before new equity BUYs. Once an
 account is enrolled, that durable policy stays selected across future normal
 PAPER installations too. Invalid enrollment evidence cannot disable the policy;

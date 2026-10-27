@@ -64,9 +64,11 @@ print(json.dumps(value,sort_keys=True))
 '''
 
 ISSUER_EVIDENCE_PREFIXES = (
-    'issuer-admission-enrollment:v1:', 'issuer-reference-snapshot:v1:',
-    'issuer-plan-admission:v1:', 'issuer-episode-claim:v1:',
-    'issuer-entry-shortfall:v1:',
+    'protected-buy-funding:v1:issuer-policy:v1:enrollment:',
+    'protected-buy-funding:v1:issuer-policy:v1:source:',
+    'protected-buy-funding:v1:issuer-policy:v1:plan:',
+    'protected-buy-funding:v1:issuer-policy:v1:claim:',
+    'protected-buy-funding:v1:issuer-policy:v1:shortfall:',
 )
 EMPTY_ISSUER_EVIDENCE_MD5 = 'd41d8cd98f00b204e9800998ecf8427e'
 # Exact operational prefixes preserve their complete rows in the existing

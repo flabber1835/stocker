@@ -55,6 +55,9 @@ class Memory:
         if sql.startswith('SELECT cursor_name,state FROM sentinel_processed_sessions'):
             return Rows([(key, deepcopy(raw)) for key, raw in sorted(self.records.items())
                          if args[0] <= key < args[1]])
+        if sql.startswith('SELECT cursor_name FROM sentinel_processed_sessions WHERE '):
+            return Rows([(key,) for key in sorted(self.records)
+                         if any(low <= key < high for low, high in zip(args[::2], args[1::2]))][:1])
         raise AssertionError(sql)
 
     @contextmanager
@@ -349,6 +352,28 @@ def test_missing_lock_and_lost_transaction_do_not_publish_reservation(store, sou
             assert buy(store, evidence, 'A', reserve=True).allowed
             raise RuntimeError('command admission failed before commit')
     assert guard._claims(store, guard._binding(BINDING)) == {}
+
+
+@pytest.mark.parametrize('legacy_prefix', guard.LEGACY_PREFIXES)
+def test_old_top_level_records_refuse_enrollment_without_copying(store, source, legacy_prefix):
+    store.records[legacy_prefix + 'unpublished'] = {'old': 'preserved'}
+    before = deepcopy(store.records)
+    with pytest.raises(guard.IssuerAdmissionRefused, match='LEGACY_NAMESPACE_PRESENT'):
+        enroll(store, source)
+    assert store.records == before
+
+
+@pytest.mark.parametrize('legacy_prefix', guard.LEGACY_PREFIXES)
+def test_old_namespace_refuses_new_plan_and_new_episode_entry(store, source, legacy_prefix):
+    enroll(store, source)
+    _, _, _, proof = prepare(store, source, pending=('A',))
+    store.records[legacy_prefix + 'old'] = {'old': 'preserved'}
+    before = deepcopy(store.records)
+    with pytest.raises(guard.IssuerAdmissionRefused, match='LEGACY_NAMESPACE_PRESENT'):
+        prepare(store, source, pending=('A',), suffix='2')
+    with pytest.raises(guard.IssuerAdmissionRefused, match='LEGACY_NAMESPACE_PRESENT'):
+        buy(store, proof, 'A', reserve=True)
+    assert store.records == before
 
 
 def test_database_session_lock_and_rollback_boundary(pg, source, monkeypatch):
