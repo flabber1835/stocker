@@ -289,3 +289,47 @@ add a second handoff expiry to that bookkeeping step or reset the original one.
 A cleared lease must return an explicit false current-leader verdict from SQL,
 using the existing holder, heartbeat and expiry predicates; SQL NULL is not a
 running leader. Missing singleton/query evidence still refuses completion.
+
+### Retire positively unsent historical commands before scheduling recovery
+
+Recovery on October 27 found eight obsolete PLANNED commands retained from
+October 19/20. Their immutable histories exactly match the issuer enrollment's
+positive no-transport proofs, but plan supersession never closed the command
+rows. Keep the unsent-recovery guard strict. Do not ignore all PLANNED commands,
+delete rows, invent a replacement delta, replay old plans or alter UNKNOWN.
+
+Add a reviewed, qualified host maintenance command for this narrow closure.
+Run its sealed program through the existing authorized PAPER image, using the
+canonical read-only PaperPreparationGrant and a fresh complete clean,
+account-attributed reconciliation. Require enabled-but-killed exact control,
+no current leader, explicit account/certificate/generation/key confirmations,
+the existing immutable enrollment, and expired/superseded exact parent plans.
+Each selected unrecovered command must still be unfilled PLANNED without a
+broker ID; the canonical issuer no-send predicate and current complete event
+history must match its retained enrollment proof, with no matching native
+order. Hold the normal backup-protected execution writer lock and reload all
+identities, immutable economics and histories before acting. Missing,
+incomplete, changed, foreign, pending or UNKNOWN evidence refuses.
+
+Sample the complete reconciliation after the potentially slow backup guard.
+Use the existing 60-second protected-funding observation limit at each
+retirement; stale or future observation time refuses rather than acquiring a
+new lifetime. Do not hold a pre-guard broker snapshot across that slow check.
+
+Use only Command.transition(PLANNED -> SUPERSEDED) and journal.save_command to
+append each terminal closure while preserving the original identity/economics
+and every prior event. No new command or broker submission/cancellation is
+permitted. Record the fresh observation, prior proof and exact key set in a
+retained maintenance receipt. Per-command commits are restart-convergent:
+completed rows are accepted only with this operation's exact terminal closure;
+partial progress never authorizes the remaining stale commands.
+
+Explicitly confirmed recovery may then invoke the existing unsent authorization
+and ordinary release primitives under freshly rechecked signed authority. Keep
+all original no-transport, binding, generation, actual-open and backup guards.
+One process/connection may reuse their existing in-process proof caches within
+their unchanged expiry; never forge cache entries or skip a nested guard.
+This is a host-only operator surface with qualified source/program digests,
+not an application image overlay or a new trading path. Normal automation must
+still create its new plan; the old blocked cycle and old command keys remain
+permanently retired history. No canonical book, backtest, schema or policy change.
