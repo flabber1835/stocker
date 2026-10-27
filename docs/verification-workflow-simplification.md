@@ -52,3 +52,22 @@ baseline closure, normalized checker implementation, historical policy resources
 and `authority_effect=NONE`. This update permits only the reviewed successor;
 the complete-file-set and every single-file unknown-byte falsifier remain release
 requirements. It is not a new financial authority or a golden-result update.
+
+## Physical traversal versus economic compiler identity
+
+The final qualification exposed that `economic_manifest.identity` hashes whole
+`feed.rolling_store` and `feed.action_history` modules as economic input compilers.
+The changed functions only traverse stored rows and select an already validated
+SQL route. Their logical field/domain/order contract is unchanged and the
+independent real-input digest check passed. Treating these reviewed physical
+changes as a new strategy would abandon the existing canonical book.
+
+Add one closed physical-read source witness for exactly these two compiler
+modules, rooted in C84's actual module hashes. Map only their complete reviewed
+successor bytes to the original compiler contribution. Bind the unchanged pure
+read contract, the witness implementation, exact member set and full runtime
+transition. Preserve the economic manifest's original compiler/dependency maps
+and admitted semantic hash; update only its checker implementation pin. Unknown
+compiler bytes retain their actual new economic identity, and malformed or
+changed witnesses refuse. Other modules cannot gain this mapping. Keep the
+existing expected strategy hash and its domain-change falsifier unchanged.

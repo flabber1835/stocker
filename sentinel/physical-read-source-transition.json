@@ -1,0 +1,17 @@
+{
+  "authority_effect": "NONE",
+  "base_revision": "c84b7c26a170dd11c7a94521bfb391f88264987b",
+  "compilers": {
+    "sentinel.feed.action_history": {
+      "after": "3e5301af6bb46fee50c7e687364ce9fe418234acda548e638142af2ec9ce7f45",
+      "before": "dd0f4e6cdb25eac66165fb24d7bf32161cad486fe8dab70fc46facb288c17179"
+    },
+    "sentinel.feed.rolling_store": {
+      "after": "e3580be3bc9543706aae76139d1867f961437177bf81379e678f756950d0c35d",
+      "before": "a88e70b2e84cd763813114a7f25d35d966ac0d1a3c1c3c27f3afc5d46a81104a"
+    }
+  },
+  "module_sha256": "d504cb6c4cb559a090de5b53c0aac489f9f77a5e898760a8f92160088c18aafb",
+  "read_contract_sha256": "ac6a4c2b407f9f437b837c394fa1e25fdc3b5dd0849edaed9c2c4ed460567c01",
+  "schema": "sentinel.physical-read-source-transition/1"
+}
