@@ -15,6 +15,9 @@ ACTION = 'KILL_ENGAGED'
 KIND = 'LOCAL_CONTENTION_MISCLASSIFIED'
 PREFLIGHT_KIND = 'PREFLIGHT_IDENTITY_BEYOND_FRONTIER'
 SOURCE_FRONTIER_KIND = 'ROLLING_SOURCE_FRONTIER_MISCLASSIFIED'
+PUBLICATION_CHANGED_KIND = 'ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED'
+PUBLICATION_CHANGED_FAILURE = ('certified shadow status is invalid: shadow status refused: '
+    'Refused: ROLLING_RUNTIME_PUBLICATION_CHANGED')
 SOURCE_FRONTIER_FAILURE = ('certified shadow status is invalid: shadow status refused: '
     'RollingSourceFrontierPending: ROLLING_INPUTS_NOT_READY: rolling source-final frontier')
 PREFLIGHT_FAILURE = ('unreviewed callback exception '
@@ -27,7 +30,8 @@ class Authorization(Contract):
         default='sentinel.unsent-recovery/1', alias='schema')
     kind: Literal['LOCAL_CONTENTION_MISCLASSIFIED',
                   'PREFLIGHT_IDENTITY_BEYOND_FRONTIER',
-                  'ROLLING_SOURCE_FRONTIER_MISCLASSIFIED'] = KIND
+                  'ROLLING_SOURCE_FRONTIER_MISCLASSIFIED',
+                  'ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED'] = KIND
     binding: ControlBinding
     decision_session: date
     effective_session: date
@@ -68,6 +72,14 @@ def eligible_kind(cycle):
             and cycle.diagnostic.get('exception_type')
                 == 'sentinel.automation.model.NonRetryableCallbackRefused'):
         return SOURCE_FRONTIER_KIND
+    if (cycle.plan_id is None and cycle.failure_code == 'NonRetryableCallbackRefused'
+            and cycle.failure_detail == PUBLICATION_CHANGED_FAILURE
+            and cycle.diagnostic.get('retry_phase') == 'REFRESH'
+            and cycle.diagnostic.get('callback_failure') == 'PERMANENT_OPERATIONAL_REFUSAL'
+            and cycle.diagnostic.get('terminal_reason') == 'PERMANENT_OPERATIONAL_REFUSAL'
+            and cycle.diagnostic.get('exception_type')
+                == 'sentinel.automation.model.NonRetryableCallbackRefused'):
+        return PUBLICATION_CHANGED_KIND
     return None
 
 

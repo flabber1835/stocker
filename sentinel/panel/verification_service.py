@@ -49,6 +49,10 @@ def _observe_once(database_url, include_paper, expected_key):
 
 def observe(database_url, include_paper, expected_key):
     from sentinel.feed.publication import CorpusLockUnavailable
+    from sentinel.panel.shadow_source_wait import observe_preparation
+    preparation = observe_preparation(database_url, include_paper, expected_key)
+    if preparation is not None:
+        return preparation
     try:
         return financial.retry_corpus_lock(lambda: _observe_once(database_url, include_paper, expected_key))
     except CorpusLockUnavailable:

@@ -79,7 +79,7 @@ def test_ignoring_contradictory_signed_identity_is_detected(monkeypatch):
         test_contradictory_signed_runtime_claims_are_refused()
 
 
-@pytest.mark.parametrize('defect', [None, 'session', 'exposure', 'rollout', 'unverified', 'version'])
+@pytest.mark.parametrize('defect', [None, 'session', 'future_session', 'exposure', 'rollout', 'unverified', 'version'])
 def test_verified_shadow_book_is_sole_current_book_and_plan_must_agree(monkeypatch, defect):
     from sentinel.core.session import ENVELOPE_VERSION
     state = RuntimeFixture._state()
@@ -92,6 +92,10 @@ def test_verified_shadow_book_is_sole_current_book_and_plan_must_agree(monkeypat
     rollout = dict(mode='CONTROLLER', version=2, certificate_sha256='fixture-controller')
     if defect == 'session':
         plan['decision_session'] = '2026-08-11'
+        plan['unpriced_securities'] = ['UNRELATED-OLDER-PLAN']
+    elif defect == 'future_session':
+        plan['decision_session'] = '2026-08-13'
+        plan['unpriced_securities'] = ['UNRELATED-FUTURE-PLAN']
     elif defect == 'exposure':
         plan['target_exposure'] = .56
     elif defect == 'rollout':
@@ -107,8 +111,29 @@ def test_verified_shadow_book_is_sole_current_book_and_plan_must_agree(monkeypat
         assert by_key['book'].value.startswith('1/2 slots · NAV $1,000')
         assert by_key['exposure'].value == '0.55'
         assert by_key['terminals'].value == 'CLEAR'
+    elif defect in {'session', 'future_session'}:
+        assert not errors
+        assert by_key['book'].value.startswith('1/2 slots · NAV $1,000')
+        assert by_key['book'].status == model.OK
+        assert 'UNPRICED' not in by_key['book'].detail
+        assert by_key['exposure'].value == '0.55 NOT ADOPTED'
+        assert by_key['exposure'].status == model.WARN
+        assert by_key['terminals'].value == 'CLEAR'
     else:
         assert all(row.status == model.UNKNOWN for row in rows)
+
+
+def test_unrelated_plan_session_filter_has_a_removed_guard_falsifier(monkeypatch):
+    import inspect
+    body = inspect.getsource(sources._verified_shadow_book_rows)
+    guard = 'plan["decision_session"] != view["session"]'
+    assert body.count(guard) == 1
+    namespace = {}
+    exec(compile(body.replace(guard, 'False'), '<unrelated-plan-session-falsifier>', 'exec'),
+         sources.__dict__, namespace)
+    monkeypatch.setattr(sources, '_verified_shadow_book_rows', namespace['_verified_shadow_book_rows'])
+    with pytest.raises(AssertionError):
+        test_verified_shadow_book_is_sole_current_book_and_plan_must_agree(monkeypatch, 'session')
 
 
 @pytest.mark.parametrize('mode', ['shadow', 'dual'])

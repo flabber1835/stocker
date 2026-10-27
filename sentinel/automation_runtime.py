@@ -41,6 +41,7 @@ from sentinel.automation.model import (
     RefreshResult,
     SoftwareDefect,
     SourceDataPending,
+    ClosingDataPending,
     TickResult,
     NonRetryableCallbackRefused,
     PermanentOperationalRefusal,
@@ -190,6 +191,59 @@ def transient_refresh_failure(exc: BaseException
             "unreviewed refresh exceptions cannot be classified transient")
     return SourceDataPending(
         f"{type(exc).__name__}: {exc}")
+
+
+def _closing_frontier_wait(exc, *, frontier, decision_session):
+    """Preserve only the native frontier cause through reviewed wrappers."""
+    from sentinel.dual_reconciliation import DualReconciliationPending
+    from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
+    from sentinel.shadow_runtime import ShadowRuntimeRefused
+
+    try:
+        if calendar.next_session(str(frontier)) != str(decision_session):
+            return SourceDataPending(str(exc))
+    except (TypeError, ValueError, RuntimeError):
+        return SourceDataPending(str(exc))
+    current, seen = exc, set()
+    for _ in range(8):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        if type(current) is RollingSourceFrontierPending:
+            return ClosingDataPending(str(exc))
+        if type(current) not in (DualReconciliationPending, ShadowRuntimeRefused):
+            break
+        current = current.__cause__
+    return SourceDataPending(str(exc))
+
+
+def _dedicated_publisher_wait(frontier, decision_session):
+    kind = SourceDataPending
+    try:
+        if calendar.next_session(str(frontier)) == str(decision_session):
+            kind = ClosingDataPending
+    except (TypeError, ValueError, RuntimeError):
+        pass
+    return kind('dual refresh is waiting for the dedicated shadow data '
+                'publisher to publish the exact decision close')
+
+
+def _publication_closing_wait(exc, *, database_url, cycle):
+    """An expected pin refusal needs its matching fresh live-writer proof."""
+    from sentinel.feed.publication import CorpusLockUnavailable
+
+    if type(exc) is not CorpusLockUnavailable or cycle is None:
+        return None
+    try:
+        from sentinel.source_publication_wait import observe
+        proof = observe(database_url, decision_session=str(cycle.decision_session))
+        if proof is None or proof.decision_session != str(cycle.decision_session):
+            return None
+        return ClosingDataPending('the current closing-data publication owns the source pin',
+            publisher_deadline_at=proof.publisher_deadline)
+    except Exception:
+        # An unverifiable publisher cannot silence the original lock warning.
+        return None
 
 
 def require_observation_integrity(conn) -> None:
@@ -907,6 +961,7 @@ class ProductionAutomation:
 
     async def refresh(self, context: CycleContext) -> RefreshResult:
         conn = None
+        cycle = None
         try:
             conn = self.connect()
             feed_store.require_feed_schema(conn)
@@ -927,6 +982,23 @@ class ProductionAutomation:
                     raise NonRetryableCallbackRefused(str(exc)) from exc
             if feed_inputs.is_rolling(current):
                 feed_inputs.require_shadow_mode(current, self._dual_run_enabled)
+                if (getattr(current, 'window_end', None) == str(cycle.decision_session)
+                        and getattr(self, 'sentinel_config', None) is not None):
+                    from sentinel import prepare_shadow_wait
+                    preparation = prepare_shadow_wait.observe(conn,
+                        decision_session=cycle.decision_session,
+                        observation_id=self._shadow_observation_id,
+                        starting_cash=self._shadow_starting_cash,
+                        state_dir=self.sentinel_config.state_dir,
+                        database_url=self.sentinel_config.database_url)
+                    if preparation is not None:
+                        detail = ('the current closing-data publication is '
+                            'awaiting its certified shadow attestation')
+                        if preparation.quiet_eligible is True:
+                            raise ClosingDataPending(detail,
+                                publisher_deadline_at=preparation.publisher_deadline,
+                                worker_deadline_at=preparation.worker_deadline)
+                        raise SourceDataPending(detail)
                 from sentinel import dual_reconciliation
                 try:
                     dual_reconciliation.verified_shadow_intent(
@@ -934,7 +1006,9 @@ class ProductionAutomation:
                         observation_id=self._shadow_observation_id,
                         starting_cash=self._shadow_starting_cash)
                 except dual_reconciliation.DualReconciliationPending as exc:
-                    raise SourceDataPending(str(exc)) from exc
+                    raise _closing_frontier_wait(exc,
+                        frontier=getattr(current, 'window_end', None),
+                        decision_session=cycle.decision_session) from exc
                 except dual_reconciliation.DualReconciliationRefused as exc:
                     raise NonRetryableCallbackRefused(str(exc)) from exc
                 return RefreshResult(already_published=True, data_version=str(current.version),
@@ -961,9 +1035,7 @@ class ProductionAutomation:
                 # session twice, invalidating the shadow record's exact
                 # publication version before PAPER sizing. Wait for that one
                 # authority; never race it from the broker-capable service.
-                raise SourceDataPending(
-                    "dual refresh is waiting for the dedicated shadow data "
-                    "publisher to publish the exact decision close")
+                raise _dedicated_publisher_wait(visible, cycle.decision_session) from None
             context.require_active()
             try:
                 from sentinel.feed import outage_recovery, source_probe
@@ -996,6 +1068,11 @@ class ProductionAutomation:
                     if hasattr(progress, "to_dict") else str(progress),
                 })
         except BaseException as exc:                          # noqa: BLE001
+            publication_wait = (_publication_closing_wait(exc,
+                database_url=self.sentinel_config.database_url, cycle=cycle)
+                if type(exc) is publication.CorpusLockUnavailable else None)
+            if publication_wait is not None:
+                raise publication_wait from exc
             mapped = classify_dependency_failure(exc)
             if mapped is None or mapped is exc:
                 raise

@@ -1,0 +1,251 @@
+"""A fenced software repair cannot become readiness or financial recovery."""
+from copy import deepcopy
+import inspect
+import io
+import json
+import sys
+from types import SimpleNamespace
+import urllib.request
+
+import pytest
+
+from tests.scripts import test_sentinel_local_delivery_evidence as readers
+from tests.scripts import test_sentinel_local_delivery_coordinator as flow
+
+
+def blocked_host():
+    host=readers.Host()
+    host.supports_blocked_unsent=True
+    host.request['handoff_mode']='BLOCKED_UNSENT'
+    host.request['predecessor']['postgres']={'command':['archive_command=archive %p %f']}
+    host.load_values=lambda:{'SENTINEL_LOCAL_PAPER_ACCOUNT_ID':'PAPER-Z',
+        'SENTINEL_LOCAL_PAPER_BACKUP_POLICY':'REQUIRED_V1'}
+    state=host.state
+    state.update(plan=None,authority_md5=None,archive_mode='on',archive_command='archive %p %f',
+        repair=dict(lease_live=0,kill_event='KILL_ENGAGED',plain_kill=True,
+                    scoped_plans=0,scoped_commands=0,transport_events=0))
+    state['control'].update(generation=100,kill_switch_engaged=True,authority_verdict=None)
+    state['cycle'].update(cycle_id='b'*64,state='BLOCKED',plan_id=None,historical_state_only=False,
+        completed_at='2031-04-21T21:00:00+00:00',failure_code='NonRetryableCallbackRefused',
+        failure_detail=readers.checks.PUBLICATION_CHANGED_FAILURE,
+        diagnostic=dict(retry_phase='REFRESH',callback_failure='PERMANENT_OPERATIONAL_REFUSAL',
+            terminal_reason='PERMANENT_OPERATIONAL_REFUSAL',
+            exception_type='sentinel.automation.model.NonRetryableCallbackRefused'))
+    return host
+
+
+def test_exact_fenced_unsent_snapshot_has_no_plan_and_keeps_existing_history_domains():
+    host=blocked_host()
+    assert readers.evidence.snapshot(host)==host.state
+    sql=host.calls[0]
+    assert 'LEFT JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id' in sql
+    assert 's.control_generation=c.generation-1 AND' in sql
+    assert "s.diagnostic->>'retry_phase'='REFRESH'" in sql
+    assert 'scoped_plans' in sql and 'scoped_commands' in sql and 'transport_events' in sql
+    assert "'commands_md5'" in sql and "'fills_md5'" in sql and "'issuer_evidence'" in sql
+    assert "'plans_md5'" in sql and "'control_events_md5'" in sql
+    for mode in ('PRE_OPEN','POST_TRADE'):
+        normal=readers.checks.snapshot_sql(mode)
+        assert 'LEFT JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id' not in normal
+        assert 's.control_generation=c.generation AND' in normal
+
+
+@pytest.mark.parametrize('path,value',[
+    (('control','kill_switch_engaged'),False), (('control','enabled'),False),
+    (('control','generation'),101), (('cycle','control_generation'),100),
+    (('cycle','state'),'SUPERSEDED'), (('cycle','plan_id'),'plan'),
+    (('cycle','historical_state_only'),True), (('cycle','completed_at'),None),
+    (('cycle','failure_detail'),'ROLLING_RUNTIME_PUBLICATION_CHANGED'),
+    (('cycle','diagnostic','retry_phase'),'PREPARE'),
+    (('cycle','diagnostic','exception_type'),'builtins.RuntimeError'),
+    (('cycle','diagnostic','terminal_reason'),None),
+    (('repair','lease_live'),1), (('repair','plain_kill'),False),
+    (('repair','kill_event'),'KILL_RELEASED'), (('repair','scoped_plans'),1),
+    (('repair','scoped_commands'),1), (('repair','transport_events'),1),
+    (('repair','scoped_plans'),False), (('plan',),{'plan_id':'existing'}),
+    (('inflight',),1), (('other_active',),1), (('jobs_active',),1),
+    (('job_live_owners',),1), (('ready',),False),
+    (('source_binding','job_state'),'READY'), (('source_binding','job_publication'),86),
+])
+def test_finite_repair_admission_refuses_every_unproved_boundary(path,value):
+    host=blocked_host();selected=host.state
+    for key in path[:-1]:selected=selected[key]
+    selected[path[-1]]=value
+    with pytest.raises(readers.model.DeliveryRefused):readers.evidence.snapshot(host)
+
+
+def test_removing_negative_transport_proof_is_detected(monkeypatch):
+    original=readers.evidence.require
+    monkeypatch.setattr(readers.evidence,'require',lambda ok,reason:
+        None if reason=='BLOCKED_UNSENT_NOT_FENCED_OR_UNSENT' else original(ok,reason))
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_finite_repair_admission_refuses_every_unproved_boundary(('repair','scoped_commands'),1)
+
+
+def test_no_plan_program_is_canonical_read_only_and_never_runs_schema_installation():
+    checks=readers.checks
+    compile(checks.BLOCKED_CANONICAL,'blocked-canonical','exec')
+    compile(checks.BLOCKED_PANEL,'blocked-panel','exec')
+    assert checks.BLOCKED_CANONICAL.count('rolling_runtime.status(')==1
+    assert 'authority.rederive_plan(' not in checks.BLOCKED_CANONICAL
+    assert 'default_transaction_read_only=on' in checks.BLOCKED_CANONICAL
+    assert "'operational_ready':False" not in checks.CANONICAL
+    assert 'operational_ready=False' in checks.BLOCKED_CANONICAL
+    assert 'require_schema(c)' in checks.READ_OPERATIONAL_SCHEMA
+    assert 'install_quiescent' not in checks.READ_OPERATIONAL_SCHEMA
+    assert 'BEGIN TRANSACTION READ ONLY' in checks.READ_OPERATIONAL_SCHEMA
+    assert 'not page[\'source_errors\']' in checks.BLOCKED_PANEL
+
+
+operation=flow.operation
+
+
+def repair_operation(operation,monkeypatch):
+    host,journal,_=operation
+    host.request['handoff_mode']='BLOCKED_UNSENT'
+    (journal.folder/'request.json').write_text(json.dumps(host.request))
+    journal=flow.model.Journal(journal.folder)
+    host.items['sentinel-automation']['State']['Running']=False
+    host.postgres_after_restart=lambda *_:pytest.fail('repair accepted a PostgreSQL restart')
+    monkeypatch.setattr(flow.coordinator.evidence,'leader',lambda h:dict(current=False,
+        holder=None,generation=77,fence=8,heartbeat=0))
+    delivery=flow.coordinator.Delivery(host,journal,monotonic=lambda:host.clock,sleep=host.sleep)
+    return host,journal,delivery
+
+
+def test_complete_repair_finishes_software_only_with_same_fence_and_no_recovery(operation,monkeypatch):
+    host,journal,delivery=repair_operation(operation,monkeypatch)
+    before=deepcopy(host.state)
+    receipt=delivery.advance()
+    assert receipt['stage']=='VERIFIED' and host.state==before
+    assert receipt['artifacts']['operational_ready'] is False
+    assert receipt['artifacts']['installation_scope']=='FENCED_BLOCKED_UNSENT_SOFTWARE_ONLY'
+    assert receipt['artifacts']['leader']['current'] is False
+    assert host.canonical_count==2 and host.heartbeat==0
+    assert not any('authorize' in str(call) or 'kill-switch' in str(call)
+                   or 'postgres' in str(call) or 'backup' in str(call) for call in host.calls)
+    assert all(item['Image']==host.request['candidate']['image'] for item in host.items.values())
+    assert delivery.advance()==receipt
+
+
+def test_repair_refuses_running_old_writer_before_any_handoff_mutation(operation,monkeypatch):
+    host,journal,delivery=repair_operation(operation,monkeypatch)
+    host.items['sentinel-automation']['State']['Running']=True
+    with pytest.raises(flow.model.DeliveryRefused,match='WRITER_NOT_STOPPED'):delivery.advance()
+    assert journal.read()['stage']=='NEW'
+    assert not any(isinstance(call,tuple) for call in host.calls)
+
+
+def test_repair_final_check_refuses_a_new_live_leader(operation,monkeypatch):
+    host,journal,delivery=repair_operation(operation,monkeypatch)
+    while journal.read()['stage']!='APPLICATIONS_STARTED':delivery.step()
+    monkeypatch.setattr(flow.coordinator.evidence,'leader',lambda h:dict(current=True))
+    with pytest.raises(flow.model.DeliveryRefused,match='LEADER_IS_ACTIVE'):delivery.step()
+    assert journal.read()['stage']=='APPLICATIONS_STARTED'
+
+
+def test_normal_modes_keep_green_panel_and_advancing_leader_contract():
+    assert "assert not any(row.get('color')=='red'" in readers.checks.PANEL
+    source=inspect.getsource(flow.coordinator.Delivery.step)
+    assert "leader=self._leader(artifacts['preserved']['control']['generation'])" in source
+    assert "if repair:" in source and "'operational_ready':False" in source
+
+
+@pytest.mark.parametrize('fault',[None,'rw','other_mount','environment','neighbor','unqualified'])
+def test_backed_compose_allows_only_exact_qualified_readonly_worker_mount(tmp_path,fault):
+    from tests.scripts.test_sentinel_backed_local_patch import patch
+    source=tmp_path/'source';source.mkdir()
+    installed=tmp_path/'installed';installed.mkdir()
+    originals={name:b'services:\n  unchanged: {}\n' for name in patch.COMPOSE}
+    name='docker-compose.sentinel-automation.yml'
+    originals[name]=b'services:\n  sentinel-automation:\n'+patch._AUTOMATION_ENTRY+b'    environment:\n      EXISTING: value\n'
+    candidates=dict(originals)
+    candidates[name]=originals[name].replace(patch._AUTOMATION_ENTRY,
+        patch._AUTOMATION_ENTRY+patch._WORKER_READ_MOUNT)
+    if fault=='rw':candidates[name]=candidates[name].replace(b':ro\n',b':rw\n')
+    elif fault=='other_mount':candidates[name]=candidates[name].replace(b'/var/lib/sentinel:ro',b'/other:ro')
+    elif fault=='environment':candidates[name]=candidates[name].replace(b'EXISTING: value',b'EXISTING: changed')
+    elif fault=='neighbor':candidates[name]=candidates[name].replace(b'  sentinel-automation:',b'  other:')
+    for key in originals:
+        (source/key).write_bytes(candidates[key]);(installed/key).write_bytes(originals[key])
+    host=object.__new__(patch.BackedHost);host.source=source;host.deployment=installed
+    host.request=dict(predecessor={'commit':'a'*40},allowed_delta=[] if fault=='unqualified' else [name],
+        qualification={'source_files':{key:patch.sha256_file(source/key) for key in originals}})
+    host.git_bytes=lambda *args:originals[args[-1].split(':',1)[1]]
+    if fault:
+        with pytest.raises(patch.DeliveryRefused,match='COMPOSITION_CHANGE_REFUSED'):host.install_compose()
+        assert (installed/name).read_bytes()==originals[name]
+    else:
+        host.verify_compose('predecessor');host.install_compose();host.verify_compose('candidate')
+        assert (installed/name).read_bytes()==candidates[name]
+        host.install_compose()  # Lost acknowledgement only repeats the same bytes.
+
+
+@pytest.mark.parametrize('fault',[None,'false_green','new_plan','source_error','unrelated_red'])
+def test_fenced_panel_program_retains_red_and_refuses_unrelated_failures(monkeypatch,capsys,fault):
+    from datetime import datetime,timezone
+    expected=dict(decision='2031-04-21',effective='2031-04-22',cycle_id='b'*64,plan=None)
+    def row(key,value,status='ok'):
+        return dict(key=key,value=value,status=status,color='red' if status=='fail' else 'green')
+    rows=[row('automation','ENABLED · KILLED','fail'),row('automation_leader','INACTIVE BY POLICY','pending'),
+        row('automation_cycle','BLOCKED','fail'),row('paper_plan','NOT PREPARED','pending'),
+        row('shadow_verification','SHADOW VERIFIED THROUGH '+expected['decision']),
+        row('feed',expected['decision']+' · 0 sessions behind'),row('alert_dispatcher','HEALTHY')]
+    page=dict(as_of=datetime.now(timezone.utc).isoformat(),color='red',source_errors=[],rows=rows)
+    if fault=='false_green':page['color']='green'
+    elif fault=='new_plan':rows[3]['paper_plan']={'plan_id':'invented'}
+    elif fault=='source_error':page['source_errors']=['read failure']
+    elif fault=='unrelated_red':rows.append(row('broker','UNKNOWN','fail'))
+    monkeypatch.setattr(sys,'argv',['program',json.dumps(expected)])
+    monkeypatch.setattr(urllib.request,'urlopen',lambda *a,**kw:io.BytesIO(json.dumps(page).encode()))
+    if fault:
+        with pytest.raises(AssertionError):exec(readers.checks.BLOCKED_PANEL,{})
+    else:
+        exec(readers.checks.BLOCKED_PANEL,{})
+        assert json.loads(capsys.readouterr().out)['operational_ready'] is False
+
+
+@pytest.mark.parametrize('fault',[None,'generation','killed','disabled','certificate','ready_generation',
+    'ready_decision','kind','binding','fingerprints','incident'])
+def test_later_normal_build_accepts_only_exact_recovery_lineage(monkeypatch,fault):
+    from tests.scripts.test_sentinel_backed_local_patch import patch
+    from sentinel_local_delivery import evidence
+    host=readers.Host()
+    host.load_values=lambda:{}
+    ready=host.state
+    ready['cycle']['cycle_id']='d'*64
+    binding={key:ready['control'][key] for key in ('deployment_id','broker','broker_account_id',
+        'takeover_epoch','certificate_sha256','rollout_mode','rollout_version','config_sha256')}
+    repair=dict(generation=97,cycle_id='b'*64,fingerprints={'b'*64:'f'*64},binding=binding,
+        decision=ready['cycle']['decision_session'],effective=ready['cycle']['effective_session'])
+    record=dict(repair_predecessor=repair,system='123456789',postgres={'unchanged':True})
+    state=dict(generation=99,certificate=binding['certificate_sha256'],enabled=True,killed=False)
+    if fault=='generation':state['generation']=100
+    elif fault=='killed':state['killed']=True
+    elif fault=='disabled':state['enabled']=False
+    elif fault=='certificate':state['certificate']='foreign'
+    elif fault=='ready_generation':ready['control']['generation']=98
+    elif fault=='ready_decision':ready['cycle']['decision_session']='2031-04-20'
+    monkeypatch.setattr(evidence,'snapshot',lambda subject:deepcopy(ready))
+    calls=[]
+    def compose(values,*args,**kwargs):
+        calls.append(args)
+        expected=json.loads(args[-1])
+        assert args[-2]==readers.checks.RECOVERY_LINEAGE
+        assert expected['ready_cycle_id']=='d'*64 and expected['plan_id']=='future-plan'
+        proof=dict(generation=99,blocked_cycle_id=repair['cycle_id'],certificate=binding['certificate_sha256'],
+            fingerprints=repair['fingerprints'],kind='ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED',binding=binding)
+        if fault=='kind':proof['kind']='LOCAL_CONTENTION_MISCLASSIFIED'
+        elif fault=='binding':proof['binding']={**binding,'takeover_epoch':10}
+        elif fault=='fingerprints':proof['fingerprints']={'b'*64:'e'*64}
+        elif fault=='incident':proof['blocked_cycle_id']='e'*64
+        return SimpleNamespace(stdout=json.dumps(proof).encode())
+    host.compose=compose
+    if fault:
+        with pytest.raises(patch.DeliveryRefused):patch.recovered_baseline_generation(host,record,state)
+    else:
+        assert patch.recovered_baseline_generation(host,record,state)==99
+        assert len(calls)==1
+    assert 'rolling_runtime.status' not in readers.checks.RECOVERY_LINEAGE
+    assert 'unsent_recovery.validate_authorization(' in readers.checks.RECOVERY_LINEAGE
+    assert 'BEGIN TRANSACTION READ ONLY' in readers.checks.RECOVERY_LINEAGE

@@ -50,9 +50,12 @@ def test_recovery_upgrade_pins_exact_predecessor_and_target_and_rejects_neighbor
 def test_new_recovery_module_is_admitted_only_at_exact_reviewed_bytes(closure):
     root, checkpoint, context, manifest, source = closure
     name = 'automation/unsent_recovery.py'
+    current = (Path(upgrade.__file__).parent/name).read_bytes()
+    historical.require_current_source(name, hashlib.sha256(current).hexdigest())
+    # This partial fixture exercises the original exact addition, not a hybrid
+    # containing a successor that requires the complete current-package seal.
+    historical.write(root, name, expected=upgrade.profile()['additions'][name])
     path = root/name
-    path.parent.mkdir(parents=True)
-    path.write_bytes((Path(upgrade.__file__).parent/name).read_bytes())
     _refresh_current(root, context, source)
     assert admission.prove_compatibility(manifest, checkpoint, context, source=source)
     path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_CHANGE = True\n')

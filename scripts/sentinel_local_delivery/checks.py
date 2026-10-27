@@ -53,6 +53,19 @@ finally:
     c.rollback();c.close()
 '''
 
+READ_OPERATIONAL_SCHEMA = r'''import json,os
+from sentinel import operational_schema
+from sentinel.feed import store
+c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=15000)
+try:
+    c.execute('BEGIN TRANSACTION READ ONLY')
+    assert operational_schema.require_schema(c)
+    installation=operational_schema.installation(c,required=True)
+    print(json.dumps(dict(installation=installation,complete=True),sort_keys=True))
+finally:
+    c.rollback();c.close()
+'''
+
 READ_COMPAT_DRAIN = r'''import json,os,sys
 from datetime import datetime,timezone
 from pathlib import Path
@@ -71,6 +84,8 @@ ISSUER_EVIDENCE_PREFIXES = (
     'protected-buy-funding:v1:issuer-policy:v1:shortfall:',
 )
 EMPTY_ISSUER_EVIDENCE_MD5 = 'd41d8cd98f00b204e9800998ecf8427e'
+PUBLICATION_CHANGED_FAILURE = ('certified shadow status is invalid: shadow status refused: '
+    'Refused: ROLLING_RUNTIME_PUBLICATION_CHANGED')
 # Exact operational prefixes preserve their complete rows in the existing
 # bounded snapshot. LIKE keeps prefix meaning independent of database collation.
 _ISSUER_EVIDENCE_FILTER = ' OR '.join(
@@ -167,6 +182,16 @@ def handoff_filters(mode):
             "AND s.completed_at IS NOT NULL AND s.execute_at<=s.completed_at "
             "AND s.completed_at<=clock_timestamp() "
             "AND s.execution_close_at>clock_timestamp()+interval '15 minutes'")
+    elif mode=='BLOCKED_UNSENT':
+        candidate = "s.state='BLOCKED' AND s.plan_id IS NULL"
+        ready = ("s.state='BLOCKED' AND s.plan_id IS NULL AND s.completed_at IS NOT NULL "
+            "AND s.failure_code='NonRetryableCallbackRefused' "
+            "AND s.failure_detail='"+PUBLICATION_CHANGED_FAILURE+"' "
+            "AND s.diagnostic->>'retry_phase'='REFRESH' "
+            "AND s.diagnostic->>'callback_failure'='PERMANENT_OPERATIONAL_REFUSAL' "
+            "AND s.diagnostic->>'terminal_reason'='PERMANENT_OPERATIONAL_REFUSAL' "
+            "AND s.diagnostic->>'exception_type'='sentinel.automation.model.NonRetryableCallbackRefused' "
+            "AND s.execution_open_at>clock_timestamp()+interval '15 minutes'")
     else:
         raise ValueError('unknown handoff mode')
     return candidate,ready
@@ -182,9 +207,37 @@ def snapshot_sql(mode='PRE_OPEN'):
             WHERE o.seq::text=s.last_clean_reconciliation_id AND o.runtime_state='RUNNING'
               AND o.completeness='COMPLETE' AND r.broker=c.broker
               AND r.broker_account_id=c.broker_account_id AND r.canonical_payload_sha256 IS NOT NULL),"""
-    return (_SNAPSHOT_SQL.replace('__CANDIDATE_FILTER__',candidate)
+    statement = (_SNAPSHOT_SQL.replace('__CANDIDATE_FILTER__',candidate)
         .replace('__READY_FILTER__',ready).replace('__SETTLED_FACT__',settled)
         .replace('__ISSUER_EVIDENCE_FILTER__',_ISSUER_EVIDENCE_FILTER))
+    if mode=='BLOCKED_UNSENT':
+        statement = (statement.replace('s.control_generation=c.generation AND',
+            's.control_generation=c.generation-1 AND')
+            .replace('JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id',
+                'LEFT JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id')
+            .replace("'plan',json_build_object(","'plan',CASE WHEN p.plan_id IS NULL THEN NULL ELSE json_build_object(")
+            .replace("p.publication_fingerprint),", "p.publication_fingerprint) END,")
+            .replace('AND p.superseded_by IS NULL,', 'AND p.plan_id IS NULL,')
+            .replace("'inflight',", """'repair',json_build_object(
+   'lease_live',(SELECT count(*) FROM sentinel_automation_lease WHERE expires_at>clock_timestamp()),
+   'kill_event',(SELECT action FROM sentinel_automation_events WHERE generation=c.generation),
+   'plain_kill',(SELECT detail->>'schema' IS DISTINCT FROM 'sentinel.unsent-recovery/1'
+     FROM sentinel_automation_events WHERE generation=c.generation),
+   'plans_md5',(SELECT md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.plan_id),''))
+     FROM sentinel_execution_plans x),
+   'control_events_md5',(SELECT md5(coalesce(string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.generation),''))
+     FROM sentinel_automation_events x),
+   'scoped_plans',(SELECT count(*) FROM sentinel_execution_plans x WHERE x.deployment_id=c.deployment_id
+     AND x.broker=c.broker AND x.broker_account_id=c.broker_account_id AND x.takeover_epoch=c.takeover_epoch
+     AND x.effective_session=s.effective_session),
+   'scoped_commands',(SELECT count(*) FROM sentinel_commands x LEFT JOIN sentinel_execution_plans p USING(plan_id)
+     WHERE x.deployment_id=c.deployment_id AND x.broker=c.broker AND x.broker_account_id=c.broker_account_id
+     AND x.takeover_epoch=c.takeover_epoch AND (p.plan_id IS NULL OR p.effective_session=s.effective_session)),
+   'transport_events',(SELECT count(*) FROM sentinel_automation_cycle_events x
+     WHERE x.cycle_id=s.cycle_id AND (x.from_state IN ('EXECUTING','RECONCILING')
+       OR x.to_state IN ('EXECUTING','RECONCILING')))),
+ 'inflight',"""))
+    return statement
 
 
 SNAPSHOT_SQL = snapshot_sql()
@@ -331,6 +384,114 @@ while True:
 print(json.dumps(output,sort_keys=True))
 '''
 
+_BLOCKED_PANEL_BODY = r'''assert not page['source_errors']
+assert rows['automation']['value']=='ENABLED · KILLED' and rows['automation']['status']=='fail'
+assert rows['automation_leader']['value']=='INACTIVE BY POLICY'
+assert rows['automation_cycle']['value'] in {'BLOCKED','WAITING FOR NEXT DECISION'}
+assert not rows.get('paper_plan',{}).get('paper_plan')
+assert rows['shadow_verification']['status']=='ok'
+assert rows['shadow_verification']['value']=='SHADOW VERIFIED THROUGH '+expected['decision']
+assert rows['feed']['status']=='ok' and rows['feed']['value']==expected['decision']+' · 0 sessions behind'
+assert rows['alert_dispatcher']['status']=='ok'
+allowed={
+ 'automation':{'ENABLED · KILLED'},
+ 'automation_cycle':{'BLOCKED','WAITING FOR NEXT DECISION'},
+ 'automation_step_discovery':{'MISSING'},
+ 'automation_step_data':{'FAILED'},
+ 'automation_step_complete':{'BLOCKED'},
+ 'paper_reconciliation':{'PAPER NOT VERIFIED · LATEST CYCLE FAILED'},
+}
+for row in page['rows']:
+ if row.get('color')!='red': continue
+ if row['key']=='automation_alerts':
+  import re
+  assert re.fullmatch(r'0 pending · 0 DLQ · [0-9]+ unacked',row['value'])
+ else:
+  assert row['value'] in allowed.get(row['key'],set()),'unrelated red check: '+row['key']
+assert page['color']=='red'
+print(json.dumps(dict(as_of=page['as_of'],color=page['color'],operational_ready=False,
+ cycle=rows['automation_cycle']['value'],blocked_cycle_id=expected['cycle_id'],
+ sender=rows['alert_dispatcher']['status'],source_errors=page['source_errors']),sort_keys=True))
+'''
+
+# Preserve the normal plan proof byte-for-byte. This finite no-plan branch
+# authenticates the same canonical book/current authority and no trading plan.
+_BLOCKED_BODY = r'''        from datetime import datetime,timedelta,timezone
+        from sentinel.automation import store as automation_store
+        from sentinel.automation import unsent_recovery
+        from sentinel.feed import calendar
+        control=automation_store.load_control(conn)
+        cycle=automation_store.load_cycle(conn,expected['cycle_id'])
+        assert control.enabled and control.kill_switch_engaged and control.generation==expected['generation']
+        assert cycle.state.value=='BLOCKED' and not cycle.historical_state_only and cycle.plan_id is None
+        assert cycle.control_generation==control.generation-1
+        assert cycle.failure_code=='NonRetryableCallbackRefused'
+        assert cycle.failure_detail==''' + repr(PUBLICATION_CHANGED_FAILURE) + r'''
+        assert cycle.diagnostic.get('retry_phase')=='REFRESH'
+        assert cycle.diagnostic.get('callback_failure')=='PERMANENT_OPERATIONAL_REFUSAL'
+        assert cycle.diagnostic.get('terminal_reason')=='PERMANENT_OPERATIONAL_REFUSAL'
+        assert cycle.diagnostic.get('exception_type')=='sentinel.automation.model.NonRetryableCallbackRefused'
+        assert str(cycle.decision_session)==expected['decision'] and str(cycle.effective_session)==expected['effective']
+        assert expected['decision']==calendar.latest_closed_session(datetime.now(timezone.utc))
+        assert cycle.execution_open_at>datetime.now(timezone.utc)+timedelta(minutes=15)
+        assert all(getattr(cycle,key)==getattr(control.binding,key) for key in control.binding.model_fields)
+        predecessors=unsent_recovery.fingerprints(automation_store._cycles_in_scope(conn,cycle))
+        with readers.pinned(conn,commit=False) as pub:
+            assert pub.version==expected['version'] and str(readers.frontier(conn,pub))==expected['decision']
+            source_binding=operational_snapshot.require_alpaca_openfigi(conn,pub)
+            published=publication_fingerprint(pub)
+        policy=protected_limits.ProtectedLimitPolicy.from_env()
+        assert policy is not None and policy.cap_bps==100 and policy.debug_window is None
+        output=dict(plan=None,operational_ready=False,cycle_id=cycle.cycle_id,recovery_predecessors=predecessors,
+            publication=published,source_binding=source_binding,policy=policy.to_dict(),
+            strategy=canonical_sha256(strategy),wealth=runtime['environment']['wealth_core_source']['hash'],
+            book=result.to_dict(),book_state_sha256=result.state.state_hash,
+            push_controller_sha256=hashlib.sha256(PUSH_SCRIPT.encode()).hexdigest(),
+            service_worker_sha256=hashlib.sha256(SERVICE_WORKER.encode()).hexdigest(),
+            transaction_read_only=conn.read_only)
+'''
+_PLAN_BEGIN = CANONICAL.index('        plan=journal.load_plan(')
+_PLAN_END = CANONICAL.index('        conn.rollback()\n    return output', _PLAN_BEGIN)
+BLOCKED_CANONICAL = CANONICAL[:_PLAN_BEGIN]+_BLOCKED_BODY+CANONICAL[_PLAN_END:]
+
+RECOVERY_LINEAGE = r'''import json,os,sys
+from sentinel.feed import store
+from sentinel.automation import store as automation,unsent_recovery
+from sentinel.cli.automation import _automation_authority
+from sentinel.automation_runtime import config_from_env
+from sentinel.config import SentinelConfig
+expected=json.loads(sys.argv[1])
+c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=15000)
+try:
+ c.execute('BEGIN TRANSACTION READ ONLY')
+ bound,rollout,certificate=_automation_authority(c,SentinelConfig.from_env(),config_from_env())
+ control=automation.load_control(c)
+ assert control.enabled and not control.kill_switch_engaged
+ assert control.generation==expected['generation']+2
+ assert control.binding.model_dump(mode='json')==expected['binding']
+ assert certificate.certificate_sha256==expected['binding']['certificate_sha256']
+ auth,at=unsent_recovery.load_authorization(c,expected['generation']+1)
+ assert auth.kind=='ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED'
+ assert auth.blocked_cycle_id==expected['cycle_id']
+ assert auth.predecessor_fingerprints==expected['fingerprints']
+ prior=[automation.load_cycle(c,key) for key in sorted(expected['fingerprints'])]
+ assert unsent_recovery.fingerprints(prior)==expected['fingerprints']
+ unsent_recovery.require_predecessors(c,prior,generation=control.generation)
+ ready=automation.load_cycle(c,expected['ready_cycle_id'])
+ assert ready.state.value=='WAITING_OPEN' and ready.plan_id==expected['plan_id']
+ assert ready.control_generation==control.generation and not ready.historical_state_only
+ assert ready.failure_code is None and ready.failure_detail is None
+ assert str(ready.decision_session)==expected['decision'] and str(ready.effective_session)==expected['effective']
+ unsent_recovery.validate_authorization(c,spec=ready,cycles=prior,generation=expected['generation']+1)
+ unsent_recovery.require_unsent(c,prior,binding=control.binding,effective_session=ready.effective_session)
+ unsent_recovery.require_fresh_plan(c,ready,ready.plan_id)
+ print(json.dumps(dict(generation=control.generation,blocked_cycle_id=auth.blocked_cycle_id,
+   certificate=certificate.certificate_sha256,fingerprints=auth.predecessor_fingerprints,
+   kind=auth.kind,binding=auth.binding.model_dump(mode='json')),sort_keys=True))
+finally:
+ c.rollback();c.close()
+'''
+
 IDLE = r'''import json,os
 from pathlib import Path
 from datetime import datetime,timedelta,timezone
@@ -406,3 +567,5 @@ output=dict(as_of=page['as_of'],color=page['color'],source_errors=page['source_e
   for row in page['rows'] if row.get('color')=='red'])
 print(json.dumps(output,sort_keys=True))
 '''
+
+BLOCKED_PANEL = PANEL[:PANEL.index("post_trade=expected.get('handoff_mode')")] + _BLOCKED_PANEL_BODY

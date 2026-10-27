@@ -68,7 +68,7 @@ _AUTOMATION_CYCLE_ROW_FIELDS = frozenset({
     "original_execution_deadline_at",
     "first_failure_at", "exception_fingerprint", "terminal_reason",
     "availability_retry_unbounded", "callback_failure", "exception_type",
-    "availability_retry_clocks_aware",
+    "availability_retry_clocks_aware", "diagnostic",
     "protected_day_wait",
     "prepare_at", "execution_open_at", "execute_at", "execution_close_at",
     "created_at", "completed_at", "updated_at",
@@ -931,6 +931,7 @@ def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | N
         "availability_retry_unbounded": diagnostic.get("availability_retry_unbounded"),
         "callback_failure": diagnostic.get("callback_failure"),
         "exception_type": diagnostic.get("exception_type"),
+        "diagnostic": diagnostic,
         "availability_retry_clocks_aware": all(
             isinstance(stamp, datetime) and stamp.utcoffset() is not None
             for stamp in (next_wake, execution_open_at)),
@@ -2319,6 +2320,11 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
         view = _state_view(dict(session=result.session, state=state, updated_at=now),
                            expected_version=ENVELOPE_VERSION)
         plan, rollout = _current_plan(conn), _rollout_state(conn)
+        # Execution may still retain another decision's unsuperseded plan.
+        # Only this verified strategy session can establish plan adoption or
+        # contribute its unpriced counts to the canonical book projection.
+        if plan is not None and plan["decision_session"] != view["session"]:
+            plan = None
         exposure = _exposure_row(
             view, plan, rollout, state_error=None, plan_error=None, rollout_error=None)
         book = model.book_row(

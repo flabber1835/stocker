@@ -27,6 +27,11 @@ class Delivery:
         for service in names:
             item = self.host.container(service)
             require(item['Image']==image, 'APPLICATION_IMAGE_CHANGED')
+            if (role=='predecessor' and handoff_mode(self.host.request)=='BLOCKED_UNSENT'
+                    and service=='sentinel-automation'):
+                require(item['State']['Running'] is False,'BLOCKED_UNSENT_WRITER_NOT_STOPPED')
+                result[service]=item
+                continue
             if running is not None:
                 require(item['State']['Running'] is running, 'APPLICATION_RUNNING_STATE_CHANGED')
             if healthy:
@@ -117,6 +122,8 @@ class Delivery:
                 and values['SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256']==identity['shadow_config'],
                 'PREDECESSOR_SOURCE_CHANGED')
             self._apps('predecessor',running=True,healthy=True)
+            if handoff_mode(self.host.request)=='BLOCKED_UNSENT':
+                evidence.idle(self.host,old['image'])
             state, pg = evidence.snapshot(self.host), self.host.postgres()
             candidate = self.host.candidate_values(values)
             evidence.compare_configuration(self.host,values,candidate,state)
@@ -243,16 +250,23 @@ class Delivery:
             return self.journal.advance(stage,'APPLICATIONS_STARTED')
         require(stage=='APPLICATIONS_STARTED','UNSUPPORTED_DELIVERY_STAGE')
         self._apps('candidate',running=True,healthy=True)
-        postgres=self._unchanged(artifacts,allow_restart=True)
-        leader=self._leader(artifacts['preserved']['control']['generation'])
+        repair=handoff_mode(self.host.request)=='BLOCKED_UNSENT'
+        postgres=self._unchanged(artifacts,allow_restart=not repair)
+        if repair:
+            leader=evidence.leader(self.host)
+            require(leader['current'] is False,'BLOCKED_UNSENT_LEADER_IS_ACTIVE')
+        else:
+            leader=self._leader(artifacts['preserved']['control']['generation'])
         panel=evidence.panel(self.host,artifacts['preserved'])
         appends=evidence.check_notification_history(self.host,artifacts['notification_history'])
         current=(self.host.postgres_after_restart(artifacts['postgres'])
-                 if hasattr(self.host,'postgres_after_restart') else self.host.postgres())
+                 if not repair and hasattr(self.host,'postgres_after_restart') else self.host.postgres())
         require(current==postgres,'POSTGRES_CHANGED_DURING_FINAL_OBSERVATION')
         return self.journal.advance(stage,'VERIFIED',verified_at=utcnow().isoformat(),
                                     leader=leader,panel=panel,notification_appends=appends,
-                                    verified_postgres=postgres)
+                                    verified_postgres=postgres,
+                                    **({'operational_ready':False,'installation_scope':'FENCED_BLOCKED_UNSENT_SOFTWARE_ONLY'}
+                                       if repair else {}))
 
     def advance(self):
         with self.host.owned():

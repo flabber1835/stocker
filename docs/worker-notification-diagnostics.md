@@ -106,3 +106,161 @@ six application services in the [local delivery guide](local-paper-delivery.md),
 shadow first, through normal lease acquisition.
 Do not restart PostgreSQL or interrupt the active acquisition/preparation job.
 Report actual local qualification and installation, not release certification.
+
+## Quiet expected closing-data preparation (2026-10-27)
+
+Decision before implementation: acquisition still starts at the actual XNYS
+close. Do not add a fixed provider delay or change publication, retry, execution
+or recovery deadlines. Waiting for the next source-final close is normal work,
+not a worker failure. Keep its durable retry evidence and amber, unverified
+dashboard state, with the visible description **Preparing closing data**.
+
+Only a dedicated typed closing-frontier wait may earn quiet notification
+classification. The production refresh adapter emits it for the existing typed
+source-final frontier cause or the dedicated publisher's missing decision close;
+generic source coverage, malformed input, missing transport approval and
+infrastructure failures remain ordinary warnings. The scheduler records quiet
+classification only in REFRESH, between that decision's actual close and the
+following actual XNYS open, with a viable retry strictly before the original
+open. Persist the classification in the immutable cycle event. Both direct
+notification and outbox reconstruction apply the same event eligibility rule;
+quiet waiting must not reappear as a warning after a dispatcher restart.
+Historical events without this positive classification keep their old meaning.
+Already delivered warnings, acknowledgements and per-device receipts remain
+immutable; this patch does not erase history or manufacture delivery/recovery.
+
+A typed corpus read-lock refusal during REFRESH can also represent normal
+publication. Reuse the dashboard's existing finite proof: one matching current
+preparation job, immutable request digest and deadline, and its exact live
+database transaction holding the exclusive corpus lock. Extract that shared
+proof into an operational module, without a second observer or financial scan.
+Only an affirmative proof for the cycle's decision close may translate this
+specific lock refusal to the typed closing-data wait. Missing, conflicting,
+expired or unreadable proof preserves the original infrastructure warning.
+Bound its quiet retry by the earlier original publisher deadline and XNYS open;
+never let lock contention extend either clock. No raw error-string matching.
+
+The shadow supervisor also keeps typed source/provider waiting quiet before its
+existing following-open boundary and retains the critical missed-open alert.
+Existing publisher job-budget/deadline, dependency, expired worker/lease,
+scheduler-stall, semantic-retry and integrity alerts remain active. Heartbeats
+alone are not progress. There is no qualified fixed no-progress interval or ETA
+model, so do not invent an additional stall threshold or claim deadline risk
+from elapsed provider wait alone. Preserve original phase/row/byte progress and
+job clocks in technical diagnostics.
+
+Dashboard copy changes require current structured source-wait evidence. Never
+relabel unrelated availability failures as closing-data preparation or turn
+pending source/financial verification green. This is an application-only PAPER
+patch: no schema, economic source, strategy, broker, backup or backtest changes.
+
+### Publication committed before the shadow attestation
+
+The October 27 run exposed a second preparation boundary: publication 8
+committed while the authenticated October 26 checkpoint still referenced
+publication 7. Strict `rolling_runtime.status` correctly refuses to certify
+that old checkpoint against new input. PAPER refresh incorrectly treated this
+ordinary sequence as a permanent refusal before its behind-shadow retry branch.
+Keep strict financial status and all publisher/Core modules byte-identical.
+
+Add an operational, read-only preparation observer, returning only a wait proof
+and never a strategy result or GO. Reuse the canonical owned proof connection,
+publication pin and authenticated closure. A valid prospective Authority for the
+immediately preceding actual session must bind the prior checkpoint/publication;
+the current wanted decision close must be its direct committed publication
+successor, with the complete current operational snapshot and readiness checks.
+Require the exact current published preparation job and its immutable request
+and original deadline, plus fresh authenticated RUNNING/ACTIVE_WORKER evidence
+for the configured observation/runtime. Bound waiting by both original job and
+worker deadlines and the following actual open. Healthy worker evidence is
+liveness, not proof of completion. Same-session replacement, a gap, missing or
+reconstruction authority, broken bindings, malformed timing or unreadable proof
+cannot acquire this pending interpretation. Retain original refusal behavior.
+
+Use a cheap current-authority/session check to avoid loading the canonical
+closure twice on ordinary already-current refreshes. An authenticated adjacent
+candidate already committed but not attested remains a distinct boundary: it
+may wait only with its exact current publication, valid prospective predecessor,
+canonical chain and precommit timing under the same original bounded worker/job
+proof. Neither waiting case may transport orders or change the shadow book.
+The panel can use the same positive wait interpretation with historical labels;
+it must never claim that the new close is verified before its attestation.
+
+Distinguish structural sequencing from liveness: an authenticated adjacent
+publication/attestation gap may remain a typed source retry when the worker
+proof is missing, expired or unavailable. That absence cannot turn the valid
+historical checkpoint into corruption. It earns no quiet/current-health
+projection; retain the warning and independent worker/deadline failures. Only
+the complete bounded worker/job proof earns quiet preparation display.
+
+The exact unsent October 28 REFRESH incident may use the existing explicit
+unsent-recovery authorization after qualification. Add one narrowly enumerated
+eligible kind for its exact PUBLICATION_CHANGED refusal, original typed
+diagnostics and no-plan REFRESH boundary. Preserve all existing negative
+transport proof, immutable predecessor fingerprints, stopped-writer/expired
+lease, fresh authority, pre-open, kill and generation gates. Do not mutate the
+failed cycle, replay commands, invent a different historical failure kind or
+use an installation state as trading authority. Installation/recovery must use
+the supported qualified application/authorized-CLI path; no SQL repair or
+temporary unqualified module overlays.
+
+Automation receives the existing shared Sentinel state volume read-only so it
+can authenticate the canonical signed worker proof without a new service or
+endpoint. The worker status and both signed pending snapshots must agree on
+one current attempt, with start no earlier than this decision's close, fresh
+status within its existing 60-second limit and the original bounded deadline.
+Keep job and worker deadlines separately named in child IPC and wait evidence;
+quiet retry must precede both. Do not inspect another container's processes.
+
+### Fenced installation for an exactly eligible unsent incident
+
+The normal installer needs a prepared plan, so it cannot deliver this recovery
+fix into an already BLOCKED/no-plan cycle. Add a finite `BLOCKED_UNSENT` repair
+mode to the existing application-only coordinator, rather than bypass its
+preflight or use a new recovery kind with incompatible old services. First
+engage the kill switch through the existing authorized CLI, stop the ordinary
+automation writer and let its lease expire. The original failed cycle remains
+immutable. Require this exact eligible incident, positive absence of plans,
+transport, commands and uncertain/working native orders for its scoped
+obligation, current admitted authority, completed current source publication and
+shadow attestation, and no active acquisition/worker attempt. Use the same
+finite canonical preflight, native account proof, authenticated drain and
+preserved snapshot comparisons, with a no-plan snapshot for this mode only.
+
+Roll only the six application services, retaining the engaged kill, exact
+control generation, failed incident and all financial/notification history.
+Candidate checks must prove the same fenced/no-plan state and healthy exact
+image; a completed repair installation means software installed, explicitly
+**not operationally ready**. Do not require a falsely green dashboard or a
+manufactured plan to finish that software receipt. Preserve the existing green
+readiness requirements unchanged for normal PRE_OPEN/POST_TRADE deliveries.
+
+Only after that receipt, invoke the new image's existing authorized unsent
+recovery CLI and ordinary kill-release flow. Their original negative-transport,
+fresh authority, immutable authorization, generation and next-open gates still
+apply. Let normal automation create a fresh cycle/plan; preserve the blocked
+predecessor. Finally require current WAITING_OPEN, green honest panel, healthy
+sender and advancing leader before reporting trading readiness. This is not a
+backup, restore, reset, database migration or strategy change.
+
+Keep the software receipt immutable after recovery. A later normal patch may
+derive its predecessor's current control generation only across the exact two
+reviewed events after a VERIFIED `BLOCKED_UNSENT`/not-ready receipt: matching
+unsent authorization followed immediately by its kill release. Reuse canonical
+authorization/predecessor validation for that saved incident, current binding
+and immutable fingerprints, and require a fresh ordinary WAITING_OPEN snapshot.
+No arbitrary generation drift, other recovery kind, changed binding or missing
+event may inherit this edge. The next installation still performs its ordinary
+current preflight; this edge proves control lineage, not financial readiness.
+
+### Keep dashboard plan and strategy sessions separate
+
+After the October 27 strategy advanced, the dashboard compared it with the
+globally latest execution plan, which still belonged to October 26. That
+obsolete comparison hid the newly verified book, exposure and terminal facts.
+Use a plan in the verified shadow projection only when its decision session
+matches the canonical result's session. An older or different-session plan is
+absent for exposure adoption and unpriced counts; show the verified model
+exposure as NOT ADOPTED until a matching plan exists. Keep same-session
+exposure, rollout and version mismatch refusals unchanged. The separate PAPER
+plan, BLOCKED cycle, alerts and trading-readiness status remain truthful.

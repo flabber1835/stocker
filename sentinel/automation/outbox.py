@@ -163,7 +163,7 @@ def _event_detail(raw_detail) -> dict[str, Any]:
     return dict(value)
 
 
-def _cycle_event_alert(row) -> dict[str, Any]:
+def _cycle_event_alert(row) -> dict[str, Any] | None:
     seq, cycle_id, to_state, control_generation, fence_token, raw_detail = row
     state = str(to_state)
     try:
@@ -172,6 +172,9 @@ def _cycle_event_alert(row) -> dict[str, Any]:
         raise AutomationRefused(
             f"cycle state {state!r} is not notifier eligible") from exc
     detail = _event_detail(raw_detail)
+    from sentinel.automation.closing_data_notifications import quiet_event
+    if quiet_event(detail, state=state):
+        return None
     if state == "RETRY_WAIT":
         # transition_cycle/adopt_cycle persist diagnostic as a nested object.
         # Preserve older flat events while reading the actual durable writer.
@@ -299,7 +302,7 @@ def _control_event_alert(row) -> dict[str, Any]:
 
 
 def enqueue_cycle_transition_alert(
-        conn, *, cycle_id: str, state: str) -> AlertRecord:
+        conn, *, cycle_id: str, state: str) -> AlertRecord | None:
     """Materialize the exact immutable event that produced a cycle result."""
     with conn.cursor() as cur:
         cur.execute(
@@ -312,6 +315,9 @@ def enqueue_cycle_transition_alert(
         raise AutomationRefused(
             "notifier-eligible cycle result lacks its immutable transition")
     alert = _cycle_event_alert(row)
+    if alert is None:
+        conn.commit()  # Match this connection-owning enqueue API's existing boundary.
+        return None
     return enqueue(conn, **alert, max_attempts=8)
 
 
@@ -389,6 +395,8 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
 
         for event in events:
             alert = _cycle_event_alert(event)
+            if alert is None:
+                continue
             cur.execute(
                 "INSERT INTO sentinel_alert_outbox"
                 " (alert_id,idempotency_key,schema_version,event_type,severity,"

@@ -10,7 +10,7 @@ import sys
 from . import builder
 from .coordinator import Delivery
 from .host import Host
-from .model import (DeliveryRefused, Journal, SCHEMA, read_json, require,
+from .model import (DeliveryRefused, Journal, SCHEMA, handoff_mode, read_json, require,
                     utcnow, validate_request, write_new)
 from .qualification import sha256_file, validate_report
 
@@ -59,7 +59,10 @@ def status(operation_dir):
         last_stage_at=receipt['history'][-1]['at'] if receipt['history'] else None,
         predecessor={key:journal.request['predecessor'][key] for key in ('commit','image')},
         candidate={key:journal.request['candidate'][key] for key in ('commit','image')},
-        receipt=str(journal.folder/'receipt.json'))
+        receipt=str(journal.folder/'receipt.json'),
+        **({'handoff_mode':'BLOCKED_UNSENT','operational_ready':False,
+            'installation_scope':'FENCED_BLOCKED_UNSENT_SOFTWARE_ONLY'}
+           if handoff_mode(journal.request)=='BLOCKED_UNSENT' else {}))
 
 
 def parser(*, backed=False):
@@ -71,10 +74,11 @@ def parser(*, backed=False):
         build.add_argument('--'+name,required=True)
     if backed:
         build.add_argument('--allow-started-predecessor',action='store_true')
+        build.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT'),default='PRE_OPEN')
     new = commands.add_parser('prepare',help='Create an immutable operation from its completed build')
     for name in ('operation-dir','build-record','build-sha256','operation-id'):
         new.add_argument('--'+name,required=True)
-    new.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE'),default='PRE_OPEN')
+    new.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT'),default='PRE_OPEN')
     view = commands.add_parser('status',help='Inspect the digest-linked receipt without host operations')
     view.add_argument('--operation-dir',required=True)
     for command in ('advance','resume'):

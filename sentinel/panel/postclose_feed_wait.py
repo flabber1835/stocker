@@ -82,9 +82,25 @@ def publication_deadline(financial_rows, worker, *, now):
     return row.valid_until if calendar.session_window(decision)[1]<=now<row.valid_until<opened else None
 
 
+def attestation_deadline(financial_rows, worker, *, now):
+    """The signed background proof is current only while its worker is fresh."""
+    values = {row.key: row for row in financial_rows}
+    row = values.get('shadow_verification')
+    if (len(values) != len(financial_rows) or row is None or worker is None
+            or worker.key != 'shadow_worker' or worker.effective_status(now) != model.OK
+            or not worker.required_current or worker.as_of is None or worker.valid_until is None
+            or row.status != model.WARN or row.effective_status(now) != model.WARN
+            or not row.required_current or row.as_of is None or row.recovery is None
+            or row.recovery.phase != 'SHADOW_ATTESTATION' or not row.recovery.active(now)
+            or row.valid_until != row.recovery.deadline):
+        return None
+    return row.valid_until
+
+
 def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now):
     """Withdraw old PASS; preserve failures while confirmed publication runs."""
     publication=publication_deadline(financial_rows,worker,now=now)
+    attestation=attestation_deadline(financial_rows,worker,now=now)
     if publication is not None:
         feed_rows=[replace(row,status=model.WARN,value='DATA PUBLICATION IN PROGRESS',
             detail=('Live atomic publisher confirmed; last committed progress '
@@ -95,13 +111,14 @@ def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now)
                 and row.recovery is not None and row.recovery.phase=='FEED_INGEST'
             else row for row in feed_rows]
     wait=from_rows(financial_rows,worker,now=now)
-    deadline=wait.deadline if wait is not None else publication
+    deadline=wait.deadline if wait is not None else publication if publication is not None else attestation
     values={row.key:row for row in automation_rows}
     control,cycle=values.get('automation'),values.get('automation_cycle')
     if (deadline is None or control is None or control.effective_status(now)!=model.OK
             or cycle is None or cycle.status!=model.WARN
             or cycle.effective_status(now)!=model.WARN or cycle.recovery is None
-            or cycle.recovery.phase not in {'AUTOMATION_REFRESHING_DATA','AUTOMATION_REFRESH_AVAILABILITY'}
+            or cycle.recovery.phase not in {'AUTOMATION_REFRESHING_DATA','AUTOMATION_REFRESH_AVAILABILITY',
+                                           'AUTOMATION_CLOSING_DATA','AUTOMATION_SHADOW_ATTESTATION'}
             or not cycle.recovery.active(now) or cycle.recovery.deadline is None):
         return feed_rows,automation_rows
     deadline=min(deadline,cycle.recovery.deadline)
@@ -109,7 +126,8 @@ def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now)
         detail='Previous PASS is not current execution authority; automatic refresh must '
                'finish before fresh trading checks. Last recorded check: '+row.detail,
         valid_until=deadline,recovery=model.RecoveryEvidence(
-            phase='AUTHORITY_RECHECK_AFTER_DATA',automatic=True,deadline=deadline))
+            phase=('AUTHORITY_RECHECK_AFTER_SHADOW' if attestation is not None
+                   else 'AUTHORITY_RECHECK_AFTER_DATA'),automatic=True,deadline=deadline))
         if row.key=='authority' and row.status==model.OK and row.as_of is not None
             and row.is_stale(now) and not row.is_future(now)
         else row for row in automation_rows]

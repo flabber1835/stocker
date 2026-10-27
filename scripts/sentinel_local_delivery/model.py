@@ -98,7 +98,7 @@ def validate_request(value):
     require(set(value)==fields, 'REQUEST_SHAPE')
     require(value['schema'] in {SCHEMA,PREVIOUS_SCHEMA,LEGACY_SCHEMA}, 'REQUEST_SCHEMA')
     require(isinstance(handoff_mode(value),str)
-        and handoff_mode(value) in {'PRE_OPEN','POST_TRADE'}, 'REQUEST_HANDOFF_MODE')
+        and handoff_mode(value) in {'PRE_OPEN','POST_TRADE','BLOCKED_UNSENT'}, 'REQUEST_HANDOFF_MODE')
     require(isinstance(value['operation_id'], str) and
             re.fullmatch(r'[a-z0-9][a-z0-9-]{0,79}', value['operation_id']) is not None,
             'REQUEST_OPERATION_ID')

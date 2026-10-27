@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import re
 import sys
+import tempfile
+from types import SimpleNamespace
 
 from sentinel_local_delivery import builder, checks, cli
 from sentinel_local_delivery.coordinator import Delivery
@@ -21,6 +23,16 @@ from sentinel_lock_ownership import owns_exclusive_flock
 COMPOSE = ('docker-compose.sentinel.yml', 'docker-compose.sentinel-backup.yml',
            'docker-compose.sentinel-automation.yml')
 IMAGE_SERVICES = (*SERVICES, 'sentinel', 'sentinel-authorized-cli')
+_AUTOMATION_ENTRY = b'    entrypoint: ["python", "-m", "sentinel.automation_supervisor"]\n'
+_WORKER_READ_MOUNT = b'    volumes:\n      - sentinel_state:/var/lib/sentinel:ro\n'
+
+
+def _allowed_worker_mount(name, previous, candidate):
+    """Only the documented literal read-only state observation addition."""
+    return (name=='docker-compose.sentinel-automation.yml'
+        and previous.count(_AUTOMATION_ENTRY)==candidate.count(_AUTOMATION_ENTRY)==1
+        and candidate.count(_AUTOMATION_ENTRY+_WORKER_READ_MOUNT)==1
+        and candidate.replace(_AUTOMATION_ENTRY+_WORKER_READ_MOUNT,_AUTOMATION_ENTRY,1)==previous)
 
 
 def immutable_image_overlay(folder, image):
@@ -135,15 +147,33 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
     observed=record['artifacts'].get('verified_postgres',pg)
     if observed!=pg:
         require_same_postgres_storage(pg,observed)
+    repair=request.get('handoff_mode')=='BLOCKED_UNSENT'
+    lineage={}
+    if repair:
+        proof=record['artifacts']['canonical_proof']
+        require(record['artifacts'].get('operational_ready') is False
+            and record['artifacts'].get('successor_proof_sha256')==digest(proof)
+            and proof.get('operational_ready') is False and proof.get('plan') is None
+            and isinstance(proof.get('recovery_predecessors'),dict)
+            and proof.get('cycle_id')==preserved['cycle']['cycle_id'],
+            'BACKED_REPAIR_RECEIPT_MALFORMED')
+        lineage=dict(repair_predecessor=dict(generation=preserved['control']['generation'],
+            cycle_id=proof['cycle_id'],fingerprints=proof['recovery_predecessors'],
+            binding={key:preserved['control'][key] for key in (
+                'deployment_id','broker','broker_account_id','takeover_epoch','certificate_sha256',
+                'rollout_mode','rollout_version','config_sha256')},
+            decision=preserved['cycle']['decision_session'],effective=preserved['cycle']['effective_session']))
     return dict(anchor,git_commit=candidate['commit'],runtime_image=candidate['image'],
+        control_generation=preserved.get('control',{}).get('generation',anchor['control_generation']),
         roots=tuple(dict.fromkeys((*anchor['roots'],root))),postgres=observed,system=preserved['system'],
         foundation_reference='sentinel-local-paper:'+candidate['commit'][:8],unfinished=unfinished,
         preserved=preserved,native_positions=record['artifacts']['native_positions'],
-        notification_history=record['artifacts']['notification_history'])
+        notification_history=record['artifacts']['notification_history'],**lineage)
 
 
 class BackedHost(Host):
     supports_post_trade = True
+    supports_blocked_unsent = True
     def __init__(self, request, operation_dir, *, predecessor_receipt=None, allow_started=False):
         super().__init__(request,operation_dir)
         built = self.operation_dir/'build.json'
@@ -183,11 +213,40 @@ class BackedHost(Host):
     def verify_compose(self, role):
         for name in COMPOSE:
             original=self.git_bytes('show',self.request['predecessor']['commit']+':'+name)
-            require((self.source/name).read_bytes()==original==(self.deployment/name).read_bytes(),
-                'BACKED_COMPOSITION_CHANGE_REFUSED')
+            candidate=(self.source/name).read_bytes()
+            if candidate!=original:
+                require(_allowed_worker_mount(name,original,candidate)
+                    and name in self.request['allowed_delta']
+                    and sha256_file(self.source/name)==self.request['qualification']['source_files'][name],
+                    'BACKED_COMPOSITION_CHANGE_REFUSED')
+            expected=original if role=='predecessor' else candidate
+            require((self.deployment/name).read_bytes()==expected,'BACKED_COMPOSITION_CHANGE_REFUSED')
 
     def install_compose(self):
-        self.verify_compose('candidate')  # Exact existing archive-on topology.
+        # Resume accepts only the exact predecessor or qualified candidate file.
+        for name in COMPOSE:
+            original=self.git_bytes('show',self.request['predecessor']['commit']+':'+name)
+            candidate=(self.source/name).read_bytes()
+            target=self.deployment/name
+            require(not target.is_symlink() and target.read_bytes() in (original,candidate),
+                'BACKED_COMPOSITION_CHANGE_REFUSED')
+            if candidate==original:
+                continue
+            require(_allowed_worker_mount(name,original,candidate)
+                and name in self.request['allowed_delta']
+                and sha256_file(self.source/name)==self.request['qualification']['source_files'][name],
+                'BACKED_COMPOSITION_CHANGE_REFUSED')
+            fd,temporary=tempfile.mkstemp(prefix='.compose-delivery-',dir=self.deployment)
+            try:
+                with os.fdopen(fd,'wb') as stream:
+                    stream.write(candidate);stream.flush();os.fsync(stream.fileno())
+                os.replace(temporary,target)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+        directory=os.open(self.deployment,os.O_RDONLY)
+        try:os.fsync(directory)
+        finally:os.close(directory)
+        self.verify_compose('candidate')
 
     def postgres(self):
         actual=postgres_facts(self.container('sentinel-postgres'))
@@ -272,7 +331,35 @@ def require_started_state(host, record, values, pg, image):
             'BACKED_STARTED_APPLICATION_UNHEALTHY')
 
 
-def active_baseline(path, host):
+def recovered_baseline_generation(host, record, state):
+    """Derive only the two-event recovery edge from a not-ready repair receipt."""
+    from sentinel_local_delivery import evidence
+    expected=dict(record.get('repair_predecessor') or {})
+    require(bool(expected) and state['generation']==expected['generation']+2
+        and state['certificate']==expected['binding']['certificate_sha256']
+        and state.get('enabled') is True and state.get('killed') is False,
+        'BACKED_REPAIR_RECOVERY_LINEAGE_REQUIRED')
+    subject=SimpleNamespace(request=dict(host.request,handoff_mode='PRE_OPEN',
+        predecessor=dict(host.request['predecessor'],system=record['system'],postgres=record['postgres'])),
+        load_values=host.load_values,sql=host.sql)
+    current=evidence.snapshot(subject)
+    require(current['control']['generation']==state['generation']
+        and current['cycle']['decision_session']==expected['decision']
+        and current['cycle']['effective_session']==expected['effective'],
+        'BACKED_REPAIR_RECOVERY_READY_SUBJECT_CHANGED')
+    expected.update(ready_cycle_id=current['cycle']['cycle_id'],plan_id=current['plan']['plan_id'])
+    result=host.compose(host.load_values(),'run','--rm','--no-deps','--pull','never',
+        '--entrypoint','python','sentinel-authorized-cli','-B','-c',checks.RECOVERY_LINEAGE,
+        json.dumps(expected,sort_keys=True),timeout=60)
+    proof=json.loads(result.stdout)
+    require(proof==dict(generation=state['generation'],blocked_cycle_id=expected['cycle_id'],
+        certificate=expected['binding']['certificate_sha256'],fingerprints=expected['fingerprints'],
+        kind='ROLLING_PUBLICATION_ADVANCE_MISCLASSIFIED',binding=expected['binding']),
+        'BACKED_REPAIR_RECOVERY_PROOF_CHANGED')
+    return proof['generation']
+
+
+def active_baseline(path, host, *, blocked_unsent=False):
     record=predecessor_witness(path,inspect_image=lambda ref:builder._inspect(host,ref),
         allow_started=getattr(host,'allow_started_predecessor',False))
     values=host.load_values()
@@ -282,9 +369,19 @@ def active_baseline(path, host):
         and values['SENTINEL_GIT_COMMIT']==record['git_commit']
         and values['SENTINEL_RUNTIME_IMAGE_DIGEST']==image['Id'], 'BACKED_PREDECESSOR_RUNTIME_CHANGED')
     state=host.sql("SELECT json_build_object('system',(SELECT system_identifier::text FROM pg_control_system()),"
-        "'generation',generation,'certificate',certificate_sha256) FROM sentinel_automation_control WHERE id=1")
-    require(state['generation']==record['control_generation']
+        "'generation',generation,'certificate',certificate_sha256,'enabled',enabled,'killed',kill_switch_engaged,"
+        "'plain_kill',EXISTS(SELECT 1 FROM sentinel_automation_events e WHERE e.generation=c.generation "
+        "AND e.action='KILL_ENGAGED' AND e.detail->>'schema' IS DISTINCT FROM 'sentinel.unsent-recovery/1')) "
+        "FROM sentinel_automation_control c WHERE id=1")
+    expected_generation=record['control_generation']+(1 if blocked_unsent else 0)
+    if not blocked_unsent and state['generation']!=expected_generation and record.get('repair_predecessor'):
+        expected_generation=recovered_baseline_generation(host,record,state)
+    require(state['generation']==expected_generation
         and state['certificate']==record['certificate_sha256'], 'BACKED_PREDECESSOR_AUTHORITY_CHANGED')
+    if blocked_unsent:
+        require(not record.get('unfinished') and state.get('enabled') is True
+            and state.get('killed') is True and state.get('plain_kill') is True,
+            'BLOCKED_UNSENT_PLAIN_KILL_REQUIRED')
     pg=postgres_facts(host.container('sentinel-postgres'))
     require(record['postgres'] is None or (state['system']==record['system']
         and (pg==record['postgres'] or record.get('unfinished'))),
@@ -316,7 +413,8 @@ def main(argv=None):
                 predecessor_receipt=args.predecessor_receipt,qualification=args.qualification,
                 qualification_sha256=args.qualification_sha256,approved_delta=args.allowed_delta,
                 approved_delta_sha256=args.allowed_delta_sha256,operation_dir=folder,commit=args.commit,
-                host_type=factory,baseline_reader=lambda path:active_baseline(path,draft),
+                host_type=factory,baseline_reader=lambda path:active_baseline(path,draft,
+                    blocked_unsent=args.handoff_mode=='BLOCKED_UNSENT'),
                 foundation_reference=witness['foundation_reference'],
                 predecessor_receipt_options={'allow_started':True} if args.allow_started_predecessor else None)
             output=dict(build_record=str(folder/'build.json'),build_sha256=sha256_file(folder/'build.json'),
@@ -327,7 +425,8 @@ def main(argv=None):
                 predecessor=built['foundation'],candidate=dict(commit=built['commit'])),folder)
             cli.prepare(operation_dir=folder,build_record=args.build_record,build_sha256=args.build_sha256,
                 operation_id=args.operation_id,host_type=BackedHost,
-                baseline_reader=lambda path:active_baseline(path,host),handoff_mode=args.handoff_mode)
+                baseline_reader=lambda path:active_baseline(path,host,
+                    blocked_unsent=args.handoff_mode=='BLOCKED_UNSENT'),handoff_mode=args.handoff_mode)
             output=cli.status(folder)
         elif args.command=='status':output=cli.status(folder)
         else:
