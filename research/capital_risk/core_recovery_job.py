@@ -47,10 +47,10 @@ def validate_request(r):
             and len(v['encrypted_outputs'])==5,'REFUSED_RECOVERY_ARM_SET')
 
 
-def inspect_stopped(path,expected_sha):
+def inspect_stopped(path,expected_sha,*,allow_oom=False):
     require(sha256_file(path)==expected_sha,'REFUSED_RECORDED_INSPECTION_DIGEST')
     v=json.loads(path.read_bytes());name=v['Name'][1:];h=v['HostConfig'];c=v['Config']
-    require(v['State']['Status']=='exited' and not v['State']['Running'] and not v['State']['OOMKilled'],
+    require(v['State']['Status']=='exited' and not v['State']['Running'] and (allow_oom or not v['State']['OOMKilled']),
         'REFUSED_OLD_WORKER_NOT_STOPPED')
     require(v['Image']==EXECUTION_IMAGE and c['Labels']['research.experiment']=='capital-risk-20261027'
         and c['Labels']['research.stage']==worker_stage(name) and c['Labels']['research.arm']==worker_arm(name),
@@ -65,7 +65,7 @@ def inspect_stopped(path,expected_sha):
     forbidden=set(FORBIDDEN_CREDENTIALS)|{SECRET,'GITHUB_TOKEN','GH_TOKEN'}
     require(not any(x.partition('=')[0] in forbidden and x.partition('=')[2] for x in c['Env']),
         'REFUSED_OLD_WORKER_CREDENTIALS')
-    return dict(name=name,id=v['Id'],exit_code=v['State']['ExitCode'],stopped=True,oom=False)
+    return dict(name=name,id=v['Id'],exit_code=v['State']['ExitCode'],stopped=True,oom=v['State']['OOMKilled'])
 
 
 def restore_original(r,window,download,private,key):

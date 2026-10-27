@@ -1,0 +1,65 @@
+name: Capital risk short B C V exact suffix
+
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/core-window-suffix-request.json']
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: capital-risk-short-core-window-suffix-001
+  cancel-in-progress: false
+
+jobs:
+  window-suffix:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        window: [stress2021, recent2025]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            research/capital_risk
+          fetch-depth: 1
+      - name: Install hash-locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+      - name: Verify research guards
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B -m unittest discover -s research/capital_risk/tests -v'
+      - name: Retrieve independently admitted encrypted qualification
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED_WINDOW: ${{ matrix.window }}
+        run: 'gh run download 40568817130 --repo flabber1835/stocker --name "capital-risk-core-recovery-qualification-$SELECTED_WINDOW-a5a2fe4c38cf0e95e79974e7b5ea78b171ea48b3" --dir "$RUNNER_TEMP/admitted-qualification"'
+      - name: Authenticate frozen inputs and retained runtime
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/suffix-staging.json'
+      - name: Resume own baseline and run first variant origins
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          SELECTED_WINDOW: ${{ matrix.window }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/core_window_suffix_job.py --request research/capital_risk/core-window-suffix-request.json --staging-receipt artifacts/capital-risk/suffix-staging.json --qualification-download "$RUNNER_TEMP/admitted-qualification" --window "$SELECTED_WINDOW" --output artifacts/capital-risk/window-suffix.json'
+      - name: Preserve only stopped encrypted outputs and nonfinancial receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: capital-risk-short-window-suffix-${{ matrix.window }}-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/suffix-staging.json
+            artifacts/capital-risk/window-suffix.json
+            artifacts/capital-risk/window-suffix-*.tar.crseal
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7

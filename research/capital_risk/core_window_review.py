@@ -101,6 +101,23 @@ def factor(prior,row):
     near(e['strategy_nav'],D(prior['strategy_nav'])*expected,'REFUSED_FUNDED_NAV')
 
 
+def first_difference(a,b,path='$'):
+    if type(a) is not type(b):return path
+    if isinstance(a,dict):
+        if set(a)!=set(b):return path+'.<keys>'
+        for key in sorted(a):
+            result=first_difference(a[key],b[key],path+'.'+key)
+            if result is not None:return result
+        return None
+    if isinstance(a,list):
+        if len(a)!=len(b):return path+'.<length>'
+        for n,(x,y) in enumerate(zip(a,b)):
+            result=first_difference(x,y,path+'['+str(n)+']')
+            if result is not None:return result
+        return None
+    return None if a==b else path
+
+
 def compare_disabled(original,disabled):
     count=0
     for name in ('formation','daily'):
@@ -113,7 +130,7 @@ def compare_disabled(original,disabled):
                 for value in (a,b):
                     for key in ('state_sha256','input_sha256','chain_sha256'):value.pop(key)
                 require(json.dumps(a,sort_keys=True,allow_nan=False)==json.dumps(b,sort_keys=True,allow_nan=False),
-                    'REFUSED_B0_FINANCIAL_PATH_'+a['session'])
+                    'REFUSED_B0_FINANCIAL_PATH_'+a['session']+':'+str(first_difference(a,b)))
                 count+=1
     return dict(status='B0_FULL_WINDOW_FINANCIAL_PATH_MATCHED',records=count,
         ignored_paths=['state_sha256','input_sha256','chain_sha256'])
@@ -148,11 +165,15 @@ def monthly_metrics(root,start):
     return count
 
 
-def review(root,output):
+def review(root,output,lineage=None):
     from research.pooled_vacancy_funding import backtest,runtime
     from research.pooled_vacancy_funding.journal import Journal,read_checkpoint
     from research.pooled_input_support.bundle import axis
     saved=read_checkpoint(root/'checkpoint.json.gz');base=saved['base']
+    if lineage is not None:
+        from core_lineage_review import review_lineage
+        lineage_result=review_lineage(root,lineage,backtest,runtime,axis)
+    else:lineage_result=None
     full=axis();selected=full[full.index(backtest.START)-425:full.index(backtest.END)+1]
     require(saved['source_cursor']==backtest.END and saved['completed']==backtest.MEASURED_CLOSES,'REFUSED_WINDOW_INCOMPLETE')
     before={p.name:backtest.file_sha(p) for p in root.glob('*.jsonl')}
@@ -191,11 +212,13 @@ def review(root,output):
         canonical_roundtrips=True,tails=0,ledger_events=len(ledger_final['events']),
         money_tolerance=str(MONEY),monthly_metrics_recomputed=months_checked,
         latest=monthly[-1],source_checkpoint=saved['sha256'])
+    if lineage_result is not None:result['lineage']=lineage_result
     output.write_text(json.dumps(result,indent=2)+'\n');print('INDEPENDENT_SHORT_WINDOW_REVIEW_PASSED')
 
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--root',type=Path);p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--lineage',type=Path)
     p.add_argument('--original',type=Path);p.add_argument('--disabled',type=Path);a=p.parse_args()
     if a.original:a.output.write_text(json.dumps(compare_disabled(a.original,a.disabled),indent=2)+'\n')
-    else:review(a.root,a.output)
+    else:review(a.root,a.output,a.lineage)

@@ -223,3 +223,46 @@ next-session adjacency, and run wrong-predecessor and financial-state mutation
 falsifiers. No session is advanced in this qualification workflow. Encrypt the
 entire proof and candidate. Independently authenticate/review its actual output
 before admitting a later suffix workflow. Qualification is not an economic run.
+
+## Admitted first economic suffix
+
+Recovery qualification001 at a5a2fe4c completed on hosted compute and its two
+encrypted outputs were independently authenticated and reviewed. Each passed
+15 actual canonical cases, four new stopped/fenced workers, old/new canonical
+roundtrips, exact source/input/reference bindings, preservation of the original
+compressed checkpoint and unsent state, all journal commitments and both bridge
+falsifiers. Every financial/controller/reporting field was equal; no session was
+advanced. This permits a new, explicit suffix request pinned to those exact
+qualification ciphertexts, inventories and candidate checkpoint bytes.
+
+Each suffix VM reconstructs the same qualified private sources and requires
+complete byte-binding equality. Reuse the admitted canonical/input proofs for
+those identical sources and frozen inputs; do not repeat qualification merely
+because the VM is new. Copy its own B candidate plus lineage into a distinct B
+output, archive the exact successor-start checkpoint in that lineage, and resume
+from it with the canonical --resume path. B0/C/V may create their first origins
+only after the admitted no-origin proof; each uses its own fresh formation. No
+new B, source changes, parameter changes or implicit fresh retry is allowed.
+
+Keep the original four-worker fences and 6,300-second/150-minute limits. Finish
+and preserve unaffected arms after any refusal. Review each complete stopped arm
+independently even if another refuses, and compare B0/B only when both complete.
+An unknown writer must never be read or archived; preserve only independently
+proven stopped disjoint outputs and explicit unknown metadata. A nonzero/OOM stop
+is preserved as a failure, never admitted as completed economics.
+After the financial waits finish, review complete books concurrently, with the
+same per-worker fences and at most four total private workers including any
+unknown worker. This bounds the review phase to one 600-second wait interval
+rather than four serial intervals, leaving staging/encryption headroom within
+the unchanged job limit. If review capacity is unavailable, preserve complete
+books unreviewed and refuse economic admission.
+
+The B completion reviewer includes its predecessor lineage. It binds the exact
+authenticated old-source canonical preflight to the unchanged predecessor bytes,
+checks the original and successor journal prefixes in the actual final journals,
+and re-restores the successor-start checkpoint under its identical new source.
+The old-source roundtrip is reused from its exact qualified proof, not falsely
+claimed as a restore under new sources. All new historical checkpoints are
+restored under their actual current source. Preserve the original origin identity
+and the explicit source boundary. Comparator failures must identify the first
+exact field path without changing the declared identity exclusions.
