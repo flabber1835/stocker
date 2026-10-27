@@ -18,7 +18,9 @@ from stage import PROTOCOL,IMAGE,SECRET
 
 
 def validate_request(value,protocol):
-    expected=dict(schema='research.capital-risk-core-gate-request/1',request_id='canonical-core-gate-001',
+    if value.get('request_id') not in {'canonical-core-gate-001','canonical-core-gate-002'}:
+        raise ValueError('REFUSED_CORE_GATE_REQUEST_ID')
+    expected=dict(schema='research.capital-risk-core-gate-request/1',request_id=value['request_id'],
         stage='core-integration',original_protocol_sha256=PROTOCOL,core_protocol_sha256=sha256_file(protocol))
     if value!=expected:
         raise ValueError('REFUSED_CORE_GATE_REQUEST')

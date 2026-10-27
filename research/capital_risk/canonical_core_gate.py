@@ -73,6 +73,16 @@ def baseline_path():
 
 
 class CanonicalCases(unittest.TestCase):
+    def test_dated_volatility_history_survives_compact_material_and_basis_transform(self):
+        from sentinel.core.window_material import Signal,WindowFeatures
+        bar=security(DAY,100,values=[80+float(n) for n in range(21)])
+        wire=Signal.from_feature(bar)
+        restored=Signal.model_validate_json(wire.model_dump_json()).bar(multiplier=2)
+        self.assertEqual(list(restored.closes),[2*v for v in bar.closes])
+        self.assertEqual(list(restored.signal_sessions),previous_sessions(DAY,21))
+        self.assertEqual(WindowFeatures.model_fields['schema_id'].default,
+            'sentinel.current-window-features-capital-risk/1')
+
     def test_profiles_preserve_unpooled_admission_and_both_cooldowns(self):
         for profile in (C,V):
             cfg=v5.research_config(profile)

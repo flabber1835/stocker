@@ -92,6 +92,15 @@ def render(files, *, risk):
             '            if len(series.session_indices)>=21 and series.session_indices[-21:]==list(range(index-20,index+1)) else None))')
         return t
     edit(CORE+'window_signals.py',window)
+    def material(t):
+        t=replace(t,'    certified_signals: tuple[float, float, float, float] | None',
+            '    certified_signals: tuple[float, float, float, float] | None\n'
+            '    signal_sessions: tuple[str, ...] | None = None')
+        t=replace(t,"value['closes'] = value['closes'][-1:]","value['closes'] = value['closes'][-21:]")
+        t=replace(t,'            self.raw_close, self.eligible, self.eligibility_reason, self.certified_signals)',
+            '            self.raw_close, self.eligible, self.eligibility_reason, self.certified_signals, self.signal_sessions)')
+        return replace(t,'sentinel.current-window-features/1','sentinel.current-window-features-capital-risk/1',count=2)
+    edit('sentinel/core/window_material.py',material)
     def adapter(t):
         t=replace(t,'    intended_dollars: float | None = None','    intended_dollars: float | None = None\n    risk_detail: dict | None = None')
         t=replace(t,'    def validate_sizing(self, *, open_time: bool) -> None:\n',

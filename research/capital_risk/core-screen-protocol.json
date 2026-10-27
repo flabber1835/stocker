@@ -13,6 +13,7 @@
   "new_core_profiles": ["wealth-core-capital-risk-c-v1", "wealth-core-capital-risk-v-v1"],
   "admission": "EXPLICIT_UNPOOLED_CORRECTED_NAV_DIV_20_BOTH_21_SESSION_COOLDOWNS",
   "fractional_trim_storage": "EXACT_REPRESENTABILITY_OR_REFUSE_NO_ROUNDING",
+  "signal_contract": "sentinel.current-window-features-capital-risk/1",
   "pending_trim_conversion": "REFUSE_UNQUALIFIED_IDENTITY_CONVERSION",
   "fresh_formation_each_policy": true,
   "initial_gate": "HOSTED_CANONICAL_INTEGRATION_NOT_PURE_ARITHMETIC",

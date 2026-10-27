@@ -79,6 +79,15 @@ the frozen multiplier2, sqrt21 and 15%-30% bounds. First owned close initializes
 the floor without triggering. Missing input refuses. Retain the original stop
 reason so Sentinel's stop count remains a stop count rather than another factor.
 
+The original compact `Signal` transport deliberately retained only one close.
+The private risk-enabled source therefore uses the distinct
+`sentinel.current-window-features-capital-risk/1` material contract, retaining
+the last 21 closes plus their exact causal axis through `from_feature`, JSON
+serialization and `bar(multiplier)`. The same signal-basis multiplier applies to
+all 21 values. The original window-only B retains its original material contract;
+B0 equivalence must establish that the extra inactive history changes no financial
+decision or value. Qualify this transport roundtrip before real-data admission.
+
 Ordinary forward-basis splits do not rescale the floor, exactly as for the peak.
 Conversions and retained-parent spinoffs apply the same reviewed signal-reference
 multiplier to floor and peak, with preflight positivity checks. A terminal cash
