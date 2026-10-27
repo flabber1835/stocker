@@ -7,6 +7,61 @@ The economic protocol is frozen separately under commitment
 The original 2008 experiment and its fixed/control sources remain immutable.
 This document governs execution infrastructure, not production financial policy.
 
+## Owner-authorized fast screening amendment (2026-10-27)
+
+The owner rejected the multi-day initial pass and authorized a different approach
+or shorter test periods. This amendment changes the sequence, not the frozen
+C/V/G parameters. Preserve the original protocol and every completed/partial
+baseline artifact. Do not launch further full baseline suffixes for this screen.
+The completed suffix-002 output is retained; it is not evidence of full baseline
+equivalence. The eight-arm campaign and multi-origin/capital/cost sweep are
+deferred until a useful initial result warrants them.
+
+First compare only B and G on the already independently audited, immutable
+2008-2026 Core trace. G cannot change Core trades, holdings, cash, action
+entitlements or observations, so replaying those identical Core transitions is
+unnecessary for this restricted exposure calculation. This explicitly supersedes
+the fresh 4,639-close gate below for this initial trace screen only. It does not
+waive that gate for C/V, change an old checkpoint, or qualify production.
+
+Authenticate the existing sealed inputs and completion-review commitment on a
+GitHub-hosted runner. Verify the formation/daily/monthly journal commitments
+against the canonical final checkpoint. Consume all 126 formation observations
+before the 4,639 measured closes; do not reset governor memory at reporting
+windows. The B account must reproduce every retained daily accounting field and
+NAV using the frozen canonical account operation. G changes only that account's
+close-committed next-open target. Preserve the old allocation's overnight return,
+the exact Core/BIL factors, 10bp transition costs and the original day-zero anchor.
+
+At the first funded open both B and G must have the same zero Core allocation;
+verify this condition and reproduce the retained cash-only startup exactly.
+Do not invent the otherwise unavailable historical holdings to reconstruct a
+different formed entry. Refuse this restricted screen if its startup condition
+is false. Later accounting calls use the unchanged canonical account operation
+with read-only trace valuation evidence, not a parallel holdings book.
+
+Publish full-period and every-calendar-year results plus the predeclared
+2008-2009, 2020-2022 and 2025-July2026 diagnostic windows. Use full-path governor
+memory in all subperiods, include the predecessor close in window returns/DD,
+and label short-window annualization as diagnostic. No threshold sweep or best
+window selection is authorized. Independently recompute account factors and
+metrics; serialized governor/account continuation must equal uninterrupted
+evaluation. Guard falsifiers cover old-overnight/new-intraday exposure, costs,
+day-zero, unavailable data, exact daily axes, identity and nonmutation.
+
+The screen can reject or prioritize G; it cannot prove general robustness or
+replace PAPER. If Core changes remain necessary, use separate freshly formed
+canonical B/C/V screens over 2021-2022 and 2025-July2026 before considering
+combinations. Those implementations and their action/restart gates remain
+mandatory; do not apply changed Core rules to an old book or infer a rebalanced
+path from scaled old returns. A full matched replay is required before advancing
+a Core-changing candidate. All financial outputs remain encrypted; no local
+replay/container or production contact is permitted.
+
+`research/capital_risk/screen-protocol.json` is the versioned initial-screen
+request contract. The existing original protocol hash remains the source of
+the unchanged governor rule; the new screening contract is separately hashed.
+
 ## Production boundary
 
 PAPER services, broker endpoints, installed source/configuration, database,

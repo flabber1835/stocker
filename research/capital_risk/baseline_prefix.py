@@ -38,7 +38,7 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
           "--memory-swap","2g","--cpus","1","--pids-limit","64","--read-only",
           "--cap-drop","ALL","--security-opt","no-new-privileges",
           "--tmpfs","/tmp:rw,noexec,nosuid,size=64m","--user",f"{os.getuid()}:{os.getgid()}",
-          "--label","research.experiment=capital-risk-20261027","--label","research.arm=B",
+          "--label","research.experiment=capital-risk-20261027","--label","research.arm="+worker_arm(name),
           "--label","research.stage="+stage,"-w","/fixed",
           "-e","PYTHONPATH=/fixed:/fixed/shared","-e","OPENBLAS_NUM_THREADS=1",
           "-e","OMP_NUM_THREADS=1","--mount",f"type=bind,source={frozen},target=/frozen,readonly",
@@ -62,9 +62,15 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
 
 
 def worker_stage(name):
+    if re.fullmatch(r"capital-risk-bg-screen-[0-9]+-[0-9]+",name):
+        return "quick-screen"
     match=re.fullmatch(r"capital-risk-b-(prefix|suffix)-[0-9]+-[0-9]+(?:-(?:review|preflight|postflight|qualification))?",name)
     if match is None: raise ValueError("REFUSED_PRIVATE_WORKER_NAME")
     return "baseline-"+match.group(1)
+
+
+def worker_arm(name):
+    return "BG" if worker_stage(name)=="quick-screen" else "B"
 
 
 def identity_inspect(name, identity=None):
@@ -73,7 +79,7 @@ def identity_inspect(name, identity=None):
     labels=item["Config"]["Labels"]
     if (item["Name"]!="/"+name or item["Image"]!=EXECUTION_IMAGE or identity is not None and item["Id"]!=identity
             or labels.get("research.experiment")!="capital-risk-20261027"
-            or labels.get("research.arm")!="B" or labels.get("research.stage")!=worker_stage(name)):
+            or labels.get("research.arm")!=worker_arm(name) or labels.get("research.stage")!=worker_stage(name)):
         raise ValueError("REFUSED_WORKER_IDENTITY")
     return item
 
@@ -101,7 +107,7 @@ def fenced_inspect(name):
     return item
 
 
-def run_worker(command, name, output):
+def run_worker(command, name, output, *, deadline=1800):
     # Detached launch returns its exact ID. Bounded wait never leaves an admitted
     # container running after timeout; only this exact private identity may stop.
     command=command[:2]+["-d"]+command[2:]
@@ -114,7 +120,7 @@ def run_worker(command, name, output):
     try:
         item=fenced_inspect(name)
         if item["Id"]!=identity: raise ValueError("REFUSED_CONTAINER_REPLACEMENT")
-        subprocess.run(["docker","wait",identity],capture_output=True,check=True,timeout=1800)
+        subprocess.run(["docker","wait",identity],capture_output=True,check=True,timeout=deadline)
     except subprocess.TimeoutExpired:
         raise ValueError("REFUSED_PREFIX_DEADLINE")
     finally:
