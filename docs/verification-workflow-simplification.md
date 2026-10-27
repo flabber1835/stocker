@@ -44,3 +44,11 @@ changed source, book, native holding, control, drain or notification history sti
 refuses before the corresponding mutation. Include removed-guard falsifiers.
 Do not delete a comparison merely because its name contains legacy or because it
 has not failed recently.
+
+The structural compatibility record must name the exact final reviewed runtime
+bytes for the five changed feed/panel modules. Refresh only those candidate hashes
+and the checker's self-normalized profile pin. Preserve the original baseline,
+baseline closure, normalized checker implementation, historical policy resources
+and `authority_effect=NONE`. This update permits only the reviewed successor;
+the complete-file-set and every single-file unknown-byte falsifier remain release
+requirements. It is not a new financial authority or a golden-result update.
