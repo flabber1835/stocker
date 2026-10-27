@@ -211,6 +211,7 @@ class BackedHost(Host):
         return (*tuple(self.source/name for name in COMPOSE), overlay)
 
     def verify_compose(self, role):
+        require(role in {'predecessor','candidate'},'BACKED_COMPOSE_ROLE_INVALID')
         for name in COMPOSE:
             original=self.git_bytes('show',self.request['predecessor']['commit']+':'+name)
             candidate=(self.source/name).read_bytes()
@@ -220,7 +221,10 @@ class BackedHost(Host):
                     and sha256_file(self.source/name)==self.request['qualification']['source_files'][name],
                     'BACKED_COMPOSITION_CHANGE_REFUSED')
             expected=original if role=='predecessor' else candidate
-            require((self.deployment/name).read_bytes()==expected,'BACKED_COMPOSITION_CHANGE_REFUSED')
+            colocated_addition=(role=='predecessor' and candidate!=original
+                and self.source.resolve()==self.deployment.resolve())
+            accepted=(original,candidate) if colocated_addition else (expected,)
+            require((self.deployment/name).read_bytes() in accepted,'BACKED_COMPOSITION_CHANGE_REFUSED')
 
     def install_compose(self):
         # Resume accepts only the exact predecessor or qualified candidate file.

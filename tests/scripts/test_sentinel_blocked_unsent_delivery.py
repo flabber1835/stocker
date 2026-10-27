@@ -178,7 +178,51 @@ def test_backed_compose_allows_only_exact_qualified_readonly_worker_mount(tmp_pa
     else:
         host.verify_compose('predecessor');host.install_compose();host.verify_compose('candidate')
         assert (installed/name).read_bytes()==candidates[name]
+        with pytest.raises(patch.DeliveryRefused,match='COMPOSITION_CHANGE_REFUSED'):
+            host.verify_compose('predecessor')
         host.install_compose()  # Lost acknowledgement only repeats the same bytes.
+
+
+@pytest.mark.parametrize('role',['predecessor','candidate'])
+@pytest.mark.parametrize('fault',[None,'rw','other_mount','environment','neighbor','unqualified','hash'])
+def test_colocated_checkout_accepts_only_already_qualified_exact_mount(tmp_path,role,fault):
+    from tests.scripts.test_sentinel_backed_local_patch import patch
+    root=tmp_path/'source-and-deployment';root.mkdir()
+    name='docker-compose.sentinel-automation.yml'
+    originals={key:b'services:\n  unchanged: {}\n' for key in patch.COMPOSE}
+    originals[name]=b'services:\n  sentinel-automation:\n'+patch._AUTOMATION_ENTRY+b'    environment:\n      EXISTING: value\n'
+    candidates=dict(originals)
+    candidates[name]=originals[name].replace(patch._AUTOMATION_ENTRY,
+        patch._AUTOMATION_ENTRY+patch._WORKER_READ_MOUNT)
+    if fault=='rw':candidates[name]=candidates[name].replace(b':ro\n',b':rw\n')
+    elif fault=='other_mount':candidates[name]=candidates[name].replace(b'/var/lib/sentinel:ro',b'/other:ro')
+    elif fault=='environment':candidates[name]=candidates[name].replace(b'EXISTING: value',b'EXISTING: changed')
+    elif fault=='neighbor':candidates[name]=candidates[name].replace(b'  sentinel-automation:',b'  other:')
+    for key,raw in candidates.items():(root/key).write_bytes(raw)
+    host=object.__new__(patch.BackedHost);host.source=root;host.deployment=root
+    hashes={key:patch.sha256_file(root/key) for key in originals}
+    if fault=='hash':hashes[name]='0'*64
+    host.request=dict(predecessor={'commit':'a'*40},allowed_delta=[] if fault=='unqualified' else [name],
+        qualification={'source_files':hashes})
+    host.git_bytes=lambda *args:originals[args[-1].split(':',1)[1]]
+    if fault:
+        with pytest.raises(patch.DeliveryRefused,match='COMPOSITION_CHANGE_REFUSED'):host.verify_compose(role)
+    else:
+        host.verify_compose(role)
+        assert (root/name).read_bytes()==candidates[name]
+
+
+def test_removing_colocated_layout_gate_is_detected(tmp_path,monkeypatch):
+    from tests.scripts.test_sentinel_backed_local_patch import patch
+    import textwrap
+    source=textwrap.dedent(inspect.getsource(patch.BackedHost.verify_compose))
+    guard='and self.source.resolve()==self.deployment.resolve()'
+    assert source.count(guard)==1
+    namespace=dict(vars(patch))
+    exec(source.replace(guard,'and True'),namespace)
+    monkeypatch.setattr(patch.BackedHost,'verify_compose',namespace['verify_compose'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_backed_compose_allows_only_exact_qualified_readonly_worker_mount(tmp_path,None)
 
 
 @pytest.mark.parametrize('fault',[None,'false_green','new_plan','source_error','unrelated_red'])
