@@ -62,6 +62,8 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
 
 
 def worker_stage(name):
+    if re.fullmatch(r"capital-risk-core-recovery-(?:stress2021|recent2025)-[0-9]+-[0-9]+-(?:preflight|bridge)",name):
+        return "core-integration"
     if re.fullmatch(r"capital-risk-core-window-(?:stress2021|recent2025)-(?:b0|b|c|v)-[0-9]+-[0-9]+(?:-(?:input|review))?",name):
         return "short-core-window"
     if re.fullmatch(r"capital-risk-core-gate-[0-9]+-[0-9]+-(?:basis|risk)",name):

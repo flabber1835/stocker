@@ -200,3 +200,26 @@ establish their first origins only after proving their old artifacts contain no
 financial checkpoint or committed formation/daily record. Apply these rules
 separately to the other window after authenticating its actual stopped evidence.
 No fresh workflow rerun or parameter change is authorized by these corrections.
+
+Recovery qualification is a separate, bounded, non-replay hosted workflow. Its
+request pins both original artifact inventories and each B checkpoint's file,
+outer, inner, state, input, base and source commitments. Reconstruct the original
+private source from the retained compiler fixture; require exact equality with
+the authenticated original source bindings. Qualify the corrected runtime and
+counter on actual canonical cases, then restore each original B under its own
+old sources and verify its complete journal commitments. B0/C/V no-origin checks
+must inspect their actual extracted stopped artifacts, not a workflow status.
+
+On a separate candidate copy, the new-source canonical bridge permits only the
+research implementation identity to change and only the counter source digest
+in the base. Retain the exact old compressed checkpoint outside the candidate
+book. Copy the unsent failed canonical state into the lineage archive unchanged;
+it is not a committed checkpoint. Canonical Journal.recover preserves any tails
+before a single explicit source-boundary watch event is committed. The candidate
+checkpoint binds the successor source/input/chain and this event, with every
+financial/controller field, pending intent and reporting cursor unchanged.
+Validate and canonically restore that candidate, verify all prefixes and exact
+next-session adjacency, and run wrong-predecessor and financial-state mutation
+falsifiers. No session is advanced in this qualification workflow. Encrypt the
+entire proof and candidate. Independently authenticate/review its actual output
+before admitting a later suffix workflow. Qualification is not an economic run.
