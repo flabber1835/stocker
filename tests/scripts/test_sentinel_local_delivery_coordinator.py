@@ -157,7 +157,8 @@ def operation(tmp_path,monkeypatch):
 def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(operation):
     host,journal,delivery=operation
     receipt=delivery.advance()
-    assert receipt['stage']=='VERIFIED' and host.canonical_count==3
+    assert receipt['stage']=='VERIFIED' and host.canonical_count==2
+    assert receipt['artifacts']['successor_verification']=='EXACT_IMAGE_AND_UNCHANGED_SNAPSHOT'
     assert len(receipt['history'])==len(model.STAGES)-1 and host.heartbeat>0
     assert host.notifications=={'old':'immutable-payload'}
     assert 'private-value' not in json.dumps(receipt)
@@ -165,7 +166,7 @@ def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(oper
     assert len(mutations)==3 and mutations[0][0]=='stop'
     assert mutations[1][-1]=='sentinel-shadow'
     assert not any('postgres' in str(c) or 'backup' in str(c) for c in mutations)
-    assert delivery.advance()==receipt and host.canonical_count==3
+    assert delivery.advance()==receipt and host.canonical_count==2
 
 
 @pytest.mark.parametrize('retained',[False,True])
@@ -180,7 +181,27 @@ def test_retained_predecessor_avoids_broken_old_reader_but_keeps_new_and_started
         return {'book':'same','proof':'same'}
     monkeypatch.setattr(coordinator.evidence,'canonical_check',canonical)
     assert delivery.advance()['stage']=='VERIFIED'
-    assert roles==(['candidate','candidate'] if retained else ['predecessor','candidate','candidate'])
+    assert roles==(['candidate'] if retained else ['predecessor','candidate'])
+
+
+@pytest.mark.parametrize('fault',['book','image','configuration','history'])
+def test_startup_proof_reuse_refuses_changed_subject_before_other_apps_start(operation,fault):
+    host,journal,delivery=operation
+    while journal.read()['stage']!='SHADOW_STARTED':delivery.step()
+    before=list(host.calls)
+    if fault=='book':host.state['book']='changed'
+    elif fault=='image':host.items['sentinel-shadow']['Image']='foreign'
+    elif fault=='configuration':host.values['SECRET']='changed'
+    else:host.notifications['old']='changed'
+    with pytest.raises(model.DeliveryRefused):delivery.step()
+    assert journal.read()['stage']=='SHADOW_STARTED'
+    assert not any(isinstance(call,tuple) for call in host.calls[len(before):])
+
+
+def test_removed_startup_snapshot_guard_is_detected(operation,monkeypatch):
+    monkeypatch.setattr(coordinator.Delivery,'_unchanged',lambda *a,**k:None)
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_startup_proof_reuse_refuses_changed_subject_before_other_apps_start(operation,'book')
 
 
 def test_full_source_checks_run_at_mutation_boundaries_not_journal_intents(operation):
@@ -314,7 +335,7 @@ def test_lost_ack_resumes_only_exact_current_stage(operation,lost_ack):
     host,journal,delivery=operation;host.fail_after=lost_ack
     with pytest.raises(model.DeliveryRefused,match='LOST_ACK'):delivery.advance()
     assert journal.read()['stage'] in {'STOP_REQUESTED','COMPOSE_INSTALL_REQUESTED','COMPOSE_INSTALLED','START_REQUESTED'}
-    assert delivery.advance()['stage']=='VERIFIED' and host.canonical_count==3
+    assert delivery.advance()['stage']=='VERIFIED' and host.canonical_count==2
 
 
 @pytest.mark.parametrize('kind',['state','native','history','configuration'])
@@ -354,7 +375,7 @@ def test_pending_bootstrap_retains_same_stage_and_resumes_pages_without_reprefli
     assert host.canonical_count==2 and all(not item['State']['Running'] for item in host.items.values())
     host.schema_complete=True
     assert delivery.advance()['stage']=='VERIFIED' and host.migration_count==2
-    assert host.canonical_count==3
+    assert host.canonical_count==2
 
 
 def test_first_four_to_six_role_handoff_does_not_require_nonexistent_old_containers(operation):

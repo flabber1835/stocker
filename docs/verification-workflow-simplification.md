@@ -23,12 +23,10 @@ facts. The following changes precede the next local installation.
   and at final verification. Schema pages and file copies cannot contact the
   broker; they retain database/history preservation checks without broker GETs.
 * Compare predecessor and candidate canonical facts before stopping applications,
-  using the exact retained predecessor fact under the conditions below. Keep the
-  independent candidate check after shadow starts. The last
-  check observes a newly started process context. Reusing its earlier result was
-  considered and is not selected in this change: removing that boundary requires
-  a separate startup-integrity argument. Source, broker and intent-only repetition
-  can be removed without changing this financial gate.
+  using the exact retained predecessor fact under the conditions below. At startup,
+  require the exact immutable image, healthy process and unchanged full financial
+  snapshot instead of scanning the same book again. Keep final current independent
+  dashboard verification and the saved-plan/account/leader checks.
 * Remove the obsolete in-panel monitor implementation from production. The
   independent verifier service and authenticated durable projection remain the
   single current path. Historical regression support belongs under tests/support.
@@ -114,6 +112,18 @@ application roll may reuse its predecessor's retained canonical proof only when
 the SHA-bound predecessor receipt/journal, exact old commit/image, full preserved
 financial snapshot and retained successor-proof digest all agree. An unchanged
 book has no new old-image financial fact to derive. If the current snapshot no
-longer matches, use the ordinary fresh predecessor scan. Never reuse the new
-image's preflight scan after startup: candidate preflight and started-process
-validation remain independent fresh checks. Unknown receipts/proofs refuse.
+longer matches, use the ordinary fresh predecessor scan. Unknown receipts/proofs
+refuse.
+
+The owner then identified the second candidate scan after startup as another
+duplicate. The immutable application image and configuration were already bound
+to the fresh candidate preflight; startup checks that same image and the complete
+preserved financial snapshot before other roles start. A changed book, source
+publication, control, history or image still refuses. The old full rescan cannot
+prevent a later mutation any more than the retained proof can; both rely on the
+same checks before/after subsequent operations. Final completion additionally
+requires the independent verifier's current green page with the exact saved plan.
+Record startup's method as EXACT_IMAGE_AND_UNCHANGED_SNAPSHOT and retain the
+original preflight proof digest; do not describe this as a new full-book scan.
+This is installer-only code: qualify and deliver it for subsequent installations
+without restarting unchanged application services just to install their installer.

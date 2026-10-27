@@ -209,11 +209,10 @@ class Delivery:
         require(current==candidate,'SUCCESSOR_CONFIGURATION_CHANGED')
         if stage=='SHADOW_STARTED':
             self._wait_shadow()
-            proof=evidence.canonical_check(self.host,candidate,artifacts['preserved'])
-            require(proof==artifacts['canonical_proof'],'SUCCESSOR_CANONICAL_PROOF_CHANGED')
             self._unchanged(artifacts,native=False)
             return self.journal.advance(stage,'SHADOW_VERIFIED',successor_verified_at=utcnow().isoformat(),
-                                        successor_proof_sha256=digest(proof))
+                successor_proof_sha256=digest(artifacts['canonical_proof']),
+                successor_verification='EXACT_IMAGE_AND_UNCHANGED_SNAPSHOT')
         if stage=='SHADOW_VERIFIED':
             self._fresh(artifacts['successor_verified_at'])
             self._wait_shadow()
