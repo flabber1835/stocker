@@ -147,3 +147,34 @@ This prefix proof establishes fresh initialization and restart compatibility.
 It does not satisfy the separate full 4,639-close baseline gate. Later baseline
 segments must bind factual overlays to their own actual predecessors, preserve
 recovered tails and prove the complete financial path before interpreting arms.
+
+## Research policy arithmetic
+
+Policy helpers are pure intent/state calculations; they do not create a second
+financial book or execute trades. Canonical ledger integration and the full
+baseline comparison remain mandatory before any variant is run.
+
+Core episodes can contain fractional shares after reviewed corporate actions.
+A C trim therefore aggregates quantities as exact fractions. The close-bound
+remaining target is still a whole-share floor, as specified in the protocol.
+When that holder target is positive, each internal episode retains its exact
+proportion `episode_quantity * target / aggregate_quantity`. No episode age,
+entry reference, review flag or source-lot history is reset. Rounding internal
+episodes to whole shares would destroy valid entitlements and is forbidden.
+The canonical reduction/ledger transition, including fees and full-exit
+semantics when the remaining target is zero, is a separate integration gate.
+
+The V width helper requires the exact 21 causal session labels as well as 21
+positive finite closes. It uses sample standard deviation of 20 log returns,
+the frozen multiplier/bounds, and checks the previous transformed floor before
+accepting a newly calculated floor. Stop comparison uses exact decimal-string
+fractions, matching the existing inclusive stop convention. Every action-domain
+transformation still requires a canonical integration proof.
+
+G persists only its own mode, capped eight-close recovery streak and cursor in
+a strict, protocol-bound research envelope. It consumes Core observations and
+the existing final target, and returns a ceiling-composed next-open target.
+Missing recovery observations reset the streak; missing Core drawdown refuses.
+Escalation precedes recovery and resets the streak. NORMAL keeps no accumulated
+recovery credit. The account model, not this pure helper, is responsible for
+applying a close decision at the following open.
