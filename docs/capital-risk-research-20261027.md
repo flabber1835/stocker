@@ -204,3 +204,44 @@ Docker documents that its classic store does not support image indices or build
 attestations, whereas the containerd store does:
 https://docs.docker.com/desktop/features/containerd/ and
 https://docs.docker.com/engine/storage/containerd/.
+
+## Fresh baseline suffix continuation
+
+Hosted run 40532524116 passed the first 32 formation transitions through
+2007-10-05. The authenticated output and a separate local read-only review agree
+on exact original formation bytes, outer/inner/state hashes, all four journal
+prefixes and zero tails. No measured close has completed. This freshly formed
+checkpoint is the sole B predecessor; it must be continued, never restarted or
+replaced with a completed old book.
+
+Successor jobs download only an explicitly selected encrypted predecessor
+artifact from its exact research run/head/attempt. Bootstrap may use an
+Actions-read-only token, which never reaches Docker. Before restoring, verify
+the artifact's receipt, ciphertext hash/size, GCM tag, confined manifest inventory,
+canonical checkpoint and every journal commitment. Preserve original artifact
+bytes and all historical checkpoints/tails. The frozen /fixed backtest source
+and policy are unchanged, so the existing canonical resume path verifies its
+base/source/input identity without a source-successor or policy relabeling.
+
+Each hosted segment has an explicit nonzero transition limit and deadline below
+the six-hour GitHub limit. Pilot timing was 291 seconds for warmup and 495 seconds
+through the first 32 transitions; choose initial suffix budgets conservatively,
+then use actual throughput. Encrypted output needs no artifact recompression.
+Never capture mutable financial output before exact writer termination is proved.
+
+Stop before each retained factual repair's earliest affected session. Bind a
+sparse overlay to that fresh book's actual canonical predecessor, check every
+source/outer/inner/input/state/prefix identity and canonical roundtrip, and resume
+only the adjacent suffix through the existing repair/load/Journal.recover path.
+Copy factual terms and source evidence, not the old bound checkpoint identity.
+Validate once-only entitlement, position removal/pending state and the exact
+daily axis after replay. New unsupported actions refuse for separate primary
+evidence review. No cash, holding, flag or balance edits are allowed.
+
+The first staging inventory omitted DADE's separate completion extraction even
+though the retained template carried its hash/citation. Retain its exact bytes
+under `research/capital_risk/primary-evidence/` before fresh DADE repair
+qualification. This is a public SEC issuer-filing extraction, not user financial
+state or provider market data. Its SHA256 must equal the already retained
+completion-source commitment. Keeping the missing evidence outside the immutable
+/fixed source preserves the baseline's financial/source/input path.
