@@ -207,6 +207,16 @@ def protected(inventory, selected, now):
 
 def valid_receipt(receipt, selected, system_id, image):
     require(isinstance(receipt, dict), "restore receipt absent")
+    if receipt.get('schema') == 'sentinel.verified-base-chain/1':
+        expected = dict(schema='sentinel.verified-base-chain/1',
+            base_backup=selected['name'], metadata_sha256=selected['metadata_sha256'],
+            marker=selected['marker'], target_lsn=selected['target_lsn'],
+            system_identifier=system_id, physical_verified=True,
+            wal_integrity='sha256-sidecar-v1')
+        require(set(receipt)==set(expected) and all(type(receipt.get(key)) is type(value)
+            and receipt.get(key)==value for key,value in expected.items()),
+            'verified base-chain receipt identity mismatch')
+        return
     expected = {"base_backup": selected["name"], "marker": selected["marker"],
                 "target_lsn": selected["target_lsn"], "system_identifier": system_id,
                 "metadata_sha256": selected["metadata_sha256"], "runtime_image": image,

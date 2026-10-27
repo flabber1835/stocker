@@ -107,6 +107,38 @@ def test_bad_restore_evidence_never_deletes(media, field, value):
     assert len(media.inventory()) == 72
 
 
+def base_chain_receipt(item):
+    return dict(schema='sentinel.verified-base-chain/1',base_backup=item['name'],
+        metadata_sha256=item['metadata_sha256'],marker=item['marker'],
+        target_lsn=item['target_lsn'],system_identifier=SYSTEM,
+        physical_verified=True,wal_integrity='sha256-sidecar-v1')
+
+
+def test_verified_daily_base_and_chain_allow_bounded_retention_without_restore(media):
+    with retention.media_lock(media.base):
+        result=retention.retain(media,base_chain_receipt(media.selected()),IMAGE,NOW,SEGMENT)
+    assert result['base_removed']==70 and len(media.inventory())==2
+
+
+@pytest.mark.parametrize('key,value', [('physical_verified',False),('physical_verified',1),
+    ('metadata_sha256','a'*64),('base_backup','base-20260919T000000Z'),('marker','foreign'),
+    ('target_lsn','0/1'),('system_identifier','123'),('wal_integrity','unchecked'),
+    ('extra','not permitted')])
+def test_unverified_or_foreign_daily_base_never_deletes(media,key,value):
+    proof=base_chain_receipt(media.selected());proof[key]=value
+    with retention.media_lock(media.base),pytest.raises(retention.Refused,match='receipt identity'):
+        retention.retain(media,proof,IMAGE,NOW,SEGMENT)
+    assert len(media.inventory())==72
+
+
+def test_removed_verified_base_identity_guard_is_detected(media,monkeypatch):
+    original=retention.require
+    monkeypatch.setattr(retention,'require',lambda ok,reason:
+        None if reason=='verified base-chain receipt identity mismatch' else original(ok,reason))
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_unverified_or_foreign_daily_base_never_deletes(media,'system_identifier','123')
+
+
 def test_every_manifest_range_contributes_to_retention_floor(media):
     path = media.base / "base-20260919T000000Z" / "backup_manifest"
     value = json.loads(path.read_text())
@@ -223,6 +255,7 @@ class Boundary:
         self.name = "base-20260919T120000Z"
         self.calls = []
         self.restored = False
+        self.base_verified = True
         self.fail = None
         self.old = False
         self.selected_override = None
@@ -247,6 +280,12 @@ class Boundary:
             return "f" * 40
         if command[:3] in (["docker", "volume", "ls"], ["docker", "network", "ls"]):
             return ""
+        if "WHERE kind='BASE_BACKUP'" in joined:
+            if not self.base_verified:return ''
+            item=self.selected()
+            return json.dumps(dict(authentic=True,proof=dict(schema='sentinel.verified-base/1',
+                physical_verified=True,metadata_sha256=item['metadata_sha256'],base_backup=item['name'],
+                marker=item['marker'],marker_lsn=item['target_lsn'],system_identifier=SYSTEM)))
         if "json_build_object" in joined:
             return json.dumps({"system_id": SYSTEM, "now": NOW, "timeline": "00000001",
                                "lsn": "0/D000000", "segment_size": SEGMENT})
@@ -261,7 +300,7 @@ class Boundary:
             if "observe" in command:
                 return json.dumps(self.selected())
             request = json.loads(kwargs["stdin"])
-            retention.valid_receipt(request["receipt"], self.selected(), SYSTEM, IMAGE)
+            retention.valid_receipt(request["receipt"], self.selected(), SYSTEM, request['image'])
             return '{"retention_ready":true}'
         if command[:2] == ["bash", "scripts/sentinel-base-backup.sh"]:
             self.old = False
@@ -286,15 +325,16 @@ def boundary(monkeypatch, tmp_path):
     return Boundary()
 
 
-def test_production_tick_renews_verifies_restores_then_retains_and_restarts(boundary):
+def test_production_tick_renews_verified_base_and_retains_without_restore(boundary):
     boundary.old = True
     assert coordinator.tick("/media", boundary)["retention_ready"]
     calls = [" ".join(call) for call in boundary.calls]
     create = next(i for i, call in enumerate(calls) if "scripts/sentinel-base-backup.sh" in call)
     verify = next(i for i, call in enumerate(calls) if "scripts/sentinel-backup-status.sh" in call)
-    restore = next(i for i, call in enumerate(calls) if "scripts/sentinel-restore-drill.sh" in call)
     delete = next(i for i, call in enumerate(calls) if "sentinel.backup_retention retain" in call)
-    assert create < verify < restore < delete
+    assert create < verify < delete
+    assert sum('scripts/sentinel-backup-status.sh' in call for call in calls)==1
+    assert not any('scripts/sentinel-restore-drill.sh' in call for call in calls)
     boundary.calls.clear()
     assert coordinator.tick("/media", boundary)["retention_ready"]
     assert not any("scripts/sentinel-base-backup.sh" in call or "scripts/sentinel-restore-drill.sh" in call
@@ -305,6 +345,7 @@ class RuntimeTransition:
     """A predecessor marker lacks the replacement executable admission."""
     def __init__(self, boundary, fault=None):
         self.boundary = boundary
+        boundary.base_verified = False
         self.predecessor = boundary.name
         self.old_proof = {**receipt(boundary.selected()), "runtime_image": "sha256:" + "e" * 64}
         if fault is not None:
@@ -328,16 +369,12 @@ class RuntimeTransition:
         return self.boundary(command, **kwargs)
 
 
-def test_runtime_transition_renews_young_marker_before_restore_and_retention(boundary):
+def test_runtime_transition_reuses_genuine_base_proof_without_copy_or_restore(boundary):
     runtime = RuntimeTransition(boundary)
     assert coordinator.tick("/media", runtime)["retention_ready"]
     calls = [" ".join(call) for call in boundary.calls]
-    create = next(i for i, call in enumerate(calls) if "scripts/sentinel-base-backup.sh" in call)
-    restore = next(i for i, call in enumerate(calls) if "scripts/sentinel-restore-drill.sh" in call)
-    retain = next(i for i, call in enumerate(calls) if "sentinel.backup_retention retain" in call)
-    assert create < restore < retain
-    assert boundary.name != runtime.predecessor
-    assert all(runtime.predecessor not in call for call in calls if "restore-drill.sh" in call)
+    assert not any('scripts/sentinel-base-backup.sh' in call or 'restore-drill.sh' in call for call in calls)
+    assert boundary.name == runtime.predecessor
     assert runtime.old_proof["runtime_image"] != IMAGE
     boundary.calls.clear()
     assert coordinator.tick("/media", runtime)["retention_ready"]
@@ -345,28 +382,44 @@ def test_runtime_transition_renews_young_marker_before_restore_and_retention(bou
                    for call in boundary.calls)
 
 
-def test_runtime_successor_failed_restore_retries_without_repeated_allocation(boundary):
-    runtime = RuntimeTransition(boundary)
-    runtime.fail_successor_restore = True
-    with pytest.raises(coordinator.Refused, match="ADMISSION_REQUIRED"):
-        coordinator.tick("/media", runtime)
-    assert sum("scripts/sentinel-base-backup.sh" in call for call in boundary.calls) == 1
-    assert not any("retain" in call for call in boundary.calls)
-    boundary.calls.clear()
-    with pytest.raises(coordinator.Refused, match="ADMISSION_REQUIRED"):
-        coordinator.tick("/media", runtime)
-    assert not any("scripts/sentinel-base-backup.sh" in call or "retain" in call for call in boundary.calls)
-    runtime.fail_successor_restore = False
-    boundary.calls.clear()
-    assert coordinator.tick("/media", runtime)["retention_ready"]
-    assert not any("scripts/sentinel-base-backup.sh" in call for call in boundary.calls)
+def test_missing_proof_refuses_retention_without_starting_a_restore(boundary):
+    boundary.base_verified=False
+    for _ in range(2):
+        with pytest.raises(coordinator.Refused,match='neither verified producer nor genuine restore'):
+            coordinator.tick('/media',boundary)
+    assert not any('scripts/sentinel-base-backup.sh' in call or 'restore-drill.sh' in call
+        or 'retain' in call for call in boundary.calls)
+
+
+@pytest.mark.parametrize('key,value',[('authentic',False),('physical_verified',False),
+    ('physical_verified',1),('metadata_sha256','b'*64),('system_identifier','123'),
+    ('base_backup','base-20260919T000000Z'),('marker','foreign'),('marker_lsn','0/1')])
+def test_unverified_producer_never_reaches_retention_or_restore(boundary,key,value):
+    def runner(command,**kwargs):
+        raw=boundary(command,**kwargs)
+        if "WHERE kind='BASE_BACKUP'" in ' '.join(command):
+            record=json.loads(raw)
+            if key=='authentic':record[key]=value
+            else:record['proof'][key]=value
+            return json.dumps(record)
+        return raw
+    with pytest.raises(coordinator.Refused,match='producer evidence'):
+        coordinator.tick('/media',runner)
+    assert not any('retain' in call or 'restore-drill.sh' in call for call in boundary.calls)
+
+
+def test_missing_proof_cannot_start_automatic_restore_even_on_image_change(boundary):
+    runtime=RuntimeTransition(boundary)
+    runtime.old_proof['physical_only']=True
+    with pytest.raises(coordinator.Refused):coordinator.tick('/media',runtime)
+    assert not any('restore-drill.sh' in call or 'sentinel-base-backup.sh' in call for call in boundary.calls)
 
 
 def test_runtime_transition_accepts_digest_qualified_registry_predecessor(boundary):
     runtime = RuntimeTransition(boundary)
     runtime.old_proof["runtime_image"] = "ghcr.io/example/sentinel@sha256:" + "e" * 64
     assert coordinator.tick("/media", runtime)["retention_ready"]
-    assert sum("scripts/sentinel-base-backup.sh" in call for call in boundary.calls) == 1
+    assert not any('scripts/sentinel-base-backup.sh' in call or 'restore-drill.sh' in call for call in boundary.calls)
 
 
 @pytest.mark.parametrize("field,value", [
@@ -377,7 +430,7 @@ def test_runtime_transition_accepts_digest_qualified_registry_predecessor(bounda
 ])
 def test_runtime_renewal_requires_exact_bound_full_receipt(boundary, field, value):
     runtime = RuntimeTransition(boundary, (field, value))
-    with pytest.raises(coordinator.Refused, match="ADMISSION_REQUIRED"):
+    with pytest.raises(coordinator.Refused, match='neither verified producer nor genuine restore'):
         coordinator.tick("/media", runtime)
     assert not any("scripts/sentinel-base-backup.sh" in call or "retain" in call for call in boundary.calls)
 
@@ -393,11 +446,11 @@ def test_recurring_renewal_allows_copy_cleanup_and_publication(boundary):
 
     assert coordinator.tick('/media', run)['retention_ready']
     assert budgets['scripts/sentinel-base-backup.sh'] == 900
-    assert budgets['scripts/sentinel-restore-drill.sh'] == 2100
+    assert 'scripts/sentinel-restore-drill.sh' not in budgets
 
 
 @pytest.mark.parametrize("failure", ["scripts/sentinel-base-backup.sh", "scripts/sentinel-backup-status.sh",
-                                     "scripts/sentinel-restore-drill.sh", "SELECT proof::text"])
+                                     "WHERE kind='BASE_BACKUP'"])
 def test_failed_boundary_never_reaches_retention(boundary, failure):
     boundary.old = True
     boundary.fail = failure
@@ -407,11 +460,12 @@ def test_failed_boundary_never_reaches_retention(boundary, failure):
 
 
 def test_successful_restore_without_durable_receipt_refuses(boundary):
+    boundary.base_verified=False
     real = boundary.__call__
     def lost_receipt(command, **kwargs):
         result = real(command, **kwargs)
         return "" if "WHERE kind='RESTORE_DRILL'" in " ".join(command) else result
-    with pytest.raises(coordinator.Refused, match="without matching durable evidence"):
+    with pytest.raises(coordinator.Refused, match='neither verified producer nor genuine restore'):
         coordinator.tick("/media", lost_receipt)
     assert not any("retain" in call for call in boundary.calls)
 
@@ -477,14 +531,17 @@ def test_many_intraday_renewals_do_not_expand_hot_retention(media):
     assert result["base_removed"] == 129
 
 
-def test_healthy_tick_reclaims_only_after_exact_existing_restore_proof(boundary):
+@pytest.mark.parametrize('verified_producer',[False,True])
+def test_healthy_tick_reclaims_only_after_verified_chain_and_base_evidence(boundary,verified_producer):
     boundary.restored = True
+    boundary.base_verified=verified_producer
     coordinator.tick("/media", boundary)
     calls = [" ".join(call) for call in boundary.calls]
-    proof = next(i for i, call in enumerate(calls) if "SELECT proof::text" in call)
+    proof = next(i for i, call in enumerate(calls) if
+        ("WHERE kind='BASE_BACKUP'" if verified_producer else "WHERE kind='RESTORE_DRILL'") in call)
     verify = next(i for i, call in enumerate(calls) if "scripts/sentinel-backup-status.sh" in call)
     retain = next(i for i, call in enumerate(calls) if "sentinel.backup_retention retain" in call)
-    assert proof < verify < retain
+    assert verify < proof < retain
     assert sum("sentinel.backup_retention retain" in call for call in calls) == 1
     assert sum("scripts/sentinel-backup-status.sh" in call for call in calls) == 1
     assert not any("scripts/sentinel-base-backup.sh" in call or "scripts/sentinel-restore-drill.sh" in call
@@ -508,7 +565,7 @@ def test_maintenance_publishes_verified_current_chain_before_ready_or_retention(
     assert proof["wal_segments"] == 3 and proof["integrity_read_passes"] == 1
     progress = [proof for proof in boundary.published if proof.get('schema') == 'sentinel.backup-maintenance-progress/1']
     if renewed:
-        assert [proof['phase'] for proof in progress] == ['BASE_BACKUP', 'VERIFY_RESTORE', 'VERIFY_CHAIN', 'COMPLETE']
+        assert [proof['phase'] for proof in progress] == ['BASE_BACKUP', 'VERIFY_CHAIN', 'COMPLETE']
         assert len({proof['attempt'] for proof in progress}) == 1
         assert len({(proof['started_at'],proof['deadline']) for proof in progress}) == 1
         assert progress[0]['deadline']-progress[0]['started_at'] == 3600
@@ -794,7 +851,7 @@ def test_loop_has_one_owner_retries_failed_tick_and_releases_lock(tmp_path, monk
         calls.append(command)
         return types.SimpleNamespace(returncode=4)
     def stop(delay):
-        assert delay == 60
+        assert delay == 300
         raise KeyboardInterrupt()
     monkeypatch.setattr(coordinator.subprocess, "run", child)
     monkeypatch.setattr(coordinator.time, "sleep", stop)
@@ -834,8 +891,8 @@ def test_real_postgres_semantic_bootstrap_and_durable_receipt_query(media):
                 row = conn.execute(command[-1]).fetchone()
                 return row[0] if row else ""
             observation = {"system_id": SYSTEM}
-            assert coordinator.receipt_for(item, observation, IMAGE, database_boundary) == proof
-            assert coordinator.receipt_for(item, observation, "sha256:" + "e" * 64, database_boundary) is None
+            assert coordinator._selected_full_restore_receipt(item, observation, database_boundary) == proof
+            assert proof['runtime_image']==IMAGE  # Original attribution is never rewritten.
     finally:
         server.stop()
 

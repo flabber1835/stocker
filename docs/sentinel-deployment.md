@@ -1,5 +1,12 @@
 # Sentinel current operating contract
 
+The October 27 owner-directed [verification cleanup](verification-workflow-simplification.md#separate-application-installation-from-physical-recovery-work)
+removes per-image full restores from local PAPER application installation and
+normal backup maintenance. Normal maintenance uses verified daily-base and WAL
+evidence; full recovery drills are explicit operations. Existing genuine drill
+dates and the dashboard's 31-day objective remain visible. This does not disable
+WAL archiving, normal daily backups, financial preservation or live admission gates.
+
 [Bounded database recovery](database-recovery-local-patch.md) records the owner's
 2026-10-26 local patch exception and its backed application-roll requirements.
 [Dashboard continuity and post-trade handoff](dashboard-posttrade-recovery.md)

@@ -226,6 +226,14 @@ ${COMPOSE[@]} exec -T sentinel-postgres sh -s -- /sentinel-backup/base "$SYSTEM_
 # Publish a compact, append-only operator proof only after promotion and WAL
 # coverage have both succeeded. Values interpolated here are regex-validated
 # machine identities, never operator text.
+METADATA_SHA256="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres bash -ceu '
+  set -o pipefail
+  cd "/sentinel-backup/base/$1"
+  sha256sum backup_manifest backup_label sentinel-recovery-marker sentinel-pitr-base-identity | sha256sum
+' bash "$NAME")"
+METADATA_SHA256="${METADATA_SHA256%% *}"
+[[ "$METADATA_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+  echo 'REFUSED: verified base metadata digest is malformed' >&2; exit 4; }
 if ! EVIDENCE_TABLE="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
   -v ON_ERROR_STOP=1 -Atc "SELECT to_regclass('public.sentinel_backup_evidence') IS NOT NULL")"; then
   echo "SENTINEL_BASE_BACKUP_REASON=BASE_BACKUP_EVIDENCE_SCHEMA_UNAVAILABLE" >&2
@@ -242,6 +250,8 @@ t)
     -v ON_ERROR_STOP=1 -Atc "
     WITH evidence AS (
       SELECT jsonb_build_object(
+        'schema','sentinel.verified-base/1','physical_verified',true,
+        'metadata_sha256','$METADATA_SHA256',
         'base_backup','$NAME','marker','$MARKER','marker_lsn','$MARKER_LSN',
         'marker_wal','$MARKER_WAL','system_identifier','$SYSTEM_ID',
         'xid8_before','$PITR_XID8_BEFORE','xid8_after','$PITR_XID8_AFTER') AS proof

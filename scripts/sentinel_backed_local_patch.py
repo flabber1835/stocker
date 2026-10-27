@@ -200,17 +200,6 @@ class BackedHost(Host):
         require_same_postgres_storage(expected,actual)
         return actual
 
-    def verify_candidate(self):
-        identity=super().verify_candidate()
-        image=self.request['candidate']['image']
-        require(re.fullmatch(r'sha256:[0-9a-f]{64}',image), 'BACKED_CANDIDATE_IMAGE_INVALID')
-        proof=self.sql("SELECT json_build_object('proof',proof,'age',extract(epoch FROM clock_timestamp()-observed_at),"
-            "'authentic',evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex')) "
-            "FROM sentinel_backup_evidence WHERE kind='RESTORE_DRILL' AND proof->>'runtime_image'='"+image+
-            "' ORDER BY observed_at DESC,seq DESC LIMIT 1")
-        require_restore(proof,self.request)
-        return identity
-
     @contextmanager
     def owned(self):
         values=self.load_values()
@@ -227,18 +216,6 @@ class BackedHost(Host):
                 except BlockingIOError as exc:raise DeliveryRefused('ANOTHER_CANONICAL_OWNER_IS_ACTIVE') from exc
                 require(owns_exclusive_flock(handle.fileno()), 'BACKED_OWNER_NOT_PROVEN')
             with super().owned():yield
-
-
-def require_restore(value,request):
-    require(isinstance(value,dict) and value.get('authentic') is True
-        and 0<=float(value['age'])<=86400, 'BACKED_CANDIDATE_RESTORE_REQUIRED')
-    proof=value['proof']
-    require(proof.get('physical_only') is False
-        and proof.get('runtime_image')==request['candidate']['image']
-        and proof.get('system_identifier')==request['predecessor']['system']
-        and re.fullmatch(r'[0-9a-f]{64}',proof.get('metadata_sha256',''))
-        and re.fullmatch(r'base-[0-9]{8}T[0-9]{6}Z',proof.get('base_backup','')),
-        'BACKED_CANDIDATE_RESTORE_SUBJECT_CHANGED')
 
 
 def require_started_state(host, record, values, pg, image):

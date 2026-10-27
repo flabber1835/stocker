@@ -41,35 +41,19 @@ def test_legacy_archive_off_mode_does_not_inherit_backed_permissions():
     with pytest.raises(fixture.model.DeliveryRefused):fixture.evidence.snapshot(host)
 
 
-def witness():
-    request={'candidate':{'image':'sha256:'+'a'*64},'predecessor':{'system':'1234'}}
-    value={'authentic':True,'age':50,'proof':{'physical_only':False,
-        'runtime_image':request['candidate']['image'],'system_identifier':'1234',
-        'metadata_sha256':'b'*64,'base_backup':'base-20261026T000000Z'}}
-    return value,request
+def test_application_validation_does_not_query_or_run_a_restore(monkeypatch):
+    from sentinel_local_delivery.host import Host
+    monkeypatch.setattr(Host,'verify_candidate',lambda self:{'source':'qualified'})
+    host=object.__new__(patch.BackedHost)
+    host.sql=lambda *_args:pytest.fail('application validation queried recovery evidence')
+    host.run=lambda *_args,**_kwargs:pytest.fail('application validation launched extra work')
+    assert host.verify_candidate()=={'source':'qualified'}
 
 
-def test_candidate_full_restore_is_required():
-    patch.require_restore(*witness())
-
-
-@pytest.mark.parametrize('key,value',[('physical_only',True),('runtime_image','foreign'),
-    ('system_identifier','foreign'),('metadata_sha256',''),('base_backup','../base')])
-def test_foreign_physical_or_malformed_restore_refuses(key,value):
-    value_record,request=witness();value_record['proof'][key]=value
-    with pytest.raises(patch.DeliveryRefused):patch.require_restore(value_record,request)
-
-
-@pytest.mark.parametrize('key,value',[('authentic',False),('age',-1),('age',86401)])
-def test_restore_freshness_and_content_authentication_still_refuse(key,value):
-    record,request=witness();record[key]=value
-    with pytest.raises(patch.DeliveryRefused):patch.require_restore(record,request)
-
-
-def test_removing_restore_subject_guard_is_detected(monkeypatch):
-    monkeypatch.setattr(patch,'require_restore',lambda *a:None)
-    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
-        test_foreign_physical_or_malformed_restore_refuses('runtime_image','foreign')
+def test_reintroducing_image_specific_restore_gate_is_detected(monkeypatch):
+    monkeypatch.setattr(patch.BackedHost,'verify_candidate',lambda self:self.sql('RESTORE_DRILL'))
+    with pytest.raises(pytest.fail.Exception,match='queried recovery evidence'):
+        test_application_validation_does_not_query_or_run_a_restore(monkeypatch)
 
 
 def test_postgres_archive_off_cannot_become_a_backed_baseline():
