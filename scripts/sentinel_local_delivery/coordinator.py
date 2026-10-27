@@ -120,7 +120,8 @@ class Delivery:
             state, pg = evidence.snapshot(self.host), self.host.postgres()
             candidate = self.host.candidate_values(values)
             evidence.compare_configuration(self.host,values,candidate,state)
-            old_proof = evidence.canonical_check(self.host,values,state)
+            retained=getattr(self.host,'predecessor_canonical_proof',lambda _state:None)(state)
+            old_proof = retained if retained is not None else evidence.canonical_check(self.host,values,state)
             new_proof = evidence.canonical_check(self.host,candidate,state)
             require(old_proof==new_proof, 'CANONICAL_ECONOMIC_PROOF_CHANGED')
             require(evidence.snapshot(self.host)==state and self.host.postgres()==pg,

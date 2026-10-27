@@ -168,6 +168,21 @@ def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(oper
     assert delivery.advance()==receipt and host.canonical_count==3
 
 
+@pytest.mark.parametrize('retained',[False,True])
+def test_retained_predecessor_avoids_broken_old_reader_but_keeps_new_and_started_checks(operation,monkeypatch,retained):
+    host,journal,delivery=operation
+    host.predecessor_canonical_proof=lambda state: {'book':'same','proof':'same'} if retained else None
+    roles=[]
+    def canonical(h,values,state):
+        role='candidate' if values['SENTINEL_GIT_COMMIT']==h.request['candidate']['commit'] else 'predecessor'
+        roles.append(role)
+        if retained and role=='predecessor':pytest.fail('repeated broken predecessor scan')
+        return {'book':'same','proof':'same'}
+    monkeypatch.setattr(coordinator.evidence,'canonical_check',canonical)
+    assert delivery.advance()['stage']=='VERIFIED'
+    assert roles==(['candidate','candidate'] if retained else ['predecessor','candidate','candidate'])
+
+
 def test_full_source_checks_run_at_mutation_boundaries_not_journal_intents(operation):
     host,journal,delivery=operation
     checked=[]

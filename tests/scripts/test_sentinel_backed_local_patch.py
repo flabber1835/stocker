@@ -56,6 +56,39 @@ def test_reintroducing_image_specific_restore_gate_is_detected(monkeypatch):
         test_application_validation_does_not_query_or_run_a_restore(monkeypatch)
 
 
+@pytest.mark.parametrize('fault',[None,'state','receipt','runtime','proof','stage'])
+def test_retained_predecessor_proof_requires_exact_unchanged_subject(tmp_path,monkeypatch,fault):
+    from types import SimpleNamespace
+    prior=tmp_path/'prior';prior.mkdir()
+    path=prior/'receipt.json'
+    record=dict(stage='VERIFIED',artifacts=dict(preserved={'book':'same'},
+        canonical_proof={'book':'verified'},successor_proof_sha256=patch.digest({'book':'verified'})))
+    if fault=='proof':record['artifacts']['successor_proof_sha256']='foreign'
+    if fault=='stage':record['stage']='SHADOW_STARTED'
+    path.write_text(json.dumps(record))
+    old=dict(commit='1'*40,image='sha256:'+'a'*64)
+    built=dict(predecessor_receipt=dict(path=str(path),sha256=patch.sha256_file(path)))
+    (tmp_path/'build.json').write_text(json.dumps(built))
+    if fault=='receipt':path.write_text(path.read_text()+' ')
+    monkeypatch.setattr(patch,'Journal',lambda folder:SimpleNamespace(
+        request={'candidate':dict(old,image='foreign') if fault=='runtime' else old},read=lambda:record))
+    host=object.__new__(patch.BackedHost)
+    host.operation_dir=tmp_path;host.predecessor_receipt=path;host.request={'predecessor':old}
+    state={'book':'changed' if fault=='state' else 'same'}
+    if fault in {'receipt','runtime','proof','stage'}:
+        with pytest.raises(patch.DeliveryRefused):host.predecessor_canonical_proof(state)
+    else:
+        assert host.predecessor_canonical_proof(state)==(None if fault=='state' else {'book':'verified'})
+
+
+def test_removed_retained_predecessor_anchor_guard_is_detected(tmp_path,monkeypatch):
+    original=patch.require
+    monkeypatch.setattr(patch,'require',lambda ok,reason:
+        None if reason=='BACKED_PREDECESSOR_ANCHOR_CHANGED' else original(ok,reason))
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_retained_predecessor_proof_requires_exact_unchanged_subject(tmp_path,monkeypatch,'receipt')
+
+
 def test_postgres_archive_off_cannot_become_a_backed_baseline():
     data={'Mounts':[{'Destination':'/var/lib/postgresql/data','Type':'volume',
         'Name':'sentinel_sentinel_pgdata','Source':'/private/owned'}],

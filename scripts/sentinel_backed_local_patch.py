@@ -200,6 +200,31 @@ class BackedHost(Host):
         require_same_postgres_storage(expected,actual)
         return actual
 
+    def predecessor_canonical_proof(self, state):
+        """Reuse an unchanged predecessor fact, never a candidate startup fact."""
+        built=read_json(self.operation_dir/'build.json')
+        anchor=built['predecessor_receipt']
+        require(str(self.predecessor_receipt)==anchor['path']
+            and sha256_file(self.predecessor_receipt)==anchor['sha256'],
+            'BACKED_PREDECESSOR_ANCHOR_CHANGED')
+        if self.predecessor_receipt.name!='receipt.json':
+            return None
+        prior=Journal(self.predecessor_receipt.parent)
+        record=prior.read()
+        require(record['stage'] in ('VERIFIED','APPLICATIONS_STARTED'),
+            'BACKED_PREDECESSOR_PROOF_STAGE_CHANGED')
+        selected=prior.request['candidate'];old=self.request['predecessor']
+        require(selected['commit']==old['commit'] and selected['image']==old['image'],
+            'BACKED_PREDECESSOR_PROOF_RUNTIME_CHANGED')
+        artifacts=record['artifacts']
+        if artifacts['preserved']!=state:
+            return None
+        proof=artifacts['canonical_proof']
+        require(isinstance(proof,dict) and proof and
+            artifacts.get('successor_proof_sha256')==digest(proof),
+            'BACKED_PREDECESSOR_CANONICAL_PROOF_CHANGED')
+        return proof
+
     @contextmanager
     def owned(self):
         values=self.load_values()

@@ -22,8 +22,9 @@ facts. The following changes precede the next local installation.
   holdings initially, before drain/stop, before starting shadow and other roles,
   and at final verification. Schema pages and file copies cannot contact the
   broker; they retain database/history preservation checks without broker GETs.
-* Keep the old-image and candidate-image canonical comparisons before stopping
-  applications and the independent candidate check after shadow starts. The last
+* Compare predecessor and candidate canonical facts before stopping applications,
+  using the exact retained predecessor fact under the conditions below. Keep the
+  independent candidate check after shadow starts. The last
   check observes a newly started process context. Reusing its earlier result was
   considered and is not selected in this change: removing that boundary requires
   a separate startup-integrity argument. Source, broker and intent-only repetition
@@ -106,3 +107,13 @@ restore that normal maintenance no longer runs. Keep foreground archive-loss,
 fresh broker, UNKNOWN order and leader checks unchanged. Qualification is targeted
 to these changed operational paths; the already passed reader tests are not
 repeated when their source bytes are unchanged.
+
+The first no-copy installation exposed an old-reader circular dependency: its
+fresh predecessor scan timed out in the exact sort being repaired. A backed
+application roll may reuse its predecessor's retained canonical proof only when
+the SHA-bound predecessor receipt/journal, exact old commit/image, full preserved
+financial snapshot and retained successor-proof digest all agree. An unchanged
+book has no new old-image financial fact to derive. If the current snapshot no
+longer matches, use the ordinary fresh predecessor scan. Never reuse the new
+image's preflight scan after startup: candidate preflight and started-process
+validation remain independent fresh checks. Unknown receipts/proofs refuse.
