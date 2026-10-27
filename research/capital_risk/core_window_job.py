@@ -94,7 +94,7 @@ def main():
             name='capital-risk-core-gate-'+identity+'-'+phase
             run_worker(gate_command(name,frozen,qual,HERE,variant,phase),name,qual,deadline=300)
         actual=json.loads((qual/'canonical-gate.json').read_bytes())
-        if actual['status']!='CANONICAL_CORE_GATE_PASSED' or actual['cases']!=13:
+        if actual['status']!='CANONICAL_CORE_GATE_PASSED' or actual['cases']!=15:
             raise ValueError('REFUSED_OBSERVED_CANONICAL_GATE')
         name=prefix+'b-'+identity+'-input'
         command=window_command(name,frozen,qual,HERE,sources/'basis',args.window,

@@ -161,3 +161,42 @@ Encrypt each arm separately (each asset bounded below 2 GiB) and a separate
 qualification envelope, with exact digest/size inventories in the nonfinancial
 receipt. All actual metrics/logs/checkpoints remain encrypted in GitHub artifacts.
 Failures and incomplete books are retained, distinct from admitted results.
+
+## Window001 integration refusals and exact continuation
+
+The authenticated recent2025 job at 14332ba4 stopped before its first recorded
+formation transition. B retained its own 2024-07-02 warmup checkpoint and empty
+four journal prefixes; its July3 attempt refused because the diagnostic counter
+still required exactly four audit fields after the common observer added two.
+B0/C/V refused at strategy identity construction, before any canonical financial
+origin/checkpoint existed, because the private spinoff hook introduced an
+unregistered economic dependency. These are engineering failures, not returns.
+Preserve their exact encrypted artifacts, stopped inspections and failures.
+
+Keep the canonical dependency guard. In the private risk tree, extend the
+authenticated manifest with the actual new stock_strategy_shared dependency
+closure, using the frozen canonical static import resolver. Retain existing
+expected hashes and classified Sentinel ports; reject unknown Sentinel edges.
+Bind new modules, every dependency edge, implementation digest and manifest
+reader digest. Changed implementations must acquire their actual identity,
+never claim preservation of the predecessor implementation. The private B tree
+keeps its original data-semantics manifest. No installed manifest is changed.
+
+The observational counter accepts exactly the six declared audit fields and
+validates both accounting snapshot schemas, sessions and phases. Its four
+original counter inputs and algorithms remain unchanged; arbitrary extra fields
+or missing snapshots refuse. Qualification must exercise runtime strategy
+identity for B/B0/C/V and the canonical adapter audit through the actual counter,
+in addition to the existing canonical cases and falsifiers.
+
+Never restart B's completed warmup. A subsequent hosted suffix must first
+canonically restore that arm's exact old-source checkpoint, verify all source,
+input and journal commitments and preserve the failed unsent tail. A distinct,
+explicit diagnostic source-successor receipt may bind only the reviewed counter
+source change, with unchanged financial/controller state and exact adjacency.
+Retain both old and successor checkpoints and prove each under its own sources.
+Do not dispatch until this bridge and its falsifiers are qualified. B0/C/V may
+establish their first origins only after proving their old artifacts contain no
+financial checkpoint or committed formation/daily record. Apply these rules
+separately to the other window after authenticating its actual stopped evidence.
+No fresh workflow rerun or parameter change is authorized by these corrections.

@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 import shutil
 
+from core_manifest import extend as extend_manifest
+
 HERE=Path(__file__).resolve().parent
 CORE='shared/stock_strategy_shared/wealth_core/'
 
@@ -74,6 +76,13 @@ def render(files, *, risk):
             '            "opening_accounting":sr.research_open_audit,\n'
             '            "closing_accounting":sr.research_close_audit})')
     edit(CORE+'live.py',observed_live)
+    def observed_retries(t):
+        return replace(t,"if not isinstance(audit, dict) or set(audit) != {'fills','cancelled','admission_rejections','operations'}:",
+            "if (not isinstance(audit, dict) or set(audit) != {'fills','cancelled','admission_rejections','operations','opening_accounting','closing_accounting'}\n"
+            "                or any(not isinstance(audit[k],dict) or audit[k].get('schema')!='research.capital-risk-core-accounting/1'\n"
+            "                    or audit[k].get('session')!=day or audit[k].get('phase')!=p\n"
+            "                    for k,p in (('opening_accounting','OPEN_BEFORE_FILLS'),('closing_accounting','CLOSE_AFTER_DECISION')))):")
+    edit('research/pooled_vacancy_funding/retries.py',observed_retries)
     if not risk:
         return out
     out[CORE+'capital_risk.py']=(HERE/'core_policy.py').read_bytes()
@@ -202,7 +211,7 @@ def render(files, *, risk):
         return replace(t,'return "sell" if self.operation == Operation.CLOSE_POSITION.value else "buy"',
             'return "sell" if self.operation in (Operation.CLOSE_POSITION.value,Operation.REDUCE_POSITION.value) else "buy"')
     edit(CORE+'live.py',live)
-    return out
+    return extend_manifest(out)
 
 
 def build(source,destination,*,risk):

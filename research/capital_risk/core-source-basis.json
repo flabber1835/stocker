@@ -10,5 +10,8 @@
   "shared/stock_strategy_shared/wealth_core/adapter.py": "ba9ca085add1016fb4b5b476a015dd0d967c36cdeca6df567aeec16a5961dcea",
   "shared/stock_strategy_shared/wealth_core/terminal.py": "d145eb0787c58e092618d1b05f5f2d988449351ac146a050debd9e0cec1c44e6",
   "shared/stock_strategy_shared/wealth_core/live.py": "76e9bba525c31a1da6c462d9fbcb4926fc7f5282c53e45a9c31624b1999388f8",
-  "sentinel/core/window_material.py": "3bd34707705bc97bd815d5da82d59ef2bcbd32e36a7e203851d7f5fff3361d76"
+  "sentinel/core/window_material.py": "3bd34707705bc97bd815d5da82d59ef2bcbd32e36a7e203851d7f5fff3361d76",
+  "research/pooled_vacancy_funding/retries.py": "ed67e7ac396bd3fa967c49b0e165e7f4adedaefbcfc5f6e4329a72609f1db829",
+  "sentinel/economic_manifest.py": "c55e73a7eda54bd4c92cb2a60e3913fd6021441229e288957b43af66645ae03c",
+  "sentinel/economic-implementation-v2.json": "06d0a444d9effafe1b5542899fe06d0d537e4b0631ec2ac7c7895caf989cf6ca"
 }

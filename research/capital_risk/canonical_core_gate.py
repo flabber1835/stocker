@@ -74,6 +74,45 @@ def baseline_path():
 
 
 class CanonicalCases(unittest.TestCase):
+    def test_actual_runtime_identity_admits_complete_private_dependency_closure(self):
+        from research.pooled_vacancy_funding import runtime
+        identities=[]
+        for profile in (ORIGINAL,C,V):
+            _,identity=runtime.strategy(profile)
+            self.assertEqual(identity['research_entry_funding_policy'],profile)
+            identities.append(identity)
+        from sentinel.economic_manifest import identity
+        actual=identity(schema='research.private-economic-identity/1')
+        self.assertFalse(actual['economic_implementation']['preserved_behavior'])
+        names={r['module'] for r in actual['files']}
+        self.assertIn('stock_strategy_shared.wealth_core.capital_risk',names)
+        self.assertIn('stock_strategy_shared.wealth_core.accounting_snapshot',names)
+
+    def test_actual_canonical_audit_enters_counter_without_changing_old_counters(self):
+        import importlib.util
+        from types import SimpleNamespace
+        from research.pooled_vacancy_funding.retries import RetryStats
+        spec=importlib.util.spec_from_file_location('frozen_original_retries',
+            '/frozen/source-fixed/research/pooled_vacancy_funding/retries.py')
+        old=importlib.util.module_from_spec(spec);spec.loader.exec_module(old)
+        p=fixture();result=step(p,DAY)
+        audit=dict(cancelled=list(result.cancelled),fills=list(result.fills),
+            admission_rejections=list(result.decision.admission_rejections),
+            operations=[dict(operation=op.operation.value,slot_id=op.slot_id,security_id=op.security_id,
+                ticker=op.ticker,detail=dict(op.detail)) for op in result.decision.operations],
+            opening_accounting=result.research_open_audit,closing_accounting=result.research_close_audit)
+        legacy={k:audit[k] for k in ('fills','cancelled','admission_rejections','operations')}
+        prior=SimpleNamespace(pending=[]);published=SimpleNamespace(session=DAY,bars=[])
+        def after(value):return SimpleNamespace(wealth_core=p[0].to_dict(),last_evidence=dict(research_entry_audit=value))
+        new,original=RetryStats(),old.RetryStats()
+        self.assertEqual(new.advance(prior,after(audit),published,phase='FORMATION'),
+            original.advance(prior,after(legacy),published,phase='FORMATION'))
+        self.assertEqual(new.to_dict(),original.to_dict())
+        for bad in (legacy,{**audit,'unknown':True},{**audit,'opening_accounting':None},
+                    {**audit,'closing_accounting':{**audit['closing_accounting'],'session':'2026-01-02'}}):
+            with self.assertRaisesRegex(ValueError,'complete canonical research entry audit'):
+                RetryStats().advance(prior,after(bad),published,phase='FORMATION')
+
     def test_accounting_tap_observes_actions_before_fills_and_decisions_after(self):
         p=fixture(C,20,8000);step(p,DAY);result=step(p,NEXT,signal=200,opening=200)
         opened,closed=result.research_open_audit,result.research_close_audit
@@ -232,6 +271,8 @@ def main():
     args=parser.parse_args()
     assert str(Path(v5.__file__).resolve()).startswith('/variant/shared/')
     if args.phase=='basis':
+        from research.pooled_vacancy_funding.runtime import strategy
+        strategy(ORIGINAL)
         args.output.write_text(json.dumps(baseline_path(),sort_keys=True)+'\n');print('BASIS_SYNTHETIC_PATH_RETAINED');return
     assert args.basis_output is not None
     assert baseline_path()==json.loads(args.basis_output.read_bytes()),'B0_NOT_EQUIVALENT_TO_ORIGINAL_B'
