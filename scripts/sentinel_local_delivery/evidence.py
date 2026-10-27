@@ -388,7 +388,8 @@ def panel(host, state):
     if handoff_mode(host.request)=='POST_TRADE':
         expected['handoff_mode']='POST_TRADE'
     if repair:
-        expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'])
+        expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
+            certificate=state['control']['certificate_sha256'],core_exposure=host.repair_core_exposure(state))
     result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c',
         checks.BLOCKED_PANEL if repair else checks.PANEL,
         json.dumps(expected, sort_keys=True)], timeout=35)

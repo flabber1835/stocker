@@ -403,7 +403,24 @@ allowed={
 }
 for row in page['rows']:
  if row.get('color')!='red': continue
- if row['key']=='automation_alerts':
+ if row['key']=='authority':
+  import re
+  certificate=expected.get('certificate')
+  assert isinstance(certificate,str) and re.fullmatch('[0-9a-f]{64}',certificate)
+  assert row['status']=='unknown' and row['value']=='UNKNOWN'
+  prefix='no durable runtime authority verdict; lifecycle-only: ACTIVE · certificate '+certificate[:12]+' · expires '
+  assert row['detail'].startswith(prefix)
+  expiry,rest=row['detail'][len(prefix):].split(' · mode ',1)
+  assert datetime.fromisoformat(expiry).utcoffset() is not None
+  assert re.fullmatch(r'PAPER_OBSERVATION_ONLY · historical causality [^;·]+ · maximum exposure [^;·]+ · authority generation [0-9]+',rest)
+ elif row['key']=='exposure':
+  from decimal import Decimal
+  assert isinstance(expected.get('core_exposure'),(str,int,float))
+  exposure=Decimal(str(expected.get('core_exposure')))
+  assert exposure.is_finite() and 0<=exposure<=1
+  assert row['status']=='fail' and row['value']==format(exposure,'.2f')+' NOT ADOPTED'
+  assert row['detail']=='canonical controller decision has no current plan · decision '+expected['decision']
+ elif row['key']=='automation_alerts':
   import re
   assert re.fullmatch(r'0 pending · 0 DLQ · [0-9]+ unacked',row['value'])
  else:

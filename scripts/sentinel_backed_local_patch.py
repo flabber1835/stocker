@@ -4,6 +4,8 @@ Reuse the qualified source-layer builder and the existing digest-linked drain /
 application handoff. The historical archive-off command retains its own guards.
 """
 from contextlib import contextmanager, ExitStack
+from datetime import date
+from decimal import Decimal, InvalidOperation
 import fcntl
 import json
 import os
@@ -262,6 +264,47 @@ class BackedHost(Host):
         actual=postgres_facts(self.container('sentinel-postgres'))
         require_same_postgres_storage(expected,actual)
         return actual
+
+    def repair_core_exposure(self, state):
+        """Read one scalar from the exact already-verified current record."""
+        require(self.request.get('handoff_mode')=='BLOCKED_UNSENT',
+            'BLOCKED_UNSENT_EXPOSURE_SCOPE_REQUIRED')
+        receipt=Journal(self.operation_dir).read()
+        proof=receipt['artifacts']['canonical_proof']
+        book=proof.get('book') or {}
+        decision=state['cycle']['decision_session']
+        require(receipt['stage']=='APPLICATIONS_STARTED'
+            and receipt['artifacts'].get('successor_proof_sha256')==digest(proof)
+            and receipt['artifacts']['preserved']==state
+            and isinstance(decision,str) and date.fromisoformat(decision).isoformat()==decision
+            and book.get('session')==decision
+            and book.get('state_sha256')==proof.get('book_state_sha256')
+            and all(isinstance(book.get(key),str) and re.fullmatch('[0-9a-f]{64}',book[key])
+                for key in ('record_sha256','state_sha256')),
+            'BLOCKED_UNSENT_EXPOSURE_PROOF_CHANGED')
+        observation=self.load_values().get('SENTINEL_SHADOW_OBSERVATION_ID','primary')
+        require(isinstance(observation,str) and re.fullmatch('[A-Za-z0-9_.-]+',observation),
+            'BLOCKED_UNSENT_EXPOSURE_OBSERVATION_INVALID')
+        rows=self.sql("SELECT json_agg(x) FROM (SELECT session::text AS session,"
+            "state->>'record_sha256' AS record_sha256,state->>'state_sha256' AS state_sha256,"
+            "state->'state'->'last_decision'->>'session' AS decision_session,"
+            "CASE WHEN length(state->'state'->'last_decision'->>'target_core_exposure')<=128 "
+            "THEN state->'state'->'last_decision'->>'target_core_exposure' END AS core_exposure "
+            "FROM sentinel_processed_sessions WHERE cursor_name LIKE 'shadow-observation:v1:"
+            +observation+":%' AND session='"+decision+"' AND state->>'record_sha256'='"
+            +book['record_sha256']+"' AND state->>'state_sha256'='"+book['state_sha256']+"' LIMIT 2) x")
+        require(isinstance(rows,list) and len(rows)==1,'BLOCKED_UNSENT_EXPOSURE_RECORD_AMBIGUOUS')
+        row=rows[0]
+        require(row.get('session')==row.get('decision_session')==decision
+            and all(row.get(key)==book[key] for key in ('record_sha256','state_sha256'))
+            and isinstance(row.get('core_exposure'),str),
+            'BLOCKED_UNSENT_EXPOSURE_RECORD_CHANGED')
+        try:
+            value=Decimal(row['core_exposure'])
+        except (InvalidOperation,TypeError,KeyError) as exc:
+            raise DeliveryRefused('BLOCKED_UNSENT_EXPOSURE_INVALID') from exc
+        require(value.is_finite() and 0<=value<=1,'BLOCKED_UNSENT_EXPOSURE_INVALID')
+        return str(value)
 
     def predecessor_canonical_proof(self, state):
         """Reuse an unchanged predecessor fact, never a candidate startup fact."""

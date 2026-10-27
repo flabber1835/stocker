@@ -225,21 +225,44 @@ def test_removing_colocated_layout_gate_is_detected(tmp_path,monkeypatch):
         test_backed_compose_allows_only_exact_qualified_readonly_worker_mount(tmp_path,None)
 
 
-@pytest.mark.parametrize('fault',[None,'false_green','new_plan','source_error','unrelated_red'])
+@pytest.mark.parametrize('fault',[None,'false_green','new_plan','source_error','unrelated_red',
+    'foreign_certificate','revoked_certificate','generic_authority_unknown','wrong_mode',
+    'wrong_exposure','adopted_exposure','wrong_decision','generic_exposure_unknown',
+    'missing_certificate','missing_exposure','feed_unknown'])
 def test_fenced_panel_program_retains_red_and_refuses_unrelated_failures(monkeypatch,capsys,fault):
     from datetime import datetime,timezone
-    expected=dict(decision='2031-04-21',effective='2031-04-22',cycle_id='b'*64,plan=None)
+    expected=dict(decision='2031-04-21',effective='2031-04-22',cycle_id='b'*64,plan=None,
+        certificate='a4be'+'0'*60,core_exposure='0.55')
     def row(key,value,status='ok'):
         return dict(key=key,value=value,status=status,color='red' if status=='fail' else 'green')
     rows=[row('automation','ENABLED · KILLED','fail'),row('automation_leader','INACTIVE BY POLICY','pending'),
         row('automation_cycle','BLOCKED','fail'),row('paper_plan','NOT PREPARED','pending'),
         row('shadow_verification','SHADOW VERIFIED THROUGH '+expected['decision']),
         row('feed',expected['decision']+' · 0 sessions behind'),row('alert_dispatcher','HEALTHY')]
+    authority=dict(key='authority',value='UNKNOWN',status='unknown',color='red',detail=(
+        'no durable runtime authority verdict; lifecycle-only: ACTIVE · certificate '
+        +expected['certificate'][:12]+' · expires 2031-04-22T13:30:00+00:00'
+        +' · mode PAPER_OBSERVATION_ONLY · historical causality UNESTABLISHED'
+        +' · maximum exposure 1 · authority generation 4'))
+    exposure=dict(key='exposure',value='0.55 NOT ADOPTED',status='fail',color='red',
+        detail='canonical controller decision has no current plan · decision '+expected['decision'])
+    rows.extend([authority,exposure])
     page=dict(as_of=datetime.now(timezone.utc).isoformat(),color='red',source_errors=[],rows=rows)
     if fault=='false_green':page['color']='green'
     elif fault=='new_plan':rows[3]['paper_plan']={'plan_id':'invented'}
     elif fault=='source_error':page['source_errors']=['read failure']
     elif fault=='unrelated_red':rows.append(row('broker','UNKNOWN','fail'))
+    elif fault=='foreign_certificate':authority['detail']=authority['detail'].replace(expected['certificate'][:12],'f'*12)
+    elif fault=='revoked_certificate':authority['detail']=authority['detail'].replace('lifecycle-only: ACTIVE','lifecycle-only: REVOKED')
+    elif fault=='generic_authority_unknown':authority['detail']='execution authority could not be read'
+    elif fault=='wrong_mode':authority['detail']=authority['detail'].replace('PAPER_OBSERVATION_ONLY','unknown')
+    elif fault=='wrong_exposure':exposure['value']='0.65 NOT ADOPTED'
+    elif fault=='adopted_exposure':exposure['value']='0.55'
+    elif fault=='wrong_decision':exposure['detail']=exposure['detail'].replace(expected['decision'],'2031-04-20')
+    elif fault=='generic_exposure_unknown':exposure.update(value='UNKNOWN',status='unknown',detail='read failure')
+    elif fault=='missing_certificate':expected.pop('certificate')
+    elif fault=='missing_exposure':expected.pop('core_exposure')
+    elif fault=='feed_unknown':rows[5].update(status='unknown',color='red',value='UNREADABLE')
     monkeypatch.setattr(sys,'argv',['program',json.dumps(expected)])
     monkeypatch.setattr(urllib.request,'urlopen',lambda *a,**kw:io.BytesIO(json.dumps(page).encode()))
     if fault:
@@ -293,3 +316,55 @@ def test_later_normal_build_accepts_only_exact_recovery_lineage(monkeypatch,faul
     assert 'rolling_runtime.status' not in readers.checks.RECOVERY_LINEAGE
     assert 'unsent_recovery.validate_authorization(' in readers.checks.RECOVERY_LINEAGE
     assert 'BEGIN TRANSACTION READ ONLY' in readers.checks.RECOVERY_LINEAGE
+
+
+@pytest.mark.parametrize('fault',[None,'missing','ambiguous','record','state','decision','nonfinite',
+    'negative','above_one','missing_value','receipt_hash'])
+def test_repair_exposure_is_one_bound_scalar_read_not_a_book_replay(tmp_path,monkeypatch,fault):
+    from tests.scripts.test_sentinel_backed_local_patch import patch
+    state=dict(cycle={'decision_session':'2031-04-21'})
+    book=dict(session='2031-04-21',record_sha256='a'*64,state_sha256='b'*64)
+    proof=dict(book=book,book_state_sha256='b'*64)
+    receipt=dict(stage='APPLICATIONS_STARTED',artifacts=dict(canonical_proof=proof,
+        successor_proof_sha256=patch.digest(proof),preserved=state))
+    if fault=='receipt_hash':receipt['artifacts']['successor_proof_sha256']='changed'
+    monkeypatch.setattr(patch,'Journal',lambda folder:SimpleNamespace(read=lambda:receipt))
+    row=dict(session='2031-04-21',decision_session='2031-04-21',record_sha256='a'*64,
+        state_sha256='b'*64,core_exposure='0.55')
+    if fault=='record':row['record_sha256']='c'*64
+    elif fault=='state':row['state_sha256']='c'*64
+    elif fault=='decision':row['decision_session']='2031-04-20'
+    elif fault=='nonfinite':row['core_exposure']='NaN'
+    elif fault=='negative':row['core_exposure']='-0.1'
+    elif fault=='above_one':row['core_exposure']='1.1'
+    elif fault=='missing_value':row['core_exposure']=None
+    rows=[] if fault=='missing' else [row,row] if fault=='ambiguous' else [row]
+    host=object.__new__(patch.BackedHost);host.operation_dir=tmp_path
+    host.request={'handoff_mode':'BLOCKED_UNSENT'};host.load_values=lambda:{'SENTINEL_SHADOW_OBSERVATION_ID':'primary'}
+    queries=[]
+    host.sql=lambda sql:queries.append(sql) or rows
+    if fault:
+        with pytest.raises(patch.DeliveryRefused):host.repair_core_exposure(state)
+    else:
+        assert host.repair_core_exposure(state)=='0.55' and len(queries)==1
+    if queries:
+        assert 'LIMIT 2' in queries[0] and "state->>'record_sha256'='"+'a'*64 in queries[0]
+        assert "state->>'state_sha256'='"+'b'*64 in queries[0]
+        assert 'last_decision' in queries[0] and 'md5' not in queries[0]
+        assert 'state::text' not in queries[0] and 'SELECT state ' not in queries[0]
+
+
+def test_repair_panel_receives_actual_bound_certificate_and_scalar(monkeypatch):
+    host=blocked_host()
+    host.state['control']['certificate_sha256']='a4be'+'0'*60
+    calls=[]
+    host.container=lambda name:{'Id':'exact-panel'}
+    host.repair_core_exposure=lambda state:calls.append(state) or '0.55'
+    def run(argv,**kwargs):
+        expected=json.loads(argv[-1])
+        assert expected['certificate']==host.state['control']['certificate_sha256']
+        assert expected['core_exposure']=='0.55' and expected['plan'] is None
+        return SimpleNamespace(stdout=b'{"operational_ready":false}')
+    host.run=run
+    assert readers.evidence.panel(host,host.state)=={'operational_ready':False}
+    assert calls==[host.state]

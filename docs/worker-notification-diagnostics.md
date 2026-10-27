@@ -264,3 +264,17 @@ absent for exposure adoption and unpriced counts; show the verified model
 exposure as NOT ADOPTED until a matching plan exists. Keep same-session
 exposure, rollout and version mismatch refusals unchanged. The separate PAPER
 plan, BLOCKED cycle, alerts and trading-readiness status remain truthful.
+
+A host-only correction to the fenced software finalizer may resume an existing
+APPLICATIONS_STARTED operation from a separately qualified host checkout. Bind
+the actual host commit/report and before/after receipt hashes in a retained
+finalizer record. Require identical complete Sentinel runtime bytes, unchanged
+original request/candidate/source tree and the existing financial snapshot,
+native account, kill, authority and original freshness boundaries. Only the
+reviewed host-finalizer/test/documentation delta may differ; do not rebuild or
+roll an identical application image solely for a host proof correction. Resume
+the ordinary coordinator transition, never edit the receipt or synthesize a
+pass. Expected missing current authority verdict and NOT ADOPTED exposure are
+paused/no-plan display states, not current trading authority. The fresh signed
+canonical proof remains mandatory, and unrelated data/authority failures still
+refuse. This path grants no recovery authorization or kill release.
