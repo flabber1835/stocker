@@ -62,13 +62,15 @@ def status(operation_dir):
         receipt=str(journal.folder/'receipt.json'))
 
 
-def parser():
+def parser(*, backed=False):
     selected = argparse.ArgumentParser(description=__doc__)
     commands = selected.add_subparsers(dest='command',required=True)
     build = commands.add_parser('build',help='Build one exact qualified source layer offline')
     for name in ('source','deployment','predecessor-receipt','qualification','qualification-sha256',
                  'allowed-delta','allowed-delta-sha256','operation-dir','commit'):
         build.add_argument('--'+name,required=True)
+    if backed:
+        build.add_argument('--allow-started-predecessor',action='store_true')
     new = commands.add_parser('prepare',help='Create an immutable operation from its completed build')
     for name in ('operation-dir','build-record','build-sha256','operation-id'):
         new.add_argument('--'+name,required=True)

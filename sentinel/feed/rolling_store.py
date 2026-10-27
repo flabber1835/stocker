@@ -256,11 +256,28 @@ def write_benchmarks(conn, candidate_id: str,
 
 
 def _rows(conn, candidate_id, *, table, columns, order, start=None, end=None):
-    # Server-side cursor bounds memory independently of the universe size.
     rolling_work.checkpoint()
     if table in ('sentinel_snapshot_bars', 'sentinel_snapshot_benchmarks'):
-        from sentinel.feed.normalized_layout import read_table
-        table = read_table(conn, 'BARS' if table.endswith('_bars') else 'BENCHMARKS')
+        from sentinel.feed.normalized_layout import read_table, stored_sessions
+        kind = 'BARS' if table.endswith('_bars') else 'BENCHMARKS'
+        table = read_table(conn, kind)
+        if table == 'sentinel_candidate_'+kind.lower():
+            # A cursor over the UNION view otherwise sorts all expanded JSON
+            # rows before its first FETCH. Partition by actual storage dates;
+            # each query retains the original predicate and exact row order.
+            for day in stored_sessions(conn, candidate_id, kind, start=start, end=end):
+                rolling_work.checkpoint()
+                yield from _stream_rows(conn, candidate_id, table=table, columns=columns,
+                                        order=order, start=day, end=day)
+            rolling_work.checkpoint()
+            return
+    yield from _stream_rows(conn, candidate_id, table=table, columns=columns,
+                            order=order, start=start, end=end)
+    rolling_work.checkpoint()
+
+
+def _stream_rows(conn, candidate_id, *, table, columns, order, start=None, end=None):
+    # A server-side cursor bounds client memory within this physical partition.
     with conn.cursor(name="snapshot_" + uuid.uuid4().hex) as cur:
         cur.itersize = BATCH_SIZE
         bounds, params = '', [candidate_id]

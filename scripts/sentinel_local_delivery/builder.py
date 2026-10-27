@@ -121,7 +121,9 @@ def _foundation_preserved(before, after, commit):
 
 def build(*, source, deployment, predecessor_receipt, qualification, qualification_sha256,
           approved_delta, approved_delta_sha256, operation_dir, commit, host_type=Host,
-          baseline_reader=baseline, foundation_reference=None):
+          baseline_reader=baseline, foundation_reference=None, predecessor_receipt_options=None):
+    options=predecessor_receipt_options or {}
+    require(options in ({},{'allow_started':True}), 'BUILD_PREDECESSOR_OPTIONS_INVALID')
     source, deployment = safe_directory(source), safe_directory(deployment)
     folder = safe_directory(operation_dir,create=True)
     require(not folder.is_relative_to(source), 'BUILD_EVIDENCE_INSIDE_QUALIFIED_SOURCE')
@@ -184,7 +186,7 @@ def build(*, source, deployment, predecessor_receipt, qualification, qualificati
             deployment=str(deployment),commit=commit,image=image['Id'],tag=tag,
             source_identity=identity,strategy_sha256=strategy,foundation=old,
             predecessor_receipt=dict(path=str(Path(predecessor_receipt).resolve()),
-                sha256=sha256_file(predecessor_receipt)),
+                sha256=sha256_file(predecessor_receipt),**options),
             qualification=dict(report_path=str(Path(qualification).resolve()),report_sha256=qualification_sha256),
             allowed_delta=approved,changed_files=changed,context=str(context),
             log=str(log),log_sha256=sha256_file(log),command=command)

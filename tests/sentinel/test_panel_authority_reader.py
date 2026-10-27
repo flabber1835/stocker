@@ -126,6 +126,42 @@ def complete(value, timeout=3):
     assert value.pending is None, 'test observer did not complete'
 
 
+def test_negative_completed_observation_retries_after_30_seconds_without_clearing_red():
+    now = datetime.now(timezone.utc)
+    clock = [100.0]
+    calls = []
+    def run(*args, **kwargs):
+        calls.append(True)
+        answer = result()
+        answer['observed_at'] = now
+        answer['rows'][0]['status'] = model.UNKNOWN
+        answer['errors'] = ['shadow authority database: timed out']
+        return answer
+    value = reader.Reader(runner=run, clock=lambda: clock[0], wall_clock=lambda: now)
+    value.read('fixture'); complete(value)
+    rows, _, _, errors = value.read('fixture')
+    assert rows[0].status == model.UNKNOWN and errors and len(calls) == 1
+    clock[0] += reader.RETRY_SECONDS-1
+    value.read('fixture')
+    assert value.pending is None and len(calls) == 1
+    clock[0] += 1
+    rows, _, _, errors = value.read('fixture'); complete(value)
+    assert rows[0].status == model.UNKNOWN and errors and len(calls) == 2
+
+
+def test_negative_retry_guard_has_removed_fix_falsifier(monkeypatch):
+    import inspect, textwrap
+    body = textwrap.dedent(inspect.getsource(reader.Reader.read))
+    guard = ' or self.failure is not None'
+    assert guard in body
+    namespace = {}
+    exec(compile(body.replace(guard, ''), 'negative-retry-falsifier', 'exec'),
+         reader.__dict__, namespace)
+    monkeypatch.setattr(reader.Reader, 'read', namespace['read'])
+    with pytest.raises(AssertionError):
+        test_negative_completed_observation_retries_after_30_seconds_without_clearing_red()
+
+
 def test_current_verified_exposure_uses_observer_clock_instead_of_plan_creation(monkeypatch):
     now = datetime(2026, 10, 22, 21, 54, tzinfo=timezone.utc)
     created = now.replace(hour=21, minute=0)

@@ -8,6 +8,12 @@ from . import evidence
 from .host import RUNTIME_KEYS, SERVICES
 from .model import digest, handoff_mode, require, utcnow
 
+# Source tampering is checked before every real mutation, and on final
+# observation. Intent-only journal transitions do not launch an image probe.
+SOURCE_CHECK_STAGES = frozenset({'NEW','DRAIN_REQUESTED','STOP_REQUESTED',
+    'SCHEMA_INSTALL_REQUESTED','COMPOSE_INSTALL_REQUESTED','COMPOSE_INSTALLED',
+    'START_REQUESTED','APPLICATIONS_STARTED'})
+
 
 class Delivery:
     def __init__(self, host, journal, *, monotonic=time.monotonic, sleep=time.sleep):
@@ -40,13 +46,18 @@ class Delivery:
                 require(item['Image']==old and not item['State']['Running'],
                         'APPLICATION_NOT_QUIESCENT_FOR_INSTALL')
 
-    def _unchanged(self, artifacts, *, native=True):
+    def _unchanged(self, artifacts, *, native=True, allow_restart=False):
         require(evidence.snapshot(self.host)==artifacts['preserved'], 'PRESERVED_STATE_CHANGED')
-        require(self.host.postgres()==artifacts['postgres'], 'POSTGRES_CHANGED')
+        if allow_restart and hasattr(self.host, 'postgres_after_restart'):
+            postgres = self.host.postgres_after_restart(artifacts['postgres'])
+        else:
+            postgres = self.host.postgres()
+            require(postgres==artifacts['postgres'], 'POSTGRES_CHANGED')
         evidence.check_notification_history(self.host,artifacts['notification_history'])
         if native:
             require(evidence.native_positions(self.host,self.host.load_values())==artifacts['native_positions'],
                     'NATIVE_HOLDINGS_OR_OPEN_ORDERS_CHANGED')
+        return postgres
 
     def _values(self, artifacts):
         current = self.host.load_values()
@@ -88,10 +99,11 @@ class Delivery:
                 return current
 
     def step(self):
-        self.host.verify_candidate()
         receipt = self.journal.read(); stage = receipt['stage']; artifacts = receipt['artifacts']
         if stage=='VERIFIED':
             return receipt
+        if stage in SOURCE_CHECK_STAGES:
+            self.host.verify_candidate()
         values = self.host.load_values()
         if stage=='NEW':
             self.host.verify_compose('predecessor')
@@ -126,21 +138,19 @@ class Delivery:
             require(current==old, 'PREMATURE_RUNTIME_INSTALLATION')
             self._fresh(artifacts['preflight_at'])
             self._apps('predecessor',running=True,healthy=True)
-            self._unchanged(artifacts)
-            self.host.verify_compose('predecessor')
             return self.journal.advance(stage,'DRAIN_REQUESTED',drain_target=evidence.drain_target(self.host))
         if stage=='DRAIN_REQUESTED':
             require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
             self._fresh(artifacts['preflight_at'])
             self._apps('predecessor'); self._unchanged(artifacts)
+            self.host.verify_compose('predecessor')
             proof=evidence.request_drain(self.host,old,artifacts['drain_target'])
-            self._unchanged(artifacts)
+            self._unchanged(artifacts,native=False)
             return self.journal.advance(stage,'DRAIN_ACKNOWLEDGED',drain_proof=proof)
         if stage=='DRAIN_ACKNOWLEDGED':
             require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
             self._fresh(artifacts['preflight_at'])
             evidence.check_drain(self.host,old,artifacts['drain_target'],artifacts['drain_proof'])
-            self._unchanged(artifacts)
             return self.journal.advance(stage,'STOP_REQUESTED')
         if stage=='STOP_REQUESTED':
             require(current==old, 'PREMATURE_RUNTIME_INSTALLATION')
@@ -150,31 +160,30 @@ class Delivery:
             evidence.check_drain(self.host,old,artifacts['drain_target'],artifacts['drain_proof'])
             self.host.compose(old,'stop','--timeout','120',*self.host.predecessor_services(),timeout=150)
             self._apps('predecessor',running=False)
-            self._unchanged(artifacts)
+            self._unchanged(artifacts,native=False)
             return self.journal.advance(stage,'APPLICATIONS_STOPPED')
         if stage=='APPLICATIONS_STOPPED':
             require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
             self._fresh(artifacts['preflight_at'])
-            self._unchanged(artifacts)
             self._stopped_for_install()
             return self.journal.advance(stage,'SCHEMA_INSTALL_REQUESTED')
         if stage=='SCHEMA_INSTALL_REQUESTED':
             require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
-            self._fresh(artifacts['preflight_at']);self._unchanged(artifacts)
+            self._fresh(artifacts['preflight_at']);self._unchanged(artifacts,native=False)
             self._stopped_for_install()
             migration=evidence.migrate_operational_schema(self.host,candidate)
-            self._unchanged(artifacts)
+            self._unchanged(artifacts,native=False)
             if not migration['complete']:
                 return receipt  # Durable page progress is resumed, never reset.
             return self.journal.advance(stage,'SCHEMA_INSTALLED',operational_installation=migration['installation'])
         if stage=='SCHEMA_INSTALLED':
             require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
-            self._fresh(artifacts['preflight_at']);self._unchanged(artifacts)
+            self._fresh(artifacts['preflight_at'])
             self._stopped_for_install()
             return self.journal.advance(stage,'COMPOSE_INSTALL_REQUESTED')
         if stage=='COMPOSE_INSTALL_REQUESTED':
             require(current==old,'PREMATURE_RUNTIME_INSTALLATION')
-            self._fresh(artifacts['preflight_at']);self._unchanged(artifacts)
+            self._fresh(artifacts['preflight_at']);self._unchanged(artifacts,native=False)
             self._stopped_for_install()
             self.host.install_compose()
             return self.journal.advance(stage,'COMPOSE_INSTALLED')
@@ -201,12 +210,12 @@ class Delivery:
             self._wait_shadow()
             proof=evidence.canonical_check(self.host,candidate,artifacts['preserved'])
             require(proof==artifacts['canonical_proof'],'SUCCESSOR_CANONICAL_PROOF_CHANGED')
-            self._unchanged(artifacts)
+            self._unchanged(artifacts,native=False)
             return self.journal.advance(stage,'SHADOW_VERIFIED',successor_verified_at=utcnow().isoformat(),
                                         successor_proof_sha256=digest(proof))
         if stage=='SHADOW_VERIFIED':
             self._fresh(artifacts['successor_verified_at'])
-            self._wait_shadow(); self._unchanged(artifacts)
+            self._wait_shadow()
             for service in SERVICES:
                 if service=='sentinel-shadow': continue
                 item=self.host.container(service,missing_ok=True)
@@ -230,16 +239,20 @@ class Delivery:
             self.host.compose(candidate,'up','-d','--no-deps','--no-build','--pull','never',
                 '--wait','--wait-timeout','120',*SERVICES[1:],timeout=150)
             self._apps('candidate',running=True,healthy=True)
-            self._unchanged(artifacts)
+            self._unchanged(artifacts,native=False)
             return self.journal.advance(stage,'APPLICATIONS_STARTED')
         require(stage=='APPLICATIONS_STARTED','UNSUPPORTED_DELIVERY_STAGE')
         self._apps('candidate',running=True,healthy=True)
-        self._unchanged(artifacts)
+        postgres=self._unchanged(artifacts,allow_restart=True)
         leader=self._leader(artifacts['preserved']['control']['generation'])
         panel=evidence.panel(self.host,artifacts['preserved'])
         appends=evidence.check_notification_history(self.host,artifacts['notification_history'])
+        current=(self.host.postgres_after_restart(artifacts['postgres'])
+                 if hasattr(self.host,'postgres_after_restart') else self.host.postgres())
+        require(current==postgres,'POSTGRES_CHANGED_DURING_FINAL_OBSERVATION')
         return self.journal.advance(stage,'VERIFIED',verified_at=utcnow().isoformat(),
-                                    leader=leader,panel=panel,notification_appends=appends)
+                                    leader=leader,panel=panel,notification_appends=appends,
+                                    verified_postgres=postgres)
 
     def advance(self):
         with self.host.owned():

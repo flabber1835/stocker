@@ -31,3 +31,21 @@ the adjustment. More memory is not readiness evidence: current source, canonical
 verification, reconciliation, the next-open plan and supported application
 handoff must still pass. Any remaining leadership failure needs separate
 diagnosis; alerts are not suppressed to make this adjustment appear successful.
+
+## Whole-host headroom correction
+
+Later observations found only 300--445 MiB available on the Windows host,
+roughly 3.4 GB nonpaged pool, 6.2 GB paged pool, and severe paging. WSL's
+available-memory report alone was insufficient admission for a larger resident
+database cache. PostgreSQL's 2 GiB usage was predominantly file cache (about
+2.0 GB), with approximately 75 MB anonymous memory and 141 MB shared memory.
+
+Revert this operation's live cgroup change to its exact original 1 GiB resident
+and 2 GiB combined memory/swap ceilings. Recheck the exact primary container,
+start time, image, command, mounts and archive-on settings before and after;
+record both observations. This is an undo of the inspected resource adjustment,
+not a restart or financial change. Preserve the original adjustment evidence
+and label its retained override superseded rather than silently applying it.
+Future increases require Windows physical headroom as well as WSL headroom.
+Observe paging, database pressure and leadership after reverting; do not claim
+that undoing the increase alone resolves the kernel-memory condition.

@@ -20,3 +20,19 @@ Do not treat the setting change as trading qualification. Verify actual
 leadership continuity, current source and book, reconciliation, the next-open
 plan and installed application health independently. Explicit user sleep, loss
 of power, host updates and other system stalls can still interrupt services.
+
+## Bounded verification-reader pause during owned recovery
+
+Severe host paging persisted after the power setting change. A broker-free
+foreground publisher is already repairing the latched incident, while the old
+background verifier independently repeats expensive reads of the retained
+history. During this inspected recovery only, pause the exact predecessor
+verifier to reduce competing work. Preserve its container/image and every
+database/control fact; this is a normal stop of a read-only application role.
+
+Record the inspected identity, stop time and reason outside the qualified
+checkout. Register a bounded 20-minute automatic restart before stopping it.
+Resume it sooner once the foreground recovery exits, including failure. The
+foreground publisher must still earn its complete current-source/book proof;
+the pause grants no financial verification, authority or green status. All six
+healthy roles remain required before application handoff and final readiness.

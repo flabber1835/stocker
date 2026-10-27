@@ -11,7 +11,6 @@ from sentinel import supervisor_io
 from sentinel.panel import model
 from sentinel.panel.observer_codec import (
     MAX_BYTES, pack, row_from_observation as _row_from_observation, validate_envelope)
-from sentinel.retained_input_namespaces import PAPER_CURSOR_NAMES, PAPER_CURSOR_PREFIXES
 
 DEADLINE_SECONDS = 300
 RETRY_SECONDS = 30
@@ -24,46 +23,9 @@ CORPUS_LOCK_POLL_SECONDS = 0.5
 
 
 def _evidence(database_url, include_paper):
-    """Small read-only invalidation key; no heartbeat can renew a proof."""
-    from sentinel.feed import store
-    conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
-    try:
-        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        # Specific broker-owned records are never inputs to the immutable book.
-        # Every other retained cursor, including unknown namespaces, stays bound.
-        facts = [conn.execute(
-            "SELECT cursor_name,session,xmin::text,ctid::text FROM sentinel_processed_sessions "
-            "WHERE %s OR (cursor_name <> ALL(%s) AND NOT (cursor_name LIKE ANY(%s))) "
-            "ORDER BY cursor_name",
-            (include_paper, list(PAPER_CURSOR_NAMES),
-             [prefix+'%' for prefix in PAPER_CURSOR_PREFIXES])).fetchall()]
-        facts.extend(conn.execute(query).fetchall() for query in (
-            "SELECT version,xmin::text,ctid::text FROM sentinel_corpus_publications "
-            "ORDER BY version DESC LIMIT 1",
-            "SELECT md5(to_jsonb(r)::text) FROM sentinel_rollout_state r WHERE id=1",
-            "SELECT plan_id,md5(to_jsonb(p)::text) FROM sentinel_execution_plans p "
-            "WHERE superseded_by IS NULL ORDER BY plan_id",
-        ))
-        if include_paper:
-            facts.extend(conn.execute(query).fetchall() for query in (
-                "SELECT enabled,generation,kill_switch_engaged,certificate_sha256 "
-                "FROM sentinel_automation_control WHERE id=1",
-                "SELECT md5(to_jsonb(b)::text) FROM sentinel_account_binding b WHERE id=1",
-                "SELECT cycle_id,state,plan_id,plan_fingerprint,last_clean_reconciliation_id "
-                "FROM sentinel_automation_cycles ORDER BY decision_session DESC,created_at DESC LIMIT 1",
-                "SELECT seq FROM sentinel_observations ORDER BY seq DESC LIMIT 1",
-                "SELECT state,count(*),max(updated_at) FROM sentinel_commands GROUP BY state ORDER BY state",
-                "SELECT md5(to_jsonb(a)::text),md5(c.claims::text),l.status "
-                "FROM sentinel_execution_authority_state a LEFT JOIN sentinel_signed_execution_certificates c "
-                "ON c.certificate_sha256=a.active_certificate_sha256 LEFT JOIN sentinel_execution_certificate_lifecycle l "
-                "ON l.certificate_sha256=a.active_certificate_sha256 WHERE a.id=1",
-                "SELECT certificate_sha256 FROM sentinel_execution_certificate_revocations ORDER BY certificate_sha256",
-                "SELECT key_id FROM sentinel_execution_key_revocations ORDER BY key_id",
-            ))
-        return hashlib.sha256(json.dumps(facts, default=str, sort_keys=True).encode()).hexdigest()
-    finally:
-        conn.rollback()
-        conn.close()
+    """Use the sole current invalidation contract, including DDL and identity."""
+    from sentinel.panel import read_projection
+    return read_projection.subject_for(database_url, include_paper)
 
 
 def retry_corpus_lock(operation, *, clock=time.monotonic, sleep=time.sleep):
@@ -299,7 +261,8 @@ class Reader:
                     fresh = (rows, {}, [], errors)
                 else:
                     self.completed = None
-            refresh_due = fresh is None or age >= timedelta(seconds=REFRESH_SECONDS)
+            refresh_due = (fresh is None or self.failure is not None
+                           or age >= timedelta(seconds=REFRESH_SECONDS))
             if (allow_start and refresh_due and self.pending is None
                     and self.clock()-self.last_attempt >= RETRY_SECONDS):
                 self.last_attempt = self.clock()

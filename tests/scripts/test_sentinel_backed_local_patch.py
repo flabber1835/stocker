@@ -81,6 +81,70 @@ def test_postgres_archive_off_cannot_become_a_backed_baseline():
         patch.postgres_facts(data)
 
 
+def postgres_identity():
+    return dict(container='original-container',image='original-image',
+        started='2026-01-01T00:00:00Z',volume='sentinel_sentinel_pgdata',
+        source='/original/volume',command=['postgres','-c','archive_mode=on'])
+
+
+def test_final_observation_can_record_a_new_process_start_without_rewriting_preflight():
+    before=postgres_identity();after=dict(before,started='2026-01-02T00:00:00Z')
+    patch.require_same_postgres_storage(before,after)
+    assert before['started']=='2026-01-01T00:00:00Z'
+
+
+@pytest.mark.parametrize('key', ['container','image','volume','source','command'])
+def test_restart_observation_refuses_replacement_database_or_configuration(key):
+    before=postgres_identity();after=dict(before,started='2026-01-02T00:00:00Z')
+    after[key]='foreign'
+    with pytest.raises(patch.DeliveryRefused,match='STORAGE_CHANGED'):
+        patch.require_same_postgres_storage(before,after)
+
+
+@pytest.mark.parametrize('started', ['2025-01-01T00:00:00Z','2099-01-01T00:00:00Z',
+                                   '2026-01-02T00:00:00'])
+def test_restart_observation_refuses_backwards_future_or_unzoned_clock(started):
+    with pytest.raises(patch.DeliveryRefused,match='TIME_INVALID'):
+        patch.require_same_postgres_storage(postgres_identity(),dict(postgres_identity(),started=started))
+
+
+def test_restart_storage_guard_has_falsifier(monkeypatch):
+    original=patch.require
+    monkeypatch.setattr(patch,'require',lambda value,reason:
+        None if reason=='BACKED_POSTGRES_STORAGE_CHANGED' else original(value,reason))
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_restart_observation_refuses_replacement_database_or_configuration('volume')
+
+
+@pytest.mark.parametrize('fault', [None,'not_selected','not_started','financial','native',
+                                 'history','image','unhealthy','stopped','oom','restarting'])
+def test_started_replacement_requires_each_preservation_boundary(monkeypatch, fault):
+    from types import SimpleNamespace
+    from sentinel_local_delivery import evidence
+    expected=postgres_identity()
+    record=dict(unfinished=True,postgres=expected,system='original-system',
+        preserved={'book':'original'},native_positions={'A':'7'},notification_history={'old':'record'})
+    item=dict(Image='original-image',State=dict(Running=True,Health={'Status':'healthy'},
+        OOMKilled=False,Restarting=False))
+    host=SimpleNamespace(allow_started_predecessor=True,request={'predecessor':{}},container=lambda name:item)
+    monkeypatch.setattr(evidence,'snapshot',lambda h:{'book':'changed' if fault=='financial' else 'original'})
+    monkeypatch.setattr(evidence,'native_positions',lambda *a:{'A':'8' if fault=='native' else '7'})
+    def history(*args):patch.require(fault!='history','NOTIFICATION_HISTORY_CHANGED')
+    monkeypatch.setattr(evidence,'check_notification_history',history)
+    if fault=='not_selected':host.allow_started_predecessor=False
+    if fault=='not_started':record['unfinished']=False
+    if fault=='image':item['Image']='foreign'
+    if fault=='unhealthy':item['State']['Health']['Status']='unhealthy'
+    if fault=='stopped':item['State']['Running']=False
+    if fault=='oom':item['State']['OOMKilled']=True
+    if fault=='restarting':item['State']['Restarting']=True
+    if fault is None:
+        patch.require_started_state(host,record,{},dict(expected,started='2026-01-02T00:00:00Z'),'original-image')
+    else:
+        with pytest.raises(patch.DeliveryRefused):
+            patch.require_started_state(host,record,{},dict(expected,started='2026-01-02T00:00:00Z'),'original-image')
+
+
 def test_image_overlay_changes_only_exact_application_selectors(tmp_path):
     image='sha256:'+'a'*64
     path=patch.immutable_image_overlay(tmp_path,image)

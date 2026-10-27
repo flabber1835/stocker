@@ -358,6 +358,24 @@ def test_reviewed_tool_bytes_remain_bound_to_completed_qualification(inputs):
         validate(inputs)
 
 
+def test_candidate_source_validation_reads_each_source_file_once(inputs,monkeypatch):
+    host=cli.Host.__new__(cli.Host)
+    host.request=model.validate_request(request(inputs,inputs.approved))
+    host.source=host.deployment=inputs.source
+    host.git=lambda *args:inputs.git(inputs.source,*args)
+    host.git_bytes=lambda _show,name:(inputs.source/name.split(':',1)[1]).read_bytes()
+    host.run=lambda *a,**k:SimpleNamespace(stdout=json.dumps([{
+        'Id':NEW_IMAGE,'Config':{'Labels':{'org.opencontainers.image.revision':NEW}}}]).encode())
+    host.probe=lambda *args:host.request['candidate']['source_identity']
+    original=Path.open;seen=[]
+    def opened(path,*args,**kwargs):
+        if path==inputs.source/'sentinel/module.py':seen.append(path)
+        return original(path,*args,**kwargs)
+    monkeypatch.setattr(Path,'open',opened)
+    host.verify_candidate()
+    assert len(seen)==1
+
+
 @pytest.mark.parametrize('gate',['build','request'])
 @pytest.mark.parametrize('name',[
     'tools/../.env','tools/sub/../../outside.py','tools\\escape.py','/tools/absolute.py',

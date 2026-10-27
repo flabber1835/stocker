@@ -70,3 +70,15 @@ def test_only_exact_point_query_uses_fast_physical_route(monkeypatch):
     other=layout._PREDECESSOR_POINT.replace('session<%s','session<=%s')
     assert layout.candidate_query(None,other)==read_contract.route(other,shared=True)
     assert layout._ORDERED_PREDECESSOR.count('%s')==3
+
+
+def test_operation_router_validates_once_and_standalone_calls_remain_fresh(monkeypatch):
+    calls=[]
+    monkeypatch.setattr(layout,'available',lambda conn:calls.append(conn) or True)
+    connection=object()
+    route=layout.query_router(connection)
+    for _ in range(100):
+        assert route(layout._PREDECESSOR_POINT)==layout._ORDERED_PREDECESSOR
+    assert calls==[connection]
+    layout.candidate_query(connection,layout._PREDECESSOR_POINT)
+    assert calls==[connection,connection]

@@ -82,6 +82,13 @@ See [protected orders](free-data-execution-proposal.md),
 
 ## Dashboard and notifications
 
+[Bounded shared-snapshot verification](shadow-streaming-verification.md) removes
+the full-window blocking sort from shared input reads and gives failed financial
+observations the existing short retry interval without weakening verification.
+
+[Verification workflow simplification](verification-workflow-simplification.md)
+removes duplicate source/catalog work and intent-only installation comparisons.
+
 The mobile view leads with one operational status card, the saved trading plan,
 recorded paper account and the twenty canonical slots/cooldowns. System details
 contains operational diagnostics. Failures remain visibly named even when details

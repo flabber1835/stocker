@@ -137,6 +137,29 @@ def read_table(conn, kind: Literal['BARS','BENCHMARKS']):
     return read_contract.table_name(kind,shared=available(conn))
 
 
+def stored_sessions(conn, candidate_id, kind, *, start=None, end=None):
+    """Read actual storage dates without expanding shared JSON row payloads.
+
+    The caller has already required the registered shared schema. Do not use
+    the manifest axis here: an extra stored date must reach content verification.
+    """
+    if kind not in ('BARS', 'BENCHMARKS'):
+        raise LayoutRefused('NORMALIZED_LAYOUT_KIND_INVALID')
+    bounds, params = '', [candidate_id, candidate_id, kind]
+    if start is not None:
+        bounds += ' AND session>=%s'
+        params.append(start)
+    if end is not None:
+        bounds += ' AND session<=%s'
+        params.append(end)
+    legacy = 'sentinel_snapshot_'+kind.lower()
+    with conn.cursor() as cur:
+        cur.execute(f'SELECT session FROM (SELECT session FROM {legacy} WHERE candidate_id=%s '
+            'UNION SELECT session FROM sentinel_candidate_blocks WHERE candidate_id=%s AND kind=%s) '
+            f'AS stored WHERE TRUE{bounds} ORDER BY session', params)
+        return tuple(row[0] for row in cur.fetchall())
+
+
 _PREDECESSOR_POINT = (
     'SELECT session,close_signal,close_unadjusted FROM sentinel_snapshot_bars '
     'WHERE candidate_id=%s AND security_id=%s AND session<%s ORDER BY session DESC LIMIT 1')
@@ -165,12 +188,19 @@ SELECT session,close_signal,close_unadjusted FROM (
 ) history ORDER BY session DESC LIMIT 1"""
 
 
-def candidate_query(conn, statement):
-    """One physical-read owner; parameters and economic predicates stay intact."""
+def query_router(conn):
+    """Validate once for one caller-owned operation, without a global cache."""
     shared = available(conn)
-    if shared and statement == _PREDECESSOR_POINT:
-        return _ORDERED_PREDECESSOR
-    return read_contract.route(statement,shared=shared)
+    def route(statement):
+        if shared and statement == _PREDECESSOR_POINT:
+            return _ORDERED_PREDECESSOR
+        return read_contract.route(statement,shared=shared)
+    return route
+
+
+def candidate_query(conn, statement):
+    """Standalone physical read; parameters and economic predicates stay intact."""
+    return query_router(conn)(statement)
 
 
 def require_schema(conn, *, allow_absent=False):
