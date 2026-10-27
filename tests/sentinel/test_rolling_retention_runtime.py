@@ -33,6 +33,7 @@ def test_opening_deferral_precedes_writer_and_has_a_removal_falsifier(monkeypatc
         @staticmethod
         def now(*_):return datetime.fromisoformat('2026-10-15T13:31:00+00:00')
     monkeypatch.setattr(retention,'datetime',Clock)
+    monkeypatch.setattr(retention,'_possible_work',lambda _:True)
     conn=SimpleNamespace(info=SimpleNamespace(transaction_status=SimpleNamespace(value=0)),
         execute=lambda *_a,**_k:None,commit=lambda:None,rollback=lambda:None)
     acquired=[]
@@ -96,6 +97,7 @@ def test_service_keeps_valid_trading_state_when_cleanup_fails(conn, published, m
     def fail(*args, **kwargs):
         raise OSError('disposable cleanup failure')
     monkeypatch.setattr(retention, '_pass', fail)
+    monkeypatch.setattr(retention, '_possible_work', lambda _: True)
     result = runtime.service_advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=100000)
     assert result.verification == 'VERIFIED'
     assert conn.execute('SELECT diagnostic FROM sentinel_snapshot_maintenance').fetchone()[0]['status'] == 'RETRY'

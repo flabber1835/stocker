@@ -175,3 +175,34 @@ is introduced. Qualify empty retired candidates ahead of a populated candidate,
 benchmark-only payloads, repeated bounded draining and index access with a
 large unrelated live generation. Actual read-only query plans are additional
 throughput evidence, not authorization to remove primary data.
+
+## Skip proven empty maintenance before taking execution ownership
+
+Decision, 2026-10-27. An unchanged strategy poll still invoked maintenance and
+took the execution writer before discovering whether there was work. Each
+supervised worker starts with a cold process-local backup proof; this made an
+empty cleanup attempt hold execution ownership through two complete WAL byte
+passes. Keep supervised worker isolation and all backup proof semantics.
+
+Before that writer boundary, use one bounded read-only metadata probe on an
+otherwise idle connection. It must cover every disposal class: expired jobs,
+possibly releasable candidates, retired payload, releasable evidence, terminal
+abandoned scratch, unpinned acquisition parts and releasable normalized blocks.
+Use the existing ordered one-row retired-payload probe. Candidate discovery
+covers the entire metadata inventory so pinned candidates cannot hide later
+work. Exclude only references proven pinned by small publication, comparison,
+active-job, ownership and action-coverage metadata. Do not read checkpoint JSON,
+canonical books, full price payloads or the checkpoint-reading pins function
+merely to decide that a pass might be necessary. Uncertain checkpoint references
+are conservative possible work, never permission to delete.
+
+A completely empty result returns COMPLETE / NO_WORK with more_work=false,
+without taking a writer, changing a progress timestamp or claiming a cleanup
+pass ran. An unavailable or timed-out probe rolls back and returns RETRY while
+retaining all data. Always end the probe transaction before proceeding. No
+cached no-work verdict survives a wake; work arriving afterward is discovered
+on the next normal poll. A positive result enters the existing ordinary writer,
+backup authority, corpus lock and authenticated dependency checks unchanged.
+Those checks re-evaluate current references before every actual mutation.
+This changes scheduling cost, not deletion authority, schema, price semantics,
+strategy state, source publication or the backup/restore policy.
