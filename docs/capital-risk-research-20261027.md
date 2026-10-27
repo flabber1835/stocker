@@ -245,3 +245,30 @@ qualification. This is a public SEC issuer-filing extraction, not user financial
 state or provider market data. Its SHA256 must equal the already retained
 completion-source commitment. Keeping the missing evidence outside the immutable
 /fixed source preserves the baseline's financial/source/input path.
+
+### First suffix admission
+
+The first successor is explicitly `baseline-suffix-001`: restore the verified
+2007-10-05 checkpoint, execute exactly 21 adjacent transitions, and stop on
+2007-11-05 after 53 total formation records. This stops before DADE's earliest
+affected session; it applies no repair and has no measured closes. It qualifies
+encrypted cross-job restoration before adding factual overlays.
+Prefix and suffix jobs share one B-specific concurrency group and cannot cancel
+production jobs. The prefix dispatch request remains unchanged.
+
+The request binds predecessor run 40532524116, attempt 1, source commit,
+workflow path, immutable artifact ID/digest, receipt and ciphertext commitments,
+and the actual outer/inner/state/input/base hashes. Bootstrap verifies the
+GitHub repository, owner, branch, push event and successful exact source run
+before the pinned artifact downloader can act. The token has Actions read only
+and remains confined to bootstrap; no credential reaches a worker.
+
+A preflight offline reviewer verifies the authenticated predecessor checkpoint,
+canonical roundtrip, source/base identity and every journal/historical prefix.
+The canonical backtest resumes that exact output with a nonzero 21-transition
+limit, without source-successor, capital or policy overrides. Postflight requires
+all 53 original formation records byte-for-byte, the exact final cursor, unchanged
+predecessor commitment, all retained historical checkpoints and zero tails.
+The predecessor checkpoint/receipt and artifact ancestry are retained alongside
+the append-only journal history. Only after postflight can the new checkpoint
+become a future predecessor. All financial artifacts remain encrypted.

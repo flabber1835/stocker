@@ -1,0 +1,68 @@
+name: Capital risk exact baseline suffix
+
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths:
+      - 'research/capital_risk/baseline-suffix-request.json'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: capital-risk-baseline-book-B
+  cancel-in-progress: false
+
+jobs:
+  exact-suffix:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            research/capital_risk
+          fetch-depth: 1
+      - name: Install hash-locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+      - name: Verify research guards
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B -m unittest discover -s research/capital_risk/tests -v'
+      - name: Admit the exact immutable predecessor run and artifact
+        id: predecessor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/suffix_contract.py --request research/capital_risk/baseline-suffix-request.json --output artifacts/capital-risk/predecessor-admission.json'
+      - name: Download only the admitted encrypted predecessor artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ steps.predecessor.outputs.artifact_name }}
+          path: ${{ runner.temp }}/capital-risk-predecessor-download
+          run-id: ${{ steps.predecessor.outputs.run_id }}
+          repository: flabber1835/stocker
+          github-token: ${{ github.token }}
+      - name: Authenticate frozen inputs and retained runtime
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/suffix-staging.json'
+      - name: Restore, review and continue the exact bounded baseline suffix
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/baseline_suffix.py --request research/capital_risk/baseline-suffix-request.json --staging-receipt artifacts/capital-risk/suffix-staging.json --predecessor-download "$RUNNER_TEMP/capital-risk-predecessor-download" --output artifacts/capital-risk/baseline-suffix.json'
+      - name: Preserve only encrypted financial evidence and nonfinancial receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: capital-risk-baseline-suffix-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/predecessor-admission.json
+            artifacts/capital-risk/suffix-staging.json
+            artifacts/capital-risk/baseline-suffix.json
+            artifacts/capital-risk/baseline-suffix.tar.crseal
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3

@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: capital-risk-baseline-prefix
+  group: capital-risk-baseline-book-B
   cancel-in-progress: false
 
 jobs:

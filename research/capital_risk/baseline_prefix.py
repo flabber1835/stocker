@@ -33,14 +33,13 @@ def validate_request(request):
 
 
 def launch_arguments(name, frozen, output, driver, *, review=False):
-    if not re.fullmatch(r"capital-risk-b-prefix-[0-9]+-[0-9]+(?:-review)?",name):
-        raise ValueError("REFUSED_PRIVATE_WORKER_NAME")
+    stage=worker_stage(name)
     args=["docker","run","--name",name,"--pull","never","--network","none","--memory","2g",
           "--memory-swap","2g","--cpus","1","--pids-limit","64","--read-only",
           "--cap-drop","ALL","--security-opt","no-new-privileges",
           "--tmpfs","/tmp:rw,noexec,nosuid,size=64m","--user",f"{os.getuid()}:{os.getgid()}",
           "--label","research.experiment=capital-risk-20261027","--label","research.arm=B",
-          "--label","research.stage=baseline-prefix","-w","/fixed",
+          "--label","research.stage="+stage,"-w","/fixed",
           "-e","PYTHONPATH=/fixed:/fixed/shared","-e","OPENBLAS_NUM_THREADS=1",
           "-e","OMP_NUM_THREADS=1","--mount",f"type=bind,source={frozen},target=/frozen,readonly",
           "--mount",f"type=bind,source={output},target=/out",
@@ -62,13 +61,19 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
     return args
 
 
+def worker_stage(name):
+    match=re.fullmatch(r"capital-risk-b-(prefix|suffix)-[0-9]+-[0-9]+(?:-(?:review|preflight|postflight))?",name)
+    if match is None: raise ValueError("REFUSED_PRIVATE_WORKER_NAME")
+    return "baseline-"+match.group(1)
+
+
 def identity_inspect(name, identity=None):
     value=subprocess.run(["docker","inspect",name],capture_output=True,check=True,timeout=20)
     item=json.loads(value.stdout)[0]
     labels=item["Config"]["Labels"]
     if (item["Name"]!="/"+name or item["Image"]!=EXECUTION_IMAGE or identity is not None and item["Id"]!=identity
             or labels.get("research.experiment")!="capital-risk-20261027"
-            or labels.get("research.arm")!="B" or labels.get("research.stage")!="baseline-prefix"):
+            or labels.get("research.arm")!="B" or labels.get("research.stage")!=worker_stage(name)):
         raise ValueError("REFUSED_WORKER_IDENTITY")
     return item
 
@@ -100,9 +105,12 @@ def run_worker(command, name, output):
     # Detached launch returns its exact ID. Bounded wait never leaves an admitted
     # container running after timeout; only this exact private identity may stop.
     command=command[:2]+["-d"]+command[2:]
-    started=subprocess.run(command,capture_output=True,check=True,timeout=30)
+    try:
+        started=subprocess.run(command,capture_output=True,check=True,timeout=30)
+    except Exception as exc:
+        raise UnprovenStopped("PRIVATE_LAUNCH_OUTCOME_UNKNOWN") from exc
     identity=started.stdout.decode().strip()
-    if not re.fullmatch(r"[a-f0-9]{64}",identity): raise ValueError("REFUSED_CONTAINER_ID")
+    if not re.fullmatch(r"[a-f0-9]{64}",identity): raise UnprovenStopped("PRIVATE_LAUNCH_ID_UNKNOWN")
     try:
         item=fenced_inspect(name)
         if item["Id"]!=identity: raise ValueError("REFUSED_CONTAINER_REPLACEMENT")
@@ -129,10 +137,11 @@ def run_worker(command, name, output):
         raise ValueError("REFUSED_WORKER_OUTCOME")
 
 
-def encrypt_output(root, asset, key):
+def encrypt_output(root, asset, key, *, stage="baseline-prefix"):
+    if stage not in {"baseline-prefix","baseline-suffix"}: raise ValueError("REFUSED_OUTPUT_STAGE")
     members={p.relative_to(root).as_posix():dict(bytes=p.stat().st_size,sha256=sha256_file(p))
              for p in sorted(root.rglob('*')) if p.is_file()}
-    raw=(json.dumps(dict(schema="research.capital-risk-output/1",arm="B",stage="baseline-prefix",
+    raw=(json.dumps(dict(schema="research.capital-risk-output/1",arm="B",stage=stage,
                          protocol_sha256=PROTOCOL,members=members),sort_keys=True)+"\n").encode()
     with asset.open("xb") as stream:
         writer=EncryptWriter(stream,key)

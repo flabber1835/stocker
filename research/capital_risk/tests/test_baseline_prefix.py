@@ -82,5 +82,12 @@ class BaselinePrefixGuards(unittest.TestCase):
             stops=[call.args[0] for call in invoked.call_args_list if call.args[0][:2]==['docker','stop']]
             self.assertEqual(stops,[['docker','stop','--time','120',identity]])
 
+    def test_ambiguous_launch_does_not_permit_a_financial_snapshot(self):
+        with tempfile.TemporaryDirectory(prefix='.capital-risk-test-',dir=Path.cwd()) as folder:
+            with mock.patch.object(prefix.subprocess,'run',side_effect=OSError('synthetic launch uncertainty')):
+                with self.assertRaises(prefix.UnprovenStopped):
+                    prefix.run_worker(['docker','run'],'capital-risk-b-prefix-123-1',Path(folder))
+            self.assertEqual(list(Path(folder).iterdir()),[])
+
 
 if __name__=='__main__': unittest.main()
