@@ -52,11 +52,13 @@ a separately justified, owner-approved scope.
 
 ## Dispatch and storage approval
 
-The owner approved the pilot itself. Automatic approval review rejected adding
-an automatically triggered workflow because this new financial-origin payload
-and its GitHub Actions artifact destination require explicit consent. No workflow
-was installed and no job was dispatched. Static observer/driver/reviewer code and
-pure tests can be reviewed independently of that blocked operation.
+The owner approved the pilot itself and then explicitly approved the exact
+cloud data flow: "Approve encrypted GitHub artifact storage and the single
+pilot workflow." This authorizes retrieval of the existing encrypted baseline
+origin and AES-GCM-encrypted checkpoints, journals, logs and timing evidence in
+the public repository's GitHub Actions artifacts for seven days, with the key
+separate and PAPER untouched. That direct answer resolves the earlier automatic
+approval-review rejection for this payload, destination and single workflow.
 
 The proposed launch uses one explicitly approved request commit on
 flabber1835/stocker's research branch, one job capped at 15 minutes. The new
@@ -72,6 +74,7 @@ contains the pilot's checkpoint, journals, logs, timing samples and review,
 encrypted with AES-256-GCM using the existing separately held research key. The
 destination is GitHub Actions artifact storage attached to this public repository,
 artifact capital-risk-baseline-timing-pilot-<approved commit>, retained seven days.
-No plaintext financial payload or decryption key is published. Creating and
-launching that workflow remains blocked pending explicit destination/payload
-approval. The proposal is not an alternate route around the approval rejection.
+No plaintext financial payload or decryption key is published. Bind the explicit
+cloud-flow approval in the request, install the reviewed workflow, and launch
+exactly one request commit. Preserve the earlier rejection and prepared proposal
+as history. No new destination or broader trial is authorized by this consent.

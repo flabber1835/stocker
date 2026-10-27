@@ -43,7 +43,7 @@ class TimingPilotGuards(unittest.TestCase):
     def test_request_and_budget_cannot_expand_into_performance_run(self):
         r=json.loads((ROOT/'timing-pilot-request.json').read_bytes());p=validate_request(r)
         self.assertEqual((p['maximum_formation_transitions'],p['maximum_measured_closes'],p['worker_deadline_seconds'],p['job_timeout_minutes']),(5,0,300,15))
-        for change in (dict(stage='short-core-window'),dict(pilot_protocol_sha256='0'*64),dict(worker_source_sha256='0'*64)):
+        for change in (dict(stage='short-core-window'),dict(pilot_protocol_sha256='0'*64),dict(worker_source_sha256='0'*64),dict(dispatch_authorization='UNAPPROVED')):
             with self.assertRaises(ValueError):validate_request({**r,**change})
         args=canonical_arguments();self.assertEqual(args[args.index('--max-transitions')+1],'5')
         self.assertIn('--resume',args);self.assertEqual(args[args.index('--checkpoint')+1],'/out/run-001/checkpoint.json.gz')

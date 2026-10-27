@@ -31,7 +31,8 @@ def validate_request(r):
         pilot_protocol_sha256=sha256_file(HERE/'timing-pilot-protocol.json'),
         qualification_admission_sha256=sha256_file(HERE/'core-window-suffix-request.json'),
         worker_source_sha256=sha256_file(HERE/'timing_pilot_worker.py'),
-        observer_source_sha256=sha256_file(HERE/'timing_observer.py'))
+        observer_source_sha256=sha256_file(HERE/'timing_observer.py'),
+        dispatch_authorization='EXACT_ENCRYPTED_GITHUB_ARTIFACT_FLOW_APPROVED_20261027')
     require(r==expected,'REFUSED_TIMING_PILOT_REQUEST')
     p=json.loads((HERE/'timing-pilot-protocol.json').read_bytes())
     require(p['trial_id']=='baseline-timing-pilot-001' and p['arm']=='B' and p['window_basis']=='stress2021'
