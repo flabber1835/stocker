@@ -178,3 +178,29 @@ Missing recovery observations reset the streak; missing Core drawdown refuses.
 Escalation precedes recovery and resets the streak. NORMAL keeps no accumulated
 recovery credit. The account model, not this pure helper, is responsible for
 applying a close decision at the following open.
+
+## Portable retained-image identity
+
+The first hosted staging attempt authenticated the ciphertext and all 591
+inventory members, then refused when Docker 28's classic store could not resolve
+the original containerd image-index ID. Inspection of the authenticated export
+proves the original index `97b69cf2...` points to the Linux/amd64 manifest
+`6388fb9b...`, which binds config `1b449754...` and 25 layer blobs. Every exported
+blob hash passed. The exact plaintext export SHA256 is
+`35330c13dd2eb5bdee647751dd95d9c7b93814423d1c3ab2c90477d404819241`.
+
+`runtime-identity.json` preserves the complete index/manifest/config/layer chain.
+Before loading, the hosted job must verify that exact archive hash, every blob
+hash, the original index's platform link, config and compressed-layer links.
+After loading, classic Docker's config-based local ID and all 25 uncompressed
+RootFS diff IDs must match. Only then may the config ID address the retained
+image for source verification and replay. This is the identical exported image;
+no rebuild, substitution, retag, source change or financial-checkpoint relabeling
+is permitted. Receipts retain both original index and execution/config IDs.
+Every `docker run` explicitly forbids pulls. The new staging attempt is separately
+identified as `stage-002`; the refused first attempt remains evidence.
+
+Docker documents that its classic store does not support image indices or build
+attestations, whereas the containerd store does:
+https://docs.docker.com/desktop/features/containerd/ and
+https://docs.docker.com/engine/storage/containerd/.

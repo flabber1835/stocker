@@ -81,6 +81,12 @@ class TransferGuards(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"REFUSED_MEMBER_HASH"):
             seal.extract_verified(path,self.root/"bad-hash",digest)
 
+    def test_input_schema_cannot_be_admitted_as_financial_output(self):
+        path,digest=self.archive()
+        with self.assertRaisesRegex(ValueError,'REFUSED_MANIFEST_SCHEMA'):
+            seal.extract_verified(path,self.root/'wrong-schema',digest,
+                                  expected_schema='research.capital-risk-output/1')
+
 
 if __name__ == "__main__":
     unittest.main()

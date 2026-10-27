@@ -17,6 +17,7 @@ import tarfile
 from probe import check_context, admitted_output, FORBIDDEN_CREDENTIALS, memory_bytes
 from seal import EncryptWriter, sha256_file
 from stage import IMAGE, PROTOCOL, SECRET
+from runtime_identity import EXECUTION_IMAGE
 
 POLICY="wealth-core-v5-zero-share-fixed-2008-v1"
 
@@ -34,7 +35,7 @@ def validate_request(request):
 def launch_arguments(name, frozen, output, driver, *, review=False):
     if not re.fullmatch(r"capital-risk-b-prefix-[0-9]+-[0-9]+(?:-review)?",name):
         raise ValueError("REFUSED_PRIVATE_WORKER_NAME")
-    args=["docker","run","--name",name,"--network","none","--memory","2g",
+    args=["docker","run","--name",name,"--pull","never","--network","none","--memory","2g",
           "--memory-swap","2g","--cpus","1","--pids-limit","64","--read-only",
           "--cap-drop","ALL","--security-opt","no-new-privileges",
           "--tmpfs","/tmp:rw,noexec,nosuid,size=64m","--user",f"{os.getuid()}:{os.getgid()}",
@@ -44,7 +45,7 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
           "-e","OMP_NUM_THREADS=1","--mount",f"type=bind,source={frozen},target=/frozen,readonly",
           "--mount",f"type=bind,source={output},target=/out",
           "--mount",f"type=bind,source={driver},target=/driver,readonly",
-          "--entrypoint","python",IMAGE,"-B","-u"]
+          "--entrypoint","python",EXECUTION_IMAGE,"-B","-u"]
     if review:
         args += ["/driver/verify_prefix.py","--actual","/out/run-001",
                  "--expected","/frozen/baseline-comparison","--output","/out/prefix-review.json"]
@@ -61,7 +62,7 @@ def identity_inspect(name, identity=None):
     value=subprocess.run(["docker","inspect",name],capture_output=True,check=True,timeout=20)
     item=json.loads(value.stdout)[0]
     labels=item["Config"]["Labels"]
-    if (item["Name"]!="/"+name or item["Image"]!=IMAGE or identity is not None and item["Id"]!=identity
+    if (item["Name"]!="/"+name or item["Image"]!=EXECUTION_IMAGE or identity is not None and item["Id"]!=identity
             or labels.get("research.experiment")!="capital-risk-20261027"
             or labels.get("research.arm")!="B" or labels.get("research.stage")!="baseline-prefix"):
         raise ValueError("REFUSED_WORKER_IDENTITY")
@@ -151,7 +152,8 @@ def main():
     request=json.loads(args.request.read_bytes());validate_request(request)
     proof=json.loads(args.staging_receipt.read_bytes())
     if (proof["status"]!="STAGING_PASSED" or proof["source_commit"]!=os.environ["GITHUB_SHA"]
-            or proof["runtime_image"]!=IMAGE or proof["protocol_sha256"]!=PROTOCOL
+            or proof["runtime_image"]!=IMAGE or proof["execution_image"]!=EXECUTION_IMAGE
+            or not proof["runtime_index_config_layer_chain_verified"] or proof["protocol_sha256"]!=PROTOCOL
             or proof["run_id"]!=os.environ["GITHUB_RUN_ID"]
             or proof["manifest_sha256"]!="80cfdade1e2b78706af5881f89414cf1428cb08b364464275b606939c4d1fb4a"
             or proof["source_files_verified"]!=514 or proof["members_verified"]!=591

@@ -14,6 +14,7 @@ import urllib.request
 
 from probe import check_context, admitted_output
 from seal import decrypt, extract_verified, MAX_ASSET
+from runtime_identity import EXECUTION_IMAGE, verify_archive, verify_loaded
 
 PROTOCOL = "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52"
 IMAGE = "sha256:97b69cf2f8487785e55a4ecafe2497829d021a9d58b5e4af001e8dcc6a981309"
@@ -25,7 +26,7 @@ def validate_request(request):
     if (set(request) != {"schema", "request_id", "stage", "protocol_sha256", "release",
                          "expected_image", "manifest_sha256", "assets"}
             or request["schema"] != "research.capital-risk-stage-request/1"
-            or request["stage"] != "stage" or request["request_id"] != "stage-001"
+            or request["stage"] != "stage" or request["request_id"] not in {"stage-001","stage-002"}
             or request["protocol_sha256"] != PROTOCOL or request["expected_image"] != IMAGE
             or request["release"] != RELEASE
             or not re.fullmatch(r"[a-f0-9]{64}", request["manifest_sha256"])
@@ -72,14 +73,14 @@ def acquire(name, spec, root):
 
 def verify_runtime(root, manifest):
     runtime = root / "runtime.tar"
+    portable=verify_archive(runtime)
     with runtime.open("rb") as stream:
         loaded = subprocess.run(["docker", "load", "--quiet"], stdin=stream,
                                 capture_output=True, timeout=120, check=True)
-    inspected = subprocess.run(["docker", "image", "inspect", IMAGE],
+    inspected = subprocess.run(["docker", "image", "inspect", EXECUTION_IMAGE],
                                capture_output=True, timeout=20, check=True)
     image = json.loads(inspected.stdout)[0]
-    if image["Id"] != IMAGE or image["Os"] != "linux" or image["Architecture"] != "amd64":
-        raise ValueError("REFUSED_RUNTIME_IDENTITY")
+    verify_loaded(image)
     # Only immutable source verification. No module with strategy entrypoints is invoked.
     program = """import hashlib,json,pathlib
 m=json.loads(pathlib.Path('/transfer-manifest.json').read_bytes())
@@ -94,14 +95,15 @@ print('VERIFIED_FROZEN_SOURCE_514')
 """
     report = root / "transfer-manifest.json"
     report.write_text(json.dumps(manifest))
-    command = ["docker", "run", "--rm", "--network", "none", "--memory", "512m",
+    command = ["docker", "run", "--rm", "--pull", "never", "--network", "none", "--memory", "512m",
                "--memory-swap", "512m", "--cpus", "1", "--pids-limit", "32",
                "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                "--mount", f"type=bind,source={report},target=/transfer-manifest.json,readonly",
-               "--entrypoint", "python", IMAGE, "-B", "-c", program]
+               "--entrypoint", "python", EXECUTION_IMAGE, "-B", "-c", program]
     verified = subprocess.run(command, capture_output=True, timeout=60, check=True)
     if verified.stdout.strip() != b"VERIFIED_FROZEN_SOURCE_514":
         raise ValueError("REFUSED_SOURCE_PROOF")
+    return portable
 
 
 def main():
@@ -126,11 +128,13 @@ def main():
     if (manifest["protocol_sha256"]!=PROTOCOL or manifest["expected_image"]!=IMAGE
             or manifest["source_files"]!=514):
         raise ValueError("REFUSED_TRANSFER_LINEAGE")
-    verify_runtime(root,manifest)
+    portable=verify_runtime(root,manifest)
     receipt=dict(schema="research.capital-risk-staging/1",status="STAGING_PASSED",
                  utc=datetime.now(timezone.utc).isoformat(),source_commit=os.environ["GITHUB_SHA"],
                  run_id=os.environ["GITHUB_RUN_ID"],protocol_sha256=PROTOCOL,
                  manifest_sha256=request["manifest_sha256"],runtime_image=IMAGE,
+                 execution_image=EXECUTION_IMAGE,runtime_archive_sha256=portable['archive_sha256'],
+                 runtime_index_config_layer_chain_verified=True,
                  source_files_verified=514,members_verified=len(manifest["members"]),
                  bytes_verified=sum(v["bytes"] for v in manifest["members"].values()),
                  authenticated_before_parsing=True,offline_image_source_verified=True,

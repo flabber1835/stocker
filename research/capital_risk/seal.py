@@ -99,8 +99,11 @@ def safe_name(name: str) -> str:
     return name
 
 
-def extract_verified(archive: Path, root: Path, expected_manifest_sha256: str) -> dict:
+def extract_verified(archive: Path, root: Path, expected_manifest_sha256: str, *,
+                     expected_schema: str="research.capital-risk-inputs/1") -> dict:
     """Extract a manifest-bounded inventory, never tarfile.extract/all."""
+    if expected_schema not in {"research.capital-risk-inputs/1","research.capital-risk-output/1"}:
+        raise ValueError("REFUSED_EXTRACTION_SCHEMA")
     root.mkdir(mode=0o700, parents=True, exist_ok=False)
     with tarfile.open(archive, "r|") as tar:
         first = tar.next()
@@ -111,7 +114,7 @@ def extract_verified(archive: Path, root: Path, expected_manifest_sha256: str) -
         if hashlib.sha256(payload).hexdigest() != expected_manifest_sha256:
             raise ValueError("REFUSED_MANIFEST_HASH")
         manifest = json.loads(payload)
-        if manifest["schema"] != "research.capital-risk-inputs/1":
+        if manifest["schema"] != expected_schema:
             raise ValueError("REFUSED_MANIFEST_SCHEMA")
         members = manifest["members"]
         if not members or len(members) > 5000:

@@ -25,7 +25,7 @@ class BaselinePrefixGuards(unittest.TestCase):
         with mock.patch.object(prefix.os,'getuid',return_value=1001,create=True), \
                 mock.patch.object(prefix.os,'getgid',return_value=1001,create=True):
             args=prefix.launch_arguments('capital-risk-b-prefix-123-1',Path('/frozen'),Path('/private'),Path('/driver'))
-        for flag,value in [('--network','none'),('--memory','2g'),('--memory-swap','2g'),('--cpus','1'),
+        for flag,value in [('--pull','never'),('--network','none'),('--memory','2g'),('--memory-swap','2g'),('--cpus','1'),
                            ('--pids-limit','64'),('--max-transitions','32'),('--policy',prefix.POLICY)]:
             self.assertEqual(args[args.index(flag)+1],value)
         self.assertIn('--read-only',args)

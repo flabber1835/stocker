@@ -1,6 +1,6 @@
 {
   "schema": "research.capital-risk-stage-request/1",
-  "request_id": "stage-001",
+  "request_id": "stage-002",
   "stage": "stage",
   "protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
   "release": "research-capital-risk-inputs-20261027",
