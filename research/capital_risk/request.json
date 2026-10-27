@@ -1,0 +1,6 @@
+{
+  "schema": "research.capital-risk-request/1",
+  "request_id": "capacity-probe-001",
+  "stage": "probe",
+  "protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52"
+}
