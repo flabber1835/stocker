@@ -368,3 +368,51 @@ def test_repair_panel_receives_actual_bound_certificate_and_scalar(monkeypatch):
     host.run=run
     assert readers.evidence.panel(host,host.state)=={'operational_ready':False}
     assert calls==[host.state]
+
+
+@pytest.fixture(scope='module')
+def leader_postgres():
+    from tests.support.postgres import _EphemeralPostgres
+    pg=_EphemeralPostgres()
+    try:
+        pg.start()
+        yield pg.sync_dsn
+    finally:
+        pg.stop()
+
+
+@pytest.mark.parametrize('case,current',[
+    ('cleared',False),('current',True),('no_holder',False),('no_heartbeat',False),
+    ('no_expiry',False),('stale',False),('expired',False),
+])
+def test_private_postgres_leader_current_is_a_real_boolean(leader_postgres,case,current):
+    from datetime import datetime,timedelta,timezone
+    import psycopg
+    now=datetime.now(timezone.utc)
+    holder=None if case in {'cleared','no_holder'} else 'actual-holder'
+    heartbeat=None if case in {'cleared','no_heartbeat'} else now-timedelta(seconds=120 if case=='stale' else 0)
+    expiry=None if case in {'cleared','no_expiry'} else now+timedelta(seconds=-120 if case=='expired' else 600)
+    with psycopg.connect(leader_postgres,autocommit=True) as conn:
+        conn.execute('CREATE TEMP TABLE sentinel_automation_lease(id integer,holder_id text,'
+            'fence_token integer,control_generation integer,heartbeat_at timestamptz,expires_at timestamptz)')
+        conn.execute('INSERT INTO sentinel_automation_lease VALUES (1,%s,8,51,%s,%s)',
+            (holder,heartbeat,expiry))
+        host=SimpleNamespace(sql=lambda sql:conn.execute(sql).fetchone()[0])
+        proof=readers.evidence.leader(host)
+        assert proof['current'] is current,'lease current flag must not be NULL'
+        assert proof['holder']==holder and proof['generation']==51
+        conn.execute('DELETE FROM sentinel_automation_lease')
+        host.sql=lambda sql:(row[0] if (row:=conn.execute(sql).fetchone()) is not None else None)
+        assert readers.evidence.leader(host) is None  # No invented cleared-lease row.
+
+
+def test_removing_null_safe_lease_proof_is_detected(leader_postgres,monkeypatch):
+    source=inspect.getsource(readers.evidence.leader)
+    assert source.count('COALESCE(holder_id IS NOT NULL AND ')==1
+    source=source.replace('COALESCE(holder_id IS NOT NULL AND ','').replace(
+        'expires_at>clock_timestamp(),FALSE))','expires_at>clock_timestamp())')
+    namespace=dict(vars(readers.evidence))
+    exec(source,namespace)
+    monkeypatch.setattr(readers.evidence,'leader',namespace['leader'])
+    with pytest.raises(AssertionError,match='must not be NULL'):
+        test_private_postgres_leader_current_is_a_real_boolean(leader_postgres,'cleared',False)

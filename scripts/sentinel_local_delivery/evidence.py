@@ -248,8 +248,8 @@ def check_notification_history(host, previous):
 def leader(host):
     return host.sql("SELECT json_build_object('holder',holder_id,'fence',fence_token,"
         "'generation',control_generation,'heartbeat',heartbeat_at,"
-        "'current',heartbeat_at>clock_timestamp()-interval '60 seconds' "
-        "AND expires_at>clock_timestamp()) FROM sentinel_automation_lease WHERE id=1")
+        "'current',COALESCE(holder_id IS NOT NULL AND heartbeat_at>clock_timestamp()-interval '60 seconds' "
+        "AND expires_at>clock_timestamp(),FALSE)) FROM sentinel_automation_lease WHERE id=1")
 
 
 def idle(host, image):

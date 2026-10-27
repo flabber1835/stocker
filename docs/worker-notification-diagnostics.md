@@ -278,3 +278,14 @@ pass. Expected missing current authority verdict and NOT ADOPTED exposure are
 paused/no-plan display states, not current trading authority. The fresh signed
 canonical proof remains mandatory, and unrelated data/authority failures still
 refuse. This path grants no recovery authorization or kill release.
+
+The existing successor freshness check guards application start. A finalizer
+resuming after APPLICATIONS_STARTED records that original, already-consumed
+handoff timestamp; it does not start another handoff or renew the proof. Its
+software-only completion still requires the same current fenced financial
+snapshot, exact healthy image, fresh native account comparison and original
+request. Trading recovery separately requires fresh signed authority. Do not
+add a second handoff expiry to that bookkeeping step or reset the original one.
+A cleared lease must return an explicit false current-leader verdict from SQL,
+using the existing holder, heartbeat and expiry predicates; SQL NULL is not a
+running leader. Missing singleton/query evidence still refuses completion.
