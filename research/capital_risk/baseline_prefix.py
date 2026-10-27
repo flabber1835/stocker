@@ -62,6 +62,8 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
 
 
 def worker_stage(name):
+    if re.fullmatch(r"capital-risk-timeout-proof-[0-9]+-[0-9]+",name):
+        return "core-integration"
     if re.fullmatch(r"capital-risk-core-recovery-(?:stress2021|recent2025)-[0-9]+-[0-9]+-(?:preflight|bridge)",name):
         return "core-integration"
     if re.fullmatch(r"capital-risk-core-window-(?:stress2021|recent2025)-(?:b0|b|c|v)-[0-9]+-[0-9]+(?:-(?:input|review))?",name):
@@ -129,12 +131,15 @@ def run_worker(command, name, output, *, deadline=1800):
         raise UnprovenStopped("PRIVATE_LAUNCH_OUTCOME_UNKNOWN") from exc
     identity=started.stdout.decode().strip()
     if not re.fullmatch(r"[a-f0-9]{64}",identity): raise UnprovenStopped("PRIVATE_LAUNCH_ID_UNKNOWN")
+    failure=None
     try:
         item=fenced_inspect(name)
         if item["Id"]!=identity: raise ValueError("REFUSED_CONTAINER_REPLACEMENT")
         subprocess.run(["docker","wait",identity],capture_output=True,check=True,timeout=deadline)
     except subprocess.TimeoutExpired:
-        raise ValueError("REFUSED_PREFIX_DEADLINE")
+        failure=ValueError("REFUSED_PREFIX_DEADLINE")
+    except Exception as exc:
+        failure=exc
     finally:
         # On every error, first prove this exact private identity and stop it if
         # necessary. Never read financial output while its writer is unknown.
@@ -145,12 +150,23 @@ def run_worker(command, name, output, *, deadline=1800):
                                check=True,timeout=140)
                 item=identity_inspect(name,identity)
             if item["State"]["Running"]: raise ValueError("PRIVATE_WRITER_STILL_RUNNING")
+            item=fenced_inspect(name)
+            if item['Id']!=identity or item['State']['Running']:
+                raise ValueError('PRIVATE_STOP_RECEIPT_IDENTITY_DIFFERS')
         except Exception as exc:
             raise UnprovenStopped("PRIVATE_WRITER_STOP_UNKNOWN") from exc
-        with (output/(name+".log")).open("wb") as log:
-            subprocess.run(["docker","logs",identity],stdout=log,stderr=subprocess.STDOUT,timeout=20)
-    item=fenced_inspect(name)
-    (output/(name+"-inspect.json")).write_text(json.dumps(item,indent=2)+"\n")
+        # This receipt must exist even when the wait failed. Never put it after
+        # a finally block that may propagate the original exception past it.
+        path=output/(name+'-inspect.json')
+        with path.open('w',encoding='utf8') as stream:
+            stream.write(json.dumps(item,indent=2)+'\n');stream.flush();os.fsync(stream.fileno())
+        try:
+            with (output/(name+".log")).open("wb") as log:
+                subprocess.run(["docker","logs",identity],stdout=log,stderr=subprocess.STDOUT,check=True,timeout=20)
+        except Exception as exc:
+            (output/(name+'-log-capture-error.json')).write_text(json.dumps(dict(type=type(exc).__name__))+'\n')
+            if failure is None:failure=ValueError('REFUSED_WORKER_LOG_CAPTURE')
+    if failure is not None:raise failure
     if item["State"]["Running"] or item["State"]["ExitCode"]!=0 or item["State"]["OOMKilled"]:
         raise ValueError("REFUSED_WORKER_OUTCOME")
 

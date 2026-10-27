@@ -85,7 +85,9 @@ class BaselinePrefixGuards(unittest.TestCase):
             return mock.Mock(returncode=0)
         with tempfile.TemporaryDirectory(prefix='.capital-risk-test-',dir=Path.cwd()) as folder:
             with mock.patch.object(prefix.subprocess,'run',side_effect=called) as invoked, \
-                    mock.patch.object(prefix,'fenced_inspect',return_value={'Id':identity}), \
+                    mock.patch.object(prefix,'fenced_inspect',side_effect=[
+                        {'Id':identity,'State':{'Running':True}},
+                        {'Id':identity,'State':{'Running':False,'ExitCode':143,'OOMKilled':False}}]), \
                     mock.patch.object(prefix,'identity_inspect',side_effect=[
                         {'State':{'Running':True}}, {'State':{'Running':False}}]):
                 with self.assertRaisesRegex(ValueError,'REFUSED_PREFIX_DEADLINE'):

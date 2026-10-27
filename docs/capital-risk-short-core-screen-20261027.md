@@ -266,3 +266,35 @@ claimed as a restore under new sources. All new historical checkpoints are
 restored under their actual current source. Preserve the original origin identity
 and the explicit source boundary. Comparator failures must identify the first
 exact field path without changing the declared identity exclusions.
+
+## Suffix001 timeout incident and stop-evidence correction
+
+Both suffix001 window jobs at e6e0f973 exceeded the 6,300-second worker wait.
+Their authenticated exports contain only QUAL diagnostics; all eight financial
+arms are explicitly unknown and no financial checkpoint/journal was exported.
+Their actual financial progress is therefore unknown. The original qualified
+warmups remain intact, but they are not an exact continuation of this later run.
+No financial rerun or reuse of an earlier checkpoint is selected after this loss.
+
+The cause is a driver error: run_worker raised on docker-wait timeout, executed
+its stop/logging finally block, then propagated the exception before writing its
+post-finally inspection. The safe snapshot selector correctly refused to archive
+arms without a recorded stopped inspection. Final stop outcomes are not inferred
+from the attempted finally operations. Preserve these failed receipts/diagnostics
+and report that the screen produced no usable economic comparison.
+
+Correct only the driver: retain the original wait error, prove the exact private
+identity stopped and its fences valid, and durably record that inspection before
+propagating any deadline/outcome error. Capture logs after that proof. A log-copy
+failure is explicit diagnostic failure, not a fabricated unknown writer; unknown
+identity/stop/fence outcomes still raise UnprovenStopped and forbid financial
+reads/exports. Add the actual prior broken function as a regression falsifier.
+
+Qualify the corrected timeout/export path with a separate bounded hosted test:
+one exact offline research container writes a synthetic marker and sleeps beyond
+a short deadline; the driver must stop it, retain the actual inspection/marker,
+and encrypt/export them despite the expected timeout. No market data processing,
+financial session or performance interpretation is permitted in this test.
+After authenticating its actual output, deliver an incident report and a concrete
+bounded timing-pilot proposal. A new financial run requires the owner's decision
+because suffix001 cannot be continued from its exported evidence.
