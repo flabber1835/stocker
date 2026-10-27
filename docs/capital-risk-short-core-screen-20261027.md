@@ -114,3 +114,50 @@ financial payload appears in public logs/artifacts; the existing approved key
 stays outside worker containers. Resource/deadline decisions are versioned before
 launch. Report all arms including failures/negative results, whole-window CAGR
 and DD plus trade/concentration/stop diagnostics; no unseen/OOS claim.
+
+## Bounded hosted window execution
+
+Use two GitHub-hosted VMs, one per window, with at most three hosted jobs allowed
+by the protocol. Each VM must prove at least four CPUs, 10 GiB available RAM and
+20 GiB free disk before launching four disjoint B/B0/C/V workers concurrently.
+Each remains capped at one CPU, 2 GiB/no swap, 64 PIDs, network none and a read-only
+root/code/input mount. The VM is dedicated research compute. Source copies stay
+outside the financial output mounts; workers cannot write them through an alias.
+
+Before natural replay, each VM reruns the qualified synthetic canonical gate
+against its actual private source copies, including the additional observation
+tap below. This is required because the common window harness adds read-only
+accounting evidence; it does not change financial rules. The selected gate002
+evidence remains the source of authority for C/V operations and dated transport.
+
+The original canonical backtest executes exactly 126+503 or 126+395 transitions
+after its fresh 299-session warmup. Each worker has a 6,300-second bounded wait;
+the hosted job limit is 150 minutes, leaving staging, qualification, review and
+encryption headroom. A timeout stops only its exact private identity and preserves
+the stopped incomplete book. No automatic retry/restart is permitted. Later work
+must resume its own proven checkpoint with all prefixes/tails preserved. An
+unknown writer outcome never permits snapshotting that writer's financial files.
+
+For independent accounting, the common private adapter adds observational open
+and close snapshots to its research audit envelope. Open snapshots are captured
+after actions/entitlements and before queued fills; close snapshots after decisions
+and queueing. They contain the actual canonical PortfolioState, pending intents,
+ledger/receivables and the actual phase-specific raw marks/mark status. This tap
+only serializes existing objects and is shared by B and B0. It creates no second
+book and never changes cash, shares, signals or execution. Keep the original four
+journal streams and their commitments; the existing research evidence journal
+records these audit envelopes. No fifth mutable accounting stream is introduced.
+
+After every writer is proven stopped, independently reconcile ledger cash/share
+movements, receivables, raw marked open/close NAV, every funded account factor,
+dates, source/profile identities, canonical restore and every retained journal
+prefix. B0 must match B's complete formation and measurement financial evidence,
+including the actual accounting snapshots and economics; only the separately
+declared top-level state/input/chain identities are excluded. If a further
+identity-only difference appears, preserve/refuse and document the exact path
+before admitting it; never delete an economic difference to make equality pass.
+
+Encrypt each arm separately (each asset bounded below 2 GiB) and a separate
+qualification envelope, with exact digest/size inventories in the nonfinancial
+receipt. All actual metrics/logs/checkpoints remain encrypted in GitHub artifacts.
+Failures and incomplete books are retained, distinct from admitted results.

@@ -47,6 +47,33 @@ def render(files, *, risk):
         t=replace(t,'    if applied != set(overlay):','    if applied != {k for k in overlay if (first is None or k[0]>=first) and (last is None or k[0]<=last)}:')
         return t
     edit('research/pooled_input_support/inputs.py',bounded)
+    out[CORE+'accounting_snapshot.py']=(HERE/'core_accounting_snapshot.py').read_bytes()
+    def observed_adapter(t):
+        t=replace(t,'    open_unresolved_security_ids: tuple[str, ...] = ()',
+            '    open_unresolved_security_ids: tuple[str, ...] = ()\n'
+            '    research_open_audit: dict | None = None\n    research_close_audit: dict | None = None')
+        t=replace(t,'    # ── 4. execute orders decided BEFORE this session',
+            '    from .accounting_snapshot import snapshot as accounting_snapshot\n'
+            '    research_open_audit=accounting_snapshot(state,ledger,pending,\n'
+            '        {sid:{"raw_price":by_sec[sid].raw_open if sid in by_sec else None,\n'
+            '              "status":"UNRESOLVED" if sid in open_unresolved else "RAW_OPEN"} for sid in state.held_security_ids()},\n'
+            '        session=session,phase="OPEN_BEFORE_FILLS",resolved_equity=resolved_open_equity)\n\n'
+            '    # ── 4. execute orders decided BEFORE this session')
+        t=replace(t,'    return SessionResult(session=session, decision=d, fills=fills,',
+            '    research_close_audit=accounting_snapshot(state,ledger,pending,\n'
+            '        {sid:{"raw_price":(marks[sid].raw_mark_close if marks[sid].raw_mark_close is not None else marks[sid].carried_raw_close),\n'
+            '              "status":marks[sid].status.name} for sid in state.held_security_ids()},\n'
+            '        session=session,phase="CLOSE_AFTER_DECISION",resolved_equity=ev.resolved_equity)\n'
+            '    return SessionResult(session=session, decision=d, fills=fills,\n'
+            '                         research_open_audit=research_open_audit,research_close_audit=research_close_audit,')
+        return t
+    edit(CORE+'adapter.py',observed_adapter)
+    def observed_live(t):
+        return replace(t,'                 "detail": dict(op.detail)} for op in decision.operations]})',
+            '                 "detail": dict(op.detail)} for op in decision.operations],\n'
+            '            "opening_accounting":sr.research_open_audit,\n'
+            '            "closing_accounting":sr.research_close_audit})')
+    edit(CORE+'live.py',observed_live)
     if not risk:
         return out
     out[CORE+'capital_risk.py']=(HERE/'core_policy.py').read_bytes()

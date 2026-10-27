@@ -59,7 +59,8 @@ def snapshot(parts,result):
     state,pending,ledger,_,_=parts
     return dict(state=state.to_dict(),pending=[p.to_dict() for p in pending],ledger=ledger.to_dict(),
         decision=result.decision.to_dict(),fills=result.fills,equity=result.resolved_equity,
-        open_equity=result.resolved_open_equity,cancelled=result.cancelled)
+        open_equity=result.resolved_open_equity,cancelled=result.cancelled,
+        opening_accounting=result.research_open_audit,closing_accounting=result.research_close_audit)
 
 
 def baseline_path():
@@ -73,6 +74,20 @@ def baseline_path():
 
 
 class CanonicalCases(unittest.TestCase):
+    def test_accounting_tap_observes_actions_before_fills_and_decisions_after(self):
+        p=fixture(C,20,8000);step(p,DAY);result=step(p,NEXT,signal=200,opening=200)
+        opened,closed=result.research_open_audit,result.research_close_audit
+        self.assertEqual(opened['wealth_core']['episodes']['0']['current_shares'],20)
+        self.assertEqual(opened['wealth_core']['cash'],8000)
+        self.assertEqual(opened['prices']['S']['raw_price'],200)
+        self.assertEqual(closed['wealth_core']['episodes']['0']['current_shares'],8)
+        self.assertAlmostEqual(closed['wealth_core']['cash'],10397.6)
+        self.assertEqual(closed['wealth_core'],p[0].to_dict())
+        opened['wealth_core']['cash']=0
+        self.assertAlmostEqual(p[0].cash,10397.6)  # no writable alias into the book
+        opened['pending'][0]['risk_detail']['holder_target']=0
+        self.assertEqual(p[2].events[-1].detail['signal_detail']['holder_target'],8)
+
     def test_dated_volatility_history_survives_compact_material_and_basis_transform(self):
         from sentinel.core.window_material import Signal,WindowFeatures
         bar=security(DAY,100,values=[80+float(n) for n in range(21)])

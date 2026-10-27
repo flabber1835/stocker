@@ -1,0 +1,8 @@
+{
+  "schema": "research.capital-risk-window-request/1",
+  "request_id": "short-core-windows-001",
+  "stage": "short-core-window",
+  "core_protocol_sha256": "a6221986918db165b989ea234e8185e0076b0c8934dea4fa0c753974754f4028",
+  "execution_sha256": "24b94ebbbe79cd95797669d149adbf9270d81af25fe272ea7d538e944a218b75",
+  "gate_admission_sha256": "9046ec752b1b39e160813e820a248c90733ce2ab1e9afc27e7ab28b30511122f"
+}

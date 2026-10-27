@@ -1,0 +1,28 @@
+{
+  "schema": "research.capital-risk-window-execution/1",
+  "id": "short-core-windows-001",
+  "windows": {
+    "stress2021": ["2021-01-04", "2022-12-30", 503],
+    "recent2025": ["2025-01-02", "2026-07-31", 395]
+  },
+  "arms": ["B", "B0", "C", "V"],
+  "fresh_warmup_sessions": 299,
+  "formation_sessions": 126,
+  "worker_deadline_seconds": 6300,
+  "job_timeout_minutes": 150,
+  "hosted_window_jobs_parallel": 2,
+  "private_workers_per_job": 4,
+  "minimum_host_cpus": 4,
+  "minimum_available_ram_gib": 10,
+  "minimum_free_disk_gib": 20,
+  "worker_cpu": 1,
+  "worker_ram_gib": 2,
+  "worker_swap": false,
+  "network": "none",
+  "source_input_mounts": "READONLY_NO_WRITABLE_ALIAS",
+  "financial_audit": "CANONICAL_OPEN_BEFORE_FILLS_AND_CLOSE_AFTER_DECISION_SNAPSHOTS",
+  "money_review_tolerance_usd": "0.0000001",
+  "disabled_control_ignored_paths": ["state_sha256", "input_sha256", "chain_sha256"],
+  "retry": "NO_FRESH_RERUN_ONLY_VERIFIED_EXACT_SUFFIX_RESUME",
+  "public_output": "NONFINANCIAL_RECEIPTS_AND_AUTHENTICATED_CIPHERTEXT_ONLY"
+}

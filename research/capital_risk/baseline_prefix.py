@@ -62,6 +62,8 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
 
 
 def worker_stage(name):
+    if re.fullmatch(r"capital-risk-core-window-(?:stress2021|recent2025)-(?:b0|b|c|v)-[0-9]+-[0-9]+(?:-(?:input|review))?",name):
+        return "short-core-window"
     if re.fullmatch(r"capital-risk-core-gate-[0-9]+-[0-9]+-(?:basis|risk)",name):
         return "core-integration"
     if re.fullmatch(r"capital-risk-bg-screen-[0-9]+-[0-9]+",name):
@@ -73,6 +75,8 @@ def worker_stage(name):
 
 def worker_arm(name):
     stage=worker_stage(name)
+    if stage=="short-core-window":
+        return re.fullmatch(r"capital-risk-core-window-(?:stress2021|recent2025)-(b0|b|c|v)-[0-9]+-[0-9]+(?:-(?:input|review))?",name).group(1).upper()
     return "CORE_GATE" if stage=="core-integration" else "BG" if stage=="quick-screen" else "B"
 
 
@@ -99,7 +103,7 @@ def fenced_inspect(name):
             or not any(s.startswith("no-new-privileges") for s in item["HostConfig"]["SecurityOpt"])):
         raise ValueError("REFUSED_WORKER_FENCE")
     mounts={m["Destination"]:m for m in item["Mounts"] if m["Type"]=="bind"}
-    core=worker_stage(name)=="core-integration"
+    core=worker_stage(name) in {"core-integration","short-core-window"}
     expected={"/frozen","/out","/driver"}|({"/variant"} if core else set())
     if (set(mounts)!=expected or mounts["/frozen"]["RW"]
             or mounts["/driver"]["RW"] or not mounts["/out"]["RW"]
