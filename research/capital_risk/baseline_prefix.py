@@ -62,6 +62,8 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
 
 
 def worker_stage(name):
+    if re.fullmatch(r"capital-risk-core-gate-[0-9]+-[0-9]+-(?:basis|risk)",name):
+        return "core-integration"
     if re.fullmatch(r"capital-risk-bg-screen-[0-9]+-[0-9]+",name):
         return "quick-screen"
     match=re.fullmatch(r"capital-risk-b-(prefix|suffix)-[0-9]+-[0-9]+(?:-(?:review|preflight|postflight|qualification))?",name)
@@ -70,7 +72,8 @@ def worker_stage(name):
 
 
 def worker_arm(name):
-    return "BG" if worker_stage(name)=="quick-screen" else "B"
+    stage=worker_stage(name)
+    return "CORE_GATE" if stage=="core-integration" else "BG" if stage=="quick-screen" else "B"
 
 
 def identity_inspect(name, identity=None):
@@ -96,8 +99,11 @@ def fenced_inspect(name):
             or not any(s.startswith("no-new-privileges") for s in item["HostConfig"]["SecurityOpt"])):
         raise ValueError("REFUSED_WORKER_FENCE")
     mounts={m["Destination"]:m for m in item["Mounts"] if m["Type"]=="bind"}
-    if (set(mounts)!={"/frozen","/out","/driver"} or mounts["/frozen"]["RW"]
+    core=worker_stage(name)=="core-integration"
+    expected={"/frozen","/out","/driver"}|({"/variant"} if core else set())
+    if (set(mounts)!=expected or mounts["/frozen"]["RW"]
             or mounts["/driver"]["RW"] or not mounts["/out"]["RW"]
+            or core and (mounts["/variant"]["RW"] or item["Config"]["WorkingDir"]!="/variant")
             or item["Config"]["User"]!=f"{os.getuid()}:{os.getgid()}"):
         raise ValueError("REFUSED_WORKER_MOUNTS_OR_USER")
     forbidden=set(FORBIDDEN_CREDENTIALS)|{SECRET,"GITHUB_TOKEN","GH_TOKEN"}

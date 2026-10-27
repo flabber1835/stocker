@@ -1,0 +1,7 @@
+{
+  "schema": "research.capital-risk-core-gate-request/1",
+  "request_id": "canonical-core-gate-001",
+  "stage": "core-integration",
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "core_protocol_sha256": "070e429764f30c87a6c887b716443a4d243d93a4c6ca53e6b43a04c295ac4ef4"
+}

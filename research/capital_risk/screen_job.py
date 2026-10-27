@@ -28,10 +28,12 @@ def validate_request(value, protocol):
         raise ValueError('REFUSED_SCREEN_PROTOCOL')
 
 
-def encrypt(root, asset, key, contract):
+def encrypt(root, asset, key, contract, *, arm='BG',stage='quick-screen'):
+    if (arm,stage) not in {('BG','quick-screen'),('CORE_GATE','core-integration')}:
+        raise ValueError('REFUSED_ENCRYPTED_OUTPUT_SCOPE')
     members={p.relative_to(root).as_posix():dict(bytes=p.stat().st_size,sha256=sha256_file(p))
              for p in sorted(root.rglob('*')) if p.is_file()}
-    manifest=json.dumps(dict(schema='research.capital-risk-output/1',arm='BG',stage='quick-screen',
+    manifest=json.dumps(dict(schema='research.capital-risk-output/1',arm=arm,stage=stage,
         protocol_sha256=PROTOCOL,screen_protocol_sha256=contract,members=members),sort_keys=True).encode()+b'\n'
     with asset.open('xb') as stream:
         writer=EncryptWriter(stream,key)
