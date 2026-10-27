@@ -62,7 +62,7 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
 
 
 def worker_stage(name):
-    match=re.fullmatch(r"capital-risk-b-(prefix|suffix)-[0-9]+-[0-9]+(?:-(?:review|preflight|postflight))?",name)
+    match=re.fullmatch(r"capital-risk-b-(prefix|suffix)-[0-9]+-[0-9]+(?:-(?:review|preflight|postflight|qualification))?",name)
     if match is None: raise ValueError("REFUSED_PRIVATE_WORKER_NAME")
     return "baseline-"+match.group(1)
 

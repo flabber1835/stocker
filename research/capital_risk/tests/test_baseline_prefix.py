@@ -53,6 +53,17 @@ class BaselinePrefixGuards(unittest.TestCase):
                 a.write_bytes(value)
                 with self.assertRaises(ValueError): space['compare_prefix'](a,b,1)
 
+    def test_daily_comparison_requires_explicit_measured_phase(self):
+        path=Path(__file__).parents[1]/'verify_prefix.py';tree=ast.parse(path.read_text())
+        nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in {'require','compare_prefix'}]
+        scope=dict(Path=Path,json=json,hashlib=__import__('hashlib'))
+        exec(compile(ast.Module(body=nodes,type_ignores=[]),str(path),'exec'),scope)
+        with tempfile.TemporaryDirectory(prefix='.capital-risk-test-',dir=Path.cwd()) as folder:
+            a,b=Path(folder)/'a',Path(folder)/'b'
+            raw=b'{"phase":"MEASURED","session":"synthetic"}\n';a.write_bytes(raw);b.write_bytes(raw)
+            scope['compare_prefix'](a,b,1,phase='MEASURED')
+            with self.assertRaises(ValueError):scope['compare_prefix'](a,b,1)
+
     def test_unknown_writer_is_not_snapshotted_or_treated_as_stopped(self):
         identity='a'*64
         with tempfile.TemporaryDirectory(prefix='.capital-risk-test-',dir=Path.cwd()) as folder:

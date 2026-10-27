@@ -76,3 +76,37 @@ class SuffixGuards(unittest.TestCase):
                 with self.subTest(change=change),self.assertRaisesRegex(ValueError,'REFUSED_PREDECESSOR_RECEIPT'):
                     suffix.restore_predecessor(request,root,root/'private',b'x'*32)
                 self.assertFalse((root/'private').exists())
+
+    def test_dade_request_keeps_actual_predecessor_and_frozen_fact_terms(self):
+        request=contract.request_template('baseline-suffix-002');contract.validate_request(request)
+        self.assertEqual(request['transitions'],77)
+        self.assertEqual(request['target_measured_closes'],4)
+        for changed in [dict(cash_per_share=76),dict(cash_per_share=77.0),dict(case='other'),dict(overlay_sha256='0'*64)]:
+            bad=copy.deepcopy(request);bad['repair'].update(changed)
+            with self.subTest(changed=changed),self.assertRaises(ValueError):contract.validate_request(bad)
+        with mock.patch.object(suffix.os,'getuid',return_value=1001,create=True), \
+                mock.patch.object(suffix.os,'getgid',return_value=1001,create=True):
+            args=suffix.suffix_arguments('capital-risk-b-suffix-123-1',Path('/frozen'),Path('/private'),Path('/driver'),request)
+        self.assertEqual(args[args.index('--max-transitions')+1],'77')
+        self.assertEqual(args[args.index('--repair-overlay')+1],'/out/research-repairs/dade/overlay.json')
+        self.assertIn('--resume',args)
+        self.assertNotIn('--source-successor',args)
+
+    def test_dade_receipt_cannot_be_replaced_by_an_older_prefix_receipt(self):
+        request=contract.request_template('baseline-suffix-002');p=request['predecessor']
+        receipt=dict(status='PREFIX_PASSED',run_id=str(p['run_id']),source_commit=p['source_commit'],
+            protocol_sha256=contract.PROTOCOL,arm='B',full_baseline_gate_satisfied=False,
+            encrypted_output=dict(name=p['cipher_name'],bytes=p['cipher_bytes'],sha256=p['cipher_sha256']))
+        with tempfile.TemporaryDirectory(prefix='.capital-risk-test-',dir=Path.cwd()) as folder:
+            path=Path(folder);(path/'baseline-suffix.json').write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(ValueError,'REFUSED_PREDECESSOR_RECEIPT'):
+                suffix.restore_predecessor(request,path,path/'private',b'x'*32)
+
+    def test_ancestry_is_immutable_across_generations(self):
+        with tempfile.TemporaryDirectory(prefix='.capital-risk-test-',dir=Path.cwd()) as folder:
+            path=Path(folder)/'lineage/checkpoints/hash.json.gz'
+            suffix.retain_immutable(path,b'original')
+            suffix.retain_immutable(path,b'original')
+            with self.assertRaisesRegex(ValueError,'REFUSED_ANCESTRY_COLLISION'):
+                suffix.retain_immutable(path,b'changed')
+            self.assertEqual(path.read_bytes(),b'original')

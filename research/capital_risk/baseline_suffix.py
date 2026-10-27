@@ -19,11 +19,19 @@ from runtime_identity import EXECUTION_IMAGE
 from suffix_contract import validate_request
 
 
+def retain_immutable(path,payload):
+    path.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
+    if path.exists():
+        if path.read_bytes()!=payload: raise ValueError('REFUSED_ANCESTRY_COLLISION')
+    else: path.write_bytes(payload)
+
+
 def restore_predecessor(request,download,private,key):
     validate_request(request);p=request['predecessor']
-    receipt=json.loads((download/'baseline-prefix.json').read_bytes())
+    receipt_path=download/p.get('receipt_name','baseline-prefix.json')
+    receipt=json.loads(receipt_path.read_bytes())
     output=receipt['encrypted_output']
-    if (receipt['status']!='PREFIX_PASSED' or receipt['run_id']!=str(p['run_id'])
+    if (receipt['status']!=p.get('receipt_status','PREFIX_PASSED') or receipt['run_id']!=str(p['run_id'])
             or receipt['source_commit']!=p['source_commit'] or receipt['protocol_sha256']!=PROTOCOL
             or receipt['arm']!='B' or receipt['full_baseline_gate_satisfied']
             or output!=dict(name=p['cipher_name'],bytes=p['cipher_bytes'],sha256=p['cipher_sha256'])):
@@ -38,14 +46,14 @@ def restore_predecessor(request,download,private,key):
             raise ValueError('REFUSED_PREDECESSOR_MANIFEST')
         raw=tar.extractfile(first).read();manifest=json.loads(raw)
     if (manifest['schema']!='research.capital-risk-output/1' or manifest['arm']!='B'
-            or manifest['stage']!='baseline-prefix' or manifest['protocol_sha256']!=PROTOCOL):
+            or manifest['stage']!=p.get('stage','baseline-prefix') or manifest['protocol_sha256']!=PROTOCOL):
         raise ValueError('REFUSED_PREDECESSOR_MANIFEST_IDENTITY')
     extract_verified(plain,private,hashlib.sha256(raw).hexdigest(),expected_schema='research.capital-risk-output/1')
-    lineage=private/'lineage';lineage.mkdir(mode=0o700,exist_ok=False)
-    shutil.copyfile(private/'run-001/checkpoint.json.gz',lineage/'predecessor-checkpoint.json.gz')
-    (lineage/'predecessor-receipt.json').write_bytes((download/'baseline-prefix.json').read_bytes())
-    (lineage/'predecessor-link.json').write_text(json.dumps(dict(predecessor=p,
-        manifest_sha256=hashlib.sha256(raw).hexdigest()),indent=2)+'\n')
+    lineage=private/'lineage';lineage.mkdir(mode=0o700,exist_ok=True)
+    retain_immutable(lineage/'checkpoints'/(p['outer_sha256']+'.json.gz'),(private/'run-001/checkpoint.json.gz').read_bytes())
+    retain_immutable(lineage/'receipts'/(str(p['run_id'])+'-'+p['source_commit']+'.json'),receipt_path.read_bytes())
+    retain_immutable(lineage/'links'/(p['outer_sha256']+'.json'),(json.dumps(dict(predecessor=p,
+        manifest_sha256=hashlib.sha256(raw).hexdigest()),indent=2)+'\n').encode())
 
 
 def suffix_arguments(name,frozen,private,driver,request,*,phase=None):
@@ -61,6 +69,8 @@ def suffix_arguments(name,frozen,private,driver,request,*,phase=None):
     else:
         args[args.index('--max-transitions')+1]=str(request['transitions'])
         args+=['--resume','--checkpoint','/out/run-001/checkpoint.json.gz']
+        if 'repair' in request:
+            args+=['--repair-overlay','/out/research-repairs/dade/overlay.json']
     return args
 
 
@@ -95,12 +105,19 @@ def main():
         restore_predecessor(request,args.predecessor_download,private,key)
         run_worker(suffix_arguments(name+'-preflight',frozen,private,driver,request,phase='preflight'),
                    name+'-preflight',private)
+        if 'repair' in request:
+            qualification=launch_arguments(name+'-qualification',frozen,private,driver,review=True)
+            qualification=qualification[:qualification.index('-u')+1]+['/driver/qualify_dade.py',
+                '--actual','/out/run-001','--frozen','/frozen','--request','/driver/baseline-suffix-request.json',
+                '--overlay','/out/research-repairs/dade/overlay.json','--output','/out/dade-qualification.json']
+            run_worker(qualification,name+'-qualification',private)
         run_worker(suffix_arguments(name,frozen,private,driver,request),name,private)
         run_worker(suffix_arguments(name+'-postflight',frozen,private,driver,request,phase='postflight'),
                    name+'-postflight',private)
         review=json.loads((private/'suffix-postflight.json').read_bytes())
         if (review['status']!='SUFFIX_POSTFLIGHT_PASSED' or review['session']!=request['target_session']
-                or review['formation_records']!=53 or review['measured_closes']!=0
+                or review['formation_records']!=request['target_formation_records']
+                or review['measured_closes']!=request.get('target_measured_closes',0)
                 or not review['predecessor_preserved']):
             raise ValueError('REFUSED_SUFFIX_POSTFLIGHT')
     except UnprovenStopped:
@@ -118,7 +135,8 @@ def main():
         utc=datetime.now(timezone.utc).isoformat(),source_commit=os.environ['GITHUB_SHA'],
         run_id=os.environ['GITHUB_RUN_ID'],protocol_sha256=PROTOCOL,arm='B',request_id=request['request_id'],
         predecessor=request['predecessor'],session=request['target_session'] if status=='SUFFIX_PASSED' else None,
-        formation_records=53 if status=='SUFFIX_PASSED' else None,measured_closes=0 if status=='SUFFIX_PASSED' else None,
+        formation_records=request['target_formation_records'] if status=='SUFFIX_PASSED' else None,
+        measured_closes=request.get('target_measured_closes',0) if status=='SUFFIX_PASSED' else None,
         full_baseline_gate_satisfied=False,production_contacted=False,
         encrypted_output=dict(name=asset.name,bytes=asset.stat().st_size,sha256=sha256_file(asset)))
     target.write_text(json.dumps(receipt,indent=2)+'\n');print(json.dumps(receipt))

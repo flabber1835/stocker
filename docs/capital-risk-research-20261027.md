@@ -272,3 +272,34 @@ predecessor commitment, all retained historical checkpoints and zero tails.
 The predecessor checkpoint/receipt and artifact ancestry are retained alongside
 the append-only journal history. Only after postflight can the new checkpoint
 become a future predecessor. All financial artifacts remain encrypted.
+
+### DADE suffix admission
+
+Run 40540062773 passed all 53 formation records and stopped on 2007-11-05.
+The new actual canonical predecessor independently matches the retained DADE
+predecessor hash and holds 33 DADE shares. This equality is evidence from the
+fresh book; no old financial state or predecessor identity is substituted.
+
+`baseline-suffix-002` restores that exact artifact, qualifies a sparse factual
+overlay against its own checkpoint, and runs 77 adjacent transitions to
+2008-02-27 (126 formation records and four measured closes). It stops before
+GLDN's earliest affected session. DADE's known 77 USD cash merger on 2007-11-06
+is the only admitted correction; its two retained source extractions and exact
+suppression/addition facts are hash-bound. Generate the overlay using the fresh
+canonical predecessor. With this exact B prefix, the resulting document hash
+equals the retained fact document; this is checked, not assumed.
+
+Before replay, load the overlay through the unchanged canonical repair parser,
+verify the exact source term and unaffected terms, and demonstrate wrong-parent
+and consumed-session refusals. A copy-only canonical terminal proof must remove
+the actual DADE holding and pay its actual quantity times 77, while the source
+checkpoint stays byte-for-byte unchanged. No mark or financial balance is
+fabricated. The replay then uses the original backtest's repair/resume path.
+
+Postflight must prove exactly one actual 2,541 USD DADE payment, no residual or
+pending DADE, one retained repair with its exact source/input binding, every
+current/historical journal commitment and the exact session axis. All 126
+formation and first four daily records must match the original byte-for-byte.
+The full-period baseline gate remains pending. Every predecessor checkpoint,
+receipt and ancestry link is stored at an immutable hash/run-qualified path so
+adding a new generation cannot overwrite earlier lineage evidence.

@@ -18,14 +18,15 @@ def require(value, code):
         raise ValueError(code)
 
 
-def compare_prefix(actual: Path, expected: Path, count: int) -> str:
+def compare_prefix(actual: Path, expected: Path, count: int, *, phase='FORMATION') -> str:
+    require(phase in {'FORMATION','MEASURED'},'REFUSED_COMPARISON_PHASE')
     digest = hashlib.sha256()
     with actual.open("rb") as new, expected.open("rb") as old:
         for _ in range(count):
             left, right = new.readline(), old.readline()
             require(left and left == right, "REFUSED_CANONICAL_FORMATION_RECORD")
             row = json.loads(left)
-            require(row["phase"] == "FORMATION", "REFUSED_PREFIX_PHASE")
+            require(row["phase"] == phase, "REFUSED_PREFIX_PHASE")
             digest.update(left)
         require(not new.read(1), "REFUSED_EXTRA_PREFIX_RECORD")
     return digest.hexdigest()
