@@ -67,7 +67,7 @@ def prepare(case,destination,request_id):
         'source_files':source,'reused_component_qualification':reuse,'verified_main_base':'bbcb728a972f483c9f76f2b0db2599b2134ab1bb',
         'production_contacted':False,'new_forecaster':False,'performance_result_expected_from_this_stage':False}
     destination=Path(destination);need(not destination.exists(),'REQUEST_COLLISION')
-    destination.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n',encoding='utf-8')
+    destination.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n',encoding='utf-8',newline='\n')
     print(json.dumps({'request_sha256':digest(destination.read_bytes()),'source_files':len(value['source_files']),
         'dataset_sha256':value['dataset_sha256'],'performance_result':False}))
 

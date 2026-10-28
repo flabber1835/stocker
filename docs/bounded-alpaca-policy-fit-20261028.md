@@ -240,3 +240,26 @@ The second attempt's literal transport/manifest status is `INCOMPLETE` (exit 1),
 not `FAILED`; preserve those exact bytes and the underlying refusal. Its explicit
 witness extractor scope requires that literal status and grants no financial
 admission by itself. The first TLS prefix remains literally `FAILED`.
+
+## Scoped unresolved action inputs
+
+The first two hosted attempts stopped during input interpretation, before any
+financial origin or journal record. Their exact evidence is retained. The
+research adapter must carry the production parser's unsupported split and
+pending-cash facts instead of treating every unrelated bad record as a global
+input-load exception. Equal duplicate split facts are one event, not multiplied
+entitlements. Unsupported dated structural events retain the existing causal
+unowned-history reset and protected-dependency refusal.
+
+An unresolved cash distribution does not change split-only signal history.
+Retain its exact source record and reason. If its ex-date is a trustworthy XNYS
+session, refuse when a held dependency spans that event; never invent its rate.
+If timing itself is invalid/unknown, refuse any held or queued opening dependency
+on that instrument. This is a whole-run refusal, not a silent alternative stock
+selection or a shifted dividend date. Unrelated, unowned cash records cannot
+create or remove cash. These input limits and all blocked cases remain reportable.
+
+The owner requested checks only when they add value. Reuse the completed unchanged
+controller component proof. Run only changed input-behavior tests for these fixes;
+retain source/input admission and actual accounting checks that prevent invalid
+performance conclusions. Do not repeat unchanged audit campaigns.

@@ -40,6 +40,31 @@ def split_fact(kind,record,axis,splits):
     except AlpacaTransportRefused as exc:return None,str(exc)
 
 
+def cash_fact(record,axis):
+    from sentinel.feed.alpaca_observation import cash_dividend
+    from sentinel.feed.alpaca_transport import AlpacaTransportRefused
+    from sentinel.feed import calendar
+    try:return cash_dividend(record,axis=axis),None
+    except AlpacaTransportRefused as exc:
+        value=record.get('ex_date');trusted=False
+        if isinstance(value,str):
+            try:trusted=calendar.previous_sessions(value,1)==[value]
+            except (ValueError,TypeError):pass
+        return None,{'reason':str(exc),'record':record,'trusted_ex_session':value if trusted else None}
+
+
+def cash_dependency_issues(prior,issues,session):
+    held={e['security_id'] for e in prior.wealth_core.get('episodes',{}).values()}
+    queued={o['security_id'] for o in prior.pending if o['operation']=='OPEN_SLOT_POSITION'}
+    blocked=[]
+    for issue in issues:
+        ids=set(issue['security_ids']);ex=issue['trusted_ex_session']
+        if ex is None and ids&(held|queued):blocked.append(issue['record']['id'])
+        elif ex is not None and ids&held and prior.last_processed_session is not None and prior.last_processed_session<ex<=session:
+            blocked.append(issue['record']['id'])
+    return blocked
+
+
 def responses(root):
     """Authenticated archive inventory is a precondition; recheck raw preimages."""
     manifest=json.loads((root/'manifest.json').read_bytes())
@@ -69,7 +94,7 @@ class Inputs:
         hosted()
         import numpy as np
         from sentinel.feed import calendar
-        from sentinel.feed.alpaca_observation import bar_page_rows,action_participants,structural_action_date,cash_dividend
+        from sentinel.feed.alpaca_observation import bar_page_rows,action_participants,structural_action_date
         self.root=Path(root);self.protocol=protocol;self.capture_sha=capture_sha
         capture=json.loads((self.root/'capture/capture.json').read_bytes())
         need(capture['status']=='COMPLETE' and capture['pagination_complete'] is True
@@ -83,7 +108,7 @@ class Inputs:
         self.values=np.zeros((len(self.sids),len(self.axis),4),dtype='float64')
         self.present=np.zeros((len(self.sids),len(self.axis),2),dtype='bool')
         self.bench={symbol:{a:{} for a in ('raw','all','split')} for symbol in ('SPY','BIL')}
-        self.actions={};self.splits={};self.dividends={};self.resets={};self.undated={};self.cache=None;self.action_issues=[]
+        self.actions={};self.splits={};self.dividends={};self.resets={};self.undated={};self.cache=None;self.action_issues=[];self.pending_cash=[]
         page_groups={};actual_counts=Counter()
         from itertools import chain
         streams=[responses(r) for r in ([prefix_root,self.root] if prefix_root is not None else [self.root])]
@@ -133,14 +158,17 @@ class Inputs:
             for adjustment in (('raw','all','split') if symbol=='BIL' else ('raw','all')):
                 need(set(self.bench[symbol][adjustment])==set(self.axis),'BENCHMARK_AXIS')
         for key,(kind,record) in self.actions.items():
-            symbols=action_participants(record)&(set(self.by_ticker)|{'BIL','SPY'})
+            from sentinel.feed.alpaca_identity import action_sources
+            participants=action_participants(record) if kind=='cash_dividends' else action_sources(kind,record)
+            symbols=participants&(set(self.by_ticker)|{'BIL','SPY'})
             if not symbols:continue
             if kind=='cash_dividends':
-                day=record.get('ex_date')
-                if day is None or self.axis[0]<=day<=self.axis[-1]:
-                    fact=cash_dividend(record,axis=set(self.axis))
-                    if fact:
-                        identity=(fact['ticker'],fact['date']);self.dividends[identity]=self.dividends.get(identity,Decimal(0))+Decimal(fact['rate'])
+                fact,issue=cash_fact(record,set(self.axis))
+                if issue is not None:
+                    issue['security_ids']=sorted(self.by_ticker[s] for s in symbols if s in self.by_ticker)
+                    self.pending_cash.append(issue);self.action_issues.append({'id':key,'kind':kind,**issue})
+                elif fact:
+                    identity=(fact['ticker'],fact['date']);self.dividends[identity]=self.dividends.get(identity,Decimal(0))+Decimal(fact['rate'])
             elif kind in ('forward_splits','reverse_splits'):
                 day=structural_action_date(kind,record)
                 if day is not None and self.axis[0]<=day<=self.axis[-1]:
@@ -167,9 +195,10 @@ class Inputs:
         self.split_by_symbol={};self.dividend_by_symbol={}
         for (symbol,day),ratio in self.splits.items():self.split_by_symbol.setdefault(symbol,{})[(symbol,day)]=str(ratio)
         for symbol,day in self.dividends:self.dividend_by_symbol.setdefault(symbol,set()).add(day)
-        self.summary={'schema':'research.alpaca-fit-normalization/1','capture_manifest_sha256':capture_sha,
+        self.summary={'schema':'research.alpaca-fit-normalization/1','dataset_sha256':capture_sha,
             'assets':len(self.assets),'sessions':len(self.axis),'counts':dict(actual_counts),'actions':len(self.actions),
-            'unsupported_dated_split_records':len(self.action_issues),
+            'unsupported_dated_split_records':sum(i['kind'] in ('forward_splits','reverse_splits') for i in self.action_issues),
+            'unresolved_cash_records':len(self.pending_cash),
             'undated_selected_symbols':sorted(set(self.undated)&set(self.by_ticker)),
             'current_cohort_survivor_conditioned':True,'publication_time_archive':False}
 
@@ -258,6 +287,8 @@ class Inputs:
         return material,meta,{'admitted':len(admitted),'reasons':reasons},qualification
 
     def published(self,prior,day,version,*,formation,qualify=False):
+        blocked=cash_dependency_issues(prior,self.pending_cash,day)
+        need(not blocked,'UNRESOLVED_CASH_DEPENDENCY:'+','.join(blocked))
         from sentinel.feed import calendar
         from sentinel.core.session import PublishedSession,DefensiveBar
         from sentinel.core.history import FormationWindowProof,CurrentWindowProof
