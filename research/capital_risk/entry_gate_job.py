@@ -21,6 +21,7 @@ def expected_request():
         stage='entry-gate-screen',arms=['B','E75'],original_protocol_sha256=PROTOCOL,
         contract_sha256=sha256_file(HERE/'entry-gate-protocol.json'),
         source_bindings={name:sha256_file(HERE/name) for name in SOURCES},
+        preflight_only_prior_run=40632801100,
         owner_scope='ONE_20_MINUTE_ENTRY_GATE_COMPARISON_ONLY')
 
 

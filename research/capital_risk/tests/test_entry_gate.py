@@ -165,6 +165,7 @@ class EntryGateGuards(unittest.TestCase):
         text=(ROOT.parents[1]/'.github/workflows/capital-owned55-entry-gate.yml').read_text()
         self.assertIn('timeout-minutes: 20',text);self.assertIn('github.run_attempt == 1',text)
         self.assertIn('retention-days: 7',text);self.assertIn('entry-gate.tar.crseal',text)
+        self.assertIn('            .github/workflows\n',text)
         self.assertNotIn('workflow_dispatch:',text);self.assertNotIn('actions: write',text)
         self.assertNotIn('daily.jsonl',text);self.assertNotIn('checkpoint.json',text)
         self.assertIn('paths:',text);self.assertIn('entry-gate-request.json',text)

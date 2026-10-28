@@ -102,3 +102,15 @@ evidence, then recompute all metrics/accounting before interpreting results.
 PAPER/main/broker/database/shared Docker/WSL/services/pagefile/protected evidence
 and PR541 remain untouched. No merge, deployment or promotion. No later trial
 is selected by completing this one.
+
+## Validation-only checkout correction
+
+Run40632801100/head6fcdeb1a failed in static unit tests before encrypted input
+staging and before any financial worker or state existed. Sparse checkout
+omitted the workflow files read by three tests. Preserve that actual failure.
+Include .github/workflows, assert its checkout entry, and qualify the exact
+minimal checkout tree (127 tests pass; Windows uses native extended paths).
+The replacement request records this validation-only predecessor; it is the
+first financial comparison, not continuation/restart of an existing account.
+No numerical parameter, financial source or 20-minute ceiling is changed.
+This does not authorize retrying an incomplete financial run or extending it.

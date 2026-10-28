@@ -23,6 +23,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             research/capital_risk
+            .github/workflows
           fetch-depth: 1
       - name: Install locked transfer dependencies
         run: |
