@@ -81,3 +81,16 @@ do not repeat the old full identity audit routinely. Runtime separates action
 fixtures, archive scan and total processing; it is not a full H0 speed promise.
 Only a complete evidence-based readiness verdict may admit a subsequent matched
 H0 baseline. This gate alone does not admit P2 performance or production.
+
+## Preserved representation failure
+
+Run40705478203/a4035fbe stopped1/noOOM; artifact12823971027 authenticated
+all6members/56driver blobs and actual fences. Eight completed synthetic cases
+were retained, including the actual canonical spinoff oracle. The final version
+regression refused: split's model_copy retained a Decimal result, bypassing
+Pydantic validation of the new rational quantity. A later cash merger could not
+add that value to Fraction. No price scan or historical funded account ran.
+The correction changes that exact copy value to Fraction and adds an AST
+regression whose old-function mutation fails. Repeating the bounded component
+qualification under corrected sources finishes this same owner-authorized gate;
+it does not restart a historical book or expand parameters/performance scope.

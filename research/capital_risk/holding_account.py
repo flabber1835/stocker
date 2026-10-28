@@ -170,7 +170,7 @@ def split(account,*,event_id,session,security_id,ratio,canonical_split,raw_price
         found=True;exact=Fraction(p.shares)*Fraction(ratio)
         canonical=canonical_split(float(p.shares),str(ratio),raw_price=float(decimal(raw_price)))
         need(Fraction(str(canonical))==exact,'REFUSED_UNREPRESENTABLE_SPLIT')
-        positions[key]=p.model_copy(update=dict(shares=D(str(canonical))))
+        positions[key]=p.model_copy(update=dict(shares=Fraction(str(canonical))))
     need(found,'REFUSED_SPLIT_NOT_HELD')
     return commit(account,event=dict(event_id=event_id,session=session,operation='SPLIT',security_id=security_id,ratio=str(ratio)),positions=positions)
 

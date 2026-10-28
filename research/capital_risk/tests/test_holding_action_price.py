@@ -70,5 +70,15 @@ class ActionPriceGuards(unittest.TestCase):
         driver=(ROOT/'holding_action_job.py').read_text();self.assertIn('deadline=420',driver)
         self.assertIn('private if known else diagnostic',driver)
 
+    def test_split_model_copy_retains_rational_quantity_type(self):
+        source=(ROOT/'holding_account.py').read_text()
+        def proper(text):
+            tree=ast.parse(text);split=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='split')
+            copies=[n for n in ast.walk(split) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='model_copy']
+            return len(copies)==1 and 'shares=Fraction(str(canonical))' in ast.unparse(copies[0])
+        self.assertTrue(proper(source))
+        broken=source.replace('shares=Fraction(str(canonical))','shares=D(str(canonical))')
+        self.assertNotEqual(source,broken);self.assertFalse(proper(broken))
+
 
 if __name__=='__main__':unittest.main()

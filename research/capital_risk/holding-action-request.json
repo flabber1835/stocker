@@ -4,7 +4,7 @@
   "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
   "qualification_protocol_sha256": "5546a0e6d113876ce67af28078d9205aa2cd773b9f17684dd3e028be9507d7f2",
   "sources": {
-    "holding_account.py": "ed2a08afa0ca26648d155370db463dca82adea74982541800fb5ca668bb63e70",
+    "holding_account.py": "541041ac75ef0e98990f47b62845bb59dfa5fe5830a3615c41b9c0c36a940e89",
     "holding_actions.py": "297bc5088378b276bfa64573c5139ad0022ac2e8bd6634fbb6fbba24ee90d843",
     "holding_prices.py": "e9f531a345e20f9b2955c84ca06aff7a0fd75ee05c80049116b374b38a5e96bb",
     "holding_identity.py": "08f2320df5442b4201239d512034547413746391b2b1899090793e033e55b38a",
