@@ -192,7 +192,7 @@ Every worker loads those exact images;
 it never rebuilds them. Identity includes the exact source commit and tree,
 workflow run and attempt, and both Docker image IDs and source labels.
 
-Twenty workers cover six ordinary and four rolling module groups, two
+Twenty-two workers cover eight ordinary and four rolling module groups, two
 module-scoped current-profile composition workers, contention,
 status/memory, module-scoped million-row warmup, automation coverage, champion
 regressions, operator tests and shell/Compose validation, the prospective Wealth

@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 
-GENERAL_SHARDS = 6
+GENERAL_SHARDS = 8
 ROLLING_SHARDS = 4
 CURRENT_LANES = {
     'sentinel-current-workflow': 'tests/sentinel/test_current_operational_workflow.py',
@@ -81,7 +81,7 @@ def tracked_modules(root: Path) -> list[str]:
 
 
 def plan(modules: list[str]) -> dict[str, tuple[str, ...]]:
-    if (GENERAL_SHARDS, ROLLING_SHARDS) != (6, 4):
+    if (GENERAL_SHARDS, ROLLING_SHARDS) != (8, 4):
         raise ValueError("incomplete reviewed family shard inventory")
     if not modules or len(modules) != len(set(modules)):
         raise ValueError("Sentinel test module inventory is empty or duplicated")

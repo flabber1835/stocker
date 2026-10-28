@@ -17,7 +17,7 @@ from tools import sentinel_ci_shards as shards
 
 
 @pytest.mark.parametrize("failed_lane", [None, "sentinel-general-0", "sentinel-general-4",
-                                          "sentinel-general-5", "sentinel-current-workflow",
+                                          "sentinel-general-5", "sentinel-general-6", "sentinel-general-7", "sentinel-current-workflow",
                                           "sentinel-current-process-recovery", "sentinel-rolling-2",
                                           "sentinel-contention", "sentinel-status",
                                           "sentinel-automation", "sentinel-warmup"])
@@ -129,16 +129,17 @@ def test_workflow_declares_every_reviewed_worker_once():
     workflow=yaml.safe_load((Path(__file__).resolve().parents[2] /
                             '.github/workflows/sentinel-safety.yml').read_text(encoding='utf-8'))
     lanes=workflow['jobs']['parallel-certification']['strategy']['matrix']['lane']
-    assert len(lanes)==len(set(lanes))==20
+    assert len(lanes)==len(set(lanes))==22
     assert set(lanes)==set(evidence.LANES)
-    assert len(evidence.GENERAL_LANES)==6 and len(evidence.ROLLING_LANES)==4
+    assert len(evidence.GENERAL_LANES)==8 and len(evidence.ROLLING_LANES)==4
     assert set(shards.CURRENT_LANES).issubset(lanes)
 
 
-def test_omitting_a_new_worker_is_detected(monkeypatch):
+@pytest.mark.parametrize("lane", ["sentinel-general-6", "sentinel-general-7"])
+def test_omitting_a_new_worker_is_detected(monkeypatch, lane):
     workflow=yaml.safe_load((Path(__file__).resolve().parents[2] /
                             '.github/workflows/sentinel-safety.yml').read_text(encoding='utf-8'))
-    workflow['jobs']['parallel-certification']['strategy']['matrix']['lane'].remove('sentinel-general-5')
+    workflow['jobs']['parallel-certification']['strategy']['matrix']['lane'].remove(lane)
     monkeypatch.setattr(yaml,'safe_load',lambda _:workflow)
     with pytest.raises(AssertionError):
         test_workflow_declares_every_reviewed_worker_once()

@@ -329,7 +329,7 @@ def test_current_test_authority_keeps_same_workflow_dependency_binding():
     result = _require_merge_authority()
     assert result["carrier_job"] == "certification-and-durability"
     assert result["temporal_binding"] == "all lanes bound to the same workflow run, attempt, source and images"
-    assert len(result["parallel_certification"]["suite_lanes"]) == 20
+    assert len(result["parallel_certification"]["suite_lanes"]) == 22
     assert not (ROOT / ".github/workflows/sharadar-daily-replay.yml").exists()
     assert "sharadar.daily-replay" not in load_authority()["owners"]
 
@@ -373,6 +373,7 @@ def test_protected_contexts_require_unconditional_tree_equivalence_proof():
     ("    if: always()\n", "    if: success()\n"),
     ("sentinel-rolling-2, sentinel-rolling-3", "sentinel-rolling-2"),
     ("sentinel-general-4, sentinel-general-5", "sentinel-general-4"),
+    ("sentinel-general-6, sentinel-general-7", "sentinel-general-6"),
     ("sentinel-current-workflow, sentinel-current-process-recovery", "sentinel-current-workflow"),
     ('python tools/sentinel_ci_shards.py --lane "$CI_LANE"',
      'python tools/sentinel_ci_shards.py --lane sentinel-general-0'),

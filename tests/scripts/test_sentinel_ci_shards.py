@@ -20,7 +20,7 @@ def test_shards_are_deterministic_disjoint_and_cover_future_modules():
     first = shards.plan(modules)
     assert first == shards.plan(list(reversed(modules)))
     assert set(first) == {f"sentinel-{family}-{index}"
-                          for family,count in (("general",6),("rolling",4)) for index in range(count)}
+                          for family,count in (("general",8),("rolling",4)) for index in range(count)}
     selected = [module for group in first.values() for module in group]
     special = {module for module in modules if Path(module).name in shards.SPECIAL}
     assert len(selected) == len(set(selected))
@@ -28,7 +28,7 @@ def test_shards_are_deterministic_disjoint_and_cover_future_modules():
     assert all(first.values())
     assert "tests/sentinel/test_future_ordinary.py" in selected
     assert "tests/sentinel/test_rolling_future.py" in selected
-    assert all("test_rolling_" not in module for index in range(6)
+    assert all("test_rolling_" not in module for index in range(8)
                for module in first[f"sentinel-general-{index}"])
     assert all("test_rolling_" in module for index in range(4)
                for module in first[f"sentinel-rolling-{index}"])
@@ -116,7 +116,7 @@ def test_missing_current_profile_module_refuses_its_worker(module):
 def test_measured_costs_balance_both_existing_families_without_dropping_modules():
     groups = shards.plan(_inventory())
     weights, default = shards.load_durations()
-    for family,count,allowed_spread in (("general",6,1000),("rolling",4,5000)):
+    for family,count,allowed_spread in (("general",8,1000),("rolling",4,5000)):
         costs = [sum(weights.get(name, default) for name in groups[f"sentinel-{family}-{i}"])
                  for i in range(count)]
         assert max(costs) - min(costs) <= allowed_spread
@@ -124,13 +124,13 @@ def test_measured_costs_balance_both_existing_families_without_dropping_modules(
 
 def test_both_families_assign_measured_heavy_modules_to_distinct_workers(monkeypatch):
     modules = [f"tests/sentinel/test_{prefix}case_{i:02d}.py"
-               for prefix in ("", "rolling_") for i in range(24)]
+               for prefix in ("", "rolling_") for i in range(32)]
     heavy = {f'tests/sentinel/test_{prefix}case_{i:02d}.py'
-             for prefix,count in (('',6),('rolling_',4)) for i in range(0,4*count,4)}
+             for prefix,count in (('',8),('rolling_',4)) for i in range(0,4*count,4)}
     weights = {name: 1000 if name in heavy else 1 for name in modules}
     monkeypatch.setattr(shards, "load_durations", lambda: (weights, 60))
     groups = shards.plan(modules)
-    for family,count in (("general",6),("rolling",4)):
+    for family,count in (("general",8),("rolling",4)):
         assert all(sum(name in heavy for name in groups[f"sentinel-{family}-{i}"]) == 1
                    for i in range(count))
     assert groups == shards.plan(list(reversed(modules)))
