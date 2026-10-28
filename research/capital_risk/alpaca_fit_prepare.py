@@ -38,7 +38,7 @@ def source_inventory():
     return dict(sorted(result.items()))
 
 
-def prepare(case,destination):
+def prepare(case,destination,request_id):
     case=Path(case);protocol=Path(__file__).with_name('alpaca-fit-protocol.json');p_sha=digest(protocol.read_bytes())
     captures={key:json.loads((case/folder/'transport.json').read_bytes()) for key,folder in
         [('prefix','transport-001'),('corroboration','transport-002'),('market','transport-003'),('bil','bil-transport-001')]}
@@ -50,11 +50,21 @@ def prepare(case,destination):
         and captures['corroboration']['capture_status']['status']=='INCOMPLETE','FAILED_PREFIX_RETAINED')
     dataset={'schema':'research.alpaca-composite-input/1','protocol_sha256':p_sha,'roster_sha256':digest((case/'roster.json').read_bytes()),
         'manifests':{k:v['manifest_sha256'] for k,v in captures.items()}}
-    value={'schema':'research.alpaca-fit-hosted-request/1','study_id':'alpaca-owned55-fit-001','request_id':'canonical-baseline-001',
+    previous=case/'baseline-001/verified/full/book'
+    qualification=previous/'controller-component-qualification.json'
+    old_request=json.loads((case/'baseline-001/request.json').read_bytes())
+    source=source_inventory()
+    common=('sentinel/controller/owned_impairment.py','research/capital_risk/alpaca_fit_policy.py','research/capital_risk/alpaca_fit_qualify.py')
+    need(all(source[p]==old_request['source_files'][p] for p in common) and old_request['protocol_sha256']==p_sha,'UNCHANGED_REUSED_COMPONENT')
+    reuse={'kind':'REUSE_AUTHENTICATED_COMPLETED_COMPONENT_CASES','run_id':40783323604,
+        'head':'734eb1d3bdf38b60a7f60759410dbb7a47573e30','artifact_id':12857599938,
+        'report_sha256':digest(qualification.read_bytes()),'qualified_source_files':{p:source[p] for p in common},
+        'protocol_sha256':p_sha,'not_financial_or_performance_evidence':True}
+    value={'schema':'research.alpaca-fit-hosted-request/1','study_id':'alpaca-owned55-fit-001','request_id':request_id,
         'stage':'INPUT_AND_CANONICAL_BASELINE','protocol_sha256':p_sha,'roster_sha256':dataset['roster_sha256'],
         'dataset_sha256':digest(json.dumps(dataset,sort_keys=True,separators=(',',':')).encode()),'captures':captures,
         'runtime':{'bytes':115666468,'sha256':'2069216d4133ae154eb76d4ac09cc0f719275c19fc3a95c7476d0f07f56b6b32'},
-        'source_files':source_inventory(),'verified_main_base':'bbcb728a972f483c9f76f2b0db2599b2134ab1bb',
+        'source_files':source,'reused_component_qualification':reuse,'verified_main_base':'bbcb728a972f483c9f76f2b0db2599b2134ab1bb',
         'production_contacted':False,'new_forecaster':False,'performance_result_expected_from_this_stage':False}
     destination=Path(destination);need(not destination.exists(),'REQUEST_COLLISION')
     destination.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n',encoding='utf-8')
@@ -64,4 +74,5 @@ def prepare(case,destination):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--case',required=True);p.add_argument('--output',required=True)
-    a=p.parse_args();prepare(a.case,a.output)
+    p.add_argument('--request-id',required=True)
+    a=p.parse_args();prepare(a.case,a.output,a.request_id)

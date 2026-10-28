@@ -61,8 +61,7 @@ def run(args):
     leaves={profile.id:leaf(leaf_source,profile,leaf_sha) for profile in registered}
     leaf_states={key:module.fresh() for key,module in leaves.items()}
     save(out/'controller-profiles.json',{key:module.research_identity for key,module in leaves.items()})
-    from alpaca_fit_qualify import qualify
-    save(out/'controller-component-qualification.json',qualify(leaves,registered))
+    save(out/'controller-component-qualification-reference.json',request['reused_component_qualification'])
     journal=Journal(out/'canonical.jsonl');qualifications=[];retained=[];book=None;state=None;times=[]
     status='BASELINE_INCOMPLETE';failure=None;current_phase='INPUT_AUTHENTICATION';last=None
     def checkpoint(tag,formation):
@@ -87,6 +86,7 @@ def run(args):
     try:
         data=Inputs(Path(args.inputs),Path(args.bil_inputs),protocol,request['dataset_sha256'],Path(args.prefix_inputs))
         save(out/'normalization.json',data.summary)
+        save(out/'action-input-issues.json',data.action_issues)
         measured=calendar.sessions_in_range(protocol['measured_start'],protocol['data_end'])
         end=calendar.previous_sessions(protocol['measured_start'],2)[0]
         plan=FormationPlan(end=end,capital=protocol['capital'],warmup_sessions=299,formation_sessions=126,

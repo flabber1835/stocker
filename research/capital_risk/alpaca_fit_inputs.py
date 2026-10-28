@@ -24,6 +24,22 @@ def need(value,reason):
 def hosted():need(os.environ.get('ALPACA_FIT_HOSTED')=='1','LOCAL_FINANCIAL_INPUT_EXECUTION')
 
 
+def split_fact(kind,record,axis,splits):
+    """Same supported-term/refused-term split boundary as AlpacaSource.
+
+    Distinct provider IDs do not multiply the same dated split twice. A
+    malformed/conflicting fact is returned for the caller's dated quarantine.
+    """
+    from sentinel.feed.alpaca_observation import stock_split
+    from sentinel.feed.alpaca_transport import AlpacaTransportRefused
+    try:
+        fact=stock_split(kind,record,axis=axis);key=(fact['ticker'],fact['date']);ratio=Decimal(fact['ratio'])
+        if key in splits and splits[key]!=ratio:raise AlpacaTransportRefused('conflicting split terms')
+        splits[key]=ratio
+        return fact,None
+    except AlpacaTransportRefused as exc:return None,str(exc)
+
+
 def responses(root):
     """Authenticated archive inventory is a precondition; recheck raw preimages."""
     manifest=json.loads((root/'manifest.json').read_bytes())
@@ -53,7 +69,7 @@ class Inputs:
         hosted()
         import numpy as np
         from sentinel.feed import calendar
-        from sentinel.feed.alpaca_observation import bar_page_rows,action_participants,structural_action_date,cash_dividend,stock_split
+        from sentinel.feed.alpaca_observation import bar_page_rows,action_participants,structural_action_date,cash_dividend
         self.root=Path(root);self.protocol=protocol;self.capture_sha=capture_sha
         capture=json.loads((self.root/'capture/capture.json').read_bytes())
         need(capture['status']=='COMPLETE' and capture['pagination_complete'] is True
@@ -67,7 +83,7 @@ class Inputs:
         self.values=np.zeros((len(self.sids),len(self.axis),4),dtype='float64')
         self.present=np.zeros((len(self.sids),len(self.axis),2),dtype='bool')
         self.bench={symbol:{a:{} for a in ('raw','all','split')} for symbol in ('SPY','BIL')}
-        self.actions={};self.splits={};self.dividends={};self.resets={};self.undated={};self.cache=None
+        self.actions={};self.splits={};self.dividends={};self.resets={};self.undated={};self.cache=None;self.action_issues=[]
         page_groups={};actual_counts=Counter()
         from itertools import chain
         streams=[responses(r) for r in ([prefix_root,self.root] if prefix_root is not None else [self.root])]
@@ -127,9 +143,11 @@ class Inputs:
                         identity=(fact['ticker'],fact['date']);self.dividends[identity]=self.dividends.get(identity,Decimal(0))+Decimal(fact['rate'])
             elif kind in ('forward_splits','reverse_splits'):
                 day=structural_action_date(kind,record)
-                if day in self.index:
-                    fact=stock_split(kind,record,axis=set(self.axis));identity=(fact['ticker'],fact['date'])
-                    self.splits[identity]=self.splits.get(identity,Decimal(1))*Decimal(fact['ratio'])
+                if day is not None and self.axis[0]<=day<=self.axis[-1]:
+                    fact,reason=split_fact(kind,record,set(self.axis),self.splits)
+                    if reason is not None:
+                        self.action_issues.append({'id':key,'kind':kind,'record':record,'reason':reason})
+                        for symbol in symbols:self.resets.setdefault(symbol,[]).append((day,key,kind))
                 elif day is None:
                     for symbol in symbols:self.undated.setdefault(symbol,[]).append(key)
             else:
@@ -151,6 +169,7 @@ class Inputs:
         for symbol,day in self.dividends:self.dividend_by_symbol.setdefault(symbol,set()).add(day)
         self.summary={'schema':'research.alpaca-fit-normalization/1','capture_manifest_sha256':capture_sha,
             'assets':len(self.assets),'sessions':len(self.axis),'counts':dict(actual_counts),'actions':len(self.actions),
+            'unsupported_dated_split_records':len(self.action_issues),
             'undated_selected_symbols':sorted(set(self.undated)&set(self.by_ticker)),
             'current_cohort_survivor_conditioned':True,'publication_time_archive':False}
 

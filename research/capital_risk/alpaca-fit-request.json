@@ -201,7 +201,30 @@
   "performance_result_expected_from_this_stage": false,
   "production_contacted": false,
   "protocol_sha256": "a4edcee7ab83149dbe03465e28ba4721918ba1ce3bae6db0dd01712474b6a1bb",
-  "request_id": "canonical-baseline-001",
+  "request_id": "canonical-baseline-002",
+  "reused_component_qualification": {
+    "artifact_id": 12857599938,
+    "head": "734eb1d3bdf38b60a7f60759410dbb7a47573e30",
+    "kind": "REUSE_AUTHENTICATED_COMPLETED_COMPONENT_CASES",
+    "not_financial_or_performance_evidence": true,
+    "protocol_sha256": "a4edcee7ab83149dbe03465e28ba4721918ba1ce3bae6db0dd01712474b6a1bb",
+    "qualified_source_files": {
+      "research/capital_risk/alpaca_fit_policy.py": {
+        "bytes": 6703,
+        "sha256": "fd298cb23dae1daa2055d4ccd98f7f90e25b1c0c93d919ea98c01ff6e2a758e5"
+      },
+      "research/capital_risk/alpaca_fit_qualify.py": {
+        "bytes": 2029,
+        "sha256": "fbd363d966fa2baa9a05ee56d3b22010c5688c88c9b7e089d8cf8ee5a7c83b61"
+      },
+      "sentinel/controller/owned_impairment.py": {
+        "bytes": 5218,
+        "sha256": "699286647502b99ea9a3bf7c02b3bd839a43523d613ed3c62ad71271c2de092b"
+      }
+    },
+    "report_sha256": "00664a98412d3e2a6dde3c002136f8b98a54695f78eef6f14b28ab51e6301362",
+    "run_id": 40783323604
+  },
   "roster_sha256": "87fa5a00f7c1978dd6f907b10c76efc04e78f41ca30f8ce68954952da395aca2",
   "runtime": {
     "bytes": 115666468,
@@ -222,8 +245,8 @@
       "sha256": "a4edcee7ab83149dbe03465e28ba4721918ba1ce3bae6db0dd01712474b6a1bb"
     },
     "research/capital_risk/alpaca_fit_baseline.py": {
-      "bytes": 12738,
-      "sha256": "7e940a702dce485dd5e3e31dd0b1efa29bee89272cf51b46a00acc2dc3e4fcaa"
+      "bytes": 12784,
+      "sha256": "6a9296aa57fb03a5cf322954d2816a0ffdebaeab24a291f72b4f3a095e377049"
     },
     "research/capital_risk/alpaca_fit_bil.py": {
       "bytes": 1895,
@@ -238,8 +261,8 @@
       "sha256": "aec55dc127b7f7d815c5399c1c217b4752583adaec6e936b7b1fa88bbddb9161"
     },
     "research/capital_risk/alpaca_fit_inputs.py": {
-      "bytes": 18837,
-      "sha256": "5cad8712818a00ce50bef397939d1d43512bec1a6e745796659d5c7fbc5eaada"
+      "bytes": 19819,
+      "sha256": "309b88708a20e46a7e63c50fe50c957742da790935409531622a01501d1843b2"
     },
     "research/capital_risk/alpaca_fit_job.py": {
       "bytes": 12110,
@@ -250,8 +273,8 @@
       "sha256": "fd298cb23dae1daa2055d4ccd98f7f90e25b1c0c93d919ea98c01ff6e2a758e5"
     },
     "research/capital_risk/alpaca_fit_prepare.py": {
-      "bytes": 4244,
-      "sha256": "ff9615981b0bde35d20839c1a995ee913e61cc905ae9b28f95d4b065df44b1c7"
+      "bytes": 5213,
+      "sha256": "8cfd177efbc46a9bd067bdf673a7200b33c2924bbd5b8ba56e4438ed1eedf63b"
     },
     "research/capital_risk/alpaca_fit_qualify.py": {
       "bytes": 2029,
@@ -448,6 +471,10 @@
     "research/capital_risk/forecast_review.py": {
       "bytes": 12736,
       "sha256": "05060a4b668bc5fd5de04a3ef086678df3750304cc7663e5203c4404fa2071ba"
+    },
+    "research/capital_risk/forecast_tests/test_alpaca_action_fix.py": {
+      "bytes": 2276,
+      "sha256": "5680560957a180dd2c539731f55ce571b622aa375b7d75c8ebb2f3bdc450ef72"
     },
     "research/capital_risk/forecast_tests/test_alpaca_fit.py": {
       "bytes": 5545,
