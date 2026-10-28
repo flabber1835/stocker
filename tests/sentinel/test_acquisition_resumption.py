@@ -582,6 +582,69 @@ def test_active_shared_price_part_pins_terminal_payload_owner(conn, source):
     assert source["calls"] == []
 
 
+@pytest.mark.parametrize('case', ['partial_orphan','partial_live','corrupt_orphan'])
+def test_price_sharing_distinguishes_disposal_from_corruption(conn,source,case):
+    from sentinel.feed.acquisition_parts import Parts,PartCorrupt
+    from sentinel.feed import retention,store
+    from sentinel.execution import journal
+    component='SEP.2025-03-12.2025-03-31'
+    prices=source['SEP'][:3]
+    owner=formation_job(conn,source)
+    lease=jobs.claim(conn,owner,lease_seconds=600)
+    original,_=Parts(conn,lease).put(component,{},prices=prices,rows=3)
+    if case!='partial_live':
+        jobs.finish(conn,lease,state='ABORTED',reason='TEST_FINISHED')
+        conn.commit()
+    if case=='partial_orphan':
+        with journal.writer_lock(conn),store.corpus_write_lock(conn):
+            assert retention._pass(conn,batch_rows=1)['deleted_acquisition_rows']==1
+            conn.commit()
+    else:
+        # Private corruption fixture; the real reuse reader must still refuse.
+        guard='acquisition_delete_guard' if case=='partial_live' else 'acquisition_no_update'
+        conn.execute('ALTER TABLE sentinel_acquisition_prices DISABLE TRIGGER '+guard)
+        if case=='partial_live':
+            conn.execute('DELETE FROM sentinel_acquisition_prices WHERE ctid IN '
+                         '(SELECT ctid FROM sentinel_acquisition_prices LIMIT 1)')
+        else:
+            conn.execute("UPDATE sentinel_acquisition_prices SET payload=replace(payload,'10000','90000')")
+        conn.execute('ALTER TABLE sentinel_acquisition_prices ENABLE TRIGGER '+guard)
+        conn.commit()
+    active=formation_job(conn,source)
+    active_lease=jobs.claim(conn,active,lease_seconds=600)
+    parts=Parts(conn,active_lease)
+    if case!='partial_orphan':
+        with pytest.raises(PartCorrupt,match='payload checksum'):
+            parts.put(component,{'capture':2},prices=prices,rows=3)
+        conn.rollback()
+    else:
+        current,_=parts.put(component,{'capture':2},prices=prices,rows=3)
+        assert parts._manifest(digest(current))[0]==current
+        assert conn.execute('SELECT payload_part_id FROM sentinel_acquisition_price_links WHERE part_id=%s',
+                            (digest(current),)).fetchone() is None
+        assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices WHERE part_id=%s',
+                            (digest(original),)).fetchone()[0]==2
+        conn.rollback()
+    assert source['calls']==[]
+
+
+@pytest.mark.parametrize('guard,case',[
+    ('complete','partial_orphan'),('pinned','partial_live')])
+def test_price_sharing_completeness_and_live_corruption_falsifiers(conn,source,monkeypatch,guard,case):
+    import inspect,textwrap
+    from sentinel.feed.acquisition_parts import Parts,PartCorrupt
+    code=textwrap.dedent(inspect.getsource(Parts.put))
+    needle='sentinel_acquisition_part_pinned(a.part_id) OR '
+    assert code.count(needle)==1
+    code=code.replace(needle,'TRUE OR ' if guard=='complete' else '')
+    namespace={}
+    exec(compile(code,'<price sharing falsifier>','exec'),Parts.put.__globals__,namespace)
+    monkeypatch.setattr(Parts,'put',namespace['put'])
+    error=PartCorrupt if guard=='complete' else pytest.fail.Exception
+    with pytest.raises(error):
+        test_price_sharing_distinguishes_disposal_from_corruption(conn,source,case)
+
+
 def test_price_payload_is_immutable_after_binding(conn, source):
     from sentinel.feed.acquisition_parts import Parts
     job = formation_job(conn, source)

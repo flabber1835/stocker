@@ -178,6 +178,21 @@ throughput evidence, not authorization to remove primary data.
 
 ## Skip proven empty maintenance before taking execution ownership
 
+### Reuse and partially reclaimed acquisition fragments
+
+Decision, 2026-10-28. Bounded disposal can leave an unpinned old acquisition
+fragment with only part of its original price payload. Such a fragment is not
+eligible as a sharing source for a new complete acquisition. The sharing query
+must require either an existing dependency pin or the full declared row count.
+The ordinary manifest/content checksum still verifies every selected source.
+Pinned incomplete fragments and complete-but-corrupted payloads must still
+refuse; do not catch or downgrade their checksum failures. If only incomplete
+orphan fragments remain, store the already validated complete incoming prices
+under the new job's identity. Keep the corpus read pin across selection,
+verification and binding; no schema, retention permission or financial identity
+changes. Qualify actual partial disposal, healthy sharing, both corruption
+refusals and removed-guard falsifiers.
+
 ### Bound acquisition-price deletion independently
 
 Decision, 2026-10-28. A guarded acquisition-price DELETE repeatedly exceeded
