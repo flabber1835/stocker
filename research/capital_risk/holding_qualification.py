@@ -48,6 +48,9 @@ def scalar_counterexample(CanonicalAccount):
 
 def qualify(output,canonical):
     started=time.perf_counter();cases=[];negative=[];events=[]
+    def retain_case(value):
+        cases.append(value)
+        (output/'account-case-prefix.json').write_text(json.dumps(dict(cases=cases,refusals=negative),indent=2)+'\n')
     cfg=canonical['config']
     # Disabled local allocation: identical persistent-account states, not old scalar parity.
     left=Account(source_sha256=SOURCE,cash='1000');right=Account(source_sha256=SOURCE,cash='1000')
@@ -62,7 +65,7 @@ def qualify(output,canonical):
     need(left.cash==D('799.8') and left.positions['E'].shares==20,'ENTRY_FEE')
     entry_oracle=str(canonical['entry_cost'](20,10,cfg))
     need(abs(D(entry_oracle)-D('200.2'))<=D('1e-10'),'CANONICAL_ENTRY_COST')
-    cases.append(dict(name='unchanged_and_disabled_neutral_control',state=state(left),marks=list(map(str,values)),
+    retain_case(dict(name='unchanged_and_disabled_neutral_control',state=state(left),marks=list(map(str,values)),
         canonical_float_entry_cost=entry_oracle,oracle_monetary_tolerance='1e-10',disabled_state_hash=snapshot(left)['state_sha256']))
 
     initial=seed(other=True);saved=snapshot(initial)
@@ -71,7 +74,7 @@ def qualify(output,canonical):
     need(reduced.cash==D('1107.892') and abs(D(str(canonical['exit_proceeds'](9,12,cfg)))-D('107.892'))<=D('1e-10'),'CANONICAL_PARTIAL_SELL_COST')
     defended,event=fill(reduced,'defensive-buy','BUY','100','1',episode='BIL',sid='BIL',kind='DEFENSIVE');events.append(event)
     need(defended.cash==D('1007.792') and mark(defended,{'S':'12','U':'30','BIL':'1'})==D('1449.792'),'DEFENSIVE_ROUTE_SINGLE_FEES')
-    cases.append(dict(name='partial_trim_and_defensive_route',before=state(initial),after=state(defended),stock_sale_fee='.108',defensive_buy_fee='.1'))
+    retain_case(dict(name='partial_trim_and_defensive_route',before=state(initial),after=state(defended),stock_sale_fee='.108',defensive_buy_fee='.1'))
 
     restored,event=fill(defended,'defensive-sell','SELL','100','1',episode='BIL',sid='BIL',kind='DEFENSIVE',signal=NEXT,execution=THIRD);events.append(event)
     restored,event=fill(restored,'restore','BUY','9','13',signal=NEXT,execution=THIRD);events.append(event)
@@ -80,7 +83,7 @@ def qualify(output,canonical):
     need(clipped.cash==D('6.987') and clipped.positions['E'].shares==12 and event['event']['filled_shares']=='1','CASH_CLIPPED_POSITIVE_FILL')
     zero,event=fill(seed('1','11'),'zero','BUY','9','13');events.append(event)
     need(zero.positions['E'].shares==11 and event['event']['outcome']=='CASH_CLIPPED_ZERO','EXPLICIT_ZERO_FILL')
-    cases.append(dict(name='restoration_and_cash_clipping',restored=state(restored),clipped=state(clipped),zero=state(zero)))
+    retain_case(dict(name='restoration_and_cash_clipping',restored=state(restored),clipped=state(clipped),zero=state(zero)))
 
     entitled,ev=accrue(seed('1000','11'),event_id='ex',session=NEXT,claim_id='D1',security_id='S',cash_per_share='2',pay_session=FOURTH);events.append(ev)
     sold,ev=fill(entitled,'sell-after-ex','SELL','11','12',signal=NEXT,execution=THIRD,core_exit=True);events.append(ev)
@@ -88,15 +91,17 @@ def qualify(output,canonical):
     need(mark(sold,{})==mark(paid,{})==D('1153.868') and paid.cash==D('1153.868'),'DIVIDEND_NO_DOUBLE_PROFIT')
     ledger=canonical['ledger']();ledger.accrue_dividend(session=NEXT,security_id='S',ticker='S',shares=11,per_share=2,cash=1000,due_in=1)
     unchanged,_=ledger.settle_due(session=THIRD,cash=float(sold.cash));canonical_cash,paid_events=ledger.settle_due(session=FOURTH,cash=unchanged)
-    need(D(str(canonical_cash))==paid.cash and len(paid_events)==1 and ledger.receivable_total==0,'CANONICAL_DIVIDEND_ENTITLEMENT')
+    oracle=dict(canonical_cash=str(canonical_cash),prototype_cash=str(paid.cash),paid_events=len(paid_events),remaining_receivable=ledger.receivable_total())
+    (output/'dividend-oracle.json').write_text(json.dumps(oracle,indent=2)+'\n')
+    need(abs(D(str(canonical_cash))-paid.cash)<=D('1e-10') and len(paid_events)==1 and ledger.receivable_total()==0,'CANONICAL_DIVIDEND_ENTITLEMENT')
     negative.append(refuses(lambda:pay(sold,event_id='early',session=THIRD,claim_id='D1'),'early_dividend'))
     negative.append(refuses(lambda:pay(paid,event_id='pay-again',session=FOURTH,claim_id='D1'),'double_dividend'))
-    cases.append(dict(name='dividend_survives_sale_and_pays_once',ex=state(entitled),sold=state(sold),paid=state(paid)))
+    retain_case(dict(name='dividend_survives_sale_and_pays_once',ex=state(entitled),sold=state(sold),paid=state(paid)))
 
     pre=seed('1000','15');post,ev=split(pre,event_id='split',session=NEXT,security_id='S',ratio='1.5',canonical_split=canonical['split_shares'],raw_price='6');events.append(ev)
     need(post.positions['E'].shares==D('22.5') and mark(pre,{'S':'9'})==mark(post,{'S':'6'})==D('1135'),'CANONICAL_SPLIT_NO_VALUE_LOSS')
     negative.append(refuses(lambda:split(pre,event_id='bad-split',session=NEXT,security_id='S',ratio=str(D(1)/7),canonical_split=canonical['split_shares'],raw_price='63'),'unrepresentable_split'))
-    cases.append(dict(name='split_preserves_value_and_identity',before=state(pre),after=state(post)))
+    retain_case(dict(name='split_preserves_value_and_identity',before=state(pre),after=state(post)))
 
     merged,ev=cash_merger(seed('1000','11'),event_id='merger',session=NEXT,security_id='S',cash_per_share='27');events.append(ev)
     need(merged.cash==1297 and not merged.positions and merged.retired==('E',),'FUNDED_MERGER_ENTITLEMENT')
@@ -109,7 +114,7 @@ def qualify(output,canonical):
     need(D(str(canonical_state.cash))==merged.cash and not canonical_state.episodes,'CANONICAL_MERGER_ENTITLEMENT')
     negative.append(refuses(lambda:cash_merger(merged,event_id='merger-again',session=NEXT,security_id='S',cash_per_share='27'),'double_merger'))
     negative.append(refuses(lambda:fill(merged,'restore-retired','BUY','1','10',signal=NEXT,execution=THIRD),'restore_after_core_exit'))
-    cases.append(dict(name='cash_merger_actual_funded_quantity',state=state(merged)))
+    retain_case(dict(name='cash_merger_actual_funded_quantity',state=state(merged)))
 
     boundary=snapshot(entitled);recovered=restore(json.loads(json.dumps(boundary)),SOURCE)
     suffix1,ev1=fill(entitled,'suffix-sell','SELL','2','12',signal=NEXT,execution=THIRD)
@@ -120,7 +125,7 @@ def qualify(output,canonical):
     (output/'account-boundary.json').write_text(json.dumps(boundary,indent=2)+'\n')
     prefix=json.dumps(ev1,sort_keys=True).encode()+b'\n';journal=prefix+json.dumps(ev3,sort_keys=True).encode()+b'\n'
     (output/'restart-journal.jsonl').write_bytes(journal)
-    cases.append(dict(name='restart_preserves_prefix_state_and_suffix',boundary=boundary,final=snapshot(suffix1),prefix_bytes=len(prefix),prefix_sha256=hashlib.sha256(prefix).hexdigest(),journal_sha256=hashlib.sha256(journal).hexdigest()))
+    retain_case(dict(name='restart_preserves_prefix_state_and_suffix',boundary=boundary,final=snapshot(suffix1),prefix_bytes=len(prefix),prefix_sha256=hashlib.sha256(prefix).hexdigest(),journal_sha256=hashlib.sha256(journal).hexdigest()))
 
     for name,call in [
         ('same_close',lambda:fill(initial,'same','SELL','1','10',signal=DAY,execution=DAY)),
@@ -143,7 +148,7 @@ def qualify(output,canonical):
     exec(compile(broken,'removed-holding-lag-guard','exec'),mutant.__dict__)
     bad=mutant.Intent(event_id='mutant',signal_session=DAY,execution_session=DAY,episode='E',security_id='S',ticker='S',side='SELL',shares='1')
     need(bad.execution_session==bad.signal_session,'ACTUAL_LAG_GUARD_FALSIFIER')
-    cases.append(dict(name='actual_lag_guard_removal_falsifier',original_refused=True,removed_guard_accepted=True))
+    retain_case(dict(name='actual_lag_guard_removal_falsifier',original_refused=True,removed_guard_accepted=True))
     # Bounded microbenchmark is explicitly not a historical replay forecast.
     benchmark=time.perf_counter()
     for i in range(200):

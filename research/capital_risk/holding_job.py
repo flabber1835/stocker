@@ -18,7 +18,8 @@ def need(value,code):
 def expected_request():
     return dict(schema='research.holding-qualification-request/1',id='holding-account-qualification-001',
         original_protocol_sha256=PROTOCOL,qualification_protocol_sha256=sha256_file(HERE/'holding-qualification-protocol.json'),
-        sources={name:sha256_file(HERE/name) for name in SOURCES},owner_scope='ONE_BOUNDED_QUALIFICATION_NO_PERFORMANCE_TRIAL')
+        sources={name:sha256_file(HERE/name) for name in SOURCES},owner_scope='BOUNDED_COMPONENT_QUALIFICATION_NO_PERFORMANCE_TRIAL',
+        harness_refusal_prior_run=40699456818)
 
 def validate_request(value):
     need(value==expected_request(),'REFUSED_HOLDING_REQUEST')

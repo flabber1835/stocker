@@ -129,3 +129,22 @@ prototype, (3) historical identity coverage and (4) readiness for a later full
 comparison. Passing component cases alone never certifies P2 or selects a
 production replacement. PAPER, broker/database, protected results, PR541 and
 shared Docker/WSL/services/pagefile remain untouched.
+
+## Qualification-harness refusal and correction
+
+Run40699456818/head53c23600 passed staging and139static tests; its exact
+stopped1/noOOM artifact12820403511 is authenticated and preserved. It actually
+proved the scalar/holding counterexample, then refused in the dividend harness:
+the harness compared the bound receivable_total method with0 instead of calling
+it. This predicate is always false; it is not evidence of an account defect.
+The remaining cases and historical identity audit were not admitted as passed.
+
+Correct only the method invocation, retain the actual oracle cash/claim values,
+and persist each successful case prefix before later assertions. Add an AST
+regression that fails with the original method/property mistake. Keep the
+predeclared1e-10dollar legacy-float bound; exact Decimal account results remain.
+The next source-bound request names the original refused run. Repeating these
+small synthetic qualification fixtures under the repaired harness is necessary
+to finish the owner's requested prototype; it is not a historical funded replay,
+P2 trial, parameter change, GitHub rerun-attempt2 or financial extension.
+No duplicate writer exists and the original artifact/failed status remains.

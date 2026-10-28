@@ -100,4 +100,15 @@ class HoldingGuards(unittest.TestCase):
         source=(ROOT/'holding_job.py').read_text();self.assertIn('deadline=180',source)
         self.assertIn('private if known else diagnostic',source)
 
+    def test_canonical_receivable_oracle_is_called_not_compared_as_method(self):
+        text=(ROOT/'holding_qualification.py').read_text()
+        def all_called(source):
+            tree=ast.parse(source)
+            methods={id(n) for n in ast.walk(tree) if isinstance(n,ast.Attribute) and n.attr=='receivable_total'}
+            calls={id(n.func) for n in ast.walk(tree) if isinstance(n,ast.Call)}
+            return bool(methods) and methods<=calls
+        self.assertTrue(all_called(text))
+        broken=text.replace('ledger.receivable_total()==0','ledger.receivable_total==0')
+        self.assertNotEqual(text,broken);self.assertFalse(all_called(broken))
+
 if __name__=='__main__':unittest.main()
