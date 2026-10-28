@@ -99,4 +99,11 @@ class SelectiveRules(unittest.TestCase):
             with self.assertRaises(ValueError):admitted_source_hash(book,{rel:'0'*64},rel)
             with self.assertRaises(ValueError):admitted_source_hash(book,{},'not-staged.py')
 
+    def test_actual_compressed_prefix_guard_detects_corrupted_commitment(self):
+        from selective_journal import Journal,verify_prefixes
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            path=Path(tmp)/'synthetic.jsonl.gz';journal=Journal(path);zero=journal.commitment();journal.write({'fixed':'marker'});one=journal.commitment();journal.write({'fixed':'tail'});full=journal.commitment();journal.close()
+            self.assertEqual(verify_prefixes(path,[zero,one,full]),full)
+            with self.assertRaisesRegex(ValueError,'PREFIX'):verify_prefixes(path,[{**one,'prefix_sha256':'0'*64}])
+
 if __name__=='__main__':unittest.main()

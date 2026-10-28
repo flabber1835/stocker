@@ -24,3 +24,22 @@ def save(path,value):
 
 def load(path):
     with gzip.open(path,'rt') as stream:return json.load(stream)
+
+def verify_prefixes(path,specs):
+    wanted={}
+    for spec in specs:
+        count=spec['records']
+        if count in wanted and wanted[count]!=spec:raise ValueError('REFUSED_CONFLICTING_PREFIX_COMMITMENT')
+        wanted[count]=spec
+    sha=hashlib.sha256();size=0;count=0;seen=set()
+    def check():
+        if count in wanted:
+            if wanted[count]!=dict(bytes=size,records=count,prefix_sha256=sha.hexdigest()):raise ValueError('REFUSED_JOURNAL_PREFIX')
+            seen.add(count)
+    check()
+    with gzip.open(path,'rb') as stream:
+        for raw in stream:
+            if not raw.endswith(b'\n'):raise ValueError('REFUSED_PARTIAL_JOURNAL_LINE')
+            sha.update(raw);size+=len(raw);count+=1;check()
+    if seen!=set(wanted):raise ValueError('REFUSED_MISSING_JOURNAL_PREFIX')
+    return dict(bytes=size,records=count,prefix_sha256=sha.hexdigest())

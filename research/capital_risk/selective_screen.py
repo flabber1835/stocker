@@ -5,11 +5,24 @@ from fractions import Fraction as Q
 from datetime import date
 from selective_input import Source
 from selective_model import Runtime
-from selective_journal import Journal,encode,digest,save,load
+from selective_journal import Journal,encode,digest,save,load,verify_prefixes
 from holding_account import need,snapshot
 
 BOUNDARY='2020-12-31'
 STRESS=(('2021-02-12','2022-09-26'),('2025-02-19','2025-04-08'),('2026-06-30','2026-07-31'))
+
+def verify_retained(root,source_sha,canonical,enabled):
+    paths=[root/'checkpoint.json.gz',root/'restart-boundary.json.gz',*sorted((root/'month-end').glob('*.json.gz')),*sorted((root/'pre-event').glob('*.json.gz'))]
+    specs={name:[] for name in ('events','daily','formation')};files={}
+    for path in paths:
+        cp=load(path);restored=Runtime(source_sha,canonical,enabled=enabled,checkpoint=cp['runtime'])
+        need(restored.checkpoint()==cp['runtime'],'REFUSED_RETAINED_RUNTIME_ROUNDTRIP')
+        for name in specs:specs[name].append(cp['journals'][name])
+        files[path.relative_to(root).as_posix()]=hashlib.sha256(path.read_bytes()).hexdigest()
+    current=load(root/'checkpoint.json.gz')
+    for name,wanted in specs.items():need(verify_prefixes(root/(name+'.jsonl.gz'),wanted)==current['journals'][name],'REFUSED_COMPLETE_JOURNAL_TAIL')
+    proof=dict(status='ALL_RETAINED_TYPED_RESTORES_AND_PREFIXES_PASSED',checkpoints=len(paths),files=files,all_tails_zero=True)
+    (root/'retained-checkpoint-review.json').write_bytes(encode(proof)+b'\n');return proof
 
 def run_book(source,canonical,root,source_sha,*,enabled,boundary=None,checkpoints=True):
     root.mkdir(exist_ok=False);events=Journal(root/'events.jsonl.gz');daily=Journal(root/'daily.jsonl.gz');formation=Journal(root/'formation.jsonl.gz')
@@ -109,6 +122,7 @@ def main():
     (a.output/'source-bindings.json').write_bytes(encode(dict(source_sha256=source_sha,canonical=bindings,original_base=source.base,original_input=source.input_sha256))+b'\n')
     baseline_started=time.perf_counter()
     h0,h0v,h0boundary=run_book(source,canonical,a.output/'H0',source_sha,enabled=None)
+    verify_retained(a.output/'H0',source_sha,canonical,None)
     disabled,_,_=run_book(source,canonical,a.output/'H0-disabled',source_sha,enabled=False,checkpoints=False)
     need(h0['finance_path_sha256']==disabled['finance_path_sha256'] and h0['events']==disabled['events']
         and h0['final']['account']==disabled['final']['account'] and h0['final']['pending']==disabled['final']['pending'],'REFUSED_MATCHED_DISABLED_CONTROL')
@@ -117,6 +131,7 @@ def main():
     (a.output/'baseline-readiness.json').write_bytes(encode(dict(status='MATCHED_H0_DISABLED_PASSED',financial_fields_exact=True,
         source_sha256=source_sha,baseline=h0['finance_path_sha256'],disabled=disabled['finance_path_sha256'],processing_seconds=readiness_seconds))+b'\n')
     p2,p2v,p2boundary=run_book(source,canonical,a.output/'P2',source_sha,enabled=True)
+    verify_retained(a.output/'P2',source_sha,canonical,True)
     restarts={}
     for arm,original,boundary in [('H0',h0,h0boundary),('P2',p2,p2boundary)]:
         restored,_,_=run_book(source,canonical,a.output/(arm+'-restored-suffix'),source_sha,enabled=True if arm=='P2' else None,boundary=boundary,checkpoints=False)
