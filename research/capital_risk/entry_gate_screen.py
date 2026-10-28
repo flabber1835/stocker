@@ -37,7 +37,33 @@ def initial_account(previous,row,target,completed):
         p=e['strategy_prices'];gross=D(p['bil_close_adjusted'])/D(p['bil_open_adjusted'])
         require(D(e['net_factor'])==gross-D('.001') and
             D(e['strategy_nav'])==D('50000')*(gross-D('.001')),'REFUSED_ENTRY_STARTUP_ACCOUNTING')
-    return {**deepcopy(e),'pending_allocation':format(D(str(target)).normalize(),'f')}
+    # Reuse the verified startup without changing its serialized provenance.
+    # The original anchor uses "0.0" while the formed startup uses "0".
+    result=deepcopy(e)
+    if D(e['pending_allocation'])!=D(str(target)):
+        result['pending_allocation']=str(target)
+    return result
+
+
+def baseline_equal(actual,expected,session,output):
+    """Refuse every field difference and retain its exact encrypted evidence."""
+    def difference(left,right,path='$'):
+        if isinstance(left,dict) and isinstance(right,dict):
+            for key in sorted(set(left)|set(right)):
+                child=path+'.'+key
+                if key not in left:return dict(path=child,actual_missing=True,expected=right[key])
+                if key not in right:return dict(path=child,expected_missing=True,actual=left[key])
+                found=difference(left[key],right[key],child)
+                if found:return found
+        elif type(left) is not type(right) or left!=right:
+            return dict(path=path,actual=left,expected=right)
+        return None
+    mismatch=difference(actual,expected)
+    if mismatch:
+        with (output/'baseline-mismatch.json').open('xb') as stream:
+            stream.write(encoded(dict(session=session,**mismatch))+b'\n')
+            stream.flush();os.fsync(stream.fileno())
+        raise ValueError('REFUSED_ENTRY_ADMISSION_BASELINE_FIELD')
 
 
 def next_account(previous,row,target,completed,canonical):
@@ -158,7 +184,7 @@ def run(root,output,protocol):
             decisions.append(record);stream.write(encoded(record)+b'\n')
             if row['phase']=='FORMATION':continue
             previous=next_account(previous,row,audits[0]['target'],completed,canonical)
-            require(previous==row['economics'],'REFUSED_ENTRY_ADMISSION_BASELINE_FIELD')
+            baseline_equal(previous,row['economics'],row['session'],output)
             completed+=1
             if audits[1]['target']<audits[0]['target']:coverage.append(row['session'])
         stream.flush();os.fsync(stream.fileno())

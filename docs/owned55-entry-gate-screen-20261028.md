@@ -114,3 +114,32 @@ The replacement request records this validation-only predecessor; it is the
 first financial comparison, not continuation/restart of an existing account.
 No numerical parameter, financial source or 20-minute ceiling is changed.
 This does not authorize retrying an incomplete financial run or extending it.
+
+## Refused baseline anchor and prepared reporting correction
+
+Run40633218003/head891127e6 passed staging and all 127 static checks, then
+refused the first measured baseline anchor. Its authenticated stopped worker
+exited1/noOOM. It retained 126 formation policy observations plus the February22,
+2008 decision, but no daily account output, candidate returns or complete
+baseline qualification. The adapter unnecessarily normalized the anchor's
+pending_allocation string from "0.0" to "0". Exact comparison correctly refused.
+Preserve the original ciphertext, all eight exported members and original error.
+
+The reporting correction preserves the complete original startup dictionary
+when its numeric pending allocation equals the candidate target. Only a truly
+different pending target is replaced. No equality exclusion or normalization
+is added to baseline admission. A mismatch must also export its exact first
+path, expected value and actual value in encrypted worker evidence before
+refusal. Tests must detect restoration of the broken normalization and an
+economic mutation. Do not execute canonical account or strategy code locally.
+
+This prepares an engineering correction only. Leave the published request
+unchanged so pushing the correction cannot trigger another hosted comparison.
+The single-job budget has been consumed; another hosted attempt requires direct
+owner authorization. No candidate performance conclusion is available.
+
+The owner subsequently replied "Approved" to that exact additional bounded
+attempt. This authorizes one corrected attempt with the same 20-minute ceiling,
+420-second worker deadline and numerical protocol. Record the refused anchor
+run in the new exact request. It grants no parameter tuning, further extension
+or production change. The refused artifact remains immutable.

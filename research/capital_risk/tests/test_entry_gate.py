@@ -78,6 +78,8 @@ class EntryGateGuards(unittest.TestCase):
         row=dict(session=screen.START,economics=dict(strategy_nav='50000',held_allocation=None,
             pending_allocation='0',net_factor='1'))
         self.assertEqual(screen.initial_account(None,row,0.0,0),row['economics'])
+        row['economics']['pending_allocation']='0.0'
+        self.assertEqual(screen.initial_account(None,row,0.0,0),row['economics'])
         for target in (.55,1):
             with self.assertRaisesRegex(ValueError,'ANCHOR'):screen.initial_account(None,row,target,0)
         row['economics']['strategy_nav']='50001'
@@ -92,6 +94,29 @@ class EntryGateGuards(unittest.TestCase):
             with self.assertRaises(ValueError):screen.initial_account({**prior,**change},row,0,1)
         row['economics']['net_factor']='1'
         with self.assertRaises(ValueError):screen.initial_account(prior,row,0,1)
+
+    def test_actual_broken_startup_normalization_fails_original_anchor(self):
+        source=inspect.getsource(screen.initial_account)
+        broken=source.replace("result=deepcopy(e)",
+            "result={**deepcopy(e),'pending_allocation':format(D(str(target)).normalize(),'f')}")
+        self.assertNotEqual(source,broken);scope=dict(screen.__dict__)
+        exec(compile(broken,'broken-entry-anchor-normalization','exec'),scope)
+        row=dict(session=screen.START,economics=dict(strategy_nav='50000',held_allocation=None,
+            pending_allocation='0.0',net_factor='1'))
+        self.assertEqual(screen.initial_account(None,row,0.,0),row['economics'])
+        self.assertNotEqual(scope['initial_account'](None,row,0.,0),row['economics'])
+
+    def test_baseline_mismatch_keeps_exact_path_and_never_excludes_economics(self):
+        expected=dict(strategy_nav='50000',pending_allocation='0.0',nested=dict(fee='0.001'))
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            output=Path(tmp)
+            screen.baseline_equal(deepcopy(expected),expected,screen.START,output)
+            self.assertFalse((output/'baseline-mismatch.json').exists())
+            actual=deepcopy(expected);actual['nested']['fee']='0'
+            with self.assertRaisesRegex(ValueError,'BASELINE_FIELD'):
+                screen.baseline_equal(actual,expected,screen.START,output)
+            proof=json.loads((output/'baseline-mismatch.json').read_bytes())
+            self.assertEqual(proof,dict(session=screen.START,path='$.nested.fee',actual='0',expected='0.001'))
 
     def test_policy_checks_exact_recorded_baseline_and_duplicate_cursor(self):
         engine=policy.Policies(Fake,Fake)

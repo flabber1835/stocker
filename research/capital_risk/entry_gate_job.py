@@ -22,6 +22,7 @@ def expected_request():
         contract_sha256=sha256_file(HERE/'entry-gate-protocol.json'),
         source_bindings={name:sha256_file(HERE/name) for name in SOURCES},
         preflight_only_prior_run=40632801100,
+        baseline_anchor_refusal_prior_run=40633218003,
         owner_scope='ONE_20_MINUTE_ENTRY_GATE_COMPARISON_ONLY')
 
 
