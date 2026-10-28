@@ -46,7 +46,8 @@ evidence uses the same deliberate mechanism:
 trial-account:v2:<observation id>
 trial-close-nav:v1:<effective session>
 trial-fill-interval:v1:<effective session>
-trial-verification:v3:<effective session>
+trial-verification:v3:<effective session>  (legacy immutable rows)
+trial-account:v2:verification-attempt:v1:<effective session>:<cycle id>
 ```
 
 The first row binds an actual broker account snapshot to the exact COMPLETE
@@ -63,6 +64,16 @@ native fill activity id, broker order id, optional client key, exact quantity,
 price and execution time, plus the provider semantics/query and raw digest.
 The ordinary command fill cache is never treated as proof that no other account
 fill occurred.
+
+New verification attempts use the cycle-scoped child namespace above; the
+financial payload remains v3. Legacy date-only rows remain immutable and valid
+only for their embedded cycle. Daily return readers authenticate all attempts
+and select at most one economic result per session, refusing multiple successes,
+foreign bindings or transported alternatives. The child namespace preserves the
+installed broker-only classification and keeps older date-only readers from
+counting additional return days. Exact account snapshot lookups are unchanged.
+See [Closing-cycle readiness handoff](closing-cycle-readiness-handoff.md) for
+native-lineage recovery of missed, positively unsent failure callbacks.
 
 Terminal outcomes have two paths. A non-success terminal cycle immediately
 freezes one immutable `NOT_VERIFIED` row without waiting for close evidence. A
@@ -81,7 +92,8 @@ verdict is `VERIFICATION_GAP`; a later success cannot hide a callback crash by
 becoming a fresh anchor. Exact v1/v2 terminal rows satisfy this callback-debt
 check across an upgrade, but remain ineligible as v3 NAV/return predecessors.
 
-This is an equivalently strong per-session verification ledger: the namespace
+This is an immutable per-cycle verification ledger with one daily financial
+projection: the namespace
 and JSON `kind` are versioned, `cursor_name` is the primary key, the trading
 session is duplicated in the typed DATE column and validated on read, and the
 record contains a SHA-256 over its canonical evidence object.  A future physical
