@@ -1074,8 +1074,12 @@ class ProductionAutomation:
                     if hasattr(progress, "to_dict") else str(progress),
                 })
         except BaseException as exc:                          # noqa: BLE001
-            publication_wait = _publication_closing_wait(exc,
-                database_url=self.sentinel_config.database_url, cycle=cycle)
+            publication_wait = None
+            if (type(exc) is publication.CorpusLockUnavailable
+                    or (type(exc) is TransientInfrastructureFailure
+                        and type(exc.__cause__) is publication.CorpusLockUnavailable)):
+                publication_wait = _publication_closing_wait(exc,
+                    database_url=self.sentinel_config.database_url, cycle=cycle)
             if publication_wait is not None:
                 raise publication_wait from exc
             mapped = classify_dependency_failure(exc)
