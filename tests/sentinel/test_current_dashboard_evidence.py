@@ -6,7 +6,8 @@ import pytest
 
 from sentinel.panel import sources, model
 from test_panel import TestRuntimeRowsAreDurableFacts as RuntimeFixture
-from test_automation_store import conn, pg, enable
+from test_automation_store import enable
+from test_operational_catalog_integration import conn, cluster
 
 NOW = datetime(2026, 10, 11, tzinfo=timezone.utc)
 
@@ -162,44 +163,51 @@ def test_dual_runtime_broker_reader_does_not_consult_legacy_book(monkeypatch, mo
         assert rows[1].status == model.PENDING
 
 
-def test_real_sql_identity_changes_on_book_or_control_but_not_heartbeats(conn, pg):
-    from sentinel.feed.schema import DDL
+def test_real_sql_identity_changes_on_book_or_control_but_not_heartbeats(conn):
+    from sentinel import operational_schema
     from sentinel.panel.authority_reader import _evidence
     from sentinel.automation import store
     from sentinel.automation.model import AutomationConfig
-    for statement in DDL:
-        conn.execute(statement)
-    conn.commit()
-    before = _evidence(pg.sync_dsn, True)
+    operational_schema.install_quiescent(conn)
+    database_url = conn.info.dsn
+    before = _evidence(database_url, True)
     enable(conn, AutomationConfig())
-    enabled = _evidence(pg.sync_dsn, True)
+    enabled = _evidence(database_url, True)
     assert before != enabled
     permit = store.acquire_lease(conn, holder_id='fixture', lease_seconds=30)
     store.register_instance(conn, instance_id='fixture', state='WAITING', next_wake_at=None)
     store.heartbeat_lease(conn, permit=permit, lease_seconds=30)
-    assert _evidence(pg.sync_dsn, True) == enabled
+    assert _evidence(database_url, True) == enabled
     conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
                  "VALUES ('fixture-book','2026-10-09','{}'::jsonb)")
     conn.commit()
-    book = _evidence(pg.sync_dsn, True)
+    book = _evidence(database_url, True)
     assert book != enabled
     conn.execute("UPDATE sentinel_processed_sessions SET state=%s::jsonb "
                  "WHERE cursor_name='fixture-book'", ('{"changed":true}',))
     conn.commit()
-    assert _evidence(pg.sync_dsn, True) != book
+    updated = _evidence(database_url, True)
+    assert updated != book
+    conn.execute("DELETE FROM sentinel_processed_sessions WHERE cursor_name='fixture-book'")
+    conn.commit()
+    deleted = _evidence(database_url, True)
+    assert deleted != updated and deleted != enabled
     store.engage_kill(conn, actor='test', reason='test evidence invalidation')
-    assert _evidence(pg.sync_dsn, True) != book
+    assert _evidence(database_url, True) != deleted
 
 
-def test_removing_row_version_invalidation_is_detected(conn, pg, monkeypatch):
+def test_removing_row_version_invalidation_is_detected(conn, monkeypatch):
     import inspect
     import textwrap
-    from sentinel.panel import authority_reader
-    body = textwrap.dedent(inspect.getsource(authority_reader._evidence))
-    broken = body.replace('cursor_name,session,xmin::text,ctid::text', 'cursor_name,session')
-    assert broken != body
+    from sentinel.panel import read_projection
+    body = textwrap.dedent(inspect.getsource(read_projection._subject))
+    # Keep the installation's stable incarnation while removing the actual
+    # revision and row-version inputs, which now own constant-size invalidation.
+    guard = 'list(row),list(physical)'
+    assert body.count(guard) == 1
+    broken = body.replace(guard, '[row[0]],list(physical)', 1)
     namespace = {}
-    exec(compile(broken, 'missing-row-version-falsifier', 'exec'), authority_reader.__dict__, namespace)
-    monkeypatch.setattr(authority_reader, '_evidence', namespace['_evidence'])
+    exec(compile(broken, 'missing-row-version-falsifier', 'exec'), read_projection.__dict__, namespace)
+    monkeypatch.setattr(read_projection, '_subject', namespace['_subject'])
     with pytest.raises(AssertionError):
-        test_real_sql_identity_changes_on_book_or_control_but_not_heartbeats(conn, pg)
+        test_real_sql_identity_changes_on_book_or_control_but_not_heartbeats(conn)

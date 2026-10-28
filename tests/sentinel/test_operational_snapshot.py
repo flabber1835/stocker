@@ -1,5 +1,6 @@
 """Real PostgreSQL publication, receipt and visibility boundary tests."""
 from datetime import datetime, timezone
+import inspect
 
 import pytest
 
@@ -161,10 +162,23 @@ def test_receipt_work_cannot_outlive_publication_lease(conn, operational_source,
                      "WHERE job_id=%s", (job,))
     monkeypatch.setattr(publication, "_insert_receipted_publication", insert)
     job = enqueue(conn)
-    with pytest.raises(jobs.JobRefused, match="lease, fence or deadline"):
+    with pytest.raises(jobs.JobLeaseExpired,
+                       match="^worker lease expired; a fresh fenced claim is required$"):
         op.prepare(conn, job)
     assert count(conn, "sentinel_corpus_publications") == 0
     assert count(conn, "sentinel_publication_validation_receipts") == 0
+    assert count(conn, "sentinel_operational_snapshots") == 0
+
+
+def test_removing_post_receipt_lease_guard_is_detected(conn, operational_source, monkeypatch):
+    source = inspect.getsource(op.publish)
+    guard = "    jobs._owned(conn, lease)  # Receipt-chain work cannot extend the publication lease.\n"
+    assert source.count(guard) == 1
+    namespace = dict(vars(op))
+    exec(compile(source.replace(guard, ""), "<receipt-lease-falsifier>", "exec"), namespace)
+    monkeypatch.setattr(op, "publish", namespace["publish"])
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_receipt_work_cannot_outlive_publication_lease(conn, operational_source, monkeypatch)
 
 
 def test_lost_commit_acknowledgement_returns_original_publication(conn, operational_source, monkeypatch):
