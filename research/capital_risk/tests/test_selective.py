@@ -3,7 +3,7 @@ from pathlib import Path
 from fractions import Fraction as Q
 from datetime import date
 from unittest.mock import patch
-import ast,json,sys,unittest
+import ast,json,sys,unittest,tempfile,hashlib
 ROOT=Path(__file__).parents[1];sys.path.insert(0,str(ROOT))
 from selective_policy import step,retention
 import selective_job as job
@@ -89,5 +89,14 @@ class SelectiveRules(unittest.TestCase):
             text=inspect.getsource(prefix.fenced_inspect);broken=text.replace("|({'/qualified'} if qualified else set())",'')
             self.assertNotEqual(text,broken);scope=dict(prefix.__dict__);exec(compile(broken,'original-omitted-qualified-mount','exec'),scope)
             with self.assertRaisesRegex(ValueError,'MOUNTS'):scope['fenced_inspect'](name)
+
+    def test_canonical_source_uses_full_authenticated_tree_not_narrow_cp_list(self):
+        from selective_input import admitted_source_hash
+        with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
+            root=Path(tmp);book=root/'baseline-comparison';book.mkdir();source=root/'source-fixed/sentinel/breadth/classifier.py';source.parent.mkdir(parents=True);source.write_bytes(b'PURE SOURCE FIXTURE\n')
+            expected=hashlib.sha256(source.read_bytes()).hexdigest();rel='sentinel/breadth/classifier.py'
+            self.assertEqual(admitted_source_hash(book,{},rel),expected)
+            with self.assertRaises(ValueError):admitted_source_hash(book,{rel:'0'*64},rel)
+            with self.assertRaises(ValueError):admitted_source_hash(book,{},'not-staged.py')
 
 if __name__=='__main__':unittest.main()

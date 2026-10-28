@@ -9,11 +9,12 @@ def main():
     from stock_strategy_shared.wealth_core import terminal,shares
     from sentinel.breadth import classifier
     from selective_gate import run
+    from selective_input import admitted_source_hash
     cp=json.loads(gzip.decompress(Path('/frozen/baseline-comparison/checkpoint.json.gz').read_bytes()));sources=cp['base']['sources'];del cp
     bindings={}
     for m in (terminal,shares,classifier):
         p=Path(m.__file__);rel=str(p).removeprefix('/fixed/');h=hashlib.sha256(p.read_bytes()).hexdigest()
-        need(str(p).startswith('/fixed/') and sources[rel]==h,'PROOF_FROZEN_CANONICAL_SOURCE');bindings[rel]=h
+        need(str(p).startswith('/fixed/') and admitted_source_hash(Path('/frozen/baseline-comparison'),sources,rel)==h,'PROOF_FROZEN_CANONICAL_SOURCE');bindings[rel]=h
     out=Path('/out/proof');out.mkdir(exist_ok=False)
     result=run(dict(terminal=terminal,shares=shares,classifier=classifier),out/'composed-gate.json')
     try:Path('/qualified/forbidden-write').write_text('FORBIDDEN')

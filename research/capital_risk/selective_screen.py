@@ -91,7 +91,7 @@ def canonical_bindings(source):
     values={}
     for m in (terminal,shares,classifier,inspect.getmodule(classifier.is_available)):
         p=Path(m.__file__);need(str(p).startswith('/fixed/'),'REFUSED_P2_CANONICAL_LOCATION')
-        rel=str(p).removeprefix('/fixed/');h=hashlib.sha256(p.read_bytes()).hexdigest();need(h==source.frozen_sources[rel],'REFUSED_P2_CANONICAL_SOURCE');values[rel]=h
+        rel=str(p).removeprefix('/fixed/');h=hashlib.sha256(p.read_bytes()).hexdigest();need(h==source.source_hash(rel),'REFUSED_P2_CANONICAL_SOURCE');values[rel]=h
     return dict(terminal=terminal,shares=shares,classifier=classifier),values
 
 def main():

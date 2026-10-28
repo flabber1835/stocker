@@ -13,7 +13,15 @@ def lines(path):
     with Path(path).open('rb') as stream:
         for raw in stream:yield json.loads(raw)
 
+def admitted_source_hash(root,economic_sources,relative):
+    # The authenticated staged tree has514 files; the original account CP lists222.
+    staged=Path(root).parent/'source-fixed'/relative
+    need(staged.is_file(),'REFUSED_UNSTAGED_CANONICAL_SOURCE');actual=sha(staged)
+    if relative in economic_sources:need(economic_sources[relative]==actual,'REFUSED_ECONOMIC_SOURCE_DISAGREEMENT')
+    return actual
+
 class Source:
+    def source_hash(self,relative):return admitted_source_hash(self.root,self.frozen_sources,relative)
     def __init__(self,root,bundle,qualified,output):
         self.root=Path(root);self.bundle=Path(bundle);self.qualified=Path(qualified)
         cp=json.loads(gzip.decompress((self.root/'checkpoint.json.gz').read_bytes()))

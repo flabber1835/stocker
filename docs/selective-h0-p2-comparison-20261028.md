@@ -137,3 +137,14 @@ the financial request or start a fresh financial book under the earlier approval
 After actual proof and a concrete incident report, a fresh historical run requires
 a direct owner decision because exact continuation is unavailable. Preserve the
 UNKNOWN result; the launcher correction cannot recover lost financial evidence.
+
+Synthetic proof40715977283/b1c93d6a actually proved the corrected launcher can
+save/export its stopped1/noOOM receipt; artifact12827962919 authenticated all5
+members/65driver blobs. It then refused before component cases because the proof
+looked up classifier.py in the account checkpoint's222-source economic list.
+The separately authenticated staged input tree contains514source files and does
+include the exact classifier.py and returns.py bytes. Match each loaded canonical
+module to that read-only staged source, and ALSO to the checkpoint hash when the
+module is listed there. Missing stage files or conflicting economic hashes still
+refuse. This corrects an authority-selection error without changing canonical
+source, financial rules or P2 parameters. Preserve the original proof refusal.
