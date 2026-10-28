@@ -1,0 +1,21 @@
+{
+  "schema": "research.owned55-entry-request/1",
+  "request_id": "owned55-entry-gate-001",
+  "stage": "entry-gate-screen",
+  "arms": [
+    "B",
+    "E75"
+  ],
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "contract_sha256": "225ef700edf811694bae817fc582971deb1006b2cf7e788dacd81e37a1582c4c",
+  "source_bindings": {
+    "entry_gate_policy.py": "eb0b18262e67991ba320700a4491af222dd05facfa76631e96877cc9be3fa537",
+    "entry_gate_screen.py": "c589782df2a7f709faca5621ee85cb18032f297406bf001d02bcaef08364b0d5",
+    "entry_gate_job.py": "ce4b5ffea6d68e31ba70f6cd54fea7dc1b268bf308970155e3089791705a2190",
+    "weighted_account_adapter.py": "c32c6a72696a9d559610afc27406b9eae428037c6b5a49446b6fb8d379e9fd33",
+    "trace_screen.py": "8fdf5bcdc721e9bf30d336156cd6c016186450c2acce08d1111b8bcfadde38e4",
+    "baseline_prefix.py": "d4520a58d826f9f84aa30ff3fc1bbe02d6644ebdca38d0a3f5e6e9d51f8fd1dd",
+    "screen_job.py": "94215aaf9cdaaa67c63a5827ba38e99a43983a9d1f882df278eed71e6e560406"
+  },
+  "owner_scope": "ONE_20_MINUTE_ENTRY_GATE_COMPARISON_ONLY"
+}
