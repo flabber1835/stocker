@@ -1,0 +1,15 @@
+{
+  "schema": "research.holding-qualification-request/1",
+  "id": "holding-account-qualification-001",
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "qualification_protocol_sha256": "2324c29b02aecb771f61c8101521a5bed5fac7094932245ea6e1bc92f6e74535",
+  "sources": {
+    "holding_account.py": "dba92c11eb932a46b9c2e60fe198978398e01ad98354aec8d52908c956a26c8f",
+    "holding_identity.py": "08f2320df5442b4201239d512034547413746391b2b1899090793e033e55b38a",
+    "holding_qualification.py": "a80a41a78a595e782398b19350f37f53e399ff849ad44bf78996706c49cc9840",
+    "holding_job.py": "8820d44a7149610c69edcfa91f834cb4771140fbaca44170035ef3eb6a61cda5",
+    "baseline_prefix.py": "f950e86489ce427622371ac03ec9082998f277ca327fc24f7b3132c372583992",
+    "screen_job.py": "d3d50271ac7375a59f56663efb253b67ac5e618c056c0a7ae2bc87b87c16e8bf"
+  },
+  "owner_scope": "ONE_BOUNDED_QUALIFICATION_NO_PERFORMANCE_TRIAL"
+}

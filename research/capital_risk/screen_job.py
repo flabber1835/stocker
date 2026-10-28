@@ -30,6 +30,7 @@ def validate_request(value, protocol):
 
 def encrypt(root, asset, key, contract, *, arm='BG',stage='quick-screen'):
     if (arm,stage) not in {('BG','quick-screen'),('CORE_GATE','core-integration'),
+            ('HOLDING_QUAL','holding-qualification'),
             ('BE75','entry-gate-screen'),
             ('BR','weighted-screen'),
             ('B','timing-pilot'),

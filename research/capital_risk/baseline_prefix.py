@@ -62,6 +62,8 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
 
 
 def worker_stage(name):
+    if re.fullmatch(r"capital-risk-holding-qual-[0-9]+-[0-9]+",name):
+        return "holding-qualification"
     if re.fullmatch(r"capital-risk-entry75-[0-9]+-[0-9]+",name):
         return "entry-gate-screen"
     if re.fullmatch(r"capital-risk-br-suffix-[0-9]+-[0-9]+",name):
@@ -87,6 +89,7 @@ def worker_stage(name):
 
 def worker_arm(name):
     stage=worker_stage(name)
+    if stage=="holding-qualification":return "HOLDING_QUAL"
     if stage=="entry-gate-screen":return "BE75"
     if stage in {'weighted-screen','weighted-suffix'}:return 'BR'
     if stage=='timing-pilot':return 'B'
