@@ -3,52 +3,12 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from sentinel.panel import model
-from sentinel.paper_plan_preview import PlanPreview, PlannedLeg, quantity
+from sentinel.paper_plan_preview import project_original_intent, quantity
 
 
 def project_run(plan, authority, commands):
     """Recover original proposed deltas from their immutable sizing snapshot."""
-    if (authority['plan_id'] != plan['plan_id']
-            or authority['plan_fingerprint'] != plan['plan_fingerprint']):
-        raise ValueError('current trading run and sizing authority disagree')
-    observation = authority['broker_observation']
-    if (observation['completeness'] != 'COMPLETE'
-            or observation['account_identity']['account_id'] != plan['broker_account_id']
-            or observation['account_identity']['broker'] != plan['broker']):
-        raise ValueError('original trading-run snapshot has wrong account authority')
-    baseline = {}
-    for position in observation['positions']:
-        sid = position['instrument']['security_id']
-        if sid in baseline:
-            raise ValueError('duplicate original position')
-        baseline[sid] = quantity(position['quantity'])
-    targets = {sid: quantity(value) for sid, value in plan['target_basket'].items()}
-    if len(set(baseline) | set(targets)) > 100:
-        raise ValueError('trading-run holdings exceed display bounds')
-    openings = {}
-    reserved_slots = set()
-    for item in plan.get('opening_intents', []):
-        sid, slot = item['security_id'], item['slot_id']
-        dollars = quantity(item['intended_dollars'])
-        if (sid in openings or sid not in targets or targets[sid] != 0
-                or baseline.get(sid,Decimal(0)) != 0 or dollars <= 0
-                or type(slot) is not int or not 0<=slot<20 or slot in reserved_slots):
-            raise ValueError('current trading run has contradictory opening intents')
-        openings[sid] = dollars
-        reserved_slots.add(slot)
-    legs = []
-    for sid in sorted(set(baseline) | set(targets)):
-        current, target = baseline.get(sid, Decimal(0)), targets.get(sid, Decimal(0))
-        delta = target-current
-        dollars = openings.get(sid)
-        legs.append(PlannedLeg(security_id=sid, ticker=authority['tickers'].get(sid, sid),
-            current_quantity=current, target_quantity=target,
-            change_quantity=None if dollars else delta, opening_dollars=dollars,
-            action='BUY' if dollars or delta>0 else 'SELL' if delta<0 else 'HOLD'))
-    intent = PlanPreview(cycle_id=plan['cycle_id'], plan_id=plan['plan_id'],
-        decision_session=plan['decision_session'], effective_session=plan['effective_session'],
-        execute_at=plan['execute_at'], created_at=plan['created_at'],
-        observation_at=observation['observed_at'], legs=legs)
+    intent = project_original_intent(plan,authority)
     orders = [model.RunOrder(**item) for item in commands]
     return model.TradingRun(intent=intent, state=plan['state'],
         updated_at=plan['updated_at'], completed_at=plan['completed_at'], orders=orders)

@@ -5,6 +5,8 @@ administration.  Its callbacks are supplied by the separately guarded runtime.
 """
 from __future__ import annotations
 
+from contextlib import closing
+
 import asyncio
 import ctypes
 import hashlib
@@ -31,6 +33,7 @@ from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
     CallbackDeadlineExceeded,
+    ClosingDataPending,
     CycleContext,
     CycleRecord,
     CycleSpec,
@@ -108,6 +111,7 @@ class _CallbackOutcome:
 _CHILD_EXCEPTION_TYPES = {
     (cls.__module__, cls.__qualname__): cls for cls in (
         CallbackDeadlineExceeded,
+        ClosingDataPending,
         DataIntegrityFailure,
         HumanInterventionRequired,
         NonRetryableCallbackRefused,
@@ -137,7 +141,7 @@ def _reviewed_child_exception_type(
         return exact
     matches = tuple(
         candidate for candidate in _CHILD_EXCEPTION_TYPES.values()
-        if isinstance(exc, candidate))
+        if candidate is not ClosingDataPending and isinstance(exc, candidate))
     if not matches:
         return None
     mro = actual.__mro__
@@ -203,6 +207,10 @@ def _callback_child(
             "reviewed": reviewed_class is not None,
             "failure_domain": _failure_domain(exc),
             "retry_after_seconds": getattr(exc, "retry_after_seconds", 0),
+            "publisher_deadline_at": (exc.publisher_deadline_at
+                if type(exc) is ClosingDataPending else None),
+            "worker_deadline_at": (exc.worker_deadline_at
+                if type(exc) is ClosingDataPending else None),
         }
     try:
         channel.send_bytes(json.dumps(
@@ -247,7 +255,23 @@ def _decode_child_callback(payload: bytes):
         raise KeyboardInterrupt(detail)
     trusted = _CHILD_EXCEPTION_TYPES.get((module, qualname))
     if bool(envelope.get("reviewed")) and trusted is not None:
-        decoded = trusted(detail)
+        if trusted is ClosingDataPending:
+            deadlines = {}
+            for field in ('publisher_deadline_at', 'worker_deadline_at'):
+                raw_deadline = envelope.get(field)
+                try:
+                    if raw_deadline is not None and not isinstance(raw_deadline, str):
+                        raise ValueError('deadline is not an ISO clock')
+                    value = datetime.fromisoformat(raw_deadline) if raw_deadline is not None else None
+                    if value is not None and value.utcoffset() is None:
+                        raise ValueError('deadline is not aware')
+                    deadlines[field] = value
+                except (TypeError, ValueError) as exc:
+                    name = field.removesuffix('_at').replace('_', ' ')
+                    raise SoftwareDefect(f'callback child returned an invalid {name}') from exc
+            decoded = trusted(detail, **deadlines)
+        else:
+            decoded = trusted(detail)
         if isinstance(decoded, TransientInfrastructureFailure):
             delay = envelope.get("retry_after_seconds", 0)
             if type(delay) not in (int, float) or not math.isfinite(delay) or delay < 0:
@@ -428,15 +452,19 @@ class AutomationService:
             self, *, now: datetime, conn_factory,
             clock: Callable[[], datetime] | None = None) -> datetime:
         """Bind host scheduling time to fresh PostgreSQL wall time."""
-        clock_conn = conn_factory()
+        from sentinel.dependency_availability import database_unavailable
         try:
-            outer_start = time.monotonic()
-            before = _utc(clock()) if clock is not None else now
-            query_start = time.monotonic()
-            database_now = _utc(integrity.database_now(clock_conn))
-            query_end = time.monotonic()
-        finally:
-            clock_conn.close()
+            with closing(conn_factory()) as clock_conn:
+                outer_start = time.monotonic()
+                before = _utc(clock()) if clock is not None else now
+                query_start = time.monotonic()
+                database_now = _utc(integrity.database_now(clock_conn))
+                query_end = time.monotonic()
+        except Exception as exc:
+            if database_unavailable(exc):
+                raise TransientInfrastructureFailure(
+                    'fresh database clock unavailable: ' + type(exc).__name__) from exc
+            raise
         after = _utc(clock()) if clock is not None else now
         outer_end = time.monotonic()
         limit = float(self.config.maximum_clock_skew_seconds)
@@ -598,6 +626,13 @@ class AutomationService:
         }
         if not terminal:
             diagnostic["notifier_action"] = TickAction.RETRY_SCHEDULED.value
+        if not terminal and phase == 'REFRESH' and type(exc) is ClosingDataPending:
+            from sentinel.automation.closing_data_notifications import marker
+            closing_wait = marker(cycle=cycle, observed_at=now, next_retry_at=retry_at,
+                publisher_deadline_at=exc.publisher_deadline_at,
+                worker_deadline_at=exc.worker_deadline_at)
+            if closing_wait is not None:
+                diagnostic['closing_data_wait'] = closing_wait
         changes = {
             "next_wake_at": retry_at,
             "failure_code": type(exc).__name__,
@@ -1764,7 +1799,16 @@ class AutomationService:
         ticks = 0
         idle_permit: LeaderPermit | None = None
         while not stop.is_set() and (max_ticks is None or ticks < max_ticks):
-            conn = conn_factory()
+            try:
+                conn = conn_factory()
+            except Exception as exc:
+                from sentinel.dependency_availability import database_unavailable
+                if not database_unavailable(exc):
+                    raise
+                idle_permit = None
+                await sleep(min(self.config.heartbeat_seconds,
+                                self.config.control_poll_seconds))
+                continue
             try:
                 now = _utc(clock())
                 try:

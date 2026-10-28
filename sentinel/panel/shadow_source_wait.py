@@ -1,6 +1,8 @@
 """Historical display evidence for one typed missing source frontier; no GO."""
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sentinel.feed import calendar
@@ -16,6 +18,78 @@ class SourceWait:
     decision_session: str
     attested_at: datetime
     deadline: datetime
+
+
+def preparation_rows(proof, *, include_paper):
+    """Positive operational proof gives unavailable current values, never GO."""
+    from sentinel.panel import model
+    if (getattr(proof, 'quiet_eligible', False) is not True
+            or proof.phase not in {'AWAITING_SHADOW', 'AWAITING_ATTESTATION'}
+            or proof.worker_deadline is None or not proof.observed_at < proof.deadline):
+        raise ValueError('current authenticated shadow preparation proof is required')
+    labels = ({'paper_reconciliation': 'Alpaca PAPER mirror'} if include_paper else {
+        'shadow_verification': 'Certified shadow strategy',
+        'shadow_nav': 'Certified shadow NAV', 'shadow_return': 'Certified strategy return',
+        'exposure': 'Exposure', 'book': 'Book', 'terminals': 'Terminals'})
+    detail = (
+        f'Closing data for {proof.decision_session} is published as version '
+        f'{proof.publication_version}; its strategy attestation is still pending. '
+        f'Last verified strategy session: {proof.previous_session} '
+        f'(publication {proof.previous_publication_version}). '
+        'Current portfolio verification, values and holdings are unavailable. '
+        f'Original publisher deadline {proof.publisher_deadline.isoformat()}; '
+        f'original worker deadline {proof.worker_deadline.isoformat()}.')
+    return [model.Row(key, label,
+        f'WAITING FOR {proof.decision_session} STRATEGY ATTESTATION', model.WARN, detail,
+        as_of=proof.observed_at, required_current=True, valid_until=proof.deadline,
+        recovery=model.RecoveryEvidence(phase='SHADOW_ATTESTATION', automatic=True,
+                                        deadline=proof.deadline))
+        for key, label in labels.items()]
+
+
+def observe_preparation(database_url, include_paper, expected_key):
+    """Background verifier only: reuse the canonical preparation observer.
+
+    Its ordinary-current fast path avoids a second full authenticated closure.
+    No panel HTTP request calls this observer or promotes its result to GO.
+    """
+    from sentinel.panel import observer_codec, read_projection
+    if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual', 'shadow'}:
+        return None
+    if read_projection.subject_for(database_url, include_paper) != expected_key:
+        raise ValueError('shadow preparation subject changed before observation')
+    conn, proof = None, None
+    try:
+        from sentinel import prepare_shadow_wait
+        from sentinel.feed import store
+        conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
+        proof = prepare_shadow_wait.observe(
+            conn, decision_session=calendar.latest_closed_session(datetime.now(timezone.utc)),
+            observation_id=os.environ.get('SENTINEL_SHADOW_OBSERVATION_ID', 'primary').strip(),
+            starting_cash=os.environ.get('SENTINEL_SHADOW_STARTING_CASH', '50000').strip(),
+            state_dir=Path(os.environ.get('SENTINEL_STATE_DIR', '/var/lib/sentinel')),
+            database_url=database_url)
+    except Exception:
+        # Absence or unreadability retains the ordinary canonical financial
+        # observation, including all unrelated integrity failures.
+        proof = None
+    finally:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                proof = None
+            try:
+                conn.close()
+            except Exception:
+                proof = None
+    if proof is None or getattr(proof, 'quiet_eligible', False) is not True:
+        return None
+    result = observer_codec.pack(preparation_rows(proof, include_paper=include_paper), [],
+                                 observed_at=proof.observed_at)
+    if read_projection.subject_for(database_url, include_paper) != expected_key:
+        raise ValueError('shadow preparation subject changed during observation')
+    return result
 
 
 def read(conn, refusal, *, observation_id, starting_cash, now):

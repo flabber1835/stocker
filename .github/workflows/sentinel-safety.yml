@@ -280,11 +280,11 @@ jobs:
     name: sentinel-suite-${{ matrix.lane }}
     needs: [qualification-source, runtime-build]
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.lane == 'sentinel-warmup' && 90 || (startsWith(matrix.lane, 'sentinel-rolling-') || startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}
+    timeout-minutes: ${{ matrix.lane == 'sentinel-warmup' && 90 || (startsWith(matrix.lane, 'sentinel-rolling-') || startsWith(matrix.lane, 'sentinel-general-') || startsWith(matrix.lane, 'sentinel-current-')) && 60 || 45 }}
     strategy:
       fail-fast: false
       matrix:
-        lane: [sentinel-general-0, sentinel-general-1, sentinel-general-2, sentinel-general-3, sentinel-rolling-0, sentinel-rolling-1, sentinel-rolling-2, sentinel-rolling-3, sentinel-contention, sentinel-status, sentinel-warmup, sentinel-automation, champion, operator, wealth-core, mutations]
+        lane: [sentinel-general-0, sentinel-general-1, sentinel-general-2, sentinel-general-3, sentinel-general-4, sentinel-general-5, sentinel-general-6, sentinel-general-7, sentinel-rolling-0, sentinel-rolling-1, sentinel-rolling-2, sentinel-rolling-3, sentinel-current-workflow, sentinel-current-process-recovery, sentinel-contention, sentinel-status, sentinel-warmup, sentinel-automation, champion, operator, wealth-core, mutations]
     env:
       TESTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
@@ -349,6 +349,21 @@ jobs:
             -v /tmp/sentinel-lane-evidence:/evidence \
             sentinel-test:ci tests/sentinel/test_runtime_contention.py -vv -ra \
             --junitxml=/evidence/sentinel-contention.xml \
+            2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
+
+      - name: Run one complete current-profile composition module
+        if: ${{ startsWith(matrix.lane, 'sentinel-current-') }}
+        env:
+          CI_LANE: ${{ matrix.lane }}
+        run: |
+          set -euo pipefail
+          python tools/sentinel_ci_shards.py --lane "$CI_LANE" > /tmp/sentinel-ci-modules
+          mapfile -t modules < /tmp/sentinel-ci-modules
+          test "${#modules[@]}" -eq 1
+          docker run --rm --network none \
+            -v /tmp/sentinel-lane-evidence:/evidence \
+            sentinel-test:ci "${modules[@]}" -vv -ra \
+            --junitxml="/evidence/${CI_LANE}.xml" \
             2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
 
       - name: Run independent Sentinel status and memory tests

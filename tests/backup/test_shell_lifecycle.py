@@ -49,7 +49,8 @@ class ShellLab:
         package = self.repo / "sentinel"
         package.mkdir()
         (package / "__init__.py").write_text("")
-        shutil.copy2(ROOT / "sentinel" / "backup_archive_names.py", package)
+        from sentinel import backup_archive_names
+        shutil.copy2(Path(backup_archive_names.__file__), package)
         # Separate mount-validation tests execute the real backup library.
         (self.scripts / "sentinel-backup-lib.sh").write_text(
             'sentinel_backup_root() { printf "%s\\n" "$BACKUP_LAB_ROOT/media"; }\n')

@@ -147,6 +147,25 @@ def publish(conn, *, owner_id, value, signature):
         (value['scope'],value['subject_sha256'],value['observed_at'],value['valid_until'],json.dumps(value),signature))
 
 
+def changed_subject_wait(conn, row, *, scope, now):
+    """A changed input is checking, never a renewal of its old financial proof."""
+    rows, _, _, errors = decode(row[3],row[4],current_subject=row[0],scope=scope,now=now)
+    if errors or any(item.status in {model.FAIL,model.UNKNOWN}
+                    or item.paper_alignment=='PRIOR_CYCLE_FAILED' for item in rows):
+        return None
+    owner = conn.execute(f'SELECT expires_at FROM {schema.OWNER} WHERE id=1').fetchone()
+    if owner is None:
+        return None
+    heartbeat = owner[0]-timedelta(seconds=610)
+    if not now-timedelta(seconds=45) <= heartbeat <= now+timedelta(seconds=5):
+        return None
+    result = financial._unknown(scope=='PAPER',
+        'account or verification inputs changed; waiting for the current bounded check',
+        rows,checking_until=row[2])
+    selected = PAPER_KEYS if scope=='PAPER' else SHADOW_KEYS
+    return [item for item in result[0] if item.key in selected], {}, [], result[3]
+
+
 def read(database_url, *, include_paper=True, now=None):
     """HTTP consumes bounded receipts; it cannot spawn a financial observer."""
     from sentinel.feed import store
@@ -161,8 +180,14 @@ def read(database_url, *, include_paper=True, now=None):
             try:
                 key = _subject(conn, database_url, scope)
                 row = conn.execute(f'SELECT subject_sha256,observed_at,valid_until,envelope,signature FROM {schema.RECEIPTS} WHERE scope=%s', (scope,)).fetchone()
-                if (row is None or row[0] != key or row[1].isoformat() != row[3].get('observed_at')
+                if (row is None or row[1].isoformat() != row[3].get('observed_at')
                         or row[2].isoformat() != row[3].get('valid_until')):
+                    raise ValueError('current verification receipt unavailable')
+                if row[0] != key:
+                    waiting = changed_subject_wait(conn,row,scope=scope,now=instant)
+                    if waiting is not None:
+                        results.append(waiting)
+                        continue
                     raise ValueError('current verification receipt unavailable')
                 result = decode(row[3], row[4], current_subject=key, scope=scope, now=instant)
             except (ValueError,TypeError,KeyError,OverflowError) as exc:

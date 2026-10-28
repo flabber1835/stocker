@@ -22,12 +22,13 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.presentation import describe
+from sentinel.panel.presentation import describe, is_closing_data_preparation
 from sentinel.panel.overview import overview_html
 from sentinel.panel.styles import CSS
 
 from sentinel.panel.model import (
-    FAIL, OK, PENDING, TRIAL_ROW_KEYS, UNKNOWN, WARN, Panel, Row)
+    FAIL, OK, OPERATIONAL_INFORMATIONAL_ROW_KEYS, PENDING, TRIAL_ROW_KEYS,
+    UNKNOWN, WARN, Panel, Row)
 
 #: Refresh cadence. Long enough not to hammer the database from a phone left on
 #: a desk, short enough that a stalled ingest is visible within a coffee.
@@ -505,6 +506,20 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         if (broker is not None and broker.effective_status(now)==WARN
                 and broker.recovery is not None and broker.recovery.phase=='BROKER_FILL_SNAPSHOT'):
             compact_headline = 'Reconciling fills'
+        elif not panel.source_errors and all(
+                row.effective_status(now) not in {FAIL, UNKNOWN} for row in panel.rows):
+            warnings = [row for row in panel.rows
+                        if row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
+                        and row.effective_status(now) == WARN]
+            source_wait = any(is_closing_data_preparation(row, WARN)
+                              and row.recovery.phase in {
+                                  'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
+                                  'SHADOW_ATTESTATION'}
+                              for row in warnings)
+            if source_wait and all(is_closing_data_preparation(row, WARN) for row in warnings):
+                compact_headline = ('Preparing strategy verification'
+                    if any(row.recovery.phase == 'SHADOW_ATTESTATION' for row in warnings)
+                    else 'Preparing closing data')
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">

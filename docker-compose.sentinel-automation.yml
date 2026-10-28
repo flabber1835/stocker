@@ -115,6 +115,8 @@ services:
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "sentinel.automation_supervisor"]
+    volumes:
+      - sentinel_state:/var/lib/sentinel:ro
     environment:
       <<: *sentinel-authorized-environment
       SENTINEL_FEED_AUTHORIZED: DEPLOYED_REVIEWED_IMAGE_V1

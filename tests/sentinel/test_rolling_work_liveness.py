@@ -94,7 +94,24 @@ def test_real_work_renews_only_live_owned_job(conn, issuer_source, monkeypatch, 
     else:
         # The scheduled route invokes _prepare with wait=False through the same publisher.
         run = lambda: inputs._prepare(conn, target_session="2026-09-14", budget_seconds=budget)
-    if fault:
+    expired=[]
+    heartbeat=jobs.heartbeat
+    def observed_heartbeat(connection,lease,**kwargs):
+        try:return heartbeat(connection,lease,**kwargs)
+        except jobs.JobLeaseExpired:
+            expired.append(lease.fence)
+            raise
+    monkeypatch.setattr(jobs,'heartbeat',observed_heartbeat)
+    if fault=='stall':
+        # The old permit must still refuse. The foreground driver may then
+        # roll back and obtain a fresh fence within the same fixed deadline.
+        result=run()
+        assert result['status']=='PUBLISHED' and expired
+        state=jobs.status(conn,result['job_id'])
+        assert state['fence']>max(expired)
+        assert datetime.fromisoformat(state['deadline'])==initial+timedelta(seconds=budget)
+        assert conn.execute('SELECT COUNT(*) FROM sentinel_corpus_publications').fetchone()[0]==1
+    elif fault:
         with pytest.raises(jobs.JobDeadlineExceeded if fault == "deadline" else jobs.JobRefused):
             run()
         assert conn.execute("SELECT COUNT(*) FROM sentinel_corpus_publications").fetchone()[0] == 0
@@ -120,3 +137,65 @@ def test_nested_work_scope_restores_previous_owner_and_cleans_up():
         rolling_work.checkpoint()
     rolling_work.checkpoint()
     assert seen == ["outer", "inner", "outer", "outer"]
+
+
+@pytest.mark.parametrize('fault',[None,'deadline','expired_lease','fence'])
+def test_normalized_benchmark_work_keeps_only_live_owned_lease(conn,monkeypatch,fault):
+    from types import SimpleNamespace
+    from sentinel.feed import normalized_layout as layout
+    from sentinel.feed.rolling_contract import PriceWindow
+    schema.ensure_schema(conn)
+    initial=conn.execute('SELECT clock_timestamp()').fetchone()[0]
+    conn.commit()
+    elapsed=[0]
+    class ClockCursor(psycopg.Cursor):
+        def execute(self,query,params=None,**kwargs):
+            if isinstance(query,str) and not query.lstrip().startswith(('CREATE','ALTER','DROP')):
+                stamp=(initial+timedelta(seconds=elapsed[0])).isoformat()
+                query=query.replace('clock_timestamp()',"'%s'::timestamptz"%stamp)
+            return super().execute(query,params,**kwargs)
+    conn.cursor_factory=ClockCursor
+    request=jobs.PreparationRequest(window=PriceWindow.through('2026-09-14'),
+        strategy_sha256='a'*64,dependencies_sha256='b'*64)
+    budget=900 if fault=='deadline' else 2400
+    job=jobs.enqueue(conn,request,budget_seconds=budget)
+    lease=jobs.claim(conn,job,lease_seconds=600)
+    conn.commit()
+    deadline=jobs.status(conn,job)['deadline']
+    writer=object.__new__(layout.SessionBlockWriter)
+    def store_block(*args):
+        elapsed[0]+=601 if fault=='expired_lease' else 200
+        if fault=='fence':conn.execute('UPDATE sentinel_snapshot_jobs SET fence=fence+1 WHERE job_id=%s',(job,))
+    writer._store=store_block
+    def run():
+        with rolling_work.renewing(lambda:jobs.heartbeat(conn,lease,lease_seconds=600)):
+            writer.write_benchmarks([SimpleNamespace(session=str(day)) for day in request.window.sessions[:5]])
+    if fault:
+        expected=jobs.JobDeadlineExceeded if fault=='deadline' else jobs.JobLeaseExpired if fault=='expired_lease' else jobs.JobRefused
+        with pytest.raises(expected) as raised:run()
+        if fault=='fence':assert not isinstance(raised.value,jobs.JobWaiting)
+    else:
+        run()
+        assert elapsed[0]==1000
+        jobs._owned(conn,lease)
+    assert jobs.status(conn,job)['deadline']==deadline
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_corpus_publications').fetchone()[0]==0
+
+
+def test_missing_benchmark_checkpoints_is_detected(conn,monkeypatch):
+    import inspect,textwrap
+    from sentinel.feed import normalized_layout as layout
+    raw=textwrap.dedent(inspect.getsource(layout.SessionBlockWriter.write_benchmarks))
+    assert raw.count('rolling_work.checkpoint()')==2
+    namespace={}
+    exec(compile(raw.replace('rolling_work.checkpoint()','pass'),
+        '<benchmark-lease-falsifier>','exec'),layout.__dict__,namespace)
+    monkeypatch.setattr(layout.SessionBlockWriter,'write_benchmarks',namespace['write_benchmarks'])
+    with pytest.raises(jobs.JobLeaseExpired):
+        test_normalized_benchmark_work_keeps_only_live_owned_lease(conn,monkeypatch,None)
+
+
+def test_only_lease_expiry_is_availability_not_unknown_owner_or_fence():
+    from sentinel import shadow_worker
+    assert shadow_worker._availability_failure(jobs.JobLeaseExpired('same owner expired'))
+    assert not shadow_worker._availability_failure(jobs.JobRefused('foreign owner or fence'))

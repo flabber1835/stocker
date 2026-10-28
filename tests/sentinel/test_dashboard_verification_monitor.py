@@ -10,8 +10,10 @@ import time
 
 import pytest
 
-from sentinel.panel import authority_reader as reader, verification_monitor as monitoring, model
+from sentinel.panel import authority_reader as reader, model
+from tests.support import legacy_panel_monitor as monitoring
 from sentinel import receipt_authentication
+from sentinel.retained_input_namespaces import PAPER_CURSOR_NAMES, PAPER_CURSOR_PREFIXES
 from tests.sentinel.test_supervisor_dependency_bounds import pg, conn
 import ast
 import inspect
@@ -20,7 +22,8 @@ from types import SimpleNamespace
 from sentinel.automation import health
 from sentinel.execution import journal
 from sentinel.execution.plan import ExecutionPlan
-from sentinel.panel import authority_reader, sources, verification_monitor
+from sentinel.panel import authority_reader, sources
+from tests.support import legacy_panel_monitor as verification_monitor
 
 
 def answer(paper=False, at=None):
@@ -43,7 +46,7 @@ def wait(predicate):
 
 def test_monitor_refreshes_several_lifetimes_without_http_and_serializes_jobs(monkeypatch):
     clock=[0.0]; origin=datetime.now(timezone.utc); calls=[]; active=[0]; peak=[0]; lock=Lock()
-    monkeypatch.setattr(reader,'_evidence',lambda *a:'f'*64)
+    monkeypatch.setattr(monitoring,'evidence',lambda *a:'f'*64)
     monkeypatch.setattr(monitoring,'shadow_evidence',lambda *a:'e'*64)
     def run(fn,*args,**kwargs):
         with lock: active[0]+=1; peak[0]=max(peak[0],active[0])
@@ -82,23 +85,23 @@ def test_shadow_identity_excludes_control_polling_on_actual_postgres(conn,monkey
     schema.ensure_schema(conn); store.migrate_schema(conn)
     dsn=conn.info.dsn
     before=monitoring.shadow_evidence(dsn)
-    paper=reader._evidence(dsn,True)
+    paper=monitoring.evidence(dsn,True)
     conn.execute('UPDATE sentinel_automation_control SET generation=generation+1 WHERE id=1');conn.commit()
     assert monitoring.shadow_evidence(dsn)==before
-    assert reader._evidence(dsn,True)!=paper
+    assert monitoring.evidence(dsn,True)!=paper
     from sentinel import informational_paper_mirror
-    paper=reader._evidence(dsn,True)
+    paper=monitoring.evidence(dsn,True)
     conn.execute('INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES (%s,%s,%s::jsonb)',
         (informational_paper_mirror.CURSOR_PREFIX+'qualification','2026-10-09','{}'));conn.commit()
     assert monitoring.shadow_evidence(dsn)==before
-    assert reader._evidence(dsn,True)!=paper
+    assert monitoring.evidence(dsn,True)!=paper
     # A real annotation dependency still invalidates independent shadow proof.
     conn.execute("UPDATE sentinel_rollout_state SET version=version+1 WHERE id=1");conn.commit()
     assert monitoring.shadow_evidence(dsn)!=before
 
 
 def test_reintroducing_combined_key_fails_independence(conn,monkeypatch):
-    monkeypatch.setattr(monitoring,'shadow_evidence',lambda d,*a:reader._evidence(d,True))
+    monkeypatch.setattr(monitoring,'shadow_evidence',lambda d,*a:monitoring.evidence(d,True))
     with pytest.raises(AssertionError):
         test_shadow_identity_excludes_control_polling_on_actual_postgres(conn,monkeypatch)
 
@@ -124,22 +127,22 @@ def test_actual_broker_owned_cursors_never_reset_shadow_proof(conn,owner,constan
     from sentinel import schema
     from sentinel.feed import store
     namespace=getattr(importlib.import_module(owner),constant)
-    assert namespace in (reader.PAPER_CURSOR_NAMES if exact else reader.PAPER_CURSOR_PREFIXES)
+    assert namespace in (PAPER_CURSOR_NAMES if exact else PAPER_CURSOR_PREFIXES)
     schema.ensure_schema(conn);store.migrate_schema(conn)
-    dsn=conn.info.dsn;before=monitoring.shadow_evidence(dsn);paper=reader._evidence(dsn,True)
+    dsn=conn.info.dsn;before=monitoring.shadow_evidence(dsn);paper=monitoring.evidence(dsn,True)
     cursor=namespace if exact else namespace+'qualification'
     for state in ('{}','{"updated":true}'):
         conn.execute('INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES (%s,%s,%s::jsonb) '
             'ON CONFLICT(cursor_name) DO UPDATE SET state=EXCLUDED.state',
             (cursor,'2026-10-09',state));conn.commit()
         assert monitoring.shadow_evidence(dsn)==before
-        latest=reader._evidence(dsn,True);assert latest!=paper;paper=latest
+        latest=monitoring.evidence(dsn,True);assert latest!=paper;paper=latest
     conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES ('unrecognized-economic-cursor','2026-10-09','{}')");conn.commit()
     assert monitoring.shadow_evidence(dsn)!=before
 
 
 def test_removing_broker_namespace_partition_fails_independence(conn,monkeypatch):
-    monkeypatch.setattr(monitoring,'shadow_evidence',lambda d,*a:reader._evidence(d,True))
+    monkeypatch.setattr(monitoring,'shadow_evidence',lambda d,*a:monitoring.evidence(d,True))
     with pytest.raises(AssertionError):
         test_actual_broker_owned_cursors_never_reset_shadow_proof(
             conn,'sentinel.execution.alpaca','_OBSERVATION_PREFIX',False)
@@ -384,7 +387,7 @@ def test_observer_and_cached_reader_preserve_execution_boundary(ready, monkeypat
     monkeypatch.setattr(mirror, "require_transport_permitted", lambda *args, **kw: {"status": mirror.NO_UNIT_CHANGE})
     monkeypatch.setattr(mirror, "require_current_plan_status", lambda *args, **kw: {"status": mirror.PENDING})
     monkeypatch.setattr(store, "connect", lambda *args, **kw: ready.connection)
-    monkeypatch.setattr(authority_reader, "_evidence", lambda *args: "evidence")
+    monkeypatch.setattr(verification_monitor, "evidence", lambda *args: "evidence")
     monkeypatch.setattr(authority_reader, "_key", lambda *args: "expected")
     class ClockType(type):
         def __instancecheck__(cls, value):

@@ -240,7 +240,8 @@ def test_explicit_fixed_clock_callers_keep_strict_database_comparison(monkeypatc
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('uncertainty', ['slow_query', 'wall_step', 'wall_pause'])
+@pytest.mark.parametrize('uncertainty', ['slow_query', 'wall_step', 'wall_pause',
+                                       'clock_connect_timeout', 'clock_query_timeout'])
 async def test_run_survives_uncertain_sample_then_recovers_with_no_failed_instance(conn, pg, monkeypatch, uncertainty, tmp_path):
     from sentinel.feed import store as feed_store
     cfg = config().model_copy(update={'maximum_clock_skew_seconds': 5})
@@ -260,6 +261,11 @@ async def test_run_survives_uncertain_sample_then_recovers_with_no_failed_instan
         return value
     def connect():
         state['connections'] += 1
+        if (uncertainty == 'clock_connect_timeout' and state['samples'] < 2
+                and state['connections'] % 2 == 0):
+            from psycopg.errors import ConnectionTimeout
+            state['samples'] += 1
+            raise ConnectionTimeout('injected fresh clock connection outage')
         if (uncertainty == 'wall_pause' and state['samples'] < 2
                 and state['connections'] % 2 == 0):
             state['wall_pause_pending'] = True
@@ -268,6 +274,9 @@ async def test_run_survives_uncertain_sample_then_recovers_with_no_failed_instan
         at = AFTER_WEDNESDAY_CLOSE + timedelta(seconds=state['seconds'])
         state['samples'] += 1
         if state['samples'] <= 2:
+            if uncertainty == 'clock_query_timeout':
+                from psycopg.errors import QueryCanceled
+                raise QueryCanceled('injected clock query timeout')
             if uncertainty == 'slow_query':
                 advance(6)
             elif uncertainty == 'wall_step':

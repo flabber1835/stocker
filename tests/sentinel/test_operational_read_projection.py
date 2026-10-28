@@ -370,3 +370,75 @@ def test_removing_owned_shutdown_drain_has_a_falsifier(monkeypatch):
     monkeypatch.setattr(verification_service,'_drain_readers',lambda _:None)
     with pytest.raises(AssertionError,match='released ownership'):
         assert_owner_kept_until_existing_work_finishes()
+
+
+def waiting_receipt(*, state='SCHEDULED',errors=None):
+    row=model.paper_reconciliation_row(state=state,scheduled_until=NOW+timedelta(hours=1),
+        error='unreadable' if state=='UNKNOWN' else None)
+    value,signature=projection.make('PAPER','a'*64,[row],errors or [],observed_at=NOW)
+    return ('a'*64,NOW,NOW+timedelta(seconds=600),value,signature)
+
+
+def owner_at(heartbeat):
+    owner=SimpleNamespace(fetchone=lambda:None if heartbeat is None else (heartbeat+timedelta(seconds=610),))
+    return SimpleNamespace(execute=lambda *args:owner)
+
+
+def test_changed_subject_is_bounded_checking_and_never_current_green():
+    receipt=waiting_receipt()
+    result=projection.changed_subject_wait(owner_at(NOW),receipt,scope='PAPER',now=NOW)
+    row=result[0][0]
+    assert row.status==model.WARN and row.value=='CHECK IN PROGRESS'
+    assert not result[3] and row.valid_until==receipt[2]
+    assert receipt[3]['valid_until']==(NOW+timedelta(seconds=600)).isoformat()
+
+
+@pytest.mark.parametrize('heartbeat',[None,NOW-timedelta(seconds=46),NOW+timedelta(seconds=6)])
+def test_dead_missing_or_future_owner_cannot_create_a_wait(heartbeat):
+    assert projection.changed_subject_wait(owner_at(heartbeat),waiting_receipt(),scope='PAPER',now=NOW) is None
+
+
+@pytest.mark.parametrize('state,errors',[('MISMATCH',[]),('UNKNOWN',[]),('SCHEDULED',['failed fact'])])
+def test_prior_negative_result_is_never_hidden_by_changed_subject_wait(state,errors):
+    assert projection.changed_subject_wait(owner_at(NOW),waiting_receipt(state=state,errors=errors),scope='PAPER',now=NOW) is None
+
+
+@pytest.mark.parametrize('fault',['tampered','expired'])
+def test_changed_subject_wait_still_authenticates_and_expires(fault):
+    receipt=waiting_receipt()
+    if fault=='tampered':receipt[3]['rows'][0]['value']='forged'
+    instant=NOW+timedelta(seconds=601) if fault=='expired' else NOW
+    with pytest.raises(ValueError):
+        projection.changed_subject_wait(owner_at(instant),receipt,scope='PAPER',now=instant)
+
+
+def test_changed_subject_owner_guard_has_a_falsifier(monkeypatch):
+    source=inspect.getsource(projection.changed_subject_wait)
+    source=source.replace('if not now-timedelta(seconds=45) <= heartbeat <= now+timedelta(seconds=5):','if False:')
+    namespace=dict(projection.__dict__)
+    exec(compile(source,'removed verifier owner guard','exec'),namespace)
+    monkeypatch.setattr(projection,'changed_subject_wait',namespace['changed_subject_wait'])
+    with pytest.raises(AssertionError):
+        test_dead_missing_or_future_owner_cannot_create_a_wait(NOW-timedelta(seconds=46))
+
+
+def test_real_consumer_withdraws_changed_paper_green_without_failing_independent_shadow(conn):
+    import uuid
+    install_projection(conn)
+    instant=datetime.now(timezone.utc)
+    owner=str(uuid.uuid4())
+    conn.execute('INSERT INTO sentinel_operational_verification_owner VALUES (1,%s,%s)',
+        (owner,instant+timedelta(seconds=610)))
+    for scope,rows in [('SHADOW',shadow()),('PAPER',[model.paper_reconciliation_row(state='CLEAN')])]:
+        rows=[replace(row,as_of=instant) for row in rows]
+        subject=projection.subject(conn,conn.info.dsn,scope)
+        value,signature=projection.make(scope,subject,rows,[],observed_at=instant)
+        projection.publish(conn,owner_id=owner,value=value,signature=signature)
+    conn.commit()
+    conn.execute('UPDATE sentinel_automation_control SET generation=generation+1 WHERE id=1')
+    conn.commit()
+    rows,_,_,errors=projection.read(conn.info.dsn,now=instant)
+    selected={row.key:row for row in rows}
+    assert not errors and selected['shadow_verification'].status==model.OK
+    assert selected['paper_reconciliation'].status==model.WARN
+    assert selected['paper_reconciliation'].value=='CHECK IN PROGRESS'

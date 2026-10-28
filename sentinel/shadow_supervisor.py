@@ -146,6 +146,8 @@ def _source_recovery_alert(*, now: datetime | None = None) -> None:
         opened, _closed = calendar.session_window(following)
         deadline = opened.astimezone(timezone.utc)
         expired = instant >= deadline
+        if not expired:
+            return
         _enqueue_alert(
             idempotency_key=(
                 f"shadow-source:{target}:"

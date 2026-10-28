@@ -1096,6 +1096,7 @@ def automation_cycle_row(*, installed: Optional[bool],
                          callback_failure: Optional[str] = None,
                          exception_type: Optional[str] = None,
                          availability_retry_clocks_aware: Optional[bool] = None,
+                         diagnostic: Optional[dict] = None,
                          retry_phase: Optional[str] = None,
                          original_execution_deadline_at: Optional[datetime] = None,
                          first_failure_at: Optional[str] = None,
@@ -1149,7 +1150,8 @@ def automation_cycle_row(*, installed: Optional[bool],
         failure_code=failure_code, failure_detail=failure_detail,
         protected_day_wait=protected_day_wait, plan_id=plan_id,
         original_execution_deadline_at=original_execution_deadline_at,
-        execute_at=execute_at, execution_close_at=execution_close_at)
+        execute_at=execute_at, execution_close_at=execution_close_at,
+        prepare_at=prepare_at, diagnostic=diagnostic)
     if availability_retry_clocks_aware is not None:
         availability_cycle['availability_retry_clocks_aware'] = availability_retry_clocks_aware
     projection = project_cycle_recovery(availability_cycle, allow_legacy_attempt=True)
@@ -1196,7 +1198,9 @@ def automation_cycle_row(*, installed: Optional[bool],
     return Row("automation_cycle", "Automation cycle",
                (availability_label(availability_cycle, availability) if availability is not None
                 else normalized or "UNKNOWN"), status, detail, wait.observed_at if wait else updated_at,
-               required_current=bool(enabled), recovery=recovery)
+               required_current=bool(enabled), recovery=recovery,
+               valid_until=(recovery.deadline if recovery is not None
+                            and recovery.phase == 'AUTOMATION_CLOSING_DATA' else None))
 
 
 _AUTOMATION_STEP_DEFINITIONS = (
@@ -1430,7 +1434,9 @@ def automation_step_rows(
             rows.append(Row(
                 row_key, label, value, WARN, detail,
                 wait.observed_at if wait is not None else cycle.get("updated_at"), required_current=True,
-                recovery=recovery))
+                recovery=recovery,
+                valid_until=(recovery.deadline if recovery is not None
+                             and recovery.phase == 'AUTOMATION_CLOSING_DATA' else None)))
             continue
         rows.append(Row(
             row_key, label, "NOT REACHED", PENDING,

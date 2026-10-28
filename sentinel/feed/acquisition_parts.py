@@ -164,6 +164,9 @@ class Parts:
                 "AND a.manifest->>'rows'=%s AND a.part_id<>%s "
                 "AND NOT EXISTS(SELECT 1 FROM sentinel_acquisition_price_links l WHERE l.part_id=a.part_id) "
                 "AND EXISTS(SELECT 1 FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id) "
+                "AND (sentinel_acquisition_part_pinned(a.part_id) OR "
+                "(SELECT count(*) FROM sentinel_acquisition_prices p WHERE p.part_id=a.part_id)="
+                "(a.manifest->>'rows')::bigint) "
                 "ORDER BY a.created_at LIMIT 1", (component, content, str(rows), part_id)).fetchone()
             if shared:
                 self._manifest(shared[0], commit_progress=False)

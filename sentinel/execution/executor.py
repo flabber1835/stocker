@@ -36,6 +36,7 @@ Do not chase missed recovery buys intraday because a server came back.
 from __future__ import annotations
 
 import logging
+import inspect
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -257,6 +258,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           increase_authority=None,
                           increase_reconciliation_authority=None,
                           mutation_authority=None,
+                          buy_admission=None,
                           security_restrictions: Optional[Mapping[str, str]] = None,
                           informational_current_book: bool = False,
                           ) -> SessionResult:
@@ -375,6 +377,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
             increase_authority=increase_authority,
             increase_reconciliation_authority=increase_reconciliation_authority,
             mutation_authority=mutation_authority,
+            buy_admission=buy_admission,
             security_restrictions=security_restrictions,
             informational_current_book=informational_current_book)
 
@@ -391,6 +394,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   increase_authority=None,
                                   increase_reconciliation_authority=None,
                                   mutation_authority=None,
+                                  buy_admission=None,
                                   security_restrictions: Optional[Mapping[str, str]] = None,
                                   informational_current_book: bool = False,
                                   ) -> SessionResult:
@@ -466,6 +470,32 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     restrictions.update(rec.restricted_securities)
     window_open = is_execution_window_open(plan, today)
 
+    def issuer_admitted(delta, *, reserve=False):
+        if not delta.is_increase or delta.security_id == 'SENTINEL:BIL':
+            return True
+        try:
+            if buy_admission is None:
+                from sentinel import local_paper
+                if not local_paper.enabled():
+                    return True
+                reason = 'issuer admission authority is absent'
+            else:
+                decision = buy_admission(security_id=delta.security_id,
+                    reconciliation=rec, instruments=instruments, reserve=reserve)
+                if inspect.isawaitable(decision):
+                    if inspect.iscoroutine(decision):
+                        decision.close()
+                    raise TypeError('issuer admission callback must be synchronous')
+                if getattr(decision, 'allowed', None) is True:
+                    return True
+                reason = str(getattr(decision, 'reason', '') or 'issuer admission denied')
+        except Exception as exc:
+            reason = f'issuer admission unavailable: {type(exc).__name__}: {exc}'
+        if delta.security_id not in deferred:
+            deferred.append(delta.security_id)
+        deferral_reasons[delta.security_id] = reason
+        return False
+
     async def authorized(candidates, obs, commands):
         """The subset that may proceed. Everything else lands in `refused`.
 
@@ -498,6 +528,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 raise
             except Exception as exc:                          # noqa: BLE001
                 refused[delta.security_id] = f"{type(exc).__name__}: {exc}"
+                continue
+            if not issuer_admitted(delta):
                 continue
             out.append(delta)
         return out
@@ -535,6 +567,11 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                             deferred.append(delta.security_id)
                         deferral_reasons[delta.security_id] = str(exc)
                         continue
+            # Reserve inside the writer lock, immediately before durable
+            # command admission. Earlier read-only checks cannot settle a
+            # same-issuer race between two candidates in this serial basket.
+            if not issuer_admitted(delta, reserve=True):
+                continue
             command, already_planned = _command_for_delta(
                 conn=conn, deployment=deployment, plan_id=plan.plan_id,
                 delta=delta, instrument=instruments[delta.security_id],

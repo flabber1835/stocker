@@ -6,9 +6,9 @@ features because the minimum-host CI job imports it under Python 3.8.15.
 """
 from __future__ import annotations
 
-import fnmatch
 import json
 from pathlib import Path
+import re
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 import xml.etree.ElementTree as ET
 
@@ -259,6 +259,7 @@ def junit_execution(paths: Sequence[Path], expected_modules: Sequence[Path],
 
 
 def incident_named(path: str) -> bool:
+    """Match incident tokens without treating issuer/prepare as incident IDs."""
     name = Path(path).name
-    return any(fnmatch.fnmatch(name, pattern)
-               for pattern in ("test_pr*.py", "test_issue*.py", "test_review*.py"))
+    return name.endswith('.py') and re.match(
+        r'test_(?:pr|issue|review)(?=[0-9_.-])', name) is not None

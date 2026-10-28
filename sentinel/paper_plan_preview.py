@@ -78,16 +78,21 @@ class PlanPreview(BaseModel):
 
 
 def project(*, plan, positions, observation_at, tickers, now):
+    if positions is not None and (not isinstance(positions,dict) or len(positions)>100):
+        raise ValueError('broker positions exceed display holdings bound')
+    current = positions if observation_at is not None and timedelta(0) <= now-observation_at <= MAX_OBSERVATION_AGE else None
+    return _project(plan=plan,positions=current,observation_at=observation_at,tickers=tickers)
+
+
+def _project(*, plan, positions, observation_at, tickers):
     if not isinstance(plan['target_basket'],dict) or len(plan['target_basket'])>100:
         raise ValueError('paper plan exceeds display holdings bound')
     if positions is not None and (not isinstance(positions,dict) or len(positions)>100):
         raise ValueError('broker positions exceed display holdings bound')
     targets = {str(key):quantity(value) for key,value in plan['target_basket'].items()}
-    if len(targets) > 100 or positions is not None and len(positions) > 100:
+    if len(set(targets) | set(positions or {})) > 100:
         raise ValueError('paper plan exceeds display holdings bound')
-    current = None
-    if observation_at is not None and timedelta(0) <= now-observation_at <= MAX_OBSERVATION_AGE:
-        current = {str(key):quantity(value) for key,value in positions.items()} if positions is not None else None
+    current = {str(key):quantity(value) for key,value in positions.items()} if positions is not None else None
     openings = {}
     if plan.get('opening_intents'):
         raw = plan['opening_intents']
@@ -95,6 +100,7 @@ def project(*, plan, positions, observation_at, tickers, now):
                 or raw.get('kind') != 'plan-opening-intents/v1' or raw.get('plan_id') != plan['plan_id']
                 or not isinstance(raw.get('plan_fingerprint'),str)
                 or not re.fullmatch('[0-9a-f]{64}',raw['plan_fingerprint'])
+                or plan.get('plan_fingerprint',raw['plan_fingerprint']) != raw['plan_fingerprint']
                 or not isinstance(raw.get('intents'),list) or len(raw['intents']) > 100):
             raise ValueError('paper opening intent does not match the saved plan')
         slots = set()
@@ -126,6 +132,42 @@ def project(*, plan, positions, observation_at, tickers, now):
         'effective_session','execute_at','created_at')},observation_at=observation_at,legs=legs)
 
 
+def project_original_intent(plan, authority):
+    """Dated original intent; it never asserts a fresh account observation."""
+    if authority['plan_id'] != plan['plan_id'] or authority['plan_fingerprint'] != plan['plan_fingerprint']:
+        raise ValueError('saved plan and sizing authority disagree')
+    observation = authority['broker_observation']
+    if (observation['completeness'] != 'COMPLETE'
+            or observation['account_identity']['account_id'] != plan['broker_account_id']
+            or observation['account_identity']['broker'] != plan['broker']):
+        raise ValueError('original plan snapshot has wrong account authority')
+    observed = observation['observed_at']
+    if not isinstance(observed,datetime):
+        observed = datetime.fromisoformat(observed)
+    if observed.utcoffset() is None or not observed <= plan['created_at'] <= plan['execute_at']:
+        raise ValueError('original plan snapshot clock is inconsistent')
+    positions = {}
+    for item in observation['positions']:
+        sid = item['instrument']['security_id']
+        if sid in positions:
+            raise ValueError('duplicate original position')
+        positions[sid] = quantity(item['quantity'])
+    selected = dict(plan)
+    openings = selected.get('opening_intents',[])
+    if isinstance(openings,list):
+        if openings:
+            selected['opening_intents'] = dict(kind='plan-opening-intents/v1',plan_id=plan['plan_id'],
+                plan_fingerprint=plan['plan_fingerprint'],intents=openings)
+        else:
+            selected.pop('opening_intents',None)
+    elif not isinstance(openings,dict) or not openings:
+        raise ValueError('original plan opening intent is malformed')
+    if any(positions.get(item['security_id'],Decimal(0)) != 0
+           for item in selected.get('opening_intents',{}).get('intents',[])):
+        raise ValueError('original plan has contradictory opening intents')
+    return _project(plan=selected,positions=positions,observation_at=observed,tickers=authority['tickers'])
+
+
 def still_current(conn, *, cycle_id, plan_id):
     """Reject obsolete queued notifications without broker calls or writes."""
     with conn.cursor() as cur:
@@ -149,7 +191,7 @@ def read(conn, *, unnotified=False):
     with conn.cursor() as cur:
         cur.execute("""SELECT c.cycle_id,p.plan_id,p.decision_session,p.effective_session,
             c.execute_at,p.created_at,p.target_basket,p.broker,p.broker_account_id,
-            clock_timestamp() FROM sentinel_automation_cycles c
+            clock_timestamp(),c.plan_fingerprint FROM sentinel_automation_cycles c
             JOIN sentinel_automation_control a ON a.id=1 AND a.enabled AND NOT a.kill_switch_engaged
               AND a.generation=c.control_generation AND a.deployment_id=c.deployment_id
               AND a.broker=c.broker AND a.broker_account_id=c.broker_account_id
@@ -170,7 +212,7 @@ def read(conn, *, unnotified=False):
             return None
         row = values[0]
         plan = dict(zip(('cycle_id','plan_id','decision_session','effective_session','execute_at',
-                         'created_at','target_basket','broker','account','now'),row,strict=True))
+                         'created_at','target_basket','broker','account','now','plan_fingerprint'),row,strict=True))
         cur.execute("SELECT o.positions,o.observed_at FROM sentinel_observations o "
             "JOIN sentinel_observation_provenance p ON p.observation_seq=o.seq "
             "WHERE p.broker=%s AND p.broker_account_id=%s AND o.completeness='COMPLETE' "
@@ -196,5 +238,7 @@ def read(conn, *, unnotified=False):
             if sid in tickers and tickers[sid] != ticker:
                 raise ValueError('planned security ticker is ambiguous')
             tickers[sid] = ticker
+        if sizing and 'broker_observation' in sizing:
+            return project_original_intent(dict(plan,broker_account_id=plan['account']),dict(sizing,tickers=tickers))
         return project(plan=plan,positions=observation[0] if observation else None,
             observation_at=observation[1] if observation else None,tickers=tickers,now=plan['now'])

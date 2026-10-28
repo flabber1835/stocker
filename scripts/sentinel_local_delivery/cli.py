@@ -10,12 +10,13 @@ import sys
 from . import builder
 from .coordinator import Delivery
 from .host import Host
-from .model import (DeliveryRefused, Journal, SCHEMA, read_json, require,
+from .model import (DeliveryRefused, Journal, SCHEMA, handoff_mode, read_json, require,
                     utcnow, validate_request, write_new)
 from .qualification import sha256_file, validate_report
 
 
-def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_type=Host):
+def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_type=Host,
+            baseline_reader=None,handoff_mode='PRE_OPEN'):
     folder = builder.safe_directory(operation_dir)
     require(not (folder/'request.json').exists() and not (folder/'receipt.json').exists(),
             'DELIVERY_OPERATION_ALREADY_PREPARED')
@@ -32,14 +33,14 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
         and sha256_file(built['log']) == built['log_sha256'], 'BUILD_ARTIFACTS_CHANGED')
     predecessor = built['predecessor_receipt']
     require(sha256_file(predecessor['path']) == predecessor['sha256'], 'PREDECESSOR_RECEIPT_CHANGED')
-    old = builder.baseline(predecessor['path'])
+    old = (baseline_reader or builder.baseline)(predecessor['path'])
     require(old == built['foundation'], 'BUILD_FOUNDATION_CHANGED')
     qualified = built['qualification']
     report = validate_report(qualified['report_path'],qualified['report_sha256'],built['source'],
         built['commit'],old['commit'])
     require(sorted(built['changed_files']) == built['allowed_delta'], 'BUILD_DELTA_CHANGED')
     builder._changed(built['source'],old['commit'],built['commit'],built['allowed_delta'])
-    request = validate_request(dict(schema=SCHEMA,operation_id=operation_id,
+    request = validate_request(dict(schema=SCHEMA,operation_id=operation_id,handoff_mode=handoff_mode,
         source=built['source'],deployment=built['deployment'],predecessor=old,
         candidate=dict(commit=built['commit'],image=built['image'],source_identity=built['source_identity']),
         qualification=dict(report_path=qualified['report_path'],report_sha256=qualified['report_sha256'],
@@ -58,19 +59,26 @@ def status(operation_dir):
         last_stage_at=receipt['history'][-1]['at'] if receipt['history'] else None,
         predecessor={key:journal.request['predecessor'][key] for key in ('commit','image')},
         candidate={key:journal.request['candidate'][key] for key in ('commit','image')},
-        receipt=str(journal.folder/'receipt.json'))
+        receipt=str(journal.folder/'receipt.json'),
+        **({'handoff_mode':'BLOCKED_UNSENT','operational_ready':False,
+            'installation_scope':'FENCED_BLOCKED_UNSENT_SOFTWARE_ONLY'}
+           if handoff_mode(journal.request)=='BLOCKED_UNSENT' else {}))
 
 
-def parser():
+def parser(*, backed=False):
     selected = argparse.ArgumentParser(description=__doc__)
     commands = selected.add_subparsers(dest='command',required=True)
     build = commands.add_parser('build',help='Build one exact qualified source layer offline')
     for name in ('source','deployment','predecessor-receipt','qualification','qualification-sha256',
                  'allowed-delta','allowed-delta-sha256','operation-dir','commit'):
         build.add_argument('--'+name,required=True)
+    if backed:
+        build.add_argument('--allow-started-predecessor',action='store_true')
+        build.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT'),default='PRE_OPEN')
     new = commands.add_parser('prepare',help='Create an immutable operation from its completed build')
     for name in ('operation-dir','build-record','build-sha256','operation-id'):
         new.add_argument('--'+name,required=True)
+    new.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT'),default='PRE_OPEN')
     view = commands.add_parser('status',help='Inspect the digest-linked receipt without host operations')
     view.add_argument('--operation-dir',required=True)
     for command in ('advance','resume'):
@@ -94,7 +102,7 @@ def main(argv=None):
                 build_sha256=sha256_file(Path(args.operation_dir)/'build.json'))
         elif args.command == 'prepare':
             prepare(operation_dir=args.operation_dir,build_record=args.build_record,
-                build_sha256=args.build_sha256,operation_id=args.operation_id)
+                build_sha256=args.build_sha256,operation_id=args.operation_id,handoff_mode=args.handoff_mode)
             output = status(args.operation_dir)
         elif args.command == 'status':
             output = status(args.operation_dir)

@@ -15,7 +15,7 @@ import time
 import uuid
 
 from sentinel_backup_lock import lock_is_held, _lock_path
-from sentinel_backup_deadlines import BASE_COMMAND_SECONDS, RESTORE_COMMAND_SECONDS, INVOCATION_SECONDS
+from sentinel_backup_deadlines import BASE_COMMAND_SECONDS, INVOCATION_SECONDS
 from sentinel_maintenance_process import run_bounded
 
 
@@ -27,6 +27,7 @@ BASE_RE = re.compile(r"base-[0-9]{8}T[0-9]{6}Z\Z")
 RENEW_BYTES = 8 * 1024 * 1024 * 1024
 RENEW_SECONDS = 24 * 3600
 RUNTIME_CHAIN_BYTES = 16 * 1024 * 1024 * 1024
+MAINTENANCE_INTERVAL_SECONDS = 300
 
 
 class Refused(RuntimeError):
@@ -138,6 +139,7 @@ def _selected_full_restore_receipt(selected, observation, runner=run):
     raw = sql("SELECT proof::text FROM sentinel_backup_evidence "
               "WHERE kind='RESTORE_DRILL' AND proof->>'base_backup'='" + name + "' "
               "AND proof->>'metadata_sha256'='" + digest + "' "
+              "AND evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex') "
               "ORDER BY observed_at DESC,seq DESC LIMIT 1", runner)
     if not raw:
         return None
@@ -155,9 +157,36 @@ def _selected_full_restore_receipt(selected, observation, runner=run):
     return result
 
 
-def receipt_for(selected, observation, image, runner=run):
-    result = _selected_full_restore_receipt(selected, observation, runner)
-    return result if result is not None and result["runtime_image"] == image else None
+def verified_base_chain_receipt(selected, observation, chain, runner=run):
+    """Use actual verified producer evidence, never manufacture a restore drill."""
+    name=selected['name']
+    if not BASE_RE.fullmatch(name):
+        raise Refused('invalid selected identity')
+    raw=sql("SELECT json_build_object('proof',proof,'authentic',"
+        "evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex')) "
+        "FROM sentinel_backup_evidence WHERE kind='BASE_BACKUP' "
+        "AND proof->>'base_backup'='"+name+"' ORDER BY observed_at DESC,seq DESC LIMIT 1",runner)
+    if not raw:
+        return None
+    record=json.loads(raw)
+    expected=dict(schema='sentinel.verified-base/1',physical_verified=True,
+        metadata_sha256=selected['metadata_sha256'],base_backup=name,
+        marker=selected['marker'],marker_lsn=selected['target_lsn'],
+        system_identifier=observation['system_id'])
+    proof=record.get('proof') if isinstance(record,dict) else None
+    if not isinstance(proof,dict) or record.get('authentic') is not True:
+        raise Refused('verified base producer evidence is unauthenticated')
+    if proof.get('schema')!='sentinel.verified-base/1':
+        return None  # Older bases retain their genuine exact-base restore receipt.
+    if any(type(proof.get(k)) is not type(v) or proof.get(k)!=v for k,v in expected.items()):
+        raise Refused('verified base producer evidence identity mismatch')
+    if (chain.get('base_backup')!=name or chain.get('system_identifier')!=observation['system_id']
+            or chain.get('wal_integrity')!='sha256-sidecar-v1' or chain.get('enabled') is not True):
+        raise Refused('verified base chain identity mismatch')
+    return dict(schema='sentinel.verified-base-chain/1',base_backup=name,
+        metadata_sha256=selected['metadata_sha256'],marker=selected['marker'],
+        target_lsn=selected['target_lsn'],system_identifier=observation['system_id'],
+        physical_verified=True,wal_integrity='sha256-sidecar-v1')
 
 
 def runtime_chain_proof(output, selected, observation, root):
@@ -307,51 +336,20 @@ def _tick(root, runner, progress, started):
     observation = observe_primary(runner)
     reap_restore_resources(observation["now"], runner)
     selected = worker("observe", image, root, observation, runner)
-    # Reclaim obsolete copies before allocating a successor, only when this
-    # exact selected base already has current-image full semantic restore proof.
     renewed = renewal_due(selected, observation)
-    if not renewed:
-        existing_receipt = _selected_full_restore_receipt(selected, observation, runner)
-        # An older marker cannot contain a later executable admission. Its full
-        # proof permits renewal only; the successor still needs current proof.
-        if existing_receipt is not None and existing_receipt["runtime_image"] != image:
-            renewed = True
-        elif existing_receipt is not None:
-            status = runner(["bash", "scripts/sentinel-backup-status.sh", "--backup",
-                             root + "/base/" + selected["name"]], timeout=600)
-            observation = observe_primary(runner)
-            renewed = renewal_due(selected, observation)
-            if not renewed:
-                publish_runtime_chain(status, selected, observation, root, runner)
-                result = worker("retain", image, root, observation, runner, {
-                    "receipt": existing_receipt, "image": image, "now": observation["now"],
-                    "segment_size": observation["segment_size"],
-                })
-                print(json.dumps({"maintenance_ready": True, "observed_at": observation["now"],
-                                  "renewed": False, "base": selected["name"], **result}, sort_keys=True))
-                return result
-    # Prerequisite work is inside the invocation's original budget. The
-    # primary observation may itself be older, so this boundary is conservative.
-    if not heavy_work_allowed(observation):
-        # Keep the predecessor's current chain visible while deferring heavy
-        # allocation. This never invents a receipt for a different image/base.
-        if receipt_for(selected, observation, image, runner) is not None:
-            status = runner(['bash','scripts/sentinel-backup-status.sh','--backup',
-                             root+'/base/'+selected['name']],timeout=600)
-            publish_runtime_chain(status, selected, observe_primary(runner), root, runner)
+    if renewed and not heavy_work_allowed(observation):
         result = {'maintenance_deferred': True, 'reason': 'market and daily preparation window',
                   'base': selected['name'], 'renewal_due': renewed}
         print(json.dumps(result, sort_keys=True))
         return result
-    first_second = observation['now'] - math.ceil(time.monotonic()-started)
-    progress.update(schema='sentinel.backup-maintenance-progress/1',
-        attempt=uuid.uuid4().hex, started_at=first_second,
-        deadline=first_second + INVOCATION_SECONDS,
-        system_identifier=observation['system_id'], image=image,
-        predecessor_base=selected['name'], base_backup=selected['name'],
-        phase='BASE_BACKUP' if renewed else 'VERIFY_RESTORE')
-    publish_progress(progress, runner)
     if renewed:
+        first_second = observation['now'] - math.ceil(time.monotonic()-started)
+        progress.update(schema='sentinel.backup-maintenance-progress/1',
+            attempt=uuid.uuid4().hex, started_at=first_second,
+            deadline=first_second + INVOCATION_SECONDS,
+            system_identifier=observation['system_id'], image=image,
+            predecessor_base=selected['name'], base_backup=selected['name'],phase='BASE_BACKUP')
+        publish_progress(progress, runner)
         output = runner(["bash", "scripts/sentinel-base-backup.sh"],
                         timeout=BASE_COMMAND_SECONDS)
         paths = [line[len("verified_base_backup:"):] for line in output.splitlines()
@@ -364,38 +362,25 @@ def _tick(root, runner, progress, started):
         observation = observe_primary(runner)
         if renewal_due(selected, observation):
             raise Refused("successor already exhausts maintenance headroom")
-        progress.update(base_backup=selected['name'], phase='VERIFY_RESTORE')
+        progress.update(base_backup=selected['name'], phase='VERIFY_CHAIN')
         publish_progress(progress, runner)
     path = root + "/base/" + selected["name"]
-    runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
-    receipt = receipt_for(selected, observation, image, runner)
+    status=runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
+    observation=observe_primary(runner)
+    chain=runtime_chain_proof(status,selected,observation,root)
+    receipt=verified_base_chain_receipt(selected,observation,chain,runner)
     if receipt is None:
-        # Exactly the normal full semantic drill. No physical-only or bypass flag.
-        env_before = os.environ.get("SENTINEL_RUNTIME_IMAGE_REF")
-        os.environ["SENTINEL_RUNTIME_IMAGE_REF"] = image
-        try:
-            runner(["bash", "scripts/sentinel-restore-drill.sh", "--backup", path],
-                   timeout=RESTORE_COMMAND_SECONDS)
-        finally:
-            if env_before is None:
-                os.environ.pop("SENTINEL_RUNTIME_IMAGE_REF", None)
-            else:
-                os.environ["SENTINEL_RUNTIME_IMAGE_REF"] = env_before
-        receipt = receipt_for(selected, observation, image, runner)
+        receipt=_selected_full_restore_receipt(selected,observation,runner)
         if receipt is None:
-            raise Refused("full restore returned without matching durable evidence")
-    # The full drill may take time: obtain fresh clocks and a fresh chain proof.
-    observation = observe_primary(runner)
-    progress['phase'] = 'VERIFY_CHAIN'
-    publish_progress(progress, runner)
-    status = runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
+            raise Refused('selected base has neither verified producer nor genuine restore evidence')
     publish_runtime_chain(status, selected, observation, root, runner)
     result = worker("retain", image, root, observation, runner, {
-        "receipt": receipt, "image": image, "now": observation["now"],
+        "receipt": receipt, "image": receipt.get('runtime_image',image), "now": observation["now"],
         "segment_size": observation["segment_size"],
     })
-    progress['phase'] = 'COMPLETE'
-    publish_progress(progress, runner)
+    if progress:
+        progress['phase'] = 'COMPLETE'
+        publish_progress(progress, runner)
     print(json.dumps({"maintenance_ready": True, "observed_at": observation["now"], "renewed": renewed,
                       "base": selected["name"], **result}, sort_keys=True))
     return result
@@ -419,7 +404,7 @@ def supervise():
                                     cwd=str(ROOT), check=False, pass_fds=(handle.fileno(),))
             if result.returncode:
                 print("SENTINEL_BACKUP_MAINTENANCE=FAILED_RETRY_PENDING", file=sys.stderr, flush=True)
-            time.sleep(60)
+            time.sleep(MAINTENANCE_INTERVAL_SECONDS)
 
 
 def main(argv=None):

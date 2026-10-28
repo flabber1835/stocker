@@ -18,6 +18,37 @@ __all__ = ['conn', 'pg', 'source', 'operational_source']
 MAINTAIN = retention.maintain
 
 
+@pytest.mark.parametrize('batch_rows,expected', [(7,7),(5000,128)])
+def test_acquisition_price_disposal_is_bounded_and_drains(conn,batch_rows,expected):
+    part='a'*64
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) VALUES(%s,'{}')",(part,))
+    with conn.cursor() as cursor:
+        cursor.executemany('INSERT INTO sentinel_acquisition_prices VALUES(%s,%s,%s,%s)',
+            [(part,'2026-09-14',f'ROW{i:03d}','{}') for i in range(130)])
+    conn.commit()
+    remaining=130
+    for _ in range(20):
+        with journal.writer_lock(conn),store.corpus_write_lock(conn):
+            result=retention._pass(conn,batch_rows=batch_rows)
+            assert result['deleted_acquisition_rows']==min(remaining,expected)
+            remaining-=result['deleted_acquisition_rows']
+            assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices WHERE part_id=%s',
+                                (part,)).fetchone()[0]==remaining
+            conn.commit()
+        if not remaining:break
+        assert result['more_work']
+    assert remaining==0
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_parts WHERE part_id=%s',
+                        (part,)).fetchone()[0]==0
+    conn.rollback()
+
+
+def test_removing_acquisition_disposal_cap_is_detected(conn,monkeypatch):
+    monkeypatch.setattr(retention,'ACQUISITION_BATCH_ROWS',5000)
+    with pytest.raises(AssertionError):
+        test_acquisition_price_disposal_is_bounded_and_drains(conn,5000,128)
+
+
 def test_full_reference_dates_are_bounded_before_calendar_conversion(monkeypatch):
     from types import SimpleNamespace
     rows = [('old', {'date':'1960-01-01', 'action':'dividend', 'ticker':'OLD'}, None),

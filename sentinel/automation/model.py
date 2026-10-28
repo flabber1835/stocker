@@ -43,6 +43,24 @@ class SourceDataPending(TransientInfrastructureFailure):
     """A source join or coverage proof is waiting for a coherent observation."""
 
 
+class ClosingDataPending(SourceDataPending):
+    """Only the current closing frontier is awaiting its dedicated publisher."""
+
+    def __init__(self, detail, *, retry_after_seconds=0, publisher_deadline_at=None,
+                 worker_deadline_at=None):
+        super().__init__(detail, retry_after_seconds=retry_after_seconds)
+        if publisher_deadline_at is not None and (
+                not isinstance(publisher_deadline_at, datetime)
+                or publisher_deadline_at.utcoffset() is None):
+            raise ValueError('publisher deadline must be an aware datetime')
+        self.publisher_deadline_at = publisher_deadline_at
+        if worker_deadline_at is not None and (
+                not isinstance(worker_deadline_at, datetime)
+                or worker_deadline_at.utcoffset() is None):
+            raise ValueError('worker deadline must be an aware datetime')
+        self.worker_deadline_at = worker_deadline_at
+
+
 class PermanentOperationalRefusal(AutomationRefused):
     """An expected operational refusal that requires durable blocking."""
 

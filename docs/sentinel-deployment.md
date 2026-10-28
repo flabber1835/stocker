@@ -1,5 +1,17 @@
 # Sentinel current operating contract
 
+The October 27 owner-directed [verification cleanup](verification-workflow-simplification.md#separate-application-installation-from-physical-recovery-work)
+removes per-image full restores from local PAPER application installation and
+normal backup maintenance. Normal maintenance uses verified daily-base and WAL
+evidence; full recovery drills are explicit operations. Existing genuine drill
+dates and the dashboard's 31-day objective remain visible. This does not disable
+WAL archiving, normal daily backups, financial preservation or live admission gates.
+
+[Bounded database recovery](database-recovery-local-patch.md) records the owner's
+2026-10-26 local patch exception and its backed application-roll requirements.
+[Dashboard continuity and post-trade handoff](dashboard-posttrade-recovery.md)
+extends that authorized local patch after the completed opening cycle.
+
 Current owner instruction: backed-up PAPER releases through CI and PR delivery.
 The 2026-10-24 [release restoration decision](paper-backed-release-20261024.md)
 supersedes the earlier backup suspension and direct local delivery exception.
@@ -56,6 +68,11 @@ normal operation does not silently acquire one.
 
 ## Quantities, prices and recovery
 
+[Verified issuer admission](paper-issuer-admission.md) defines the owner-authorized
+PAPER new-entry safeguard and exact-episode grandfathering. It preserves canonical
+strategy/book history and existing holdings, blocks unresolved or duplicate issuer
+entries, and never prevents ordinary reductions or invents convergence.
+
 - Continuing positions keep their durable account share targets at unchanged
   controller exposure. Entries, strategy exits, exposure changes and authenticated
   share-unit actions retain their normal sizing rules.
@@ -77,6 +94,13 @@ See [protected orders](free-data-execution-proposal.md),
 
 ## Dashboard and notifications
 
+[Bounded shared-snapshot verification](shadow-streaming-verification.md) removes
+the full-window blocking sort from shared input reads and gives failed financial
+observations the existing short retry interval without weakening verification.
+
+[Verification workflow simplification](verification-workflow-simplification.md)
+removes duplicate source/catalog work and intent-only installation comparisons.
+
 The mobile view leads with one operational status card, the saved trading plan,
 recorded paper account and the twenty canonical slots/cooldowns. System details
 contains operational diagnostics. Failures remain visibly named even when details
@@ -96,6 +120,10 @@ See [plan-first dashboard](dashboard-plan-first.md),
 [fill notification recovery](paper-fill-notification-recovery.md).
 
 ## Qualification and local installation
+
+[GO child image identity](go-probe-artifact-identity.md) records the complete
+runtime/test artifact handoff required by retained owner-PAPER preparation and
+read-only financial probes.
 
 The owner restored the release workflow on 2026-10-24. Develop on a feature
 branch, qualify changes, run required exact-head CI, merge the approved PR and

@@ -2,6 +2,7 @@
 from contextlib import closing
 import hashlib
 import json
+import os
 import uuid
 
 import pytest
@@ -23,7 +24,7 @@ def cluster():
 
 
 @pytest.fixture
-def conn(cluster, monkeypatch):
+def conn(cluster, monkeypatch, request):
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-operational-contract-key-' * 4)
     name = 'operational_' + uuid.uuid4().hex
     with closing(store.connect(cluster.sync_dsn)) as owner:
@@ -34,6 +35,10 @@ def conn(cluster, monkeypatch):
         schema.ensure_schema(current)
         store.migrate_schema(current)
         yield current
+    if os.environ.get('SENTINEL_PRIVATE_RETAIN_FAILURE_DB') == '1' and request.session.testsfailed:
+        assert os.environ.get('SENTINEL_PRIVATE_QUALIFICATION_TOKEN')
+        print('PRIVATE_FAILED_OPERATIONAL_DATABASE_RETAINED='+name, flush=True)
+        return
     with closing(store.connect(cluster.sync_dsn)) as owner:
         owner.autocommit = True
         owner.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(name)))

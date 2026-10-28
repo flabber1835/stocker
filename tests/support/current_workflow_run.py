@@ -167,8 +167,10 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
         window=lambda:(timing.execution_open_at,timing.execution_close_at),
         forbid_quotes=True,marketable_limit_fills=True)
     _browser(conn)
-    since = conn.execute('SELECT clock_timestamp()-INTERVAL \'1 minute\'').fetchone()[0]
-    conn.rollback()
+    # Native fills use prospective market time; command creation uses actual
+    # PostgreSQL time. Include this private cycle under both original clocks.
+    database_now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+    since = min(clock.now(),database_now)-timedelta(minutes=1)
     monkeypatch.setenv('SENTINEL_FILL_NOTIFICATIONS_SINCE',since.isoformat())
     monkeypatch.setenv('SENTINEL_FEED_SERVICE_MODE','AUTOMATION')
 
@@ -181,6 +183,10 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
     campaign = Campaign(sentinel_config=SentinelConfig(database_url=dsn,alpaca_key='isolated',
         alpaca_secret='no-network',base_url=DEFAULT_BASE_URL,state_dir=tmp_path/'state',
         max_cycles=1,poll_seconds=0),automation_config=config,holder_id='isolated-current-worker')
+    from tests.support.current_workflow_issuer import enroll_generated_account
+    enroll_generated_account(conn,campaign=campaign,clock=clock,
+        observation_id=campaign._shadow_observation_id)
+    assert not http.orders and not http.positions
     control = ControlBinding(deployment_id=bound.deployment_id,broker=bound.broker,
         broker_account_id=bound.broker_account_id,takeover_epoch=bound.takeover_epoch,
         certificate_sha256=certificate,rollout_mode=rollout.mode.value,
@@ -212,8 +218,20 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
         assert plan.plan_id == prepared.plan_id
         assert plan.target_basket and not http.orders
         from sentinel import paper_plan_preview
-        preview = paper_plan_preview.read(conn)
-        assert preview is not None and preview.plan_id==plan.plan_id
+        wall_now,created_at = conn.execute('SELECT clock_timestamp(),created_at '
+            'FROM sentinel_execution_plans WHERE plan_id=%s',(plan.plan_id,)).fetchone()
+        # This composition fixture advances market time only. The database
+        # keeps real creation/lease clocks, so a future synthetic observation
+        # must be refused rather than made to look like a valid saved preview.
+        if wall_now >= cycle.execute_at:
+            assert paper_plan_preview.read(conn) is None
+        elif clock.now() > created_at:
+            import pytest
+            with pytest.raises(ValueError,match='^original plan snapshot clock is inconsistent$'):
+                paper_plan_preview.read(conn)
+        else:
+            preview = paper_plan_preview.read(conn)
+            assert preview is not None and preview.plan_id==plan.plan_id
         conn.rollback()
         cycle = transition(CycleState.WAITING_OPEN)
         clock.instant = cycle.execute_at+timedelta(seconds=1)
@@ -259,7 +277,11 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
         for _ in range(20):
             before = conn.execute("SELECT count(*) FROM sentinel_alert_outbox WHERE event_type='BROKER_FILL'").fetchone()[0]
             conn.rollback()
-            assert execution_collector.collect_once('FILL',reader=reader,config=campaign.sentinel_config)=='COLLECTED'
+            outcome = execution_collector.collect_once('FILL',reader=reader,config=campaign.sentinel_config)
+            refusal = conn.execute("SELECT payload FROM sentinel_alert_outbox "
+                "WHERE event_type='FILL_NOTIFICATION_COLLECTION_FAILED' ORDER BY created_at DESC LIMIT 1").fetchone()
+            conn.rollback()
+            assert outcome=='COLLECTED', (outcome,refusal)
             after = conn.execute("SELECT count(*) FROM sentinel_alert_outbox WHERE event_type='BROKER_FILL'").fetchone()[0]
             conn.rollback()
             if after==before:break
@@ -277,6 +299,9 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
         assert all(row==('DELIVERED','DELIVERED',201) for row in receipts)
         conn.rollback()
         print('CURRENT_WORKFLOW verifier + HTTP',flush=True)
+        clock.follow_wall()
+        assert execution_collector.collect_once('ACCOUNT',reader=reader,
+            config=campaign.sentinel_config)=='COLLECTED'
         _verification_and_http(conn,dsn,clock,cycle,monkeypatch,tmp_path)
         assert rolling_checkpoint.read(conn).model_dump(by_alias=True)==origin
         conn.rollback()

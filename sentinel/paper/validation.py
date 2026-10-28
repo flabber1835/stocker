@@ -415,7 +415,8 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
                   now_provider, strategy_provider,
                   automation_config_sha256: str | None = None,
                   dual_shadow_observation_id: str | None = None,
-                  dual_shadow_starting_cash: Decimal | str | None = None
+                  dual_shadow_starting_cash: Decimal | str | None = None,
+                  issuer_admission_check=None
                   ) -> GuardedExecutionBroker:
     from sentinel.structural_verification import Scope
     from sentinel.structural_verification import owned
@@ -452,7 +453,8 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
         funding.validate_submission(conn, activity_state=activity, broker=wrapped, **kwargs)
 
     wrapped = GuardedExecutionBroker(
-        inner=broker, grant=grant, guard=guard, protected_funding=protected_funding)
+        inner=broker, grant=grant, guard=guard, protected_funding=protected_funding,
+        issuer_admission_check=issuer_admission_check)
     from .inspection import _require_certified_paper_broker
     _require_certified_paper_broker(wrapped)
     return wrapped

@@ -3,12 +3,13 @@
 ## Decision
 
 Build one runtime image and its disposable test lens for each exact source
-commit. After that shared build, run sixteen independent Sentinel-safety workers:
-four ordinary Sentinel shards, four rolling Sentinel shards, one contention
+commit. After that shared build, run twenty-two independent Sentinel-safety workers:
+eight ordinary Sentinel shards, four rolling Sentinel shards, two current-profile
+composition workers, one contention
 worker, one status/memory worker, the existing warmup, automation, champion,
 operator, Wealth Core, and mutation workers. Source-specific research replay
 workers have been retired under [CI hardening](ci-suite-hardening.md).
-The account-wide GitHub runner limit can queue workers; sixteen is a useful
+The account-wide GitHub runner limit can queue workers; twenty-two is a useful
 maximum, not a requirement to keep every runner busy. The protected `main`
 run remains the only source for image publication. A protected main run can
 reuse completed PR qualification under the exact-tree promotion contract in
@@ -22,11 +23,44 @@ the slow daily, runtime, initialization, restore, and recovery modules do not
 land in one worker. Future modules enter the plan automatically. Automation,
 warmup, contention, status/memory, and rolling modules remain outside the
 ordinary plan. The planner must refuse an empty shard, duplicate or missing
-module, unexpected module path, or changed shard count. The reviewed duration
+module, unexpected module path, or changed family shard counts (eight ordinary,
+four rolling). The reviewed duration
 manifest binds its exact JUnit SHA-256 and producer source commit. Each family
 uses longest estimated work first, stable path ties and least-loaded-lane ties.
 Unmeasured future modules receive a positive 60-second estimate and enter the
 plan automatically. A weight changes scheduling, never test inclusion.
+
+Decision: 2026-10-28. Keep large test payloads out of pytest node IDs.
+PR540 general-4 reached the issuer-reference oversized-response case at
+08:35:38 UTC; emitting its two-megabyte automatic parameter name continued
+until 09:18:38, and the worker later exhausted its 60-minute limit. Give each
+invalid-response case a short explicit ID while retaining the exact payloads,
+assertions, worker inventory and deadline. This is diagnostic output cleanup,
+not additional qualification time or a change to the production response cap.
+
+Decision: 2026-10-28. With six ordinary workers, PR540's general-2 worker
+exceeded its 60-minute job limit after all other 38 checks passed. An earlier
+general-4 worker also exhausted that limit; its full case inventory subsequently
+passed local qualification. Use eight ordinary workers, keeping all modules and
+the existing 60-minute deadline. Under the unchanged duration manifest, the
+largest estimated group falls from 36.94 to 27.70 minutes, and ordinary groups
+contain at most 70 modules rather than 93. These are scheduling estimates, not
+wall-time guarantees. Keep the four rolling and two current-profile workers,
+all coverage/mutation requirements, exact-attempt receipts and final inventory
+union. Missing either new worker or its evidence must refuse certification.
+
+Decision: 2026-10-27. The four ordinary workers no longer provide enough setup
+margin: the current PR completed one worker in 58 minutes and another exceeded
+the existing 60-minute job limit. Use six ordinary workers, retaining that
+deadline. The two current-profile modules build a real 426-session, 500-stock
+fixture and were receiving the one-minute default for unmeasured modules.
+Give `test_current_operational_workflow.py` and
+`test_current_process_recovery.py` one module-scoped worker each, retaining
+their former 60-minute deadline. Exclude them from ordinary shards through
+the same registry used by their selectors and receipt inventory. This changes
+placement only: every test still runs once, and missing current modules,
+workers or receipts remain refusals. No latency qualification is inferred from
+their synthetic business clock or from a scheduling estimate.
 
 Decision: 2026-10-10. The automation worker selects its complete module list
 from the same `AUTOMATION` registry that excludes those modules from ordinary
@@ -40,10 +74,16 @@ module inventory, requiring every module exactly once and propagating failed
 workers. Duplicate/non-passing JUnit refusal and exact-attempt receipts remain
 unchanged.
 
+Closing-data notification tests also belong to the automation coverage worker:
+they exercise the service's typed child-error codec and bounded quiet-retry
+branches. Their complete module is registered once in `AUTOMATION`, so it is
+excluded from ordinary shards. Keep the existing 100% service branch gate;
+running these tests elsewhere does not contribute to that worker's coverage.
+
 Every worker runs the production code from the single built test lens without
 rebuilding it. Its receipt binds the same source commit, tree, workflow run and
 attempt, runtime image ID, test-lens image ID, and exact JUnit bytes. The
-assembler requires all sixteen lane receipts, merges all Sentinel JUnits with
+assembler requires all twenty-two lane receipts, merges all Sentinel JUnits with
 duplicate and non-pass refusal, and re-collects the protected test-owner union
 against the exact image. A missing new test, skipped test, or omitted worker
 cannot produce certification evidence. A PR failure remains a refusal, and
@@ -67,7 +107,7 @@ this change preserves its pre-merge gate.
 
 ## Expected effect and limits
 
-The reviewed same-tree PR530 evidence measured ordinary testcase-time groups of
+The earlier four-worker, same-tree PR530 evidence measured ordinary testcase-time groups of
 approximately 26, 15, 44 and 21 minutes. Replaying measured longest-first
 assignment projects approximately 27 minutes in each ordinary group and 26 in
 each rolling group. Those are projections of recorded testcase time, not a
