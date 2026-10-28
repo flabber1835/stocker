@@ -118,6 +118,16 @@ class PaperIssuerAdmission:
         self.reconciliation = None
         self.error = 'ISSUER_ADMISSION_CONTEXT_NOT_PREPARED'
 
+    def prepare_for_transport(self, *, publication, state, plan, projection, reconciliation):
+        """Finish pre-command metadata before fresh broker guards can write.
+
+        The caller owns this boundary and keeps its session writer/source locks.
+        Issuer reservations are made later, with durable command admission.
+        """
+        self.prepare(publication=publication,state=state,plan=plan,
+                     projection=projection,reconciliation=reconciliation)
+        self.conn.commit()
+
     def prepare(self, *, publication, state, plan, projection, reconciliation):
         from sentinel.feed.alpaca_transport import AlpacaTransportRefused
         from sentinel.feed.issuer_reference import load_snapshot
@@ -168,9 +178,14 @@ class PaperIssuerAdmission:
                 or descriptor.provider_asset_id != native.broker_id):
             return admission.Decision(allowed=False,
                 reason='ISSUER_ADMISSION_NATIVE_IDENTITY_CHANGED', security_id=security_id)
-        return admission.check_buy(
+        decision = admission.check_buy(
             self.conn, evidence=self.evidence, security_id=security_id,
             reconciliation=reconciliation, now=self.clock(), reserve=reserve)
+        if decision.allowed is not True:
+            # A shortfall is independent metadata. An admitted reservation
+            # stays uncommitted until the executor saves its durable command.
+            self.conn.commit()
+        return decision
 
     def final_check(self, *, client_key, instrument, side, quantity, order_terms):
         if side is Side.SELL or instrument.security_id == admission.DEFENSIVE_SECURITY_ID:

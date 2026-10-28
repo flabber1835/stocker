@@ -167,7 +167,10 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
         window=lambda:(timing.execution_open_at,timing.execution_close_at),
         forbid_quotes=True,marketable_limit_fills=True)
     _browser(conn)
-    since = clock.now()-timedelta(minutes=1)
+    # Native fills use prospective market time; command creation uses actual
+    # PostgreSQL time. Include this private cycle under both original clocks.
+    database_now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+    since = min(clock.now(),database_now)-timedelta(minutes=1)
     monkeypatch.setenv('SENTINEL_FILL_NOTIFICATIONS_SINCE',since.isoformat())
     monkeypatch.setenv('SENTINEL_FEED_SERVICE_MODE','AUTOMATION')
 
@@ -180,6 +183,10 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
     campaign = Campaign(sentinel_config=SentinelConfig(database_url=dsn,alpaca_key='isolated',
         alpaca_secret='no-network',base_url=DEFAULT_BASE_URL,state_dir=tmp_path/'state',
         max_cycles=1,poll_seconds=0),automation_config=config,holder_id='isolated-current-worker')
+    from tests.support.current_workflow_issuer import enroll_generated_account
+    enroll_generated_account(conn,campaign=campaign,clock=clock,
+        observation_id=campaign._shadow_observation_id)
+    assert not http.orders and not http.positions
     control = ControlBinding(deployment_id=bound.deployment_id,broker=bound.broker,
         broker_account_id=bound.broker_account_id,takeover_epoch=bound.takeover_epoch,
         certificate_sha256=certificate,rollout_mode=rollout.mode.value,

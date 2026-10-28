@@ -64,7 +64,7 @@ class BroadPrices(Prices):
 
 
 @pytest.fixture
-def current(conn, monkeypatch):
+def current(conn, monkeypatch, tmp_path):
     # Fail immediately if this disposable issuer cannot authorize the current
     # controller's full healthy domain, before acquiring 426 source sessions.
     assert private_exposure_ceiling() == '1'
@@ -109,8 +109,9 @@ def current(conn, monkeypatch):
     assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
     conn.execute('UPDATE sentinel_account_binding SET established_at=%s WHERE id=1',
                  (clock.now()-timedelta(days=1),))
+    database_now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
     conn.execute('UPDATE sentinel_notification_policy SET web_push_activated_at=%s WHERE id=1',
-                 (clock.now()-timedelta(days=1),))
+                 (min(clock.now(),database_now)-timedelta(days=1),))
     conn.commit()
     operational_schema.install_quiescent(conn)
     from sentinel.execution import journal
@@ -155,6 +156,11 @@ def current(conn, monkeypatch):
     published = snapshots.prepare(conn, job)
     with snapshots.pinned(conn) as (publication, _):
         subject = shadow_runtime._data_publication_subject_sha256(publication, publication.window_end)
+        from sentinel.execution import issuer_runtime
+        from tests.support.current_workflow_issuer import install_generated_reference
+        descriptors=issuer_runtime.reference_instruments(conn,publication)
+        assert len(descriptors)==500
+        install_generated_reference(descriptors,now=clock.now(),monkeypatch=monkeypatch,tmp_path=tmp_path)
     monkeypatch.setenv('SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256', subject)
     conn.rollback()
     return prices, published, clock

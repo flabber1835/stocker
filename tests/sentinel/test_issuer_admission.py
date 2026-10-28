@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal as D
 import json
+import inspect
 from types import SimpleNamespace
 
 import psycopg
@@ -394,6 +395,59 @@ def test_database_session_lock_and_rollback_boundary(pg, source, monkeypatch):
         first.rollback()
         assert guard._claims(first, guard._binding(BINDING)) == {}
         first.execute('SELECT pg_advisory_unlock(%s)', (guard.journal.WRITER_LOCK_KEY,))
+
+
+def test_nonbytewise_database_locale_cannot_hide_reservations_or_releases(pg,source,monkeypatch):
+    monkeypatch.setattr(guard.journal,'load_commands',lambda *_args,**_kw:())
+    with psycopg.connect(pg.sync_dsn) as conn:
+        conn.execute('CREATE TEMP TABLE sentinel_processed_sessions('
+            'cursor_name TEXT COLLATE "en-US-x-icu" PRIMARY KEY,session DATE NOT NULL,state JSONB)')
+        conn.execute('SELECT pg_advisory_lock(%s)',(guard.journal.WRITER_LOCK_KEY,))
+        enroll(conn,source)
+        current,_plan,_projection,proof=prepare(conn,source,pending=('A','A2'))
+        assert buy(conn,proof,'A',reserve=True).allowed
+        own={ep.key for ep in guard._episodes(current) if ep.security_id=='A'}
+        assert set(guard._claims(conn,guard._binding(BINDING)))==own
+        assert buy(conn,proof,'A').reason=='ADMITTED_EPISODE'
+        assert buy(conn,proof,'A2').reason=='ISSUER_CONFLICT'
+        released=guard.release_ended_claims(conn,binding=BINDING,state=state(),
+            reconciliation=reconciliation(),now=NOW,commands=[])
+        assert set(released)==own
+        assert not guard._claims(conn,guard._binding(BINDING))
+        conn.execute('SELECT pg_advisory_unlock(%s)',(guard.journal.WRITER_LOCK_KEY,))
+
+
+def test_removing_record_range_byte_collation_is_detected(pg,source,monkeypatch):
+    body=inspect.getsource(guard._records)
+    assert body.count(' COLLATE "C"')==3
+    namespace={}
+    exec(compile(body.replace(' COLLATE "C"',''),'<locale-dependent issuer claims>','exec'),
+         guard.__dict__,namespace)
+    monkeypatch.setattr(guard,'_records',namespace['_records'])
+    with pytest.raises(AssertionError):
+        test_nonbytewise_database_locale_cannot_hide_reservations_or_releases(pg,source,monkeypatch)
+
+
+@pytest.mark.parametrize('prefix',guard.LEGACY_PREFIXES)
+def test_nonbytewise_database_locale_cannot_hide_legacy_namespaces(pg,monkeypatch,prefix):
+    with psycopg.connect(pg.sync_dsn) as conn:
+        conn.execute('CREATE TEMP TABLE sentinel_processed_sessions('
+            'cursor_name TEXT COLLATE "en-US-x-icu" PRIMARY KEY,session DATE NOT NULL,state JSONB)')
+        conn.execute('INSERT INTO sentinel_processed_sessions VALUES(%s,%s,%s::jsonb)',
+                     (prefix+'retained',NOW.date(),'{}'))
+        with pytest.raises(guard.IssuerAdmissionRefused,match='LEGACY_NAMESPACE_PRESENT'):
+            guard._refuse_legacy_records(conn)
+
+
+def test_removing_legacy_range_byte_collation_is_detected(pg,monkeypatch):
+    body=inspect.getsource(guard._refuse_legacy_records)
+    assert body.count(' COLLATE "C"')==2
+    namespace={}
+    exec(compile(body.replace(' COLLATE "C"',''),'<locale-dependent legacy namespace guard>','exec'),
+         guard.__dict__,namespace)
+    monkeypatch.setattr(guard,'_refuse_legacy_records',namespace['_refuse_legacy_records'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_nonbytewise_database_locale_cannot_hide_legacy_namespaces(pg,monkeypatch,guard.LEGACY_PREFIXES[0])
 
 
 def compose_executor(store, source, harness, monkeypatch, *, held=(), pending=()):

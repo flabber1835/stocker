@@ -184,7 +184,8 @@ def _lock(conn):
 
 
 def _refuse_legacy_records(conn):
-    clauses = ' OR '.join('(cursor_name >= %s AND cursor_name < %s)' for _ in LEGACY_PREFIXES)
+    clauses = ' OR '.join('(cursor_name COLLATE "C" >= %s AND cursor_name COLLATE "C" < %s)'
+                          for _ in LEGACY_PREFIXES)
     bounds = tuple(value for prefix in LEGACY_PREFIXES for value in (prefix, prefix + '~'))
     if conn.execute('SELECT cursor_name FROM sentinel_processed_sessions WHERE '
                     + clauses + ' LIMIT 1', bounds).fetchone() is not None:
@@ -224,7 +225,8 @@ def _read(conn, key, kind):
 
 def _records(conn, prefix):
     rows = conn.execute('SELECT cursor_name,state FROM sentinel_processed_sessions'
-        ' WHERE cursor_name >= %s AND cursor_name < %s ORDER BY cursor_name LIMIT 10001',
+        ' WHERE cursor_name COLLATE "C" >= %s AND cursor_name COLLATE "C" < %s '
+        'ORDER BY cursor_name COLLATE "C" LIMIT 10001',
         (prefix, prefix + '~')).fetchall()
     if len(rows) > 10000:
         raise IssuerAdmissionRefused('ISSUER_ADMISSION_RECORD_LIMIT')

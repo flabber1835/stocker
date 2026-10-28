@@ -1,7 +1,9 @@
 """Issuer child records preserve the exact installed operational contract."""
 import hashlib
 import importlib
+import inspect
 from pathlib import Path
+import textwrap
 
 import pytest
 
@@ -60,6 +62,7 @@ def test_private_issuer_appends_advance_only_paper_without_schema_or_epoch_chang
     )
 
     assert_predecessor_contracts()
+
     installation = operational_schema.install_quiescent(conn)
     assert installation['contracts'] == PREDECESSOR_CONTRACTS
     before_marker = conn.execute('SELECT session,state,updated_at FROM sentinel_processed_sessions '
@@ -102,6 +105,100 @@ def test_private_issuer_appends_advance_only_paper_without_schema_or_epoch_chang
         expected = operational_catalog._catalog()[name]
         assert operational_catalog.capture_extension(conn, importlib.import_module(name)) == expected
     assert_predecessor_contracts()
+
+
+@pytest.mark.parametrize('deny,reserve',[(False,False),(True,False),(False,True)])
+def test_prepared_issuer_metadata_does_not_block_fresh_authority_verdict(conn,monkeypatch,deny,reserve):
+    from contextlib import closing
+    from sentinel.execution import issuer_runtime
+    from sentinel.execution.contract import BrokerInstrument
+    from sentinel.feed import store
+    from tests.sentinel.test_issuer_admission import BINDING,NOW,instruments,prepare,reconciliation,state
+
+    operational_schema.install_quiescent(conn)
+    source=IssuerReferenceSnapshot.create(observed_at_utc=NOW,
+        associations=[dict(cik='0000000001',ticker='UNCOVERED' if deny else 'AAA',exchange='NYSE')])
+    conn.execute('SELECT pg_advisory_lock(%s)',(journal.WRITER_LOCK_KEY,))
+    try:
+        issuer_admission.enroll(conn,binding=BINDING,state=state(),
+            reconciliation=reconciliation(),snapshot=source,instruments=instruments(),now=NOW)
+        conn.commit()
+        current,plan,projection,_evidence=prepare(conn,source,pending=('A',))
+        context=issuer_runtime.PaperIssuerAdmission(conn=conn,binding=BINDING,clock=lambda:NOW)
+        context.prepare_for_transport(publication=None,state=current,plan=plan,
+            projection=projection,reconciliation=reconciliation())
+        assert context.evidence is not None and context.error is None
+        if deny or reserve:
+            decision=context.check_buy(security_id='A',reconciliation=reconciliation(),
+                instruments={'A':BrokerInstrument('A','AAA','native-A')},reserve=True)
+            if deny:
+                assert not decision.allowed and decision.reason=='ISSUER_IDENTITY_UNRESOLVED'
+            else:
+                assert decision.allowed
+        # This is the real dependency/trigger written by fresh guarded reads.
+        # The second connection must complete while the session writer remains.
+        with closing(store.connect(conn.info.dsn)) as fresh:
+            if reserve:
+                assert conn.execute('SELECT count(*) FROM sentinel_processed_sessions '
+                    'WHERE cursor_name LIKE %s',(issuer_admission.CLAIM_PREFIX+'%',)).fetchone()[0]==1
+                assert fresh.execute('SELECT count(*) FROM sentinel_processed_sessions '
+                    'WHERE cursor_name LIKE %s',(issuer_admission.CLAIM_PREFIX+'%',)).fetchone()[0]==0
+                issuer_admission._lock(conn)
+                assert not journal.load_commands(conn,BINDING)
+                return
+            fresh.execute("SET LOCAL lock_timeout='250ms'")
+            fresh.execute("UPDATE sentinel_automation_control SET authority_verdict='PASS',"
+                          "authority_detail='private fresh broker read' WHERE id=1")
+            fresh.commit()
+        issuer_admission._lock(conn)
+        assert not journal.load_commands(conn,BINDING)
+        assert_predecessor_contracts()
+    finally:
+        conn.rollback()
+        conn.execute('SELECT pg_advisory_unlock(%s)',(journal.WRITER_LOCK_KEY,))
+        conn.commit()
+
+
+def test_removing_pre_transport_metadata_commit_is_detected(conn,monkeypatch):
+    import psycopg
+    from sentinel.execution import issuer_runtime
+    source=textwrap.dedent(inspect.getsource(issuer_runtime.PaperIssuerAdmission.prepare_for_transport))
+    guard='    self.conn.commit()'
+    assert source.count(guard)==1
+    namespace={}
+    exec(compile(source.replace(guard,'    pass'),'<missing issuer preparation commit>','exec'),
+         issuer_runtime.__dict__,namespace)
+    monkeypatch.setattr(issuer_runtime.PaperIssuerAdmission,'prepare_for_transport',
+                        namespace['prepare_for_transport'])
+    with pytest.raises(psycopg.errors.LockNotAvailable):
+        test_prepared_issuer_metadata_does_not_block_fresh_authority_verdict(conn,monkeypatch,False,False)
+
+
+def test_removing_denied_shortfall_commit_is_detected(conn,monkeypatch):
+    import psycopg
+    from sentinel.execution import issuer_runtime
+    source=textwrap.dedent(inspect.getsource(issuer_runtime.PaperIssuerAdmission.check_buy))
+    guard='        self.conn.commit()'
+    assert source.count(guard)==1
+    namespace={}
+    exec(compile(source.replace(guard,'        pass'),'<missing issuer shortfall commit>','exec'),
+         issuer_runtime.__dict__,namespace)
+    monkeypatch.setattr(issuer_runtime.PaperIssuerAdmission,'check_buy',namespace['check_buy'])
+    with pytest.raises(psycopg.errors.LockNotAvailable):
+        test_prepared_issuer_metadata_does_not_block_fresh_authority_verdict(conn,monkeypatch,True,False)
+
+
+def test_committing_an_admitted_reservation_before_its_command_is_detected(conn,monkeypatch):
+    from sentinel.execution import issuer_runtime
+    source=textwrap.dedent(inspect.getsource(issuer_runtime.PaperIssuerAdmission.check_buy))
+    guard='if decision.allowed is not True:'
+    assert source.count(guard)==1
+    namespace={}
+    exec(compile(source.replace(guard,'if True:'),'<premature issuer reservation commit>','exec'),
+         issuer_runtime.__dict__,namespace)
+    monkeypatch.setattr(issuer_runtime.PaperIssuerAdmission,'check_buy',namespace['check_buy'])
+    with pytest.raises(AssertionError):
+        test_prepared_issuer_metadata_does_not_block_fresh_authority_verdict(conn,monkeypatch,False,True)
 
 
 def test_top_level_issuer_registration_contract_change_is_detected(monkeypatch):

@@ -485,7 +485,7 @@ async def _execute_current_paper_plan(
             if issuer_admission is not None and any(
                     delta.is_increase and delta.security_id != 'SENTINEL:BIL'
                     for delta in projected_deltas):
-                issuer_admission.prepare(
+                issuer_admission.prepare_for_transport(
                     publication=pinned, state=state, plan=plan,
                     projection=target_projection, reconciliation=preflight)
 

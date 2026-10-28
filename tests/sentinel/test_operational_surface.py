@@ -94,8 +94,9 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "SENTINEL_IMAGE=sentinel:ci" in workflow
     assert workflow.count('--build-arg SOURCE_GIT_SHA="${TESTED_SHA}"') == 2
     assert 'TESTED_SHA="$(git rev-parse HEAD)"' in workflow
-    assert workflow.count('sentinel-test:ci "${modules[@]}" -vv -ra') == 2
-    assert workflow.count('python tools/sentinel_ci_shards.py --lane "$CI_LANE"') == 2
+    # Ordinary, rolling and current-profile workers all use the same registry.
+    assert workflow.count('sentinel-test:ci "${modules[@]}" -vv -ra') == 3
+    assert workflow.count('python tools/sentinel_ci_shards.py --lane "$CI_LANE"') == 3
     assert '--junitxml="/evidence/${CI_LANE}.xml"' in workflow
     assert "python tools/sentinel_ci_parallel_evidence.py assemble" in workflow
     parallel = _read("tools/sentinel_ci_parallel_evidence.py")

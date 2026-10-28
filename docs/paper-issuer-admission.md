@@ -101,6 +101,15 @@ with its durable command admission. Retry of that exact episode is idempotent.
 Another episode of the same issuer loses in the existing canonical slot/security
 commitment order; do not choose a representative by new liquidity heuristics.
 
+The execution adapter commits authenticated plan/source preparation, ended-claim
+release and denied-entry shortfalls before the next guarded broker read. These are reusable pre-command
+facts, not an issuer reservation or permission to send. The existing session
+writer lock and publication pin stay held across that commit. Otherwise their
+PAPER invalidation-row lock can block the fresh guard connection's authority
+verdict update. Reservations remain atomic with durable command admission;
+SEND_PENDING still commits before transport and the final issuer check remains
+mandatory. No invalidation trigger or authority write is suppressed.
+
 Count continuing enrolled episodes, approved reservations, attributed positive
 positions, filled portions, working/adopted broker orders and possibly effective
 PLANNED/IN_FLIGHT BUY commands across plans. UNKNOWN retains its issuer claim.
@@ -154,6 +163,9 @@ reservation/release facts. Bind plan evidence to account/epoch, policy, original
 canonical ownership, plan/projection fingerprint and source/enrollment digests.
 Refuse conflicting retries or reseeding. Include these namespaces explicitly in
 installation preservation evidence. Do not manufacture broker commands for claims.
+Cursor-prefix range scans use explicit PostgreSQL `C` collation for both bounds
+and ordering. Locale-sensitive punctuation ordering must not hide a reservation,
+release or abandoned legacy record from an exact namespace scan.
 
 Persist and expose blocked-entry reasons and positive unmet quantities through
 the existing execution deferral path. A no-command or clean-reconciliation path
@@ -169,6 +181,19 @@ grandfathering, denied model episodes on later plans, expiry/restart/tamper and
 no-fake-convergence. Include removed-guard falsifiers.
 
 Use isolated private unit/integration fixtures and the narrow relevant suites.
+The current-profile composition fixtures retain generated, dated issuer
+associations for their generated instruments and load them through the real
+snapshot parser and trusted digest input. After genuine private signed authority
+is active, enroll the initially empty simulated account through the supported
+sealed preparation-read operation before enabling automation. Its canonical
+model holdings are not grandfathered account positions. Keep issuer checks,
+reservations and final submission guards active through fills and callback
+deaths. These generated associations are fixture inputs, not evidence of real
+SEC coverage or provider availability.
+The fixture's notification inception and collection boundary precede both its
+synthetic market clock and the real database creation clock. Native fill times
+follow the former; durable command creation follows the latter. Keep production
+notification-boundary and future-fill guards unchanged.
 Do not run a historical replay, alter any running backtest, copy a production
 database, or perform a recovery drill. Preserve economic identity; refresh only
 the exact reviewed operational runtime source seal and its existing falsifiers.
