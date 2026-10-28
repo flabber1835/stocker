@@ -1,4 +1,4 @@
-"""Issue #211 â€” financial green is an earned, immutable session fact."""
+"""Issue #211 — financial green is an earned, immutable session fact."""
 from __future__ import annotations
 
 import json
@@ -729,7 +729,7 @@ def test_renderer_exposes_owner_audit_without_a_write_control():
                         "cash": {}, "reason_codes": []}])
     html = render(panel)
 
-    assert "Positions â€” target vs Alpaca" in html
+    assert "Positions — target vs Alpaca" in html
     assert "Orders and commands" in html
     assert "Cash and portfolio value" in html and "type=DIV" in html
     assert "Splits, dividends and company events" in html
@@ -875,7 +875,7 @@ def test_current_operational_failure_removes_all_verified_styling():
 
     html = render(panel)
 
-    assert "TRIAL NOT VERIFIED â€” CURRENT OPERATIONAL CONDITION UNKNOWN" in html
+    assert "TRIAL NOT VERIFIED — CURRENT OPERATIONAL CONDITION UNKNOWN" in html
     assert 'data-key="trial_verification" data-status="fail"' in html
     assert 'data-key="trial_return" data-status="warn"' in html
     assert 'data-key="trial_return" data-status="ok"' not in html

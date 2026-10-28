@@ -111,7 +111,7 @@ def test_daily_projection_refuses_two_successes_even_if_lineage_guard_is_bypasse
 
 
 def test_cached_verdict_cannot_ignore_a_contradictory_session_sibling(conn):
-    old,current=pair(conn,succeeded=True)
+    old,current=pair(conn)
     trial._insert_immutable(conn,name=trial_attempts.key(current.effective_session,current.cycle_id),
         session=current.effective_session,state=record(current))
     foreign=record(old);foreign['binding']['broker_account_id']='foreign-account'
