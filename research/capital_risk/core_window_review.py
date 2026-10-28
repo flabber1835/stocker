@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from decimal import Decimal as D,localcontext
+import gzip
 import hashlib
 import json
 from pathlib import Path
@@ -118,8 +119,46 @@ def first_difference(a,b,path='$'):
     return None if a==b else path
 
 
-def compare_disabled(original,disabled):
-    count=0
+def identity_digest(value):
+    return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':'),
+        ensure_ascii=True,allow_nan=False).encode('ascii')).hexdigest()
+
+
+def empty_cash_context(root):
+    """Read-only checkpoint binding for the explicitly qualified empty cash tap."""
+    c=json.loads(gzip.decompress((root/'checkpoint.json.gz').read_bytes()));r=c['run']
+    require(c['sha256']==identity_digest({k:v for k,v in c.items() if k!='sha256'}),
+        'REFUSED_B0_CASH_OUTER')
+    require(r['checkpoint_sha256']==identity_digest({k:v for k,v in r.items() if k!='checkpoint_sha256'}),
+        'REFUSED_B0_CASH_INNER')
+    require(r['state_sha256']==identity_digest(r['state']) and
+        r['input_sha256']==identity_digest(dict(base=c['base'],repairs=c['repairs'])),
+        'REFUSED_B0_CASH_STATE_INPUT')
+    version=r['state']['data_version'];completed=c['completed']
+    require(type(version) is int and type(completed) is int and 0<completed<version,
+        'REFUSED_B0_CASH_VERSION')
+    return c
+
+
+def verified_empty_cash(row,prior,version):
+    require(prior is not None,'REFUSED_B0_CASH_PREDECESSOR')
+    inputs=dict(schema='sentinel.forward-cash-distributions/1',
+        prior_state_sha256=prior['state_sha256'],publication_version=version,
+        session=row['session'],observations=[],pending=[],source_observations=[],legacy_floors=[])
+    expected=dict(policy='FORWARD_CASH_DISTRIBUTIONS_V2',input_sha256=identity_digest(inputs),
+        observations=[],pending=[],source_observations=[],legacy_floors=[])
+    audit=row['evidence'].get('cash_distributions')
+    require(audit==expected,'REFUSED_B0_CASH_INPUT_PREIMAGE')
+    del audit['input_sha256']
+
+
+def compare_disabled(original,disabled,*,empty_cash_identity=False):
+    count=0;daily_count=0;previous=[None,None]
+    contexts=[empty_cash_context(root) for root in (original,disabled)] if empty_cash_identity else None
+    if contexts:
+        require(contexts[0]['completed']==contexts[1]['completed'] and
+            contexts[0]['run']['state']['data_version']==contexts[1]['run']['state']['data_version'],
+            'REFUSED_B0_CASH_PUBLICATION_AXIS')
     for name in ('formation','daily'):
         with (original/(name+'.jsonl')).open('rb') as left,(disabled/(name+'.jsonl')).open('rb') as right:
             while True:
@@ -127,13 +166,31 @@ def compare_disabled(original,disabled):
                 require(bool(a)==bool(b),'REFUSED_B0_AXIS')
                 if not a:break
                 a,b=json.loads(a),json.loads(b)
+                originals=[dict(value) for value in (a,b)]
+                if contexts:
+                    for i,value in enumerate((a,b)):
+                        if name=='daily':
+                            version=contexts[i]['run']['state']['data_version']-contexts[i]['completed']+1+daily_count
+                            verified_empty_cash(value,previous[i],version)
+                        else:
+                            require(value['evidence'].get('cash_distributions') is None,
+                                'REFUSED_B0_FORMATION_CASH')
                 for value in (a,b):
                     for key in ('state_sha256','input_sha256','chain_sha256'):value.pop(key)
                 require(json.dumps(a,sort_keys=True,allow_nan=False)==json.dumps(b,sort_keys=True,allow_nan=False),
                     'REFUSED_B0_FINANCIAL_PATH_'+a['session']+':'+str(first_difference(a,b)))
                 count+=1
+                if name=='daily':daily_count+=1
+                previous=originals
+    if contexts:
+        for c,row in zip(contexts,previous):
+            require(daily_count==c['completed'] and row['session']==c['source_cursor'] and
+                row['state_sha256']==c['run']['state_sha256'] and row['input_sha256']==c['run']['input_sha256'],
+                'REFUSED_B0_CASH_FINAL_BINDING')
+    ignored=['state_sha256','input_sha256','chain_sha256']
+    if contexts:ignored.append('$.evidence.cash_distributions.input_sha256 (verified empty preimage only)')
     return dict(status='B0_FULL_WINDOW_FINANCIAL_PATH_MATCHED',records=count,
-        ignored_paths=['state_sha256','input_sha256','chain_sha256'])
+        ignored_paths=ignored,verified_empty_cash_records_per_arm=daily_count if contexts else 0)
 
 
 def monthly_metrics(root,start):
