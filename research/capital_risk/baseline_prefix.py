@@ -62,7 +62,7 @@ def launch_arguments(name, frozen, output, driver, *, review=False):
 
 
 def worker_stage(name):
-    if re.fullmatch(r"capital-risk-h0p2-[0-9]+-[0-9]+",name):
+    if re.fullmatch(r"capital-risk-h0p2-(?:proof-)?[0-9]+-[0-9]+",name):
         return "holding-comparison"
     if re.fullmatch(r"capital-risk-holding-qual-[0-9]+-[0-9]+",name):
         return "holding-qualification"
@@ -126,11 +126,13 @@ def fenced_inspect(name):
     mounts={m["Destination"]:m for m in item["Mounts"] if m["Type"]=="bind"}
     core=worker_stage(name) in {"core-integration","short-core-window","timing-pilot"}
     suffix=worker_stage(name)=='weighted-suffix'
-    expected={"/frozen","/out","/driver"}|({"/variant"} if core else set())|({'/resume'} if suffix else set())
+    qualified=worker_stage(name)=='holding-comparison'
+    expected={"/frozen","/out","/driver"}|({"/variant"} if core else set())|({'/resume'} if suffix else set())|({'/qualified'} if qualified else set())
     if (set(mounts)!=expected or mounts["/frozen"]["RW"]
             or mounts["/driver"]["RW"] or not mounts["/out"]["RW"]
             or core and (mounts["/variant"]["RW"] or item["Config"]["WorkingDir"]!="/variant")
             or suffix and mounts['/resume']['RW']
+            or qualified and mounts['/qualified']['RW']
             or item["Config"]["User"]!=f"{os.getuid()}:{os.getgid()}"):
         raise ValueError("REFUSED_WORKER_MOUNTS_OR_USER")
     forbidden=set(FORBIDDEN_CREDENTIALS)|{SECRET,"GITHUB_TOKEN","GH_TOKEN"}

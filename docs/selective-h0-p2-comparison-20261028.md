@@ -117,3 +117,23 @@ receipt/cipher/GCM/inventory/source hashes and stopped fences before review.
 Independently recompute every daily NAV, entitlement, trade cost and next-open
 factor, all monthly/year/window metrics and the strict joint objective. Preserve
 all stated provider, metadata, action and execution limitations. No unseen OOS.
+
+## Preserved launch-fence incident
+
+Run40714748373/e8fb08f5 failed; artifact12827577071 authenticated receipt,
+cipher/GCM/inventory contains diagnostics only. Actual financial progress and
+final stopped identity are UNKNOWN. The new /qualified read-only mount was
+allowed by the export reviewer but omitted from baseline_prefix.fenced_inspect,
+used both before waiting and before publishing a stop receipt. The safe exporter
+therefore refused financial data. No financial prefix is available for an exact
+continuation, and the original origin is not a valid claimed later predecessor.
+
+Correct only this stage's exact fourth read-only mount in the launch/stop checker,
+preserving all previous names/stages, limits, credentials and mount restrictions.
+Verify the real original-function rejection/fixed-function acceptance and writable
+mount refusal. Then one hosted synthetic composed-account/marker proof with the
+same image and four mount fences, no historical account or P2 trial. Do not change
+the financial request or start a fresh financial book under the earlier approval.
+After actual proof and a concrete incident report, a fresh historical run requires
+a direct owner decision because exact continuation is unavailable. Preserve the
+UNKNOWN result; the launcher correction cannot recover lost financial evidence.

@@ -7,6 +7,7 @@ import ast,json,sys,unittest
 ROOT=Path(__file__).parents[1];sys.path.insert(0,str(ROOT))
 from selective_policy import step,retention
 import selective_job as job
+import baseline_prefix as prefix
 
 class SelectiveRules(unittest.TestCase):
     def row(self,key='E',sid='S',**kw):
@@ -72,5 +73,21 @@ class SelectiveRules(unittest.TestCase):
         text=(ROOT.parents[1]/'.github/workflows/capital-selective-h0-p2.yml').read_text()
         for v in ('timeout-minutes: 20','timeout-minutes: 9','retention-days: 7','actions: read','github.run_attempt == 1','selective-comparison.tar.crseal'):self.assertIn(v,text)
         for v in ('workflow_dispatch:','contents: write','events.jsonl','checkpoint.json.gz'):self.assertNotIn(v,text)
+
+    def test_actual_launcher_fourth_mount_admission_and_original_failure_falsifier(self):
+        import inspect
+        fixture=dict(HostConfig=dict(NetworkMode='none',ReadonlyRootfs=True,Memory=2*1024**3,MemorySwap=2*1024**3,
+            NanoCpus=1000000000,PidsLimit=64,CapDrop=['ALL'],SecurityOpt=['no-new-privileges']),
+            Config=dict(WorkingDir='/fixed',User='1001:1001',Env=[]),
+            Mounts=[dict(Type='bind',Destination=p,RW=p=='/out') for p in ('/frozen','/out','/driver','/qualified')])
+        name='capital-risk-h0p2-proof-123-1'
+        with patch.object(prefix,'identity_inspect',return_value=fixture),patch('os.getuid',return_value=1001,create=True),patch('os.getgid',return_value=1001,create=True):
+            self.assertEqual(prefix.fenced_inspect(name),fixture)
+            fixture['Mounts'][-1]['RW']=True
+            with self.assertRaises(ValueError):prefix.fenced_inspect(name)
+            fixture['Mounts'][-1]['RW']=False
+            text=inspect.getsource(prefix.fenced_inspect);broken=text.replace("|({'/qualified'} if qualified else set())",'')
+            self.assertNotEqual(text,broken);scope=dict(prefix.__dict__);exec(compile(broken,'original-omitted-qualified-mount','exec'),scope)
+            with self.assertRaisesRegex(ValueError,'MOUNTS'):scope['fenced_inspect'](name)
 
 if __name__=='__main__':unittest.main()
