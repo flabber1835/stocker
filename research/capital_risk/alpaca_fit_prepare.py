@@ -1,0 +1,67 @@
+"""Build public hash-only request from exact Git blobs and sealed inventories."""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+
+
+def need(v,reason):
+    if not v:raise ValueError('REFUSED_FIT_REQUEST_'+reason)
+
+
+def digest(value):return hashlib.sha256(value).hexdigest()
+
+
+def source_inventory():
+    index=subprocess.run(['git','ls-files','-s','-z'],capture_output=True,check=True).stdout
+    selected=[]
+    required={'docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json','docs/sentinel-handoff/00_README/SHA256SUMS.txt'}
+    for item in index.split(b'\0'):
+        if not item:continue
+        header,path=item.split(b'\t',1);name=path.decode();mode,blob,stage=header.decode().split()
+        need(stage=='0','UNMERGED_INDEX')
+        in_source=name.startswith(('sentinel/','shared/stock_strategy_shared/','research/capital_risk/'))
+        if name=='research/capital_risk/alpaca-fit-request.json':continue
+        if name in required or in_source and name.endswith(('.py','.json')):
+            need(mode=='100644','SOURCE_LINK_OR_EXECUTABLE');selected.append((name,blob))
+    need(required.issubset({name for name,_ in selected}),'FROZEN_RULE_CLOSURE')
+    process=subprocess.Popen(['git','cat-file','--batch'],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+    result={}
+    try:
+        for name,blob in selected:
+            process.stdin.write((blob+'\n').encode());process.stdin.flush()
+            header=process.stdout.readline().decode().split();need(len(header)==3 and header[0]==blob and header[1]=='blob','GIT_BLOB')
+            size=int(header[2]);payload=process.stdout.read(size);need(len(payload)==size and process.stdout.read(1)==b'\n','GIT_BLOB_LENGTH')
+            result[name]={'bytes':size,'sha256':digest(payload)}
+    finally:process.stdin.close();process.wait(timeout=10)
+    return dict(sorted(result.items()))
+
+
+def prepare(case,destination):
+    case=Path(case);protocol=Path(__file__).with_name('alpaca-fit-protocol.json');p_sha=digest(protocol.read_bytes())
+    captures={key:json.loads((case/folder/'transport.json').read_bytes()) for key,folder in
+        [('prefix','transport-001'),('corroboration','transport-002'),('market','transport-003'),('bil','bil-transport-001')]}
+    for key,transport in captures.items():
+        expected={'prefix':'FAILED','corroboration':'INCOMPLETE','market':'COMPLETE','bil':'COMPLETE'}[key]
+        need(transport['status']==expected and transport['protocol_sha256']==p_sha
+             and transport['roster_sha256']==digest((case/'roster.json').read_bytes()),'CAPTURE_SCOPE')
+    need(captures['prefix']['capture_status']['reason']=='SSLError'
+        and captures['corroboration']['capture_status']['status']=='INCOMPLETE','FAILED_PREFIX_RETAINED')
+    dataset={'schema':'research.alpaca-composite-input/1','protocol_sha256':p_sha,'roster_sha256':digest((case/'roster.json').read_bytes()),
+        'manifests':{k:v['manifest_sha256'] for k,v in captures.items()}}
+    value={'schema':'research.alpaca-fit-hosted-request/1','study_id':'alpaca-owned55-fit-001','request_id':'canonical-baseline-001',
+        'stage':'INPUT_AND_CANONICAL_BASELINE','protocol_sha256':p_sha,'roster_sha256':dataset['roster_sha256'],
+        'dataset_sha256':digest(json.dumps(dataset,sort_keys=True,separators=(',',':')).encode()),'captures':captures,
+        'runtime':{'bytes':115666468,'sha256':'2069216d4133ae154eb76d4ac09cc0f719275c19fc3a95c7476d0f07f56b6b32'},
+        'source_files':source_inventory(),'verified_main_base':'bbcb728a972f483c9f76f2b0db2599b2134ab1bb',
+        'production_contacted':False,'new_forecaster':False,'performance_result_expected_from_this_stage':False}
+    destination=Path(destination);need(not destination.exists(),'REQUEST_COLLISION')
+    destination.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n',encoding='utf-8')
+    print(json.dumps({'request_sha256':digest(destination.read_bytes()),'source_files':len(value['source_files']),
+        'dataset_sha256':value['dataset_sha256'],'performance_result':False}))
+
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser();p.add_argument('--case',required=True);p.add_argument('--output',required=True)
+    a=p.parse_args();prepare(a.case,a.output)
