@@ -16,22 +16,36 @@ def normalized(finance,expected_source):
     del value['account']['source_sha256'];del value['account']['chain_sha256'];del value['account_state_sha256']
     return value
 
-def compare_oracle(actual,prior,source,prior_source):
+def event_view(observation,before,source,allow_bound_action_hashes=False):
+    record=observation['record'];math.need(record['state_without_chain']['source_sha256']==source,'ORACLE_EVENT_SOURCE')
+    if 'terms' in record['event']:
+        terms=record['event']['terms']
+        math.need(terms['predecessor_sha256']==math.digest(before) and record['event']['terms_sha256']==math.digest(terms),'ORACLE_OWN_BOUND_ACTION_DIGESTS')
+    math.need(record['chain_sha256']==math.digest(dict(previous=before['chain_sha256'],record={k:v for k,v in record.items() if k!='chain_sha256'})),'ORACLE_OWN_CANONICAL_CHAIN')
+    after={**record['state_without_chain'],'chain_sha256':record['chain_sha256']};value=json.loads(json.dumps(observation))
+    del value['record']['state_without_chain']['source_sha256'];del value['record']['chain_sha256']
+    if allow_bound_action_hashes and 'terms' in value['record']['event']:
+        del value['record']['event']['terms']['predecessor_sha256'];del value['record']['event']['terms_sha256']
+    return value,after
+
+def compare_oracle(actual,prior,source,prior_source,*,allow_bound_action_hashes=False):
     count=0
     for left,right in itertools.zip_longest(math.rows(actual/'book/daily.jsonl.gz'),math.rows(prior/'daily.jsonl.gz')):
         math.need(left is not None and right is not None and left['session']==right['session'],'ORACLE_DAILY_AXIS')
         math.need(normalized(left['finance'],source)==normalized(right['finance'],prior_source),'ORACLE_ALL_ECONOMIC_FIELDS');count+=1
     math.need(count==4639,'ORACLE_COMPLETE_PATH')
     # The account event-state/source identity and chain only may differ here.
-    events=0
+    def origin(identity):return dict(schema_id='research.persistent-funded-account-prototype/2',source_sha256=identity,cash='50000',positions={},claims={},retired=[],applied_events=[],last_session='2008-02-22',chain_sha256='0'*64)
+    events=0;previous_left=origin(source);previous_right=origin(prior_source)
     for left,right in itertools.zip_longest(math.rows(actual/'book/events.jsonl.gz'),math.rows(prior/'events.jsonl.gz')):
         math.need(left is not None and right is not None,'ORACLE_EVENT_AXIS')
-        for item,expected in ((left,source),(right,prior_source)):
-            math.need(item['record']['state_without_chain']['source_sha256']==expected,'ORACLE_EVENT_SOURCE')
-            del item['record']['state_without_chain']['source_sha256'];del item['record']['chain_sha256']
-        math.need(left==right,'ORACLE_EVERY_EVENT_ECONOMIC_FIELD');events+=1
+        a,previous_left=event_view(left,previous_left,source,allow_bound_action_hashes)
+        b,previous_right=event_view(right,previous_right,prior_source,allow_bound_action_hashes)
+        math.need(a==b,'ORACLE_EVERY_EVENT_ECONOMIC_FIELD');events+=1
     return dict(status='EVERY_ECONOMIC_FIELD_EXACT',daily=count,events=events,
-        exact_financial_exclusions=['$.account.source_sha256','$.account.chain_sha256','$.account_state_sha256'])
+        exact_financial_exclusions=['$.account.source_sha256','$.account.chain_sha256','$.account_state_sha256'],
+        bound_action_hashes_opt_in=allow_bound_action_hashes,each_own_predecessor_terms_and_event_chain_verified=True,
+        exact_event_action_exclusions=['$.record.event.terms.predecessor_sha256','$.record.event.terms_sha256'] if allow_bound_action_hashes else [])
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--profile',required=True);p.add_argument('--writer-name',required=True)
@@ -60,7 +74,7 @@ def main():
         metrics=windows(values),baseline_metrics=windows(baseline_values),production_contacted=False,local_account_or_core_executed=False)
     if profile.family in ('ORACLE_H0','ORACLE_P2'):
         prior=baseline_path if profile.family=='ORACLE_H0' else a.qualified/'oldp2/comparison/P2'
-        oldcp=math.gzload(prior/'checkpoint.json.gz');result['compatibility']=compare_oracle(a.actual,prior,source_sha,oldcp['runtime']['source_sha256'])
+        oldcp=math.gzload(prior/'checkpoint.json.gz');result['compatibility']=compare_oracle(a.actual,prior,source_sha,oldcp['runtime']['source_sha256'],allow_bound_action_hashes=True)
     dev=development_record(profile,result['metrics'],result['baseline_metrics'],Q(review['development_fee_burden']),review['development_treatment_count'])
     dev.update(review_passed=True,source_sha256=source_sha)
     (a.output/'review.json').write_bytes(math.encode(result)+b'\n');(a.output/'development.json').write_bytes(math.encode(dev)+b'\n');print('INDEPENDENT_RISK_PROFILE_REVIEW_FINISHED')

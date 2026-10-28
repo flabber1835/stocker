@@ -128,6 +128,63 @@
     }
   ],
   "requirements_sha256": "dbfba1c69f8ad4aac5c92b2d72847dd7629b3036f1c9892a56dfc44f71e5f393",
+  "recovered_oracles": {
+    "schema": "research.bounded-risk-review-recovery/1",
+    "run_id": 40735253211,
+    "head": "a96b667fa27e62181ec0df3abf84a2eb7a4e2388",
+    "first_mismatch_sha256": "df4f679317aabcbde1b7978fab7c467e8adbabf38db72552cbd8bc682bffa1ee",
+    "profiles": {
+      "ORACLE_H0": {
+        "receipt": {
+          "schema": "research.bounded-risk-profile-receipt/1",
+          "profile_id": "ORACLE_H0",
+          "status": "PROFILE_REFUSED",
+          "run_id": "40735253211",
+          "source_commit": "a96b667fa27e62181ec0df3abf84a2eb7a4e2388",
+          "request_sha256": "6f4236869de019b5440d748000f4fa893d4b35b47a6d003203a2c4975704bac6",
+          "known_financial_stopped": true,
+          "production_contacted": false,
+          "encrypted_output": {
+            "name": "ORACLE_H0.tar.crseal",
+            "bytes": 392509476,
+            "sha256": "36d41cf9f441fe33f6cb850f8eda23d705dee0ed7f744052816e4ee14c917747"
+          }
+        },
+        "actual_stop": {
+          "name": "capital-risk-h0p2-40735253211-1",
+          "id": "d56e6fad7f93cbdfa4d9b0026be1ffea33bdc03f8298a824d6edaad31dbebbc0",
+          "stopped": true,
+          "exit_code": 0,
+          "oom": false
+        }
+      },
+      "ORACLE_P2": {
+        "receipt": {
+          "schema": "research.bounded-risk-profile-receipt/1",
+          "profile_id": "ORACLE_P2",
+          "status": "PROFILE_REFUSED",
+          "run_id": "40735253211",
+          "source_commit": "a96b667fa27e62181ec0df3abf84a2eb7a4e2388",
+          "request_sha256": "6f4236869de019b5440d748000f4fa893d4b35b47a6d003203a2c4975704bac6",
+          "known_financial_stopped": true,
+          "production_contacted": false,
+          "encrypted_output": {
+            "name": "ORACLE_P2.tar.crseal",
+            "bytes": 400844836,
+            "sha256": "4022d89f138ab2e510d791967be729a6e9889310cc106778d00792be0de14231"
+          }
+        },
+        "actual_stop": {
+          "name": "capital-risk-h0p2-40735253211-2",
+          "id": "43d572d094cba1286d7e4f91d77b905870a8b2bef5b7d636524357b6c7ddccc9",
+          "stopped": true,
+          "exit_code": 0,
+          "oom": false
+        }
+      }
+    },
+    "financial_replay_permitted": false
+  },
   "sources": {
     "risk_profiles.py": "57c3183bc56d20a7392ae89075d65ca54096feb9d31417db5f2ca007736ef4a3",
     "risk_policy.py": "9c4c82f9f840037c383619a1eb16f0afc72a249e1497bb7d9b93f1ed69a5a814",
@@ -136,8 +193,8 @@
     "risk_gate.py": "f11f53e2b5510269bde2f2dd4009df76357dfbe9d8afc4ba8fd0732f86000e80",
     "risk_metrics.py": "68401901f04c8a9685cf8d34f2b6843ff0cf5917331a3aabcfe256c33fa7a5f1",
     "risk_review_math.py": "f6f493e0e9155b1477ba15aa99a839d0c747681475518754208b1c2b7d75e401",
-    "risk_review.py": "97b955a1af6ff587a2e25a55b177015edea141a70a294670ea44884332b4daee",
-    "risk_search_job.py": "6278411580eb86039d2faf113cfe988e521d47cecb6878a93ee42976a7c23018"
+    "risk_review.py": "7b6df7370b0887b2a05c11ceb1c47e18ad0bf6065b460debe40a6eeaf7b1af6f",
+    "risk_search_job.py": "926a5ee3cdad5b06055068fe9777e1c570be41707934cb0a71abe7bdb84e4e8f"
   },
   "worker_seconds": 900,
   "review_seconds": 900,

@@ -11,6 +11,8 @@ from risk_policy import step,retention,projection
 from risk_metrics import metrics,windows,development_record,rank
 from risk_review_math import check_profile_policy
 import risk_search_job as job
+from risk_review import event_view
+from risk_review_math import digest
 
 class RiskSearchTests(unittest.TestCase):
     def obs(self,key='E',sid='S',**kw):
@@ -102,5 +104,30 @@ class RiskSearchTests(unittest.TestCase):
         text=(ROOT.parents[1]/'.github/workflows/capital-bounded-risk-search.yml').read_text()
         for v in ('timeout-minutes: 90','timeout-minutes: 65','retention-days: 7','contents: read','github.run_attempt == 1'):self.assertIn(v,text)
         for v in ('contents: write','workflow_dispatch:','checkpoint.json.gz','daily.jsonl.gz'):self.assertNotIn(v,text)
+
+    def hash_fixture(self,source):
+        before=dict(source_sha256=source,chain_sha256='0'*64,fixed='synthetic-hash-only-marker')
+        terms=dict(predecessor_sha256=digest(before),ratio='1',cash_per_share='0')
+        event=dict(terms=terms,terms_sha256=digest(terms),operation='CONVERSION')
+        record=dict(event=event,state_without_chain=dict(source_sha256=source,fixed='same-marker'))
+        chain=digest(dict(previous=before['chain_sha256'],record=record));return before,dict(record={**record,'chain_sha256':chain},context={})
+
+    def test_bound_action_identity_is_strict_default_and_narrow_opt_in(self):
+        a,left=self.hash_fixture('a'*64);b,right=self.hash_fixture('b'*64)
+        self.assertNotEqual(event_view(left,a,'a'*64)[0],event_view(right,b,'b'*64)[0])
+        self.assertEqual(event_view(left,a,'a'*64,True)[0],event_view(right,b,'b'*64,True)[0])
+        bad=deepcopy(right);bad['record']['event']['terms']['ratio']='2';bad['record']['event']['terms_sha256']=digest(bad['record']['event']['terms']);bad['record']['chain_sha256']=digest(dict(previous=b['chain_sha256'],record={k:v for k,v in bad['record'].items() if k!='chain_sha256'}))
+        self.assertNotEqual(event_view(left,a,'a'*64,True)[0],event_view(bad,b,'b'*64,True)[0])
+
+    def test_actual_predecessor_guard_removal_falsifier(self):
+        before,observed=self.hash_fixture('a'*64);bad=deepcopy(observed);bad['record']['event']['terms']['predecessor_sha256']='0'*64;bad['record']['event']['terms_sha256']=digest(bad['record']['event']['terms']);bad['record']['chain_sha256']=digest(dict(previous=before['chain_sha256'],record={k:v for k,v in bad['record'].items() if k!='chain_sha256'}))
+        with self.assertRaisesRegex(ValueError,'OWN_BOUND_ACTION'):event_view(bad,before,'a'*64,True)
+        import risk_review
+        node=next(n for n in ast.parse((ROOT/'risk_review.py').read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='event_view')
+        class Remove(ast.NodeTransformer):
+            def visit_Expr(self,n):
+                if isinstance(n.value,ast.Call) and n.value.args and isinstance(n.value.args[-1],ast.Constant) and n.value.args[-1].value=='ORACLE_OWN_BOUND_ACTION_DIGESTS':return None
+                return n
+        tree=Remove().visit(ast.Module(body=[node],type_ignores=[]));ast.fix_missing_locations(tree);scope=dict(risk_review.__dict__);exec(compile(tree,'removed-own-action-predecessor-guard','exec'),scope);scope['event_view'](bad,before,'a'*64,True)
 
 if __name__=='__main__':unittest.main()

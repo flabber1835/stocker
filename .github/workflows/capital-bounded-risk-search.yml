@@ -41,11 +41,18 @@ jobs:
           gh run download 40706014951 --repo flabber1835/stocker --name holding-action-price-64f241d49c8d3fc5128a54deda0d435498d50089 --dir "$RUNNER_TEMP/search-price"
           gh run download 40719685611 --repo flabber1835/stocker --name selective-h0-p2-a363edfbcc93da54d85267b7d4ba660ceb5340b2 --dir "$RUNNER_TEMP/search-controls"
           gh run download 40724796359 --repo flabber1835/stocker --name selective-completion-32b6be13b88d8a521323bcd10fbbc1d51558fdb0 --dir "$RUNNER_TEMP/search-oldp2"
+      - name: Fetch exact completed oracle accounts for reviewer-only recovery
+        timeout-minutes: 3
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 40735253211 --repo flabber1835/stocker --name risk-profile-ORACLE_H0-a96b667fa27e62181ec0df3abf84a2eb7a4e2388 --dir "$RUNNER_TEMP/search-oracle-recovery/ORACLE_H0"
+          gh run download 40735253211 --repo flabber1835/stocker --name risk-profile-ORACLE_P2-a96b667fa27e62181ec0df3abf84a2eb7a4e2388 --dir "$RUNNER_TEMP/search-oracle-recovery/ORACLE_P2"
       - name: Qualify adapter then run fixed twelve-profile study and independent reviews
         timeout-minutes: 65
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/risk_search_job.py --request research/capital_risk/risk-search-request.json --staging-receipt artifacts/capital-risk/search-staging.json --price-download "$RUNNER_TEMP/search-price" --control-download "$RUNNER_TEMP/search-controls" --p2-download "$RUNNER_TEMP/search-oldp2" --output artifacts/capital-risk/risk-development.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/risk_search_job.py --request research/capital_risk/risk-search-request.json --staging-receipt artifacts/capital-risk/search-staging.json --price-download "$RUNNER_TEMP/search-price" --control-download "$RUNNER_TEMP/search-controls" --p2-download "$RUNNER_TEMP/search-oldp2" --oracle-recovery-download "$RUNNER_TEMP/search-oracle-recovery" --output artifacts/capital-risk/risk-development.json'
       - name: Preserve separately sealed development results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

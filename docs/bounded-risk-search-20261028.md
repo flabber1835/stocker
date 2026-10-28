@@ -113,3 +113,29 @@ finished candidates. UNKNOWN is never snapshotted or treated as failed/unsent.
 No routine approval stop within this authorized study. Finish with the complete
 ranking, locked validation results, honest verdict and reviewed private report;
 no automatic production promotion or additional search budget.
+
+## Preserved reviewer-only oracle refusal
+
+Initial run40735253211/a96b667f stopped both full oracle producers0/noOOM and
+both independent reviewers1/noOOM, before any twelve search origins. Exact
+development artifact12838170213 and oracle artifacts12837466895/12836808926
+were preserved. Independently authenticated H0 evidence confirms every4639daily
+economic record equal. The first event difference is exclusively
+$.record.event.terms.predecessor_sha256 and $.record.event.terms_sha256.
+Their bound conversion predecessor is the private account's own source/chain
+state, so those hashes necessarily differ under the new source identity.
+
+Keep the original event comparator strict by default. Only the named oracle
+compatibility call may opt into removing these two exact event paths, after
+recomputing EACH side's actual predecessor state digest, terms digest and
+canonical event chain. Do not exclude terms, economic fields or general hash
+patterns. A wrong predecessor, changed ratio/cash or unverified chain refuses.
+Preserve the exact first-mismatch report and test economic mutations.
+
+Correct the reviewer only; financial/profile source identities remain unchanged.
+Re-admit the two exact sealed completed oracle books, including their original
+checkpoints and every journal prefix, and run only their corrected read-only
+reviews. Do not restart either oracle account. Once both compatibility gates
+pass, establish the twelve still-unstarted search origins. Preserve stopped
+reviewer logs/partial reports on every refusal; unknown reviewer outputs remain
+unarchived. This repair is within the owner's authorized continuation.
