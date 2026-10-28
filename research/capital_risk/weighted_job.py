@@ -125,10 +125,12 @@ def inspect_weighted(path,name):
         and any(v.startswith('no-new-privileges') for v in h['SecurityOpt']),'REFUSED_R_FENCES')
     mounts={v['Destination']:v for v in value['Mounts'] if v['Type']=='bind'}
     suffix=worker_stage(name)=='weighted-suffix'
-    expected_mounts={'/frozen','/out','/driver'}|({'/resume'} if suffix else set())
+    qualified=worker_stage(name)=='holding-comparison'
+    expected_mounts={'/frozen','/out','/driver'}|({'/resume'} if suffix else set())|({'/qualified'} if qualified else set())
     need(set(mounts)==expected_mounts and mounts['/out']['RW']
         and not mounts['/frozen']['RW'] and not mounts['/driver']['RW']
         and (not suffix or not mounts['/resume']['RW'])
+        and (not qualified or not mounts['/qualified']['RW'])
         and c['WorkingDir']=='/fixed' and c['User']=='1001:1001','REFUSED_R_MOUNTS')
     need(not any(v.partition('=')[0] in set(FORBIDDEN_CREDENTIALS)|{SECRET,'GH_TOKEN','GITHUB_TOKEN'} and v.partition('=')[2]
         for v in c['Env']),'REFUSED_R_CREDENTIALS')

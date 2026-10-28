@@ -1,0 +1,22 @@
+{
+  "schema": "research.selective-comparison-request/1",
+  "id": "selective-h0-p2-001",
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "contract_sha256": "27204f9bc1c66f9dcc5cfe7561542180be2cd3ca1b9ac799395069c402d4d3db",
+  "sources": {
+    "selective_policy.py": "0dc9a2ef859d84ca34c7da551a29e0c55aa8427e373c9ec9ed68a643840fce89",
+    "selective_journal.py": "256fd663cb73c9e0227fa2c61d62ceedf886c3733f8b10229f9d5554f52e164d",
+    "selective_input.py": "8b1fa15d4525b92b5938f064174316a90711054f041bbf41b2c1bfc3ecce312b",
+    "selective_model.py": "7b87e82e9126e5c5da2a5f310f2ebf9902e5318317f8ca79453bd9f03d019f9c",
+    "selective_gate.py": "549cf149a9f0a754932ede41d1d8813ff3c96f1832e12d9ca37365659834b50c",
+    "selective_screen.py": "87c0c0d4a83698560741c1db32962487c2fd073025c19663d3bc957f87a2314b",
+    "selective_job.py": "f963a536d9a36ae1b4725328e51b39b6699dbbd5855e7e914e5016f51c22bcff",
+    "holding_account.py": "541041ac75ef0e98990f47b62845bb59dfa5fe5830a3615c41b9c0c36a940e89",
+    "holding_actions.py": "297bc5088378b276bfa64573c5139ad0022ac2e8bd6634fbb6fbba24ee90d843",
+    "holding_identity.py": "08f2320df5442b4201239d512034547413746391b2b1899090793e033e55b38a",
+    "baseline_prefix.py": "51624d3347c14d06f9710eb07578c18e654f35c5983d738afedbda1aaec8d4d0",
+    "screen_job.py": "8da3516acd71e2c70a1ebeea0b3e05370280c40f542ffc355d9082042f9106ab",
+    "weighted_job.py": "48a8800328a47f24ee964fef91a9450315061152f1bb25edfebbfe8419149fee"
+  },
+  "owner_scope": "MATCHED_H0_THEN_ONE_UNCHANGED_P2_WITH_RETAINED_DEFENSIVE_FACTOR_PROXY"
+}
