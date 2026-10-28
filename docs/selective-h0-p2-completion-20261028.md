@@ -70,3 +70,26 @@ never invent a checkpoint, rollback a book or skip unsupported actions/trades.
 No further routine approval stop for this completion. Changes in objective,
 new candidates, production or materially different data destinations remain
 outside scope. No merge, deployment, broker/database or shared-service changes.
+
+## Actual completion and review
+
+Run40724796359/32b6be13 completed successfully with a proven stopped0/noOOM
+worker. Its exact encrypted artifact, inventory, source/execution commitments,
+old-control admission and all fences were authenticated before interpretation.
+The neutral accounts were reused, not restarted. The unchanged P2 completed
+the full history and exercised funded treatment in the declared stress windows.
+
+Independent read-only review checked every candidate label/counter, committed
+target, order, fill, action, cash/claim/share equation, raw NAV and next-open
+factor. Every retained checkpoint/prefix/tail passed, and all actual hosted
+typed-restore files matched their receipts. Both2020-12-31 restored suffixes
+matched every subsequent daily/event record and complete final Runtime exactly.
+All254predeclared metric periods and the joint objective were recomputed.
+
+The predeclared P2 was rejected for the joint objective. Retain that negative
+result without tuning or treating it as proof that all local-controller
+architectures fail. Financial details remain in the encrypted artifact and the
+private local research report.169targeted pure/static tests and an actual
+control-path guard-removal falsifier passed; independent order-check guard
+removal also admitted a missing observed trim that the real reviewer refused.
+No local account/Core replay, new candidate, production change or promotion.
