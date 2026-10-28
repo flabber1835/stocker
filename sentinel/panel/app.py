@@ -21,14 +21,13 @@ import os
 from contextlib import asynccontextmanager
 from functools import wraps
 from pathlib import Path
-from threading import BoundedSemaphore
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from sentinel import shadow_segments
 from sentinel.operational_status import color
-from sentinel.panel import last_known, model
+from sentinel.panel import last_known, model, singleflight
 from sentinel.panel.pwa import MANIFEST, SERVICE_WORKER
 from sentinel.panel.render import REFRESH_SECONDS, render
 from sentinel.panel.push_enrollment import router as push_enrollment_router
@@ -45,14 +44,16 @@ app = FastAPI(title="Caesar's Palace", docs_url=None, redoc_url=None,
               lifespan=_verification_lifespan)
 app.include_router(push_enrollment_router)
 _STATIC_DIR = Path(__file__).with_name("static")
-_PANEL_BUILD_SLOT = BoundedSemaphore(1)
+_PANEL_BUILDS = singleflight.Builds()
 
 
 def _one_panel_build(function):
-    """Bound expensive builds; retained HTML is explicitly non-current."""
+    """Keep finite wait failures explicitly non-current on every route."""
     @wraps(function)
     def guarded(*args, **kwargs):
-        if not _PANEL_BUILD_SLOT.acquire(blocking=False):
+        try:
+            return function(*args, **kwargs)
+        except singleflight.BuildUnavailable:
             headers = {"Cache-Control": "no-store", "Retry-After": "5"}
             message = "A status refresh is already running. Please retry shortly."
             if function.__name__ == "panel":
@@ -69,11 +70,19 @@ def _one_panel_build(function):
                     status_code=503, headers=headers)
             return JSONResponse({"status": "UNKNOWN", "detail": message},
                                 status_code=503, headers=headers)
-        try:
-            return function(*args, **kwargs)
-        finally:
-            _PANEL_BUILD_SLOT.release()
     return guarded
+
+
+def _read_panel():
+    configuration = _config()
+    state_dir, dsn = configuration
+    def build():
+        return _shadow_segment_disclosure(
+            build_panel(state_dir=state_dir, database_url=dsn), dsn)
+    result = _PANEL_BUILDS.read(configuration, build, timeout=singleflight.WAIT_SECONDS)
+    if _config() != configuration:
+        raise singleflight.BuildUnavailable('dashboard configuration changed during refresh')
+    return result
 
 
 @app.middleware("http")
@@ -246,8 +255,7 @@ def _shadow_segment_disclosure(panel: model.Panel, database_url: str) -> model.P
 @_one_panel_build
 def panel() -> HTMLResponse:
     state_dir, dsn = _config()
-    p = _shadow_segment_disclosure(
-        build_panel(state_dir=state_dir, database_url=dsn), dsn)
+    p = _read_panel()
     html = render(p, refresh_seconds=REFRESH_SECONDS)
     last_known.remember((state_dir, dsn), render(p, refresh_seconds=REFRESH_SECONDS,
                                               refresh_pending=True))
@@ -258,9 +266,7 @@ def panel() -> HTMLResponse:
 @app.get("/panel.json")
 @_one_panel_build
 def panel_json() -> JSONResponse:
-    state_dir, dsn = _config()
-    p = _shadow_segment_disclosure(
-        build_panel(state_dir=state_dir, database_url=dsn), dsn)
+    p = _read_panel()
     return JSONResponse(
         {
             "overall": p.overall,
@@ -361,9 +367,7 @@ def health() -> dict:
 @_one_panel_build
 def operational_health() -> JSONResponse:
     """The same required-fact verdict shown on the operator panel."""
-    state_dir, dsn = _config()
-    p = _shadow_segment_disclosure(
-        build_panel(state_dir=state_dir, database_url=dsn), dsn)
+    p = _read_panel()
     body = {
         "status": p.operational,
         "color": color(p.operational),

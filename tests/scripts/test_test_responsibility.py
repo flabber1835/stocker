@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import ast
 from copy import deepcopy
+import json
 
 import pytest
 
 from tools.alpaca_harness_mutations import MUTANTS
 from tools.test_responsibility_lib import (
-    ROOT, canonical_nodeid, junit_execution, load_authority, resolve_contracts,
+    ROOT, canonical_nodeid, incident_named, junit_execution, load_authority, resolve_contracts,
     validate_contract_instances, validate_contract_selectors,
 )
 from tools.validate_test_responsibility import (
@@ -19,6 +20,83 @@ from tools.validate_test_responsibility import (
     _require_scope_binding, _workflow_triggers, validate as validate_responsibility,
 )
 from tools.verify_test_owner_execution import _delegated_required_contracts
+
+
+_PERMANENT_FEATURE_MODULES = (
+    'test_issuer_admission.py', 'test_issuer_enrollment.py', 'test_issuer_executor_gate.py',
+    'test_issuer_funding_namespace.py', 'test_issuer_guarded_gate.py',
+    'test_issuer_operational_compatibility.py', 'test_issuer_reference.py',
+    'test_issuer_runtime.py', 'test_prepare_shadow_wait.py', 'test_protected_limits.py',
+    'test_price_domains.py', 'test_production_decision.py',
+)
+
+
+@pytest.mark.parametrize('name', _PERMANENT_FEATURE_MODULES)
+def test_incident_tokens_do_not_capture_permanent_behavior_words(name):
+    assert not incident_named('tests/sentinel/'+name)
+
+
+@pytest.mark.parametrize('name', (
+    'test_pr540_recovery.py', 'test_pr_540_recovery.py', 'test_pr-540.py', 'test_pr.py',
+    'test_issue286.py', 'test_issue_286_recovery.py', 'test_issue-286.py', 'test_issue.py',
+    'test_review540.py', 'test_review_540.py', 'test_review_regressions.py', 'test_review.py',
+))
+def test_actual_incident_tokens_still_require_a_permanent_behavior_owner(name):
+    assert incident_named('tests/sentinel/'+name)
+
+
+def _incident_ci_diff(monkeypatch, tmp_path, diff):
+    from tools import validate_test_responsibility as responsibility
+    from tools import verify_test_owner_execution as execution
+    monkeypatch.setattr(responsibility, 'git', lambda *args: diff)
+    event=tmp_path/'pull-request.json'
+    event.write_text(json.dumps({'pull_request':{'base':{'sha':'a'*40}}}))
+    monkeypatch.setenv('GITHUB_EVENT_NAME', 'pull_request')
+    monkeypatch.setenv('GITHUB_EVENT_PATH', str(event))
+    monkeypatch.setattr(execution, '_ensure_git_commit', lambda _: None)
+    monkeypatch.setattr(execution.subprocess, 'check_output', lambda *args, **kwargs: diff)
+    return responsibility,execution
+
+
+def test_both_ci_callers_accept_behavior_additions_and_renames_without_path_exemptions(monkeypatch,tmp_path):
+    diff='\n'.join('A\ttests/sentinel/'+name for name in _PERMANENT_FEATURE_MODULES)
+    diff+='\nR100\ttests/sentinel/test_old.py\ttests/sentinel/test_issuer_new_owner.py'
+    diff+='\nM\ttests/sentinel/test_issue209_existing.py\n'
+    responsibility,execution=_incident_ci_diff(monkeypatch,tmp_path,diff)
+    assert responsibility._changed_incident_destinations('a'*40,[ROOT/'tests'])==[]
+    assert execution._require_incident_anti_regrowth()=='a'*40
+
+
+@pytest.mark.parametrize('change', ('A\ttests/sentinel/test_issue_541_new.py',
+    'R100\ttests/sentinel/test_existing.py\ttests/sentinel/test_pr541_regression.py',
+    'A\ttests/other_owner/test_review_regressions.py'))
+def test_both_ci_callers_keep_rejecting_incident_additions_and_renames(monkeypatch,tmp_path,change):
+    responsibility,execution=_incident_ci_diff(monkeypatch,tmp_path,change+'\n')
+    destination=change.split('\t')[-1]
+    assert responsibility._changed_incident_destinations('a'*40,[ROOT/'tests'])==[destination]
+    with pytest.raises(AssertionError,match='new incident-named regression files are forbidden'):
+        execution._require_incident_anti_regrowth()
+
+
+def test_broad_prefix_regrowth_is_detected_by_real_ci_callers(monkeypatch,tmp_path):
+    from tools import validate_test_responsibility as responsibility
+    from tools import verify_test_owner_execution as execution
+    broad=lambda path:any(path.rsplit('/',1)[-1].startswith('test_'+prefix)
+                          for prefix in ('pr','issue','review'))
+    monkeypatch.setattr(responsibility,'incident_named',broad)
+    monkeypatch.setattr(execution,'incident_named',broad)
+    with pytest.raises(AssertionError):
+        test_both_ci_callers_accept_behavior_additions_and_renames_without_path_exemptions(monkeypatch,tmp_path)
+
+
+def test_removing_incident_rejection_is_detected_by_real_ci_callers(monkeypatch,tmp_path):
+    from tools import validate_test_responsibility as responsibility
+    from tools import verify_test_owner_execution as execution
+    monkeypatch.setattr(responsibility,'incident_named',lambda _:False)
+    monkeypatch.setattr(execution,'incident_named',lambda _:False)
+    with pytest.raises(AssertionError):
+        test_both_ci_callers_keep_rejecting_incident_additions_and_renames(
+            monkeypatch,tmp_path,'A\ttests/sentinel/test_issue_541_new.py')
 
 
 def selector(name: str) -> str:
@@ -251,7 +329,7 @@ def test_current_test_authority_keeps_same_workflow_dependency_binding():
     result = _require_merge_authority()
     assert result["carrier_job"] == "certification-and-durability"
     assert result["temporal_binding"] == "all lanes bound to the same workflow run, attempt, source and images"
-    assert len(result["parallel_certification"]["suite_lanes"]) == 16
+    assert len(result["parallel_certification"]["suite_lanes"]) == 22
     assert not (ROOT / ".github/workflows/sharadar-daily-replay.yml").exists()
     assert "sharadar.daily-replay" not in load_authority()["owners"]
 
@@ -293,7 +371,10 @@ def test_protected_contexts_require_unconditional_tree_equivalence_proof():
     ("needs: [runtime-build, parallel-certification]",
      "needs: [runtime-build]"),
     ("    if: always()\n", "    if: success()\n"),
-    ("sentinel-rolling-3, sentinel-contention", "sentinel-contention"),
+    ("sentinel-rolling-2, sentinel-rolling-3", "sentinel-rolling-2"),
+    ("sentinel-general-4, sentinel-general-5", "sentinel-general-4"),
+    ("sentinel-general-6, sentinel-general-7", "sentinel-general-6"),
+    ("sentinel-current-workflow, sentinel-current-process-recovery", "sentinel-current-workflow"),
     ('python tools/sentinel_ci_shards.py --lane "$CI_LANE"',
      'python tools/sentinel_ci_shards.py --lane sentinel-general-0'),
     ("    name: sentinel-suite-${{ matrix.lane }}\n",

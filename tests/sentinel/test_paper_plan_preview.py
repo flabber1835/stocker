@@ -45,6 +45,75 @@ def test_dated_estimate_survives_the_overnight_wait():
     assert '2026-10-13 at 12:00:00 AM Pacific' in html
 
 
+def original_authority():
+    selected=plan()
+    selected.update(broker='alpaca',broker_account_id='paper',plan_fingerprint='a'*64)
+    selected['execute_at']=selected['created_at']+timedelta(days=3)
+    authority=dict(plan_id=selected['plan_id'],plan_fingerprint=selected['plan_fingerprint'],
+        tickers={'one':'ONE','two':'TWO','three':'THREE'},
+        broker_observation=dict(completeness='COMPLETE',observed_at=NOW-timedelta(seconds=5),
+            account_identity={'broker':'alpaca','account_id':'paper'},positions=[
+                {'instrument':{'security_id':sid},'quantity':qty}
+                for sid,qty in {'one':'2','two':'3','three':'5'}.items()]))
+    return selected,authority
+
+
+def test_original_sizing_intent_survives_weekend_without_freshness_claim():
+    selected,authority=original_authority()
+    value=preview.project_original_intent(selected,authority)
+    assert value.trades==2 and value.observation_at==NOW-timedelta(seconds=5)
+    assert preview.project(plan=selected,positions={'one':'2','two':'3'},
+        observation_at=value.observation_at,tickers=authority['tickers'],
+        now=NOW+timedelta(days=2)).trades==0
+
+
+@pytest.mark.parametrize('fault',['fingerprint','account','incomplete','future_snapshot','duplicate','opening_held','empty_opening_frame'])
+def test_original_sizing_preview_refuses_contradictory_authority(fault):
+    selected,authority=original_authority()
+    if fault=='fingerprint':authority['plan_fingerprint']='b'*64
+    elif fault=='account':authority['broker_observation']['account_identity']['account_id']='foreign'
+    elif fault=='incomplete':authority['broker_observation']['completeness']='INCONSISTENT'
+    elif fault=='future_snapshot':authority['broker_observation']['observed_at']=NOW+timedelta(seconds=1)
+    elif fault=='duplicate':authority['broker_observation']['positions']*=2
+    elif fault=='empty_opening_frame':selected['opening_intents']={}
+    else:
+        selected['target_basket']['one']='0'
+        selected['opening_intents']=[dict(security_id='one',slot_id=0,intended_dollars='2000')]
+    with pytest.raises(ValueError):preview.project_original_intent(selected,authority)
+
+
+def test_empty_opening_frame_guard_has_a_falsifier(monkeypatch):
+    import inspect
+    source=inspect.getsource(preview.project_original_intent).replace(
+        'elif not isinstance(openings,dict) or not openings:', 'elif False:')
+    namespace=dict(preview.__dict__)
+    exec(compile(source,'removed original opening-frame guard','exec'),namespace)
+    monkeypatch.setattr(preview,'project_original_intent',namespace['project_original_intent'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_original_sizing_preview_refuses_contradictory_authority('empty_opening_frame')
+
+
+def test_original_sizing_snapshot_cannot_postdate_real_plan_creation():
+    selected,authority=original_authority()
+    # Reproduce the composition clock split: the broker's synthetic next-open
+    # observation is later than the database's real plan-creation timestamp.
+    authority['broker_observation']['observed_at']=NOW+timedelta(hours=13)
+    with pytest.raises(ValueError,match='^original plan snapshot clock is inconsistent$'):
+        preview.project_original_intent(selected,authority)
+
+
+def test_original_sizing_creation_clock_guard_has_a_falsifier(monkeypatch):
+    import inspect
+    source=inspect.getsource(preview.project_original_intent)
+    guard="observed <= plan['created_at'] <= plan['execute_at']"
+    assert source.count(guard)==1
+    namespace=dict(preview.__dict__)
+    exec(compile(source.replace(guard,'True'),'<original plan clock guard falsifier>','exec'),namespace)
+    monkeypatch.setattr(preview,'project_original_intent',namespace['project_original_intent'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_original_sizing_snapshot_cannot_postdate_real_plan_creation()
+
+
 @pytest.mark.parametrize('legacy', [[], [('one','CONFLICT')]])
 def test_reader_uses_retained_plan_tickers_when_legacy_bars_are_absent(monkeypatch,legacy):
     from contextlib import contextmanager
@@ -55,7 +124,7 @@ def test_reader_uses_retained_plan_tickers_when_legacy_bars_are_absent(monkeypat
             if 'FROM sentinel_automation_cycles' in query:
                 self.rows=[(selected['cycle_id'],selected['plan_id'],selected['decision_session'],
                     selected['effective_session'],selected['execute_at'],selected['created_at'],
-                    selected['target_basket'],'alpaca','paper-fixture',NOW)]
+                    selected['target_basket'],'alpaca','paper-fixture',NOW,'a'*64)]
             elif 'FROM sentinel_observations' in query:
                 self.rows=[({'one':'2','two':'3','three':'5'},NOW-timedelta(hours=15))]
             elif 'FROM sentinel_processed_sessions' in query:self.rows=[]

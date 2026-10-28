@@ -11,7 +11,7 @@ import re
 import subprocess
 import uuid
 
-from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, atomic_json, digest, read_json, require
+from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, atomic_json, digest, handoff_mode, read_json, require
 
 SERVICES = ('sentinel-shadow', 'sentinel-automation', 'sentinel-panel',
             'sentinel-alert-dispatcher','sentinel-verifier','sentinel-execution-collector')
@@ -247,6 +247,10 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
             '--entrypoint','python',image,'-B','-c',code,json.dumps(config,sort_keys=True)],timeout=90).stdout)
 
     def verify_candidate(self):
+        require(handoff_mode(self.request)=='PRE_OPEN' or getattr(self,'supports_post_trade',False),
+                'POST_TRADE_BACKED_ADAPTER_REQUIRED')
+        require(handoff_mode(self.request)!='BLOCKED_UNSENT' or getattr(self,'supports_blocked_unsent',False),
+                'BLOCKED_UNSENT_BACKED_ADAPTER_REQUIRED')
         selected = self.request['candidate']; old = self.request['predecessor']
         require(self.git('rev-parse','HEAD')==selected['commit']
                 and not self.git('status','--porcelain'), 'CANDIDATE_SOURCE_NOT_CLEAN')
@@ -272,9 +276,8 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
                 'CANDIDATE_QUALIFICATION_ABSENT')
         require(report['source_files']==qualification['source_files'],
                 'CANDIDATE_QUALIFICATION_SUBJECT_CHANGED')
-        for name, expected in qualification['source_files'].items():
-            require(hashlib.sha256((self.source/name).read_bytes()).hexdigest()==expected,
-                    'QUALIFIED_SOURCE_BYTES_CHANGED')
+        # validate_report already hashes the complete exact tracked input set.
+        # The comparison above binds that freshly checked map to this request.
         return selected['source_identity']
 
     def candidate_values(self, values):

@@ -35,6 +35,10 @@ class JobWaiting(JobRefused):
     """A valid active request is temporarily owned or not yet due for retry."""
 
 
+class JobLeaseExpired(JobWaiting):
+    """Same owner/fence lost its lease; roll back before a fresh fenced claim."""
+
+
 class PreparationRequest(Contract):
     window: CurrentFormationWindow | FormationWindow | PriceWindow
     expected_publication_version: int | None = Field(default=None, ge=1, strict=True)
@@ -175,6 +179,10 @@ def _owned(conn, lease: Lease):
     if (row is not None and str(row[4]) == lease.owner and row[5] == lease.fence
             and row[2] <= row[10]):
         raise JobDeadlineExceeded("preparation job deadline exhausted")
+    if (row is not None and str(row[4]) == lease.owner and row[5] == lease.fence
+            and row[0] in ACTIVE and row[3] is not None and row[3] <= row[10]
+            and row[2] > row[10]):
+        raise JobLeaseExpired("worker lease expired; a fresh fenced claim is required")
     if (row is None or str(row[4]) != lease.owner or row[5] != lease.fence
             or row[0] not in ACTIVE or row[3] is None or row[3] <= row[10]
             or row[2] <= row[10]):

@@ -16,7 +16,8 @@ import sentinel.paper as paper
 
 TEST_ROOT = Path(__file__).resolve().parents[2]
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT", TEST_ROOT)).resolve()
-PACKAGE = ROOT / "sentinel" / "paper"
+RUNTIME_ROOT = Path(paper.__file__).resolve().parents[1]
+PACKAGE = RUNTIME_ROOT / "paper"
 MODULES = ['model', 'inspection', 'validation', 'cash', 'targets', 'reconciliation_evidence', 'finalization', 'preparation', 'execution', 'recovery']
 PUBLIC_OWNERS = {'DEFENSIVE_SYMBOL': 'inspection', 'ExecutionResult': 'model', 'PaperAccountInspection': 'model', 'PaperActivationRefused': 'model', 'PaperRetryableRefused': 'model', 'PreOpenShareUnitAuthorityUnavailable': 'model', 'PreparationResult': 'model', 'build_security_resolver': 'inspection', 'current_paper_plan': 'preparation', 'execute_automated_paper_plan': 'execution', 'execute_paper_plan': 'execution', 'inspect_paper_account': 'inspection', 'prepare_paper_plan': 'preparation', 'recover_automated_paper_cycle': 'recovery'}
 SUPPORTED_PUBLIC_ROOT_BINDINGS = {
@@ -31,7 +32,7 @@ SUPPORTED_PUBLIC_ROOT_BINDINGS = {
 
 
 def test_monolithic_paper_module_was_removed():
-    assert not (ROOT / "sentinel" / "paper.py").exists()
+    assert not (RUNTIME_ROOT / "paper.py").exists()
     assert PACKAGE.is_dir()
     assert not (PACKAGE / "compat.py").exists()
 
@@ -98,7 +99,7 @@ def _paper_root_violations(path: Path) -> list[str]:
                 for alias in node.names:
                     if alias.name not in SUPPORTED_PUBLIC_ROOT_BINDINGS:
                         violations.append(
-                            f"{path.relative_to(ROOT)}:{node.lineno}: "
+                            f"{path.relative_to(RUNTIME_ROOT)}:{node.lineno}: "
                             f"from sentinel.paper import {alias.name}")
         elif isinstance(node, ast.Import):
             for alias in node.names:
@@ -121,7 +122,7 @@ def _paper_root_violations(path: Path) -> list[str]:
         if (root_binding is not None
                 and root_binding not in SUPPORTED_PUBLIC_ROOT_BINDINGS):
             violations.append(
-                f"{path.relative_to(ROOT)}:{node.lineno}: "
+                f"{path.relative_to(RUNTIME_ROOT)}:{node.lineno}: "
                 f"sentinel.paper root access {root_binding}")
 
     return violations
@@ -129,7 +130,7 @@ def _paper_root_violations(path: Path) -> list[str]:
 
 def test_production_paper_root_access_is_public_api_only():
     violations = []
-    for path in sorted((ROOT / "sentinel").rglob("*.py")):
+    for path in sorted(RUNTIME_ROOT.rglob("*.py")):
         if PACKAGE in path.parents:
             continue
         violations.extend(_paper_root_violations(path))

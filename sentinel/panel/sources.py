@@ -68,7 +68,7 @@ _AUTOMATION_CYCLE_ROW_FIELDS = frozenset({
     "original_execution_deadline_at",
     "first_failure_at", "exception_fingerprint", "terminal_reason",
     "availability_retry_unbounded", "callback_failure", "exception_type",
-    "availability_retry_clocks_aware",
+    "availability_retry_clocks_aware", "diagnostic",
     "protected_day_wait",
     "prepare_at", "execution_open_at", "execute_at", "execution_close_at",
     "created_at", "completed_at", "updated_at",
@@ -698,7 +698,8 @@ def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
             sleep(min(FEED_PIN_POLL_SECONDS, remaining))
 
 
-def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
+def _feed_rows(database_url: str, *, post_close_wait=None,
+               now: Optional[datetime] = None) -> tuple[list[model.Row], list[str]]:
     """The feed frontier, the contract verdict and the latest ingest.
 
     One connection for all three: three page-load connections to serve one
@@ -804,6 +805,13 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                            frontier_ahead=ahead),
             ingest,
         ]
+        if (post_close_wait is not None and not run_err and not front_err
+                and ingest.status not in {model.FAIL, model.UNKNOWN}):
+            from sentinel.panel import postclose_feed_wait
+            rows[0] = postclose_feed_wait.project(rows[0], post_close_wait,
+                frontier=str(frontier) if frontier else None,
+                sessions_behind=behind, ready=ready,
+                now=now or datetime.now(timezone.utc))
         # `source_errors` is the banner across the top of the page and it means
         # "the panel could not read the world". A single slow query does not
         # qualify — the rows below say so themselves, in the right place. Only a
@@ -923,6 +931,7 @@ def _latest_automation_cycle(conn, *, generation: int | None = None) -> dict | N
         "availability_retry_unbounded": diagnostic.get("availability_retry_unbounded"),
         "callback_failure": diagnostic.get("callback_failure"),
         "exception_type": diagnostic.get("exception_type"),
+        "diagnostic": diagnostic,
         "availability_retry_clocks_aware": all(
             isinstance(stamp, datetime) and stamp.utcoffset() is not None
             for stamp in (next_wake, execution_open_at)),
@@ -2219,6 +2228,8 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="PENDING" if pending else "CLEAN",
             cycle_state=cycle_state,
             detail=(
+                "trading cycle completed; waiting for post-close market-data "
+                "and share-unit verification" if pending and cycle_state=='SUCCEEDED' else
                 "raw plan remains pre-open unproven; post-close market-data "
                 "unit check is pending" if pending else
                 "post-close unit evidence and durable broker reconciliation "
@@ -2309,6 +2320,11 @@ def _verified_shadow_book_rows(conn, result, *, verified: bool, now: datetime):
         view = _state_view(dict(session=result.session, state=state, updated_at=now),
                            expected_version=ENVELOPE_VERSION)
         plan, rollout = _current_plan(conn), _rollout_state(conn)
+        # Execution may still retain another decision's unsuperseded plan.
+        # Only this verified strategy session can establish plan adoption or
+        # contribute its unpriced counts to the canonical book projection.
+        if plan is not None and plan["decision_session"] != view["session"]:
+            plan = None
         exposure = _exposure_row(
             view, plan, rollout, state_error=None, plan_error=None, rollout_error=None)
         book = model.book_row(
@@ -3055,7 +3071,13 @@ def build_panel(*, state_dir: Path, database_url: str,
     own = _ownership(Path(state_dir), database_url)
     if own.status is model.UNKNOWN:
         errors.append("ownership binding")
-    feed_rows, feed_errs = _feed_rows(database_url)
+    worker = (_shadow_worker_row(state_dir, database_url)
+              if mode in {'dual', 'shadow'} else None)
+    from sentinel.panel import postclose_feed_wait
+    feed_now = fixed_now or datetime.now(timezone.utc)
+    post_close_wait = postclose_feed_wait.from_rows(financial_rows, worker, now=feed_now)
+    feed_rows, feed_errs = (_feed_rows(database_url, post_close_wait=post_close_wait, now=feed_now)
+                           if post_close_wait is not None else _feed_rows(database_url))
     errors.extend(feed_errs)
     # Reviewed dual mode changes performance authority, not visibility into
     # the execution membrane. Durable runtime rows are always projected.
@@ -3063,13 +3085,16 @@ def build_panel(*, state_dir: Path, database_url: str,
     errors.extend(runtime_errs)
     automation_rows, automation_errs = _automation_rows(database_url)
     errors.extend(automation_errs)
+    feed_rows, automation_rows = postclose_feed_wait.project_progress(
+        feed_rows, automation_rows, financial_rows, worker,
+        now=fixed_now or datetime.now(timezone.utc))
     operator_rows, operator_errs = _operator_evidence_rows(
         database_url, now=now)
     errors.extend(operator_errs)
 
     rows = [
         *financial_rows,
-        *([_shadow_worker_row(state_dir, database_url)] if mode in {'dual', 'shadow'} else []),
+        *([worker] if worker is not None else []),
         own,
         automation_rows[0],
         *operator_rows,

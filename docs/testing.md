@@ -45,6 +45,13 @@ collection, authorized outcomes and complete same-attempt evidence. See
 [CI sharding](sentinel-ci-sharding.md) and
 [CI hardening](ci-suite-hardening.md).
 
+The incident anti-regrowth check rejects new or renamed modules whose first
+name token is `pr`, `issue` or `review`, followed by a digit, a separator or the
+`.py` suffix, such as `test_pr540_recovery.py`, `test_issue_286.py` and
+`test_review_regressions.py`. Ordinary behavior names such as `issuer`,
+`prepare`, `protected`, `price` and `production` share letters with those tokens
+and retain their normal permanent ownership and complete execution requirements.
+
 ## Reproduce targeted tests
 
 Use Linux containers through Docker, Bash, GNU Make and Git. The runtime and

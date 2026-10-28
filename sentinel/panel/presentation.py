@@ -1,12 +1,23 @@
 """Plain-language display only; never alter a financial or operational verdict."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 import re
 from zoneinfo import ZoneInfo
 
 from sentinel.panel.model import Row, FINANCIAL_AUTHORITY_ROW_KEYS
+
+_CLOSING_DATA_PHASES = frozenset({
+    'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
+    'AUTOMATION_CLOSING_DATA', 'AUTHORITY_RECHECK_AFTER_DATA',
+    'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION', 'AUTHORITY_RECHECK_AFTER_SHADOW',
+})
+_CLOSING_DATA_ROWS = frozenset({
+    'shadow_verification', 'shadow_nav', 'shadow_return', 'exposure', 'book',
+    'terminals', 'paper_reconciliation', 'feed', 'ingest', 'automation_cycle',
+    'automation_step_data', 'authority',
+})
 
 _COPY = {
     'paper_plan': ('Next paper plan', 'Saved targets for the next market open. Proposed trades are estimates, not submitted orders or fills.'),
@@ -80,6 +91,17 @@ def _pacific(value: datetime | None) -> str | None:
     return value.astimezone(ZoneInfo('America/Los_Angeles')).strftime('%Y-%m-%d at %I:%M %p Pacific')
 
 
+def is_closing_data_preparation(row: Row, status: str) -> bool:
+    """Recognize accepted current evidence, using the caller's effective status."""
+    recovery = row.recovery
+    return (row.key in _CLOSING_DATA_ROWS and row.status == status == 'warn'
+            and row.required_current and row.as_of is not None
+            and recovery is not None and recovery.phase in _CLOSING_DATA_PHASES
+            and recovery.automatic and not recovery.operator_required
+            and _pacific(row.valid_until) is not None
+            and row.valid_until == recovery.deadline)
+
+
 def describe(row: Row, status: str) -> tuple[str, str, str]:
     """Return display copy; caller retains row keys, raw evidence and status."""
     key = row.key
@@ -142,7 +164,7 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
             value = (f'{plan.effective_session} · {plan.buys} '
                      f'{"buy" if plan.buys == 1 else "buys"} · {plan.sells} '
                      f'{"sell" if plan.sells == 1 else "sells"}')
-    source_wait = row.recovery is not None and row.recovery.phase == 'SOURCE_FRONTIER'
+    source_wait = is_closing_data_preparation(row, status)
     availability_wait = row.recovery is not None and row.recovery.phase in {
         'AUTOMATION_REFRESH_AVAILABILITY', 'AUTOMATION_PREPARE_AVAILABILITY'}
     working_orders = row.value == 'DAY ORDERS WORKING'
@@ -158,10 +180,27 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
         if deadline is not None:
             explanation += (' Saved recovery deadline (market close): '+deadline+'. '
                             'This is separate from the execution start and the new-order submission cutoff.')
-    if source_wait and status == 'warn':
-        explanation += (' Market data for the next decision is still pending. '
-                        'Current-session verification must wait; retained values and holdings '
-                        'keep their original attestation date.')
+    if source_wait:
+        # Keep retained numbers and holdings visible with their historical label.
+        # Current verification/publication waits have a plain-language value.
+        awaiting_shadow = row.recovery.phase in {
+            'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION', 'AUTHORITY_RECHECK_AFTER_SHADOW'}
+        if key not in {'shadow_nav', 'shadow_return', 'exposure', 'book'}:
+            value = 'Preparing strategy verification' if awaiting_shadow else 'Preparing closing data'
+        explanation += (
+            ' Closing data is published. Current strategy attestation is still pending; '
+            'no current portfolio values or holdings are certified.' if awaiting_shadow else
+            ' Preparing closing data. Market data for the next decision is still pending. '
+            'Current-session verification must wait; retained values and holdings '
+            'keep their original attestation date.')
+        # The strict exclusive bound is one microsecond before the original
+        # clock. Display the original minute without changing machine expiry.
+        original_deadline = row.recovery.deadline
+        if original_deadline is not None and original_deadline.microsecond == 999999:
+            original_deadline += timedelta(microseconds=1)
+        deadline = _pacific(original_deadline)
+        if deadline is not None:
+            explanation += ' Original preparation deadline: '+deadline+'.'
     elif availability_wait and status == 'warn':
         explanation += (' Automatic retries are continuing before the saved market-open deadline. '
                         'Trading still requires a ready plan.')

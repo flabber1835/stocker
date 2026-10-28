@@ -7,10 +7,11 @@ constant, mutate controls, or invoke preparation, orders or maintenance.
 from __future__ import annotations
 
 import json
+import re
 import time
 
 from . import checks
-from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, require
+from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, handoff_mode, require
 
 
 _BINDING_KEYS = ('deployment_id', 'broker', 'broker_account_id', 'takeover_epoch')
@@ -93,29 +94,79 @@ def compare_configuration(host, previous, candidate, state):
 
 def snapshot(host):
     """Select exactly one current, prepared future cycle and its source closure."""
-    current = host.sql(checks.SNAPSHOT_SQL)
+    mode = handoff_mode(host.request)
+    repair = mode=='BLOCKED_UNSENT'
+    if repair:
+        require(getattr(host,'supports_blocked_unsent',False)
+            and host.load_values().get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1',
+            'BLOCKED_UNSENT_BACKED_ADAPTER_REQUIRED')
+    if mode=='POST_TRADE':
+        require(getattr(host,'supports_post_trade',False)
+            and host.load_values().get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1',
+            'POST_TRADE_BACKED_ADAPTER_REQUIRED')
+    current = host.sql(checks.snapshot_sql(mode))
     require(isinstance(current, dict) and current.get('candidate_count') == 1,
-            'Exactly one current-generation future WAITING_OPEN plan is required')
+            'Exactly one current-generation plan matching the handoff mode is required')
+    issuer = current.get('issuer_evidence')
+    require(isinstance(issuer, dict) and set(issuer) == {'count', 'md5'}
+            and type(issuer['count']) is int and issuer['count'] >= 0
+            and isinstance(issuer['md5'], str)
+            and re.fullmatch('[0-9a-f]{32}', issuer['md5']) is not None
+            and (issuer['count'] != 0 or issuer['md5'] == checks.EMPTY_ISSUER_EVIDENCE_MD5),
+            'ISSUER_EVIDENCE_PRESERVATION_MALFORMED')
     control, cycle, plan = current['control'], current['cycle'], current['plan']
     bound = current.get('binding')
     values = host.load_values()
     require(current['system'] == host.request['predecessor']['system'],
             'PostgreSQL physical system identity changed')
-    require(current['archive_mode'] == 'off'
-            and current['archive_command'] in ('', '(disabled)')
-            and current['fsync'] == 'on' and current['full_page_writes'] == 'on',
-            'Database durability or suspended archive policy changed')
-    require(control['enabled'] is True and control['kill_switch_engaged'] is False
-            and control['authority_verdict'] == 'PASS'
+    if values.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY') == 'REQUIRED_V1':
+        require(current['archive_mode'] == 'on' and bool(current['archive_command'])
+            and 'archive_command='+current['archive_command'] in host.request['predecessor']['postgres']['command'],
+            'Backed database archive policy changed')
+    else:
+        require(not values.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')
+            and current['archive_mode'] == 'off'
+            and current['archive_command'] in ('', '(disabled)'),
+            'Database suspended archive policy changed')
+    require(current['fsync'] == 'on' and current['full_page_writes'] == 'on',
+            'Database durability changed')
+    require(control['enabled'] is True and control['kill_switch_engaged'] is repair
+            and (repair or control['authority_verdict'] == 'PASS')
             and control['broker'] == 'alpaca'
             and control['broker_account_id'] == values['SENTINEL_LOCAL_PAPER_ACCOUNT_ID'],
             'Current control does not match the enabled local PAPER account')
     require(isinstance(bound, dict) and bound.get('ownership_state') == 'SENTINEL_OWNED'
             and all(bound.get(key) == control.get(key) for key in _BINDING_KEYS),
             'Durable account binding does not match current control')
-    require(current['ready'] is True and cycle['plan_id'] == plan['plan_id']
-            and cycle['control_generation'] == control['generation'],
-            'Saved plan is not ready with sufficient future execution margin')
+    if repair:
+        diagnostic = cycle.get('diagnostic') or {}
+        require(current['ready'] is True and plan is None and cycle.get('plan_id') is None
+            and cycle.get('state')=='BLOCKED' and cycle.get('historical_state_only') is False
+            and cycle.get('completed_at') is not None
+            and cycle.get('failure_code')=='NonRetryableCallbackRefused'
+            and cycle.get('failure_detail')==checks.PUBLICATION_CHANGED_FAILURE
+            and diagnostic.get('retry_phase')=='REFRESH'
+            and diagnostic.get('callback_failure')=='PERMANENT_OPERATIONAL_REFUSAL'
+            and diagnostic.get('terminal_reason')=='PERMANENT_OPERATIONAL_REFUSAL'
+            and diagnostic.get('exception_type')=='sentinel.automation.model.NonRetryableCallbackRefused'
+            and cycle['control_generation']==control['generation']-1,
+            'BLOCKED_UNSENT_INCIDENT_NOT_ELIGIBLE')
+        proof=current.get('repair')
+        require(isinstance(proof,dict) and proof.get('kill_event')=='KILL_ENGAGED'
+            and proof.get('plain_kill') is True
+            and all(type(proof.get(key)) is int and proof[key]==0 for key in
+                ('lease_live','scoped_plans','scoped_commands','transport_events')),
+            'BLOCKED_UNSENT_NOT_FENCED_OR_UNSENT')
+    else:
+        require(current['ready'] is True and cycle['plan_id'] == plan['plan_id']
+                and cycle['control_generation'] == control['generation'],
+                'Saved plan is not ready with sufficient future execution margin')
+    if mode=='POST_TRADE':
+        require(cycle.get('state')=='SUCCEEDED' and cycle.get('completed_at') is not None
+            and cycle.get('failure_code') is None and cycle.get('failure_detail') is None
+            and isinstance(current.get('reconciliation'),dict)
+            and str(current['reconciliation']['seq'])==str(cycle.get('last_clean_reconciliation_id')),
+            'POST_TRADE_POSITIVE_RECONCILIATION_REQUIRED')
     for key in (*_BINDING_KEYS, 'certificate_sha256', 'rollout_mode',
                 'rollout_version', 'config_sha256'):
         require(cycle[key] == control[key], 'Plan/control binding changed: '+key)
@@ -128,7 +179,7 @@ def snapshot(host):
             and isinstance(source, dict) and source['job_state'] == 'PUBLISHED'
             and source['job_publication'] == publication['version'],
             'Current plan source publication is incomplete')
-    require(current['authority_md5'] is not None
+    require((repair or current['authority_md5'] is not None)
             and current['push_subscriptions']['active'] > 0
             and current['push_policy_md5'] is not None,
             'Prepared sizing authority or notification policy is absent')
@@ -140,12 +191,19 @@ def canonical_check(host, values, state):
     bound = {key: state['binding'][key] for key in _BINDING_KEYS}
     bound.update(ownership_state=state['binding']['ownership_state'],
                  notes=state['binding'].get('notes') or '')
-    expected = dict(plan=state['plan']['plan_id'], version=state['publication']['version'],
+    repair=handoff_mode(host.request)=='BLOCKED_UNSENT'
+    expected = dict(plan=None if repair else state['plan']['plan_id'], version=state['publication']['version'],
         account=state['control']['broker_account_id'], binding=bound,
         config=state['control']['config_sha256'],
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
+    if handoff_mode(host.request)=='POST_TRADE':
+        expected.update(handoff_mode='POST_TRADE',reconciliation_id=state['reconciliation']['seq'])
+    if repair:
+        expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
+            generation=state['control']['generation'])
     result = host.compose(values, 'run', '--rm', '--no-deps', '--pull', 'never',
-        '--entrypoint', 'python', 'sentinel-authorized-cli', '-B', '-c', checks.CANONICAL,
+        '--entrypoint', 'python', 'sentinel-authorized-cli', '-B', '-c',
+        checks.BLOCKED_CANONICAL if repair else checks.CANONICAL,
         json.dumps(expected, sort_keys=True), timeout=300)
     proof = json.loads(result.stdout)
     require(isinstance(proof, dict) and proof.get('transaction_read_only') is True,
@@ -190,8 +248,8 @@ def check_notification_history(host, previous):
 def leader(host):
     return host.sql("SELECT json_build_object('holder',holder_id,'fence',fence_token,"
         "'generation',control_generation,'heartbeat',heartbeat_at,"
-        "'current',heartbeat_at>clock_timestamp()-interval '60 seconds' "
-        "AND expires_at>clock_timestamp()) FROM sentinel_automation_lease WHERE id=1")
+        "'current',COALESCE(holder_id IS NOT NULL AND heartbeat_at>clock_timestamp()-interval '60 seconds' "
+        "AND expires_at>clock_timestamp(),FALSE)) FROM sentinel_automation_lease WHERE id=1")
 
 
 def idle(host, image):
@@ -311,7 +369,9 @@ def check_drain(host, values, target, proof):
 
 def migrate_operational_schema(host, candidate):
     result=host.compose(candidate,'run','--rm','--no-deps','--pull','never','--entrypoint','python',
-        'sentinel-authorized-cli','-B','-c',checks.INSTALL_OPERATIONAL_SCHEMA,timeout=150)
+        'sentinel-authorized-cli','-B','-c',
+        checks.READ_OPERATIONAL_SCHEMA if handoff_mode(host.request)=='BLOCKED_UNSENT'
+        else checks.INSTALL_OPERATIONAL_SCHEMA,timeout=150)
     value=json.loads(result.stdout)
     require(isinstance(value,dict) and set(value)=={'installation','complete'}
         and type(value['complete']) is bool and isinstance(value['installation'],dict),
@@ -322,8 +382,15 @@ def migrate_operational_schema(host, candidate):
 def panel(host, state):
     """Require a current green page with the same saved plan and healthy sender."""
     data = host.container('sentinel-panel')
-    expected = dict(plan=state['plan']['plan_id'],
+    repair=handoff_mode(host.request)=='BLOCKED_UNSENT'
+    expected = dict(plan=None if repair else state['plan']['plan_id'],
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
-    result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c', checks.PANEL,
+    if handoff_mode(host.request)=='POST_TRADE':
+        expected['handoff_mode']='POST_TRADE'
+    if repair:
+        expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
+            certificate=state['control']['certificate_sha256'],core_exposure=host.repair_core_exposure(state))
+    result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c',
+        checks.BLOCKED_PANEL if repair else checks.PANEL,
         json.dumps(expected, sort_keys=True)], timeout=35)
     return json.loads(result.stdout)

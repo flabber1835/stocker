@@ -7,6 +7,7 @@ from sentinel.feed.rolling_contract import canonical_json
 
 log = logging.getLogger(__name__)
 BATCH_ROWS = rolling_store.BATCH_SIZE
+ACQUISITION_BATCH_ROWS = 128
 
 # An unordered EXISTS may choose a full-table scan to prove an emptied
 # candidate absent. Keep each probe on the candidate-prefixed primary key;
@@ -18,6 +19,61 @@ RETIRED_PAYLOAD_QUERY = (
     "(SELECT TRUE FROM sentinel_snapshot_benchmarks b WHERE b.candidate_id=r.candidate_id "
     "ORDER BY b.session LIMIT 1),FALSE) "
     "ORDER BY r.retired_at,r.candidate_id LIMIT 1")
+
+# This is a conservative scheduling probe, never deletion permission. Cheap
+# metadata pins can prove that a candidate needs no retirement attempt; unknown
+# checkpoint dependencies remain possible work for the guarded pass to assess.
+_WORK_QUERY = """SELECT
+ EXISTS(SELECT 1 FROM sentinel_snapshot_jobs WHERE deadline<=clock_timestamp()
+   AND state NOT IN ('REFUSED','ABORTED','PUBLISHED') AND reason<>'COMPARISON_ONLY'),
+ EXISTS(SELECT 1 FROM sentinel_price_candidates c
+   WHERE NOT EXISTS(SELECT 1 FROM sentinel_snapshot_retirements r WHERE r.candidate_id=c.candidate_id)
+   AND EXISTS(SELECT 1 FROM sentinel_snapshot_jobs j WHERE j.candidate_id=c.candidate_id)
+   AND NOT EXISTS(SELECT 1 FROM sentinel_operational_snapshots s WHERE s.candidate_id=c.candidate_id
+     AND s.publication_version=(SELECT max(version) FROM sentinel_corpus_publications))
+   AND NOT EXISTS(SELECT 1 FROM sentinel_snapshot_comparisons x WHERE x.candidate_id=c.candidate_id
+     AND x.version=(SELECT max(version) FROM sentinel_snapshot_comparisons))
+   AND NOT EXISTS(SELECT 1 FROM sentinel_snapshot_jobs j WHERE j.candidate_id=c.candidate_id
+     AND j.state NOT IN ('REFUSED','ABORTED','PUBLISHED')
+     AND NOT EXISTS(SELECT 1 FROM sentinel_snapshot_comparisons x WHERE x.job_id=j.job_id))
+   AND NOT EXISTS(SELECT 1 FROM sentinel_operational_snapshots s WHERE s.candidate_id=c.candidate_id
+     AND NOT EXISTS(SELECT 1 FROM sentinel_action_coverage a WHERE a.publication_version=s.publication_version))),
+ EXISTS(""" + RETIRED_PAYLOAD_QUERY + """),
+ EXISTS(SELECT 1 FROM sentinel_snapshot_evidence e
+   JOIN sentinel_price_candidates c ON e.evidence_sha256 IN (c.reference_sha256,c.source_evidence_sha256)
+   JOIN sentinel_snapshot_retirements r USING(candidate_id)
+   WHERE (e.payload IS NOT NULL OR e.canonical_payload IS NOT NULL)
+   AND NOT EXISTS(SELECT 1 FROM sentinel_price_candidates live
+     WHERE e.evidence_sha256 IN (live.reference_sha256,live.source_evidence_sha256)
+     AND NOT EXISTS(SELECT 1 FROM sentinel_snapshot_retirements gone WHERE gone.candidate_id=live.candidate_id))
+   AND NOT EXISTS(SELECT 1 FROM sentinel_snapshot_validations WHERE validation_sha256=e.evidence_sha256)
+   AND NOT EXISTS(SELECT 1 FROM sentinel_operational_snapshot_validations WHERE validation_sha256=e.evidence_sha256)
+   AND NOT EXISTS(SELECT 1 FROM sentinel_snapshot_comparisons WHERE producer_sha256=e.evidence_sha256)),
+ EXISTS(SELECT 1 FROM sentinel_sep_staging s JOIN sentinel_snapshot_workers w ON w.owner=s.run_id
+   JOIN sentinel_snapshot_jobs j USING(job_id) WHERE j.owner IS DISTINCT FROM w.owner
+   AND j.state IN ('REFUSED','ABORTED','PUBLISHED')),
+ EXISTS(SELECT 1 FROM sentinel_acquisition_parts a WHERE NOT sentinel_acquisition_part_pinned(a.part_id)),
+ __NORMALIZED_WORK__"""
+_NORMALIZED_WORK = """EXISTS(SELECT 1 FROM sentinel_normalized_blocks b WHERE canonical_payload IS NOT NULL
+ AND NOT EXISTS(SELECT 1 FROM sentinel_candidate_blocks r WHERE r.block_sha256=b.block_sha256
+   AND NOT EXISTS(SELECT 1 FROM sentinel_snapshot_retirements gone WHERE gone.candidate_id=r.candidate_id)))"""
+
+
+def _possible_work(conn):
+    """End one bounded read-only probe before any ordinary writer admission."""
+    from sentinel.feed import normalized_layout
+    try:
+        conn.execute('BEGIN TRANSACTION READ ONLY')
+        conn.execute("SET LOCAL lock_timeout='250ms'")
+        conn.execute("SET LOCAL statement_timeout='1s'")
+        shared=normalized_layout.available(conn)
+        row=conn.execute(_WORK_QUERY.replace('__NORMALIZED_WORK__',
+            _NORMALIZED_WORK if shared else 'FALSE')).fetchone()
+        if row is None or len(row)!=7 or any(type(value) is not bool for value in row):
+            raise RuntimeError('retention work probe did not return seven definite facts')
+        return any(row)
+    finally:
+        conn.rollback()
 
 
 def opening_execution_due(now):
@@ -103,7 +159,7 @@ def _pass(conn, *, batch_rows):
     if disposable:
         acquisition = conn.execute("DELETE FROM sentinel_acquisition_prices WHERE ctid IN "
             "(SELECT ctid FROM sentinel_acquisition_prices WHERE part_id=%s LIMIT %s)",
-            (disposable[0], batch_rows)).rowcount
+            (disposable[0], min(batch_rows, ACQUISITION_BATCH_ROWS))).rowcount
     acquisition_parts = conn.execute("DELETE FROM sentinel_acquisition_parts WHERE part_id IN "
         "(SELECT a.part_id FROM sentinel_acquisition_parts a WHERE NOT "
         "sentinel_acquisition_part_pinned(a.part_id) AND NOT EXISTS "
@@ -130,6 +186,12 @@ def maintain(conn, *, batch_rows=BATCH_ROWS):
         raise ValueError("retention batch must be in 1..50000")
     if opening_execution_due(datetime.now(timezone.utc)):
         return dict(status='DEFERRED',reason='OPENING_EXECUTION_WINDOW',more_work=True)
+    try:
+        if not _possible_work(conn):
+            return dict(status='COMPLETE',reason='NO_WORK',deleted_rows=0,more_work=False)
+    except Exception as exc:
+        log.warning('rolling maintenance work probe deferred: %s',type(exc).__name__)
+        return dict(status='RETRY',reason=type(exc).__name__)
     try:
         with writer_lock(conn), store.corpus_write_lock(conn):
             conn.execute("SET LOCAL lock_timeout='250ms'")

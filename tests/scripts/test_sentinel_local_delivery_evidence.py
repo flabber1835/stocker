@@ -43,6 +43,7 @@ def prepared():
         publication={'version': 87, 'window_end': '2031-04-21'},
         source_binding={'job_state': 'PUBLISHED', 'job_publication': 87},
         authority_md5='authority', opening_md5='opening', push_policy_md5='notification-policy',
+        issuer_evidence={'count': 0, 'md5': checks.EMPTY_ISSUER_EVIDENCE_MD5},
         push_subscriptions={'active': 2})
 
 
@@ -95,6 +96,50 @@ def test_future_hold_only_plan_preserves_absent_opening_sizing_instead_of_invent
     host = Host()
     host.state['opening_md5'] = None
     assert evidence.snapshot(host)['opening_md5'] is None
+
+
+def test_snapshot_binds_all_registered_issuer_rows_in_the_existing_bounded_read():
+    from sentinel.execution.issuer_admission import PREFIXES
+    from sentinel.retained_input_namespaces import PAPER_CURSOR_PREFIXES
+    registered = set(PREFIXES)
+    assert set(checks.ISSUER_EVIDENCE_PREFIXES) == registered
+    assert all(prefix.startswith('protected-buy-funding:v1:issuer-policy:v1:')
+        and any(prefix.startswith(parent) for parent in PAPER_CURSOR_PREFIXES)
+        for prefix in registered)
+    assert not any(prefix.startswith('issuer-') for prefix in PAPER_CURSOR_PREFIXES)
+    for mode in ('PRE_OPEN', 'POST_TRADE'):
+        statement = checks.snapshot_sql(mode)
+        issuer = statement.split("'issuer_evidence',", 1)[1].split("'push_subscriptions',", 1)[0]
+        assert "'count',count(*)" in issuer
+        assert "string_agg(md5(to_jsonb(x)::text),'' ORDER BY x.cursor_name)" in issuer
+        assert issuer.count('FROM sentinel_processed_sessions x') == 1
+        for prefix in registered:
+            assert "x.cursor_name LIKE '"+prefix+"%'" in issuer
+        assert '__ISSUER_EVIDENCE_FILTER__' not in statement
+    host = Host()
+    host.state['issuer_evidence'] = {'count': 5, 'md5': 'a'*32}
+    assert evidence.snapshot(host)['issuer_evidence'] == host.state['issuer_evidence']
+    assert host.calls == [checks.SNAPSHOT_SQL]
+
+
+@pytest.mark.parametrize('issuer', [None, {}, {'count': 0},
+    {'count': 0, 'md5': 'a'*32}, {'count': -1, 'md5': 'a'*32},
+    {'count': False, 'md5': checks.EMPTY_ISSUER_EVIDENCE_MD5},
+    {'count': 1, 'md5': 'foreign'}, {'count': 1, 'md5': 'A'*32},
+    {'count': 1, 'md5': 'a'*32, 'extra': 'unbound'}])
+def test_snapshot_refuses_missing_or_malformed_issuer_preservation(issuer):
+    host = Host()
+    host.state['issuer_evidence'] = issuer
+    with pytest.raises(model.DeliveryRefused, match='ISSUER_EVIDENCE_PRESERVATION_MALFORMED'):
+        evidence.snapshot(host)
+
+
+def test_removing_issuer_preservation_shape_guard_has_a_falsifier(monkeypatch):
+    original = evidence.require
+    monkeypatch.setattr(evidence, 'require', lambda value, reason:
+        None if reason == 'ISSUER_EVIDENCE_PRESERVATION_MALFORMED' else original(value, reason))
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_snapshot_refuses_missing_or_malformed_issuer_preservation(None)
 
 
 def test_host_sql_uses_server_read_only_and_bounded_small_hashes():
@@ -195,7 +240,8 @@ def test_configuration_drift_foreign_image_or_panel_credentials_refuse(failure):
 
 
 def test_host_verification_contract_covers_every_runtime_subject_key():
-    tree = ast.parse((ROOT/'sentinel/panel/read_projection.py').read_text(encoding='utf-8'))
+    import sentinel
+    tree = ast.parse((Path(sentinel.__file__).parent/'panel/read_projection.py').read_text(encoding='utf-8'))
     assignment = next(node for node in tree.body if isinstance(node, ast.Assign)
         and any(isinstance(target, ast.Name) and target.id == 'SUBJECT_ENV' for target in node.targets))
     assert evidence._VERIFICATION_SUBJECT_ENV == frozenset(ast.literal_eval(assignment.value.args[0]))

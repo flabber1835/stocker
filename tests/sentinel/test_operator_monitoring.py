@@ -60,7 +60,7 @@ def recovery(
         deadline=deadline)
 
 
-def test_shadow_source_wait_is_amber_then_distinct_red_at_following_open(
+def test_shadow_source_wait_is_quiet_until_distinct_red_at_following_open(
         monkeypatch) -> None:
     alerts = []
     deadline = NOW + timedelta(hours=1)
@@ -78,15 +78,14 @@ def test_shadow_source_wait_is_amber_then_distinct_red_at_following_open(
         lambda **kwargs: alerts.append(kwargs))
 
     shadow_supervisor._source_recovery_alert(now=NOW)
+    assert alerts == []
     shadow_supervisor._source_recovery_alert(now=deadline)
 
     assert [item["idempotency_key"] for item in alerts] == [
-        "shadow-source:2026-09-11:not-ready",
         "shadow-source:2026-09-11:deadline-missed",
     ]
-    assert [item["severity"] for item in alerts] == ["WARN", "CRITICAL"]
-    assert alerts[0]["event_type"] == "SHADOW_SOURCE_RECOVERY_PENDING"
-    assert alerts[1]["event_type"] == "SHADOW_SOURCE_DEADLINE_MISSED"
+    assert [item["severity"] for item in alerts] == ["CRITICAL"]
+    assert alerts[0]["event_type"] == "SHADOW_SOURCE_DEADLINE_MISSED"
 
 
 def test_shadow_semantic_retries_coalesce_per_decision_session(

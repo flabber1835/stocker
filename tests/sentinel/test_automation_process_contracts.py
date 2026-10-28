@@ -235,9 +235,10 @@ async def test_process_backed_callback_preserves_reviewed_failure_domain(
 
 
 def _psycopg_operational_error(sqlstate: str) -> BaseException:
+    from psycopg import OperationalError
     exception_type = type(
         "OperationalError",
-        (Exception,),
+        (OperationalError,),
         {"__module__": "psycopg", "sqlstate": sqlstate})
     return exception_type("database connection refused")
 

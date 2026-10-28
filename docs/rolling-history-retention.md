@@ -175,3 +175,61 @@ is introduced. Qualify empty retired candidates ahead of a populated candidate,
 benchmark-only payloads, repeated bounded draining and index access with a
 large unrelated live generation. Actual read-only query plans are additional
 throughput evidence, not authorization to remove primary data.
+
+## Skip proven empty maintenance before taking execution ownership
+
+### Reuse and partially reclaimed acquisition fragments
+
+Decision, 2026-10-28. Bounded disposal can leave an unpinned old acquisition
+fragment with only part of its original price payload. Such a fragment is not
+eligible as a sharing source for a new complete acquisition. The sharing query
+must require either an existing dependency pin or the full declared row count.
+The ordinary manifest/content checksum still verifies every selected source.
+Pinned incomplete fragments and complete-but-corrupted payloads must still
+refuse; do not catch or downgrade their checksum failures. If only incomplete
+orphan fragments remain, store the already validated complete incoming prices
+under the new job's identity. Keep the corpus read pin across selection,
+verification and binding; no schema, retention permission or financial identity
+changes. Qualify actual partial disposal, healthy sharing, both corruption
+refusals and removed-guard falsifiers.
+
+### Bound acquisition-price deletion independently
+
+Decision, 2026-10-28. A guarded acquisition-price DELETE repeatedly exceeded
+the existing five-second statement deadline, rolling back the entire cleanup
+pass and preventing an otherwise eligible snapshot retirement from committing.
+Limit this disposal class to 128 rows per pass, or the requested batch size if
+smaller. Other disposal classes retain their existing limits. Keep the current
+statement-level dependency trigger, writer/corpus ownership, backup guards and
+five-second deadline unchanged. Remaining rows keep more_work true and drain on
+ordinary idle wakes. Prove the row cap and repeated draining with real SQL, an
+executed removed-cap falsifier, and the original checkpoint/restore scenario.
+
+Decision, 2026-10-27. An unchanged strategy poll still invoked maintenance and
+took the execution writer before discovering whether there was work. Each
+supervised worker starts with a cold process-local backup proof; this made an
+empty cleanup attempt hold execution ownership through two complete WAL byte
+passes. Keep supervised worker isolation and all backup proof semantics.
+
+Before that writer boundary, use one bounded read-only metadata probe on an
+otherwise idle connection. It must cover every disposal class: expired jobs,
+possibly releasable candidates, retired payload, releasable evidence, terminal
+abandoned scratch, unpinned acquisition parts and releasable normalized blocks.
+Use the existing ordered one-row retired-payload probe. Candidate discovery
+covers the entire metadata inventory so pinned candidates cannot hide later
+work. Exclude only references proven pinned by small publication, comparison,
+active-job, ownership and action-coverage metadata. Do not read checkpoint JSON,
+canonical books, full price payloads or the checkpoint-reading pins function
+merely to decide that a pass might be necessary. Uncertain checkpoint references
+are conservative possible work, never permission to delete.
+
+A completely empty result returns COMPLETE / NO_WORK with more_work=false,
+without taking a writer, changing a progress timestamp or claiming a cleanup
+pass ran. An unavailable or timed-out probe rolls back and returns RETRY while
+retaining all data. Always end the probe transaction before proceeding. No
+cached no-work verdict survives a wake; work arriving afterward is discovered
+on the next normal poll. A positive result enters the existing ordinary writer,
+backup authority, corpus lock and authenticated dependency checks unchanged.
+Those checks re-evaluate current references before every actual mutation.
+This changes scheduling cost, not deletion authority, schema, price semantics,
+strategy state, source publication or the backup/restore policy.

@@ -296,6 +296,14 @@ def notification_payload(alert) -> dict:
                 + ". See dashboard for trading-plan status.")
     elif (alert.event_type == "AUTOMATION_RETRY_SCHEDULED"
           and str(alert.severity).upper() == "WARN"
+          and details.get("reason") == "ClosingDataPending"
+          and isinstance(details.get("detail"), Mapping)
+          and details["detail"].get("retry_phase") == "REFRESH"):
+        title = "Closing-data preparation needs review"
+        body = ("Closing-data preparation needs review; see dashboard. "
+                + _original_notice_clock(details["detail"].get("first_failure_at"), alert))
+    elif (alert.event_type == "AUTOMATION_RETRY_SCHEDULED"
+          and str(alert.severity).upper() == "WARN"
           and details.get("reason") == "SourceDataPending"
           and isinstance(details.get("detail"), Mapping)
           and details["detail"].get("retry_phase") == "REFRESH"):

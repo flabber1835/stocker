@@ -78,7 +78,7 @@ def validate(value):
 
 
 def request(inputs, paths):
-    return dict(schema=model.SCHEMA,operation_id='reviewed-inputs',source=str(inputs.source),
+    return dict(schema=model.SCHEMA,handoff_mode='PRE_OPEN',operation_id='reviewed-inputs',source=str(inputs.source),
         deployment=str(inputs.deployment),predecessor=builder.baseline(inputs.previous),
         candidate=dict(commit=NEW,image=NEW_IMAGE,
             source_identity={'source':'2'*64,'wealth':'4'*64,'shadow_config':'3'*64}),
@@ -356,6 +356,24 @@ def test_reviewed_tool_bytes_remain_bound_to_completed_qualification(inputs):
     (inputs.source/tool).write_text('def qualification_only(): return False\n')
     with pytest.raises(model.DeliveryRefused,match='QUALIFIED_SOURCE_BYTES_CHANGED'):
         validate(inputs)
+
+
+def test_candidate_source_validation_reads_each_source_file_once(inputs,monkeypatch):
+    host=cli.Host.__new__(cli.Host)
+    host.request=model.validate_request(request(inputs,inputs.approved))
+    host.source=host.deployment=inputs.source
+    host.git=lambda *args:inputs.git(inputs.source,*args)
+    host.git_bytes=lambda _show,name:(inputs.source/name.split(':',1)[1]).read_bytes()
+    host.run=lambda *a,**k:SimpleNamespace(stdout=json.dumps([{
+        'Id':NEW_IMAGE,'Config':{'Labels':{'org.opencontainers.image.revision':NEW}}}]).encode())
+    host.probe=lambda *args:host.request['candidate']['source_identity']
+    original=Path.open;seen=[]
+    def opened(path,*args,**kwargs):
+        if path==inputs.source/'sentinel/module.py':seen.append(path)
+        return original(path,*args,**kwargs)
+    monkeypatch.setattr(Path,'open',opened)
+    host.verify_candidate()
+    assert len(seen)==1
 
 
 @pytest.mark.parametrize('gate',['build','request'])

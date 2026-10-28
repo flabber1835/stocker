@@ -93,6 +93,32 @@ def collect(db, f):
     return asyncio.run(module.collect(db, config=f.config, reader=f.broker, now=NOW))
 
 
+@pytest.mark.parametrize('boundary', ['since', 'activation'])
+def test_real_collector_refuses_future_private_boundary_then_delivers_on_business_timeline(db, monkeypatch, boundary):
+    from sentinel import execution_collector
+    from tests.support.current_workflow_clock import BusinessClock
+    f = fixture(db, monkeypatch)
+    monkeypatch.setattr(module, 'datetime', BusinessClock(NOW).datetime)
+    config = replace(f.config, database_url=db.info.dsn)
+    if boundary == 'since':
+        monkeypatch.setenv(module.SINCE_ENV, (NOW+timedelta(minutes=1)).isoformat())
+    else:
+        db.execute('UPDATE sentinel_notification_policy SET web_push_activated_at=%s',
+                   (NOW+timedelta(minutes=1),))
+        db.commit()
+    assert execution_collector.collect_once('FILL', reader=f.broker, config=config) == 'REFUSED'
+    assert db.execute("SELECT payload->>'reason' FROM sentinel_alert_outbox "
+        "WHERE event_type='FILL_NOTIFICATION_COLLECTION_FAILED'").fetchone() == ('FUTURE_NOTIFICATION_BOUNDARY',)
+    db.rollback()
+    monkeypatch.setenv(module.SINCE_ENV, (NOW-timedelta(days=1)).isoformat())
+    db.execute('UPDATE sentinel_notification_policy SET web_push_activated_at=%s',
+               (NOW-timedelta(days=1),))
+    db.commit()
+    assert execution_collector.collect_once('FILL', reader=f.broker, config=config) == 'COLLECTED'
+    assert db.execute("SELECT count(*) FROM sentinel_alert_outbox WHERE event_type='BROKER_FILL'").fetchone()[0] == 2
+    assert db.execute('SELECT count(*) FROM sentinel_fills').fetchone()[0] == 0
+
+
 def test_native_partial_fills_notify_once_across_restart_without_financial_authority(db, monkeypatch):
     f = fixture(db, monkeypatch)
     before = db.execute("SELECT client_key,state,filled_quantity,order_terms FROM sentinel_commands").fetchall()

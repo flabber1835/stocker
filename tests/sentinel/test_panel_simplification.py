@@ -203,3 +203,10 @@ def test_one_stylesheet_keeps_push_controller_and_removes_unused_animation():
     assert 'id="push-enable"' in html and 'id="push-remove"' in html
     assert 'navigator.serviceWorker.register' in html
     assert 'prefers-reduced-motion:reduce' in html
+
+
+def test_production_projection_has_no_retired_in_panel_worker():
+    from sentinel.panel import verification_monitor
+    assert not hasattr(verification_monitor,'Monitor')
+    assert not hasattr(verification_monitor,'observe_shadow')
+    assert not hasattr(verification_monitor,'observe_paper')

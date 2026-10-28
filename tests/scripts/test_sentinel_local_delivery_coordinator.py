@@ -27,7 +27,7 @@ host_module = importlib.import_module(SPEC.name+'.host')
 
 
 def request(tmp_path):
-    return dict(schema=model.SCHEMA, operation_id='fictional-delivery', source=str(tmp_path),
+    return dict(schema=model.SCHEMA, handoff_mode='PRE_OPEN',operation_id='fictional-delivery', source=str(tmp_path),
         deployment=str(tmp_path), predecessor=dict(commit='1'*40,image='sha256:'+'1'*64,
             postgres={'system':'unchanged'},system='123456789'),
         candidate=dict(commit='2'*40,image='sha256:'+'2'*64,
@@ -37,6 +37,24 @@ def request(tmp_path):
         allowed_delta=['sentinel/example.py'],created_at=model.utcnow().isoformat())
 
 
+def test_previous_requests_keep_preopen_semantics_and_cannot_inject_posttrade(tmp_path):
+    value=request(tmp_path);value['schema']=model.PREVIOUS_SCHEMA;value.pop('handoff_mode')
+    assert model.handoff_mode(model.validate_request(value))=='PRE_OPEN'
+    model.write_new(tmp_path/'request.json',value)
+    journal=model.Journal(tmp_path)
+    assert journal.read()['schema']==model.PREVIOUS_SCHEMA
+    assert journal.advance('NEW','PREFLIGHT_PASS')['stage']=='PREFLIGHT_PASS'
+    value['handoff_mode']='POST_TRADE'
+    with pytest.raises(model.DeliveryRefused,match='REQUEST_SHAPE'):model.validate_request(value)
+
+
+def test_plain_archive_off_adapter_cannot_acquire_posttrade_permission(tmp_path):
+    selected=request(tmp_path);selected['handoff_mode']='POST_TRADE'
+    from types import SimpleNamespace
+    with pytest.raises(model.DeliveryRefused,match='BACKED_ADAPTER_REQUIRED'):
+        host_module.Host.verify_candidate(SimpleNamespace(request=selected))
+
+
 class Host:
     def __init__(self, selected):
         self.request=selected
@@ -44,7 +62,8 @@ class Host:
         self.values.update(SENTINEL_GIT_COMMIT=selected['predecessor']['commit'],
             SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256='a'*64,
             SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256='b'*64,SECRET='private-value')
-        self.state={'control':{'generation':77},'plan':'immutable-plan','commands':'unchanged'}
+        self.state={'control':{'generation':77},'plan':'immutable-plan','commands':'unchanged',
+            'issuer_evidence':{'count':0,'md5':'d41d8cd98f00b204e9800998ecf8427e'}}
         self.native={'native-id':'17'};self.notifications={'old':'immutable-payload'}
         self.calls=[];self.busy=False;self.canonical_count=0;self.clock=0;self.heartbeat=0
         self.items={name:self.item(selected['predecessor']['image'],True) for name in host_module.SERVICES}
@@ -139,7 +158,8 @@ def operation(tmp_path,monkeypatch):
 def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(operation):
     host,journal,delivery=operation
     receipt=delivery.advance()
-    assert receipt['stage']=='VERIFIED' and host.canonical_count==3
+    assert receipt['stage']=='VERIFIED' and host.canonical_count==2
+    assert receipt['artifacts']['successor_verification']=='EXACT_IMAGE_AND_UNCHANGED_SNAPSHOT'
     assert len(receipt['history'])==len(model.STAGES)-1 and host.heartbeat>0
     assert host.notifications=={'old':'immutable-payload'}
     assert 'private-value' not in json.dumps(receipt)
@@ -147,7 +167,182 @@ def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(oper
     assert len(mutations)==3 and mutations[0][0]=='stop'
     assert mutations[1][-1]=='sentinel-shadow'
     assert not any('postgres' in str(c) or 'backup' in str(c) for c in mutations)
-    assert delivery.advance()==receipt and host.canonical_count==3
+    assert delivery.advance()==receipt and host.canonical_count==2
+
+
+@pytest.mark.parametrize('retained',[False,True])
+def test_retained_predecessor_avoids_broken_old_reader_but_keeps_new_and_started_checks(operation,monkeypatch,retained):
+    host,journal,delivery=operation
+    host.predecessor_canonical_proof=lambda state: {'book':'same','proof':'same'} if retained else None
+    roles=[]
+    def canonical(h,values,state):
+        role='candidate' if values['SENTINEL_GIT_COMMIT']==h.request['candidate']['commit'] else 'predecessor'
+        roles.append(role)
+        if retained and role=='predecessor':pytest.fail('repeated broken predecessor scan')
+        return {'book':'same','proof':'same'}
+    monkeypatch.setattr(coordinator.evidence,'canonical_check',canonical)
+    assert delivery.advance()['stage']=='VERIFIED'
+    assert roles==(['candidate'] if retained else ['predecessor','candidate'])
+
+
+@pytest.mark.parametrize('fault',['book','image','configuration','history','issuer'])
+def test_startup_proof_reuse_refuses_changed_subject_before_other_apps_start(operation,fault):
+    host,journal,delivery=operation
+    while journal.read()['stage']!='SHADOW_STARTED':delivery.step()
+    before=list(host.calls)
+    if fault=='book':host.state['book']='changed'
+    elif fault=='image':host.items['sentinel-shadow']['Image']='foreign'
+    elif fault=='configuration':host.values['SECRET']='changed'
+    elif fault=='issuer':host.state['issuer_evidence']['md5']='a'*32
+    else:host.notifications['old']='changed'
+    with pytest.raises(model.DeliveryRefused):delivery.step()
+    assert journal.read()['stage']=='SHADOW_STARTED'
+    assert not any(isinstance(call,tuple) for call in host.calls[len(before):])
+
+
+def test_removed_startup_snapshot_guard_is_detected(operation,monkeypatch):
+    monkeypatch.setattr(coordinator.Delivery,'_unchanged',lambda *a,**k:None)
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_startup_proof_reuse_refuses_changed_subject_before_other_apps_start(operation,'book')
+
+
+def test_full_source_checks_run_at_mutation_boundaries_not_journal_intents(operation):
+    host,journal,delivery=operation
+    checked=[]
+    host.verify_candidate=lambda:checked.append(journal.read()['stage'])
+    delivery.advance()
+    assert checked==['NEW','DRAIN_REQUESTED','STOP_REQUESTED','SCHEMA_INSTALL_REQUESTED',
+        'COMPOSE_INSTALL_REQUESTED','COMPOSE_INSTALLED','START_REQUESTED','APPLICATIONS_STARTED']
+    delivery.advance()
+    assert len(checked)==8
+
+
+@pytest.mark.parametrize('stage', ['DRAIN_REQUESTED','STOP_REQUESTED','SCHEMA_INSTALL_REQUESTED',
+    'COMPOSE_INSTALL_REQUESTED','COMPOSE_INSTALLED','START_REQUESTED','APPLICATIONS_STARTED'])
+def test_changed_source_is_refused_before_each_installation_mutation(operation,stage):
+    host,journal,delivery=operation
+    while journal.read()['stage']!=stage:delivery.step()
+    before=list(host.calls)
+    def changed():raise model.DeliveryRefused('QUALIFIED_SOURCE_BYTES_CHANGED')
+    host.verify_candidate=changed
+    with pytest.raises(model.DeliveryRefused,match='QUALIFIED_SOURCE_BYTES_CHANGED'):
+        delivery.step()
+    assert host.calls==before and journal.read()['stage']==stage
+
+
+@pytest.mark.parametrize('stage', ['DRAIN_REQUESTED','STOP_REQUESTED','COMPOSE_INSTALLED',
+                                 'START_REQUESTED','APPLICATIONS_STARTED'])
+@pytest.mark.parametrize('kind', ['state','book','native','history','issuer'])
+def test_live_preservation_changes_refuse_at_each_operational_boundary(operation,stage,kind):
+    host,journal,delivery=operation
+    while journal.read()['stage']!=stage:delivery.step()
+    if kind=='state':host.state['commands']='changed'
+    elif kind=='book':host.state['book_cursors_md5']='changed'
+    elif kind=='native':host.native['native-id']='18'
+    elif kind=='issuer':host.state['issuer_evidence']={'count':1,'md5':'a'*32}
+    else:host.notifications['old']='changed'
+    mutations=[c for c in host.calls if isinstance(c,tuple)]
+    with pytest.raises(model.DeliveryRefused):delivery.step()
+    assert journal.read()['stage']==stage
+    assert [c for c in host.calls if isinstance(c,tuple)]==mutations
+
+
+def test_issuer_evidence_preservation_has_a_removed_guard_falsifier(operation,monkeypatch):
+    original=coordinator.evidence.snapshot
+    def omit_issuer(host):
+        result=original(host)
+        result.pop('issuer_evidence')
+        return result
+    monkeypatch.setattr(coordinator.evidence,'snapshot',omit_issuer)
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_live_preservation_changes_refuse_at_each_operational_boundary(
+            operation,'STOP_REQUESTED','issuer')
+
+
+def test_missing_mutation_source_check_has_a_falsifier(operation,monkeypatch):
+    monkeypatch.setattr(coordinator,'SOURCE_CHECK_STAGES',
+        coordinator.SOURCE_CHECK_STAGES-{'STOP_REQUESTED'})
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_changed_source_is_refused_before_each_installation_mutation(operation,'STOP_REQUESTED')
+
+
+def test_missing_native_boundary_comparison_has_a_falsifier(operation,monkeypatch):
+    host,journal,delivery=operation
+    original=delivery._unchanged
+    monkeypatch.setattr(delivery,'_unchanged',lambda artifacts,**kwargs:
+        original(artifacts,native=False,allow_restart=kwargs.get('allow_restart',False)))
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_live_preservation_changes_refuse_at_each_operational_boundary(operation,'STOP_REQUESTED','native')
+
+
+def test_native_comparisons_are_six_operational_observations_not_every_journal_step(operation,monkeypatch):
+    host,journal,delivery=operation
+    calls=[]
+    original=coordinator.evidence.native_positions
+    def observed(*args):
+        calls.append(journal.read()['stage'])
+        return original(*args)
+    monkeypatch.setattr(coordinator.evidence,'native_positions',observed)
+    delivery.advance()
+    assert calls==['NEW','DRAIN_REQUESTED','STOP_REQUESTED','COMPOSE_INSTALLED',
+                   'START_REQUESTED','APPLICATIONS_STARTED']
+
+
+def test_restart_observation_is_used_only_after_all_candidate_services_started(operation):
+    host,journal,delivery=operation
+    calls=[]
+    original=host.postgres
+    def observe(expected):
+        assert journal.read()['stage']=='APPLICATIONS_STARTED'
+        assert expected==original()
+        calls.append(True)
+        return dict(expected,started='current-process')
+    host.postgres_after_restart=observe
+    receipt=delivery.advance()
+    assert receipt['stage']=='VERIFIED' and len(calls)==2
+    assert receipt['artifacts']['verified_postgres']['started']=='current-process'
+    assert receipt['artifacts']['postgres']==host.request['predecessor']['postgres']
+
+
+def test_restart_during_final_observation_refuses_completion(operation):
+    host,journal,delivery=operation
+    calls=[]
+    def observe(expected):
+        calls.append(True)
+        return dict(expected,started=str(len(calls)))
+    host.postgres_after_restart=observe
+    with pytest.raises(model.DeliveryRefused,match='CHANGED_DURING_FINAL_OBSERVATION'):
+        delivery.advance()
+    assert journal.read()['stage']=='APPLICATIONS_STARTED'
+
+
+@pytest.mark.parametrize('changed', [False, True])
+def test_posttrade_native_positions_must_match_settled_reconciliation(operation, monkeypatch, changed):
+    host, journal, delivery = operation
+    selected = dict(host.request, handoff_mode='POST_TRADE')
+    model.atomic_json(journal.folder/'request.json', selected)
+    host.request = selected
+    delivery.journal = model.Journal(journal.folder)
+    settled = dict(host.native)
+    if changed:
+        settled['native-id'] = '18'
+    monkeypatch.setattr(coordinator.evidence, 'canonical_check',
+        lambda *_args: {'settled_native_positions': settled})
+    if changed:
+        with pytest.raises(model.DeliveryRefused, match='POST_TRADE_NATIVE_RECONCILIATION_CHANGED'):
+            delivery.step()
+        assert delivery.journal.read()['stage'] == 'NEW'
+        assert not any(isinstance(call, tuple) for call in host.calls)
+    else:
+        assert delivery.step()['stage'] == 'PREFLIGHT_PASS'
+
+
+def test_removing_posttrade_native_comparison_has_a_falsifier(operation, monkeypatch):
+    original = coordinator.require
+    monkeypatch.setattr(coordinator, 'require', lambda value, reason:
+        None if reason == 'POST_TRADE_NATIVE_RECONCILIATION_CHANGED' else original(value, reason))
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_posttrade_native_positions_must_match_settled_reconciliation(operation, monkeypatch, True)
 
 
 @pytest.mark.parametrize('lost_ack',['stop','compose','install','shadow','apps'])
@@ -155,18 +350,18 @@ def test_lost_ack_resumes_only_exact_current_stage(operation,lost_ack):
     host,journal,delivery=operation;host.fail_after=lost_ack
     with pytest.raises(model.DeliveryRefused,match='LOST_ACK'):delivery.advance()
     assert journal.read()['stage'] in {'STOP_REQUESTED','COMPOSE_INSTALL_REQUESTED','COMPOSE_INSTALLED','START_REQUESTED'}
-    assert delivery.advance()['stage']=='VERIFIED' and host.canonical_count==3
+    assert delivery.advance()['stage']=='VERIFIED' and host.canonical_count==2
 
 
 @pytest.mark.parametrize('kind',['state','native','history','configuration'])
 def test_changed_preserved_state_refuses_before_application_stop(operation,kind):
-    host,journal,delivery=operation;delivery.step()
+    host,journal,delivery=operation;delivery.step();delivery.step()
     if kind=='state':host.state['commands']='changed'
     elif kind=='native':host.native['native-id']='18'
     elif kind=='history':host.notifications['old']='changed'
     else:host.values['SECRET']='changed'
     with pytest.raises(model.DeliveryRefused):delivery.step()
-    assert journal.read()['stage']=='PREFLIGHT_PASS'
+    assert journal.read()['stage']=='DRAIN_REQUESTED'
     assert not any(isinstance(c,tuple) for c in host.calls)
 
 
@@ -195,7 +390,7 @@ def test_pending_bootstrap_retains_same_stage_and_resumes_pages_without_reprefli
     assert host.canonical_count==2 and all(not item['State']['Running'] for item in host.items.values())
     host.schema_complete=True
     assert delivery.advance()['stage']=='VERIFIED' and host.migration_count==2
-    assert host.canonical_count==3
+    assert host.canonical_count==2
 
 
 def test_first_four_to_six_role_handoff_does_not_require_nonexistent_old_containers(operation):
@@ -274,7 +469,7 @@ def test_new_mutation_stages_preserve_original_preflight_expiry(operation,monkey
 
 
 def test_historical_verified_receipt_keeps_its_original_finite_stage_contract(tmp_path):
-    selected=request(tmp_path);selected['schema']=model.LEGACY_SCHEMA
+    selected=request(tmp_path);selected['schema']=model.LEGACY_SCHEMA;selected.pop('handoff_mode')
     model.write_new(tmp_path/'request.json',selected)
     subject=model.digest(selected);artifacts={'historical_scope':'unchanged'};previous=subject;history=[]
     for stage in model.LEGACY_STAGES[1:]:

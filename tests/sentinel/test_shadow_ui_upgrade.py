@@ -57,7 +57,11 @@ def test_new_recovery_module_is_admitted_only_at_exact_reviewed_bytes(closure, n
     root, checkpoint, context, manifest, source = closure
     path = root/name
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes((Path(upgrade.__file__).parent/name).read_bytes())
+    # This matrix proves the historical transition. Current executable bytes
+    # are authenticated independently by the complete structural source seal.
+    actual = hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
+    historical.require_current_source(name, actual)
+    historical.write(root, name, expected=upgrade.profile()['additions'][name])
     _refresh_current(root, context, source)
     assert admission.prove_compatibility(manifest, checkpoint, context, source=source)
     path.write_bytes(path.read_bytes()+b'\nUNREVIEWED_CHANGE = True\n')

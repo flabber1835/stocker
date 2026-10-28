@@ -105,6 +105,48 @@ def test_real_retry_transition_survives_live_notification_and_reconstruction(con
     assert row[0][0]["detail"]["retry_phase"] == "REFRESH"
 
 
+@pytest.mark.parametrize('reconstruct', [False, True])
+@pytest.mark.parametrize('deadline_risk', [False, True])
+def test_closing_frontier_wait_is_quiet_in_direct_and_reconstructed_outbox_unless_deadline_risk(
+        conn, reconstruct, deadline_risk):
+    import asyncio
+    from datetime import timedelta
+    from sentinel.automation.model import ClosingDataPending, TickAction
+    from sentinel.automation_resilience import RecoveryAutomationService
+    from tests.sentinel.test_automation_service import (
+        AFTER_WEDNESDAY_CLOSE, config, enable, prepare_result, recovery_success, execution_success,
+    )
+
+    async def pending(_context):
+        raise ClosingDataPending('the source-final closing frontier is not ready',
+            publisher_deadline_at=(AFTER_WEDNESDAY_CLOSE + timedelta(seconds=5)
+                if deadline_risk else None))
+
+    cfg = config()
+    enable(conn, cfg)
+    worker = RecoveryAutomationService(config=cfg, holder_id='closing-notification-writer',
+        refresh=pending, prepare=prepare_result, recover=recovery_success, execute=execution_success)
+    asyncio.run(worker.tick(conn, now=AFTER_WEDNESDAY_CLOSE))
+    result = asyncio.run(worker.tick(conn, now=AFTER_WEDNESDAY_CLOSE))
+    assert result.action is TickAction.RETRY_SCHEDULED
+    event_before = conn.execute('SELECT detail FROM sentinel_automation_cycle_events '
+        "WHERE cycle_id=%s AND to_state='RETRY_WAIT' ORDER BY seq DESC LIMIT 1",
+        (result.cycle.cycle_id,)).fetchone()[0]
+    assert ('closing_data_wait' in event_before['diagnostic']) is (not deadline_risk)
+    for _ in range(2):
+        if reconstruct:
+            outbox._reconstruct_missing_transition_alerts(conn)
+        else:
+            alert = outbox.enqueue_cycle_transition_alert(conn,
+                cycle_id=result.cycle.cycle_id, state='RETRY_WAIT')
+            assert (alert is not None) is deadline_risk
+    assert conn.execute("SELECT count(*) FROM sentinel_alert_outbox "
+        "WHERE event_type='AUTOMATION_RETRY_SCHEDULED'").fetchone()[0] == int(deadline_risk)
+    assert conn.execute('SELECT detail FROM sentinel_automation_cycle_events '
+        "WHERE cycle_id=%s AND to_state='RETRY_WAIT' ORDER BY seq DESC LIMIT 1",
+        (result.cycle.cycle_id,)).fetchone()[0] == event_before
+
+
 def test_retry_backoff_dead_letter_and_ack_are_durable(conn) -> None:
     alert = outbox.enqueue(
         conn, idempotency_key="retry-me", event_type="BROKER_UNKNOWN",

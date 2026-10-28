@@ -127,6 +127,25 @@ def test_source_data_pending_refresh_names_the_actual_wait():
     assert "Oct 23, 2026 at 1:01 PM PDT (Pacific)" in value["body"]
 
 
+def test_unquiet_closing_data_wait_requests_review_without_inventing_a_cause():
+    value = web_push.notification_payload(_alert("AUTOMATION_RETRY_SCHEDULED", "WARN",
+        reason="ClosingDataPending", detail={"retry_phase": "REFRESH", "first_failure_at": OBSERVED}))
+    assert value["title"] == "Closing-data preparation needs review"
+    assert "see dashboard" in value["body"]
+    assert "Oct 23, 2026 at 1:01 PM PDT (Pacific)" in value["body"]
+    assert "deadline" not in value["body"].lower()
+    assert "crash" not in value["body"].lower()
+    assert "verified" not in value["body"].lower()
+
+
+def test_later_unquiet_closing_wait_keeps_original_failure_clock():
+    alert = _alert("AUTOMATION_RETRY_SCHEDULED", "WARN", reason="ClosingDataPending",
+        detail={"retry_phase": "REFRESH", "first_failure_at": OBSERVED})
+    original = web_push.notification_payload(alert)
+    alert.created_at = datetime(2026, 10, 23, 21, 10, tzinfo=timezone.utc)
+    assert web_push.notification_payload(alert) == original
+
+
 def test_later_source_retry_keeps_original_failure_time_instead_of_delivery_time():
     alert = _alert("AUTOMATION_RETRY_SCHEDULED", "WARN", reason="SourceDataPending",
                    detail={"retry_phase": "REFRESH", "first_failure_at": OBSERVED})

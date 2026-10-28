@@ -15,13 +15,14 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.merge_junit import merge
+from tools.sentinel_ci_shards import CURRENT_LANES, GENERAL_SHARDS, ROLLING_SHARDS
 from tools.sentinel_ci_certification_manifest import (
     _docker_image_identity, _read_json, _run, canonical_bytes, sha256_file,
 )
 
-GENERAL_LANES = tuple(f"sentinel-general-{index}" for index in range(4))
-ROLLING_LANES = tuple(f"sentinel-rolling-{index}" for index in range(4))
-MAIN_LANES = (*GENERAL_LANES, *ROLLING_LANES, "sentinel-contention", "sentinel-status")
+GENERAL_LANES = tuple(f"sentinel-general-{index}" for index in range(GENERAL_SHARDS))
+ROLLING_LANES = tuple(f"sentinel-rolling-{index}" for index in range(ROLLING_SHARDS))
+MAIN_LANES = (*GENERAL_LANES, *ROLLING_LANES, *CURRENT_LANES, "sentinel-contention", "sentinel-status")
 SENTINEL_LANES = (*MAIN_LANES, "sentinel-warmup", "sentinel-automation")
 SUITE_LANES = (*SENTINEL_LANES, "champion", "operator", "wealth-core", "mutations")
 LANES = SUITE_LANES

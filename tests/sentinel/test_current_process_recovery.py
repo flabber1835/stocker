@@ -88,6 +88,9 @@ def test_current_protected_day_survives_two_callback_deaths_without_duplicate_ec
         campaign = Campaign(sentinel_config=SentinelConfig(database_url=dsn, alpaca_key='isolated',
             alpaca_secret='no-network', base_url=DEFAULT_BASE_URL, state_dir=tmp_path/'state',
             max_cycles=1, poll_seconds=0), automation_config=config, holder_id='current-private-fault-worker')
+        from tests.support.current_workflow_issuer import enroll_generated_account
+        enroll_generated_account(conn,campaign=campaign,clock=clock,observation_id=OBSERVATION)
+        assert not provider.snapshot()['state']['orders']
         control = ControlBinding(deployment_id=bound.deployment_id, broker=bound.broker,
             broker_account_id=bound.broker_account_id, takeover_epoch=bound.takeover_epoch,
             certificate_sha256=certificate, rollout_mode=rollout.mode.value,
@@ -133,7 +136,8 @@ def test_current_protected_day_survives_two_callback_deaths_without_duplicate_ec
             cycle = transition(CycleState.EXECUTING)
             print('CURRENT_PROCESS_RECOVERY accepted-partial response-loss SIGKILL', flush=True)
             with pytest.raises((SoftwareDefect, EOFError)):
-                invoke(campaign.execute, 'EXECUTE')
+                unexpected = invoke(campaign.execute, 'EXECUTE')
+                pytest.fail('callback returned before the injected broker fault: '+repr(unexpected))
             first = provider.snapshot()
             assert len(first['state']['orders']) == 1 and len(first['state']['events']) == 1
             key = first['first_key']

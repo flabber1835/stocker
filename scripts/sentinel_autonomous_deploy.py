@@ -815,6 +815,7 @@ def _reviewed_shadow_lineage_preflight(
         "SENTINEL_REVIEWED_DEPLOYMENT_MODE",
         "SENTINEL_GIT_COMMIT",
         "SENTINEL_RUNTIME_IMAGE_DIGEST",
+        "SENTINEL_TEST_IMAGE_DIGEST",
     )
     env_args = [item for name in forwarded for item in ("-e", name)]
     completed = _read_only_command(invoke, [

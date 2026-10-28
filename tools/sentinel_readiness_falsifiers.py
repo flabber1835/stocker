@@ -8,8 +8,9 @@ HOST='scripts/sentinel_activation_checkpoint.py'
 MAINT='scripts/sentinel_backup_maintenance.py'
 TEST='tests/backup/test_activation_checkpoint.py::'
 MUTANTS={
-    'exact_runtime':(MAINT,'and result["runtime_image"] == image','and True',
-        TEST+'test_ineligible_receipt_cannot_reuse_or_write_marker[runtime_image-sha256:'+ 'e'*64+']'),
+    'retained_base_identity':(MAINT,'for k, v in expected.items()):',
+        'for k, v in expected.items() if k != "metadata_sha256"):',
+        TEST+'test_ineligible_receipt_cannot_reuse_or_write_marker[metadata_sha256-'+ 'c'*64+']'),
     'full_receipt':(MAINT,'for k, v in expected.items()):','for k, v in expected.items() if k != "physical_only"):',
         TEST+'test_ineligible_receipt_cannot_reuse_or_write_marker[physical_only-True]'),
     'selected_metadata':(HOST,'current != selected or ','False or ',TEST+'test_selected_metadata_change_refuses'),

@@ -10,7 +10,7 @@ from sentinel import shadow_runtime
 from sentinel.feed import _publication_impl as core, store
 from sentinel.feed.publication import CorpusLockUnavailable
 from sentinel.panel import authority_reader as reader, model, sources
-from sentinel.panel import verification_monitor as monitor
+from sentinel.panel import read_projection, verification_service as verifier
 from tests.sentinel.test_corpus_publication import pg
 from tests.sentinel.test_panel_authority_reader import complete, result
 
@@ -101,8 +101,9 @@ def test_source_propagates_only_typed_contention_and_closes_connection(monkeypat
 def test_identity_change_during_retry_refuses_the_old_expected_key(monkeypatch):
     identity = ['before']
     clock = Clock()
-    monkeypatch.setattr(monitor, 'shadow_evidence', lambda *_: identity[0])
-    expected = reader._key('fixture', False, 'before')
+    monkeypatch.delenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', raising=False)
+    monkeypatch.setattr(read_projection, 'subject_for', lambda *_: identity[0])
+    expected = 'before'
     calls = []
     def busy(*_, **__):
         calls.append(True)
@@ -114,8 +115,8 @@ def test_identity_change_during_retry_refuses_the_old_expected_key(monkeypatch):
         identity[0] = 'after'
     monkeypatch.setattr(reader, 'retry_corpus_lock', lambda operation: retry(
         operation, clock=clock, sleep=sleep))
-    with pytest.raises(ValueError, match='evidence changed before'):
-        monitor.observe_shadow('fixture', False, expected)
+    with pytest.raises(ValueError, match='verification subject changed before'):
+        verifier.observe('fixture', False, expected)
     assert len(calls) == 1
 
 
@@ -171,9 +172,11 @@ def test_real_exclusive_pin_collision_recovers_without_cached_red(pg, monkeypatc
     monkeypatch.setattr(shadow_runtime, 'verified_shadow_status', verify)
     monkeypatch.setattr(sources, '_verified_shadow_book_rows', lambda *a, **k: (
         [model.Row(key, key, 'verified', model.OK) for key in ('exposure', 'book', 'terminals')], []))
-    monkeypatch.setattr(monitor, 'shadow_evidence', lambda *_: 'fixed-book-and-source')
+    monkeypatch.delenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', raising=False)
+    monkeypatch.setattr(read_projection, 'subject_for', lambda *_: 'fixed-book-and-source')
     value = reader.Reader(runner=lambda operation, *args, **_: operation(*args),
-        observer=monitor.observe_shadow, evidence_reader=monitor.shadow_evidence)
+        observer=verifier.observe, evidence_reader=read_projection.subject_for,
+        key_factory=verifier._identity_key, expected_keys=read_projection.SHADOW_KEYS)
     try:
         value.read(pg.sync_dsn, include_paper=False)
         assert collision.wait(3), 'test did not exercise the native lock refusal'

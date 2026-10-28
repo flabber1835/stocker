@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 import re
 
@@ -15,6 +15,37 @@ _EXCEPTION_TYPE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*
 
 def _aware(value) -> bool:
     return isinstance(value, datetime) and value.utcoffset() is not None
+
+
+def _closing_data_recovery(cycle: Mapping, recovery: RecoveryEvidence) -> RecoveryEvidence:
+    """Bind the positive typed diagnostic to this saved cycle and its clocks."""
+    from sentinel.automation.closing_data_notifications import quiet_event
+
+    try:
+        if not quiet_event(cycle, state=cycle.get('state')):
+            return recovery
+        diagnostic = cycle['diagnostic']
+        if any(cycle.get(field) != diagnostic.get(field)
+               for field in ('retry_phase', 'callback_failure', 'exception_type')):
+            return recovery
+        marker = diagnostic['closing_data_wait']
+        if any(marker[field] != cycle.get(field)
+               for field in ('decision_session', 'effective_session')):
+            return recovery
+        for field in ('prepare_at', 'execution_open_at', 'execute_at', 'execution_close_at'):
+            stamp = datetime.fromisoformat(marker[field])
+            if not _aware(cycle.get(field)) or cycle[field] != stamp:
+                return recovery
+        deadline = recovery.deadline
+        for field in ('publisher_deadline_at', 'worker_deadline_at'):
+            bound = marker[field]
+            if bound is not None:
+                deadline = min(deadline, datetime.fromisoformat(bound)-timedelta(microseconds=1))
+        return replace(recovery, phase=('AUTOMATION_SHADOW_ATTESTATION'
+            if marker['worker_deadline_at'] is not None else 'AUTOMATION_CLOSING_DATA'),
+            deadline=deadline)
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        return recovery
 
 
 def availability_recovery(cycle: Mapping | None) -> RecoveryEvidence | None:
@@ -58,10 +89,11 @@ def availability_recovery(cycle: Mapping | None) -> RecoveryEvidence | None:
             return None
     except (ValueError, TypeError, OverflowError, RuntimeError):
         return None
-    return RecoveryEvidence(
+    recovery = RecoveryEvidence(
         phase=f'AUTOMATION_{phase}_AVAILABILITY', automatic=True,
         attempt=attempt, next_attempt_at=wake,
         deadline=saved_open - timedelta(microseconds=1))
+    return _closing_data_recovery(cycle, recovery)
 
 
 def availability_label(cycle: Mapping, recovery: RecoveryEvidence) -> str:
