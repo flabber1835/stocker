@@ -158,3 +158,21 @@ and encrypted artifact. It is not a continuation of UNKNOWN40714748373. Publish
 the corrected source-bound request once; the economic protocol,420second worker,
 120second baseline gate and existing seven-day encrypted storage stay unchanged.
 Preserve both the failed financial attempt and completed synthetic proofs.
+
+## Preserved baseline timing-gate refusal
+
+Fresh run40719685611/a363edfb exported an authenticated, proven-stopped control
+artifact. Both full neutral accounts reached the specified final close and their
+complete financial-path and event commitments agreed. The two sequential account
+passes alone required about165seconds; the explicit120second aggregate baseline
+gate therefore refused before P2. This was an execution-budget design error.
+The worker was not killed by its420second deadline and did not run out of memory.
+
+Retain both completed controls, the actual hosted checkpoint-restore receipts,
+all original journal prefixes and zero tails. Independent read-only review of
+observed event equations, raw NAV, actions, source identities and all metric
+periods does not execute a local account or recover a P2 result. P2 and the
+separately restored historical suffixes were never run. No source, financial
+parameter or budget is silently changed and no further workflow is dispatched.
+The comparison remains incomplete; the controls must not be restarted merely to
+obtain the missing candidate evidence.
