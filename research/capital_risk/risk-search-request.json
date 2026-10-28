@@ -1,0 +1,145 @@
+{
+  "schema": "research.bounded-risk-search-request/1",
+  "id": "bounded-risk-search-001",
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "financial_protocol_sha256": "27204f9bc1c66f9dcc5cfe7561542180be2cd3ca1b9ac799395069c402d4d3db",
+  "original_basis_sha256": "a95a80844f60188dda1e4dab8e0dd7cbbd39861f2bdbc2ab19b436a20522a486",
+  "protocol_sha256": "025aa07f194e06ea7ffded4715e3b25fcfb8bf80a3d5fc8e56d705170d7a8f8a",
+  "profiles": [
+    {
+      "id": "L1_KEEP0",
+      "family": "LOCAL_RED",
+      "entry": 1,
+      "recovery": 3,
+      "retained": "0",
+      "threshold": "0",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "L1_KEEP55",
+      "family": "LOCAL_RED",
+      "entry": 1,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": "0",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "L3_KEEP0",
+      "family": "LOCAL_RED",
+      "entry": 3,
+      "recovery": 3,
+      "retained": "0",
+      "threshold": "0",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "L3_KEEP55",
+      "family": "LOCAL_RED",
+      "entry": 3,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": "0",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "B02_C1",
+      "family": "BOOK_DAMAGE",
+      "entry": 1,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": ".02",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "B02_C3",
+      "family": "BOOK_DAMAGE",
+      "entry": 3,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": ".02",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "B04_C1",
+      "family": "BOOK_DAMAGE",
+      "entry": 1,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": ".04",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "B04_C3",
+      "family": "BOOK_DAMAGE",
+      "entry": 3,
+      "recovery": 3,
+      "retained": ".55",
+      "threshold": ".04",
+      "release": "0",
+      "rebalance": 0
+    },
+    {
+      "id": "C10_C1",
+      "family": "CONCENTRATION_BAND",
+      "entry": 1,
+      "recovery": 3,
+      "retained": "1",
+      "threshold": ".10",
+      "release": ".08",
+      "rebalance": 21
+    },
+    {
+      "id": "C10_C3",
+      "family": "CONCENTRATION_BAND",
+      "entry": 3,
+      "recovery": 3,
+      "retained": "1",
+      "threshold": ".10",
+      "release": ".08",
+      "rebalance": 21
+    },
+    {
+      "id": "C15_C1",
+      "family": "CONCENTRATION_BAND",
+      "entry": 1,
+      "recovery": 3,
+      "retained": "1",
+      "threshold": ".15",
+      "release": ".12",
+      "rebalance": 21
+    },
+    {
+      "id": "C15_C3",
+      "family": "CONCENTRATION_BAND",
+      "entry": 3,
+      "recovery": 3,
+      "retained": "1",
+      "threshold": ".15",
+      "release": ".12",
+      "rebalance": 21
+    }
+  ],
+  "requirements_sha256": "dbfba1c69f8ad4aac5c92b2d72847dd7629b3036f1c9892a56dfc44f71e5f393",
+  "sources": {
+    "risk_profiles.py": "57c3183bc56d20a7392ae89075d65ca54096feb9d31417db5f2ca007736ef4a3",
+    "risk_policy.py": "9c4c82f9f840037c383619a1eb16f0afc72a249e1497bb7d9b93f1ed69a5a814",
+    "risk_adapter.py": "5243f94cfaf1384e0971a96acc5eb302a827017e6a874a99649f158b541eaad2",
+    "risk_worker.py": "bb87df30c3bfecf60dca5e111bca20e2e47444ad0e909ae34039667d131e8684",
+    "risk_gate.py": "f11f53e2b5510269bde2f2dd4009df76357dfbe9d8afc4ba8fd0732f86000e80",
+    "risk_metrics.py": "68401901f04c8a9685cf8d34f2b6843ff0cf5917331a3aabcfe256c33fa7a5f1",
+    "risk_review_math.py": "f6f493e0e9155b1477ba15aa99a839d0c747681475518754208b1c2b7d75e401",
+    "risk_review.py": "97b955a1af6ff587a2e25a55b177015edea141a70a294670ea44884332b4daee",
+    "risk_search_job.py": "6278411580eb86039d2faf113cfe988e521d47cecb6878a93ee42976a7c23018"
+  },
+  "worker_seconds": 900,
+  "review_seconds": 900,
+  "owner_scope": "BOUNDED12_ARCHITECTURE_PARAMETER_SEARCH_LOCKED_CHRONOLOGICAL_VALIDATION_NO_ROUTINE_APPROVAL_STOPS"
+}

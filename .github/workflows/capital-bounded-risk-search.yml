@@ -1,0 +1,214 @@
+name: Bounded risk architecture and parameter search
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/risk-search-request.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: bounded-risk-search-001
+  cancel-in-progress: false
+jobs:
+  search:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            research/capital_risk
+            .github/workflows
+          fetch-depth: 1
+      - name: Install locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/risk-search-requirements.lock
+      - name: Verify pure and static research guards
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B -m unittest discover -s research/capital_risk/tests -q'
+      - name: Authenticate original encrypted inputs and runtime
+        timeout-minutes: 7
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/search-staging.json'
+      - name: Fetch exact original qualifications and completed controls
+        timeout-minutes: 7
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 40706014951 --repo flabber1835/stocker --name holding-action-price-64f241d49c8d3fc5128a54deda0d435498d50089 --dir "$RUNNER_TEMP/search-price"
+          gh run download 40719685611 --repo flabber1835/stocker --name selective-h0-p2-a363edfbcc93da54d85267b7d4ba660ceb5340b2 --dir "$RUNNER_TEMP/search-controls"
+          gh run download 40724796359 --repo flabber1835/stocker --name selective-completion-32b6be13b88d8a521323bcd10fbbc1d51558fdb0 --dir "$RUNNER_TEMP/search-oldp2"
+      - name: Qualify adapter then run fixed twelve-profile study and independent reviews
+        timeout-minutes: 65
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/risk_search_job.py --request research/capital_risk/risk-search-request.json --staging-receipt artifacts/capital-risk/search-staging.json --price-download "$RUNNER_TEMP/search-price" --control-download "$RUNNER_TEMP/search-controls" --p2-download "$RUNNER_TEMP/search-oldp2" --output artifacts/capital-risk/risk-development.json'
+      - name: Preserve separately sealed development results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-development-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/search-staging.json
+            artifacts/capital-risk/risk-development.json
+            artifacts/capital-risk/risk-development-progress-*.tar.crseal
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve sealed full evidence ORACLE_H0
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-ORACLE_H0-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/ORACLE_H0.json
+            artifacts/capital-risk/profiles/ORACLE_H0.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence ORACLE_P2
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-ORACLE_P2-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/ORACLE_P2.json
+            artifacts/capital-risk/profiles/ORACLE_P2.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence L1_KEEP0
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-L1_KEEP0-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/L1_KEEP0.json
+            artifacts/capital-risk/profiles/L1_KEEP0.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence L1_KEEP55
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-L1_KEEP55-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/L1_KEEP55.json
+            artifacts/capital-risk/profiles/L1_KEEP55.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence L3_KEEP0
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-L3_KEEP0-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/L3_KEEP0.json
+            artifacts/capital-risk/profiles/L3_KEEP0.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence L3_KEEP55
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-L3_KEEP55-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/L3_KEEP55.json
+            artifacts/capital-risk/profiles/L3_KEEP55.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence B02_C1
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-B02_C1-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/B02_C1.json
+            artifacts/capital-risk/profiles/B02_C1.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence B02_C3
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-B02_C3-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/B02_C3.json
+            artifacts/capital-risk/profiles/B02_C3.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence B04_C1
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-B04_C1-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/B04_C1.json
+            artifacts/capital-risk/profiles/B04_C1.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence B04_C3
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-B04_C3-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/B04_C3.json
+            artifacts/capital-risk/profiles/B04_C3.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence C10_C1
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-C10_C1-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/C10_C1.json
+            artifacts/capital-risk/profiles/C10_C1.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence C10_C3
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-C10_C3-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/C10_C3.json
+            artifacts/capital-risk/profiles/C10_C3.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence C15_C1
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-C15_C1-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/C15_C1.json
+            artifacts/capital-risk/profiles/C15_C1.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Preserve sealed full evidence C15_C3
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: risk-profile-C15_C3-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/profiles/C15_C3.json
+            artifacts/capital-risk/profiles/C15_C3.tar.crseal
+          compression-level: 0
+          if-no-files-found: warn
+          retention-days: 7
