@@ -1,0 +1,21 @@
+{
+  "schema": "research.concentration-extension-request/1",
+  "request_id": "concentration-quarter-extension-001",
+  "owner_scope": "EXPLICIT_OWNER_C_EXTENSION_TO_COMPLETION_SAME_ENCRYPTED_CHANNEL",
+  "numerical_protocol_sha256": "74ec187ef27d250ed5d53bba1a3c97115001a5156c0d360406f2da5a9b97dfa7",
+  "execution_sha256": "059122f29723a073717e2d899b4953fb021f2f46dc816f2ba25e546e5cccc4d3",
+  "predecessor_sha256": "cc6fd946548addde2fd3cb2df0cfeb6965b919f9bda3a1777eb0747802221c58",
+  "source_bindings": {
+    "concentration_extension_job.py": "7dcff5cb301029bd0721c85ca949a24bbc5ed720cc9476fdda4129d900a7c3f2",
+    "concentration_predecessor.py": "19c844f4b04ff19f3e20958ec473a486fe3428558669c76b000de63359dd6cb2",
+    "concentration_review.py": "67db2549d6734651be85e567fde46e92b5118e7d8544f1ec26fc88272aad973f",
+    "concentration_build.py": "dd39dbd2571fc3476278d4995aa0784be07804e9674d05896216804e56399c12",
+    "concentration_job.py": "92f30f85f5d0d058a829c260eec979c4e1f9b15dc419df22affeea322ceddf58",
+    "build_core_variants.py": "b19c857029bb4bd1c5bc5ee76da5e46510fc96386357b0c9954764d25b564a50",
+    "core_policy.py": "ffa275993ce7880bb42ed806bc3da3224f772418bb494f388a0e90288b2505d8",
+    "baseline_prefix.py": "9f616f2cf23d2ae8e470ce0d68d766545bb32788c22587b0b17b5e8188b1f3f5",
+    "core_manifest.py": "ad5e1df4638a394e19855c1982b2b7b8491c459e2087134a81a181de6b328962",
+    "core_window_review.py": "87528bdd16e2d35af29b74cccf9c581bca8144d55d1e0aaab2cb61290c591fc1",
+    "core_accounting_snapshot.py": "7c82674318f7ad939c4f696e11c79b5cdde46704e539281443a18a667fde0e49"
+  }
+}

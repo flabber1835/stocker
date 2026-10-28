@@ -23,7 +23,8 @@ def review(root,output):
     journals=('formation','daily','monthly','watch')
     require(all((root/(name+'.jsonl')).is_file() for name in journals),'REFUSED_C_QUARTER_JOURNALS')
     before={name:backtest.file_sha(root/(name+'.jsonl')) for name in journals}
-    checkpoints=[root/'checkpoint.json.gz',*sorted((root/'pre-event').glob('*.json.gz')),*sorted((root/'month-end').glob('*.json.gz'))]
+    checkpoints=[root/'checkpoint.json.gz',*sorted((root/'pre-event').glob('*.json.gz')),*sorted((root/'month-end').glob('*.json.gz')),
+                 *sorted((root/'predecessor-checkpoints').rglob('*.json.gz'))]
     journal=Journal(root,resume=True)
     try:
         for path in checkpoints:
