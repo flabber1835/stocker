@@ -73,8 +73,8 @@ class JsonStateConnection:
                 self.result = [
                     row for name, row in sorted(self.rows.items())
                     if (name.startswith(prefix)
-                        and ("session <" not in normalized
-                             or row[0] < params[1]))]
+                        and ("session <" not in normalized or row[0] < params[1])
+                        and ("session=%s" not in normalized or row[0] == params[1]))]
             else:
                 self.result = self.rows.get(params[0])
             return
@@ -436,7 +436,7 @@ def test_safe_terminal_cycles_earn_durable_not_verified_records(
     assert result["verdict"] == "NOT_VERIFIED"
     assert expected in result["reason_codes"]
     assert "TEST_FAILURE" in result["reason_codes"]
-    assert conn.rows[f"{trial.VERIFICATION_PREFIX}2026-08-20"][1] == result
+    assert conn.rows[f"{trial.VERIFICATION_PREFIX}2026-08-20:{cycle.cycle_id}"][1] == result
 
 
 def _terminal_cycle(*, state="SUCCEEDED", epoch=4):
@@ -576,7 +576,7 @@ def test_succeeded_cycle_economic_mismatch_freezes_immutable_red(
 
     assert recorded["verdict"] == "NOT_VERIFIED"
     assert recorded["reason_codes"] == [economic_reason]
-    assert conn.rows[f"{trial.VERIFICATION_PREFIX}2026-08-20"][1] == recorded
+    assert conn.rows[f"{trial.VERIFICATION_PREFIX}2026-08-20:{cycle.cycle_id}"][1] == recorded
 
 
 def test_retained_success_revalidates_its_close_source(monkeypatch):

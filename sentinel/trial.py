@@ -1018,7 +1018,7 @@ def _previous_verification(conn, before: date) -> dict | None:
         rows = cur.fetchall()
     if not rows:
         return None
-    previous = None
+    verified_attempts = []
     # Revalidate the whole retained chain, not just its newest link. A cash
     # backfill into an older certified session invalidates every cumulative
     # return descended from it even if the newest certificate is unchanged.
@@ -1031,7 +1031,9 @@ def _previous_verification(conn, before: date) -> dict | None:
         _validate_fill_reference(conn, verified)
         _validate_cash_reference(conn, verified)
         _validate_cash_finality_reference(conn, verified)
-        previous = verified
+        verified_attempts.append(verified)
+    from sentinel import trial_attempts
+    previous = trial_attempts.select(conn, verified_attempts)[-1]
     from sentinel import paper_performance
     return paper_performance.project(
         previous, paper_performance.load(conn, previous.get("binding")))
@@ -1069,7 +1071,14 @@ def _terminal_verification_debt(conn, cycle) -> tuple[dict, ...]:
                 "cycle_id": cycle_id, "session": session.isoformat(),
                 "state": state, "reason": "OLDER_CYCLE_NONTERMINAL"})
             continue
-        stored = _stored(conn, f"{VERIFICATION_PREFIX}{session.isoformat()}")
+        from sentinel import trial_attempts
+        stored = trial_attempts.stored(conn, session=session, cycle_id=cycle_id)
+        if stored is None:
+            # Retain the old mismatched-identity refusal, not a forged proof of
+            # callback completion from another cycle's date-only record.
+            legacy = _stored(conn, f"{VERIFICATION_PREFIX}{session.isoformat()}")
+            if legacy is not None:
+                stored = legacy
         if stored is None:
             # v1/v2 verdicts cannot contribute an opening NAV or cumulative
             # factor to the corrected v3 series, but an exact, immutable
@@ -2055,23 +2064,26 @@ def record_cycle_verification(conn, *, cycle_id: str,
                               observation_id: int | None = None,
                               now: datetime | None = None) -> dict:
     from sentinel.automation import store as automation_store
+    from sentinel import trial_attempts
     cycle = automation_store.load_cycle(conn, cycle_id)
-    name = f"{VERIFICATION_PREFIX}{cycle.effective_session.isoformat()}"
-    existing = _stored(conn, name)
+    name = trial_attempts.key(cycle.effective_session, cycle_id)
+    existing = trial_attempts.stored(
+        conn, session=cycle.effective_session, cycle_id=cycle_id)
     if existing is not None:
         session, state = existing
         stored = _validate_verification(session, state)
         if (stored.get("cycle") or {}).get("cycle_id") != cycle_id:
-            raise TrialEvidenceRefused(
-                "effective session already has another immutable trial cycle")
+            raise TrialEvidenceRefused('trial attempt storage names another immutable cycle')
         _validate_close_reference(conn, stored)
         _validate_fill_reference(conn, stored)
         _validate_cash_reference(conn, stored)
         _validate_cash_finality_reference(conn, stored)
         from sentinel import paper_performance
         return paper_performance.record_and_project(conn, stored)
+    observed = _utc(now or datetime.now(timezone.utc), where='verification time')
+    trial_attempts.recover_unsent_failures(conn, cycle, now=observed)
     result = build_cycle_verification(
-        conn, cycle_id=cycle_id, observation_id=observation_id, now=now)
+        conn, cycle_id=cycle_id, observation_id=observation_id, now=observed)
     from sentinel import paper_performance
     result = paper_performance.record_and_project(conn, result)
     pending_source_reasons = {
@@ -2093,6 +2105,20 @@ def record_cycle_verification(conn, *, cycle_id: str,
     _validate_cash_reference(conn, result)
     _validate_cash_finality_reference(conn, result)
     result["evidence_sha256"] = _sha(result)
+    with conn.cursor() as cur:
+        cur.execute('SELECT session,state FROM sentinel_processed_sessions '
+                    'WHERE cursor_name LIKE %s AND session=%s ORDER BY session',
+                    (f'{VERIFICATION_PREFIX}%', cycle.effective_session))
+        retained = cur.fetchall()
+    attempts = []
+    for session, state in retained:
+        verified = _validate_verification(session, _mapping(state, where='trial attempt'))
+        _validate_close_reference(conn, verified)
+        _validate_fill_reference(conn, verified)
+        _validate_cash_reference(conn, verified)
+        _validate_cash_finality_reference(conn, verified)
+        attempts.append(verified)
+    trial_attempts.select(conn, attempts + [result])
     return _insert_immutable(
         conn, name=name,
         session=date.fromisoformat(result["session"]), state=result)
@@ -2127,7 +2153,7 @@ def record_due_cycle_verification(
         conn, cycle_id=cycle_id, observation_id=observation_id, now=now)
 
 
-def load_verifications(conn) -> list[dict]:
+def load_attempt_verifications(conn) -> list[dict]:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT session,state FROM sentinel_processed_sessions"
@@ -2149,9 +2175,15 @@ def load_verifications(conn) -> list[dict]:
     return result
 
 
+def load_verifications(conn) -> list[dict]:
+    """Project one daily result without discarding immutable attempt history."""
+    from sentinel import trial_attempts
+    return trial_attempts.select(conn, load_attempt_verifications(conn))
+
+
 __all__ = [
     "ACCOUNT_PREFIX", "FINANCIAL_TOLERANCE", "TrialEvidenceRefused",
-    "VERIFICATION_PREFIX", "build_cycle_verification",
+    "VERIFICATION_PREFIX", "build_cycle_verification", "load_attempt_verifications",
     "due_succeeded_cycle_id",
     "load_account_evidence", "load_verifications", "record_account_evidence",
     "record_cycle_verification", "record_due_cycle_verification",

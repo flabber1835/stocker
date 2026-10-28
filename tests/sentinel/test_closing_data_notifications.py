@@ -381,3 +381,56 @@ def test_actual_refresh_translates_only_confirmed_publication_pin_and_preserves_
     with pytest.raises(ClosingDataPending) as failure:
         asyncio.run(worker.refresh(object()))
     assert failure.value.publisher_deadline_at == deadline and closed == [True]
+
+
+@pytest.mark.parametrize('proof_kind', ['live', 'absent', 'other_session', 'unreadable'])
+def test_real_early_authority_wrapper_keeps_the_closing_cycle(monkeypatch, proof_kind):
+    from sentinel import source_publication_wait
+    from sentinel.feed.publication import CorpusLockUnavailable
+
+    cfg, cycle, permit = closing_cycle()
+    conn = SimpleNamespace(close=lambda: None, rollback=lambda: None)
+    worker = object.__new__(runtime.ProductionAutomation)
+    worker.automation_config = cfg
+    worker.sentinel_config = SimpleNamespace(database_url='private-test-db')
+    worker.connect = lambda: conn
+    monkeypatch.setattr(runtime.feed_store, 'require_feed_schema', lambda _c: None)
+    monkeypatch.setattr(runtime.schema, 'require_runtime_schema', lambda _c: None)
+    monkeypatch.setattr(runtime, 'require_observation_integrity', lambda _c: None)
+    monkeypatch.setattr(runtime.store, 'require_leader', lambda *_a: permit)
+    monkeypatch.setattr(runtime.store, 'load_control', lambda _c: SimpleNamespace(
+        binding=object(), generation=permit.control_generation, config_sha256=cfg.fingerprint))
+    monkeypatch.setattr(runtime, 'load_rollout_state', lambda _c: object())
+    native = CorpusLockUnavailable('snapshot reader cannot pin during publication or retirement')
+    def busy(_c):
+        raise native
+    monkeypatch.setattr(runtime.feed_inputs, 'require_current', busy)
+    observed = cycle.decision_close_at + timedelta(minutes=2)
+    deadline = observed + timedelta(hours=2)
+    def proof(*_a, **_kw):
+        if proof_kind == 'unreadable':raise OSError('probe unavailable')
+        if proof_kind == 'absent':return None
+        return source_publication_wait.PublicationWaitProof(
+            str(cycle.decision_session) if proof_kind == 'live' else '2026-10-26',
+            deadline-timedelta(microseconds=1), deadline, observed)
+    monkeypatch.setattr(source_publication_wait, 'observe', proof)
+    with pytest.raises(TransientInfrastructureFailure) as failure:
+        asyncio.run(worker.refresh(SimpleNamespace(cycle=cycle, permit=permit,
+                                                  require_active=lambda: None)))
+    assert (type(failure.value) is ClosingDataPending) is (proof_kind == 'live')
+    if proof_kind == 'live':assert failure.value.publisher_deadline_at == deadline
+
+
+@pytest.mark.parametrize('damage', ['different_detail', 'unreviewed_wrapper', 'no_cause'])
+def test_only_the_exact_reviewed_lock_wrapper_can_be_quiet(monkeypatch, damage):
+    from sentinel.feed.publication import CorpusLockUnavailable
+    from sentinel import source_publication_wait
+    _cfg, cycle, _permit = closing_cycle()
+    native = CorpusLockUnavailable('publication busy')
+    wrapped = runtime.classify_dependency_failure(native)
+    if damage == 'different_detail':wrapped = TransientInfrastructureFailure('unrelated failure')
+    if damage == 'unreviewed_wrapper':wrapped = RuntimeError(str(wrapped))
+    if damage != 'no_cause':wrapped.__cause__ = native
+    monkeypatch.setattr(source_publication_wait, 'observe', lambda *_a, **_kw:
+                        pytest.fail('unreviewed exception reached quiet proof'))
+    assert runtime._publication_closing_wait(wrapped, database_url='private-test-db', cycle=cycle) is None
