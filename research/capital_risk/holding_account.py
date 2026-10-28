@@ -10,9 +10,9 @@ from datetime import date
 from decimal import Decimal as D,ROUND_FLOOR,localcontext
 from fractions import Fraction
 import hashlib,json,os
-from typing import Literal
+from typing import Literal,Annotated
 
-from pydantic import BaseModel,ConfigDict,Field,field_validator,model_validator
+from pydantic import BaseModel,ConfigDict,Field,field_validator,model_validator,BeforeValidator,PlainSerializer
 
 FEE=D('.001')
 
@@ -28,25 +28,30 @@ def decimal(value):
     need(type(value) in (str,D,int),'REFUSED_INEXACT_NUMBER')
     result=D(value);need(result.is_finite(),'REFUSED_NONFINITE_NUMBER');return result
 
+def exact(value):
+    need(type(value) in (str,D,int,Fraction),'REFUSED_INEXACT_NUMBER')
+    if isinstance(value,D):need(value.is_finite(),'REFUSED_NONFINITE_NUMBER')
+    return Fraction(value)
+
+Number=Annotated[Fraction,BeforeValidator(exact),PlainSerializer(lambda v:str(v),return_type=str)]
+
 class Frozen(BaseModel):
-    model_config=ConfigDict(extra='forbid',frozen=True)
+    model_config=ConfigDict(extra='forbid',frozen=True,arbitrary_types_allowed=True)
 
 class Position(Frozen):
     episode: str
     security_id: str
     ticker: str
-    kind: Literal['EQUITY','DEFENSIVE']='EQUITY'
-    shares: D=Field(gt=0)
-    _shares=field_validator('shares',mode='before')(decimal)
+    kind: Literal['EQUITY','DEFENSIVE','ACTION_CHILD']='EQUITY'
+    shares: Number=Field(gt=0)
 
 class Claim(Frozen):
     security_id: str
-    entitled_shares: D=Field(gt=0)
-    cash_per_share: D=Field(ge=0)
-    amount: D=Field(ge=0)
+    entitled_shares: Number=Field(gt=0)
+    cash_per_share: Number=Field(ge=0)
+    amount: Number=Field(ge=0)
     ex_session: str
     pay_session: str
-    _numbers=field_validator('entitled_shares','cash_per_share','amount',mode='before')(decimal)
     _days=field_validator('ex_session','pay_session')(day)
     @model_validator(mode='after')
     def coherent(self):
@@ -54,16 +59,15 @@ class Claim(Frozen):
         return self
 
 class Account(Frozen):
-    schema_id: Literal['research.persistent-funded-account-prototype/1']='research.persistent-funded-account-prototype/1'
+    schema_id: Literal['research.persistent-funded-account-prototype/2']='research.persistent-funded-account-prototype/2'
     source_sha256: str=Field(pattern='^[0-9a-f]{64}$')
-    cash: D=Field(ge=0)
+    cash: Number=Field(ge=0)
     positions: dict[str,Position]=Field(default_factory=dict)
     claims: dict[str,Claim]=Field(default_factory=dict)
     retired: tuple[str,...]=()
     applied_events: tuple[str,...]=()
     last_session: str|None=None
     chain_sha256: str=Field(default='0'*64,pattern='^[0-9a-f]{64}$')
-    _cash=field_validator('cash',mode='before')(decimal)
     @model_validator(mode='after')
     def coherent(self):
         if self.last_session is not None:day(self.last_session)
@@ -87,12 +91,11 @@ class Intent(Frozen):
     episode: str
     security_id: str
     ticker: str
-    kind: Literal['EQUITY','DEFENSIVE']='EQUITY'
+    kind: Literal['EQUITY','DEFENSIVE','ACTION_CHILD']='EQUITY'
     side: Literal['BUY','SELL']
-    shares: D=Field(gt=0)
+    shares: Number=Field(gt=0)
     source_episode_live: bool=True
     core_exit: bool=False
-    _shares=field_validator('shares',mode='before')(decimal)
     _days=field_validator('signal_session','execution_session')(day)
     @model_validator(mode='after')
     def lag(self):
@@ -131,17 +134,18 @@ def trade(account,intent,quote):
         quantity=intent.shares
         if intent.side=='BUY':
             need(intent.source_episode_live,'REFUSED_RESTORE_AFTER_CORE_EXIT')
-            need(quantity==quantity.to_integral_value(),'REFUSED_NONWHOLE_BUY')
-            affordable=(cash/(quote.price*(1+FEE))).to_integral_value(rounding=ROUND_FLOOR)
-            quantity=min(quantity,affordable)
-            fees=quantity*quote.price*FEE;cash-=quantity*quote.price+fees
+            need(intent.kind!='ACTION_CHILD','REFUSED_CHILD_INCREASE')
+            need(quantity.denominator==1,'REFUSED_NONWHOLE_BUY')
+            affordable=cash//(exact(quote.price)*(1+exact(FEE)))
+            quantity=min(exact(quantity),Fraction(affordable))
+            fees=quantity*exact(quote.price)*exact(FEE);cash-=quantity*exact(quote.price)+fees
             need(cash>=0,'REFUSED_CASH_OVERDRAW')
             if quantity:
                 positions[intent.episode]=Position(episode=intent.episode,security_id=intent.security_id,ticker=intent.ticker,
-                    kind=intent.kind,shares=quantity+(existing.shares if existing else D(0)))
+                    kind=intent.kind,shares=quantity+(existing.shares if existing else Fraction(0)))
         else:
             need(existing is not None and quantity<=existing.shares,'REFUSED_OVERSELL')
-            fees=quantity*quote.price*FEE;cash+=quantity*quote.price-fees
+            quantity=exact(quantity);fees=quantity*exact(quote.price)*exact(FEE);cash+=quantity*exact(quote.price)-fees
             if quantity==existing.shares:del positions[intent.episode]
             else:positions[intent.episode]=existing.model_copy(update=dict(shares=existing.shares-quantity))
         if intent.core_exit:need(intent.episode not in positions,'REFUSED_PARTIAL_CORE_EXIT')
@@ -156,7 +160,7 @@ def mark(account,raw_closes):
     prices={s:decimal(v) for s,v in raw_closes.items()};need(all(v>0 for v in prices.values()),'REFUSED_RAW_CLOSE')
     with localcontext() as ctx:
         ctx.prec=50
-        return account.cash+sum((p.shares*prices[p.security_id] for p in account.positions.values()),D(0))+sum((c.amount for c in account.claims.values()),D(0))
+        return account.cash+sum((p.shares*exact(prices[p.security_id]) for p in account.positions.values()),Fraction(0))+sum((c.amount for c in account.claims.values()),Fraction(0))
 
 def split(account,*,event_id,session,security_id,ratio,canonical_split,raw_price):
     hosted();ratio=decimal(ratio);need(ratio>0,'REFUSED_SPLIT_RATIO')
@@ -172,8 +176,8 @@ def split(account,*,event_id,session,security_id,ratio,canonical_split,raw_price
 
 def accrue(account,*,event_id,session,claim_id,security_id,cash_per_share,pay_session):
     hosted();need(claim_id not in account.claims,'REFUSED_DUPLICATE_CLAIM')
-    quantity=sum((p.shares for p in account.positions.values() if p.security_id==security_id),D(0));need(quantity>0,'REFUSED_DIVIDEND_NOT_HELD')
-    cps=decimal(cash_per_share);need(cps>=0,'REFUSED_NEGATIVE_DIVIDEND')
+    quantity=sum((p.shares for p in account.positions.values() if p.security_id==security_id),Fraction(0));need(quantity>0,'REFUSED_DIVIDEND_NOT_HELD')
+    cps=exact(cash_per_share);need(cps>=0,'REFUSED_NEGATIVE_DIVIDEND')
     claim=Claim(security_id=security_id,entitled_shares=quantity,cash_per_share=cps,amount=quantity*cps,ex_session=session,pay_session=pay_session)
     return commit(account,event=dict(event_id=event_id,session=session,operation='DIVIDEND_ACCRUED',claim_id=claim_id,security_id=security_id,amount=str(claim.amount),entitled_shares=str(quantity)),claims={**account.claims,claim_id:claim})
 
@@ -184,9 +188,9 @@ def pay(account,*,event_id,session,claim_id):
     return commit(account,event=dict(event_id=event_id,session=session,operation='DIVIDEND_PAID',claim_id=claim_id,amount=str(claim.amount)),cash=account.cash+claim.amount,claims=claims)
 
 def cash_merger(account,*,event_id,session,security_id,cash_per_share):
-    hosted();cps=decimal(cash_per_share);need(cps>=0,'REFUSED_MERGER_TERMS')
+    hosted();cps=exact(cash_per_share);need(cps>=0,'REFUSED_MERGER_TERMS')
     held={k:p for k,p in account.positions.items() if p.security_id==security_id};need(bool(held),'REFUSED_MERGER_NOT_HELD')
-    quantity=sum((p.shares for p in held.values()),D(0));positions={k:p for k,p in account.positions.items() if k not in held}
+    quantity=sum((p.shares for p in held.values()),Fraction(0));positions={k:p for k,p in account.positions.items() if k not in held}
     return commit(account,event=dict(event_id=event_id,session=session,operation='CASH_MERGER',security_id=security_id,
         entitled_shares=str(quantity),cash_per_share=str(cps),amount=str(quantity*cps)),cash=account.cash+quantity*cps,
         positions=positions,retired=account.retired+tuple(held))

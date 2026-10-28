@@ -1,0 +1,17 @@
+{
+  "schema": "research.holding-action-request/1",
+  "id": "holding-action-price-001",
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "qualification_protocol_sha256": "5546a0e6d113876ce67af28078d9205aa2cd773b9f17684dd3e028be9507d7f2",
+  "sources": {
+    "holding_account.py": "ed2a08afa0ca26648d155370db463dca82adea74982541800fb5ca668bb63e70",
+    "holding_actions.py": "297bc5088378b276bfa64573c5139ad0022ac2e8bd6634fbb6fbba24ee90d843",
+    "holding_prices.py": "e9f531a345e20f9b2955c84ca06aff7a0fd75ee05c80049116b374b38a5e96bb",
+    "holding_identity.py": "08f2320df5442b4201239d512034547413746391b2b1899090793e033e55b38a",
+    "holding_action_qualification.py": "19f97494f6a63f87c7344a5e86743a5fbd14fcc1cb69b40a0742c88d49a3b0b9",
+    "holding_action_job.py": "d3eb115b621e2beba11a34f33d56ab1b6190fd41b7b0258833011349d55192f0",
+    "baseline_prefix.py": "f950e86489ce427622371ac03ec9082998f277ca327fc24f7b3132c372583992",
+    "screen_job.py": "d3d50271ac7375a59f56663efb253b67ac5e618c056c0a7ae2bc87b87c16e8bf"
+  },
+  "owner_scope": "FUNDED_ACTIONS_AND_HISTORICAL_PRICE_QUALIFICATION_ONLY"
+}
