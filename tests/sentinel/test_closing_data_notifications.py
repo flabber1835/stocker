@@ -434,3 +434,22 @@ def test_only_the_exact_reviewed_lock_wrapper_can_be_quiet(monkeypatch, damage):
     monkeypatch.setattr(source_publication_wait, 'observe', lambda *_a, **_kw:
                         pytest.fail('unreviewed exception reached quiet proof'))
     assert runtime._publication_closing_wait(wrapped, database_url='private-test-db', cycle=cycle) is None
+
+
+def test_reviewed_wrapper_consistency_guard_has_an_executed_mutant(monkeypatch):
+    from sentinel import source_publication_wait
+    from sentinel.feed.publication import CorpusLockUnavailable
+    _cfg,cycle,_permit=closing_cycle()
+    observed=cycle.decision_close_at+timedelta(minutes=2)
+    deadline=observed+timedelta(hours=2)
+    monkeypatch.setattr(source_publication_wait,'observe',lambda *_a,**_kw:
+        source_publication_wait.PublicationWaitProof(str(cycle.decision_session),deadline,deadline,observed))
+    wrapped=TransientInfrastructureFailure('an unrelated infrastructure problem')
+    wrapped.__cause__=CorpusLockUnavailable('publisher busy')
+    assert runtime._publication_closing_wait(wrapped,database_url='private-test-db',cycle=cycle) is None
+    source=inspect.getsource(runtime._publication_closing_wait)
+    assert source.count('expected.args == exc.args')==1
+    namespace=dict(vars(runtime))
+    exec(source.replace('expected.args == exc.args','True'),namespace)
+    with pytest.raises(AssertionError):
+        assert namespace['_publication_closing_wait'](wrapped,database_url='private-test-db',cycle=cycle) is None

@@ -34,7 +34,13 @@ Slot visibility continues to require the ordinary current financial proof.
 ## Immutable trial attempts and one daily financial projection
 
 New v3 verification records use
-`trial-verification:v3:<effective-session>:<cycle-id>`. Existing date-only rows
+`trial-account:v2:verification-attempt:v1:<effective-session>:<cycle-id>`. This separate namespace keeps an older date-only reader from double-counting
+new attempts. The v3 financial evidence format and checks are unchanged. The exact new
+child namespace inherits the installed trial-account broker-only classification.
+Account snapshots still use exact observation-ID keys. This preserves the installed
+operational DDL/catalog contract and avoids an unnecessary schema migration.
+Unknown namespaces keep their existing economic-input treatment.
+Existing date-only rows
 remain immutable and readable for their exact embedded cycle. Every terminal
 attempt keeps its own failed/superseded/successful evidence. The recording writer
 may recover a missing non-success attempt for this exact session only from

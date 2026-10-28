@@ -4,12 +4,14 @@ from datetime import date
 import re
 from typing import Mapping
 
+PREFIX = 'trial-account:v2:verification-attempt:v1:'
+
 
 def key(session: date, cycle_id: str) -> str:
     from sentinel import trial
     if not isinstance(cycle_id, str) or re.fullmatch(r'[A-Za-z0-9_-]{1,128}', cycle_id) is None:
         raise trial.TrialEvidenceRefused('trial attempt requires an exact cycle identity')
-    return f'{trial.VERIFICATION_PREFIX}{session.isoformat()}:{cycle_id}'
+    return f'{PREFIX}{session.isoformat()}:{cycle_id}'
 
 
 def stored(conn, *, session, cycle_id):
@@ -75,12 +77,10 @@ def select(conn, records: list[dict]) -> list[dict]:
         successes = [cycle for cycle in cycles if cycle.state.value == 'SUCCEEDED']
         if len(successes) > 1:
             raise trial.TrialEvidenceRefused('multiple successful trial cycles name one effective session')
-        if successes:
-            chosen = successes[0]
-            if any(not _unsent(conn, other) for other in cycles if other.cycle_id != chosen.cycle_id):
-                raise trial.TrialEvidenceRefused('another same-session trial attempt has transport evidence')
-        else:
-            chosen = max(cycles, key=lambda cycle: (cycle.control_generation, cycle.cycle_id))
+        chosen = (successes[0] if successes else
+                  max(cycles, key=lambda cycle: (cycle.control_generation, cycle.cycle_id)))
+        if any(not _unsent(conn, other) for other in cycles if other.cycle_id != chosen.cycle_id):
+            raise trial.TrialEvidenceRefused('another same-session trial attempt has transport evidence')
         result.append(attempts[chosen.cycle_id])
     return result
 
@@ -92,6 +92,7 @@ def recover_unsent_failures(conn, cycle, *, now):
 
     if any(value is None for value in _scope(cycle)):
         return  # An unbound historical diagnostic cannot authorize reconstruction.
+    integrity.validate_cycle_lineage(conn, cycle)
     for other in store._cycles_in_scope(conn, cycle):
         if (other.cycle_id == cycle.cycle_id or not other.state.terminal
                 or other.state.value == 'SUCCEEDED'
