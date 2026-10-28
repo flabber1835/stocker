@@ -30,6 +30,14 @@ uses longest estimated work first, stable path ties and least-loaded-lane ties.
 Unmeasured future modules receive a positive 60-second estimate and enter the
 plan automatically. A weight changes scheduling, never test inclusion.
 
+Decision: 2026-10-28. Keep large test payloads out of pytest node IDs.
+PR540 general-4 reached the issuer-reference oversized-response case at
+08:35:38 UTC; emitting its two-megabyte automatic parameter name continued
+until 09:18:38, and the worker later exhausted its 60-minute limit. Give each
+invalid-response case a short explicit ID while retaining the exact payloads,
+assertions, worker inventory and deadline. This is diagnostic output cleanup,
+not additional qualification time or a change to the production response cap.
+
 Decision: 2026-10-28. With six ordinary workers, PR540's general-2 worker
 exceeded its 60-minute job limit after all other 38 checks passed. An earlier
 general-4 worker also exhausted that limit; its full case inventory subsequently

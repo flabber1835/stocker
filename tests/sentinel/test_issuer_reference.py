@@ -248,7 +248,8 @@ def test_changed_cik_refresh_requires_review_instead_of_accepting_ticker_reuse()
 
 
 @pytest.mark.parametrize("raw", [b"not json", b"{}", b'{"fields":[],"data":[]}',
-                                      b"x" * (reference.MAX_RESPONSE_BYTES + 1)])
+                                      b"x" * (reference.MAX_RESPONSE_BYTES + 1)],
+                         ids=["invalid-json", "missing-fields", "empty-data", "oversized"])
 def test_invalid_or_oversized_refresh_retains_original_expiry(raw):
     source = snapshot()
     result = reference.refresh_snapshot(source, now=NOW, opener=Opener(raw))
