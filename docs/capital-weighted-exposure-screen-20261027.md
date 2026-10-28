@@ -1,5 +1,42 @@
 # One capital-weighted deterioration exposure screen
 
+## Exact continuation after the reporting-field refusal
+
+Run40604741645/ddcbe918 stopped exit1/noOOM with authenticated actual output.
+It completed the 4,765 feature observations and committed two account records,
+through 2008-02-25. The next account session, 2008-02-26, was uncommitted. The
+strict baseline dictionary check refused omissions of research_entry_mode and
+measurement_anchor_session: the canonical Account primitive omits these research
+wrapper fields, while frozen backtest.py:116-118 explicitly carries them from the
+prior account. Retain the full comparator and fix only that missing carry. Do not
+exclude keys, substitute current-row financial values, or change the R rule.
+
+Continue this same frozen comparison from its own actual two-row account prefix,
+not from formation or a freshly initialized account. Each row already serializes
+the complete B/R account dictionaries, R state, session and chain. Verify exact
+artifact/receipt/cipher/manifest/driver/feature/prefix hashes, reconstruct the
+state envelope by copying those actual fields, and require canonical research
+state restore plus the full prefix chain. No financial field is edited. Preserve
+the old artifact and refusal. The source-boundary receipt identifies only the
+reporting carry and exact old/new driver identities; policy/features/canonical
+account calculation and numerical protocol are unchanged.
+
+The distinct exact-suffix request is prepared for an additional-run decision;
+it is not a fresh financial rerun or a second parameter candidate. Retrieve the
+authenticated encrypted predecessor read-only, mount it at /resume read-only,
+copy its exact feature bytes and account-prefix bytes, and advance only the next
+uncommitted account session. Verify that the preserved prefix remains byte-exact.
+The same 600-second worker and 15-minute job limits and encrypted R evidence
+destination apply. No extra timing or integration benchmark is selected.
+
+Automatic approval review rejected installing that continuation because the
+owner's prior exact-flow consent covered the original single run, not another
+hosted financial run. The original workflow and execution request remain
+unchanged. Only static adapter correction and exact prefix-restoration helpers
+are prepared; the proposed driver is retained as an unexecuted review file.
+Obtain direct approval for the one additional exact continuation before wiring
+or dispatching it. Do not rerun locally or reuse another workflow to bypass it.
+
 The owner approved proceeding after the economic attribution recommendation:
 protect economically significant deteriorating current holdings and restore
 exposure on current health. This is a distinct R hypothesis, not threshold tuning
