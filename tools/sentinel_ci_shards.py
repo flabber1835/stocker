@@ -8,7 +8,12 @@ from pathlib import Path
 import re
 import subprocess
 
-SHARDS = 4
+GENERAL_SHARDS = 6
+ROLLING_SHARDS = 4
+CURRENT_LANES = {
+    'sentinel-current-workflow': 'tests/sentinel/test_current_operational_workflow.py',
+    'sentinel-current-process-recovery': 'tests/sentinel/test_current_process_recovery.py',
+}
 AUTOMATION = frozenset({
     "test_activation_startup_contention.py",
     "test_automation_clock_sampling.py",
@@ -25,7 +30,7 @@ AUTOMATION = frozenset({
     "test_automation_process_contracts.py",
     "test_automation_service_fault_paths.py",
 })
-SPECIAL = AUTOMATION | frozenset({
+SPECIAL = AUTOMATION | frozenset(Path(name).name for name in CURRENT_LANES.values()) | frozenset({
     "test_source_seed_warmup.py", "test_runtime_contention.py",
     "test_status_memory.py",
 })
@@ -76,8 +81,8 @@ def tracked_modules(root: Path) -> list[str]:
 
 
 def plan(modules: list[str]) -> dict[str, tuple[str, ...]]:
-    if SHARDS != 4:
-        raise ValueError("incomplete reviewed four-shard inventory")
+    if (GENERAL_SHARDS, ROLLING_SHARDS) != (6, 4):
+        raise ValueError("incomplete reviewed family shard inventory")
     if not modules or len(modules) != len(set(modules)):
         raise ValueError("Sentinel test module inventory is empty or duplicated")
     if any(MODULE.fullmatch(name) is None for name in modules):
@@ -85,16 +90,17 @@ def plan(modules: list[str]) -> dict[str, tuple[str, ...]]:
     general = [name for name in modules if Path(name).name not in SPECIAL
                and not Path(name).name.startswith("test_rolling_")]
     rolling = [name for name in modules if Path(name).name.startswith("test_rolling_")]
-    if len(general) < SHARDS or len(rolling) < SHARDS:
-        raise ValueError("too few Sentinel modules for four complete shards")
+    if len(general) < GENERAL_SHARDS or len(rolling) < ROLLING_SHARDS:
+        raise ValueError("too few Sentinel modules for complete family shards")
 
-    groups: dict[str, list[str]] = {f"sentinel-general-{i}": [] for i in range(SHARDS)}
-    groups.update({f"sentinel-rolling-{i}": [] for i in range(SHARDS)})
+    groups: dict[str, list[str]] = {f"sentinel-general-{i}": [] for i in range(GENERAL_SHARDS)}
+    groups.update({f"sentinel-rolling-{i}": [] for i in range(ROLLING_SHARDS)})
     estimates, default = load_durations()
-    for family, selected_modules in (("general", general), ("rolling", rolling)):
-        totals = [0] * SHARDS
+    for family, selected_modules, count in (("general", general, GENERAL_SHARDS),
+                                            ("rolling", rolling, ROLLING_SHARDS)):
+        totals = [0] * count
         for name in sorted(selected_modules, key=lambda item: (-estimates.get(item, default), item)):
-            index = min(range(SHARDS), key=lambda item: (totals[item], item))
+            index = min(range(count), key=lambda item: (totals[item], item))
             groups[f"sentinel-{family}-{index}"].append(name)
             totals[index] += estimates.get(name, default)
 
@@ -114,13 +120,24 @@ def automation_modules(modules: list[str]) -> tuple[str, ...]:
     return selected
 
 
+def current_modules(modules: list[str], lane: str) -> tuple[str, ...]:
+    """Keep each full current-profile fixture under its own finite worker."""
+    plan(modules)
+    if not set(CURRENT_LANES.values()).issubset(modules):
+        raise ValueError('missing registered current-profile test module')
+    if lane not in CURRENT_LANES:
+        raise ValueError('unknown current-profile test lane')
+    return (CURRENT_LANES[lane],)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--lane", required=True)
     args = parser.parse_args()
     modules = tracked_modules(args.root)
-    selected = (automation_modules(modules) if args.lane == "sentinel-automation"
+    selected = (current_modules(modules, args.lane) if args.lane in CURRENT_LANES
+                else automation_modules(modules) if args.lane == "sentinel-automation"
                 else plan(modules).get(args.lane))
     if selected is None:
         parser.error("unknown Sentinel shard lane")

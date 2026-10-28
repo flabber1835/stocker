@@ -16,7 +16,9 @@ from tools import sentinel_ci_parallel_evidence as evidence
 from tools import sentinel_ci_shards as shards
 
 
-@pytest.mark.parametrize("failed_lane", [None, "sentinel-general-0", "sentinel-rolling-2",
+@pytest.mark.parametrize("failed_lane", [None, "sentinel-general-0", "sentinel-general-4",
+                                          "sentinel-general-5", "sentinel-current-workflow",
+                                          "sentinel-current-process-recovery", "sentinel-rolling-2",
                                           "sentinel-contention", "sentinel-status",
                                           "sentinel-automation", "sentinel-warmup"])
 def test_all_sentinel_workers_cover_each_module_once_and_propagate_failure(tmp_path, failed_lane):
@@ -67,6 +69,8 @@ ET.ElementTree(suite).write(target)
                      if lane.startswith("sentinel-general-") else
                      "${{ startsWith(matrix.lane, 'sentinel-rolling-') }}"
                      if lane.startswith("sentinel-rolling-") else
+                     "${{ startsWith(matrix.lane, 'sentinel-current-') }}"
+                     if lane.startswith("sentinel-current-") else
                      "${{ matrix.lane == '" + lane + "' }}")
         step = next(s for s in steps if s.get("if") == condition)
         command = step["run"].replace("/evidence/", str(output) + "/")
@@ -83,6 +87,8 @@ ET.ElementTree(suite).write(target)
         expected -= set(Path(path).name for path in
                         shards.plan([f"tests/sentinel/{name}" for name in modules
                                      if name != future_automation]).get(failed_lane, ()))
+        if failed_lane in shards.CURRENT_LANES:
+            expected.remove(Path(shards.CURRENT_LANES[failed_lane]).name)
         if failed_lane == "sentinel-contention":
             expected.remove("test_runtime_contention.py")
         if failed_lane == "sentinel-status":
@@ -119,6 +125,25 @@ def test_minimum_host_lane_reserves_checkout_margin_without_weakening_evidence()
     assert retained['with']['if-no-files-found'] == 'error'
 
 
+def test_workflow_declares_every_reviewed_worker_once():
+    workflow=yaml.safe_load((Path(__file__).resolve().parents[2] /
+                            '.github/workflows/sentinel-safety.yml').read_text(encoding='utf-8'))
+    lanes=workflow['jobs']['parallel-certification']['strategy']['matrix']['lane']
+    assert len(lanes)==len(set(lanes))==20
+    assert set(lanes)==set(evidence.LANES)
+    assert len(evidence.GENERAL_LANES)==6 and len(evidence.ROLLING_LANES)==4
+    assert set(shards.CURRENT_LANES).issubset(lanes)
+
+
+def test_omitting_a_new_worker_is_detected(monkeypatch):
+    workflow=yaml.safe_load((Path(__file__).resolve().parents[2] /
+                            '.github/workflows/sentinel-safety.yml').read_text(encoding='utf-8'))
+    workflow['jobs']['parallel-certification']['strategy']['matrix']['lane'].remove('sentinel-general-5')
+    monkeypatch.setattr(yaml,'safe_load',lambda _:workflow)
+    with pytest.raises(AssertionError):
+        test_workflow_declares_every_reviewed_worker_once()
+
+
 def _repository_checkout_jobs():
     directory = Path(__file__).resolve().parents[2] / '.github/workflows'
     return [
@@ -143,7 +168,8 @@ def test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines(workflow_
         assert budget in {
             "${{ matrix.lane == 'sentinel-warmup' && 90 || "
             "(startsWith(matrix.lane, 'sentinel-rolling-') || "
-            "startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}",
+            "startsWith(matrix.lane, 'sentinel-general-') || "
+            "startsWith(matrix.lane, 'sentinel-current-')) && 60 || 45 }}",
             "${{ github.event_name == 'workflow_dispatch' && 360 || 180 }}",
         }, (workflow_name, job_name, budget)
 
@@ -155,7 +181,8 @@ def test_large_lanes_have_bounded_setup_margin_and_stream_all_test_evidence():
     assert job["timeout-minutes"] == (
         "${{ matrix.lane == 'sentinel-warmup' && 90 || "
         "(startsWith(matrix.lane, 'sentinel-rolling-') || "
-        "startsWith(matrix.lane, 'sentinel-general-')) && 60 || 45 }}"
+        "startsWith(matrix.lane, 'sentinel-general-') || "
+        "startsWith(matrix.lane, 'sentinel-current-')) && 60 || 45 }}"
     )
     step = next(step for step in job["steps"]
                 if step.get("if") == "${{ matrix.lane == 'sentinel-warmup' }}")

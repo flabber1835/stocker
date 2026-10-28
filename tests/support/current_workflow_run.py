@@ -211,14 +211,20 @@ def paper_and_delivery(conn,published,clock,config,certificate,monkeypatch,tmp_p
         assert plan.plan_id == prepared.plan_id
         assert plan.target_basket and not http.orders
         from sentinel import paper_plan_preview
-        preview = paper_plan_preview.read(conn)
-        # The generated business clock can still be before today's open while
-        # the real database clock is already after it. The public next-open
-        # reader must retain its real-clock stale-plan refusal in that case.
-        if conn.execute('SELECT clock_timestamp()<%s', (cycle.execute_at,)).fetchone()[0]:
-            assert preview is not None and preview.plan_id==plan.plan_id
+        wall_now,created_at = conn.execute('SELECT clock_timestamp(),created_at '
+            'FROM sentinel_execution_plans WHERE plan_id=%s',(plan.plan_id,)).fetchone()
+        # This composition fixture advances market time only. The database
+        # keeps real creation/lease clocks, so a future synthetic observation
+        # must be refused rather than made to look like a valid saved preview.
+        if wall_now >= cycle.execute_at:
+            assert paper_plan_preview.read(conn) is None
+        elif clock.now() > created_at:
+            import pytest
+            with pytest.raises(ValueError,match='^original plan snapshot clock is inconsistent$'):
+                paper_plan_preview.read(conn)
         else:
-            assert preview is None
+            preview = paper_plan_preview.read(conn)
+            assert preview is not None and preview.plan_id==plan.plan_id
         conn.rollback()
         cycle = transition(CycleState.WAITING_OPEN)
         clock.instant = cycle.execute_at+timedelta(seconds=1)

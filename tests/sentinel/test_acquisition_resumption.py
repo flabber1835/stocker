@@ -841,7 +841,19 @@ def test_go_renews_after_real_retained_acquisition_without_redownload(
                     worker.rollback()
                     # Successful maintenance while waiting must not retire parts.
                     in_failure[0] = True
-                    assert retention.maintain(worker)["deleted_acquisition_parts"] == 0
+                    parts_before = worker.execute(
+                        'SELECT part_id FROM sentinel_acquisition_parts ORDER BY part_id').fetchall()
+                    worker.rollback()
+                    maintenance = retention.maintain(worker)
+                    assert maintenance['status'] == 'COMPLETE', maintenance
+                    if maintenance.get('reason') == 'NO_WORK':
+                        assert maintenance == dict(status='COMPLETE',reason='NO_WORK',
+                                                   deleted_rows=0,more_work=False)
+                    else:
+                        assert maintenance['deleted_acquisition_parts'] == 0
+                    assert worker.execute('SELECT part_id FROM sentinel_acquisition_parts '
+                                          'ORDER BY part_id').fetchall() == parts_before
+                    worker.rollback()
                     in_failure[0] = False
                     namespace = {}
                     exec(entry._PREPARATION_CODE.split("\nc = None", 1)[0], namespace)
