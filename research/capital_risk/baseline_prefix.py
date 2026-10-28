@@ -72,7 +72,7 @@ def worker_stage(name):
         return "core-integration"
     if re.fullmatch(r"capital-risk-core-recovery-(?:stress2021|recent2025)-[0-9]+-[0-9]+-(?:preflight|bridge)",name):
         return "core-integration"
-    if re.fullmatch(r"capital-risk-core-window-(?:stress2021|recent2025)-(?:b0|b|c|v)-[0-9]+-[0-9]+(?:-(?:input|review))?",name):
+    if re.fullmatch(r"capital-risk-core-window-(?:stress2021|recent2025)-(?:b0|b|c|v)-[0-9]+-[0-9]+(?:-(?:input|review))?",name) or re.fullmatch(r"capital-risk-core-window-cq12025-(?:b0|b|c)-[0-9]+-[0-9]+(?:-(?:input|review))?",name):
         return "short-core-window"
     if re.fullmatch(r"capital-risk-core-gate-[0-9]+-[0-9]+-(?:basis|risk)",name):
         return "core-integration"
@@ -88,7 +88,7 @@ def worker_arm(name):
     if stage in {'weighted-screen','weighted-suffix'}:return 'BR'
     if stage=='timing-pilot':return 'B'
     if stage=="short-core-window":
-        return re.fullmatch(r"capital-risk-core-window-(?:stress2021|recent2025)-(b0|b|c|v)-[0-9]+-[0-9]+(?:-(?:input|review))?",name).group(1).upper()
+        return re.fullmatch(r"capital-risk-core-window-(?:stress2021|recent2025|cq12025)-(b0|b|c|v)-[0-9]+-[0-9]+(?:-(?:input|review))?",name).group(1).upper()
     return "CORE_GATE" if stage=="core-integration" else "BG" if stage=="quick-screen" else "B"
 
 
