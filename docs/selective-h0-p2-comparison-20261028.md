@@ -148,3 +148,13 @@ module to that read-only staged source, and ALSO to the checkpoint hash when the
 module is listed there. Missing stage files or conflicting economic hashes still
 refuse. This corrects an authority-selection error without changing canonical
 source, financial rules or P2 parameters. Preserve the original proof refusal.
+
+## Directly authorized fresh trial
+
+After successful synthetic proof40717102049 and the incident report, the owner
+answered Proceed to the explicit one fresh20minute H0/P2 proposal. Register this
+as a distinct fresh trial, selective-h0-p2-002, with its own actual GitHub run/head
+and encrypted artifact. It is not a continuation of UNKNOWN40714748373. Publish
+the corrected source-bound request once; the economic protocol,420second worker,
+120second baseline gate and existing seven-day encrypted storage stay unchanged.
+Preserve both the failed financial attempt and completed synthetic proofs.
