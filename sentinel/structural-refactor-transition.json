@@ -601,7 +601,7 @@
     "feed/requirements.py": "4e2f40fb3fab37d715bcc283e2f50a0a99c2d0e15a0e1e64065b9de94b59b6e6",
     "feed/reseed.py": "3cf0a56b7273d87fbde24b4ba0ce0c43b0c03b9c9a3ab21fc6c644acb40df87b",
     "feed/retained_source.py": "9a4f519369f2e250c400906f4de8136659cc3cd09830f8fe9bcefa651f2b6fd3",
-    "feed/retention.py": "d65f3cee229b44b6fb9278136bf56937f68367656fb9b586543351c7dbd3e2ce",
+    "feed/retention.py": "dcddf4bb86ac36b4470c768b004177d480fe13bd4b2e33b73347c602680ff8f1",
     "feed/retention_schema.py": "e471520d9487cf8b99540c3cfc213e2aaa441cda240735bc8519ed56558205a1",
     "feed/rolling_builder.py": "eeb8096ce599124edd1b82bf07e43abba66a75ee1ab917db12740b6509ea4434",
     "feed/rolling_catalog.py": "149617875b8f63122a8c02e33b03cb768e6dd15440b3da5767da5f7b1567dabd",

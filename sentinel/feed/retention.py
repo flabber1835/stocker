@@ -7,6 +7,7 @@ from sentinel.feed.rolling_contract import canonical_json
 
 log = logging.getLogger(__name__)
 BATCH_ROWS = rolling_store.BATCH_SIZE
+ACQUISITION_BATCH_ROWS = 128
 
 # An unordered EXISTS may choose a full-table scan to prove an emptied
 # candidate absent. Keep each probe on the candidate-prefixed primary key;
@@ -158,7 +159,7 @@ def _pass(conn, *, batch_rows):
     if disposable:
         acquisition = conn.execute("DELETE FROM sentinel_acquisition_prices WHERE ctid IN "
             "(SELECT ctid FROM sentinel_acquisition_prices WHERE part_id=%s LIMIT %s)",
-            (disposable[0], batch_rows)).rowcount
+            (disposable[0], min(batch_rows, ACQUISITION_BATCH_ROWS))).rowcount
     acquisition_parts = conn.execute("DELETE FROM sentinel_acquisition_parts WHERE part_id IN "
         "(SELECT a.part_id FROM sentinel_acquisition_parts a WHERE NOT "
         "sentinel_acquisition_part_pinned(a.part_id) AND NOT EXISTS "

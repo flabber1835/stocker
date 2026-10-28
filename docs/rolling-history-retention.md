@@ -178,6 +178,18 @@ throughput evidence, not authorization to remove primary data.
 
 ## Skip proven empty maintenance before taking execution ownership
 
+### Bound acquisition-price deletion independently
+
+Decision, 2026-10-28. A guarded acquisition-price DELETE repeatedly exceeded
+the existing five-second statement deadline, rolling back the entire cleanup
+pass and preventing an otherwise eligible snapshot retirement from committing.
+Limit this disposal class to 128 rows per pass, or the requested batch size if
+smaller. Other disposal classes retain their existing limits. Keep the current
+statement-level dependency trigger, writer/corpus ownership, backup guards and
+five-second deadline unchanged. Remaining rows keep more_work true and drain on
+ordinary idle wakes. Prove the row cap and repeated draining with real SQL, an
+executed removed-cap falsifier, and the original checkpoint/restore scenario.
+
 Decision, 2026-10-27. An unchanged strategy poll still invoked maintenance and
 took the execution writer before discovering whether there was work. Each
 supervised worker starts with a cold process-local backup proof; this made an
