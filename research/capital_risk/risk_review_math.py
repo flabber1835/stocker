@@ -22,6 +22,10 @@ def rows(p):
             need(line.endswith(b'\n'),'COMPLETE_RECORD_'+str(p));yield json.loads(line)
 def held(s,sid,kind=None):return {k:v for k,v in s['positions'].items() if v['security_id']==sid and (kind is None or v['kind']==kind)}
 def qty(p):return Q(p['shares'])
+def bounded_fee_statistic(value):
+    with localcontext() as ctx:
+        ctx.prec=80;rounded=(D(value.numerator)/D(value.denominator)).quantize(D('1e-36'),rounding=ROUND_HALF_EVEN)
+    result=Q(rounded);need(abs(result-value)<=Q('5e-37'),'FEE_STATISTIC_ROUNDING_BOUND');return result
 def nav(s,prices,field):return Q(s['cash'])+sum((qty(v)*Q(prices[v['security_id']][field]) for v in s['positions'].values()),Q(0))+sum((Q(c['amount']) for c in s['claims'].values()),Q(0))
 def verify_observed_order_coverage(before,previous_pending,current_ids,prices,events,fills):
     inventory={b['episode']:b for b in current_ids['holdings']};expected=[];retire=[]
@@ -227,7 +231,7 @@ def review_book(arm,cashrows,*,profile=None):
     byevent=itertools.groupby(rows(root/'events.jsonl.gz'),lambda x:x['record']['event']['session']);ev=iter(byevent);group=next(ev,None)
     originals=itertools.chain(rows(ORIGINAL/'formation.jsonl'),rows(ORIGINAL/'daily.jsonl'));identities=rows(OUT/'identity/identity-bindings.jsonl');prices=rows(PRICES)
     daily=iter(rows(root/'daily.jsonl.gz'));actual=next(daily,None);formation=iter(rows(root/'formation.jsonl.gz'));values=[];before=None;fees=interest=rounding=Q(0);events=0;counts=Counter();previous=Q(50000);previous_pending=None;policy={};enabled=(None if profile.family=='ORACLE_H0' else True) if profile is not None else (True if arm=='P2' else False if arm=='H0-disabled' else None);formation_count=0
-    daily_hash=hashlib.sha256();policy_transitions=0;dev_fees=Q(0);dev_treatment=0
+    daily_hash=hashlib.sha256();policy_transitions=0;dev_fees=Q(0);dev_fee_terms=0;dev_treatment=0
     for src,ids,ps in zip(originals,identities,prices,strict=True):
         day=src['session']
         if src['phase']=='FORMATION':
@@ -258,7 +262,7 @@ def review_book(arm,cashrows,*,profile=None):
                     need(Q(e['requested_shares'])==abs(target-current_q) and (op=='BUY')==(target>current_q),'WHOLE_INCREMENT_FRACTION_CARRY_AND_DIRECTION')
                 before,fee,earned,residual=equation(before,observed,labels,ps['prices'],cashrows[day]);fees+=fee;interest+=earned;rounding+=abs(residual);events+=1;counts[op]+=1
                 if day<='2017-12-31':
-                    dev_fees+=fee/previous
+                    dev_fees+=bounded_fee_statistic(fee/previous);dev_fee_terms+=1
                     target_info=observed['context'].get('target') or {}
                     if op in ('BUY','SELL') and target_info.get('local_active',False):
                         key=e['episode'];after_q=qty(before['positions'][key]) if key in before['positions'] else Q(0);filled=Q(e['filled_shares']);neutral=Q(Q(target_info['neutral_dollars'])//Q(e['raw_price']))
@@ -315,4 +319,4 @@ def review_book(arm,cashrows,*,profile=None):
     tail=0
     if group:
         tail=sum(1 for _ in group[1])+sum(1 for _,g in ev for _ in g)
-    return dict(status='OBSERVED_ACCOUNTING_PREFIX_PASSED',development_fee_burden=str(dev_fees),development_treatment_count=dev_treatment,formation_records=formation_count,records=len(values),last_close=values[-1][0] if values else None,events=events,operations=dict(counts),fees=str(fees),proxy_cash_earnings=str(interest),rounding_absolute_sum=str(rounding),finance_path_sha256=daily_hash.hexdigest(),policy_transitions=policy_transitions,prefix_review=prefix,uncommitted_event_tail_records=tail),values
+    return dict(status='OBSERVED_ACCOUNTING_PREFIX_PASSED',development_fee_burden=str(dev_fees),development_fee_statistic_rounding='36_DECIMAL_HALF_EVEN_TIE_BREAK_ONLY',development_fee_statistic_terms=dev_fee_terms,development_fee_statistic_error_bound=str(dev_fee_terms*Q('5e-37')),development_treatment_count=dev_treatment,formation_records=formation_count,records=len(values),last_close=values[-1][0] if values else None,events=events,operations=dict(counts),fees=str(fees),proxy_cash_earnings=str(interest),rounding_absolute_sum=str(rounding),finance_path_sha256=daily_hash.hexdigest(),policy_transitions=policy_transitions,prefix_review=prefix,uncommitted_event_tail_records=tail),values

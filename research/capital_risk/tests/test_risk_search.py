@@ -9,7 +9,7 @@ ROOT=Path(__file__).parents[1];sys.path.insert(0,str(ROOT))
 from risk_profiles import profiles,selected,Profile
 from risk_policy import step,retention,projection
 from risk_metrics import metrics,windows,development_record,rank
-from risk_review_math import check_profile_policy
+from risk_review_math import check_profile_policy,bounded_fee_statistic
 import risk_search_job as job
 from risk_review import event_view
 from risk_review_math import digest
@@ -129,5 +129,11 @@ class RiskSearchTests(unittest.TestCase):
                 if isinstance(n.value,ast.Call) and n.value.args and isinstance(n.value.args[-1],ast.Constant) and n.value.args[-1].value=='ORACLE_OWN_BOUND_ACTION_DIGESTS':return None
                 return n
         tree=Remove().visit(ast.Module(body=[node],type_ignores=[]));ast.fix_missing_locations(tree);scope=dict(risk_review.__dict__);exec(compile(tree,'removed-own-action-predecessor-guard','exec'),scope);scope['event_view'](bad,before,'a'*64,True)
+
+    def test_fee_statistic_is_bounded_without_relaxing_python_guard(self):
+        value=Q(0);exact=Q(0)
+        for n in range(1000,1500):
+            term=Q(1,n*10000019+7);value+=bounded_fee_statistic(term);exact+=term
+        self.assertLess(len(str(value)),100);self.assertLessEqual(abs(value-exact),500*Q('5e-37'))
 
 if __name__=='__main__':unittest.main()

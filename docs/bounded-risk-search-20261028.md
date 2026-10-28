@@ -139,3 +139,54 @@ reviews. Do not restart either oracle account. Once both compatibility gates
 pass, establish the twelve still-unstarted search origins. Preserve stopped
 reviewer logs/partial reports on every refusal; unknown reviewer outputs remain
 unarchived. This repair is within the owner's authorized continuation.
+
+## Selected-case restart proof and compact audit transport
+
+After committing the development-only ranking/top two, a hosted validation job
+authenticates those exact complete raw candidate artifacts and restores each own
+2020-12-31 boundary under unchanged profile/financial source identities. Compare
+all later daily/event records and the complete final Runtime, not only metrics.
+No financial replay of the main paths or other configurations.
+
+Local disk headroom is limited; do not download/extract all raw case trees onto
+the PAPER host. Preserve each raw encrypted full artifact under its declared
+cloud retention. Export selected cases and their suffixes as lossless compact
+audit capsules in the same encrypted Actions channel. This changes transport,
+never any quantity, balance, input, decision or financial identity.
+
+Each original event redundantly contains its entire applied-event history.
+Capsules omit only that repeated list and record its count/SHA, while preserving
+the original raw record SHA and all other fields. A decoder rebuilds the exact
+list from ordered event IDs before checking the raw record SHA, canonical chain
+and original journal byte/count/SHA commitments. Restore suffixes carry their
+exact boundary history and bind it to the main path's prefix.
+
+Checkpoint capsules similarly omit only the redundant applied-event list,
+retaining every other Runtime/account/policy/pending field, original compressed
+file SHA, original uncompressed canonical bytes SHA and history commitment.
+Reconstruction must match the original uncompressed bytes and account state hash.
+The original typed-restore receipt's compressed-file hashes must match the
+authenticated full input inventory. Do not claim gzip recompression byte parity
+across different zlib versions. Keep exact current/boundary gzip bytes too.
+
+All original journal prefixes and tails are independently checked over rebuilt
+raw bytes; no general hash exclusions. Test roundtrip, altered event IDs/history,
+changed balances and omitted prefixes. Hosted capsule construction reads only
+proven-stopped immutable evidence. The new encrypted capsule and validation
+receipt bind the raw input ciphertext/manifest and exact selection commit.
+No new data destination, paper process or account simulation is involved.
+
+## Bounded fee-statistic representation
+
+Reviewer recovery40738494846/a3f63820 again preserved the original completed
+oracle accounts. Its saved traceback shows all accounting checks finish before
+serializing sum(fee/prior_NAV): adding exact fractions with different NAV
+denominators produced more than4300digits. This is a reporting statistic error,
+not an account balance/quantity change. No search configuration has started.
+
+Accumulate each development fee/prior-NAV contribution to36decimal places,
+HALF_EVEN, with80digit working precision and per-term absolute error<=5e-37.
+Retain the term count and conservative total error bound. This affects only
+the fee tie-break statistic, never cash, fees, NAV, CAGR, drawdown or the primary
+joint-loss ranking. Keep Python's integer-string safety limit intact. Reuse the
+same original two stopped oracle books and correct only their read-only review.

@@ -143,6 +143,7 @@ def main():
                 (case/(rname+'-inspect.json')).write_bytes(rp.read_bytes())
                 logfile=reviews/profile.id/(rname+'.log')
                 if logfile.exists():(case/(rname+'.log')).write_bytes(logfile.read_bytes())
+                if logfile.exists() and profile.id.startswith('ORACLE_'):(devroot/(profile.id+'-reviewer.log')).write_bytes(logfile.read_bytes())
                 partial=reviews/profile.id/'review'
                 if partial.exists() and not (case/'review').exists():shutil.copytree(partial,case/'review')
             except Exception:pass  # Unknown reviewer output is deliberately not archived.

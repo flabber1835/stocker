@@ -192,9 +192,9 @@
     "risk_worker.py": "bb87df30c3bfecf60dca5e111bca20e2e47444ad0e909ae34039667d131e8684",
     "risk_gate.py": "f11f53e2b5510269bde2f2dd4009df76357dfbe9d8afc4ba8fd0732f86000e80",
     "risk_metrics.py": "68401901f04c8a9685cf8d34f2b6843ff0cf5917331a3aabcfe256c33fa7a5f1",
-    "risk_review_math.py": "f6f493e0e9155b1477ba15aa99a839d0c747681475518754208b1c2b7d75e401",
+    "risk_review_math.py": "903a9869decdcd31886398e93e2c5a526350cc87e419641d04df7428d728bc30",
     "risk_review.py": "7b6df7370b0887b2a05c11ceb1c47e18ad0bf6065b460debe40a6eeaf7b1af6f",
-    "risk_search_job.py": "926a5ee3cdad5b06055068fe9777e1c570be41707934cb0a71abe7bdb84e4e8f"
+    "risk_search_job.py": "f36cceb999403c9586408497d6d643f4a1c5020b3401664e9eee136f2544df10"
   },
   "worker_seconds": 900,
   "review_seconds": 900,
