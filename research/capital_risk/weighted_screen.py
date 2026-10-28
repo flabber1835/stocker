@@ -1,5 +1,5 @@
 """One hosted B/R account comparison over the unchanged authenticated Core trace."""
-import argparse,gzip,hashlib,json,math,re
+import argparse,gzip,hashlib,json,math,re,shutil
 from pathlib import Path
 from copy import deepcopy
 from decimal import Decimal as D,localcontext
@@ -9,6 +9,7 @@ from policy import PROTOCOL
 from trace_screen import advance_account,validate_baseline,encoded,digest
 from weighted_features import build
 from weighted_policy import RiskState,advance,need,number
+from weighted_account_adapter import account_step
 
 START,END,COUNT='2008-02-22','2026-07-31',4639
 
@@ -93,8 +94,8 @@ class Screen:
             need(D(row['economics']['net_factor'])==net and D(row['economics']['strategy_nav'])==D('50000')*net,'REFUSED_R_STARTUP_ACCOUNTING')
             self.accounts={a:deepcopy(row['economics']) for a in ('B','R')};self.accounts['R']['pending_allocation']=str(target)
         else:
-            self.accounts=dict(B=advance_account(old['B'],row,baseline,canonical),
-                R=advance_account(old['R'],row,float(target),canonical))
+            self.accounts=dict(B=account_step(old['B'],row,baseline,canonical),
+                R=account_step(old['R'],row,float(target),canonical))
         need(self.accounts['B']==row['economics'],'REFUSED_R_BASELINE_FIELD_EQUALITY')
         self.completed+=1
         record=dict(session=day,B=self.accounts['B']['strategy_nav'],R=self.accounts['R']['strategy_nav'],SPY=row['comparison_navs']['spy'],
@@ -105,7 +106,7 @@ class Screen:
             baseline_input_sha256=row['input_sha256'],baseline_chain_sha256=row['chain_sha256'])
         self.chain=digest(dict(previous=self.chain,record=record));return {**record,'screen_chain_sha256':self.chain}
 
-def run(root,archive,output,protocol):
+def run(root,archive,output,protocol,predecessor):
     from sentinel.feed.calendar import sessions_in_range
     from research.pooled_vacancy_funding.backtest import Account
     plan=json.loads(protocol.read_bytes());validate_plan(plan);contract=hashlib.sha256(protocol.read_bytes()).hexdigest()
@@ -117,16 +118,36 @@ def run(root,archive,output,protocol):
     for name,axis in [('formation',sessions_in_range('2007-08-22','2008-02-21')),('daily',sessions_in_range(START,END))]:
         chunk=[json.loads(x) for x in (root/(name+'.jsonl')).read_bytes().splitlines()]
         need([r['session'] for r in chunk]==axis,'REFUSED_R_BASELINE_AXIS');rows+=chunk
-    output.mkdir(exist_ok=False);feature_proof=build(rows,checkpoint['run']['state']['ledger']['events'],archive,output/'features.jsonl')
+    output.mkdir(exist_ok=False)
+    descriptor=json.loads(Path('/driver/weighted-predecessor.json').read_bytes())
+    need(descriptor['contract_sha256']==contract and sha256_file(predecessor/'screen/features.jsonl')==descriptor['features_sha256'],
+        'REFUSED_R_RETAINED_FEATURE_BYTES')
+    shutil.copyfile(predecessor/'screen/features.jsonl',output/'features.jsonl')
     features=[json.loads(x) for x in (output/'features.jsonl').read_bytes().splitlines()]
-    engine=Screen(contract);canonical=Account('50000',formed=False);samples=[];split=None
+    need(len(features)==4765 and [f['session'] for f in features]==[r['session'] for r in rows],'REFUSED_R_RETAINED_FEATURE_AXIS')
+    feature_proof=dict(status='EXACT_AUTHENTICATED_PREDECESSOR_FEATURES_REUSED',observations=4765,
+        original_run_id=descriptor['run_id'],features_sha256=descriptor['features_sha256'],no_core_transition=True,
+        unknown_feature_sessions=sum(number(f['unknown_score'])>0 for f in features),
+        duplicate_security_sessions=sum(f['duplicate_security_ids']>0 for f in features),
+        maximum_equity_difference=str(max(abs(number(f['equity_difference'])) for f in features)))
+    from weighted_resume import resume_prefix
+    engine,samples,prefix,saved=resume_prefix(predecessor,contract,rows,descriptor,screen_type=Screen)
+    canonical=Account('50000',formed=False);split=None
+    boundary=dict(schema='research.capital-weighted-source-successor/1',predecessor=descriptor,
+        unchanged_state_checkpoint=saved,financial_state_unchanged=True,numerical_protocol_unchanged=True,
+        change='Carry prior research_entry_mode and measurement_anchor_session after unchanged canonical account calculation',
+        next_uncommitted_session=descriptor['next_session'])
+    (output/'source-successor.json').write_text(json.dumps(boundary,indent=2)+'\n')
     with (output/'daily.jsonl').open('xb') as stream:
+        stream.write(prefix)
         for row,f in zip(rows,features):
+            if row['session']<=descriptor['last_session']:continue
             record=engine.consume(row,f,canonical)
             if record is not None:
                 stream.write(encoded(record)+b'\n');samples.append(record)
                 if row['session']=='2020-12-31':split=engine.checkpoint()
     need(engine.completed==COUNT and split is not None,'REFUSED_R_SCREEN_INCOMPLETE')
+    need((output/'daily.jsonl').read_bytes()[:len(prefix)]==prefix,'REFUSED_R_PREFIX_MUTATED')
     restored=Screen.restore(split,contract)
     for row,f in zip(rows,features):
         if row['session']>restored.risk.last_session:restored.consume(row,f,canonical)
@@ -149,11 +170,12 @@ def run(root,archive,output,protocol):
         extra_reduced_open_sessions=sum(number(x['held_R'] or 0)<number(x['held_B'] or 0) for x in samples),
         risk_reduced_decision_closes=sum(x['risk']['reduced'] for x in samples),R_prioritized=prioritize,
         final_checkpoint=engine.checkpoint(),continuation_checkpoint=split,
+        exact_suffix=True,source_successor=boundary,
         limitations=['One fixed known-history hypothesis; no unseen OOS claim.','Original frozen provider/classification/action conventions.',
             'Scalar next-open account model, not broker fill certification.','No Core rule, fresh-origin, capital, cost or execution robustness tested.'])
     (output/'summary.json').write_text(json.dumps(result,indent=2,allow_nan=False)+'\n');print('WEIGHTED_SCREEN_PASSED')
 
 if __name__=='__main__':
     p=argparse.ArgumentParser()
-    for n in ('root','archive','output','protocol'):p.add_argument('--'+n,type=Path,required=True)
-    a=p.parse_args();run(a.root,a.archive,a.output,a.protocol)
+    for n in ('root','archive','output','protocol','predecessor'):p.add_argument('--'+n,type=Path,required=True)
+    a=p.parse_args();run(a.root,a.archive,a.output,a.protocol,a.predecessor)

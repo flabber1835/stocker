@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: capital-risk-weighted-exposure-001
@@ -34,10 +35,14 @@ jobs:
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/weighted-staging.json'
-      - name: Compare baseline and the one frozen exposure hypothesis offline
+      - name: Retrieve the exact stopped R predecessor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: 'gh run download 40604741645 --repo flabber1835/stocker --name capital-risk-weighted-exposure-ddcbe918c71d37c0e6c035784a1e7a39ae6710df --dir "$RUNNER_TEMP/weighted-predecessor-download"'
+      - name: Continue the one frozen comparison from its exact prefix
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/weighted_job.py --request research/capital_risk/weighted-screen-request.json --staging-receipt artifacts/capital-risk/weighted-staging.json --output artifacts/capital-risk/weighted-screen.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/weighted_job.py --request research/capital_risk/weighted-screen-request.json --staging-receipt artifacts/capital-risk/weighted-staging.json --predecessor-download "$RUNNER_TEMP/weighted-predecessor-download" --output artifacts/capital-risk/weighted-screen.json'
       - name: Preserve authenticated-encrypted research evidence only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

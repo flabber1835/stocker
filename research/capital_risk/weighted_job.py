@@ -1,12 +1,12 @@
 """Single approved hosted B/R screen; existing encrypted inputs, no Core replay."""
-import argparse,base64,json,os,time,shutil
+import argparse,base64,json,os,time,shutil,tarfile,hashlib
 from datetime import datetime,timezone
 from pathlib import Path
 from baseline_prefix import launch_arguments,run_worker,UnprovenStopped
 from probe import check_context,admitted_output,memory_bytes
 from runtime_identity import EXECUTION_IMAGE
 from screen_job import encrypt
-from seal import sha256_file
+from seal import sha256_file,decrypt,extract_verified
 from stage import PROTOCOL,IMAGE,SECRET
 from weighted_screen import validate_plan
 from weighted_policy import need
@@ -14,18 +14,51 @@ from weighted_policy import need
 HERE=Path(__file__).resolve().parent
 
 def validate_request(request):
-    expected=dict(schema='research.capital-weighted-request/1',request_id='weighted-exposure-001',
-        stage='weighted-screen',original_protocol_sha256=PROTOCOL,
+    expected=dict(schema='research.capital-weighted-request/1',request_id='weighted-exposure-suffix-001',
+        stage='weighted-suffix',original_protocol_sha256=PROTOCOL,
         contract_sha256=sha256_file(HERE/'weighted-screen-protocol.json'),
         policy_sha256=sha256_file(HERE/'weighted_policy.py'),features_sha256=sha256_file(HERE/'weighted_features.py'),
         screen_sha256=sha256_file(HERE/'weighted_screen.py'),
-        dispatch_authorization='EXACT_R_ENCRYPTED_ACTIONS_FLOW_APPROVED_20261027')
+        adapter_sha256=sha256_file(HERE/'weighted_account_adapter.py'),
+        resume_sha256=sha256_file(HERE/'weighted_resume.py'),
+        predecessor_sha256=sha256_file(HERE/'weighted-predecessor.json'),
+        dispatch_authorization='EXACT_ADDITIONAL_R_CONTINUATION_APPROVED')
     need(request==expected,'REFUSED_R_REQUEST')
     validate_plan(json.loads((HERE/'weighted-screen-protocol.json').read_bytes()))
 
+def restore_predecessor(download,destination,key,contract):
+    spec=json.loads((HERE/'weighted-predecessor.json').read_bytes());p=download/'weighted-screen.json'
+    need(sha256_file(p)==spec['receipt_sha256'],'REFUSED_R_PREDECESSOR_RECEIPT_BYTES')
+    receipt=json.loads(p.read_bytes())
+    need(receipt['schema']=='research.capital-weighted-receipt/1' and receipt['status']=='WEIGHTED_SCREEN_REFUSED'
+        and receipt['run_id']==str(spec['run_id']) and receipt['source_commit']==spec['source_commit']
+        and receipt['contract_sha256']==contract and receipt['encrypted_output']==spec['ciphertext']
+        and receipt['book_exported'] and not receipt['core_financial_changes'] and not receipt['production_contacted'],
+        'REFUSED_R_PREDECESSOR_AUTHORITY')
+    asset=download/spec['ciphertext']['name'];need(asset.stat().st_size==spec['ciphertext']['bytes'],'REFUSED_R_PREDECESSOR_SIZE')
+    plain=destination.parent/'weighted-predecessor.authenticated.tar';decrypt(asset,plain,key,spec['ciphertext']['sha256'])
+    with tarfile.open(plain,'r|') as tar:
+        first=tar.next();need(first.name=='manifest.json' and first.isfile() and first.size<=2*1024**2,'REFUSED_R_PREDECESSOR_MANIFEST')
+        raw=tar.extractfile(first).read()
+    need(hashlib.sha256(raw).hexdigest()==spec['manifest_sha256'],'REFUSED_R_PREDECESSOR_MANIFEST_BYTES')
+    m=json.loads(raw);need(m['arm']=='BR' and m['stage']=='weighted-screen' and m['protocol_sha256']==PROTOCOL
+        and m['screen_protocol_sha256']==contract,'REFUSED_R_PREDECESSOR_SCOPE')
+    extract_verified(plain,destination,spec['manifest_sha256'],expected_schema='research.capital-risk-output/1')
+    name='capital-risk-br-screen-'+str(spec['run_id'])+'-1';stop=inspect_weighted(destination/(name+'-inspect.json'),name)
+    need(stop['exit_code']==1 and not stop['oom'],'REFUSED_R_PREDECESSOR_STOP')
+    for path,keyname in [('driver-identities.json','driver_identities_sha256'),('screen/features.jsonl','features_sha256'),('screen/daily.jsonl','prefix_sha256')]:
+        need(sha256_file(destination/path)==spec[keyname],'REFUSED_R_PREDECESSOR_BOUND_BYTES')
+    identities=json.loads((destination/'driver-identities.json').read_bytes())
+    need(identities['weighted_policy.py']==sha256_file(HERE/'weighted_policy.py')
+        and identities['weighted_features.py']==sha256_file(HERE/'weighted_features.py')
+        and identities['trace_screen.py']==sha256_file(HERE/'trace_screen.py'),'REFUSED_R_NUMERICAL_SOURCE_CHANGE')
+    for path in destination.rglob('*'):os.chmod(path,0o555 if path.is_dir() else 0o444)
+    os.chmod(destination,0o555)
+    return spec
+
 def main():
     p=argparse.ArgumentParser()
-    for n in ('request','staging-receipt','output'):p.add_argument('--'+n,type=Path,required=True)
+    for n in ('request','staging-receipt','output','predecessor-download'):p.add_argument('--'+n,type=Path,required=True)
     a=p.parse_args();check_context(os.environ)
     need(os.environ.get('GITHUB_RUN_ATTEMPT')=='1','REFUSED_R_RERUN')
     request=json.loads(a.request.read_bytes());validate_request(request);proof=json.loads(a.staging_receipt.read_bytes())
@@ -40,14 +73,16 @@ def main():
     temp=Path(os.environ['RUNNER_TEMP']);frozen=temp/'capital-risk-stage-001/inputs'
     need(memory_bytes()['MemAvailable']>=4*1024**3 and shutil.disk_usage(temp).free>=12*1024**3,'REFUSED_R_CAPACITY')
     private=temp/'capital-risk-weighted-screen-001';private.mkdir(mode=0o700,exist_ok=False)
+    predecessor=temp/'capital-risk-weighted-predecessor-001'
+    prior=restore_predecessor(a.predecessor_download,predecessor,key,request['contract_sha256'])
     for path in frozen.rglob('*'):os.chmod(path,0o555 if path.is_dir() else 0o444)
     os.chmod(frozen,0o555)
     output=admitted_output(Path(os.environ['GITHUB_WORKSPACE']),a.output);output.parent.mkdir(parents=True,exist_ok=True)
     (private/'driver-identities.json').write_text(json.dumps({p.name:sha256_file(p) for p in sorted(HERE.glob('*.py'))},indent=2)+'\n')
-    name='capital-risk-br-screen-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']
+    name='capital-risk-br-suffix-'+os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']
     args=launch_arguments(name,frozen,private,HERE);cut=args.index(EXECUTION_IMAGE)
-    args=args[:cut+1]+['-B','-u','/driver/weighted_screen.py','--root','/frozen/baseline-comparison',
-        '--archive','/frozen/archive/corpus.zip','--output','/out/screen','--protocol','/driver/weighted-screen-protocol.json']
+    args=args[:cut]+['--mount',f'type=bind,source={predecessor},target=/resume,readonly']+args[cut:cut+1]+['-B','-u','/driver/weighted_screen.py','--root','/frozen/baseline-comparison',
+        '--archive','/frozen/archive/corpus.zip','--output','/out/screen','--protocol','/driver/weighted-screen-protocol.json','--predecessor','/resume']
     status='WEIGHTED_SCREEN_REFUSED';error=None;known=False;started=time.monotonic()
     try:
         run_worker(args,name,private,deadline=600)
@@ -70,6 +105,7 @@ def main():
         run_id=os.environ['GITHUB_RUN_ID'],source_commit=os.environ['GITHUB_SHA'],request_sha256=sha256_file(a.request),
         original_protocol_sha256=PROTOCOL,contract_sha256=request['contract_sha256'],arms=['B','R'],
         core_financial_changes=False,production_contacted=False,book_exported=known,
+        predecessor_run_id=prior['run_id'],exact_suffix=True,
         utc=datetime.now(timezone.utc).isoformat(),encrypted_output=dict(name=asset.name,bytes=asset.stat().st_size,sha256=sha256_file(asset)))
     output.write_text(json.dumps(receipt,indent=2)+'\n');print(json.dumps(receipt))
     raise SystemExit(0 if status=='WEIGHTED_SCREEN_PASSED' else 2)
@@ -88,8 +124,11 @@ def inspect_weighted(path,name):
         and h['NanoCpus']==1000000000 and h['PidsLimit']==64 and h['CapDrop']==['ALL']
         and any(v.startswith('no-new-privileges') for v in h['SecurityOpt']),'REFUSED_R_FENCES')
     mounts={v['Destination']:v for v in value['Mounts'] if v['Type']=='bind'}
-    need(set(mounts)=={'/frozen','/out','/driver'} and mounts['/out']['RW']
+    suffix=worker_stage(name)=='weighted-suffix'
+    expected_mounts={'/frozen','/out','/driver'}|({'/resume'} if suffix else set())
+    need(set(mounts)==expected_mounts and mounts['/out']['RW']
         and not mounts['/frozen']['RW'] and not mounts['/driver']['RW']
+        and (not suffix or not mounts['/resume']['RW'])
         and c['WorkingDir']=='/fixed' and c['User']=='1001:1001','REFUSED_R_MOUNTS')
     need(not any(v.partition('=')[0] in set(FORBIDDEN_CREDENTIALS)|{SECRET,'GH_TOKEN','GITHUB_TOKEN'} and v.partition('=')[2]
         for v in c['Env']),'REFUSED_R_CREDENTIALS')

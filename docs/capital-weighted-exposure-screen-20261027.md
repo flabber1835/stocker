@@ -29,13 +29,13 @@ uncommitted account session. Verify that the preserved prefix remains byte-exact
 The same 600-second worker and 15-minute job limits and encrypted R evidence
 destination apply. No extra timing or integration benchmark is selected.
 
-Automatic approval review rejected installing that continuation because the
-owner's prior exact-flow consent covered the original single run, not another
-hosted financial run. The original workflow and execution request remain
-unchanged. Only static adapter correction and exact prefix-restoration helpers
-are prepared; the proposed driver is retained as an unexecuted review file.
-Obtain direct approval for the one additional exact continuation before wiring
-or dispatching it. Do not rerun locally or reuse another workflow to bypass it.
+The owner then explicitly answered "Approve the exact continuation" to one
+additional 15-minute job from the verified February25 prefix, the two reporting
+carries, next-session resume and the same encrypted artifact channel. This
+resolves the additional-run approval rejection for this one suffix only. Wire
+the tested helpers and exact predecessor admission, then dispatch a distinct
+suffix request once. Preserve the failed original run and its unchanged prefix.
+No further financial run or different candidate follows automatically.
 
 The owner approved proceeding after the economic attribution recommendation:
 protect economically significant deteriorating current holdings and restore

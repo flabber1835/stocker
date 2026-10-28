@@ -1,9 +1,13 @@
 """Prepare a state envelope from actual committed records; no account advancement."""
 import hashlib,json
-from weighted_screen import Screen,digest
+from trace_screen import digest
 from weighted_policy import need
 
-def resume_prefix(prior,contract,rows,descriptor):
+def resume_prefix(prior,contract,rows,descriptor,screen_type=None):
+    need(descriptor['contract_sha256']==contract,'REFUSED_R_PREFIX_CONTRACT')
+    if screen_type is None:
+        from weighted_screen import Screen
+        screen_type=Screen
     raw=(prior/'screen/daily.jsonl').read_bytes()
     need(len(raw)==descriptor['prefix_bytes'] and hashlib.sha256(raw).hexdigest()==descriptor['prefix_sha256'],
         'REFUSED_R_ACTUAL_PREFIX_BYTES')
@@ -21,7 +25,7 @@ def resume_prefix(prior,contract,rows,descriptor):
     last=samples[-1]
     value=dict(schema='research.capital-weighted-account-state/1',contract=contract,risk=last['risk'],
         accounts=dict(B=last['B_economics'],R=last['R_economics']),completed=len(samples),chain=chain)
-    saved={**value,'checkpoint_sha256':digest(value)};engine=Screen.restore(saved,contract)
+    saved={**value,'checkpoint_sha256':digest(value)};engine=screen_type.restore(saved,contract)
     need(engine.checkpoint()==saved and actual[len(samples)]['session']==descriptor['next_session'],
         'REFUSED_R_PREFIX_RESTORE_ADJACENCY')
     return engine,samples,raw,saved
