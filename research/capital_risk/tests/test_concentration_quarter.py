@@ -85,6 +85,8 @@ class ConcentrationQuarterGuards(unittest.TestCase):
     def test_workflow_has_one_approved_bounded_job_and_encrypted_only_export(self):
         text=(ROOT.parents[1]/'.github/workflows/capital-concentration-quarter.yml').read_text()
         self.assertIn('timeout-minutes: 45',text);self.assertIn('retention-days: 7',text)
+        self.assertIn('sparse-checkout: |',text)
+        self.assertIn('            .github/workflows/capital-concentration-quarter.yml',text)
         self.assertIn("paths: ['research/capital_risk/concentration-quarter-request.json']",text)
         self.assertNotIn('workflow_dispatch:',text);self.assertNotIn('matrix:',text)
         self.assertIn('concentration-quarter-*.tar.crseal',text)

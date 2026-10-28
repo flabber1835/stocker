@@ -6,6 +6,13 @@ question. That direct consent resolves the automatic approval review's earlier
 data-flow rejection. It covers only this one 45-minute workflow and seven-day
 encrypted artifact flow, with the existing key separate and PAPER untouched.
 
+Run40612780593/head93d6768b failed the preflight guard tests because sparse checkout
+omitted the workflow file that the guard reads. Actual GitHub job steps show both
+input staging and the financial step skipped; no financial origin or encrypted
+financial export exists. Correct only the checkout packaging and retry the same
+first approved financial trial, with that failed preflight ID bound in its request.
+Preserve the failed preflight metadata. This is not a replay of any financial book.
+
 The owner said Proceed after the reviewed R holding diagnosis recommended the
 original C concentration band. This authorizes one new, distinctly named initial
 financial trial. The old unknown B/C/V workers and unusable exports remain

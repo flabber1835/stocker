@@ -29,6 +29,7 @@ def require(v,code):
 def expected_request():
     return dict(schema='research.concentration-quarter-request/1',request_id='concentration-quarter-001',
         stage='short-core-window',owner_scope='APPROVE_C_WORKFLOW_AND_ENCRYPTED_GITHUB_ARTIFACTS',
+        preflight_failure_run_id=40612780593,preflight_input_and_financial_steps_skipped=True,
         protocol_sha256=sha256_file(HERE/'concentration-quarter-protocol.json'),
         original_core_protocol_sha256=sha256_file(HERE/'core-screen-protocol.json'),
         source_bindings={name:sha256_file(HERE/name) for name in BIND})
