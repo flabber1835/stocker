@@ -1,0 +1,21 @@
+{
+  "schema": "research.concentration-quarter-request/1",
+  "request_id": "concentration-quarter-001",
+  "stage": "short-core-window",
+  "owner_scope": "APPROVE_C_WORKFLOW_AND_ENCRYPTED_GITHUB_ARTIFACTS",
+  "protocol_sha256": "74ec187ef27d250ed5d53bba1a3c97115001a5156c0d360406f2da5a9b97dfa7",
+  "original_core_protocol_sha256": "a6221986918db165b989ea234e8185e0076b0c8934dea4fa0c753974754f4028",
+  "source_bindings": {
+    "concentration_build.py": "dd39dbd2571fc3476278d4995aa0784be07804e9674d05896216804e56399c12",
+    "concentration_review.py": "ea2378bb836f12267800e37a02ef6fa9d32f1c8b449fda46bf2af736260dd991",
+    "concentration_job.py": "4aa7f5727db24726a118153dfa50aba0adb5849aa1608f20ee0f7f2daebd73e5",
+    "build_core_variants.py": "b19c857029bb4bd1c5bc5ee76da5e46510fc96386357b0c9954764d25b564a50",
+    "core_policy.py": "ffa275993ce7880bb42ed806bc3da3224f772418bb494f388a0e90288b2505d8",
+    "baseline_prefix.py": "9f616f2cf23d2ae8e470ce0d68d766545bb32788c22587b0b17b5e8188b1f3f5",
+    "core_window_review.py": "87528bdd16e2d35af29b74cccf9c581bca8144d55d1e0aaab2cb61290c591fc1",
+    "canonical_core_gate.py": "b32190d5d2563244ca49586026e6ca7c0c30f6d0bd41cf34508cd1a613928708",
+    "core_window_inputs.py": "1a8f29a0aff35f6cec4b5bd4cc8fa522cf5f012d1f94ee2653859d8605141e9a",
+    "core_manifest.py": "ad5e1df4638a394e19855c1982b2b7b8491c459e2087134a81a181de6b328962",
+    "core_accounting_snapshot.py": "7c82674318f7ad939c4f696e11c79b5cdde46704e539281443a18a667fde0e49"
+  }
+}

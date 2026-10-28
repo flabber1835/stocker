@@ -9,6 +9,7 @@ from unittest.mock import patch
 ROOT=Path(__file__).parents[1];sys.path.insert(0,str(ROOT))
 import concentration_build as c
 from concentration_review import committed_prefix
+import concentration_job as job
 from baseline_prefix import worker_arm,worker_stage
 
 class ConcentrationQuarterGuards(unittest.TestCase):
@@ -53,5 +54,40 @@ class ConcentrationQuarterGuards(unittest.TestCase):
         self.assertIn('REFUSED_C_QUARTER_ACCOUNTING_BINDING',source)
         self.assertIn('canonical_roundtrips=True',source)
         self.assertNotIn('journal.recover(',source)
+
+    def test_new_request_binds_scope_and_every_source(self):
+        request=job.expected_request();job.validate_request(request)
+        for change in ({'owner_scope':'OLD_R_APPROVAL'},{'protocol_sha256':'0'*64},{'extra':True}):
+            with self.assertRaises(ValueError):job.validate_request({**request,**change})
+        request=job.expected_request();request['source_bindings']['concentration_build.py']='0'*64
+        with self.assertRaises(ValueError):job.validate_request(request)
+        plan=json.loads((ROOT/'concentration-quarter-protocol.json').read_bytes());plan['arms'].append('V')
+        with patch.object(job.json,'loads',return_value=plan):
+            with self.assertRaisesRegex(ValueError,'PROTOCOL'):job.validate_request(job.expected_request())
+
+    def test_unknown_writer_reviewer_and_qualification_are_never_snapshotted(self):
+        outputs={a:Path('/private')/a for a in ('B','B0','C')}
+        known={'B':{},'C':{}}
+        result=job.snapshot_outputs(Path('/qual'),outputs,known,['B'])
+        self.assertEqual([x[0] for x in result],['QUAL','C'])
+        result=job.snapshot_outputs(Path('/qual'),outputs,known,['B'],qualification_unknown=True)
+        self.assertEqual([x[0] for x in result],['C'])
+        self.assertEqual(job.snapshot_outputs(Path('/qual'),outputs,{},[],qualification_unknown=True),[])
+
+    def test_quarter_command_is_fresh_private_and_offline(self):
+        with patch('os.getuid',return_value=1001,create=True),patch('os.getgid',return_value=1001,create=True):
+            args=job.command('capital-risk-core-window-cq12025-c-123-1',Path('/frozen'),Path('/out-c'),Path('/private-risk'),['-m','research.pooled_vacancy_funding.backtest'])
+        self.assertIn('CAPITAL_RISK_WINDOW=concentration-q1-2025',args)
+        self.assertEqual(args[args.index('--network')+1],'none')
+        self.assertIn('type=bind,source='+str(Path('/private-risk'))+',target=/variant,readonly',args)
+        self.assertNotIn('--resume',args)
+
+    def test_workflow_has_one_approved_bounded_job_and_encrypted_only_export(self):
+        text=(ROOT.parents[1]/'.github/workflows/capital-concentration-quarter.yml').read_text()
+        self.assertIn('timeout-minutes: 45',text);self.assertIn('retention-days: 7',text)
+        self.assertIn("paths: ['research/capital_risk/concentration-quarter-request.json']",text)
+        self.assertNotIn('workflow_dispatch:',text);self.assertNotIn('matrix:',text)
+        self.assertIn('concentration-quarter-*.tar.crseal',text)
+        self.assertNotIn('contents: write',text);self.assertNotIn('artifacts/capital-risk/**',text)
 
 if __name__=='__main__':unittest.main()

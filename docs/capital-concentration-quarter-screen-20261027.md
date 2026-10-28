@@ -1,5 +1,11 @@
 # Bounded concentration-only initial screen
 
+The owner separately answered "Approve the C workflow and encrypted GitHub
+artifacts" to the exact single-workflow/new C payload/public Actions storage
+question. That direct consent resolves the automatic approval review's earlier
+data-flow rejection. It covers only this one 45-minute workflow and seven-day
+encrypted artifact flow, with the existing key separate and PAPER untouched.
+
 The owner said Proceed after the reviewed R holding diagnosis recommended the
 original C concentration band. This authorizes one new, distinctly named initial
 financial trial. The old unknown B/C/V workers and unusable exports remain
