@@ -94,3 +94,44 @@ The correction changes that exact copy value to Fraction and adds an AST
 regression whose old-function mutation fails. Repeating the bounded component
 qualification under corrected sources finishes this same owner-authorized gate;
 it does not restart a historical book or expand parameters/performance scope.
+
+## Observed qualification and remaining model decision
+
+Corrected run40706014951/head64f241d49c8d3fc5128a54deda0d435498d50089,
+artifact12823997331, completed with actual stopped0/noOOM isolation. Exact
+receipt/cipher/GCM/all11inventory members/56Git driver blobs were authenticated.
+Independent review checked9cases/13refusals/14event equations, all state/hash
+chains and recurring-lot/child restart boundaries, actual frozen canonical
+terminal/CIL/spinoff operations, and seven source modules against the original
+checkpoint. Cash, quantity and chain corruptions were rejected by the separate
+reviewer.150pure/static tests and the old-split-copy regression falsifier passed.
+
+The source-price audit and independent rescan covered30,232,225 archive rows,
+87,032 relevant raw bars, all126formation+4639measured dates,712original trade
+price comparisons and54explicit terminal-open resolutions. One already-declared
+spinoff overlay supplied a required bar; its original source hash was checked.
+No missing/nonpositive/untradeable required bar or original trade-price mismatch
+was found. The maximum original close-equity residual was2.459610e-10dollars.
+Hosted action fixtures took0.0151seconds; the raw scan took142.666seconds. This
+is component/data throughput, not a historical hypothetical account speed claim.
+
+The staged archive has no BIL raw bars, but this is an export omission rather
+than evidence that the original data is absent. Read-only inspection found the
+original SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz retained under frozen-source.
+Its actual390491bytes hashac8bb85facb455754430800d3fc7aaa88581b55a6701c2658a82202772477945
+matches SFP_SHA in the checkpoint-bound original bundle module. All4765BIL dates
+have finite positive raw open/close and an earlier available close. Their three
+return factors agree with the retained bundle to1e-12. No new source was bought,
+downloaded or uploaded. The relevant-period cash source is BIL; FRED in the
+file's earliest2004history does not describe this2007-2026 qualification period.
+
+Raw BIL prices plus adjusted return factors are not an independently dated cash
+distribution ledger. Do not credit total-return factors and separate dividends,
+or infer ex/pay dates from differences between raw price gaps and those factors.
+Therefore action accounting and historical raw-price qualification PASS, while
+an executable full H0/P2 account remains unrun. Before that comparison, explicitly
+freeze either (a) the retained defensive return-factor research convention in
+both matched arms, clearly labelled as a proxy, or (b) a physical BIL share/cash
+model with independently supported distribution terms. Retaining the old factor
+convention is the narrower research continuation. Neither alternative is silently
+certified as current PAPER execution. No performance replacement is selected.
