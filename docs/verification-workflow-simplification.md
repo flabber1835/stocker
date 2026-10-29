@@ -127,3 +127,45 @@ Record startup's method as EXACT_IMAGE_AND_UNCHANGED_SNAPSHOT and retain the
 original preflight proof digest; do not describe this as a new full-book scan.
 This is installer-only code: qualify and deliver it for subsequent installations
 without restarting unchanged application services just to install their installer.
+
+## Full activation: verify each mutable boundary once
+
+The October 29 full installation exposed duplication outside the local application
+adapter. The installed activation coordinator verifies its financial bundle's
+format, hash, expiry and admission proposal without launching a lineage reader.
+The deployment preflight binds that proposal to the current clean checkout,
+immutable images, certified source and account. It does not read the book.
+After the durable kill fence is confirmed and old writers are stopped, perform
+one current publication/configuration/lineage preflight before authority or plan
+changes. Keep that final check unconditional, including deferred-source activation.
+Legacy reviewed-bundle validation keeps its complete standalone contract. No
+cross-attempt cache, operator skip option or persisted readiness shortcut is added.
+
+Activation recovery first authenticates the selected base's producer evidence or
+its genuine historical full-restore receipt. Commit the activation witness, then
+wait for PostgreSQL's archive frontier with small metadata observations under the
+existing single 60-second archive deadline. A frontier observation only permits
+the next verification; it is never archive-integrity authority. After arrival,
+perform one complete canonical WAL-chain verification under its existing
+600-second phase limit and the enclosing 3,600-second invocation deadline.
+Recheck the selected base, cluster, timeline, renewal headroom and exact witness
+coverage, then publish that verified chain. Do not scan the entire archive before
+the witness or during each poll. After committing a witness, any refusal remains
+fail-closed and cannot fall back to creating another base or restoring a copy.
+Malformed, future-dated or failed archive metadata refuses rather than retries.
+
+Normal maintenance's actual phase sequence is BASE_BACKUP -> VERIFY_CHAIN ->
+COMPLETE. Its presentation-only database guard must allow that sequence and the
+successor base at the first transition, retaining historical VERIFY_RESTORE
+sequences for explicit recovery operations. Install a versioned guard through an
+explicit fenced, exact-predecessor operational schema migration; runtime readers
+never migrate it. Preserve immutable attempt identity and deadline, append-only
+history, terminal phases and financial rows. Failure reporting uses the last
+successfully published progress identity if a later write refuses. A progress
+phase never substitutes for authenticated BASE_BACKUP or RUNTIME_CHAIN evidence.
+
+Qualification must join the coordinator's actual progress writes to the real SQL
+guard, exercise the installed activation entry and its final fenced lineage
+check, and separate archive-arrival timing from full-chain traversal time. Check
+removed-guard falsifiers and refusal paths without production backups, restore
+drills, broker transport or operational service restarts.
