@@ -59,15 +59,17 @@ def command(name,source,frozen,out,mode):
         '-B','-u','/driver/full_system_core.py','--mode',mode]
 
 
-def seal(root,target,key,request,arm,*,stage='multiyear-core-path'):
-    need(stage in ('multiyear-core-path','multiyear-controller'),'DECLARED_EXPORT_STAGE')
+def seal(root,target,key,request,arm,*,stage='multiyear-core-path',protocol_sha256=None):
+    need(stage in ('multiyear-core-path','multiyear-controller','campaign-baseline'),'DECLARED_EXPORT_STAGE')
+    protocol_sha256=protocol_sha256 or expected_request()['protocol_sha256']
+    need(re.fullmatch('[a-f0-9]{64}',protocol_sha256) is not None,'EXPORT_PROTOCOL_SHA')
     members={p.relative_to(root).as_posix():{'bytes':p.stat().st_size,'sha256':sha256_file(p)}
         for p in sorted(root.rglob('*')) if p.is_file()}
     need(len(members)<5000 and sum(v['bytes'] for v in members.values())<=1024**3
         and not any(p.is_symlink() for p in root.rglob('*')),'TRIAL_EXPORT_BOUND')
     manifest=json.dumps({'schema':'research.full-system-output/1','stage':stage,'arm':arm,
         'run_id':os.environ['GITHUB_RUN_ID'],'head':os.environ['GITHUB_SHA'],
-        'request_sha256':sha256_file(request),'protocol_sha256':expected_request()['protocol_sha256'],
+        'request_sha256':sha256_file(request),'protocol_sha256':protocol_sha256,
         'compression':'TAR_GZIP_V1','members':members},sort_keys=True).encode()+b'\n'
     temporary=target.with_suffix('.partial')
     with temporary.open('xb') as output:
