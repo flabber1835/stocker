@@ -1,6 +1,7 @@
 """The pinned local activation overlay preserves actual child identity checks."""
 import importlib.util
 import gzip
+from pathlib import Path
 import sys
 
 import pytest
@@ -13,12 +14,22 @@ from tests.sentinel import test_go_probe_artifact_identity as contract
 def sources():
     # Exact Git dda0195c module bytes. This historical overlay must not derive
     # its predecessor from a current deployment script that keeps evolving.
-    old = gzip.decompress((contract.ROOT/'tests/sentinel/fixtures/activation-host-dda0195c.py.gz').read_bytes())
+    fixture = Path(__file__).with_name('fixtures')/'activation-host-dda0195c.py.gz'
+    old = gzip.decompress(fixture.read_bytes())
     assert patch.sha(old) == patch.BASE_SHA
     needle = b'        "SENTINEL_RUNTIME_IMAGE_DIGEST",\n'
     assert old.count(needle) == 1
     new = old.replace(needle, needle + b'        "SENTINEL_TEST_IMAGE_DIGEST",\n')
     return old, new
+
+
+def test_historical_fixture_follows_imported_test_not_metadata_mirror(
+        monkeypatch, tmp_path, request):
+    # CI imports tests from /work/tests while ROOT points at /work/repo, which
+    # deliberately contains only the metadata/source mirrors requested by COPY.
+    monkeypatch.setattr(contract, 'ROOT', tmp_path)
+    old, _new = request.getfixturevalue('sources')
+    assert patch.sha(old) == patch.BASE_SHA
 
 
 @pytest.fixture
