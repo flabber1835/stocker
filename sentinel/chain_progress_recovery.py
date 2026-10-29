@@ -24,9 +24,10 @@ from sentinel.feed import generation_admission, normalized_layout
 
 SCHEMA = 'sentinel.chain-progress-coverage-witness/1'
 DOMAINS = ('OBSERVATION', 'MIRROR')
-# Pinned by the real PostgreSQL function/trigger migration test.
+# Pinned by the real PostgreSQL complete canonical installer migration test:
+# ensure_schema followed by the existing feed migrate_schema entrypoint.
 # Additional DDL is never folded into this exact transition.
-DDL_ADVANCE = 1
+DDL_ADVANCE = 66
 HEX = r'^[0-9a-f]{64}$'
 
 

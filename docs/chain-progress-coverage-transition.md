@@ -112,3 +112,14 @@ foundation image and original commands in operator evidence; do not label the
 local worker CI-certified or change application service images. The same native
 host lifecycle lock and one-shot logs still own application. Activation of the
 unchanged installed release must independently pass normal financial admission.
+
+The retained original installer command invokes both `schema.ensure_schema` and
+`store.migrate_schema`. The first replaces the progress trigger; the second
+reinstalls the existing feed guard declarations. The initial recovery test
+measured only the first call. Reproduction of the complete canonical sequence
+on private PostgreSQL 16 yields exactly 66 DDL events and preserves the complete
+watched source-byte proof. Qualify and pin that complete sequence, rather than
+the lower-level helper's single event. Accept only 66 for this incident; an
+extra event, a helper-only migration, changed catalog or changed source bytes
+still refuses. The authenticated pre-DDL witness remains valid and is reused;
+no additional restore, DDL, counter reset or source mutation is needed.

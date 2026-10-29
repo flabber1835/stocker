@@ -23,7 +23,7 @@ def database():
 
 
 @pytest.fixture
-def prepared(database, monkeypatch):
+def prepared(database, monkeypatch, request):
     c=database
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY','private-migration-recovery-'*4)
     schema.ensure_schema(c);store.migrate_schema(c)
@@ -57,8 +57,10 @@ def prepared(database, monkeypatch):
     before=recovery.operational_ddl_epoch.current(c)
     c.rollback()
     schema.ensure_schema(c)
+    complete=getattr(request,'param',True)
+    if complete:store.migrate_schema(c)
     after=recovery.operational_ddl_epoch.current(c);c.rollback()
-    assert after[0]==before[0] and after[1]-before[1]==recovery.DDL_ADVANCE
+    assert after[0]==before[0] and after[1]-before[1]==(recovery.DDL_ADVANCE if complete else 1)
     try:yield c,document
     finally:
         c.rollback()
@@ -282,3 +284,26 @@ def test_paused_physical_recovery_proves_unlogged_scratch_without_reading_it(mon
         restored.stop();primary.stop()
         assert base.name.startswith('sentinel_scratch_witness_')
         shutil.rmtree(base)
+
+
+def test_complete_canonical_installer_migration_preserves_sources_and_measures_epoch(prepared):
+    c,document=prepared
+    # The installer follows ensure_schema with this reviewed public feed entry.
+    # Qualify the complete entrypoint, not just the three trigger statements.
+    current=recovery.operational_ddl_epoch.current(c)
+    assert current[0]==document['witness']['ddl'][0]
+    advance=current[1]-document['witness']['ddl'][1]
+    print('COMPLETE_CANONICAL_MIGRATION_DDL_ADVANCE='+str(advance),flush=True)
+    assert advance==66
+    schema.require_runtime_schema(c);operational_schema.require_schema(c)
+    assert recovery._source_digests(c)==document['witness']['sources']
+
+
+@pytest.mark.parametrize('prepared',[False],indirect=True)
+def test_lower_level_helper_alone_is_not_the_installer_migration(prepared):
+    c,document=prepared
+    before=raw(c)
+    with pytest.raises(recovery.RecoveryRefused,match='exact progress migration'):
+        apply(c,document)
+    c.rollback()
+    assert raw(c)==before
