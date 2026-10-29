@@ -125,6 +125,6 @@ def prove_unadvanced(spec,inventory,root):
     log=(root/'economic-worker.log').read_text()
     need('in qualify_inputs' in log and 'ValueError: suppressed original spinoff differs' in log
          and '"status": "VERIFYING_INPUTS"' not in log,'FACTUAL_ACTUAL_PRE_FINANCIAL_REFUSAL')
-    proof=json.loads((root/'independent-review-stop/core-review.json').read_bytes())
+    proof=json.loads((root/'old-branch-canonical-review.json').read_bytes())
     need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified'] and not proof['complete'],
          'FACTUAL_UNADVANCED_CANONICAL_PREFIX_REVIEW')

@@ -439,3 +439,22 @@ aggregate hash. Unexpected evidence refuses instead of falling back to an old
 checkpoint. The next request selects the latest artifact's actual current
 checkpoint and retains both failed branches. Reuse canonical restore/prefix
 checks; no new origin, financial source or rule change follows.
+
+If local artifact transfer is rate-limited, a hosted diagnostic-only reader may
+authenticate exact stopped artifacts and their complete inventories, retaining
+only bounded encrypted logs, inspections and qualification/status/checkpoint
+evidence in a smaller encrypted artifact. It imports no financial runtime,
+advances zero sessions, stages no market replay and dispatches no worker. Its
+request pins artifact/receipt/cipher/inventory commitments and source bytes. This
+is read-only evidence retrieval, not a substitute performance experiment or
+permission to infer a missing stopped outcome.
+
+The June-30 zero-financial predecessors expose a reviewer defect: the core
+review scanned the entire watch file, including preserved uncommitted repair
+events, while the checkpoint commits zero watch bytes. Review only the committed
+watch prefix after canonical Journal verification, and continue hashing/preserving
+the full tail separately. This changes no financial operation or journal bytes.
+For the already failed pre-financial qualifier, require its exact original-branch
+canonical preflight proof; do not require the later reviewer to have emitted a
+successful proof while this watch-tail bug was still present. The selected own
+checkpoint restore and all prefix checks remain mandatory before advancement.

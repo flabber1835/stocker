@@ -112,8 +112,7 @@ def test_exact_tail_bytes_required(tmp_path):
 
 
 def test_latest_failed_qualifier_must_prove_no_new_state_or_journal_bytes(tmp_path):
-    (tmp_path/'independent-review-stop').mkdir()
-    (tmp_path/'independent-review-stop/core-review.json').write_text(json.dumps({'all_prefixes_verified':True,'all_daily_factors_and_chains_verified':True,'complete':False}))
+    (tmp_path/'old-branch-canonical-review.json').write_text(json.dumps({'all_prefixes_verified':True,'all_daily_factors_and_chains_verified':True,'complete':False}))
     (tmp_path/'economic-worker.log').write_text('in qualify_inputs\nValueError: suppressed original spinoff differs\n')
     nested={f'book/{n}.jsonl':{'bytes':0,'sha256':facts.sha(b'')} for n in ('formation','daily','monthly','watch')}
     cp={'bytes':10,'sha256':'a'*64};inventory={**nested,**{'lineage/old-branch/'+k:v for k,v in nested.items()},'book/checkpoint.json.gz':cp}
@@ -122,3 +121,14 @@ def test_latest_failed_qualifier_must_prove_no_new_state_or_journal_bytes(tmp_pa
     for path,value in (('book/watch.jsonl',{'bytes':1,'sha256':'b'*64}),('book/checkpoint.json.gz',{'bytes':10,'sha256':'c'*64}),('book/status.json',{'bytes':1,'sha256':'d'*64})):
         altered=copy.deepcopy(inventory);altered[path]=value
         with pytest.raises(ValueError):admission.prove_unadvanced(spec,altered,tmp_path)
+
+
+def test_core_review_uses_committed_watch_prefix_and_preserves_uncommitted_tail(tmp_path):
+    from full_system_core import committed_watch
+    committed=b'{"schema":"committed-example"}\n'
+    tail=b'{"schema":"research.pooled-action-successor/1","unchanged_through":"2099-01-01"}\n'
+    path=tmp_path/'watch.jsonl';path.write_bytes(committed+tail)
+    cp={'journals':{'watch':{'bytes':len(committed)}}}
+    assert committed_watch(tmp_path,cp)==[{'schema':'committed-example'}] and path.read_bytes()==committed+tail
+    assert committed_watch(tmp_path,{'journals':{'watch':{'bytes':0}}})==[]
+    with pytest.raises(ValueError,match='COMMITTED_WATCH_LENGTH'):committed_watch(tmp_path,{'journals':{'watch':{'bytes':len(committed+tail)+1}}})

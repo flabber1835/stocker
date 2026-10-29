@@ -119,6 +119,12 @@ def finish(root):
     return 'COMPLETE_REVIEW_REQUIRED' if code==0 and result.get('status')=='COMPLETE_PENDING_REVIEW' else 'INCOMPLETE_CORE_PRESERVED'
 
 
+def committed_watch(root,saved):
+    raw=(root/'watch.jsonl').read_bytes();size=saved['journals']['watch']['bytes']
+    need(type(size) is int and 0<=size<=len(raw),'COMMITTED_WATCH_LENGTH')
+    return [json.loads(line) for line in raw[:size].splitlines()]
+
+
 def review(root,output):
     from research.pooled_vacancy_funding import backtest,runtime
     from research.pooled_vacancy_funding.journal import Journal,read_checkpoint
@@ -162,8 +168,7 @@ def review(root,output):
     need(not complete or counts=={'formation':126,'daily':2156} and all(t['bytes']==0 for t in tails.values()),'COMPLETE_AXIS_AND_TAILS')
     # Every daily chain includes the source-bound state hash and full accounting.
     chain=backtest.hash_value(base);successors=[]
-    for raw in (root/'watch.jsonl').read_bytes().splitlines():
-        event=json.loads(raw)
+    for event in committed_watch(root,saved):
         if event.get('schema')=='research.pooled-action-successor/1':successors.append(event)
     for row in rows:
         while successors and successors[0]['unchanged_through']<row['session']:
