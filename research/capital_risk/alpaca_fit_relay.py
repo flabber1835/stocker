@@ -32,14 +32,15 @@ def remote():
 
 
 class Parts:
-    def __init__(self,root,prefix):
+    def __init__(self,root,prefix,*,maximum=600*1024**2):
         self.root=root.resolve();self.prefix=prefix;self.buffer=bytearray();self.parts=[]
+        self.maximum=maximum
         self.digest=hashlib.sha256();self.total=0
         require(self.root.is_dir() and not self.root.is_symlink(),'SPOOL_ROOT')
 
     def write(self,value):
         self.digest.update(value);self.total+=len(value)
-        require(self.total<=600*1024**2,'CIPHER_TOTAL_BOUND')
+        require(self.total<=self.maximum,'CIPHER_TOTAL_BOUND')
         remaining=memoryview(value)
         while remaining:
             take=min(PART-len(self.buffer),len(remaining));self.buffer.extend(remaining[:take]);remaining=remaining[take:]
@@ -77,8 +78,12 @@ def read_exact(stream,n):
 def relay(args):
     root=Path(args.output);root.mkdir(parents=True,exist_ok=False)
     protocol=Path(args.protocol).read_bytes();roster=Path(args.roster).read_bytes()
-    prefix='alpaca-fit-001-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+sha(protocol)[:12]
-    sink=Parts(root,prefix);key=dpapi(Path(args.key).read_bytes(),unprotect=True)
+    selected=json.loads(protocol);long=selected.get('schema')=='research.bounded-alpaca-policy-fit/2'
+    require(not long or selected.get('study_id')=='alpaca-owned55-long-fit-001' and selected.get('source_capture_scope')=='LONG_HISTORY','LONG_CAPTURE_SCOPE')
+    maximum=2*1024**3+32*1024**2 if long else 600*1024**2
+    member_max=10000 if long else 2500
+    prefix=('alpaca-long-fit-001-' if long else 'alpaca-fit-001-')+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+sha(protocol)[:12]
+    sink=Parts(root,prefix,maximum=maximum);key=dpapi(Path(args.key).read_bytes(),unprotect=True)
     writer=EncryptWriter(sink,key);members={};receipts=[];capture=None;status={'status':'FAILED','reason':'NO_END_FRAME'}
     require(len(key)==32,'KEY_LENGTH');key=None
     require(remote() is not None,'EXISTING_RESEARCH_DESTINATION')
@@ -87,7 +92,7 @@ def relay(args):
         require(read_exact(child.stdout,8)==b'ALPCAP01','PROVIDER_STREAM_MAGIC')
         with tarfile.open(fileobj=writer,mode='w|') as archive:
             def add(name,payload):
-                safe_name(name);require(name not in members and len(members)<2500,'STREAM_INVENTORY')
+                safe_name(name);require(name not in members and len(members)<member_max,'STREAM_INVENTORY')
                 item=tarfile.TarInfo(name);item.size=len(payload);item.mode=0o600;archive.addfile(item,io.BytesIO(payload))
                 members[name]={'bytes':len(payload),'sha256':sha(payload)}
             add('protocol.json',protocol);add('roster.json',roster)

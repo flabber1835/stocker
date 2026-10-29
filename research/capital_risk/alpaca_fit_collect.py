@@ -20,6 +20,10 @@ TYPES = {'Common Stock':'Common Stock','ADR':'Depositary Receipt','GDR':'Deposit
          'MLP':'Partnership Shares','Ltd Part':'Partnership Shares','REIT':'REIT',
          'Royalty Trst':'Common Stock','NY Reg Shrs':'Depositary Receipt','Closed-End Fund':'Mutual Fund'}
 STREAM = False
+CAPTURE_BOUNDS = {
+    'ORIGINAL': (3300, 2400, 2*1024**3, 512*1024**2),
+    'LONG_HISTORY': (5400, 8000, 8*1024**3, 2*1024**3),
+}
 
 
 def emit(metadata, payload=b''):
@@ -76,16 +80,18 @@ def classify(asset, response):
 
 
 class Client:
-    def __init__(self,root):
-        self.root=root;self.keys=provider_keys(CONFIG);self.started=time.monotonic()
+    def __init__(self,root,*,keys=None,scope='ORIGINAL'):
+        if scope not in CAPTURE_BOUNDS:raise ValueError('REFUSED_CAPTURE_SCOPE')
+        self.bounds=CAPTURE_BOUNDS[scope]
+        self.root=root;self.keys=provider_keys(CONFIG) if keys is None else dict(keys);self.started=time.monotonic()
         self.opener=request.build_opener(NoRedirect());self.last={};self.receipts=[]
         self.raw_total=0;self.compressed_total=0
 
     def call(self,endpoint,params=None,body=None):
         if endpoint not in {ASSETS,BARS,ACTIONS,FIGI} or (endpoint==FIGI)!=(body is not None):
             raise ValueError('REFUSED_PROVIDER_ENDPOINT_OR_METHOD')
-        if time.monotonic()-self.started>3300:raise ValueError('REFUSED_CAPTURE_TIME_BOUND')
-        if len(self.receipts)>=2400:raise ValueError('REFUSED_REQUEST_COUNT_BOUND')
+        if time.monotonic()-self.started>self.bounds[0]:raise ValueError('REFUSED_CAPTURE_TIME_BOUND')
+        if len(self.receipts)>=self.bounds[1]:raise ValueError('REFUSED_REQUEST_COUNT_BOUND')
         if shutil.disk_usage(self.root).free<(256*1024**2 if STREAM else 1024**3):raise ValueError('REFUSED_PRIVATE_CAPTURE_DISK_BOUND')
         headers={'User-Agent':'Stocker-private-policy-fit/1'}
         payload=None
@@ -101,10 +107,10 @@ class Client:
                     raw=response.read(32*1024*1024+1)
                 if len(raw)>32*1024*1024:raise ValueError('REFUSED_RESPONSE_BYTE_BOUND')
                 self.raw_total+=len(raw)
-                if self.raw_total>2*1024**3:raise ValueError('REFUSED_TOTAL_RAW_BOUND')
+                if self.raw_total>self.bounds[2]:raise ValueError('REFUSED_TOTAL_RAW_BOUND')
                 value=json.loads(raw);compressed=gzip.compress(raw,compresslevel=1,mtime=0)
                 self.compressed_total+=len(compressed)
-                if self.compressed_total>512*1024**2:raise ValueError('REFUSED_COMPRESSED_BYTE_BOUND')
+                if self.compressed_total>self.bounds[3]:raise ValueError('REFUSED_COMPRESSED_BYTE_BOUND')
                 name=f'provider-{len(self.receipts):04d}.json.gz'
                 proof={'file':name,'endpoint':endpoint,'method':'POST' if body is not None else 'GET',
                     'params':params,'body':body,'raw_bytes':len(raw),'raw_sha256':digest(raw),
