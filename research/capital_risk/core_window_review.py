@@ -31,10 +31,22 @@ def reconcile(snapshot):
         near(event['cash_after'],cash,'REFUSED_LEDGER_CASH_AFTER')
         require(D(str(event['cash_after']))>=0,'REFUSED_NEGATIVE_CASH')
         sid=event['security_id']
-        if sid is not None:
+        kind=event['event_type']
+        if kind=='CONVERSION':
+            detail=event['detail']
+            source=D(str(detail['shares_in']));delivered=D(str(detail['shares_delivered']))
+            successor=detail['delivered_security_id']
+            require(source.is_finite() and delivered.is_finite() and source>=0 and delivered>=0
+                and isinstance(sid,str) and sid and isinstance(successor,str) and successor,
+                'REFUSED_CONVERSION_OWNERSHIP')
+            require(abs(D(str(event['shares_delta']))-(delivered-source))<=D('1e-9'),
+                'REFUSED_CONVERSION_AGGREGATE_DELTA')
+            quantities[sid]-=source;quantities[successor]+=delivered
+            require(quantities[sid]>=-D('1e-10') and quantities[successor]>=-D('1e-10'),
+                'REFUSED_TRANSIENT_SHORT_QUANTITY')
+        elif sid is not None:
             quantities[sid]+=D(str(event['shares_delta']))
             require(quantities[sid]>=-D('1e-10'),'REFUSED_TRANSIENT_SHORT_QUANTITY')
-        kind=event['event_type']
         if kind in ('BUY','SELL'):
             q,p,fee=map(lambda x:D(str(x)),(event['shares_delta'],event['price'],event['fees']))
             near(fee,abs(q)*p*D('.001'),'REFUSED_TRADE_FEE')

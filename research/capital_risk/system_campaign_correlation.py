@@ -110,4 +110,4 @@ class ClassifierBatch:
         for i,label in enumerate(actual['labels']):
             need(label['green']==greens[i] and label['red']==reds[i] and label['amber']==bool(amber[default_index,i])
                  and label['sector_stress']==float(stress[default_index,i]),'CORRELATION_DEFAULT_EVERY_LABEL')
-        return damage,actual['green_breadth']
+        return {'damage':damage,'green':actual['green_breadth'],'ambers':counts,'denominator':n,'greens':actual['greens']}

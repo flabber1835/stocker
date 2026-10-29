@@ -18,6 +18,19 @@ KEEP={'economic-worker.log','worker-inspect.json','economic-worker-inspect.json'
     'correlation-capture-proof.json','acceleration-proof.json'}
 
 
+def selected_members(spec,inventory=None):
+    extra=spec.get('selected_members',{})
+    need(len(extra)<=4 and all(n=='source-bindings.json' or
+         re.fullmatch(r'book/(?:month-end|pre-event)/2017-[0-9]{2}-[0-9]{2}(?:-[a-f0-9]{64})?\.json\.gz',n) or
+         re.fullmatch(r'book/predecessor-checkpoints/[a-f0-9]{64}\.json\.gz',n)
+         for n in extra),'DIAGNOSTIC_EXACT_PRE_EVENT_MEMBERS')
+    need(all(set(v)=={'bytes','sha256'} and type(v['bytes']) is int and 0<=v['bytes']<8*1024**2
+         and re.fullmatch('[a-f0-9]{64}',v['sha256']) for v in extra.values()),'DIAGNOSTIC_PINNED_MEMBER_SHAPE')
+    if inventory is not None:
+        need(all(inventory.get(n)==v for n,v in extra.items()),'DIAGNOSTIC_PINNED_PRE_EVENT_MEMBERS')
+    return extra
+
+
 def main(a):
     check_context(os.environ);need(os.environ.get('GITHUB_RUN_ATTEMPT')=='1','NO_DIAGNOSTIC_RERUN')
     request=json.loads(a.request.read_bytes())
@@ -36,6 +49,9 @@ def main(a):
             raw=z.read(spec['receipt_name']);need(hashlib.sha256(raw).hexdigest()==spec['receipt_sha256'],'DIAGNOSTIC_RECEIPT_SHA')
             receipt=json.loads(raw);asset=receipt['encrypted_output'];need(asset==spec['encrypted_output'] and receipt['arm']==arm
                 and int(receipt['run_id'])==spec['run_id'] and receipt['head']==spec['head'] and not receipt['production_contacted'],'DIAGNOSTIC_SCOPE')
+            need(receipt['worker']['stopped'] and not receipt['worker']['oom_killed'],
+                 'DIAGNOSTIC_KNOWN_STOPPED_FINANCIAL_BRANCH')
+            extra=selected_members(spec)
             (dest/'receipt.json').write_bytes(raw);header,tag=authenticate(z,asset,key)
             with z.open(asset['name']) as source:
                 plain=AuthenticatedStream(source,asset,key,header,tag)
@@ -47,12 +63,13 @@ def main(a):
                          and manifest['arm']==arm and int(manifest['run_id'])==spec['run_id'] and manifest['head']==spec['head']
                          and manifest['request_sha256']==receipt['request_sha256'] and manifest['protocol_sha256']==receipt['protocol_sha256'],'DIAGNOSTIC_MANIFEST_SCOPE')
                     inventory=manifest['members'];need(len(inventory)<5000 and sum(v['bytes'] for v in inventory.values())<1024**3,'DIAGNOSTIC_INVENTORY_BOUND')
+                    selected_members(spec,inventory)
                     (dest/'authenticated-manifest.json').write_bytes(raw);seen=set()
                     while item:=tar.next():
                         safe_name(item.name);need(item.isfile() and item.name in inventory and item.name not in seen,'DIAGNOSTIC_MEMBER');seen.add(item.name)
                         expected=inventory[item.name];need(item.size==expected['bytes'],'DIAGNOSTIC_MEMBER_LENGTH')
                         h=hashlib.sha256();count=0;target=dest/item.name;consumer=None
-                        if item.name in KEEP:
+                        if item.name in KEEP or item.name in extra:
                             need(item.size<8*1024**2,'DIAGNOSTIC_SELECTED_MEMBER_BOUND');target.parent.mkdir(parents=True,exist_ok=True);consumer=target.open('xb')
                         try:
                             with tar.extractfile(item) as f:
@@ -62,7 +79,7 @@ def main(a):
                         finally:
                             if consumer is not None:consumer.close()
                         need(count==expected['bytes'] and h.hexdigest()==expected['sha256'],'DIAGNOSTIC_EVERY_MEMBER_SHA')
-                        if item.name in KEEP:captured[item.name]=expected
+                        if item.name in KEEP or item.name in extra:captured[item.name]=expected
                     need(seen==set(inventory),'DIAGNOSTIC_COMPLETE_INVENTORY')
                 while plain.read(1024**2):pass
             proofs[arm]={'source_run_id':spec['run_id'],'source_head':spec['head'],'artifact_id':spec['artifact_id'],

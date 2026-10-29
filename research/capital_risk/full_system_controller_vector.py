@@ -2,8 +2,12 @@
 import numpy as np
 
 
-def targets(rows,profiles):
+def targets(rows,profiles,*,damage=None):
     n=len(profiles)
+    if damage is not None:
+        damage=np.asarray(damage,dtype=float)
+        if damage.shape!=(n,len(rows)) or not np.all(np.isfinite(damage)) or np.any((damage<0)|(damage>1)):
+            raise ValueError('REFUSED_CONTROLLER_BREADTH_MATRIX')
     def p(key):
         parts=key.split('.')
         def value(profile):
@@ -19,13 +23,16 @@ def targets(rows,profiles):
     fast=b();fa=~b();age=z();fh=z();slow=b();sa=z();sh=z()
     episode=b();latch=b();full=z();recent=z();prev_full=~b();previous=np.ones(n);effective=np.ones(n)
     owned_active=b();entry=z();recovery=z();paths=[]
-    for row in rows:
+    for index,row in enumerate(rows):
         ob=row['evidence']['observation'];w=row['evidence']['recent_leadership']
         def num(key):
             v=ob.get(key);return float(v) if v is not None else np.nan
         dd,r5,r10,r20,r40,dam,green,delta,spy,vol,stops,nav=[num(k) for k in
             ('shadow_drawdown','shadow_r5','shadow_r10','shadow_r20','shadow_r40','damaged_breadth','green_breadth',
              'damaged_breadth_delta5','spy_r20','spy_vol_ratio','stops20','shadow_nav')]
+        if damage is not None:
+            dam=damage[:,index]
+            delta=damage[:,index]-damage[:,index-5] if index>=5 else np.full(n,np.nan)
         healthy=(r20>0)&(dam<=.63)&(green>=.20)
         signal=((dd<=par('fast.dd'))&(dam>=par('fast.dam'))&(green<=par('fast.green'))
             &((r5<=par('fast.r5'))|(r10<=par('fast.r10')))&(delta>=par('fast.ddam5'))

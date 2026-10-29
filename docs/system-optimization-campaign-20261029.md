@@ -522,3 +522,50 @@ from the unchanged local checkout. Public commits contain engineering source,
 public issuer facts and hashes only. Run pure/source tests on isolated hosted
 compute; all market/controller/account calculations remain hosted. Encrypted
 large evidence stays in the already approved seven-day Actions channel.
+
+The owner subsequently authorized cleanup. Four redundant plaintext TAR files
+were verified byte-for-byte against their retained AES-GCM-authenticated
+archives before removal; a separate failed, unauthenticatable ciphertext export
+was removed only after checking its exact recorded SHA and preserving the
+original export-failure review and job log. Sources, financial checkpoints,
+journals, reports and production files remain intact. Normal local source
+engineering can resume with the restored headroom; historical financial
+execution still remains hosted only.
+
+## Additional ordinary terminal overlays and advanced stopped prefixes
+
+Prepare WFM 42 USD/August 28, RICE 5.30 USD plus .37 EQT/November 13,
+RXDX 27 USD/February 8, SODA 144 USD/December 6, SONC 43.50 USD/December 7
+and BEL 25 USD/April 17 from the retained issuer SEC completion filings.
+Dates are in 2017, 2017, 2018, 2018, 2018 and 2019 respectively. Preserve
+RICE November 10, SODA December 4 and BEL April 16 trading. SODA legally
+closed December 5, a non-session in the US calendar, before December 6
+trading ceased. Keep the fractional RICE entitlement convention explicit:
+the frozen first effective-session EQT raw open is a proxy, not an observed
+exchange-agent settlement rate. Hydrate that private quote only inside hosted
+compute after matching its declared source-row SHA. AAAP remains unresolved;
+there is no supported mandatory cash payment in this overlay.
+
+Use a separately versioned terminal catalog/compiler, retaining v1 FNF/compiler
+and catalog bytes unchanged. Reuse the ordinary canonical terminal-repair
+parser and application. Bind each overlay to that path's own exact inner
+predecessor, existing input/repair chain and frozen native term hashes. Before
+advancement qualify actual frozen native packets, consumed-session and wrong
+predecessor refusals and unchanged original inputs. Retain private hydrated
+quotes solely in encrypted output. The earliest newly corrected native event
+is August 28, 2017; choose each own retained July 31 checkpoint when available,
+otherwise its own earlier pre-event checkpoint. Preserve the full later branch
+and all discarded/unsent bytes, without feature warmup or a new origin.
+
+Some already stopped branches have an independent-review refusal because the
+reviewer applied a conversion's aggregate share delta to the old security.
+The production OwnershipIndex already accounts for the separate source and
+delivered identities correctly. Correct only the independent research reviewer
+to debit shares_in from the source and credit shares_delivered to the successor;
+validate the aggregate delta and reject missing, negative or nonfinite terms.
+Preserve the old refusal. A new hosted canonical review of the whole immutable
+branch and all its checkpoints/prefixes must pass before any resumed financial
+session. Do not infer financial correctness from the reviewer fix or synthetic
+test alone. Read-only diagnostic retrieval may fetch the exact pinned pre-event
+gzip and its actual inspection/review evidence from authenticated stopped
+artifacts; no writer is launched by that retrieval.
