@@ -1,0 +1,39 @@
+{
+  "schema": "research.system-campaign-continuation-request/1",
+  "campaign": "system-optimization-002",
+  "protocol_sha256": "c9866e924ffa4b625d6c8084cbd0d2096a3daed6aeffc420237cb2c8a7a855c4",
+  "predecessors_sha256": "9f568e0747b9cdff8d04af17a64c36b26ab078d82f09eb3a21e10ac09a90bcc1",
+  "sources": {
+    "system_campaign_job.py": "14eeb0463e5c6f1b888fbb2f68f609b19a48836e5d568f961aa63c33cedf9928",
+    "system_campaign_source.py": "5d6e58a3a714f58de92ab03437c8888a22c9e0e1353a886cdaa670b1f7919ee6",
+    "system_campaign_baseline.py": "71e149c60bcef896a9af20987d09ab95f63b3cc4b01c17eaf3e06b7b4e127a43",
+    "system_campaign_acceleration.py": "95eaa192fb43786bf5b0275d7fdce9665cf3a8a70be71864813896f9ce105d83",
+    "full_system_trials_job.py": "ddd8d68a3704bd49df6f0b2495255c52d614602d6da746d6119595aa7df93ad8",
+    "full_system_source.py": "2514fb09a283a7f10ae3f6a1d05484f82edf8616d8d946f7b7b9774b8ac77701",
+    "full_system_core.py": "91abaf38b2b03f5027e6fe52191dde378b7c4d7403ff4656729b9f797d60be05",
+    "full_system_benchmark.py": "218b43bc86215984c45cdb6c7b8e52dd7a9c78d3906ee75d6695df1d142e89b5",
+    "build_core_variants.py": "b19c857029bb4bd1c5bc5ee76da5e46510fc96386357b0c9954764d25b564a50",
+    "core_manifest.py": "ad5e1df4638a394e19855c1982b2b7b8491c459e2087134a81a181de6b328962",
+    "core_accounting_snapshot.py": "7c82674318f7ad939c4f696e11c79b5cdde46704e539281443a18a667fde0e49",
+    "core-source-basis.json": "3503405ee042a365ac1ebc9069345d169a734767586ab17b8227486025e453a0",
+    "core_window_review.py": "5c12824d81212d5e143857aacf737a236720b57b722c30f3849312d804ee02d7",
+    "alpaca_fit_job.py": "ad4e976d39a00933c6c30a3a5c4c387092050b65c6190093248b05b1baa436fc",
+    "alpaca_fit_stage.py": "8339b44a2d3ed9bef5004d97f7ffd75ebad934697bcf7d085f2ffb9e4986023c",
+    "probe.py": "1008ed254c63c60269bbb6063b61c7c85e44943fabfd12d320d4327c9448a9a9",
+    "runtime_identity.py": "1939a33115e639675d9262ef92c362ec5b3b9f7bad1b9352b4bd61fd9df534e7",
+    "seal.py": "9671e34e6895e594d20e6e1800c4899092c2da32ac33af7fecc93e26371bcc95",
+    "stage.py": "2ab2596762e059c6178361b45295739a14973992701ca95ee0e77d34b534f163",
+    "system_campaign_continue_job.py": "4d4b5af69bf929208a30051af44862d0af6ce7d2d31c0c4277e0d21e00de0ae9",
+    "system_campaign_continue.py": "d7b66c27bcf823b0b6e3582896b47f8404fa6bc8eaf5855aee9a456b392737fd",
+    "system_campaign_predecessor.py": "fb407c78bda2c13b6cf98441368ced93cc1c5b559d42e949b6ce79faba391dba"
+  },
+  "arms": {
+    "B": "FAST",
+    "B0": "REFERENCE"
+  },
+  "financial_wait_seconds": 12600,
+  "review_wait_seconds": 2700,
+  "all_financial_source_bytes_identical": true,
+  "production_contacted": false,
+  "artifact_retention_days": 7
+}
