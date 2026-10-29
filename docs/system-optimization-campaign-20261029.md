@@ -670,3 +670,31 @@ new origin, feature warmup, financial source or rule. The comparison basis now
 requires v1, the unchanged additional six facts, and the corrected five-term
 winter catalog. The superseded March version is historical evidence, never
 silently scored as equivalent to the corrected version. AAAP stays unresolved.
+
+## Bounded proof of an unchanged completed path
+
+For an already complete, independently reviewed own path with an older factual
+basis, a canonical differential replay may replace a redundant full replay.
+Authenticate the complete stopped old artifact, choose its own retained monthly
+checkpoint before every newly changed event, and replay the canonical suffix
+only through the month containing the last changed event. Compare every
+formation/daily financial record (only top-level input and chain identities may
+differ), the complete canonical runtime state, economics, monthly statistics,
+retry state, source/base identities and cursor/count at the cutoff. Preserve
+all original and recomputed branches and recovered tails.
+
+Independently reconstruct and compare the complete input Buffer at the cutoff:
+axis, SPY, rings and every value, metadata, classifications, index and current
+packet. Encode floating values by their exact bits, including nonfinite values;
+no tolerance or repr-based fallback. Require that the old path has no further
+input/source successor and that every new add/suppression date is at or before
+the cutoff. Equal full runtime/accounting/buffer state plus identical remaining
+input packets and unchanged deterministic source then establishes equality of
+the remaining financial path by induction. Do not infer this from no holdings.
+
+This proof is a separate, source-bound admission receipt; it never relabels the
+old checkpoint or claims its physical input lineage changed. A missing field,
+state difference, later input change or buffer mismatch refuses equivalence.
+The newly computed suffix is preserved and can continue as its own corrected
+book if equivalence fails. This proof runs only on hosted compute, after the old
+writer is positively stopped. Report its actual replayed transition count.
