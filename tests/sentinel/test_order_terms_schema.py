@@ -44,7 +44,7 @@ def _ledger_rows(conn):
         "FROM sentinel_behavioral_schema_migrations ORDER BY version").fetchall()
 
 
-def install_v1(conn, kind="NEW"):
+def install_v1(conn, kind="NEW", *, operational_current=True):
     if kind == "LEGACY":
         _install_sql(conn, PRE_ROLLOUT)
     elif kind == "PR84_HEAD_BRIDGE":
@@ -57,6 +57,14 @@ def install_v1(conn, kind="NEW"):
     for statement in text.strip().split(";\n\n"):
         conn.execute(statement)
     conn.commit()
+    if operational_current:
+        # Isolate behavioral v1 -> v2 from the separately tested operational
+        # progress migration. The frozen v1 SQL and its core pins stay intact.
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL search_path TO public,pg_temp")
+            cur.execute("SELECT pg_advisory_xact_lock(%s,%s)", schema._SCHEMA_LOCK)
+            schema._migrate_chain_progress(cur, schema._read_catalog(cur))
+        conn.commit()
 
 
 @pytest.mark.parametrize("kind", ["NEW", "LEGACY", "PR84_HEAD_BRIDGE"])
@@ -83,8 +91,11 @@ def test_v2_catalog_matches_reviewed_migration(database, kind):
         assert schema._validate_ledgered(cur, catalog) == 2
 
 
-def test_v1_runtime_refuses_but_explicit_upgrade_preserves_rows_and_ledger(database):
-    install_v1(database)
+@pytest.mark.parametrize('operational_current', [False, True],
+                         ids=['historical-operations', 'current-operations'])
+def test_v1_runtime_refuses_but_explicit_upgrade_preserves_rows_and_ledger(
+        database, operational_current):
+    install_v1(database, operational_current=operational_current)
     database.execute("INSERT INTO sentinel_commands(client_key,plan_id,security_id,revision,"
         "deployment_id,broker,broker_account_id,takeover_epoch,symbol,side,quantity,state,detail) "
         "VALUES ('old-key','old-plan','old-security',3,'old-deploy','sim','old-account',1,"
@@ -186,7 +197,8 @@ def test_runtime_version_falsifier_detects_removed_v2_requirement(database, monk
     monkeypatch.setattr(schema, "_validate_ledgered", _compiled(schema._validate_ledgered,
         "elif not allow_previous:", "elif False:"))
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
-        test_v1_runtime_refuses_but_explicit_upgrade_preserves_rows_and_ledger(database)
+        test_v1_runtime_refuses_but_explicit_upgrade_preserves_rows_and_ledger(
+            database, operational_current=True)
 
 
 @pytest.mark.parametrize("fence", ["enabled", "live-leader"])

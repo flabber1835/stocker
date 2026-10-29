@@ -515,14 +515,24 @@ def test_rotation_chain_survives_restart_and_refuses_merging_devices(db, issue36
     assert final.delivered and calls == [third]
 
 
-def test_recipient_schema_migration_preserves_eligibility_and_pending_evidence(historical_db):
-    db=historical_db
+def recipient_predecessor(db):
+    """Reconstruct the whole pinned predecessor, including its progress guard."""
     from sentinel import schema
-    old = _add_subscription(db, 'legacy-subscription')
+    for statement in schema._BACKUP_PROGRESS_V1_DDL[2:]:
+        db.execute(statement)
+    db.execute('DROP FUNCTION sentinel_backup_progress_guard_v2()')
     db.execute('ALTER TABLE sentinel_web_push_subscriptions DROP COLUMN eligible_from, DROP COLUMN successor_id')
     db.commit()
     with db.cursor() as cur:
         assert schema._semantic_catalog_sha256(*schema._read_catalog(cur), schema._STAGE4_TABLES) == schema._PRE_RECIPIENT_CATALOG_SHA256
+    db.rollback()
+
+
+def test_recipient_schema_migration_preserves_eligibility_and_pending_evidence(historical_db):
+    db=historical_db
+    from sentinel import schema
+    old = _add_subscription(db, 'legacy-subscription')
+    recipient_predecessor(db)
     with pytest.raises(schema.SchemaMigrationRefused, match='missing migration columns'):
         schema.require_runtime_schema(db)
     db.rollback()
@@ -539,7 +549,7 @@ def test_recipient_schema_migration_refuses_or_rolls_back_exactly(historical_db,
     db=historical_db
     from sentinel import schema
     _add_subscription(db, 'retained-recipient')
-    db.execute('ALTER TABLE sentinel_web_push_subscriptions DROP COLUMN eligible_from, DROP COLUMN successor_id')
+    recipient_predecessor(db)
     if damage == 'unknown_catalog':
         db.execute('ALTER TABLE sentinel_web_push_subscriptions ADD COLUMN unknown_authority text')
     else:
