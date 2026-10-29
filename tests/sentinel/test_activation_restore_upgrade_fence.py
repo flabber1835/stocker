@@ -63,8 +63,10 @@ def run_reconciliation(conn, tmp_path, monkeypatch, *, remove_guard=False):
 
 def test_legacy_backups_without_anchor_refuse_before_plan_reconciliation(
         conn, tmp_path, monkeypatch):
-    with pytest.raises(RuntimeError, match='adopt-restored-account'):
+    with pytest.raises(core.DeployRefused, match='read command or owned cleanup failed') as refused:
         run_reconciliation(conn, tmp_path, monkeypatch)
+    assert type(refused.value.__cause__) is RuntimeError
+    assert 'adopt-restored-account' in str(refused.value.__cause__)
 
 
 def test_existing_anchor_passes_without_mutation_or_broker_contact(conn, tmp_path, monkeypatch):
@@ -85,5 +87,5 @@ def test_fresh_database_without_backup_history_passes_without_initializing_ancho
 
 def test_removed_native_upgrade_guard_is_detected(conn, tmp_path, monkeypatch):
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
-        with pytest.raises(RuntimeError, match='adopt-restored-account'):
+        with pytest.raises(core.DeployRefused, match='read command or owned cleanup failed'):
             run_reconciliation(conn, tmp_path, monkeypatch, remove_guard=True)
