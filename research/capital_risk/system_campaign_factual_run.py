@@ -42,14 +42,16 @@ def preflight(spec,old,out):
 
 
 def correlation_seed(old,cp):
-    if not (old/'correlation-inputs.jsonl.gz').exists():return []
+    capture=old/'correlation-inputs.jsonl.gz'
+    if not capture.exists():capture=old/'lineage/old-branch/correlation-inputs.jsonl.gz'
+    if not capture.exists():return []
     financial={}
     for n in ('formation','daily'):
         with (old/f'book/{n}.jsonl').open('rb') as f:
             for raw in f.read(cp['journals'][n]['bytes']).splitlines():
                 r=json.loads(raw);financial[r['session']]=r['state_sha256']
     chain=digest('system-optimization-002/raw-correlation/1');rows=[]
-    with gzip.open(old/'correlation-inputs.jsonl.gz','rb') as f:
+    with gzip.open(capture,'rb') as f:
         for raw in f:
             r=json.loads(raw)
             if r['session']>cp['source_cursor']:break
@@ -108,7 +110,9 @@ def qualify_inputs(catalog,loaded,output):
     for item in catalog.catalog['terms']:
         for day in {item['native']['session'],item['added']['session']}:
             packet=Packet(day,(),{},{},1.,{},tuple(actions.terminal.get(day,())),())
-            fixed=backtest.apply_repair(packet,loaded);matches=[t for t in fixed.terminal if t.security_id==item['native']['security_id']]
+            # This probe intentionally has only terminal data. Actual complete
+            # packets above and every financial packet use the full wrapper.
+            fixed=catalog.original(packet,loaded);matches=[t for t in fixed.terminal if t.security_id==item['native']['security_id']]
             if day==item['added']['session']:
                 need(len(matches)==1 and asdict(matches[0])==item['added'] and matches[0].completeness(1)[0],'FACTUAL_ACTUAL_TERM_REPLACEMENT')
             else:need(not matches,'FACTUAL_ACTUAL_NATIVE_SUPPRESSION')
@@ -122,7 +126,9 @@ def run(out,old,spec):
     cp=preflight(spec,old,out);catalog=FactualInputs('/driver/system-campaign-factual-catalog.json')
     need(catalog.catalog['archive_sha256']==cp['base']['archive_sha256'],'FACTUAL_FROZEN_ARCHIVE_BINDING')
     catalog.hydrate(out/'hydrated-factual-catalog.json')
-    origin=json.loads((old/'campaign-own-facts.json').read_bytes()) if not cp['repairs'] else None
+    origin_path=old/'campaign-own-facts.json'
+    if not origin_path.exists():origin_path=old/'lineage/old-branch/campaign-own-facts.json'
+    origin=json.loads(origin_path.read_bytes()) if not cp['repairs'] else None
     overlay=out/'common-factual-overlay.json';loaded=catalog.overlay(cp,overlay,origin)
     from research.pooled_vacancy_funding.repair import load_repair
     for cursor,predecessor in ((cp['source_cursor'],'0'*64),('2017-08-09',cp['run']['checkpoint_sha256'])):

@@ -2,7 +2,7 @@
   "schema": "research.system-campaign-factual-suffix-request/1",
   "campaign": "system-optimization-002",
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
-  "predecessors_sha256": "5a83065a02746a7f47aaf479a11e3ae5ed826001f16dcf6a145a38dcd9483212",
+  "predecessors_sha256": "1f1dcdeea095bee8be7d2ffcf837493976ac2ed8777710c5a82712a22fceaaad",
   "catalog_sha256": "b5c36c6f2ceab45a0bfb699ea1b5309b459df305b383b17b9a273bbaf65be050",
   "sources": {
     "system_campaign_candidate_job.py": "d055e7c20f364dd02e2c697124624f28022c12b5ae639948e8cb84c3aaaf7c5c",
@@ -32,8 +32,8 @@
     "system_campaign_source.py": "5d6e58a3a714f58de92ab03437c8888a22c9e0e1353a886cdaa670b1f7919ee6",
     "system_campaign_facts.py": "b767206d4fc6fca42f57a5117ad45bddc59494b841fcb343433a338262fcc482",
     "system_campaign_factual_job.py": "57c0b78e634ba093ceb701cc5e29e43d1c6e6ee92c0d92ce220465912d1b1a1f",
-    "system_campaign_factual_admit.py": "0748b7fe40298a96fc7fbc14349a2327abda8b551b51cb4527346d1e1892ad8b",
-    "system_campaign_factual_run.py": "b2b3234eb2c8e514447c2c71458b29a3041ee16f0c6529715393f6268cc8af07"
+    "system_campaign_factual_admit.py": "864ff3f74766c0b5f5ca1e9fb3222069000ac7c2f528de232753d268f982eccd",
+    "system_campaign_factual_run.py": "1bd570741227f8eac58bbb2fff73e1323810d80849b109f55132483b9999a580"
   },
   "financial_wait_seconds": 12600,
   "review_wait_seconds": 2700,

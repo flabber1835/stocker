@@ -109,3 +109,16 @@ def test_exact_tail_bytes_required(tmp_path):
     assert preserve_tails(tmp_path,proof)['watch']['path']==p.name
     p.write_bytes(raw.replace(b'suffix',b'SUFFIX'))
     with pytest.raises(ValueError,match='EXACT_RECOVERED_TAIL'):preserve_tails(tmp_path,proof)
+
+
+def test_latest_failed_qualifier_must_prove_no_new_state_or_journal_bytes(tmp_path):
+    (tmp_path/'independent-review-stop').mkdir()
+    (tmp_path/'independent-review-stop/core-review.json').write_text(json.dumps({'all_prefixes_verified':True,'all_daily_factors_and_chains_verified':True,'complete':False}))
+    (tmp_path/'economic-worker.log').write_text('in qualify_inputs\nValueError: suppressed original spinoff differs\n')
+    nested={f'book/{n}.jsonl':{'bytes':0,'sha256':facts.sha(b'')} for n in ('formation','daily','monthly','watch')}
+    cp={'bytes':10,'sha256':'a'*64};inventory={**nested,**{'lineage/old-branch/'+k:v for k,v in nested.items()},'book/checkpoint.json.gz':cp}
+    spec={'immutable_old_branch_inventory_sha256':facts.digest(nested),'selected_file':cp}
+    admission.prove_unadvanced(spec,inventory,tmp_path)
+    for path,value in (('book/watch.jsonl',{'bytes':1,'sha256':'b'*64}),('book/checkpoint.json.gz',{'bytes':10,'sha256':'c'*64}),('book/status.json',{'bytes':1,'sha256':'d'*64})):
+        altered=copy.deepcopy(inventory);altered[path]=value
+        with pytest.raises(ValueError):admission.prove_unadvanced(spec,altered,tmp_path)

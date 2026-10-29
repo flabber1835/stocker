@@ -366,3 +366,76 @@ The old financial branch is mounted separately read-only during the corrected
 worker and its reviewer. Only after known stops is it included as immutable
 lineage in the new encrypted export. Every new checkpoint and its own journal
 commitments, actual recovered tails and correlation chain remain reviewable.
+
+## Frozen joint numerical class before candidate performance
+
+For each completed Core path evaluate a 4,096-member joint classifier/controller
+class. It contains all 2,916 combinations of the seven declared correlation
+dimensions with the default parent/Owned profile, all 256 already declared
+parent/Owned profiles with the default classifier (one duplicate baseline), and
+925 distinct deterministic SHA-generated interaction pairs. Generate interaction
+indices from `system-optimization-002/joint-interaction/{counter}`, first eight
+digest bytes modulo 255 plus one for the nondefault controller index, next eight
+modulo 2915 plus one for the nondefault classifier index. Reject duplicate pairs;
+ordered marginal registries start with their exact defaults. Freeze identities
+before any admitted candidate performance. This is explicit marginal and bounded
+interaction coverage, not the full 746,496-pair Cartesian product or a global
+optimum claim. The same registry is used for every Core proposal.
+
+Preserve the canonical residual definition, float32 price operands, strictly
+prior-close sample axis, pairwise shared-date minimum, Pearson arithmetic,
+identity tie breaks, self-neighbor inclusion and unavailable-data rules. GREEN
+and RED predicates retain their canonical definitions. Only the seven declared
+classifier dimensions change; retired sector labels are never reintroduced.
+Read the actual captured holding metrics and histories produced by that Core
+path. Reuse exact residual/correlation calculations across threshold settings;
+do not scale old strategy returns or reuse another Core's held names. Recompute
+each classifier's own five-close damage acceleration from its complete formation
+and measured breadth path. Default labels/fractions/acceleration must reproduce
+the actual canonical evidence on every close before any changed classifier is
+admitted. Finite sensor tests and selected full-path canonical comparisons
+qualify batching; every controller target is also compared with independently
+implemented vector equations.
+
+Each joint profile runs canonical parent and Owned transitions through all 126
+financial formation and 2,156 measured observations, with serialized state
+restoration and target-prefix commitments. Reuse only dated canonical account
+factors whose financial dependencies have been proved: old overnight exposure,
+new intraday exposure, exact underlying Core/BIL/benchmark prices, startup mode
+and 10bp costs. Equal funded-target paths may share value calculation, never
+decision identity. Independently recompute every value step, monthly/yearly and
+predeclared period metric. Direct canonical account paths qualify every selected
+finalist and the baseline. Preserve negative results and all refused coverage.
+
+The baseline for every drawdown budget is the official default Core plus default
+classifier/parent/Owned, not a candidate's own weaker comparison. For each Core
+and training cutoff, supply the GP only the best actual training annual log
+growth minus four times excess drawdown for each frozen relative budget; no
+evaluation fields enter that interface. Lock both chronological selections and
+write their hashes before calculating their later-period comparison reports.
+Candidate availability in the earlier lock excludes 2022-only acquisitions.
+The final confirmation starts an own fresh 2008-origin canonical book for the
+selected full configuration, including its Core stock selection and classifier;
+it does not transplant a 2018 book onto an older return trace.
+
+## Qualification-only October 2 fixture refusal
+
+Run 40932175158 stopped all fourteen known workers/reviewers. In the inspected
+B diagnostic the full actual FNF packet passed, but a later terminal-only probe
+for the same October 2 date contained no spin rows and correctly failed the FNF
+source guard. Correct that probe to call the unchanged canonical terminal repair
+directly; actual complete packets and every financial packet still pass through
+the full FNF wrapper. Do not relax its missing-source-row guard. Preserve this
+failure and its reviewer tail refusal: recovery had not run yet.
+
+Before any corrected financial continuation, authenticate each latest failed
+artifact on the hosted VM and prove zero advancement: current checkpoint gzip
+exactly equals its pinned selected original predecessor; all four raw streams
+exactly equal the immutable original branch's streams, including all tails;
+no financial status/qualification-success record exists; the exact qualifier
+trace refuses before `backtest.main`; fresh actual stop identities/fences pass;
+and the entire nested old-branch inventory matches its previously authenticated
+aggregate hash. Unexpected evidence refuses instead of falling back to an old
+checkpoint. The next request selects the latest artifact's actual current
+checkpoint and retains both failed branches. Reuse canonical restore/prefix
+checks; no new origin, financial source or rule change follows.

@@ -1,5 +1,5 @@
 """GitHub-hosted ONLY: authenticate an encrypted branch, never a local replay."""
-import gzip,hashlib,json,os,shutil,subprocess,tarfile,zipfile
+import gzip,hashlib,json,os,re,shutil,subprocess,tarfile,zipfile
 from pathlib import Path
 from cryptography.hazmat.primitives.ciphers import Cipher,algorithms,modes
 from full_system_benchmark import need
@@ -85,8 +85,8 @@ def admit(spec,root,key):
                 need(seen==set(inventory),'FACTUAL_OLD_COMPLETE_INVENTORY')
             while plain.read(1024**2):pass
     for n,e in spec['inspections'].items():
-        need(sha256_file(dest/n)==e['sha256'],'FACTUAL_OLD_STOP_BYTES');v=json.loads((dest/n).read_bytes());h=v['HostConfig']
-        need(v['Name']==e['name'] and v['Id']==e['id'] and not v['State']['Running'] and not v['State']['OOMKilled']
+        need(sha256_file(dest/n)==(e['sha256'] or inventory[n]['sha256']),'FACTUAL_OLD_STOP_BYTES');v=json.loads((dest/n).read_bytes());h=v['HostConfig']
+        need(v['Name']==e['name'] and re.fullmatch('[a-f0-9]{64}',v['Id']) is not None and (e['id'] is None or v['Id']==e['id']) and not v['State']['Running'] and not v['State']['OOMKilled']
              and v['State']['ExitCode']==e['exit_code'],'FACTUAL_OLD_ACTUAL_STOP')
         need(v['Image']=='sha256:1b449754a48473e4737fc34f3f51ae0b4226d5e84540dea54115d4693142ed9d'
              and h['NetworkMode']=='none' and h['Memory']==h['MemorySwap']==8*1024**3 and h['NanoCpus']==2000000000
@@ -94,8 +94,11 @@ def admit(spec,root,key):
              and any(x.startswith('no-new-privileges') for x in h['SecurityOpt']),'FACTUAL_OLD_FENCES')
         mounts={x['Destination']:x for x in v['Mounts'] if x['Type']=='bind'}
         need(mounts['/out']['RW'] and all(not x['RW'] for k,x in mounts.items() if k!='/out'),'FACTUAL_OLD_INPUT_MOUNTS')
-    need(sha256_file(dest/'source-bindings.json')==spec['source_binding_sha256']
-         and sha256_file(dest/'core-review.json')==spec['review_sha256'],'FACTUAL_OLD_SOURCE_REVIEW')
+    need(sha256_file(dest/'source-bindings.json')==spec['source_binding_sha256'],'FACTUAL_OLD_SOURCE_REVIEW')
+    if spec.get('unadvanced_qualification_failure'):
+        prove_unadvanced(spec,inventory,dest)
+    else:
+        need(sha256_file(dest/'core-review.json')==spec['review_sha256'],'FACTUAL_OLD_REVIEW_BYTES')
     p=dest/spec['selected_checkpoint'];need(sha256_file(p)==spec['selected_file']['sha256'],'FACTUAL_SELECTED_GZIP')
     cp=json.loads(gzip.decompress(p.read_bytes()))
     need(cp['sha256']==spec['outer_sha256'] and cp['run']['checkpoint_sha256']==spec['inner_sha256']
@@ -106,3 +109,22 @@ def admit(spec,root,key):
         with (dest/f'book/{n}.jsonl').open('rb') as f:raw=f.read(c['bytes'])
         need(len(raw)==c['bytes'] and hashlib.sha256(raw).hexdigest()==c['prefix_sha256'],'FACTUAL_SELECTED_PREFIX')
     return dest
+
+
+def prove_unadvanced(spec,inventory,root):
+    """Refuse any unexpected progress instead of adopting an earlier checkpoint."""
+    need('book/status.json' not in inventory and 'factual-input-qualification.json' not in inventory,
+         'FACTUAL_QUALIFIER_NEVER_REACHED_FINANCIAL_ENTRY')
+    prefix='lineage/old-branch/'
+    nested={n[len(prefix):]:v for n,v in inventory.items() if n.startswith(prefix)}
+    digest=hashlib.sha256(json.dumps(nested,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
+    need(digest==spec['immutable_old_branch_inventory_sha256'],'FACTUAL_IMMUTABLE_WHOLE_OLD_BRANCH')
+    for n in ('formation','daily','monthly','watch'):
+        need(inventory[f'book/{n}.jsonl']==nested[f'book/{n}.jsonl'],'FACTUAL_NO_NEW_FINANCIAL_OR_TAIL_BYTES')
+    need(inventory['book/checkpoint.json.gz']==spec['selected_file'],'FACTUAL_NO_CHECKPOINT_ADVANCEMENT')
+    log=(root/'economic-worker.log').read_text()
+    need('in qualify_inputs' in log and 'ValueError: suppressed original spinoff differs' in log
+         and '"status": "VERIFYING_INPUTS"' not in log,'FACTUAL_ACTUAL_PRE_FINANCIAL_REFUSAL')
+    proof=json.loads((root/'independent-review-stop/core-review.json').read_bytes())
+    need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified'] and not proof['complete'],
+         'FACTUAL_UNADVANCED_CANONICAL_PREFIX_REVIEW')
