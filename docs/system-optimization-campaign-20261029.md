@@ -229,6 +229,26 @@ data from choosing the earlier comparison's candidate availability. Reuse each
 actual Core path for a larger exact controller/correlation value search, lock
 growth-under-drawdown-budget finalists, and only then inspect their later periods.
 
+For speed, acquisitions use one batch of four per cutoff, both initialized only
+from the same initial 12 actual paths. Within a batch, condition subsequent
+acquisitions on the selected point's posterior mean solely to diversify compute;
+these temporary values are never results. The two cutoff batches can run in
+parallel, and any identical proposal is evaluated once. Final 2022-cutoff
+selection may use all admitted initial and acquisition paths, while 2020-cutoff
+selection may use only initial and its own acquisition IDs. The RBF exponent is
+`-mean((x-y)^2)/(2*.5^2)`, so length scale is independent of coordinate count.
+Zero score variance uses unit scaling. No observed scores falls back to the
+same predeclared maximin coverage rule; failed paths are never assigned scores.
+Record actual Cholesky inputs, posterior/acquisition arrays and candidate IDs.
+
+Local artifact storage has limited free space. Authenticate exact complete ZIP
+SHA256 through bounded HTTP range reads, then exact cipher SHA/GCM and every TAR
+inventory member without a duplicate local ZIP or plaintext TAR. Retain complete
+financial journals in lossless gzip plus current/own predecessor checkpoints,
+source/inspection/review/lineage metadata and full authenticated inventory. Other
+raw members remain in the exact encrypted seven-day GitHub artifact for hosted
+numerical processing. Do not clean protected evidence or modify host services.
+
 Every launch starts with separate empty diagnostic receipt slots. Predecessor
 receipts stay in immutable lineage. A failed launch/wait/stop retains its precise
 exception chain in diagnostics; no financial snapshot is exported without a new,
@@ -250,3 +270,99 @@ Keep the previous parent reference's positive earlier fold and negative later
 fold. Report all new failures and incomplete arms, actual economic treatment,
 costs, CAGR/multiple/max drawdown, same-period retained SPY and modelling limits.
 No promotion or PAPER installation follows automatically from research results.
+
+## Common factual-action correction after broader paths reached new names
+
+The baseline stopped September 4, 2018 on incomplete ILG consideration; its
+August 31 checkpoint is preserved. Eight initial candidates also stopped on
+unreviewed SPNC, WBMD, AF, PRXL, KITE or FNF actions, including leadership witness
+names that need not be held. Their actual parameter/configuration/restore cases
+passed. These are not zero returns or evidence against the parameters. Preserve
+all exact failed states, committed prefixes, tails and both positive stopped
+worker/reviewer inspections. The baseline reviewer separately reached its full
+prefix proof then refused a duplicate diagnostic filename, as documented above.
+
+Use one common reviewed factual catalog for every candidate and official
+baseline, not only the first affected holder. Keep all original data and failed
+branches immutable. For each positively stopped arm choose its own latest
+retained checkpoint before the earliest corrected native event. If no financial
+checkpoint exists that early, use that arm's already retained zero-financial
+warmup checkpoint; do not rerun feature warmup or create a new origin. Preserve
+the entire old financial branch separately and let canonical `Journal.recover`
+retain every old unsent tail before the corrected suffix. Any old checkpoint
+whose raw journal prefix differs belongs with its own old journal in lineage;
+do not verify it against rewritten streams or relabel it as a new checkpoint.
+All 515/516 financial source bytes and the frozen model parameters remain equal.
+
+The catalog distinguishes actual issuer/exchange facts from the daily-boundary
+execution convention. SPNC $38.50 ceases trading August 9 (apply August 10);
+WBMD $66.50 suspends at September 15 close (apply September 18); PRXL $88.10
+became effective September 29 at 10:32 ET and suspends after close (apply October
+2, the first model boundary after its intraday effective time). KITE $180 is
+halted before October 3 open despite a retained stale bar (apply October 3).
+AF converts into .875 STL shares, effective October 2; ILG converts into $14.75
+plus .165 VAC shares after August 31 trading, effective September 4 in the model.
+Primary completion/suspension evidence must be retained before descriptor use.
+
+Actual exchange-agent fractional-sale proceeds are unavailable. Explicitly use
+the same retained next-session raw-open fractional-cash proxy class as the prior
+GE convention: STL October 2 raw open and VAC September 4 raw open. This is a
+model assumption, never an issuer-confirmed cash rate or exact settlement date.
+FNF distributes reported .3066322 BKI shares per parent, with parent ex-session
+October 2. Use the existing canonical `LIQUIDATE_CHILD_AT_OPEN` operation, actual
+retained BKI opening price and 10bp child-sale fee; fractional cash uses the same
+explicit raw-open proxy. Retain the published precision of the reported ratio
+and inherited provider identity limitations.
+
+Terminal facts use the existing sparse repair descriptor bound to each arm's
+exact predecessor. An additional typed factual catalog supplies the existing
+PublishedSession spin-off fields through a narrowly scoped input-compiler wrapper.
+Bind the catalog SHA in the repair's source-evidence entry so the canonical run's
+input SHA commits to it; also bind the wrapper bytes in the exact hosted request.
+The wrapper verifies the descriptor/catalog hash, own predecessor, native source
+row hash, parent identity/session and frozen observed child quote before replacing
+only those factual fields. It wraps the packet-level `backtest.apply_repair`,
+first calling the original terminal repair (including its unchanged-document
+guard). It reuses the frozen GE pure-input function's exact AST with only the
+four parent/child ticker/security identity literals substituted for FNF/BKI.
+The GE-specific schema itself is never reused or relabelled. The FNF catalog
+supplies typed canonical `SpinoffDistribution` terms. Both native FNF spin rows
+are suppressed and the exact parent bar's 13.501 in-kind dividend proxy is
+set to zero so the child distribution does not also pay duplicate cash. All
+other bar fields, original packet and canonical state remain unchanged. The
+repair source evidence commits both the actual catalog bytes and compiler bytes;
+the hosted request also pins them and the frozen repair module SHA. The
+canonical ownership, child liquidation, fees,
+reference scaling, controller and account operations remain unchanged. Reject
+wrong predecessor, consumed session, source-row mismatch or altered quote. No
+balance/position edits, invented prices, unsupported-action skipping or validation
+bypass is permitted. Hosted actual integration/restore/prefix proofs precede any
+corrected suffix; no local historical financial transition is allowed.
+
+Old raw correlation captures remain immutable. A corrected suffix starts a new
+capture from the selected predecessor's exact prior capture commitment; preserve
+the old full capture and all discarded/unsent suffix bytes separately. The
+effective causal view consists only of the old committed prefix through the
+selected predecessor plus the new suffix. Verify its complete axis and each
+record's actual next-state hash against the corresponding financial journal.
+
+The suffix artifact loader itself enforces the GitHub-hosted Linux, repository,
+actor and research-branch context before creating a destination or obtaining an
+artifact. Its destination must be a named private child of the hosted runner's
+temporary directory with at least 12 GiB free. Bound the encrypted ZIP to 256 MiB
+and the expanded known inventory to 1 GiB/5,000 ordinary files; reject links and
+path escapes. Authenticate ciphertext length/SHA/GCM before parsing a streaming
+TAR; never create a plaintext TAR copy. This hosted-only admission is distinct
+from the local bounded-memory range client, which continues to retain journals
+losslessly compressed and does not extract whole archives on the PAPER host.
+Public configuration contains primary-source action facts and exact input hashes,
+never copied vendor quote rows. The hosted input compiler hydrates private FNF
+bars, the in-kind cash proxy and fractional-cash quotes from the authenticated
+frozen archive. It checks exact declared bar/row hashes and records the hydrated
+catalog only inside encrypted research output. The overlay commits public
+catalog SHA, compiler SHA and exact hydrated catalog SHA as well as the existing
+canonical archive/base commitment.
+The old financial branch is mounted separately read-only during the corrected
+worker and its reviewer. Only after known stops is it included as immutable
+lineage in the new encrypted export. Every new checkpoint and its own journal
+commitments, actual recovered tails and correlation chain remain reviewable.

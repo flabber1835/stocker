@@ -60,7 +60,7 @@ def command(name,source,frozen,out,mode):
 
 
 def seal(root,target,key,request,arm,*,stage='multiyear-core-path',protocol_sha256=None):
-    need(stage in ('multiyear-core-path','multiyear-controller','campaign-baseline','campaign-continuation','campaign-candidate'),'DECLARED_EXPORT_STAGE')
+    need(stage in ('multiyear-core-path','multiyear-controller','campaign-baseline','campaign-continuation','campaign-candidate','campaign-factual-suffix'),'DECLARED_EXPORT_STAGE')
     protocol_sha256=protocol_sha256 or expected_request()['protocol_sha256']
     need(re.fullmatch('[a-f0-9]{64}',protocol_sha256) is not None,'EXPORT_PROTOCOL_SHA')
     members={p.relative_to(root).as_posix():{'bytes':p.stat().st_size,'sha256':sha256_file(p)}
