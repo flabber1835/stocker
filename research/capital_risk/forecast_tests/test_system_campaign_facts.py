@@ -132,3 +132,15 @@ def test_core_review_uses_committed_watch_prefix_and_preserves_uncommitted_tail(
     assert committed_watch(tmp_path,cp)==[{'schema':'committed-example'}] and path.read_bytes()==committed+tail
     assert committed_watch(tmp_path,{'journals':{'watch':{'bytes':0}}})==[]
     with pytest.raises(ValueError,match='COMMITTED_WATCH_LENGTH'):committed_watch(tmp_path,{'journals':{'watch':{'bytes':len(committed+tail)+1}}})
+
+
+def test_copied_repair_directory_is_writable_without_changing_original_bytes(tmp_path):
+    from system_campaign_factual_run import copy_repair_archive
+    old=tmp_path/'old';source=old/'book/repairs';source.mkdir(parents=True)
+    original=source/('a'*64+'.json');original.write_bytes(b'synthetic immutable repair\n');os.chmod(original,0o444);os.chmod(source,0o555)
+    book=tmp_path/'new/book';book.mkdir(parents=True)
+    copy_repair_archive(old,book)
+    target=book/'repairs';(target/('b'*64+'.json')).write_bytes(b'synthetic new descriptor\n')
+    assert original.read_bytes()==(target/original.name).read_bytes()==b'synthetic immutable repair\n'
+    assert not (source/('b'*64+'.json')).exists()
+    if os.name=='posix':assert source.stat().st_mode&0o777==0o555 and target.stat().st_mode&0o777==0o700

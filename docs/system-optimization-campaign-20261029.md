@@ -458,3 +458,17 @@ For the already failed pre-financial qualifier, require its exact original-branc
 canonical preflight proof; do not require the later reviewer to have emitted a
 successful proof while this watch-tail bug was still present. The selected own
 checkpoint restore and all prefix checks remain mandatory before advancement.
+
+Authenticated compact diagnostics from run 40936087003 show that seven inspected
+July-17 successors passed the actual input qualification and then refused while
+archiving the new repair: `copytree` copied the original repair directory's 0555
+mode into the disjoint writable successor. The seven exact checkpoints and all
+four streams remain unchanged; the failure precedes canonical Journal.recover.
+Only the new successor's copied repair directory receives owner-write permission.
+Retained repair file bytes and the separately mounted original branch remain
+unchanged/read-only. A latest-artifact permission-refusal admission must verify
+its actual complete input qualification, exact pre-recovery PermissionError,
+unchanged current gzip and raw streams, stopped/fenced inspections and full
+original-branch aggregate commitment before resuming. Earlier zero-origin arms
+that refused before launching a new worker retain their last actual stopped
+financial artifact as authority. Do not create a new origin or infer progress.

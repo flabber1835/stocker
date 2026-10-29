@@ -11,6 +11,16 @@ from system_campaign_observe import Observation
 from system_campaign_readonly import reader,review as readonly_review
 
 
+def copy_repair_archive(old,book):
+    source=old/'book/repairs';target=book/'repairs'
+    if not source.exists():return
+    need(target.resolve().parent==book.resolve() and target.resolve()!=source.resolve(),'FACTUAL_DISJOINT_REPAIR_ARCHIVE')
+    shutil.copytree(source,target)
+    # Change only the new disjoint output directory, never retained file bytes
+    # or the original RO branch. Canonical resume must archive its new overlay.
+    os.chmod(target,0o700)
+
+
 def preflight(spec,old,out):
     from research.pooled_vacancy_funding import backtest,runtime,journal
     from research.pooled_input_support.bundle import axis
@@ -29,7 +39,7 @@ def preflight(spec,old,out):
     shutil.copyfile(old/'book/identity.json',book/'identity.json')
     for target in (book/'checkpoint.json.gz',book/'predecessor-checkpoints'/(cp['sha256']+'.json.gz')):
         shutil.copyfile(old/spec['selected_checkpoint'],target)
-    if (old/'book/repairs').exists():shutil.copytree(old/'book/repairs',book/'repairs')
+    copy_repair_archive(old,book)
     tails={}
     for n,c in cp['journals'].items():
         raw=(old/f'book/{n}.jsonl').read_bytes();(book/f'{n}.jsonl').write_bytes(raw);tail=raw[c['bytes']:]

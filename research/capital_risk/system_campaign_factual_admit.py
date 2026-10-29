@@ -113,18 +113,31 @@ def admit(spec,root,key):
 
 def prove_unadvanced(spec,inventory,root):
     """Refuse any unexpected progress instead of adopting an earlier checkpoint."""
-    need('book/status.json' not in inventory and 'factual-input-qualification.json' not in inventory,
-         'FACTUAL_QUALIFIER_NEVER_REACHED_FINANCIAL_ENTRY')
-    prefix='lineage/old-branch/'
+    kind=spec.get('unadvanced_failure_kind','QUALIFIER_PARTIAL_PACKET')
+    need(kind in ('QUALIFIER_PARTIAL_PACKET','RESUME_REPAIR_PERMISSION'),'FACTUAL_DECLARED_UNADVANCED_FAILURE')
+    prefix=spec.get('immutable_old_branch_prefix','lineage/old-branch/')
+    need(prefix in ('lineage/old-branch/','lineage/old-branch/lineage/old-branch/'),'FACTUAL_DECLARED_IMMUTABLE_BRANCH')
     nested={n[len(prefix):]:v for n,v in inventory.items() if n.startswith(prefix)}
     digest=hashlib.sha256(json.dumps(nested,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
     need(digest==spec['immutable_old_branch_inventory_sha256'],'FACTUAL_IMMUTABLE_WHOLE_OLD_BRANCH')
     for n in ('formation','daily','monthly','watch'):
         need(inventory[f'book/{n}.jsonl']==nested[f'book/{n}.jsonl'],'FACTUAL_NO_NEW_FINANCIAL_OR_TAIL_BYTES')
     need(inventory['book/checkpoint.json.gz']==spec['selected_file'],'FACTUAL_NO_CHECKPOINT_ADVANCEMENT')
-    log=(root/'economic-worker.log').read_text()
-    need('in qualify_inputs' in log and 'ValueError: suppressed original spinoff differs' in log
-         and '"status": "VERIFYING_INPUTS"' not in log,'FACTUAL_ACTUAL_PRE_FINANCIAL_REFUSAL')
+    if kind=='QUALIFIER_PARTIAL_PACKET':
+        need('book/status.json' not in inventory and 'factual-input-qualification.json' not in inventory,
+             'FACTUAL_QUALIFIER_NEVER_REACHED_FINANCIAL_ENTRY')
+        log=(root/'economic-worker.log').read_text()
+        need('in qualify_inputs' in log and 'ValueError: suppressed original spinoff differs' in log
+             and '"status": "VERIFYING_INPUTS"' not in log,'FACTUAL_ACTUAL_PRE_FINANCIAL_REFUSAL')
+    else:
+        result=json.loads((root/'book/result.json').read_bytes());qualified=json.loads((root/'factual-input-qualification.json').read_bytes())
+        error=result.get('error','')
+        need(result.get('status')=='REFUSED' and 'in run_backtest' in error and 'path.write_bytes(args.repair_overlay.read_bytes())' in error
+             and re.search(r"PermissionError: \[Errno 13\] Permission denied: '/out/book/repairs/[a-f0-9]{64}\.json'",error) is not None
+             and 'recovered-tail-proof.json' not in inventory,'FACTUAL_EXACT_PRE_RECOVERY_PERMISSION_REFUSAL')
+        need(qualified['financial_sessions_advanced']==0 and qualified['actual_fnf_source_rows_and_bars']
+             and qualified['typed_spin_and_cash_proxy_suppression'] and qualified['source_row_and_quote_falsifiers']
+             and qualified['original_packet_unchanged'],'FACTUAL_ACTUAL_FULL_INPUT_QUALIFICATION')
     proof=json.loads((root/'old-branch-canonical-review.json').read_bytes())
     need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified'] and not proof['complete'],
          'FACTUAL_UNADVANCED_CANONICAL_PREFIX_REVIEW')
