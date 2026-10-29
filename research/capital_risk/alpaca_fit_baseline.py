@@ -25,8 +25,8 @@ class Journal:
     def __init__(self,path):self.path=path;self.hash=hashlib.sha256();self.count=0;self.length=0;self.chain='0'*64
     def append(self,value):
         value={'previous_chain_sha256':self.chain,**value};raw=encoded(value)
-        self.chain=hashlib.sha256(raw).hexdigest();self.hash.update(raw);self.count+=1;self.length+=len(raw)
         with self.path.open('ab') as f:f.write(raw);f.flush();os.fsync(f.fileno())
+        self.chain=hashlib.sha256(raw).hexdigest();self.hash.update(raw);self.count+=1;self.length+=len(raw)
     def commitment(self):return {'file':self.path.name,'bytes':self.length,'sha256':self.hash.hexdigest(),'records':self.count,'chain_sha256':self.chain}
 
 
@@ -42,6 +42,8 @@ def run(args):
     request=json.loads(Path(args.request).read_bytes());protocol=json.loads(Path(args.protocol).read_bytes())
     need(hashlib.sha256(Path(args.protocol).read_bytes()).hexdigest()==request['protocol_sha256'],'WORKER_PROTOCOL')
     need(request['stage']=='INPUT_AND_CANONICAL_BASELINE','WORKER_SCOPE')
+    continuing=bool(request.get('continuation'))
+    need(continuing==bool(args.resume_prefix),'EXACT_PREFIX_MODE_REQUIRED')
     binding=source_check(Path('/src'),request['source_files']);save(out/'source-bindings.json',request['source_files'])
     from sentinel.strategy import production_strategy
     from sentinel.core.formation import Formation,FormationPlan
@@ -64,8 +66,11 @@ def run(args):
     save(out/'controller-component-qualification-reference.json',request['reused_component_qualification'])
     journal=Journal(out/'canonical.jsonl');qualifications=[];retained=[];book=None;state=None;times=[]
     status='BASELINE_INCOMPLETE';failure=None;current_phase='INPUT_AUTHENTICATION';last=None
+    origin_binding=binding;formation_count=0;completed_before=0;batch_limit=None;storage_equivalence=None
+    pending_transition=None
     def checkpoint(tag,formation):
-        value={'schema':'research.alpaca-fit-baseline-checkpoint/1','source_sha256':binding,
+        value={'schema':'research.alpaca-fit-baseline-checkpoint/2' if continuing else 'research.alpaca-fit-baseline-checkpoint/1',
+            'source_sha256':binding,'origin_source_sha256':origin_binding,
             'protocol_sha256':request['protocol_sha256'],'dataset_sha256':request['dataset_sha256'],
             'formation':formation,'canonical':book.checkpoint() if formation else state.to_dict(),
             'journal':journal.commitment(),'session':state.last_processed_session,'controller_states':leaf_states}
@@ -88,28 +93,53 @@ def run(args):
         save(out/'normalization.json',data.summary)
         save(out/'action-input-issues.json',data.action_issues)
         measured=calendar.sessions_in_range(protocol['measured_start'],protocol['data_end'])
-        end=calendar.previous_sessions(protocol['measured_start'],2)[0]
-        plan=FormationPlan(end=end,capital=protocol['capital'],warmup_sessions=299,formation_sessions=126,
-            strategy=identity,source_sha256=binding,metadata_policy='CURRENT_INFORMATION_INITIALIZATION_V1')
-        need(plan.axis[-1]==end and all(d in data.index for d in plan.axis),'FORMATION_AXIS')
-        save(out/'plan.json',{'plan':plan.model_dump(by_alias=True),'measured_axis':measured,'source_sha256':binding})
-        current_phase='CANONICAL_FEATURE_WARMUP';warm_start=time.monotonic()
-        window,admission=data.warmup(plan.axis[:299]);book=Formation(plan,window,data_version=1);state=book.state
-        del window
-        journal.append({'phase':'WARMUP_ORIGIN','session':None,'state_sha256':state.state_hash,
-            'warmup_identity':book.warmup_identity,'admission':admission,'source_sha256':binding})
-        checkpoint('warmup-origin',True);warm_seconds=time.monotonic()-warm_start
-        save(out/'warmup-timing.json',{'seconds':warm_seconds,'total_elapsed':time.monotonic()-started,'formation_transitions':0})
+        if continuing:
+            from alpaca_fit_continuation import resume,equivalent_inputs
+            current_phase='EXACT_CANONICAL_RESTORE'
+            plan,book,state,formation_count,leaf_states,journal,retained,old_plan,origin_binding,completed_before=resume(
+                out,args.resume_prefix,request['continuation'],request['source_files'],identity,Journal,save)
+            last=state.last_processed_session
+            need(old_plan['measured_axis']==measured,'UNCHANGED_MEASURED_AXIS')
+            for key,module in leaves.items():module.validate({'strategy':module.STRATEGY_ID},leaf_states[key],expected_session=last)
+        else:
+            end=calendar.previous_sessions(protocol['measured_start'],2)[0]
+            plan=FormationPlan(end=end,capital=protocol['capital'],warmup_sessions=299,formation_sessions=126,
+                strategy=identity,source_sha256=binding,metadata_policy='CURRENT_INFORMATION_INITIALIZATION_V1')
+            need(plan.axis[-1]==end and all(d in data.index for d in plan.axis),'FORMATION_AXIS')
+            current_phase='CANONICAL_FEATURE_WARMUP';warm_start=time.monotonic()
+            window,admission=data.warmup(plan.axis[:299]);book=Formation(plan,window,data_version=1);state=book.state
+            del window
+            journal.append({'phase':'WARMUP_ORIGIN','session':None,'state_sha256':state.state_hash,
+                'warmup_identity':book.warmup_identity,'admission':admission,'source_sha256':binding})
+            checkpoint('warmup-origin',True);warm_seconds=time.monotonic()-warm_start
+            save(out/'warmup-timing.json',{'seconds':warm_seconds,'total_elapsed':time.monotonic()-started,'formation_transitions':0})
+        save(out/'plan.json',{'plan':plan.model_dump(by_alias=True),'measured_axis':measured,
+            'source_sha256':origin_binding,'execution_source_sha256':binding})
         sequence=[(d,'FORMATION') for d in plan.axis[299:]]+[(d,'MEASURED') for d in measured]
-        last_month=None
-        for number,(day,phase) in enumerate(sequence):
+        if continuing:
+            current_phase='PACKED_INPUT_EQUIVALENCE';day,phase=sequence[completed_before]
+            comparison=equivalent_inputs(data,args.input_reference,state,day,1 if phase=='FORMATION' else 2+measured.index(day),phase=='FORMATION')
+            storage_equivalence=comparison;save(out/'packed-input-equivalence.json',comparison)
+            need(comparison['packed_seconds']<.75*comparison['reference_seconds'],'INPUT_SPEEDUP_NOT_ESTABLISHED')
+            ordinary=request['continuation']['prior_max_ordinary_seconds']
+            per_step=comparison['packed_seconds']+max(1.,ordinary-comparison['reference_seconds'])
+            batch_limit=max(0,min(300,len(sequence)-completed_before,int((protocol['initial_worker_seconds']-(time.monotonic()-started)-300)/(1.5*per_step))))
+            need(batch_limit>0,'NO_BOUNDED_SUFFIX_BUDGET')
+            save(out/'suffix-budget.json',{'measured_input_seconds':comparison['packed_seconds'],'estimated_seconds_per_step':per_step,
+                'maximum_new_transitions':batch_limit,'worker_ceiling_seconds':protocol['initial_worker_seconds'],
+                'old_origin_not_repeated':True,'monthly_full_compiler_checks_reused':True})
+        last_month=last[:7] if last else None
+        for number in range(completed_before,len(sequence)):
+            day,phase=sequence[number]
             current_phase=phase;before=state;before_hash=before.state_hash;t0=time.monotonic()
             formation=phase=='FORMATION';version=1 if formation else 2+measured.index(day)
-            sample=number in (0,4,125,126) or day[:7]!=last_month
+            sample=False if continuing else number in (0,4,125,126) or day[:7]!=last_month
             published,admission,qualification=data.published(before,day,version,formation=formation,qualify=sample)
             if qualification:qualifications.append(qualification)
             input_sha=digest(asdict(published));prior_events=len(before.ledger['events'])
-            if formation:book.advance(published);state=book.state
+            pending_transition=(before,leaf_states.copy(),formation_count,
+                (book.state,book.chain,book.count) if book is not None else None)
+            if formation:book.advance(published);state=book.state;formation_count=book.count
             else:state=advance_session(before,published,controller_config=controller,strategy_identity=identity)
             need(before.state_hash==before_hash,'IMMUTABLE_PREDECESSOR')
             observation=Observation(**state.last_evidence['observation'])
@@ -132,11 +162,13 @@ def run(args):
                 'decision':state.last_decision,'evidence':state.last_evidence,
                 'owned55_profiles':leaf_rows,'baseline_private_leaf_complete_equality':True,
                 'defensive_bar':asdict(published.defensive_bar),'defensive_previous_bar':asdict(published.defensive_previous_bar),
-                'spy_close_adjusted':published.spy_closeadj[-1]})
+                'spy_close_adjusted':published.spy_closeadj[-1],
+                'spy_open_adjusted':data.bench['SPY']['all'][day]['open']})
+            last=day;pending_transition=None
             elapsed=time.monotonic()-t0
             comparison=0 if qualification is None else qualification['canonical_comparison_seconds']
             times.append({'total_seconds':elapsed,'comparison_seconds':comparison,'ordinary_seconds':elapsed-comparison});last=day
-            if number==4:
+            if number==4 and not continuing:
                 checkpoint('formation-prefix-005',True)
                 remaining_samples=len({d[:7] for d,_ in sequence[5:]})+2
                 projected=time.monotonic()-started+1.5*(max(t['ordinary_seconds'] for t in times[-3:])*(len(sequence)-5)
@@ -149,26 +181,37 @@ def run(args):
             if number==125 or number==len(sequence)-1 or day[:7]!=last_month:
                 checkpoint('checkpoint-'+day,formation)
             last_month=day[:7]
+            if continuing and (number-completed_before+1>=batch_limit or time.monotonic()-started>protocol['initial_worker_seconds']-180):
+                if not any(r['session']==day for r in retained):checkpoint('suffix-batch-end-'+day,formation)
+                status='CANONICAL_BASELINE_TRACE_COMPLETE' if number==len(sequence)-1 else 'CANONICAL_BASELINE_PARTIAL_CLOSED'
+                break
             if time.monotonic()-started>protocol['initial_worker_seconds']-180:
                 checkpoint('bounded-stop-'+day,formation);raise ValueError('REFUSED_ALPACA_FIT_PROCESSING_BOUND')
-        status='CANONICAL_BASELINE_TRACE_COMPLETE'
+        else:status='CANONICAL_BASELINE_TRACE_COMPLETE'
     except Exception as exc:
+        if pending_transition is not None:
+            state,leaf_states,formation_count,book_prior=pending_transition
+            if book_prior is not None:book.state,book.chain,book.count=book_prior
         failure={'type':type(exc).__name__,'message':str(exc),'phase':current_phase,'last_committed_session':last}
         save(out/'failure.json',failure)
-        if state is not None and last is not None and not any(r['session']==last for r in retained):checkpoint('refused-prefix-'+last,current_phase=='FORMATION')
+        if state is not None and last is not None and not any(r['session']==last for r in retained):checkpoint('refused-prefix-'+last,last not in measured)
     finally:
-        save(out/'feature-qualification.json',{'actual_boundary_samples':qualifications,'all_equal':bool(qualifications)})
+        save(out/'feature-qualification.json',{'actual_boundary_samples':qualifications,
+            'all_equal':bool(qualifications) or storage_equivalence is not None,
+            'prior_canonical_feature_proof_reused':continuing,'packed_complete_input_preimage_equal':storage_equivalence is not None})
         save(out/'retained-checkpoints.json',retained)
         save(out/'baseline-status.json',{'schema':'research.alpaca-fit-baseline-status/1','status':status,'failure':failure,
-            'last_committed_session':last,'formation_count':None if book is None else book.count,
-            'measured_records':max(0,journal.count-1-(0 if book is None else book.count)),
+            'last_committed_session':last,'formation_count':formation_count if state is not None else None,
+            'measured_records':max(0,journal.count-1-formation_count),'new_transitions':max(0,journal.count-1-completed_before),
             'journal':journal.commitment(),'elapsed_seconds':time.monotonic()-started,
-            'source_sha256':binding,'utc':datetime.now(timezone.utc).isoformat(),'production_contacted':False,
+            'source_sha256':binding,'origin_source_sha256':origin_binding,
+            'utc':datetime.now(timezone.utc).isoformat(),'production_contacted':False,
             'optimization_performance_admitted':False})
-    return 0 if status=='CANONICAL_BASELINE_TRACE_COMPLETE' else 2
+    return 0 if status in ('CANONICAL_BASELINE_TRACE_COMPLETE','CANONICAL_BASELINE_PARTIAL_CLOSED') else 2
 
 
 if __name__=='__main__':
     p=argparse.ArgumentParser()
     for name in ('request','protocol','inputs','prefix-inputs','bil-inputs','output'):p.add_argument('--'+name,required=True)
+    p.add_argument('--resume-prefix');p.add_argument('--input-reference')
     raise SystemExit(run(p.parse_args()))

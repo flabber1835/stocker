@@ -263,3 +263,56 @@ The owner requested checks only when they add value. Reuse the completed unchang
 controller component proof. Run only changed input-behavior tests for these fixes;
 retain source/input admission and actual accounting checks that prevent invalid
 performance conclusions. Do not repeat unchanged audit campaigns.
+
+## Funded account calculation and exact work sharing
+
+The new 2025 adapter reuses the existing qualified `holding_account` operations
+and persistent-stock fill/factor routines; it never calls the old 2008-bound
+`Runtime.advance`. At the first funded open it projects the last formation
+close's known Core holdings and pending orders onto its own 50,000, excludes
+already queued exits and includes first-day whole-share fills/fees. Current
+close prices cannot size that morning's trades. Subsequent unchanged exposure
+keeps quantities; exposure changes resize from the prior close's canonical Core
+weights. New Core entries retain unpooled NAV/20 funding. Sells precede buys,
+cash clips positive buys and no short/leverage is introduced.
+
+Each registered controller owns its formation state and full causal target
+sequence. Identical training target sequences imply identical funded economic
+inputs under this deterministic model. They may share one immutable calculation,
+with separate profile/lineage wrappers and an exact equality certificate. This
+shares computation only: each variant retains its own 50,000 and no capital or
+cash is pooled. Preserve all 108 score rows and ties. Internal controller states
+can differ and remain separate for later continuation. Only target sequences
+through the training cutoff may define these groups; no 2026 metric or target
+can influence training selection. Do not merge paths merely because their final
+NAVs happen to agree.
+
+## Measured input-assembly continuation
+
+Baseline 003 completed and independently reviewed its first five formation closes
+through 2024-07-10, all three retained checkpoints and the complete journal with
+zero tails. Measured ordinary transitions took about 28 seconds; the original
+whole-run projection exceeded seven hours. Do not restart that origin or extend
+the slow path unchanged.
+
+Optimize storage extraction only: obtain paired raw/split rows and feature
+vectors by packed array slices instead of millions of repeated per-row NumPy
+lookups. The canonical admission and feature functions remain unchanged. Before
+advancing the exact saved suffix, compare complete old/new `PublishedSession`
+preimages under the same retained state/date/version, and measure the faster
+path. Preserve the original comparison and checkpoint proofs; do not repeat
+unchanged component campaigns or monthly full-window compiler comparisons.
+
+The continuation preserves the original canonical FormationPlan, origin source
+commitment, state, all old checkpoint files and journal prefix. A separate
+execution-source commitment records the changed research orchestration. Canonical
+Core/controller source and frozen data must be byte-identical; no strategy state
+or historical identity is relabelled. Current-source canonical restore precedes
+the next adjacent session. Any uncommitted tail is preserved separately before
+recovery and cannot become a skipped session or duplicate committed row.
+
+Use measured bounded suffix batches (at most 300 transitions and 3,600 seconds
+per worker) to finish the same registered date axis. A batch stop is an explicit
+partial prefix, not a complete trial or performance result. Preserve and resume
+its own exact state. This scheduling amendment changes no dates, capital, grid,
+selection rule, provider prices, action facts or financial transition.

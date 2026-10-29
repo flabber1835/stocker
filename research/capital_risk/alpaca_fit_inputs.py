@@ -90,12 +90,12 @@ class LazyBars(Mapping):
 
 
 class Inputs:
-    def __init__(self,root,bil_root,protocol,capture_sha,prefix_root=None):
+    def __init__(self,root,bil_root,protocol,capture_sha,prefix_root=None,*,packed=False):
         hosted()
         import numpy as np
         from sentinel.feed import calendar
         from sentinel.feed.alpaca_observation import bar_page_rows,action_participants,structural_action_date
-        self.root=Path(root);self.protocol=protocol;self.capture_sha=capture_sha
+        self.root=Path(root);self.protocol=protocol;self.capture_sha=capture_sha;self.packed=packed
         capture=json.loads((self.root/'capture/capture.json').read_bytes())
         need(capture['status']=='COMPLETE' and capture['pagination_complete'] is True
              and capture['account_order_position_activity_calls']==0,'CAPTURE_NOT_COMPLETE')
@@ -209,6 +209,16 @@ class Inputs:
         o,c,v,s=map(float,self.values[i,j]);ticker=self.assets[sid]['ticker']
         return dict(ticker=ticker,date=day,open=o,close=c,closeunadj=c,volume=v,adjusted_close=s)
 
+    def paired_rows(self,sid,days):
+        """Storage-only vector extraction; dates/float values retain exact order."""
+        i=self.sid_index[sid];indices=[self.index[d] for d in days];ticker=self.assets[sid]['ticker']
+        observed=self.present[i,indices];paired=observed[:,0]&observed[:,1]
+        values=self.values[i,indices].tolist()
+        rows=[dict(ticker=ticker,date=day,open=v[0],close=v[1],closeunadj=v[1],volume=v[2],adjusted_close=v[3])
+              for day,v,ok in zip(days,values,paired.tolist()) if ok]
+        absent={(ticker,day) for day,any_,ok in zip(days,observed.any(axis=1).tolist(),paired.tolist()) if any_ and not ok}
+        return rows,absent
+
     def bar(self,sid,day):
         from sentinel.feed.canonical_transforms import alpaca_bar
         ticker=self.assets[sid]['ticker']
@@ -223,8 +233,10 @@ class Inputs:
             if ticker in self.undated:
                 reasons['UNDATED_UNSUPPORTED_ACTION']+=1;continue
             resets=[d for d,_,_ in self.resets.get(ticker,()) if d<=days[-1]]
-            rows=[self.row(sid,d) for d in days if self.paired(sid,d)]
-            absent={(ticker,d) for d in days if bool(self.present[self.sid_index[sid],self.index[d]].any()) and not self.paired(sid,d)}
+            if self.packed:rows,absent=self.paired_rows(sid,days)
+            else:
+                rows=[self.row(sid,d) for d in days if self.paired(sid,d)]
+                absent={(ticker,d) for d in days if bool(self.present[self.sid_index[sid],self.index[d]].any()) and not self.paired(sid,d)}
             found,why=admissible_history(rows,axis=list(days),symbols={ticker},action_affected=frozenset(),pair_absent=absent,
                 reset_after={ticker:max(resets)} if resets else {},
                 split_terms={k:v for k,v in self.split_by_symbol.get(ticker,{}).items() if days[0]<=k[1]<=days[-1]},
@@ -256,14 +268,19 @@ class Inputs:
         days=calendar.previous_sessions(day,300);admitted,reasons=self.admitted(days);meta=self.metadata(admitted,day)
         live=protected(prior)
         need(live.issubset(admitted),'PROTECTED_SOURCE_UNAVAILABLE:'+','.join(sorted(live-set(admitted))))
-        signals=[];histories={};rows_by_sid={}
+        signals=[];histories={};global_indices=[self.index[d] for d in days]
         for sid,first in sorted(admitted.items()):
             indices=[i for i,d in enumerate(days) if d>=first]
             need(indices and days[indices[-1]]==day,'ADMITTED_TAIL_CURSOR')
-            series=SecuritySeries(sid,self.assets[sid]['ticker'],f'SID:{sid}',
-                session_indices=indices[-127:],signal_closes=[self.row(sid,days[i])['adjusted_close'] for i in indices[-127:]],
-                raw_closes=[self.row(sid,days[i])['closeunadj'] for i in indices[-20:]],
-                volumes=[self.row(sid,days[i])['volume'] for i in indices[-20:]])
+            if self.packed:
+                values=self.values[self.sid_index[sid],[global_indices[i] for i in indices]]
+                closes=values[-127:,3].tolist();raw=values[-20:,1].tolist();volumes=values[-20:,2].tolist()
+            else:
+                closes=[self.row(sid,days[i])['adjusted_close'] for i in indices[-127:]]
+                raw=[self.row(sid,days[i])['closeunadj'] for i in indices[-20:]]
+                volumes=[self.row(sid,days[i])['volume'] for i in indices[-20:]]
+            series=SecuritySeries(sid,self.assets[sid]['ticker'],f'SID:{sid}',session_indices=indices[-127:],
+                signal_closes=closes,raw_closes=raw,volumes=volumes)
             signals.append(Signal.from_feature(feature(series,meta[sid],index=299,session=day)))
             if sid in live:histories[sid]=tuple(self.bar(sid,d) for d in days[-261:-1] if d>=first)
         snap=digest({'schema':'research.alpaca-frozen-publication/1','source':self.capture_sha,'session':day,

@@ -38,7 +38,35 @@ def source_inventory():
     return dict(sorted(result.items()))
 
 
-def prepare(case,destination,request_id):
+def continuation_request(previous,artifact_id,source,dataset_sha,protocol_sha):
+    previous=Path(previous);root=previous/'verified/full/book'
+    admitted=json.loads((previous/'verified/admission.json').read_bytes())
+    receipt=json.loads((previous/'download/alpaca-fit-baseline.json').read_bytes())
+    reviewed=json.loads((previous/'verified/full/stopped-independent-review/review/independent-review.json').read_bytes())
+    status=json.loads((root/'baseline-status.json').read_bytes())
+    retained=json.loads((root/'retained-checkpoints.json').read_bytes())
+    cp=max(retained,key=lambda r:r['session'] or '')
+    need(admitted['ciphers_gcm_and_inventory_verified'] is True and admitted['stopped'] is True
+         and admitted['run_id']==int(receipt['run_id']) and admitted['head']==receipt['head']
+         and reviewed['status']=='PARTIAL_PREFIX_REVIEWED'
+         and cp['session']==status['last_committed_session']==reviewed['last_committed_session']
+         and cp['journal']==status['journal'],'LATEST_OWN_REVIEWED_PREFIX')
+    old=json.loads((previous/'request.json').read_bytes())
+    need(old['protocol_sha256']==protocol_sha and old['dataset_sha256']==dataset_sha,'UNCHANGED_PREFIX_INPUT')
+    protected=[p for p in old['source_files'] if p.startswith(('sentinel/','shared/stock_strategy_shared/'))
+        or p in ('research/capital_risk/alpaca_fit_policy.py','research/capital_risk/alpaca-fit-protocol.json')]
+    need(all(source[p]==old['source_files'][p] for p in protected),'UNCHANGED_CANONICAL_FINANCIAL_SOURCE')
+    archive=previous/'download/artifact.zip'
+    artifact={'id':artifact_id,'run_id':int(receipt['run_id']),'head':receipt['head'],
+        'bytes':archive.stat().st_size,'sha256':digest(archive.read_bytes()),'full':receipt['encrypted_outputs']['full']}
+    timing=json.loads((root/'timing-gate.json').read_bytes())
+    reference=old.get('input_reference') or {'commit':receipt['head'],'path':'research/capital_risk/alpaca_fit_inputs.py',
+        **old['source_files']['research/capital_risk/alpaca_fit_inputs.py']}
+    return {'artifact':artifact,'checkpoint':cp,'dataset_sha256':dataset_sha,'protocol_sha256':protocol_sha,
+        'prior_max_ordinary_seconds':max(t['ordinary_seconds'] for t in timing['transition_seconds'][-3:])},reference
+
+
+def prepare(case,destination,request_id,previous=None,artifact_id=None):
     case=Path(case);protocol=Path(__file__).with_name('alpaca-fit-protocol.json');p_sha=digest(protocol.read_bytes())
     captures={key:json.loads((case/folder/'transport.json').read_bytes()) for key,folder in
         [('prefix','transport-001'),('corroboration','transport-002'),('market','transport-003'),('bil','bil-transport-001')]}
@@ -50,8 +78,8 @@ def prepare(case,destination,request_id):
         and captures['corroboration']['capture_status']['status']=='INCOMPLETE','FAILED_PREFIX_RETAINED')
     dataset={'schema':'research.alpaca-composite-input/1','protocol_sha256':p_sha,'roster_sha256':digest((case/'roster.json').read_bytes()),
         'manifests':{k:v['manifest_sha256'] for k,v in captures.items()}}
-    previous=case/'baseline-001/verified/full/book'
-    qualification=previous/'controller-component-qualification.json'
+    component_book=case/'baseline-001/verified/full/book'
+    qualification=component_book/'controller-component-qualification.json'
     old_request=json.loads((case/'baseline-001/request.json').read_bytes())
     source=source_inventory()
     common=('sentinel/controller/owned_impairment.py','research/capital_risk/alpaca_fit_policy.py','research/capital_risk/alpaca_fit_qualify.py')
@@ -66,6 +94,9 @@ def prepare(case,destination,request_id):
         'runtime':{'bytes':115666468,'sha256':'2069216d4133ae154eb76d4ac09cc0f719275c19fc3a95c7476d0f07f56b6b32'},
         'source_files':source,'reused_component_qualification':reuse,'verified_main_base':'bbcb728a972f483c9f76f2b0db2599b2134ab1bb',
         'production_contacted':False,'new_forecaster':False,'performance_result_expected_from_this_stage':False}
+    if previous:
+        need(type(artifact_id) is int and artifact_id>0,'CONTINUATION_ARTIFACT')
+        value['continuation'],value['input_reference']=continuation_request(previous,artifact_id,source,value['dataset_sha256'],p_sha)
     destination=Path(destination);need(not destination.exists(),'REQUEST_COLLISION')
     destination.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n',encoding='utf-8',newline='\n')
     print(json.dumps({'request_sha256':digest(destination.read_bytes()),'source_files':len(value['source_files']),
@@ -75,4 +106,5 @@ def prepare(case,destination,request_id):
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--case',required=True);p.add_argument('--output',required=True)
     p.add_argument('--request-id',required=True)
-    a=p.parse_args();prepare(a.case,a.output,a.request_id)
+    p.add_argument('--continue-from');p.add_argument('--artifact-id',type=int)
+    a=p.parse_args();prepare(a.case,a.output,a.request_id,a.continue_from,a.artifact_id)

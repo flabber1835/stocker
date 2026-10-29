@@ -144,6 +144,10 @@ def stage(args):
     dataset={'schema':'research.alpaca-composite-input/1','protocol_sha256':req['protocol_sha256'],
         'roster_sha256':req['roster_sha256'],'manifests':{k:v['manifest_sha256'] for k,v in req['captures'].items()}}
     need(hashlib.sha256(json.dumps(dataset,sort_keys=True,separators=(',',':')).encode()).hexdigest()==req['dataset_sha256'],'COMPOSITE_DATASET_IDENTITY')
+    prior=None
+    if req.get('continuation'):
+        from alpaca_fit_prior import stage_previous
+        prior=stage_previous(req,root,key)
     runtime=req['runtime'];asset=acquire('runtime.tar.crseal',runtime,root)
     decrypt(asset,root/'runtime.tar',key,runtime['sha256']);key=None
     portable=verify_archive(root/'runtime.tar')
@@ -155,6 +159,7 @@ def stage(args):
         'capture_manifest_sha256':{label:c['manifest_sha256'] for label,c in req['captures'].items()},'input_members':counts,
         'execution_image':EXECUTION_IMAGE,'runtime_archive_sha256':portable['archive_sha256'],
         'dataset_sha256':req['dataset_sha256'],'successor_review':comparison,
+        'predecessor_admission':prior,
         'authenticated_before_parsing':True,'financial_replay_started':False,'production_contacted':False,
         'inputs_root':str(root/'market/inputs'),'prefix_inputs_root':str(root/'prefix/inputs'),'bil_inputs_root':str(root/'bil/inputs')}
     (root/'staging.json').write_text(json.dumps(receipt,indent=2)+'\n');print('ALPACA_INPUTS_AND_RUNTIME_AUTHENTICATED')

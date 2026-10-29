@@ -139,8 +139,12 @@ def main():
         need((os.cpu_count() or 0)>=4 and memory_bytes()['MemAvailable']>=11*1024**3
              and shutil.disk_usage(private).free>=14*1024**3,'CAPACITY')
         receipt['financial_replay_started']=True
-        outcome=stopped_run(command(name,Path(os.environ['GITHUB_WORKSPACE']).resolve(),Path(stage['inputs_root']).resolve(),
-            Path(stage['prefix_inputs_root']).resolve(),Path(stage['bil_inputs_root']).resolve(),private),name,private,deadline=3720)
+        argv=command(name,Path(os.environ['GITHUB_WORKSPACE']).resolve(),Path(stage['inputs_root']).resolve(),
+            Path(stage['prefix_inputs_root']).resolve(),Path(stage['bil_inputs_root']).resolve(),private)
+        if request.get('continuation'):
+            need(stage['predecessor_admission']['archive_cipher_inventory_verified'] is True,'PREDECESSOR_STAGING')
+            argv+=['--resume-prefix','/inputs/_continuation/previous/book','--input-reference','/inputs/_continuation/source/alpaca_fit_inputs.py']
+        outcome=stopped_run(argv,name,private,deadline=3720)
         known=True;receipt['worker']=outcome
         status_path=private/'book/baseline-status.json'
         receipt['status']='BASELINE_PRESERVED' if status_path.is_file() else 'STOPPED_WITHOUT_COMPLETE_STATUS'
@@ -167,7 +171,8 @@ def main():
         for name in ('worker-inspect.json','book/baseline-status.json','book/timing-gate.json','book/normalization.json',
                      'book/feature-qualification.json','book/retained-checkpoints.json','book/source-bindings.json','book/failure.json',
                      'book/controller-component-qualification.json','stopped-independent-review/worker-inspect.json',
-                     'stopped-independent-review/review/independent-review.json'):
+                     'stopped-independent-review/review/independent-review.json','book/packed-input-equivalence.json',
+                     'book/suffix-budget.json','book/lineage/admission.json'):
             source=private/name
             if source.is_file():
                 destination=summary/name;destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,destination)

@@ -35,6 +35,32 @@ def review(evidence,inputs,prefix_inputs,request,output):
     retained=json.loads((root/'retained-checkpoints.json').read_bytes())
     status=json.loads((root/'baseline-status.json').read_bytes())
     need(status['source_sha256']==binding and retained,'REVIEW_SOURCE_OR_NO_ORIGIN')
+    origin_binding=plan.source_sha256;inherited={}
+    if request.get('continuation'):
+        spec=request['continuation'];lineage=root/'lineage'
+        previous_plan=json.loads((lineage/'previous-plan.json').read_bytes())
+        need(previous_plan['plan']==plan_record['plan'] and previous_plan['measured_axis']==plan_record['measured_axis'],
+             'ORIGINAL_FORMATION_PLAN_UNCHANGED')
+        previous_source=json.loads((lineage/'previous-source-bindings.json').read_bytes())
+        protected=[p for p in previous_source if p.startswith(('sentinel/','shared/stock_strategy_shared/'))
+            or p in ('research/capital_risk/alpaca_fit_policy.py','research/capital_risk/alpaca-fit-protocol.json')]
+        need(all(previous_source[p]==request['source_files'][p] for p in protected),'UNCHANGED_FINANCIAL_SOURCE')
+        admission=json.loads((lineage/'admission.json').read_bytes())
+        predecessor=lineage/'exact-predecessor.json.gz'
+        need(admission['checkpoint']==spec['checkpoint'] and admission['journal']==spec['checkpoint']['journal']
+             and predecessor.stat().st_size==spec['checkpoint']['bytes']
+             and hashlib.sha256(predecessor.read_bytes()).hexdigest()==spec['checkpoint']['sha256'],
+             'EXACT_PREDECESSOR_PRESERVED')
+        tail=admission['recovered_tail'];tail_path=lineage/tail['file']
+        need(tail_path.stat().st_size==tail['bytes'] and hashlib.sha256(tail_path.read_bytes()).hexdigest()==tail['sha256'],
+             'RECOVERED_TAIL_PRESERVED')
+        inherited={r['file']:r for r in json.loads((lineage/'previous-retained-checkpoints.json').read_bytes())}
+        equality=json.loads((root/'packed-input-equivalence.json').read_bytes())
+        need(equality['prior_state_sha256']==spec['checkpoint']['state_sha256']
+             and equality['reference_input_sha256']==equality['packed_input_sha256']
+             and equality['complete_published_input_equal'] is True,'PACKED_INPUT_EQUIVALENCE')
+    need(plan_record['source_sha256']==origin_binding and status.get('origin_source_sha256',origin_binding)==origin_binding,
+         'ORIGINAL_SOURCE_IDENTITY')
     profiles_,baseline=profiles(protocol);source=Path('/src/sentinel/controller/owned_impairment.py')
     sha=hashlib.sha256(source.read_bytes()).hexdigest();leaves={p.id:leaf(source,p,sha) for p in profiles_}
     leaf_states={key:m.fresh() for key,m in leaves.items()}
@@ -51,13 +77,17 @@ def review(evidence,inputs,prefix_inputs,request,output):
     source_sids.update(s for row in frames[1:] for s in row['prices'])
     classified=json.loads((Path(prefix_inputs)/'capture/classification.json').read_bytes())
     ticker_to_sid={r['ticker']:r['asset_id'] for r in classified['selected']}
-    selected_tickers={t for t,s in ticker_to_sid.items() if s in source_sids};raw_prices={}
+    selected_tickers={t for t,s in ticker_to_sid.items() if s in source_sids};raw_prices={};spy={}
     from sentinel.feed.alpaca_observation import bar_page_rows
     axis=set(calendar.sessions_in_range(protocol['data_start'],protocol['data_end']))
     from itertools import chain
     for proof,reply in chain(responses(Path(prefix_inputs)),responses(Path(inputs))):
         params=proof.get('params') or {}
-        if not proof['endpoint'].endswith('/bars') or params.get('adjustment')!='raw':continue
+        if not proof['endpoint'].endswith('/bars'):continue
+        if params.get('adjustment')=='all' and 'SPY' in reply.get('bars',{}):
+            for (_,day),bar in bar_page_rows({'SPY':reply['bars']['SPY']},symbols={'SPY'},sessions=axis).items():
+                need(day not in spy,'SPY_REVIEW_DUPLICATE');spy[day]=bar
+        if params.get('adjustment')!='raw':continue
         selected={t:rows for t,rows in reply['bars'].items() if t in selected_tickers}
         for (ticker,day),bar in bar_page_rows(selected,symbols=selected_tickers,sessions=axis).items():
             key=(ticker_to_sid[ticker],day);need(key not in raw_prices,'RAW_REVIEW_DUPLICATE');raw_prices[key]=bar
@@ -70,6 +100,9 @@ def review(evidence,inputs,prefix_inputs,request,output):
         day=row['session'];need(row['prior_state_sha256']==prior,'STATE_CHAIN')
         if last:need(day==calendar.next_session(last),'DAILY_AXIS')
         else:need(day==plan.axis[299],'FIRST_FORMATION_SESSION')
+        need(Q(str(row['spy_close_adjusted']))==Q(str(spy[day]['close'])),'SPY_CLOSE_PREIMAGE')
+        if 'spy_open_adjusted' in row:
+            need(Q(str(row['spy_open_adjusted']))==Q(str(spy[day]['open'])),'SPY_OPEN_PREIMAGE')
         for sid,quote in row['prices'].items():
             actual=raw_prices[(sid,day)]
             need(Q(quote['raw_open'])==Q(str(actual['open'])) and Q(quote['raw_close'])==Q(str(actual['close'])),'RAW_PRICE_PREIMAGE')
@@ -121,7 +154,11 @@ def review(evidence,inputs,prefix_inputs,request,output):
         value=json.loads(gzip.decompress(path.read_bytes()));cp=value['canonical']
         restored=Formation.resume(cp,plan=plan).state if value['formation'] else SessionState.from_dict(cp)
         need(restored.state_hash==receipt['state_sha256'] and restored.last_processed_session==receipt['session'],'CP_CANONICAL_RESTORE')
-        need(value['source_sha256']==binding and value['protocol_sha256']==request['protocol_sha256']
+        if receipt['file'] in inherited:
+            need(receipt==inherited[receipt['file']],'OLD_CHECKPOINT_RECEIPT_UNCHANGED')
+        else:
+            need(value['source_sha256']==binding and value.get('origin_source_sha256',origin_binding)==origin_binding,'CP_EXECUTION_SOURCE')
+        need(value['protocol_sha256']==request['protocol_sha256']
              and value['dataset_sha256']==request['dataset_sha256'],'CP_LINEAGE')
         commit=value['journal'];need(prefixes[commit['bytes']]==(commit['sha256'],commit['records'],commit['chain_sha256']),'HISTORICAL_PREFIX')
         row=by_session[value['session']];need(row['state_sha256']==restored.state_hash,'CP_JOURNAL_STATE')
@@ -135,11 +172,21 @@ def review(evidence,inputs,prefix_inputs,request,output):
             if value['session'] is not None:need(value['controller_states'][key]==row['owned55_profiles'][key]['state'],'CP_CONTROLLER_STATES')
         reviewed.append({'file':receipt['file'],'canonical_restore':True,'historical_prefix':True})
     complete=formation_count==126 and measured_count==len(plan_record['measured_axis'])
+    need(formation_count==status['formation_count'] and measured_count==status['measured_records'],'REVIEW_PROGRESS_COUNTS')
+    if request.get('continuation'):
+        spec=request['continuation'];old_commit=spec['checkpoint']['journal']
+        need(prefixes[old_commit['bytes']]==(old_commit['sha256'],old_commit['records'],old_commit['chain_sha256']),
+             'UNCHANGED_OWN_COMMITTED_PREFIX')
+        new_rows=frames[old_commit['records']:]
+        need(not new_rows or new_rows[0]['session']==calendar.next_session(spec['checkpoint']['session']),
+             'EXACT_ADJACENT_SUFFIX_START')
+        need(set(inherited).issubset(r['file'] for r in retained),'ALL_OLD_CHECKPOINTS_RETAINED')
     need(not complete or status['status']=='CANONICAL_BASELINE_TRACE_COMPLETE','COMPLETE_STATUS')
     result={'schema':'research.alpaca-fit-baseline-independent-review/1','status':'COMPLETE_TRACE_REVIEWED' if complete else 'PARTIAL_PREFIX_REVIEWED',
         'formation_closes':formation_count,'measured_closes':measured_count,'last_committed_session':last,
         'raw_price_preimages':checked_prices,'registered_controller_paths':108,'retained_checkpoints':reviewed,
-        'all_journal_bytes_committed':True,'uncommitted_tail_bytes':0,'source_sha256':binding,
+        'all_journal_bytes_committed':True,'uncommitted_tail_bytes':0,'source_sha256':binding,'origin_source_sha256':origin_binding,
+        'old_prefix_and_origin_preserved':bool(request.get('continuation')),
         'funded_account_performance_admitted':False,'production_contacted':False}
     save(out/'independent-review.json',result)
     return result
