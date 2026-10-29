@@ -161,14 +161,18 @@ def review(root,output):
     complete=saved['source_cursor']==backtest.END and saved['completed']==2156
     need(not complete or counts=={'formation':126,'daily':2156} and all(t['bytes']==0 for t in tails.values()),'COMPLETE_AXIS_AND_TAILS')
     # Every daily chain includes the source-bound state hash and full accounting.
-    chain=backtest.hash_value(base)
+    chain=backtest.hash_value(base);successors=[]
     for raw in (root/'watch.jsonl').read_bytes().splitlines():
         event=json.loads(raw)
-        if event.get('schema')=='research.pooled-action-successor/1':chain=backtest.hash_value({'previous':chain,'event':event})
+        if event.get('schema')=='research.pooled-action-successor/1':successors.append(event)
     for row in rows:
+        while successors and successors[0]['unchanged_through']<row['session']:
+            event=successors.pop(0);chain=backtest.hash_value({'previous':chain,'event':event})
         chain=backtest.hash_value({'previous':chain,'session':row['session'],'state_sha256':row['state_sha256'],'economics':row['economics']})
         need(chain==row['chain_sha256'],'EVERY_DAILY_CHAIN')
-    if rows:need(chain==saved['chain'],'FINAL_CHAIN_COMMITMENT')
+    while successors and successors[0]['unchanged_through']<=saved['source_cursor']:
+        event=successors.pop(0);chain=backtest.hash_value({'previous':chain,'event':event})
+    need(not successors and chain==saved['chain'],'FINAL_CHAIN_COMMITMENT')
     months=monthly_metrics(root,backtest.START) if complete else None
     proof={'schema':'research.full-system-core-review/1','status':'COMPLETE_CORE_REVIEW_PASSED' if complete else 'PARTIAL_CORE_PREFIX_REVIEWED',
         'complete':complete,'counts':counts,'accounting_snapshots':accountings,'canonical_checkpoints':len(checkpoints),
