@@ -56,3 +56,16 @@ and preserve any actual stopped corrected prefix so it can continue from its
 own current checkpoint; never restart the origin or adopt unknown output.
 No certificate or economic result exists until actual hosted evidence passes.
 PAPER, deployment and production source remain untouched.
+
+The proof export preserves the exact incoming encrypted ancestor ZIP as an
+opaque SHA-bound member, alongside the new physical prefix and reviews. This
+retains every original checkpoint/journal/tail byte without duplicating the
+expanded old tree in the next export. The old ZIP and extracted old tree stay
+unchanged on the hosted VM. Subsequent numerical admission authenticates the
+original financial export and this proof separately.
+
+The existing default incoming archive cap remains256MiB. Proof and joint-numerical callers may
+explicitly select512MiB for an exact SHA/length-pinned large completed source;
+no other cap is permitted. The1GiB plaintext inventory limit and all existing
+GCM, inventory, actual-stop, source, checkpoint and prefix guards remain. The
+choice changes transfer capacity, not financial admission or worker fences.

@@ -4,7 +4,7 @@
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
   "sources": {
     "system_campaign_diagnostic_job.py": "08f986085defd48f2c79548d5741667de7ff487c415d370244a4d3e01cf96964",
-    "system_campaign_factual_admit.py": "3354983a11c56530174aa6d09a931e41a4158428560a738ce577eeedea6180ca",
+    "system_campaign_factual_admit.py": "f1e1434cf29c3b3c7550720d080a9c044e2a3aea3b71bb707de325654220eb5e",
     "full_system_benchmark.py": "218b43bc86215984c45cdb6c7b8e52dd7a9c78d3906ee75d6695df1d142e89b5",
     "probe.py": "1008ed254c63c60269bbb6063b61c7c85e44943fabfd12d320d4327c9448a9a9",
     "seal.py": "9671e34e6895e594d20e6e1800c4899092c2da32ac33af7fecc93e26371bcc95",
@@ -16,107 +16,29 @@
     "stage.py": "2ab2596762e059c6178361b45295739a14973992701ca95ee0e77d34b534f163"
   },
   "arms": {
-    "P03": {
-      "artifact_id": 12939990403,
-      "zip_bytes": 112649933,
-      "zip_sha256": "f29b9550c4055b332d890e148a8929c3feb53b7ec894a8d14d5acf45838264f4",
-      "receipt_name": "campaign-factual-P03.json",
-      "receipt_sha256": "4cae3f9957ef2c14b6898eb07e97c343542530ae1e81be6f7846d1a541cf4161",
+    "P01": {
+      "artifact_id": 12939129405,
+      "zip_bytes": 204238992,
+      "zip_sha256": "6d92153a2e8a78ce8a4f76ff729f6e1c79a9eb5b282e2f2182839c5bf1823742",
+      "receipt_name": "campaign-factual-P01.json",
+      "receipt_sha256": "75d812881a712e1e9ab1a6bbfc9bb9d99c9d6ffcf8d9adbe80f3b56471be9285",
       "encrypted_output": {
-        "name": "campaign-factual-P03.tar.crseal",
-        "bytes": 112646732,
-        "sha256": "a8a0e2acec4f2604d160bec3d81afd210c4431cc40752e5adb5ae746de9eccea",
-        "manifest_sha256": "86220ed0a9d53747be9db51b26eacc2fed335f85b05f54ac86d1b5f98dc63f15",
+        "name": "campaign-factual-P01.tar.crseal",
+        "bytes": 204235791,
+        "sha256": "fbca761a48628662fb877ebc03bf520a6d1835580dc24c447c01af9d84396f3b",
+        "manifest_sha256": "7e44d9260daa61b8cf29119c05f977ee76b2947da20ba03c4efad70d85919374",
         "compression": "TAR_GZIP_V1"
       },
       "run_id": 40968169938,
       "head": "1a0e0102e8002671458f73abf897dc757a5c044c",
       "selected_members": {
         "source-bindings.json": {
-          "bytes": 60980,
-          "sha256": "67054bed611978d386aa63843b82e51a8450a2bf54db3759f44e5435aa0faaa9"
+          "bytes": 61201,
+          "sha256": "cbff432d861381735e7bba6ecd79491b059405cde8840cc2d128dbbad85d0b14"
         },
-        "book/predecessor-checkpoints/8f798c35c58f5216e6cf2570e9495ff20a2e92d0bf179317865230d2bf13cebb.json.gz": {
-          "bytes": 1022267,
-          "sha256": "0179b6f424b1eacb201db17fbb16f2ad0330db8de73d1f873165126696f5caa0"
-        }
-      }
-    },
-    "P04": {
-      "artifact_id": 12940036163,
-      "zip_bytes": 118397426,
-      "zip_sha256": "e35731a94b85a12995082ba35c11c30743d06347de537d79306f09bf22dd976c",
-      "receipt_name": "campaign-factual-P04.json",
-      "receipt_sha256": "5135af4399832daec8208960d26308630d1f043110a142a963d02cde839a8346",
-      "encrypted_output": {
-        "name": "campaign-factual-P04.tar.crseal",
-        "bytes": 118394225,
-        "sha256": "a010cabb1ca82b0212411414947f7c043f10d7868085fd0dd5d61a258c795cf5",
-        "manifest_sha256": "c03f731d05c7d2870a635a30be5f51286f2d6ce214197810a5a2ee8047371947",
-        "compression": "TAR_GZIP_V1"
-      },
-      "run_id": 40968169938,
-      "head": "1a0e0102e8002671458f73abf897dc757a5c044c",
-      "selected_members": {
-        "source-bindings.json": {
-          "bytes": 61200,
-          "sha256": "6782a458d749d2ef60a7fc7fe99f75b5f0ad32dc67f0b26c8976ad1d5e5a5339"
-        },
-        "book/predecessor-checkpoints/eb100142559b23b088dffece9ebd70f4e0d1ff8178e4d673c66878409cdb54fe.json.gz": {
-          "bytes": 794030,
-          "sha256": "5b402301a38df1c282074675e75df53e8cb4d1a7a9c5b77119e3372bdcdf4244"
-        }
-      }
-    },
-    "P02": {
-      "artifact_id": 12938624211,
-      "zip_bytes": 62849126,
-      "zip_sha256": "87cdfacbe485b7d6dced0a8e1061abe520aef4006dd78d3682372c4802b65c6d",
-      "receipt_name": "campaign-factual-P02.json",
-      "receipt_sha256": "400d6a2ce839d8e23438d67b7e2d2c6bbf9c64d2cd7d334dd8daec1d37ab3f37",
-      "encrypted_output": {
-        "name": "campaign-factual-P02.tar.crseal",
-        "bytes": 62845926,
-        "sha256": "0eda38b1f4be016253ac283d4857123f045d6e304a7887e5da4447a41df02781",
-        "manifest_sha256": "ab4d47c5221bec588e5aa0b2c1aaecacefe1365b61a7400439e5fcea706c3ea4",
-        "compression": "TAR_GZIP_V1"
-      },
-      "run_id": 40968169938,
-      "head": "1a0e0102e8002671458f73abf897dc757a5c044c",
-      "selected_members": {
-        "source-bindings.json": {
-          "bytes": 61203,
-          "sha256": "d426b8258e5c16b401cd22718a290abe2a89f73c42a8ee2a14950f90c6c4a289"
-        },
-        "book/predecessor-checkpoints/03256b176783a15e632611b871202bb4b9a02c628b715498a3b4755c5c5f8bec.json.gz": {
-          "bytes": 778524,
-          "sha256": "abe8d47bc6c5b495964d95bfeaaa13f4cae8fc3f3758fa002ace234a0d89bd16"
-        }
-      }
-    },
-    "P07": {
-      "artifact_id": 12939417243,
-      "zip_bytes": 157258728,
-      "zip_sha256": "971accc3e1559dc725c513df708876e004cabd467bda4b5a0c74c3c6293ab913",
-      "receipt_name": "campaign-factual-P07.json",
-      "receipt_sha256": "8bc8b94dece6a6f0629dbcd7b0fbc0603bd5c116e9e367e01a567be5596c973b",
-      "encrypted_output": {
-        "name": "campaign-factual-P07.tar.crseal",
-        "bytes": 157255527,
-        "sha256": "d95c5b7d15d2037891c81c0340a2625e6f74a810259133266f17cea204a03378",
-        "manifest_sha256": "b346c0e7e699ed6a95272781dff7966095898c50b94116846af38865506787fe",
-        "compression": "TAR_GZIP_V1"
-      },
-      "run_id": 40968169938,
-      "head": "1a0e0102e8002671458f73abf897dc757a5c044c",
-      "selected_members": {
-        "source-bindings.json": {
-          "bytes": 61209,
-          "sha256": "6598c227737d1696c6cd85fb18c15813643933663228c7bfc363efa2e358c27b"
-        },
-        "book/predecessor-checkpoints/520c706ddccaf042d459e6e5455b2928902f132ef34475c05accaf5d9c3e51c9.json.gz": {
-          "bytes": 871998,
-          "sha256": "3c40be9b5492b8e60d74496ef53d9e4760dafb5cb3473e5b9b8b178b136528ec"
+        "book/predecessor-checkpoints/c89abc41b51f814669e3ed747bb7dfb6b148195b946c9559a068b4a8fa14843c.json.gz": {
+          "bytes": 1141495,
+          "sha256": "4f3771428613456b51a71245a2ff4907fc7d79a5dcca842239b64c8972d4854c"
         }
       }
     }

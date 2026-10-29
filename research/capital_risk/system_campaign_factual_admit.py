@@ -47,9 +47,14 @@ class AuthenticatedStream:
         self.dec.finalize();self.done=True;return b''
 
 
-def admit(spec,root,key):
-    root=hosted_destination(root);root.mkdir(mode=0o700)
-    need(spec['zip_bytes']<256*1024**2,'FACTUAL_ENCRYPTED_DOWNLOAD_BOUND')
+def archive_bound(spec,limit):
+    need(type(limit) is int and limit in (256*1024**2,512*1024**2),
+         'FACTUAL_DECLARED_ARCHIVE_LIMIT')
+    need(type(spec['zip_bytes']) is int and 0<spec['zip_bytes']<limit,'FACTUAL_ENCRYPTED_DOWNLOAD_BOUND')
+
+
+def admit(spec,root,key,*,max_zip_bytes=256*1024**2):
+    root=hosted_destination(root);archive_bound(spec,max_zip_bytes);root.mkdir(mode=0o700)
     archive=root/'predecessor.zip'
     with archive.open('xb') as out:
         subprocess.run(['gh','api',f"repos/flabber1835/stocker/actions/artifacts/{spec['artifact_id']}/zip"],stdout=out,check=True,timeout=180)

@@ -40,6 +40,7 @@ def expected_request(specifications):
         'tgi_catalog_sha256':sha256_file(HERE/'system-campaign-tgi-cash-facts.json'),
         'sources':{n:sha256_file(HERE/n) for n in SOURCES},'worker_wait_seconds':7200,
         'review_wait_seconds':3600,'artifact_retention_days':7,'new_core_financial_sessions':0,
+        'source_archive_limit_bytes':512*1024**2,
         'global_selection_performed':False,'production_contacted':False}
 
 
@@ -99,7 +100,7 @@ def main(args):
          'JOINT_EXACT_FROZEN_STAGING')
     key=base64.b64decode(os.environ.pop(SECRET,''),validate=True);need(len(key)==32,'KEY')
     temp=Path(os.environ['RUNNER_TEMP']);frozen=temp/'capital-risk-stage-001/inputs'
-    core=admit(spec,temp/('campaign-factual-transfer-joint-'+args.arm),key);os.environ.pop('GH_TOKEN',None)
+    core=admit(spec,temp/('campaign-factual-transfer-joint-'+args.arm),key,max_zip_bytes=512*1024**2);os.environ.pop('GH_TOKEN',None)
     proof=json.loads((core/'core-review.json').read_bytes())
     need(proof['complete'] and proof['counts']=={'formation':126,'daily':2156}
          and proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified'],
