@@ -8,6 +8,7 @@ from system_campaign_acceleration import Execution
 from system_campaign_facts import FactualInputs,CATALOG_REF,sha
 from system_campaign_terminal_facts import TerminalFacts
 from system_campaign_winter_facts import WinterCash
+from system_campaign_spring_facts import SpringFacts
 from system_campaign_terminal_run import merge_future_documents
 from system_campaign_factual_run import preflight,correlation_seed,SeededObservation,preserve_tails,review as canonical_review
 from system_campaign_equivalence import compare_buffers,compare_cutoff,compare_records
@@ -99,6 +100,9 @@ def run(out,old,spec):
     winter.hydrate(out/'hydrated-corrected-winter-cash-catalog.json');winter.overlay(cp,out/'winter-component.json')
     merged=merge_future_documents(json.loads((out/'additional-component.json').read_bytes()),
                                   json.loads((out/'winter-component.json').read_bytes()))
+    spring=SpringFacts('/driver/system-campaign-spring-terminal-facts.json')
+    spring.hydrate(out/'hydrated-spring-terminal-catalog.json');spring.overlay(cp,out/'spring-component.json')
+    merged=merge_future_documents(json.loads((out/'spring-component.json').read_bytes()),merged)
     path=out/'basis-input-overlay.json';save(path,merged)
     from research.pooled_vacancy_funding.repair import load_repair
     loaded=load_repair(path,resume_session=cp['source_cursor'],predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
@@ -118,6 +122,7 @@ def run(out,old,spec):
     args=arguments(out/'book',True);args[args.index('--policy')+1]=cp['base']['policy']
     with v1:
         additional.qualify(loaded,out/'additional-input-qualification.json');winter.qualify(loaded,out/'winter-input-qualification.json')
+        spring.qualify(loaded,out/'spring-input-qualification.json')
         inputs.packets=packets;adapter.Buffer=construct
         try:
             with observer:

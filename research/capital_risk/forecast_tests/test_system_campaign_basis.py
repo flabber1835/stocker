@@ -1,9 +1,10 @@
 """A common factual basis cannot conceal different economic terms."""
-import ast,copy
+import ast,copy,hashlib,json
 from pathlib import Path
 import pytest
 from system_campaign_basis import semantics
 from system_campaign_facts import digest
+import system_campaign_basis as module
 
 
 def data():
@@ -46,3 +47,39 @@ def test_actual_compiler_guard_removal_falsifier():
     node=Remove().visit(node);scope=dict(semantics.__globals__)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'<removed-fact-compiler-guard>','exec'),scope)
     assert scope['semantics'](base,[one],refs)['declared_fact_compilers']['facts']=='0'*64
+
+
+def test_spring_hydration_is_required_and_actual_omission_falsifier(tmp_path,monkeypatch):
+    driver=tmp_path/'driver';driver.mkdir();evidence=tmp_path/'evidence';evidence.mkdir()
+    names={module.CATALOG_REF:driver/'system-campaign-factual-catalog.json',
+        module.COMPILER_REF:driver/'system_campaign_facts.py',module.HYDRATED_REF:evidence/'hydrated-factual-catalog.json',
+        module.ADDITIONAL:driver/'system-campaign-additional-terminal-facts.json',
+        module.ADDITIONAL_COMPILER:driver/'system_campaign_terminal_facts.py',
+        module.ADDITIONAL_HYDRATED:evidence/'hydrated-additional-terminal-catalog.json',
+        module.WINTER:driver/'system-campaign-corrected-winter-facts.json',
+        module.WINTER_COMPILER:driver/'system_campaign_winter_facts.py',
+        module.WINTER_HYDRATED:evidence/'hydrated-corrected-winter-cash-catalog.json',
+        module.SPRING:driver/'system-campaign-spring-terminal-facts.json',
+        module.SPRING_COMPILER:driver/'system_campaign_spring_facts.py',
+        module.SPRING_HYDRATED:evidence/'hydrated-spring-terminal-catalog.json'}
+    for ref,p in names.items():p.write_bytes(ref.encode())
+    refs={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()}
+    document={'schema':'terminal-repair/1','source_evidence':[{'reference':k,'sha256':v} for k,v in refs.items()],
+        'suppress':[],'add':[]}
+    repair=evidence/'book/repairs/r.json';repair.parent.mkdir(parents=True);repair.write_text(json.dumps(document))
+    cp={'base':{'bundle_sha256':'a'*64,'archive_sha256':'b'*64},
+        'repairs':[{'filename':'r.json','sha256':hashlib.sha256(repair.read_bytes()).hexdigest()}]}
+    def path(value):return driver/Path(value).name if str(value).startswith('/driver/') else Path(value)
+    monkeypatch.setattr(module,'Path',path)
+    assert set(module.basis(evidence,cp)[1]['declared_fact_compilers'])==set(refs)
+    names[module.SPRING_HYDRATED].unlink()
+    with pytest.raises(ValueError,match='ACTUAL_COMPLETE_FACT_FILES'):module.basis(evidence,cp)
+    node=next(n for n in ast.parse(Path(module.basis.__code__.co_filename).read_bytes()).body
+        if isinstance(n,ast.FunctionDef) and n.name=='basis')
+    mapping=next(n.value for n in node.body if isinstance(n,ast.Assign) and isinstance(n.value,ast.Dict))
+    pairs=[(k,v) for k,v in zip(mapping.keys,mapping.values) if not isinstance(k,ast.Name) or not k.id.startswith('SPRING')]
+    mapping.keys=[k for k,v in pairs];mapping.values=[v for k,v in pairs]
+    scope=dict(module.basis.__globals__)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
+        '<removed-spring-basis-requirements>','exec'),scope)
+    assert module.SPRING not in scope['basis'](evidence,cp)[1]['declared_fact_compilers']

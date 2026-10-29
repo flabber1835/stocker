@@ -8,6 +8,9 @@ from system_campaign_winter_facts import CATALOG as WINTER,COMPILER as WINTER_CO
 ADDITIONAL='research:system-optimization-002/additional-terminal-catalog/1'
 ADDITIONAL_COMPILER='research:system-optimization-002/additional-terminal-compiler/1'
 ADDITIONAL_HYDRATED='research:system-optimization-002/additional-private-terminal-catalog/1'
+SPRING='research:system-optimization-002/spring-terminal-catalog/1'
+SPRING_COMPILER='research:system-optimization-002/spring-terminal-compiler/1'
+SPRING_HYDRATED='research:system-optimization-002/spring-private-terminal-catalog/1'
 
 
 def semantics(base,documents,expected):
@@ -41,7 +44,10 @@ def basis(evidence,cp):
         ADDITIONAL_HYDRATED:evidence/'hydrated-additional-terminal-catalog.json',
         WINTER:Path('/driver/system-campaign-corrected-winter-facts.json'),
         WINTER_COMPILER:Path('/driver/system_campaign_winter_facts.py'),
-        WINTER_HYDRATED:evidence/'hydrated-corrected-winter-cash-catalog.json'}
+        WINTER_HYDRATED:evidence/'hydrated-corrected-winter-cash-catalog.json',
+        SPRING:Path('/driver/system-campaign-spring-terminal-facts.json'),
+        SPRING_COMPILER:Path('/driver/system_campaign_spring_facts.py'),
+        SPRING_HYDRATED:evidence/'hydrated-spring-terminal-catalog.json'}
     need(all(p.is_file() for p in names.values()),'COMMON_BASIS_ACTUAL_COMPLETE_FACT_FILES')
     expected={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()};documents=[]
     for spec in cp['repairs']:

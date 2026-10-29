@@ -22,7 +22,7 @@ SOURCES=tuple(dict.fromkeys((*CORE_SOURCES,'system_campaign_numeric_job.py','sys
     'system_campaign_confirm.py','system_campaign_selection.py','alpaca_fit_collect.py','alpaca_fit_compare.py',
     'alpaca_fit_identity_repair.py','alpaca_fit_inputs.py','alpaca_fit_merger_roles.py','alpaca_fit_prior.py',
     'alpaca_fit_relay.py','alpaca_fit_resume.py','core_lineage_review.py','forecast_collect.py','local_stage.py',
-    'owned_grid_worker.py','policy.py','trace_screen.py','system_campaign_winter_facts.py')))
+    'owned_grid_worker.py','policy.py','trace_screen.py','system_campaign_winter_facts.py','system_campaign_spring_facts.py')))
 
 
 def expected_request(specifications):
@@ -34,6 +34,7 @@ def expected_request(specifications):
         'catalog_sha256':sha256_file(HERE/'system-campaign-factual-catalog.json'),
         'additional_catalog_sha256':sha256_file(HERE/'system-campaign-additional-terminal-facts.json'),
         'winter_catalog_sha256':sha256_file(HERE/'system-campaign-corrected-winter-facts.json'),
+        'spring_catalog_sha256':sha256_file(HERE/'system-campaign-spring-terminal-facts.json'),
         'sources':{n:sha256_file(HERE/n) for n in SOURCES},'worker_wait_seconds':7200,
         'review_wait_seconds':3600,'artifact_retention_days':7,'new_core_financial_sessions':0,
         'global_selection_performed':False,'production_contacted':False}

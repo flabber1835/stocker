@@ -698,3 +698,13 @@ state difference, later input change or buffer mismatch refuses equivalence.
 The newly computed suffix is preserved and can continue as its own corrected
 book if equivalence fails. This proof runs only on hosted compute, after the old
 writer is positively stopped. Report its actual replayed transition count.
+
+An unchanged bounded worker may reach its time limit before the requested end.
+After its exact current artifact, positive stopped inspection, canonical review
+and all prefixes/tails are authenticated, continue only its current checkpoint.
+No new overlay, source successor, origin, parameters or input policy is allowed
+in this finish-only continuation. Reject an earlier checkpoint or an already
+complete book. Preserve the stopped branch and recover its exact unsent tails;
+carry immutable hydration/capture evidence forward. Finished other books remain
+preserved while a slower reference continues. This is part of the existing
+study, not a fresh rerun or another optimization candidate.
