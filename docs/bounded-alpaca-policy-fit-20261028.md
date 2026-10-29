@@ -483,6 +483,51 @@ Core financial, checkpoint and prefix checks remain. Registry membership is
 metadata-driven; separate issuer research covers the observed CLSK example,
 not every future entry. The provider-truth and current-cohort limits remain.
 
+## Factual identity failure and corrected initialization
+
+The original source trial is factually invalid for parameter fitting. A
+contaminated identity reached retained path-dependent controller state;
+the exact membership and checkpoint proof remain in the private evidence.
+Authenticated CLBR responses
+include hundreds of observations before Colombier III's August 15, 2025
+inception; 258 full raw records in the used July 2024–July 2025 interval match
+PEW exactly. The former Colombier II became PEW, whereas current CLBR is
+Colombier III. Their current FIGIs and legal issuers differ. See Colombier III's
+[inception filing](https://www.sec.gov/Archives/edgar/data/2091024/000121390026089080/ea0301143-10q_colombier3.htm)
+and [separate-trading announcement](https://www.sec.gov/Archives/edgar/data/2091024/000121390026034101/ea028302001-8k_colomb3.htm).
+
+The earlier accounting and restore proofs remain valid conditional on their
+actual inputs. They do not prove that those inputs describe the right issuer.
+Preserve all original trials, checkpoints, journals and capture bytes with an
+explicit factual-validity refusal. Do not score that trace or continue its
+contaminated state as though the missing identity were merely a buyer role.
+
+The owner's instruction to carry this same study through results includes
+necessary research data corrections. A distinct corrected-input trial must
+initialize fresh canonical formation; no state is copied, edited or relabelled
+from the invalid trial. This is a new dataset/source-policy identity, not an
+economic rule change. Keep the 108 settings, dates, capital, costs and selection
+protocol unchanged. PAPER remains untouched.
+
+Before that new origin, freeze a metadata-only temporal identity policy. Use
+source-record and current FIGI bindings to distinguish true same-issue aliases,
+current stale/reused ticker identities, and changed-CUSIP successor securities.
+Do not admit a successor's price history before its supported issue boundary.
+CLBR III's common-share boundary is March 27, 2026; PEW's successor boundary is
+July 16, 2025. Unknown reused-issuer boundaries must quarantine that current ID,
+not invent an IPO date. Same-issue duplicate current IDs must not receive two
+universe votes. A collision screen is evidence for quarantine, not authority to
+merge issuers or synthesize prices. No return, drawdown, holdings or candidate
+score determines membership.
+
+Rebuild source facts as initial metadata interpretation, bound to the original
+capture and complete policy before formation. Valid same-CUSIP names and
+acquirer-only facts retain their exact record/preimage guards. Initial source
+facts have no predecessor financial identity; never borrow hard-bound anchors
+from the invalid trial. Genuine economic conversions and unsupported terms
+retain their ordinary refusals. The corrected current-cohort history still is
+not a point-in-time market-universe archive or unseen out-of-sample evidence.
+
 ## Bounded funded workflow contract
 
 Use a distinct `alpaca-funded-request.json` trigger, separate from the Core
