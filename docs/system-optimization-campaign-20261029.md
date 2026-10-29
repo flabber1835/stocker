@@ -116,6 +116,32 @@ specifications. A distinct request may resume the same untouched January 11
 checkpoints after this zero-advancement refusal; this is not recovery or rollback
 of an unknown financial run. No economic exclusion or source conversion follows.
 
+Initial candidate Core paths run on up to 12 dedicated standard hosted VMs in
+parallel, independently of the official B/B0 continuation. Each has 12,600 seconds
+for financial work, 2,700 for review and a 285-minute job. Actual parameter and
+canonical cases run inside that same fenced worker before its financial origin;
+there is no separate repeated qualification campaign. Capture actual raw causal
+correlation observations during all financial formation and measured transitions.
+The following numerical controller/correlation phase will consume these stopped,
+authenticated paths; financial success alone is not a joint-system result.
+
+New candidate reviewers mount the stopped financial root read-only at `/evidence`
+and write only their separate `/out` diagnostics. The existing canonical
+`Journal.verify` runs on the same Journal type with read-only stream handles and
+unready status; neither recovery nor append is called. Verification equations are
+unchanged. Only after a positively stopped reviewer may its outputs be copied into
+the final artifact. If a reviewer stop is unknown, the read-only financial root
+can still be preserved, but mutable reviewer outputs cannot be archived or admitted.
+
+The two current official continuation drivers each write a prefix-preservation
+proof at financial completion. Review must write its independent proof to a
+distinct filename. A duplicate exclusive-file path was found by source inspection
+after dispatch of 2c59f3dd; the live pinned worker is not modified. Its financial
+output remains valid if positively stopped and all proofs pass. If the final
+review exits on that duplicate path, preserve it and perform only a corrected
+stopped-evidence review, without financial replay. Future drivers use distinct
+worker/reviewer proof paths. Do not infer financial failure or rollback.
+
 The campaign search class will vary the actual active Core formula sites:
 momentum horizon 84/126/189/252; recent skip 10/21/42; named log/simple formation
 volatility; liquidity window 10/20/40; raw minimum price .5/1/5; average dollar

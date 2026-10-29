@@ -36,4 +36,4 @@ if __name__=='__main__':
     if a.mode=='economic':run(Path('/out/book'),a.acceleration)
     else:
         root=Path('/out/book');spec=json.loads((root.parent/'continuation-predecessor.json').read_bytes())
-        review(root,Path('/out/core-review.json'));save(Path('/out/predecessor-prefix-preservation.json'),preserve(root,spec))
+        review(root,Path('/out/core-review.json'));save(Path('/out/reviewed-predecessor-prefix-preservation.json'),preserve(root,spec))
