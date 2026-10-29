@@ -54,6 +54,19 @@ def canonical_account(prior,row,target,account):
     return value
 
 
+def startup_projection(economics,previous,target,number):
+    """Pure projection of the retained cold-start fields, not an account step."""
+    need(number in (0,1) and 0<=target<=1,'STARTUP_SCOPE')
+    if number==0:
+        need(previous is None and target==0 and economics['held_allocation'] is None
+            and D(economics['net_factor'])==1,'FIRST_CLOSE_UNFUNDED_ZERO_COMMITMENT')
+    else:
+        need(D(previous['pending_allocation'])==0 and economics['initial_deployment'] is True
+            and D(economics['held_allocation'])==0,'FIRST_FUNDED_OPEN_OLD_ZERO_COMMITMENT')
+    actual=deepcopy(economics);actual['pending_allocation']=format(D(str(target)).normalize(),'f')
+    return actual
+
+
 def evaluate_path(task):
     group,codes=task
     if time.monotonic()>_DEADLINE-120:return {'status':'NOT_STARTED_BUDGET','group':group}
@@ -66,8 +79,7 @@ def evaluate_path(task):
             day=row['session'];target=_LEVELS[codes[i]]
             if time.monotonic()>_DEADLINE-90:break
             if i<2:
-                need(target==0 and (i==0 or previous['pending_allocation']=='0'),'COLD_START_COMMON_ZERO_EXPOSURE')
-                actual=deepcopy(row['economics'])
+                actual=startup_projection(row['economics'],previous,target,i)
             else:
                 actual=canonical_account(previous,row,target,account);independent_factor(previous,row,actual)
             value={'session':day,'nav':actual['strategy_nav'],'gross':actual['gross_factor'],'net':actual['net_factor'],
@@ -110,8 +122,8 @@ def baseline_gate(rows,formation,protocol,sha):
         need(evidence==row['decision']['owned_impairment'],'BASELINE_ALL_CANONICAL_CONTROLLER_FIELDS')
         if row['phase']=='FORMATION':continue
         if count<2:
-            need(evidence['target']==0 and row['economics']['pending_allocation']=='0','BASELINE_SHARED_STARTUP')
-            actual=deepcopy(row['economics'])
+            actual=startup_projection(row['economics'],previous,evidence['target'],count)
+            need(actual==row['economics'],'BASELINE_COMPLETE_STARTUP_FIELDS')
         else:
             actual=canonical_account(previous,row,evidence['target'],account)
             independent_factor(previous,row,actual)

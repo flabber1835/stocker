@@ -24,14 +24,16 @@ def lines(path):
             need(raw.endswith(b'\n'),'REVIEW_COMPLETE_LINE');yield raw,json.loads(raw)
 
 
-def text(value):return format(D(value).normalize(),'f')
+def text(value):return format(D(str(value)).normalize(),'f')
 
 
 def check_account(previous,row,record,target,number):
     original=row['economics']
     if number<2:
-        need(target==0 and record['pending']==original['pending_allocation'],'REVIEW_COMMON_STARTUP')
-        expected=original
+        if number==0:need(previous is None and target==0 and original['held_allocation'] is None,'REVIEW_FIRST_UNFUNDED_CLOSE')
+        else:need(D(previous['pending_allocation'])==0 and original['initial_deployment'] is True
+            and D(original['held_allocation'])==0,'REVIEW_FIRST_FUNDED_OPEN')
+        expected={**original,'pending_allocation':text(target)}
     else:
         expected={**original,'previous_strategy_nav':previous['strategy_nav'],'strategy_nav':record['nav'],
             'strategy_cumulative_return':text(D(record['nav'])/D(_P['capital'])-1),'held_allocation':record['held'],

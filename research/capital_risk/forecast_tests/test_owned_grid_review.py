@@ -9,6 +9,21 @@ import owned_grid_review as review
 
 
 class EquationTests(unittest.TestCase):
+    def test_funded_startup_can_commit_nonzero_exposure_for_following_open(self):
+        from owned_grid_worker import startup_projection
+        previous={'pending_allocation':'0'}
+        economics={'initial_deployment':True,'held_allocation':'0','pending_allocation':'1','strategy_nav':'49950',
+            'gross_factor':'1','net_factor':'.999','transaction_cost_factor':'.999','turnover':'1'}
+        candidate=startup_projection(economics,previous,.55,1)
+        self.assertEqual(candidate['pending_allocation'],'0.55')
+        self.assertEqual(economics['pending_allocation'],'1')
+        self.assertEqual(candidate['held_allocation'],'0')
+        row={'session':'2008-02-25','economics':economics}
+        compact={'session':row['session'],'nav':'49950','gross':'1','net':'.999','cost':'.999',
+            'turnover':'1','held':'0','pending':'0.55'}
+        self.assertEqual(review.check_account(previous,row,compact,.55,1),candidate)
+        with self.assertRaises(ValueError):startup_projection(economics,{'pending_allocation':'.25'},.55,1)
+
     def sample(self):
         previous={'held_allocation':'0.55','pending_allocation':'0.25','parent_core_close_equity':'100','strategy_nav':'50000'}
         row={'session':'2020-01-03','economics':{'parent_core_open_equity':'90','parent_core_close_equity':'95',

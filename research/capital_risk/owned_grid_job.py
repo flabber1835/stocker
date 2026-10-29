@@ -26,7 +26,10 @@ SOURCES=('owned_grid.py','owned_grid_worker.py','owned_grid_review.py','owned_gr
 def request_value(specs,protocol_sha):
     return {'schema':'research.sharadar-owned55-grid-request/1','request_id':'sharadar-owned55-grid-001',
         'original_protocol_sha256':PROTOCOL,'protocol_sha256':protocol_sha,'source_files':specs,
-        'execution_image':EXECUTION_IMAGE,'production_contacted':False,'no_local_financial_execution':True}
+        'execution_image':EXECUTION_IMAGE,'production_contacted':False,'no_local_financial_execution':True,
+        'preserved_pre_search_refusal':{'run_id':40825055253,'head':'a2afd1635c5b09b9b023e25748b1a2034746ceb0',
+            'artifact_id':12876247293,'artifact_zip_sha256':'2f62d80e1391d914dbd5d8211963aa05e33f9f83c22ca25c0d7cff80ad8da589',
+            'actual_objective_account_origins':0,'actual_controller_path_origins':0}}
 
 
 def inspect(name,identity=None):
