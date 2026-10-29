@@ -77,7 +77,42 @@ CLOSEADJ_PERMITTED = (
 )
 
 
-def _closeadj_in_source(src, label):
+def _recovery_metadata_tokens(src, repository_path):
+    """Only exact static catalog declarations, never a recovery-file exemption."""
+    import ast
+
+    if str(repository_path) != 'sentinel/chain_progress_recovery.py':
+        return set()
+    tree = ast.parse(src)
+    owners = [node for node in tree.body
+              if isinstance(node, ast.FunctionDef) and node.name == '_source_digests']
+    if len(owners) != 1:
+        return set()
+    branch = ast.parse("name == 'sentinel_sep_staging'", mode='eval').body
+    branches = [node for node in ast.walk(owners[0])
+                if isinstance(node, ast.If) and ast.dump(node.test) == ast.dump(branch)]
+    if len(branches) != 1:
+        return set()
+    tokens = set()
+    for statement in (
+        "expected += [(field, 'double precision', False) for field in "
+        "('open', 'close', 'closeunadj', 'closeadj', 'volume')]",
+        "expected += [(field + '_source', 'text', False) for field in "
+        "('open', 'close', 'closeunadj', 'closeadj', 'volume')]",
+    ):
+        expected = ast.parse(statement).body[0]
+        matches = [node for node in branches[0].body
+                   if ast.dump(node) == ast.dump(expected)]
+        if len(matches) != 1:
+            return set()
+        for node in ast.walk(matches[0]):
+            if isinstance(node, ast.Constant) and node.value == 'closeadj':
+                tokens.add(((node.lineno, node.col_offset),
+                            (node.end_lineno, node.end_col_offset)))
+    return tokens
+
+
+def _closeadj_in_source(src, label, *, repository_path=None):
     """Executable-code occurrences of `closeadj` in one source string.
 
     COMMENTS and DOCSTRINGS are exempt — the module explaining why the column
@@ -112,17 +147,20 @@ def _closeadj_in_source(src, label):
             doc = body[0]
             doc_lines.update(range(doc.lineno, (doc.end_lineno or doc.lineno) + 1))
 
+    metadata = _recovery_metadata_tokens(src, repository_path or str(label))
     out = []
     for tok in tokenize.generate_tokens(io.StringIO(src).readline):
         if tok.type == tokenize.COMMENT or tok.start[0] in doc_lines:
             continue
         if "closeadj" in tok.string:
-            out.append(f"{label}:{tok.start[0]}: {tok.string}")
+            if (tok.start, tok.end) not in metadata:
+                out.append(f"{label}:{tok.start[0]}: {tok.string}")
     return out
 
 
 def _closeadj_occurrences(py):
-    return _closeadj_in_source(py.read_text(), py.relative_to(ROOT))
+    return _closeadj_in_source(py.read_text(), py.relative_to(ROOT),
+                               repository_path=py.relative_to(REPO).as_posix())
 
 
 class TestTheForbiddenColumn:
@@ -216,6 +254,59 @@ class TestTheForbiddenColumn:
             for p in CLOSEADJ_PERMITTED)
         assert "sentinel/regime" not in CLOSEADJ_PERMITTED
         assert "sentinel/regime/" not in CLOSEADJ_PERMITTED
+
+    def test_recovery_metadata_is_exactly_two_tokens_without_a_file_exemption(self):
+        path = 'sentinel/chain_progress_recovery.py'
+        source = (REPO / path).read_text()
+        assert path not in CLOSEADJ_PERMITTED
+        assert len(_recovery_metadata_tokens(source, path)) == 2
+        assert not _closeadj_in_source(source, path)
+        assert len(_closeadj_in_source(source, 'sentinel/another_recovery.py')) == 2
+        changed = source.replace("'closeadj','volume'", "'closeadj','turnover'")
+        assert changed != source
+        assert len(_closeadj_in_source(changed, path)) == 2
+
+    @pytest.mark.parametrize('read', [
+        'float(bar["closeadj"])', 'frame.closeadj', 'bar["closeadj_source"]',
+    ])
+    def test_recovery_metadata_still_rejects_a_price_read(self, read):
+        path = 'sentinel/chain_progress_recovery.py'
+        source = (REPO / path).read_text() + '\ndef forbidden(bar, frame):\n    return ' + read + '\n'
+        hits = _closeadj_in_source(source, path)
+        assert len(hits) == 1 and 'closeadj' in hits[0]
+
+    def test_recovery_metadata_does_not_exempt_other_tokens_on_the_same_line(self):
+        path = 'sentinel/chain_progress_recovery.py'
+        source = (REPO / path).read_text()
+        needle = "('open','close','closeunadj','closeadj','volume')]"
+        assert source.count(needle) == 2
+        changed = source.replace(needle, needle + '; value = bar["closeadj"]', 1)
+        assert len(_closeadj_in_source(changed, path)) == 1
+
+    def test_recovery_metadata_path_is_independent_from_the_ci_diagnostic_label(self, tmp_path, monkeypatch):
+        path = 'sentinel/chain_progress_recovery.py'
+        source = (REPO / path).read_text()
+        mirror = tmp_path / 'repo'
+        copied = mirror / path
+        copied.parent.mkdir(parents=True)
+        copied.write_text(source)
+        monkeypatch.setattr(sys.modules[__name__], 'ROOT', tmp_path)
+        monkeypatch.setattr(sys.modules[__name__], 'REPO', mirror)
+        assert not _closeadj_occurrences(copied)
+        copied.write_text(source + '\ndef forbidden(bar):\n    return bar["closeadj"]\n')
+        assert len(_closeadj_occurrences(copied)) == 1
+
+    def test_recovery_file_wide_literal_exemption_has_an_executed_falsifier(self, monkeypatch):
+        import ast
+
+        def broad(src, _path):
+            return {((node.lineno, node.col_offset), (node.end_lineno, node.end_col_offset))
+                    for node in ast.walk(ast.parse(src))
+                    if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and 'closeadj' in node.value}
+        monkeypatch.setattr(sys.modules[__name__], '_recovery_metadata_tokens', broad)
+        with pytest.raises(AssertionError):
+            self.test_recovery_metadata_still_rejects_a_price_read('float(bar["closeadj"])')
 
     def test_the_guard_CATCHES_a_dict_key_read(self):
         """The hole this narrowing closed.
