@@ -12,7 +12,6 @@ from selective_journal import Journal
 from system_campaign_correlation import ClassifierBatch
 from system_campaign_facts import digest
 from system_campaign_joint_space import joint_profiles,DEFAULT_CORRELATION
-from system_campaign_basis import basis
 
 LEVELS=(0.,.25,.55,.75,1.)
 
@@ -216,11 +215,13 @@ def value_paths(evidence,cp,rows,allcodes,registry,out):
     return training
 
 
-def run(evidence,out):
+def run(evidence,out,equivalence_proof=None):
     hosted();need(not out.exists(),'JOINT_OUTPUT_ALREADY_EXISTS');out.mkdir()
     started=time.monotonic();cp,allrows,origin=load_complete(evidence);registry=joint_profiles()
     source=json.loads((evidence/'source-bindings.json').read_bytes())
-    common_sha,common=basis(evidence,cp);write(out/'common-factual-basis.json',common)
+    from system_campaign_basis_admit import admitted_basis
+    common_sha,common,admission=admitted_basis(evidence,cp,equivalence_proof);write(out/'common-factual-basis.json',common)
+    write(out/'semantic-basis-admission.json',admission)
     write(out/'joint-registry.json',registry)
     ambers,denominators=classifier_paths(evidence,allrows,origin,registry,out)
     codes=controller_paths(allrows,ambers,denominators,registry,out,source['all_sources'])
@@ -233,4 +234,6 @@ def run(evidence,out):
 
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--evidence',type=Path,required=True)
-    parser.add_argument('--output',type=Path,required=True);args=parser.parse_args();run(args.evidence,args.output)
+    parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--equivalence-proof',type=Path)
+    args=parser.parse_args();run(args.evidence,args.output,args.equivalence_proof)

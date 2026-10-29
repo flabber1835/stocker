@@ -12,8 +12,11 @@ canonical state, B the entire adapter buffer and A all account/reporting/retry
 state. Source and fixed input identities must be identical. No broker state
 or randomness enters this recurrence.
 
-Replay from P00's own July31,2017 checkpoint with the additional, corrected
-Winter, Spring, grouped follow-up and TGI ordinary input components, through
+The authenticated completed export has no July31,2017 checkpoint. The earlier
+unlaunched proof design assumed one existed. Use P00's actual preserved
+July17,2017 checkpoint instead, retaining its June30 origin repair. Replay the
+unchanged v1 component plus additional, corrected Winter, Spring, grouped
+follow-up, midyear FMI/COL and TGI ordinary input components, through
 April30,2019. Compare every committed formation/daily/monthly record, complete
 canonical state, financial/reporting/retry state and bit-exact buffer material
 against the original own cutoff checkpoint. Any mismatch refuses equivalence.
@@ -24,7 +27,12 @@ After that cutoff the old and new suppress/add action maps must be identical,
 including every payload field and the native-term SHA used for suppression.
 Additional old input successors must all be ordinary terminal-repair documents,
 bound to their actual own future predecessor and committed watch event. Their
-resume dates and every affected date must be later than the cutoff. Canonically
+resume dates and every affected date must be later than their own predecessor.
+The old v1 successor is at the selected July17 boundary and precedes the cutoff;
+its actual payloads are therefore included when deriving the old future map.
+For successors after the cutoff, every affected date must also be after the
+cutoff. The old cutoff repair list must be the exact prefix of the completed
+list containing every successor applied by that cutoff. Canonically
 restore the actual predecessor and verify the event's state/input identities.
 An extra old action, changed cash amount, changed successor, or changed date
 refuses the proof. Earlier retained repair descriptors must match exactly.
@@ -69,3 +77,17 @@ explicitly select512MiB for an exact SHA/length-pinned large completed source;
 no other cap is permitted. The1GiB plaintext inventory limit and all existing
 GCM, inventory, actual-stop, source, checkpoint and prefix guards remain. The
 choice changes transfer capacity, not financial admission or worker fences.
+
+Numerical admission keeps two separate read-only inputs: the original complete
+P00 physical trace and the authenticated independently reviewed bounded proof.
+The proof must bind that exact complete outer checkpoint, the same full source
+binding and base, its actual new April2019 cutoff checkpoint and state hash,
+the current proof implementation, and the complete common factual basis. Both
+numerical worker and independent reviewer verify these links separately. Other
+Core profiles must possess the physical common basis. The returned semantic
+basis is identical in either mode; the output separately records whether a
+certificate or a complete physical replay supplied it. Missing, unreviewed,
+wrong-source or wrong-predecessor certificates refuse admission. The numerical
+driver authenticates the proof's own stopped workers, receipt, ciphertext and
+all inventory bytes before mounting it. This never adds descriptors to the
+original complete checkpoint or rewrites its input identity.

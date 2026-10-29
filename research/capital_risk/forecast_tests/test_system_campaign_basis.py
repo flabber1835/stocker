@@ -67,7 +67,10 @@ def test_spring_hydration_is_required_and_actual_omission_falsifier(tmp_path,mon
         module.FOLLOWUP_HYDRATED:evidence/'hydrated-followup-terminal-catalog.json',
         module.TGI:driver/'system-campaign-tgi-cash-facts.json',
         module.TGI_COMPILER:driver/'system_campaign_tgi_facts.py',
-        module.TGI_HYDRATED:evidence/'hydrated-tgi-cash-catalog.json'}
+        module.TGI_HYDRATED:evidence/'hydrated-tgi-cash-catalog.json',
+        module.MIDYEAR:driver/'system-campaign-midyear-terminal-facts.json',
+        module.MIDYEAR_COMPILER:driver/'system_campaign_midyear_facts.py',
+        module.MIDYEAR_HYDRATED:evidence/'hydrated-midyear-terminal-catalog.json'}
     for ref,p in names.items():p.write_bytes(ref.encode())
     refs={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()}
     document={'schema':'terminal-repair/1','source_evidence':[{'reference':k,'sha256':v} for k,v in refs.items()],

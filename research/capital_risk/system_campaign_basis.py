@@ -17,6 +17,9 @@ FOLLOWUP_HYDRATED='research:system-optimization-002/followup-private-terminal-ca
 TGI='research:system-optimization-002/tgi-cash-catalog/1'
 TGI_COMPILER='research:system-optimization-002/tgi-cash-compiler/1'
 TGI_HYDRATED='research:system-optimization-002/tgi-private-cash-catalog/1'
+MIDYEAR='research:system-optimization-002/midyear-terminal-catalog/1'
+MIDYEAR_COMPILER='research:system-optimization-002/midyear-terminal-compiler/1'
+MIDYEAR_HYDRATED='research:system-optimization-002/midyear-private-terminal-catalog/1'
 
 
 def semantics(base,documents,expected):
@@ -59,7 +62,10 @@ def basis(evidence,cp):
         FOLLOWUP_HYDRATED:evidence/'hydrated-followup-terminal-catalog.json',
         TGI:Path('/driver/system-campaign-tgi-cash-facts.json'),
         TGI_COMPILER:Path('/driver/system_campaign_tgi_facts.py'),
-        TGI_HYDRATED:evidence/'hydrated-tgi-cash-catalog.json'}
+        TGI_HYDRATED:evidence/'hydrated-tgi-cash-catalog.json',
+        MIDYEAR:Path('/driver/system-campaign-midyear-terminal-facts.json'),
+        MIDYEAR_COMPILER:Path('/driver/system_campaign_midyear_facts.py'),
+        MIDYEAR_HYDRATED:evidence/'hydrated-midyear-terminal-catalog.json'}
     need(all(p.is_file() for p in names.values()),'COMMON_BASIS_ACTUAL_COMPLETE_FACT_FILES')
     expected={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()};documents=[]
     for spec in cp['repairs']:

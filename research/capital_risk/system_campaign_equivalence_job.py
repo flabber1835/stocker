@@ -19,7 +19,7 @@ SOURCES=tuple(dict.fromkeys((*CANDIDATE_SOURCES,'system_campaign_source.py','sys
     'system_campaign_factual_job.py','system_campaign_factual_admit.py','system_campaign_factual_run.py','system_campaign_terminal_job.py','system_campaign_terminal_run.py','system_campaign_terminal_facts.py','system_campaign_march_job.py','system_campaign_march_run.py','system_campaign_march_facts.py','system_campaign_winter_job.py','system_campaign_winter_run.py','system_campaign_winter_facts.py','system_campaign_tgi_job.py','system_campaign_tgi_run.py','system_campaign_tgi_facts.py','system_campaign_spring_facts.py','system_campaign_followup_facts.py','system_campaign_equivalence_job.py','system_campaign_equivalence_run.py','system_campaign_equivalence.py','system_campaign_basis.py','system_campaign_ancestor.py',
     'alpaca_fit_collect.py','alpaca_fit_compare.py','alpaca_fit_identity_repair.py','alpaca_fit_inputs.py',
     'alpaca_fit_merger_roles.py','alpaca_fit_prior.py','alpaca_fit_relay.py','alpaca_fit_resume.py',
-    'core_lineage_review.py','forecast_collect.py','local_stage.py','system_campaign_compare.py')))
+    'core_lineage_review.py','forecast_collect.py','local_stage.py','system_campaign_compare.py','system_campaign_midyear_facts.py')))
 
 
 def expected_request():
@@ -32,6 +32,7 @@ def expected_request():
         'winter_catalog_sha256':sha256_file(HERE/'system-campaign-corrected-winter-facts.json'),
         'spring_catalog_sha256':sha256_file(HERE/'system-campaign-spring-terminal-facts.json'),
         'followup_catalog_sha256':sha256_file(HERE/'system-campaign-followup-terminal-facts.json'),
+        'midyear_catalog_sha256':sha256_file(HERE/'system-campaign-midyear-terminal-facts.json'),
         'cutoff':'2019-04-30','source_archive_limit_bytes':512*1024**2,
         'sources':{n:sha256_file(HERE/n) for n in SOURCES},'financial_wait_seconds':12600,
         'review_wait_seconds':2700,'artifact_retention_days':7,'production_contacted':False,
@@ -62,7 +63,7 @@ def main(a):
     specifications=json.loads((HERE/'system-campaign-equivalence-predecessors.json').read_bytes())['arms']
     need(a.arm=='P00','EQUIVALENCE_ONLY_COMPLETE_DEFAULT_CORE')
     spec=specifications[a.arm]
-    need(spec['selected_session']=='2017-07-31'
+    need(spec['selected_session']=='2017-07-17'
          and spec['inspections']['economic-worker-inspect.json']['exit_code']==0
          and spec['inspections']['independent-review-stop/worker-inspect.json']['exit_code']==0,
          'EQUIVALENCE_COMPLETE_POSITIVELY_STOPPED_SOURCE')

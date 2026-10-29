@@ -11,8 +11,9 @@ from system_campaign_winter_facts import WinterCash
 from system_campaign_spring_facts import SpringFacts
 from system_campaign_followup_facts import FollowupFacts
 from system_campaign_tgi_facts import TgiCash
+from system_campaign_midyear_facts import MidyearFacts
 from system_campaign_terminal_run import merge_future_documents
-from system_campaign_factual_run import preflight,correlation_seed,SeededObservation,preserve_tails,review as canonical_review
+from system_campaign_factual_run import preflight,correlation_seed,SeededObservation,preserve_tails,qualify_inputs,review as canonical_review
 from system_campaign_equivalence import compare_buffers,compare_cutoff,compare_records
 from system_campaign_basis import basis
 
@@ -29,7 +30,8 @@ def own_snapshot(root,day,base,descriptors,inner=None):
     from research.pooled_vacancy_funding import backtest,runtime
     from research.pooled_input_support.bundle import axis
     full=axis();wanted=full[full.index(backtest.START)-425:full.index(backtest.END)+1];found={}
-    for path in root.rglob(day+'*.json.gz'):
+    for path in root.rglob('*.json.gz'):
+        if not (path.name.startswith(day) or path.parent.name=='predecessor-checkpoints'):continue
         cp=read(path.parent,path.name)
         if cp['source_cursor']!=day or cp['base']!=base or cp['repairs']!=descriptors:continue
         if inner is not None and cp['run']['checkpoint_sha256']!=inner:continue
@@ -58,9 +60,10 @@ def future_successors(old,complete,selected):
         document=json.loads(raw);day=descriptor['resume_session']
         parsed=load_repair(old/'book/repairs'/descriptor['filename'],resume_session=day,
             predecessor_checkpoint_sha256=descriptor['predecessor_checkpoint_sha256'])
-        need(parsed.sha256==descriptor['sha256'] and parsed.earliest_affected_session>CUTOFF,
+        need(parsed.sha256==descriptor['sha256'] and parsed.earliest_affected_session>day,
              'BASIS_PROOF_CANONICAL_FUTURE_INPUT_PARSER')
-        need(day>CUTOFF and event['unchanged_through']==day,'BASIS_PROOF_FUTURE_BOUNDARY_AFTER_CUTOFF')
+        need(day>=selected['source_cursor'] and event['unchanged_through']==day,
+             'BASIS_PROOF_ACTUAL_INPUT_SUCCESSOR_BOUNDARY')
         cp,path=own_snapshot(old,day,complete['base'],complete['repairs'][:n],descriptor['predecessor_checkpoint_sha256'])
         need(event['predecessor_checkpoint_sha256']==cp['run']['checkpoint_sha256']
              and event['state_sha256']==cp['run']['state_sha256']
@@ -101,8 +104,9 @@ def compare_capture(old,new):
 def endpoints(old,out,spec):
     complete=read(old,'book/checkpoint.json.gz');selected=read(old,spec['selected_checkpoint'])
     need(complete['completed']==2156 and complete['source_cursor']=='2026-07-31'
-         and selected['source_cursor']=='2017-07-31','BASIS_PROOF_COMPLETE_AND_PRE_EVENT_OWN_BOOK')
-    old_cutoff,old_path=own_snapshot(old,CUTOFF,complete['base'],selected['repairs'])
+         and selected['source_cursor']=='2017-07-17','BASIS_PROOF_COMPLETE_AND_PRE_EVENT_OWN_BOOK')
+    old_prefix=[d for d in complete['repairs'] if d['resume_session']<=CUTOFF]
+    old_cutoff,old_path=own_snapshot(old,CUTOFF,complete['base'],old_prefix)
     new=read(out,'book/checkpoint.json.gz')
     document=json.loads((out/'basis-input-overlay.json').read_bytes())
     future,bindings=future_successors(old,complete,selected)
@@ -142,24 +146,26 @@ def run(out,old,spec):
     need(spec['arm']=='P00' and complete['completed']==2156 and complete['source_cursor']=='2026-07-31',
          'BASIS_PROOF_ONLY_COMPLETE_STOPPED_BOOK')
     cp=preflight(spec,old,out,before='2017-08-28')
-    need(cp['source_cursor']=='2017-07-31' and complete['repairs'][:len(cp['repairs'])]==cp['repairs'],
+    need(cp['source_cursor']=='2017-07-17' and complete['repairs'][:len(cp['repairs'])]==cp['repairs'],
          'BASIS_PROOF_FIXED_OWN_BOUNDARY_RETAINED_REPAIRS')
-    retained=[json.loads((old/'book/repairs'/d['filename']).read_bytes()) for d in cp['repairs']]
-    need(any(v['reference']==CATALOG_REF for d in retained for v in d['source_evidence']),
-         'BASIS_PROOF_RETAINED_V1_FACTS')
     v1=FactualInputs('/driver/system-campaign-factual-catalog.json');v1.hydrate(out/'hydrated-factual-catalog.json')
+    v1.overlay(cp,out/'v1-component.json')
     additional=TerminalFacts('/driver/system-campaign-additional-terminal-facts.json')
     additional.hydrate(out/'hydrated-additional-terminal-catalog.json');additional.overlay(cp,out/'additional-component.json')
     winter=WinterCash('/driver/system-campaign-corrected-winter-facts.json')
     winter.hydrate(out/'hydrated-corrected-winter-cash-catalog.json');winter.overlay(cp,out/'winter-component.json')
     merged=merge_future_documents(json.loads((out/'additional-component.json').read_bytes()),
                                   json.loads((out/'winter-component.json').read_bytes()))
+    merged=merge_future_documents(json.loads((out/'v1-component.json').read_bytes()),merged)
     spring=SpringFacts('/driver/system-campaign-spring-terminal-facts.json')
     spring.hydrate(out/'hydrated-spring-terminal-catalog.json');spring.overlay(cp,out/'spring-component.json')
     merged=merge_future_documents(json.loads((out/'spring-component.json').read_bytes()),merged)
     followup=FollowupFacts('/driver/system-campaign-followup-terminal-facts.json')
     followup.hydrate(out/'hydrated-followup-terminal-catalog.json');followup.overlay(cp,out/'followup-component.json')
     merged=merge_future_documents(json.loads((out/'followup-component.json').read_bytes()),merged)
+    midyear=MidyearFacts('/driver/system-campaign-midyear-terminal-facts.json')
+    midyear.hydrate(out/'hydrated-midyear-terminal-catalog.json');midyear.overlay(cp,out/'midyear-component.json')
+    merged=merge_future_documents(json.loads((out/'midyear-component.json').read_bytes()),merged)
     tgi=TgiCash('/driver/system-campaign-tgi-cash-facts.json')
     tgi.hydrate(out/'hydrated-tgi-cash-catalog.json');tgi.overlay(cp,out/'tgi-component.json')
     merged=merge_future_documents(json.loads((out/'tgi-component.json').read_bytes()),merged)
@@ -168,7 +174,7 @@ def run(out,old,spec):
     loaded=load_repair(path,resume_session=cp['source_cursor'],predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
     full=axis();first=full[full.index(backtest.START)-425];transitions=full.index(CUTOFF)-full.index(cp['source_cursor'])
     original_packets=inputs.packets;original_buffer=adapter.Buffer;old_buffer=original_buffer();new_buffers=[]
-    old_repairs=repairs(old/'book',cp)
+    old_repairs=repairs(old/'book',complete)
     def packets(*args,**kwargs):
         for packet in original_packets(*args,**kwargs):
             if first<=packet.day<=CUTOFF:
@@ -181,9 +187,11 @@ def run(out,old,spec):
     observer=SeededObservation(out/'correlation-inputs.jsonl.gz',correlation_seed(old,cp))
     args=arguments(out/'book',True);args[args.index('--policy')+1]=cp['base']['policy']
     with v1:
+        qualify_inputs(v1,loaded,out/'v1-input-qualification.json')
         additional.qualify(loaded,out/'additional-input-qualification.json');winter.qualify(loaded,out/'winter-input-qualification.json')
         spring.qualify(loaded,out/'spring-input-qualification.json')
         followup.qualify(loaded,out/'followup-input-qualification.json');tgi.qualify(loaded,out/'tgi-input-qualification.json')
+        midyear.qualify(loaded,out/'midyear-input-qualification.json')
         inputs.packets=packets;adapter.Buffer=construct
         try:
             with observer:
@@ -209,7 +217,7 @@ def review(out,evidence,old,spec):
     v1=FactualInputs('/driver/system-campaign-factual-catalog.json')
     # Qualify the same immutable frozen hydration independently in the reader.
     v1.hydrate(out/'review-hydrated-v1.json')
-    with v1:buffer_sha=qualify_buffers(old,evidence,selected,new)
+    with v1:buffer_sha=qualify_buffers(old,evidence,read(old,'book/checkpoint.json.gz'),new)
     worker=json.loads((evidence/'basis-equivalence-worker.json').read_bytes())
     need(worker['complete_buffer_sha256']==buffer_sha and all(worker[k]==v for k,v in proof.items()),
          'BASIS_PROOF_INDEPENDENT_FULL_EQUIVALENCE')

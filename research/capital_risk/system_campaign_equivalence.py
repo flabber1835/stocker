@@ -58,20 +58,26 @@ def future_plan(document,cutoff):
 
 def compare_future_inputs(old_complete,selected,old,new_document,cutoff,future_documents):
     retained=selected['repairs'];extra=old_complete['repairs'][len(retained):]
-    need(old['repairs']==retained and old_complete['repairs'][:len(retained)]==retained
-         and len(extra)==len(future_documents),'EQUIVALENCE_EXACT_OLD_INPUT_SUCCESSOR_AXIS')
+    need(len(extra)==len(future_documents)
+         and all(type(d.get('resume_session')) is str for d in extra)
+         and old['repairs'][:len(retained)]==retained
+         and old_complete['repairs'][:len(old['repairs'])]==old['repairs']
+         and old['repairs']==retained+[d for d in extra if d['resume_session']<=cutoff]
+         ,'EQUIVALENCE_EXACT_OLD_INPUT_SUCCESSOR_AXIS')
     expected={'suppress':{},'add':{}}
     for descriptor,document in zip(extra,future_documents):
-        need(descriptor['resume_session']>cutoff
+        need(descriptor['resume_session']>=selected['source_cursor']
              and document['predecessor_checkpoint_sha256']==descriptor['predecessor_checkpoint_sha256']
-             and all(row['session']>cutoff for name in ('suppress','add') for row in document[name]),
+             and all(row['session']>descriptor['resume_session'] for name in ('suppress','add') for row in document[name])
+             and (descriptor['resume_session']<=cutoff or
+                  all(row['session']>cutoff for name in ('suppress','add') for row in document[name])),
              'EQUIVALENCE_OLD_SUCCESSOR_STRICTLY_FUTURE')
         for name,rows in future_plan(document,cutoff).items():
             for key,row in rows.items():
                 need(key not in expected[name],'EQUIVALENCE_UNIQUE_OLD_FUTURE_ACTION')
                 expected[name][key]=row
     need(future_plan(new_document,cutoff)==expected,'EQUIVALENCE_ALL_FUTURE_ACTION_INPUTS_EXACT')
-    return len(extra)
+    return sum(d['resume_session']>cutoff for d in extra)
 
 
 def compare_cutoff(old,new,old_complete,selected,new_document,cutoff,*,future_documents=()):
@@ -81,7 +87,7 @@ def compare_cutoff(old,new,old_complete,selected,new_document,cutoff,*,future_do
     need(old['base']==new['base']==old_complete['base']==selected['base'],
          'EQUIVALENCE_UNCHANGED_FULL_SOURCE_AND_INPUT_BASE')
     future_count=compare_future_inputs(old_complete,selected,old,new_document,cutoff,future_documents)
-    need(new['repairs'][:-1]==old['repairs'] and len(new['repairs'])==len(old['repairs'])+1,
+    need(new['repairs'][:-1]==selected['repairs'] and len(new['repairs'])==len(selected['repairs'])+1,
          'EQUIVALENCE_EXACT_SINGLE_INPUT_SUCCESSOR')
     need(old['run']['state']==new['run']['state'] and old['run']['state_sha256']==new['run']['state_sha256']
          and all(old['run'][k]==new['run'][k] for k in ('schema','base_main_sha','policy')),

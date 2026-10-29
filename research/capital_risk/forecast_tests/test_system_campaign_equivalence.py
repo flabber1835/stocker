@@ -82,8 +82,26 @@ def test_identical_future_input_successor_and_economic_mutations():
     with pytest.raises(ValueError,match='ORDINARY_FUTURE_INPUT_ONLY'):
         compare_cutoff(*args,'2019-04-30',future_documents=[bad])
     args[2]['repairs'][-1]['resume_session']='2019-04-30'
-    with pytest.raises(ValueError,match='OLD_SUCCESSOR_STRICTLY_FUTURE'):
+    with pytest.raises(ValueError,match='EXACT_OLD_INPUT_SUCCESSOR_AXIS'):
         compare_cutoff(*args,'2019-04-30',future_documents=[future])
+
+
+def test_actual_pre_cutoff_successor_is_in_old_prefix_and_future_map():
+    args,future=future_case();old,new,full,selected,document=args
+    selected['source_cursor']='2017-07-17'
+    descriptor={'sha256':'old-v1','resume_session':'2017-07-17','predecessor_checkpoint_sha256':'v1-own'}
+    prior={'schema':'terminal-repair/1','predecessor_checkpoint_sha256':'v1-own','source_evidence':[],
+        'suppress':[],'add':[{'session':'2017-08-09','security_id':'EARLY'},
+            {'session':'2020-01-02','security_id':'FUTURE_FROM_EARLY_REBIND','cash_per_share':42.}]}
+    old['repairs'].append(descriptor);full['repairs'].insert(1,descriptor)
+    document['add'].extend(copy.deepcopy(prior['add']))
+    assert compare_cutoff(*args,'2019-04-30',future_documents=[prior,future])['complete_recurrence_state_exact']
+    bad=copy.deepcopy(prior);bad['add'][-1]['cash_per_share']=43.
+    with pytest.raises(ValueError,match='ALL_FUTURE_ACTION_INPUTS_EXACT'):
+        compare_cutoff(*args,'2019-04-30',future_documents=[bad,future])
+    old['repairs'].pop()
+    with pytest.raises(ValueError,match='EXACT_OLD_INPUT_SUCCESSOR_AXIS'):
+        compare_cutoff(*args,'2019-04-30',future_documents=[prior,future])
 
 
 def test_actual_future_equality_guard_removal_falsifier():

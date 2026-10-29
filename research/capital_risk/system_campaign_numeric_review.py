@@ -10,15 +10,17 @@ from selective_journal import verify_prefixes
 from system_campaign_joint_space import joint_profiles
 from system_campaign_numeric import hosted,load_complete,LEVELS
 from system_campaign_facts import digest
-from system_campaign_basis import basis
 
 
-def review(core,evidence,out):
+def review(core,evidence,out,equivalence_proof=None):
     hosted();need(not out.exists(),'JOINT_REVIEW_OUTPUT_COLLISION')
     cp,rows,origin=load_complete(core);registry=joint_profiles()
     need(json.loads((evidence/'joint-registry.json').read_bytes())==registry,'INDEPENDENT_JOINT_FINITE_CLASS')
     summary=json.loads((evidence/'summary.json').read_bytes())
-    common_sha,common=basis(core,cp)
+    from system_campaign_basis_admit import admitted_basis
+    common_sha,common,admission=admitted_basis(core,cp,equivalence_proof)
+    need(json.loads((evidence/'semantic-basis-admission.json').read_bytes())==admission,
+         'JOINT_INDEPENDENT_ACTUAL_SEMANTIC_ADMISSION')
     need(summary['common_factual_basis_sha256']==common_sha
          and json.loads((evidence/'common-factual-basis.json').read_bytes())==common,'JOINT_UNIFORM_FACTUAL_BASIS')
     need(summary['core_checkpoint_sha256']==cp['sha256'] and summary['joint_registry_sha256']==digest(registry)
@@ -129,4 +131,5 @@ def review(core,evidence,out):
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     for name in ('core','evidence','output'):parser.add_argument('--'+name,type=Path,required=True)
-    args=parser.parse_args();review(args.core,args.evidence,args.output)
+    parser.add_argument('--equivalence-proof',type=Path)
+    args=parser.parse_args();review(args.core,args.evidence,args.output,args.equivalence_proof)
