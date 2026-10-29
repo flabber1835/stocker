@@ -34,6 +34,7 @@ def operation(monkeypatch,tmp_path):
         git_commit=SHA,runtime_image=IMAGE,deployment_id='fixture',paper_account_id='PAfixture')
     receipt.write_text(json.dumps(value))
     witness=root/'witness.json';witness.write_text('{"witness":{"fixture":true},"hmac_sha256":"fixture"}')
+    witness.chmod(0o600)
     sha=hashlib.sha256(witness.read_bytes()).hexdigest()
     args=SimpleNamespace(installation_receipt=receipt,witness=witness,
         confirm_witness_sha256=sha,backup='base-20261029T072734Z',output=root/'transfer.json')
@@ -58,7 +59,11 @@ def operation(monkeypatch,tmp_path):
             if argv[:2]==['bash','scripts/sentinel-compose.sh']:
                 return subprocess.CompletedProcess(argv,0,state['graph'],'')
             assert '--no-deps' in argv and '-B' in argv and '-m' in argv
-            assert str(witness)+':/progress-witness.json:ro' in argv
+            mounted=Path(argv[argv.index('--volume')+1].removesuffix(':/progress-witness.json:ro'))
+            assert mounted!=witness and mounted.read_bytes()==witness.read_bytes()
+            assert mounted.stat().st_mode&0o777==0o444
+            assert mounted.parent.stat().st_mode&0o777==0o700
+            assert witness.stat().st_mode&0o777==0o600
             assert '--confirm-witness-sha256' in argv and sha in argv
             assert kwargs['timeout']==660
             if state['command_failed']:raise owner.core.DeployRefused('native recovery refused')
@@ -75,6 +80,8 @@ def test_one_shot_native_owner_binds_installed_source_and_exact_witness(operatio
     assert result['witness_file_sha256']==args.confirm_witness_sha256
     assert result['operational_ready'] is False
     assert len(calls)==2
+    runtime_mount=Path(calls[-1][calls[-1].index('--volume')+1].removesuffix(':/progress-witness.json:ro'))
+    assert not runtime_mount.exists() and not runtime_mount.parent.exists()
     with pytest.raises(owner.core.DeployRefused,match='existing recovery'):
         owner.execute(args)
     assert len(calls)==2

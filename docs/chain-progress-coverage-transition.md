@@ -123,3 +123,12 @@ the lower-level helper's single event. Accept only 66 for this incident; an
 extra event, a helper-only migration, changed catalog or changed source bytes
 still refuses. The authenticated pre-DDL witness remains valid and is reused;
 no additional restore, DDL, counter reset or source mutation is needed.
+
+The host publisher creates the original witness with owner-only permissions,
+while the signed CLI runs as UID 10001. Preserve that original immutable file.
+After exact-hash validation and host-lock acquisition, create a byte-identical
+runtime copy inside an operation-private temporary directory, make only that
+copy read-only and bind-mount it read-only. Keep the default container identity.
+Remove the temporary copy on success or refusal; retain the original witness,
+its hash and the command log. This fixes file access without granting new
+database, filesystem or financial authority.

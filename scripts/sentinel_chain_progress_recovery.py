@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 import sentinel_autonomous_deploy as core
 import sentinel_ci_certification_verify as certification
@@ -57,8 +58,13 @@ def execute(args):
     log=args.output.with_suffix('.commands.log')
     if args.output.exists() or log.exists():
         raise core.DeployRefused('inspect existing recovery result/owner before another attempt')
-    with open('/tmp/sentinel-autonomous-deploy.lock','a+') as lock:
+    with open('/tmp/sentinel-autonomous-deploy.lock','a+') as lock, \
+            tempfile.TemporaryDirectory(prefix='sentinel-progress-witness-') as private:
         fcntl.flock(lock.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+        runtime_witness=Path(private)/'witness.json'
+        with runtime_witness.open('xb') as stream:
+            stream.write(raw_witness)
+        runtime_witness.chmod(0o444)
         with log.open('x'):
             pass
         runner=core.Runner(env,log)
@@ -70,7 +76,7 @@ def execute(args):
         compose=['docker','compose',*graph_args]
         result=core._json_output(runner.run(compose+[
             '--profile','cli','run','--rm','-T','--no-deps',
-            '--volume',str(args.witness.resolve())+':/progress-witness.json:ro',
+            '--volume',str(runtime_witness)+':/progress-witness.json:ro',
             '--entrypoint','timeout','sentinel','--kill-after=5s','600s',
             'python','-B','-m','sentinel.chain_progress_recovery',
             '--apply','/progress-witness.json','--backup',args.backup,
