@@ -30,18 +30,20 @@ class ReadHashScope:
         actual=self.original.fget(prior);self.checks+=1
         need(actual==expected,'NESTED_PRIOR_MUTATION')
 
-def shallow_signal(cls,bar,original):
+def shallow_signal(cls,bar,original,keep=1):
+    need(type(keep) is int and 1<=keep<=127,'SIGNAL_MATERIAL_HORIZON')
     if not is_dataclass(bar) or {f.name for f in fields(bar)}!=set(cls.model_fields):return original(cls,bar),False
     def immutable(v):
         return v is None or type(v) in (str,int,float,bool) or isinstance(v,tuple) and all(immutable(x) for x in v)
     value={f.name:getattr(bar,f.name) for f in fields(bar) if f.name!='closes'}
     if not all(immutable(v) for v in value.values()):return original(cls,bar),False
-    value['closes']=getattr(bar,'closes')[-1:]
+    value['closes']=getattr(bar,'closes')[-keep:]
     return cls.model_validate(value),True
 
 class Execution:
-    def __init__(self,mode):
+    def __init__(self,mode,*,signal_closes=1):
         need(mode in ('FAST','REFERENCE'),'MODE');self.mode=mode;self.timings=[];self.signal_fast=0;self.signal_fallback=0
+        need(type(signal_closes) is int and 1<=signal_closes<=127,'SIGNAL_MATERIAL_HORIZON');self.signal_closes=signal_closes
 
     def __enter__(self):
         need(os.environ.get('FULL_SYSTEM_HOSTED')=='1' and Path('/variant').is_dir()
@@ -70,7 +72,7 @@ class Execution:
                 if self.mode=='FAST' and self.scope.prior is not None:self.scope.end()
                 self.timings.append({'stage':'advance','session':published.session,'seconds':time.monotonic()-start})
         def signal(cls,bar):
-            value,used=shallow_signal(cls,bar,self.signal.__func__);self.signal_fast+=int(used);self.signal_fallback+=int(not used);return value
+            value,used=shallow_signal(cls,bar,self.signal.__func__,self.signal_closes);self.signal_fast+=int(used);self.signal_fallback+=int(not used);return value
         def timed(name):
             def call(*args,**kwargs):
                 start=time.monotonic()
@@ -90,6 +92,6 @@ class Execution:
             for name,fn in self.saved.items():setattr(self.backtest,name,fn)
 
     def proof(self):
-        return {'mode':self.mode,'prior_hash_reuses':self.scope.hits,'independent_prior_immutability_checks':self.scope.checks,
+        return {'mode':self.mode,'signal_material_closes':self.signal_closes,'prior_hash_reuses':self.scope.hits,'independent_prior_immutability_checks':self.scope.checks,
             'signal_fast_calls':self.signal_fast,'signal_fallback_calls':self.signal_fallback,'timings':self.timings,
             'validation_verdict_cached':False,'cross_session_state_cache':False,'canonical_financial_equations_changed':False}

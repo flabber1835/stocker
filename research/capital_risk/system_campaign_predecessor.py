@@ -20,13 +20,13 @@ def admit(spec,root,key,arm):
         with z.open(asset['name']) as src,cipher.open('xb') as out:shutil.copyfileobj(src,out)
     plain=folder/'authenticated.tar.gz';decrypt(cipher,plain,key,asset['sha256']);dest=root/'admitted';dest.mkdir()
     with tarfile.open(plain,'r:gz') as tar:
-        first=tar.next();need(first.name=='manifest.json' and first.isfile() and first.size<2*1024**2,'CAMPAIGN_PREDECESSOR_MANIFEST')
+        iterator=iter(tar);first=next(iterator);need(first.name=='manifest.json' and first.isfile() and first.size<2*1024**2,'CAMPAIGN_PREDECESSOR_MANIFEST')
         raw=tar.extractfile(first).read();need(hashlib.sha256(raw).hexdigest()==asset['manifest_sha256'],'CAMPAIGN_PREDECESSOR_MANIFEST_HASH')
         m=json.loads(raw);need(m['schema']=='research.full-system-output/1' and m['stage']=='campaign-baseline'
             and m['arm']==arm and int(m['run_id'])==spec['run_id'] and m['head']==spec['head']
             and m['request_sha256']==receipt['request_sha256'] and m['protocol_sha256']==receipt['protocol_sha256'],'CAMPAIGN_PREDECESSOR_BINDINGS')
         inventory=m['members'];need(len(inventory)<5000 and sum(v['bytes'] for v in inventory.values())<1024**3,'CAMPAIGN_PREDECESSOR_BOUND');seen=set()
-        for item in tar:
+        for item in iterator:
             safe_name(item.name);need(item.isfile() and item.name in inventory and item.name not in seen,'CAMPAIGN_PREDECESSOR_MEMBER');seen.add(item.name)
             expected=inventory[item.name];need(item.size==expected['bytes'],'CAMPAIGN_PREDECESSOR_LENGTH')
             target=dest/item.name;target.parent.mkdir(parents=True,exist_ok=True)

@@ -107,13 +107,23 @@ preserved for its own exact continuation, never restarted. Initial measured
 FAST daily prepare+advance mean is 2.979 seconds versus REFERENCE 4.712 seconds;
 eight measured days are insufficient to promise constant throughput for all years.
 
+Continuation run 40918365459 refused archive admission before either new worker
+could launch. `tar.next()` followed by `for item in tar` yields the already-read
+manifest again through Python's cached first-member iterator. Keep this failure
+and tiny stage-only artifacts. Correct the reader to consume a single iterator,
+then qualify against the actual retained archive and both exact predecessor
+specifications. A distinct request may resume the same untouched January 11
+checkpoints after this zero-advancement refusal; this is not recovery or rollback
+of an unknown financial run. No economic exclusion or source conversion follows.
+
 The campaign search class will vary the actual active Core formula sites:
 momentum horizon 84/126/189/252; recent skip 10/21/42; named log/simple formation
 volatility; liquidity window 10/20/40; raw minimum price .5/1/5; average dollar
 volume 10/20/50 million and current dollar volume 2/5/10 million; leadership
 fraction .05/.10/.20 and minimum population 15/25/40; median rank memory 1/5/10,
 front size 1/3/5 and freshness -.02/0/.02; slot count 10/20/30 with actual NAV/N
-admission and matching configuration/restore bounds; admission cadence 1/2/4;
+admission and matching configuration/restore bounds; maximum new admissions per
+close 1/2/4 (not an every-N-session admission timer);
 trailing retention .60/.70/.80; review 63/119/189; and separate slot/security
 cooldowns 10/21/42. Only supported active combinations are admitted. Costs,
 cash settlement, price domains, issuer restrictions and positive partial fills
@@ -158,6 +168,36 @@ Then allocate expensive additional Core evaluations using a deterministic
 regularized Gaussian-process surrogate for *training backtest objectives*, not
 for market forecasts. Kernel, acquisition and drawdown budgets are frozen before
 scores; no surrogate prediction is reported as measured financial performance.
+
+The bounded proposal universe contains 4,096 deterministic hashed space-filling
+settings plus explicit anchors. The first batch contains C0 (observer baseline),
+seven maximin CORE proposals, two C anchors and two V anchors, all frozen before
+variant scores. C anchors use (20 slots,8%/5%) and (10 slots,15%/8%); V anchors
+use (21 closes,2x,15%-30%) and (10 closes,1.5x,10%-25%). Other anchor controls
+remain defaults. Initial CORE points maximize minimum normalized Hamming distance
+from prior points, with lexicographic SHA tie breaks. The budget permits four
+additional acquisitions per cutoff (2020 and 2022), 20 evaluated Core paths in
+total including C0, unless a material implementation refusal prevents completion.
+Record each actual proposed, computed, refused, admitted and selected identity.
+
+The surrogate uses an RBF kernel on normalized ordinal coordinates plus one-hot
+family, fixed length scale .5, nugget 1e-6 and zero prior mean. Scores are the
+best *training* annual log growth minus four times excess drawdown relative to
+each frozen budget (50%,75%,100% of baseline drawdown). Standardize observed
+training scores, use expected improvement with exploration offset .01, cycle
+budgets in that order and break ties by parameter SHA. This is bounded numerical
+optimization of a declared class, not an exhaustive/global optimality proof.
+An earlier-fold acquisition may use only cutoff-2020 objectives; the later-fold
+selection cannot retroactively affect the earlier candidate set. Failed settings
+remain coverage failures, never favorable zero-drawdown results.
+
+Risk-family material retains its actual configured V close horizon even under
+the faithful shallow-copy adapter; a one-close baseline shortcut must not be used
+for a V stop. Any private manifest update changes only explicitly named
+Wealth Core modules, retains prior hashes and classified ports, and binds the
+actual new dependency closure. Hosted configuration, feature/axis, funding,
+cooldown, restore and canonical transition cases must pass before financial
+admission. These engineering requirements do not count as economic efficacy.
 Separate 2020-cutoff and 2022-cutoff acquisition histories prevent later training
 data from choosing the earlier comparison's candidate availability. Reuse each
 actual Core path for a larger exact controller/correlation value search, lock
