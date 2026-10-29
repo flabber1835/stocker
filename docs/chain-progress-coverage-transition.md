@@ -104,6 +104,17 @@ other unlogged source or a changed scratch contract. All durable source rows
 retain their original streaming byte proof and every existing account, prefix,
 DDL, ownership, fence and atomicity check remains mandatory.
 
+The price-domain source scanner must distinguish the two exact static column
+contract declarations in this recovery owner from reading a price. Recognize
+only their parsed literal-token coordinates inside the named scratch branch of
+`_source_digests`; do not add the recovery module to the price-reader allowlist.
+Changed declarations, additional literals, dictionary or attribute reads and
+the same declaration in another module must still fail. Derive the canonical
+repository path independently from diagnostic labels so the CI metadata mirror
+and imported test tree enforce the same boundary. Qualification includes an
+executed broad-exemption falsifier. This changes the source audit only; the
+recovery implementation and every financial price-domain rule remain unchanged.
+
 Qualify on an actual paused physical restore, including the original PostgreSQL
 refusal and nonempty-primary/changed-contract falsifiers. Local delivery changes
 only the one-shot recovery utility, mounted read-only over the installed signed
