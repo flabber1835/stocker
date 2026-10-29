@@ -10,6 +10,7 @@ from selective_journal import verify_prefixes
 from system_campaign_joint_space import joint_profiles
 from system_campaign_numeric import hosted,load_complete,LEVELS
 from system_campaign_facts import digest
+from system_campaign_basis import basis
 
 
 def review(core,evidence,out):
@@ -17,6 +18,9 @@ def review(core,evidence,out):
     cp,rows,origin=load_complete(core);registry=joint_profiles()
     need(json.loads((evidence/'joint-registry.json').read_bytes())==registry,'INDEPENDENT_JOINT_FINITE_CLASS')
     summary=json.loads((evidence/'summary.json').read_bytes())
+    common_sha,common=basis(core,cp)
+    need(summary['common_factual_basis_sha256']==common_sha
+         and json.loads((evidence/'common-factual-basis.json').read_bytes())==common,'JOINT_UNIFORM_FACTUAL_BASIS')
     need(summary['core_checkpoint_sha256']==cp['sha256'] and summary['joint_registry_sha256']==digest(registry)
          and not summary['global_selection_performed'] and not summary['production_contacted'],'JOINT_REVIEW_SCOPE')
     ambers=np.load(evidence/'classifier-amber-counts.npy',allow_pickle=False)
@@ -115,7 +119,8 @@ def review(core,evidence,out):
     need(direct==len(measured),'JOINT_COMPLETE_DIRECT_ACCOUNT_AXIS')
     out.mkdir();(out/'independent-review.json').write_text(json.dumps({
         'status':'JOINT_NUMERICAL_TRAINING_REVIEW_PASSED_FINALISTS_REQUIRE_DIRECT_CLASSIFIER_AND_ACCOUNT',
-        'joint_profiles':4096,'canonical_core_checkpoint_sha256':cp['sha256'],'independent_targets':actual.size,
+        'joint_profiles':4096,'canonical_core_checkpoint_sha256':cp['sha256'],'common_factual_basis_sha256':common_sha,
+        'independent_targets':actual.size,
         'controller_prefixes':checkpoints,'dated_factors':factor_count,'value_steps':steps,'value_checkpoints':len(saved),
         'baseline_all_account_fields_exact':True,'all_training_metrics_verified':True,
         'selected_classifier_and_account_confirmation_complete':False,'production_contacted':False},indent=2)+'\n')

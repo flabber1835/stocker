@@ -21,7 +21,7 @@ def copy_repair_archive(old,book):
     os.chmod(target,0o700)
 
 
-def preflight(spec,old,out):
+def preflight(spec,old,out,*,before='2017-08-09'):
     from research.pooled_vacancy_funding import backtest,runtime,journal
     from research.pooled_input_support.bundle import axis
     readonly_review(old/'book',out/'old-branch-canonical-review.json')
@@ -29,7 +29,7 @@ def preflight(spec,old,out):
     wanted=full[full.index(backtest.START)-425:full.index(backtest.END)+1]
     backtest.validate_checkpoint(cp,cp['base'],wanted)
     need(cp['base']['sources']==backtest.source_files() and cp['sha256']==spec['outer_sha256']
-         and cp['source_cursor']==spec['selected_session']<'2017-08-09','FACTUAL_OWN_SOURCE_CURSOR')
+         and cp['source_cursor']==spec['selected_session']<before,'FACTUAL_OWN_SOURCE_CURSOR')
     restored=runtime.restore(cp['run'],policy=cp['base']['policy'],input_sha256=backtest.input_hash(cp['base'],cp['repairs']))
     need(runtime.checkpoint(restored)==cp['run'],'FACTUAL_OWN_CANONICAL_ROUNDTRIP')
     j=reader(journal.Journal,old/'book',journal.STREAMS)

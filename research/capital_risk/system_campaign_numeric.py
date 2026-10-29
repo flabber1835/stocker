@@ -12,6 +12,7 @@ from selective_journal import Journal
 from system_campaign_correlation import ClassifierBatch
 from system_campaign_facts import digest
 from system_campaign_joint_space import joint_profiles,DEFAULT_CORRELATION
+from system_campaign_basis import basis
 
 LEVELS=(0.,.25,.55,.75,1.)
 
@@ -219,12 +220,13 @@ def run(evidence,out):
     hosted();need(not out.exists(),'JOINT_OUTPUT_ALREADY_EXISTS');out.mkdir()
     started=time.monotonic();cp,allrows,origin=load_complete(evidence);registry=joint_profiles()
     source=json.loads((evidence/'source-bindings.json').read_bytes())
+    common_sha,common=basis(evidence,cp);write(out/'common-factual-basis.json',common)
     write(out/'joint-registry.json',registry)
     ambers,denominators=classifier_paths(evidence,allrows,origin,registry,out)
     codes=controller_paths(allrows,ambers,denominators,registry,out,source['all_sources'])
     value_paths(evidence,cp,allrows[126:],codes,registry,out)
     write(out/'summary.json',{'status':'COMPLETE_JOINT_NUMERICAL_INDEPENDENT_REVIEW_REQUIRED',
-        'core_checkpoint_sha256':cp['sha256'],'joint_registry_sha256':digest(registry),
+        'core_checkpoint_sha256':cp['sha256'],'joint_registry_sha256':digest(registry),'common_factual_basis_sha256':common_sha,
         'elapsed_seconds':time.monotonic()-started,'production_contacted':False,
         'global_selection_performed':False,'known_history_not_unseen':True})
 
