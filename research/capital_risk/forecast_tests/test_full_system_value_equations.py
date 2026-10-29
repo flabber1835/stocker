@@ -40,3 +40,20 @@ def test_independent_controller_extreme_immediate_risk_and_recovery_cases():
         assert (targets([healthy]*12,profiles())==1).all()
         values=targets([damaged]+[healthy]*20,profiles())
     assert (values[:,0]==0).all() and (values[:,-1]==1).all()
+
+def test_stale_stop_receipt_refuses_before_any_worker_launch(tmp_path):
+    from unittest.mock import patch
+    import alpaca_fit_job as driver
+    (tmp_path/'worker-inspect.json').write_text('{}')
+    with patch.object(driver.subprocess,'run') as called:
+        with pytest.raises(ValueError,match='STALE_WORKER_RECEIPT_BEFORE_LAUNCH'):
+            driver.stopped_run(['synthetic-no-real-command'],'synthetic',tmp_path,1)
+        called.assert_not_called()
+    text=(HERE/'alpaca_fit_job.py').read_text()
+    guard="    for filename in ('worker-inspect.json','worker.log'):\n        need(not (output/filename).exists(),'STALE_WORKER_RECEIPT_BEFORE_LAUNCH')"
+    assert text.count(guard)==1
+    broken=text.replace(guard,'    pass',1);ns={'__name__':'broken_receipt_guard'};exec(compile(broken,'broken-receipt-guard','exec'),ns)
+    from types import SimpleNamespace
+    with patch.object(driver.subprocess,'run',return_value=SimpleNamespace(stdout=b'a'*64)) as called:
+        with pytest.raises(ns['StopUnknown']):ns['stopped_run'](['synthetic-no-real-command'],'synthetic',tmp_path,1)
+        assert called.called

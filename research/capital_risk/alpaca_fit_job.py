@@ -74,6 +74,9 @@ def review_command(name,source,inputs,prefix,evidence,output):
 
 def stopped_run(argv,name,output,deadline,inspector=None):
     inspector=inspector or inspect
+    # Refuse stale receipt slots BEFORE launch, never after stopping a writer.
+    for filename in ('worker-inspect.json','worker.log'):
+        need(not (output/filename).exists(),'STALE_WORKER_RECEIPT_BEFORE_LAUNCH')
     try:identity=subprocess.run(argv,capture_output=True,check=True,timeout=30).stdout.decode().strip()
     except Exception as exc:raise StopUnknown('PRIVATE_LAUNCH_OUTCOME_UNKNOWN') from exc
     if not re.fullmatch('[a-f0-9]{64}',identity):raise StopUnknown('PRIVATE_LAUNCH_ID_UNKNOWN')

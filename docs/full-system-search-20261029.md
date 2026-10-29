@@ -201,6 +201,16 @@ UNKNOWN stop outcomes never admit a financial snapshot.
 Preserve failed/refused and negative outcomes. No automatic production promotion,
 main merge, deployment, parameter tuning after evaluation or protected cleanup.
 Report what was actually evaluated, what improved and what remains uncertain.
+## Export incident and remaining-budget reference calculation
+
+Recovery 40902009194 inherited worker-inspect.json and worker.log in its copied output. The exclusive receipt writer refused that collision after stopping C1/C2. No new financial snapshots were exported, so these outcomes remain UNKNOWN. The remaining affected run was cancelled to avoid continued computation with the same broken export path. The original authenticated prefixes remain intact but do not prove later progress; no continuation or rollback of the unknown branches is admitted. This is an orchestration error in this study, not a PAPER defect.
+
+Before any future launch, require empty stop/log receipt slots, refusing before Docker starts. A copied continuation must move old receipts into a distinct lineage folder before launch. Preserve the incident and test that a collision cannot launch a worker. Do not rerun these Core books during this budget.
+
+Use the remaining initial budget for the already planned wider parent/Owned numerical component on the existing independently audited 2008-origin Core trace. This is a separate reference calculation, not a substitute result for the failed fresh-2018 stock-selection arms or a claim to joint-system optimization. The 256 controller proposals remain byte-identical and frozen before performance. Train on 2018-2020 and 2018-2022, then disclose 2021-2022 and 2023-2024, with 2025-July2026 diagnosis and earlier history/full-history diagnostics. The Core holdings are fixed in this reference component.
+
+The old trace lacks the new per-close accounting tap at the first funded entry. Admit a profile to account valuation only if its first measured commitment equals the old zero commitment. Preserve its exact first two zero-held startup economic rows, changing only the second close's future commitment if necessary. Later factors use the unchanged canonical account. Profiles with another first commitment are explicitly excluded before performance scoring, not silently rounded or forced to zero; they need a future canonical formed-entry replay. Report this coverage loss. Full baseline account fields and all dated factors/value prefixes/training locks require independent review. No forecasting source, production change or new Core replay is authorized by this reference calculation.
+
 ## Controller value calculation and shortlist coverage
 
 The fixed initial controller class contains the exact baseline plus 255 deterministic balanced joint proposals across 20 parent and nine Owned fields. Freeze all profile identities before scoring. Each profile executes actual canonical Native, CandidateA and Owned transitions, with separate array equations checking every target. Monthly serialized Native/CandidateA/leaf state is actually restored. Every Core path retains its own observations; holdings are never transplanted.

@@ -82,6 +82,9 @@ def main(a):
     # Keep the authenticated old reviewer diagnostics separately; new outputs are distinct.
     (root/'core-review.json').rename(root/'prior-core-review.json')
     (root/'independent-review-stop').rename(root/'prior-independent-review-stop')
+    receipts=root/'prior-worker-receipts';receipts.mkdir()
+    for filename in ('worker-inspect.json','worker.log','economic-worker-inspect.json','economic-worker.log'):
+        if (root/filename).exists():shutil.move(root/filename,receipts/filename)
     for p in source.rglob('*'):os.chmod(p,0o555 if p.is_dir() else 0o444)
     os.chmod(source,0o555)
     need(memory_bytes()['MemAvailable']>=10*1024**3 and shutil.disk_usage(temp).free>=12*1024**3,'RECOVERY_RESOURCES')

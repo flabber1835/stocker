@@ -50,9 +50,9 @@ def controller_paths(rows,out):
     return registered,np.asarray(paths)
 
 def view(row,events):
-    audit=row['evidence']['research_entry_audit'];closed=audit['closing_accounting']
+    audit=row['evidence']['research_entry_audit'];closed=audit.get('closing_accounting',{})
     value=SimpleNamespace(last_processed_session=row['session'],shadow_nav_history=[row['evidence']['observation']['shadow_nav']],
-        last_evidence=row['evidence'],last_decision=row['decision'],wealth_core=closed['wealth_core'])
+        last_evidence=row['evidence'],last_decision=row['decision'],wealth_core=closed.get('wealth_core',{}))
     if row['economics'].get('formed_startup_marks') is not None:
         value.ledger={**closed['ledger'],'events':events[:closed['ledger']['event_count']]}
     return value
@@ -77,7 +77,7 @@ def independently_check(prior,row,value,events):
         evidence['research_entry_audit']=audit;check['evidence']=evidence
     factor(prior,check)
 
-def factor_table(rows,codes,levels,events,out):
+def factor_table(rows,codes,levels,events,out,*,reference=False):
     table=[{}];journal=Journal(out/'factors.jsonl.gz');count=0
     try:
         for i in range(1,len(rows)):
@@ -87,7 +87,11 @@ def factor_table(rows,codes,levels,events,out):
                 pair=int(pair);prior=deepcopy(rows[i-1]['economics']);prior['strategy_nav']='50000'
                 prior['pending_allocation']=str(levels[pair if i==1 else pair%256])
                 if i>1:prior['held_allocation']=str(levels[pair//256])
-                actual=actual_account(prior,rows[i],0.,events);independently_check(prior,rows[i],actual,events)
+                if reference and i==1:
+                    need(D(prior['pending_allocation'])==0 and prior['held_allocation'] is None,'REFERENCE_ZERO_STARTUP_ONLY')
+                    actual=rows[1]['economics']
+                else:
+                    actual=actual_account(prior,rows[i],0.,events);independently_check(prior,rows[i],actual,events)
                 item={'index':i,'session':rows[i]['session'],'pair':pair,'gross':actual['gross_factor'],'net':actual['net_factor'],
                     'cost':actual['transaction_cost_factor'],'turnover':actual['turnover']};day[pair]=item;journal.write(item);count+=1
             table.append(day)
@@ -110,16 +114,30 @@ def metrics(values,start,end):
     for d,n in selected:metric.add(d,n)
     result=metric.result();result['measured_closes']=len(subset);return result
 
-def run(root,out):
+def run(root,out,*,reference=False):
     need(os.environ.get('FULL_SYSTEM_HOSTED')=='1' and str(Path(__file__).resolve()).startswith('/driver/'),'HOSTED_ONLY')
     out.mkdir(exist_ok=False);started=time.monotonic()
     from research.pooled_vacancy_funding.journal import read_checkpoint
-    cp=read_checkpoint(root/'checkpoint.json.gz');need(cp['completed']==2156 and cp['source_cursor']=='2026-07-31','COMPLETE_REVIEWED_CORE_REQUIRED')
-    source_review=json.loads((root.parent/'core-review.json').read_bytes());need(source_review['complete'] and source_review['all_daily_factors_and_chains_verified'],'ACTUAL_CORE_REVIEW')
+    cp=read_checkpoint(root/'checkpoint.json.gz');count=4639 if reference else 2156;start='2008-02-22' if reference else '2018-01-02'
+    need(cp['completed']==count and cp['source_cursor']=='2026-07-31','COMPLETE_REVIEWED_CORE_REQUIRED')
+    if reference:
+        from trace_screen import validate_baseline
+        validate_baseline(root)
+    else:
+        source_review=json.loads((root.parent/'core-review.json').read_bytes());need(source_review['complete'] and source_review['all_daily_factors_and_chains_verified'],'ACTUAL_CORE_REVIEW')
     formation=[json.loads(v) for v in (root/'formation.jsonl').read_bytes().splitlines()];rows=[json.loads(v) for v in (root/'daily.jsonl').read_bytes().splitlines()]
-    need(len(formation)==126 and len(rows)==2156 and rows[0]['session']=='2018-01-02','FULL_CORE_AXIS')
-    registered,allpaths=controller_paths(formation+rows,out);paths=allpaths[:,126:];levels=sorted(set(paths.ravel()));need(set(levels)<=set((0.,.25,.55,.75,1.)),'DECLARED_EXPOSURE_LEVELS')
-    codes=np.searchsorted(levels,paths).astype('uint8');events=cp['run']['state']['ledger']['events'];table=factor_table(rows,codes,levels,events,out)
+    need(len(formation)==126 and len(rows)==count and rows[0]['session']==start,'FULL_CORE_AXIS')
+    registered,allpaths=controller_paths(formation+rows,out)
+    if reference:
+        admitted=[i for i in range(len(registered)) if allpaths[i,126]==0.]
+        need(0 in admitted and D(rows[0]['economics']['pending_allocation'])==0 and D(rows[1]['economics']['held_allocation'])==0,'REFERENCE_BASELINE_ZERO_PREFIX')
+        write(out/'reference-scope.json',{'kind':'ORIGINAL_2008_CORE_REFERENCE_ONLY','core_variants_tested':False,'profiles_registered':256,
+            'admitted_profiles':[registered[i]['id'] for i in admitted],
+            'excluded_before_performance':[{'id':p['id'],'reason':'FIRST_COMMITMENT_REQUIRES_NEW_CANONICAL_FORMED_ENTRY_EVIDENCE'} for i,p in enumerate(registered) if i not in admitted],
+            'same_exact_first_two_zero_held_economic_rows':True,'not_a_result_for_failed_fresh_2018_arms':True})
+        registered=[registered[i] for i in admitted];allpaths=allpaths[admitted,:]
+    paths=allpaths[:,126:];levels=sorted(set(paths.ravel()));need(set(levels)<=set((0.,.25,.55,.75,1.)),'DECLARED_EXPOSURE_LEVELS')
+    codes=np.searchsorted(levels,paths).astype('uint8');events=cp['run']['state']['ledger']['events'];table=factor_table(rows,codes,levels,events,out,reference=reference)
     groups={};records=[];development=[];value_cp=Journal(out/'value-checkpoints.jsonl.gz');paths_j=Journal(out/'paths.jsonl.gz')
     try:
         for index,profile in enumerate(registered):
@@ -130,13 +148,13 @@ def run(root,out):
                     if i==len(series)-1 or day[:7]!=series[i+1][0][:7]:value_cp.write({'group':group,'session':day,'completed':i+1,'nav':nav,
                         'prefix_sha256':digest(series[:i+1])})
             g=groups[group]
-            record={'id':profile['id'],'core_id':json.loads((root.parent/'private-source-bindings.json').read_bytes())['profile_sha256'],
+            record={'id':profile['id'],'core_id':'ORIGINAL_2008_FROZEN_CORE' if reference else json.loads((root.parent/'private-source-bindings.json').read_bytes())['profile_sha256'],
                 'group':group,'metrics':metrics(g['series'],'2018-01-02','2022-12-30'),
-                'turnover':str(sum((n for (day,_),n in zip(g['series'],g['turnover']) if day<='2022-12-30'),Q(0)))}
+                'turnover':str(sum((n for (day,_),n in zip(g['series'],g['turnover']) if '2018-01-02'<=day<='2022-12-30'),Q(0)))}
             records.append(record)
             development.append({**record,'metrics':metrics(g['series'],'2018-01-02','2020-12-31'),
-                'turnover':str(sum((n for (day,_),n in zip(g['series'],g['turnover']) if day<='2020-12-31'),Q(0)))})
-        value_cp.flush();paths_j.flush();write(out/'value-proof.json',{'unique_paths':len(groups),'profiles':256,'value_checkpoint_journal':value_cp.commitment(),
+                'turnover':str(sum((n for (day,_),n in zip(g['series'],g['turnover']) if '2018-01-02'<=day<='2020-12-31'),Q(0)))})
+        value_cp.flush();paths_j.flush();write(out/'value-proof.json',{'unique_paths':len(groups),'profiles':len(registered),'value_checkpoint_journal':value_cp.commitment(),
             'path_journal':paths_j.commitment(),'exposure_levels':levels})
     finally:value_cp.close();paths_j.close()
     # Only the training-shaped interface is passed into the selection function.
@@ -160,7 +178,10 @@ def run(root,out):
         try:
             for i,row in enumerate(rows):
                 target=float(paths[index,i])
-                if i==0:
+                if reference and i<2:
+                    from owned_grid_worker import startup_projection
+                    actual=startup_projection(row['economics'],prior,target,i)
+                elif i==0:
                     actual=deepcopy(row['economics'])
                     if D(actual['pending_allocation'])!=D(str(target)):actual['pending_allocation']=str(target)
                 else:
@@ -172,15 +193,15 @@ def run(root,out):
                 if i==len(rows)-1 or row['session'][:7]!=rows[i+1]['session'][:7]:
                     prior=json.loads(json.dumps(actual,allow_nan=False));need(prior==actual,'ACTUAL_ACCOUNT_SERIALIZATION');restores+=1
             journal.flush();reports[pid]={'profile':registered[index],'journal':journal.commitment(),'direct_serialized_account_restores':restores,
-                'full':metrics(series,'2018-01-02','2026-07-31'),'evaluation_2023_2024':metrics(series,'2023-01-03','2024-12-31'),
+                'full':metrics(series,start,'2026-07-31'),'evaluation_2023_2024':metrics(series,'2023-01-03','2024-12-31'),
                 'evaluation_2021_2022':metrics(series,'2021-01-04','2022-12-30'),
                 'diagnostic_2025_2026':metrics(series,'2025-01-02','2026-07-31'),
-                'annual':{str(y):metrics(series,f'{y}-01-01',max(d for d,_ in series if d[:4]==str(y))) for y in range(2018,2027)},
+                'annual':{str(y):metrics(series,f'{y}-01-01',max(d for d,_ in series if d[:4]==str(y))) for y in range(int(start[:4]),2027)},
                 'different_funded_evaluation_closes':sum(int(codes[index,i-1]!=codes[0,i-1]) for i,r in enumerate(rows) if i and '2023-01-03'<=r['session']<='2024-12-31')}
         finally:journal.close()
-    write(out/'summary.json',{'status':'COMPLETE_CONTROLLER_REVIEW_REQUIRED','profiles':256,'unique_paths':len(groups),'selection':locked,'reports':reports,
+    write(out/'summary.json',{'status':'COMPLETE_CONTROLLER_REVIEW_REQUIRED','profiles':len(registered),'registered_profiles':256,'reference_only':reference,'unique_paths':len(groups),'selection':locked,'reports':reports,
         'development_selection':earlier,'training_frontier':sorted(frontier),
         'elapsed_seconds':time.monotonic()-started,'production_contacted':False,'persistent_execution_certified':False,'known_history_not_unseen':True})
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args();run(a.root,a.output)
+    p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--reference',action='store_true');a=p.parse_args();run(a.root,a.output,reference=a.reference)

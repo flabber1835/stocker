@@ -37,7 +37,8 @@ def value_step(nav,net):
     with localcontext() as c:c.prec=28;return format((D(nav)*D(net)).normalize(),'f')
 
 def training_metric(series,end):
-    chosen=[v for v in series[1:] if v[0]<=end];m=metric(chosen,series[0]);m['measured_closes']=len(chosen)+1;return m
+    wanted=[v for v in series if '2018-01-02'<=v[0]<=end];anchor=max((v for v in series if v[0]<'2018-01-02'),default=series[0])
+    chosen=[v for v in wanted if v[0]>anchor[0]];m=metric(chosen,anchor);m['measured_closes']=len(wanted);return m
 
 def independently_select(records,baseline):
     by={r['id']:r for r in records};base=by[baseline];draw=Q(base['metrics']['maximum_drawdown_magnitude'])
@@ -52,33 +53,47 @@ def independently_select(records,baseline):
     if best is not None and best not in selected:selected.append(best)
     return selected,choices,len(joint),best
 
-def review(root,evidence,out):
+def review(root,evidence,out,*,reference=False):
     need(os.environ.get('FULL_SYSTEM_HOSTED')=='1' and str(Path(__file__).resolve()).startswith('/driver/'),'HOSTED_REVIEW_ONLY')
     from research.pooled_vacancy_funding.journal import read_checkpoint
     cp=read_checkpoint(root/'checkpoint.json.gz');events=cp['run']['state']['ledger']['events']
     formation=[json.loads(v) for v in (root/'formation.jsonl').read_bytes().splitlines()];rows=[json.loads(v) for v in (root/'daily.jsonl').read_bytes().splitlines()]
     summary=json.loads((evidence/'summary.json').read_bytes());proof=json.loads((evidence/'controller-proof.json').read_bytes());registered=profiles()
     need(summary['status']=='COMPLETE_CONTROLLER_REVIEW_REQUIRED' and proof['profiles']==registered,'ACTUAL_FULL_CONTROLLER_CLASS')
-    need(len(formation)==126 and len(rows)==2156 and cp['completed']==2156,'COMPLETE_CORE_REQUIRED')
-    vector=targets(formation+rows,registered);vp=json.loads((evidence/'value-proof.json').read_bytes());levels=vp['exposure_levels']
+    count=4639 if reference else 2156;start='2008-02-22' if reference else '2018-01-02'
+    need(len(formation)==126 and len(rows)==count and cp['completed']==count,'COMPLETE_CORE_REQUIRED')
+    if reference:
+        from trace_screen import validate_baseline
+        validate_baseline(root)
+    allregistered=registered;allvector=targets(formation+rows,registered);vector=allvector
+    if reference:
+        scope=json.loads((evidence/'reference-scope.json').read_bytes());admitted=[i for i in range(256) if allvector[i,126]==0.]
+        need(scope['admitted_profiles']==[registered[i]['id'] for i in admitted]
+            and [r['id'] for r in scope['excluded_before_performance']]==[p['id'] for i,p in enumerate(registered) if i not in admitted],'INDEPENDENT_STARTUP_ADMISSION')
+        registered=[registered[i] for i in admitted];vector=allvector[admitted,:]
+    vp=json.loads((evidence/'value-proof.json').read_bytes());levels=vp['exposure_levels']
     for path,spec in [('controller-checkpoints.jsonl.gz',proof['journal']),('paths.jsonl.gz',vp['path_journal']),('value-checkpoints.jsonl.gz',vp['value_checkpoint_journal'])]:verify_prefixes(evidence/path,[spec])
     paths=list(journal(evidence/'paths.jsonl.gz'));need([p['profile'] for p in paths]==[p['id'] for p in registered],'ALL_PROFILE_IDENTITIES')
     codes={};groups={}
     for i,path in enumerate(paths):
         raw=base64.b64decode(path['path_b64'],validate=True);code=np.frombuffer(raw,dtype='uint8')
-        need(len(code)==2156 and max(code)<len(levels) and hashlib.sha256(raw).hexdigest()==path['group'],'EXACT_TARGET_PATH')
+        need(len(code)==count and max(code)<len(levels) and hashlib.sha256(raw).hexdigest()==path['group'],'EXACT_TARGET_PATH')
         need(np.array_equal(np.asarray(levels)[code],vector[i,126:]),'INDEPENDENT_ALL_TARGETS')
         codes[path['profile']]=code;groups.setdefault(path['group'],code)
     for i,row in enumerate(formation+rows):need(vector[0,i]==row['decision']['target_core_exposure'],'INDEPENDENT_COMPLETE_BASELINE')
     for item in journal(evidence/'controller-checkpoints.jsonl.gz'):
-        index=next(i for i,p in enumerate(registered) if p['id']==item['profile']);end=next(i for i,r in enumerate(formation+rows) if r['session']==item['session'])+1
-        need(hashlib.sha256(np.asarray(vector[index,:end],dtype='<f8').tobytes()).hexdigest()==item['target_prefix_sha256'],'EVERY_CONTROLLER_PREFIX')
+        index=next(i for i,p in enumerate(allregistered) if p['id']==item['profile']);end=next(i for i,r in enumerate(formation+rows) if r['session']==item['session'])+1
+        need(hashlib.sha256(np.asarray(allvector[index,:end],dtype='<f8').tobytes()).hexdigest()==item['target_prefix_sha256'],'EVERY_CONTROLLER_PREFIX')
     fp=json.loads((evidence/'factor-proof.json').read_bytes());verify_prefixes(evidence/'factors.jsonl.gz',[fp['journal']]);table=[{} for _ in rows];factor_count=0
     for f in journal(evidence/'factors.jsonl.gz'):
         i,pair=f['index'],f['pair'];need(0<i<len(rows) and f['session']==rows[i]['session'] and pair not in table[i],'DATED_FACTOR_IDENTITY')
         prior=dict(rows[i-1]['economics']);prior.update(strategy_nav='50000',pending_allocation=str(levels[pair if i==1 else pair%256]))
         if i>1:prior['held_allocation']=str(levels[pair//256])
-        check_factor(f,independent_factor(prior,rows[i],events));table[i][pair]=f;factor_count+=1
+        if reference and i==1:
+            e=rows[1]['economics'];need(D(prior['pending_allocation'])==0 and prior['held_allocation'] is None,'REFERENCE_EXACT_ZERO_PREFIX')
+            expected={k:D(e[field]) for k,field in [('gross','gross_factor'),('net','net_factor'),('turnover','turnover'),('cost','transaction_cost_factor')]}
+        else:expected=independent_factor(prior,rows[i],events)
+        check_factor(f,expected);table[i][pair]=f;factor_count+=1
     values={};turnovers={}
     for group,code in groups.items():
         nav='50000';series=[(rows[0]['session'],nav)];turn=[Q(0)]
@@ -89,10 +104,10 @@ def review(root,evidence,out):
     for item in journal(evidence/'value-checkpoints.jsonl.gz'):
         series=values[item['group']];n=item['completed'];need(series[n-1]==(item['session'],item['nav']) and digest(series[:n])==item['prefix_sha256'],'EVERY_VALUE_CHECKPOINT_PREFIX')
     for name,end,lockname in [('training-scores.json','2022-12-30','locked-selection.json'),('development-scores.json','2020-12-31','locked-development-selection.json')]:
-        records=json.loads((evidence/name).read_bytes());need(len(records)==256 and [r['id'] for r in records]==[r['id'] for r in registered],'ALL_TRAINING_RECORDS')
+        records=json.loads((evidence/name).read_bytes());need(len(records)==len(registered) and [r['id'] for r in records]==[r['id'] for r in registered],'ALL_TRAINING_RECORDS')
         for record in records:
             series=values[record['group']];expected=training_metric(series,end);need(record['metrics']==expected,'INDEPENDENT_RATIONAL_TRAINING_METRICS')
-            turnover=sum((n for (day,_),n in zip(series,turnovers[record['group']]) if day<=end),Q(0));need(Q(record['turnover'])==turnover,'INDEPENDENT_TRAINING_COSTS')
+            turnover=sum((n for (day,_),n in zip(series,turnovers[record['group']]) if '2018-01-02'<=day<=end),Q(0));need(Q(record['turnover'])==turnover,'INDEPENDENT_TRAINING_COSTS')
         locked=json.loads((evidence/lockname).read_bytes());selected,choices,joint,best=independently_select(records,registered[0]['id'])
         need(locked['selected']==selected and [b['id'] for b in locked['budget_choices']]==choices and locked['training_joint_improvements']==joint and locked['best_joint']==best and locked['evaluation_used'] is False,'INDEPENDENT_TRAINING_LOCK')
     direct_count=0
@@ -101,7 +116,11 @@ def review(root,evidence,out):
         code=codes[pid];group=hashlib.sha256(code.tobytes()).hexdigest();series=values[group];prior=None
         for i,item in enumerate(journal(evidence/('direct-'+actualid+'.jsonl.gz'))):
             actual=item['account'];need(item['session']==rows[i]['session'] and actual['strategy_nav']==series[i][1],'DIRECT_ALL_ACCOUNT_VALUES')
-            if i:
+            if reference and i<2:
+                e=rows[i]['economics'];expected=dict(e)
+                if D(expected['pending_allocation'])!=D(str(levels[code[i]])):expected['pending_allocation']=str(levels[code[i]])
+                need(actual==expected and (i==1 or D(actual['pending_allocation'])==0),'REFERENCE_STARTUP_ALL_FIELDS')
+            elif i:
                 expected=independent_factor(prior,rows[i],events)
                 check_factor({'gross':actual['gross_factor'],'net':actual['net_factor'],'turnover':actual['turnover'],'cost':actual['transaction_cost_factor']},expected)
             if pid==registered[0]['id']:need(actual==rows[i]['economics'],'BASELINE_ALL_ECONOMIC_FIELDS')
@@ -109,9 +128,9 @@ def review(root,evidence,out):
         def period(start,end):
             wanted=[v for v in series if start<=v[0]<=end];anchor=max((v for v in series if v[0]<start),default=series[0]);chosen=[v for v in wanted if v[0]>anchor[0]]
             m=metric(chosen,anchor);m['measured_closes']=len(wanted);return m
-        for key,start,end in [('full','2018-01-02','2026-07-31'),('evaluation_2021_2022','2021-01-04','2022-12-30'),('evaluation_2023_2024','2023-01-03','2024-12-31'),('diagnostic_2025_2026','2025-01-02','2026-07-31')]:need(report[key]==period(start,end),'INDEPENDENT_LATER_METRICS')
+        for key,lo,end in [('full',start,'2026-07-31'),('evaluation_2021_2022','2021-01-04','2022-12-30'),('evaluation_2023_2024','2023-01-03','2024-12-31'),('diagnostic_2025_2026','2025-01-02','2026-07-31')]:need(report[key]==period(lo,end),'INDEPENDENT_LATER_METRICS')
         for year,m in report['annual'].items():need(m==period(year+'-01-01',max(d for d,_ in series if d[:4]==year)),'EVERY_ANNUAL_METRIC')
-    out.mkdir(exist_ok=False);(out/'independent-review.json').write_text(json.dumps({'status':'FULL_SYSTEM_CONTROLLER_REVIEW_PASSED','profiles':256,
+    out.mkdir(exist_ok=False);(out/'independent-review.json').write_text(json.dumps({'status':'FULL_SYSTEM_CONTROLLER_REVIEW_PASSED','profiles':len(registered),'registered_profiles':256,'reference_only':reference,
         'independent_targets':len(rows+formation)*256,'dated_factors':factor_count,'value_steps':len(groups)*(len(rows)-1),
         'direct_account_records':direct_count,'all_controller_value_journal_prefixes_verified':True,'all_training_locks_verified':True,
         'all_metrics_verified':True,'production_contacted':False},indent=2)+'\n')
@@ -119,4 +138,4 @@ def review(root,evidence,out):
 if __name__=='__main__':
     p=argparse.ArgumentParser()
     for name in ('root','evidence','output'):p.add_argument('--'+name,type=Path,required=True)
-    a=p.parse_args();review(a.root,a.evidence,a.output)
+    p.add_argument('--reference',action='store_true');a=p.parse_args();review(a.root,a.evidence,a.output,reference=a.reference)
