@@ -109,6 +109,9 @@ and the locked choices. The independent stopped reviewer recomputes all paths,
 scores and selection from committed inputs. Never select from evaluation data.
 Use bounded separately authenticated encrypted parts with a durable receipt
 per part; a later export failure must not erase earlier authenticated evidence.
+The compact run retains the 5,400-second worker budget, allows 1,200 seconds
+for its stopped reviewer, and uses a 150-minute workflow cap including export.
+These limits supersede the earlier 120-minute workflow described below.
 No plaintext financial evidence goes to public logs or artifacts. An incomplete
 numerical task resumes its own saved cursor; no completed value is reinitialized.
 
