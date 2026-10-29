@@ -47,9 +47,10 @@ Generic unsigned runtime promotion remains disabled.
 The software installer's control reads prove the durable kill, invalidated lease
 and enabled state directly. They do not call `automation-status`, whose financial
 observation coverage can legitimately refer to the pre-migration DDL inventory.
-The verifier starts after migration and refreshes that coverage before financial
-activation. Invalid or missing control/lease state still refuses installation;
-financial health and coverage checks remain mandatory at activation.
+Starting the verifier does not reseal coverage against changed source inventory.
+That remains an explicit financial requalification boundary. Invalid or missing
+control/lease state still refuses installation; financial health and coverage
+checks remain mandatory at activation.
 
 Discovery of an existing binding uses the same strict JSON contract as the later
 integrity probe. A successful command returning duplicate keys, non-finite values
