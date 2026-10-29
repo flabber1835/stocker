@@ -472,3 +472,53 @@ unchanged current gzip and raw streams, stopped/fenced inspections and full
 original-branch aggregate commitment before resuming. Earlier zero-origin arms
 that refused before launching a new worker retain their last actual stopped
 financial artifact as authority. Do not create a new origin or infer progress.
+
+The joint numerical worker retains classifier damage as integer amber counts
+plus actual holding denominators, and uses an explicit per-profile breadth
+matrix in the independent controller equations. Green predicates are unchanged;
+each profile's delta5 is its own current damage minus five closes earlier, with
+the original unavailable prefix. Canonical controller states remain separate
+even when modules or funded-target paths are shared. To bound memory, retain
+all exact target codes, dated account factors and monthly value commitments,
+but compute each distinct value group one at a time. Reconstruct selected paths
+from those exact factors for direct canonical-account checks. Parameter IDs,
+not future path hashes or later metrics, break training ties.
+
+## Additional historical coverage and a common comparison basis
+
+The broadened candidates have now reached WFM, RICE, RXDX and AAAP input
+coverage holes. No incomplete candidate is scored. The known partial paths and
+all original observations, checkpoints, rejected sessions and recovered suffixes
+remain immutable. A voluntary tender is not proof that untendered shares
+automatically converted to cash; AAAP requires depositary/mandatory-rights
+evidence. Do not invent a cash entitlement, backfill a market price, blacklist
+the security using later knowledge or tune parameters to avoid it.
+
+Preserve catalog v1 and system_campaign_facts.py byte for byte. Existing
+checkpoint repair commitments bind those bytes. New supported terminal facts
+belong in a separate ordinary terminal overlay with its own primary-source
+evidence; existing FNF typed input handling remains installed unchanged.
+Choose each path's own retained checkpoint before the earliest newly corrected
+native event. Authenticate its actual stopped latest branch, independent partial
+review, original source/input/repair chain, all current and historical journal
+commitments and the whole discarded suffix before canonical recovery. Preserve
+the old branch read-only and every interrupted tail. Never establish another
+origin or rerun feature warmup for a continuation.
+
+A correction can affect leadership witnesses or eligibility even when a path
+did not hold the security. Until the common factual basis is closed, these
+paths are coverage discovery, not comparable optimization results. Before
+training scores or GP acquisition, all admitted paths must use the same common
+facts from their own pre-event boundary, or an exact canonical differential
+proof must establish unchanged full intervening state and economic evidence.
+Do not silently mix data versions or infer irrelevance from zero entitlement.
+Healthy discovery jobs may finish and their outputs remain preserved.
+
+The local host reached zero available disk at 19:48UTC. Stop local artifact
+downloads and do not delete evidence or alter shared services to make room.
+Continue source engineering through the existing research PR's GitHub Git-data
+API with an exact expected-head lease, documenting the remote head separately
+from the unchanged local checkout. Public commits contain engineering source,
+public issuer facts and hashes only. Run pure/source tests on isolated hosted
+compute; all market/controller/account calculations remain hosted. Encrypted
+large evidence stays in the already approved seven-day Actions channel.
