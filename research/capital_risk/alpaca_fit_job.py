@@ -172,7 +172,8 @@ def main():
                      'book/feature-qualification.json','book/retained-checkpoints.json','book/source-bindings.json','book/failure.json',
                      'book/controller-component-qualification.json','stopped-independent-review/worker-inspect.json',
                      'stopped-independent-review/review/independent-review.json','book/packed-input-equivalence.json',
-                     'book/suffix-budget.json','book/lineage/admission.json'):
+                     'book/suffix-budget.json','book/lineage/admission.json','book/factual-input-admission.json',
+                     'book/factual-predecessor-admission.json'):
             source=private/name
             if source.is_file():
                 destination=summary/name;destination.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,destination)

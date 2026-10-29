@@ -90,7 +90,7 @@ class LazyBars(Mapping):
 
 
 class Inputs:
-    def __init__(self,root,bil_root,protocol,capture_sha,prefix_root=None,*,packed=False):
+    def __init__(self,root,bil_root,protocol,capture_sha,prefix_root=None,*,packed=False,factual_repair=None):
         hosted()
         import numpy as np
         from sentinel.feed import calendar
@@ -108,7 +108,7 @@ class Inputs:
         self.values=np.zeros((len(self.sids),len(self.axis),4),dtype='float64')
         self.present=np.zeros((len(self.sids),len(self.axis),2),dtype='bool')
         self.bench={symbol:{a:{} for a in ('raw','all','split')} for symbol in ('SPY','BIL')}
-        self.actions={};self.splits={};self.dividends={};self.resets={};self.undated={};self.cache=None;self.action_issues=[];self.pending_cash=[]
+        self.actions={};self.action_proofs={};self.splits={};self.dividends={};self.resets={};self.undated={};self.cache=None;self.action_issues=[];self.pending_cash=[]
         page_groups={};actual_counts=Counter()
         from itertools import chain
         streams=[responses(r) for r in ([prefix_root,self.root] if prefix_root is not None else [self.root])]
@@ -119,6 +119,7 @@ class Inputs:
                     for record in records:
                         key=record['id'];need(key not in self.actions or self.actions[key]==(kind,record),'ACTION_IDENTITY')
                         self.actions[key]=(kind,record)
+                        self.action_proofs.setdefault(key,[]).append({k:proof[k] for k in ('file','sha256','raw_sha256')})
             elif endpoint.endswith('/bars'):
                 adjustment=params['adjustment'];symbols=set(params['symbols'].split(','))
                 need(params['feed']=='sip' and params['timeframe']=='1Day' and params['asof']==protocol['data_end'],'BAR_QUERY')
@@ -183,6 +184,15 @@ class Inputs:
                 for symbol in symbols:
                     if day is None:self.undated.setdefault(symbol,[]).append(key)
                     elif day<=self.axis[-1]:self.resets.setdefault(symbol,[]).append((day,key,kind))
+        self.factual_repair_receipt=None
+        if factual_repair is not None:
+            from alpaca_fit_identity_repair import apply,digest
+            descriptor=json.loads(Path(factual_repair).read_bytes())
+            need(descriptor['dataset_sha256']==capture_sha and descriptor['protocol_sha256']==hashlib.sha256(
+                Path('/src/research/capital_risk/alpaca-fit-protocol.json').read_bytes()).hexdigest(),'FACTUAL_INPUT_BASIS')
+            source_manifest_sha=hashlib.sha256(((prefix_root or self.root)/'manifest.json').read_bytes()).hexdigest()
+            self.factual_repair_receipt=apply(self,descriptor,source_manifest_sha256=source_manifest_sha)
+            self.capture_sha=digest({'dataset_sha256':capture_sha,'factual_interpretation_sha256':digest(descriptor)})
         need(not ({'BIL','SPY'}&set(self.undated)),'UNDATED_BENCHMARK_ACTION')
         need(not any(self.axis[0]<=day<=self.axis[-1] for day,_,_ in self.resets.get('BIL',[])),'UNSUPPORTED_BIL_ACTION')
         from sentinel.feed.alpaca_observation import admissible_history

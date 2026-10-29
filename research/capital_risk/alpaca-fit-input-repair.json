@@ -1,0 +1,44 @@
+{
+  "compressed_response_sha256": "fb710293d6cbdd8c11cafb05e87520c5887b8eb84aacf7c8ee37c6ab78869eea",
+  "dataset_sha256": "82407a00140a67b1770a69aab31fc6cba6b35008367b3cedd00f89de61f3bc8b",
+  "effective_session": "2024-08-05",
+  "kind": "SAME_CUSIP_NAME_ONLY",
+  "permanent_id_sha256": "b34a7ae1eb40b2712b2b13b9d176c75779fba567f440a3e566dcc989be43aea5",
+  "predecessor": {
+    "checkpoint": {
+      "bytes": 1023450,
+      "canonical_roundtrip": true,
+      "file": "refused-prefix-2024-08-02.json.gz",
+      "journal": {
+        "bytes": 1852292,
+        "chain_sha256": "4fe58a6f4a620aac5fc21c41ceca2464ba894d97d749f966daa1db8b0a2be4ec",
+        "file": "canonical.jsonl",
+        "records": 23,
+        "sha256": "25dbc60a9b761648ff7bbebcf5820e9094b5f55feaa227347db90c62137a859f"
+      },
+      "session": "2024-08-02",
+      "sha256": "9572ff5bd40a1f29c56399896e91a1446a2a82e9d501753b671a642b62e91c7c",
+      "state_sha256": "9fbfb0ac8c917377a14d36cb9e1886bdc4e4d391e986dfaef3a1c1438321622a"
+    },
+    "execution_source_sha256": "6649ee7b15f65673baf30985714388267f2f78a69d99ba10e6e66e65d2272686",
+    "inner_sha256": "28e79f5ef6045d8f5aa825c7a2e2e7baad25c052d2f4ad2158fb3aab5969c58f",
+    "input_sha256": "4d20b079a5010e2fdf266864826a321e82d548d51efb32beee0660db59f2493b",
+    "original_source_sha256": "39c9858e84ad2369ddb8f6a299267a15cd06fbd02d0b4d5401fe3448208ca9ed",
+    "state_sha256": "9fbfb0ac8c917377a14d36cb9e1886bdc4e4d391e986dfaef3a1c1438321622a"
+  },
+  "prices_or_balances_modified": false,
+  "primary_extraction_sha256": "b2a8b0c927aa58987056cf227b812e97190a3d5040230348ca20d75957b64ca1",
+  "primary_source_urls": [
+    "https://www.sec.gov/Archives/edgar/data/1108426/000110842624000082/pnm-20240805.htm",
+    "https://www.sec.gov/Archives/edgar/data/1108426/000110842624000082/txnm08052024ex991.htm"
+  ],
+  "production_contacted": false,
+  "protocol_sha256": "a4edcee7ab83149dbe03465e28ba4721918ba1ce3bae6db0dd01712474b6a1bb",
+  "raw_response_sha256": "8a3bbe6b0ad54676ef454cd6b44b0a2b36f1a8270d8e596ce67deab74acc5639",
+  "record_kind": "name_changes",
+  "record_sha256": "bcb9f7a4a1635a6ba1158fb6dcfc32a483076f7f66bb4a9a429ef3c4a2e9e9b2",
+  "response_file": "provider-0146.json.gz",
+  "schema": "research.alpaca-sparse-factual-identity/1",
+  "source_manifest_sha256": "93425b046f2739ba0af570eae52ff09aa2279e5397a3f52d1087c3143d6a4c70",
+  "study_id": "alpaca-owned55-fit-001"
+}

@@ -72,6 +72,7 @@ def run(args):
         value={'schema':'research.alpaca-fit-baseline-checkpoint/2' if continuing else 'research.alpaca-fit-baseline-checkpoint/1',
             'source_sha256':binding,'origin_source_sha256':origin_binding,
             'protocol_sha256':request['protocol_sha256'],'dataset_sha256':request['dataset_sha256'],
+            'input_interpretation_sha256':data.capture_sha,
             'formation':formation,'canonical':book.checkpoint() if formation else state.to_dict(),
             'journal':journal.commitment(),'session':state.last_processed_session,'controller_states':leaf_states}
         raw=encoded(value);path=out/(tag+'.json.gz')
@@ -89,7 +90,20 @@ def run(args):
             'state_sha256':state.state_hash,'session':state.last_processed_session,'canonical_roundtrip':True,'journal':value['journal']})
         save(out/(tag+'-receipt.json'),retained[-1])
     try:
-        data=Inputs(Path(args.inputs),Path(args.bil_inputs),protocol,request['dataset_sha256'],Path(args.prefix_inputs))
+        repair=request.get('sparse_input_repair');repair_path=None
+        if repair:
+            repair_path=Path('/src')/repair['path']
+            need(repair_path.stat().st_size==repair['bytes'] and hashlib.sha256(repair_path.read_bytes()).hexdigest()==repair['sha256'],
+                 'SPARSE_REPAIR_DESCRIPTOR')
+            from alpaca_fit_identity_repair import predecessor
+            proof=predecessor(args.resume_prefix,json.loads(repair_path.read_bytes()),request['continuation'])
+            save(out/'factual-predecessor-admission.json',proof)
+        data=Inputs(Path(args.inputs),Path(args.bil_inputs),protocol,request['dataset_sha256'],Path(args.prefix_inputs),
+            factual_repair=repair_path)
+        if repair:
+            save(out/'factual-input-admission.json',{'facts':data.factual_repair_receipt,
+                'descriptor_file_sha256':repair['sha256'],'input_interpretation_sha256':data.capture_sha,
+                'original_dataset_sha256':request['dataset_sha256'],'predecessor':proof})
         save(out/'normalization.json',data.summary)
         save(out/'action-input-issues.json',data.action_issues)
         measured=calendar.sessions_in_range(protocol['measured_start'],protocol['data_end'])
@@ -121,7 +135,8 @@ def run(args):
             comparison=equivalent_inputs(data,args.input_reference,state,day,1 if phase=='FORMATION' else 2+measured.index(day),phase=='FORMATION')
             storage_equivalence=comparison;save(out/'packed-input-equivalence.json',comparison)
             need(comparison['packed_seconds']<.75*comparison['reference_seconds'],'INPUT_SPEEDUP_NOT_ESTABLISHED')
-            ordinary=request['continuation']['prior_max_ordinary_seconds']
+            estimate=request['continuation']
+            ordinary=estimate.get('prior_ordinary_estimate_seconds',estimate.get('prior_max_ordinary_seconds'))
             per_step=comparison['packed_seconds']+max(1.,ordinary-comparison['reference_seconds'])
             batch_limit=max(0,min(300,len(sequence)-completed_before,int((protocol['initial_worker_seconds']-(time.monotonic()-started)-300)/(1.5*per_step))))
             need(batch_limit>0,'NO_BOUNDED_SUFFIX_BUDGET')

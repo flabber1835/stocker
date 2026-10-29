@@ -59,14 +59,20 @@ def continuation_request(previous,artifact_id,source,dataset_sha,protocol_sha):
     archive=previous/'download/artifact.zip'
     artifact={'id':artifact_id,'run_id':int(receipt['run_id']),'head':receipt['head'],
         'bytes':archive.stat().st_size,'sha256':digest(archive.read_bytes()),'full':receipt['encrypted_outputs']['full']}
-    timing=json.loads((root/'timing-gate.json').read_bytes())
+    if status.get('new_transitions',0)>0:
+        prior_ordinary=status['elapsed_seconds']/status['new_transitions']
+    else:
+        timing_path=root/'timing-gate.json'
+        if not timing_path.exists():timing_path=root/'lineage/previous-timing-gate.json'
+        timing=json.loads(timing_path.read_bytes())
+        prior_ordinary=max(t['ordinary_seconds'] for t in timing['transition_seconds'][-3:])
     reference=old.get('input_reference') or {'commit':receipt['head'],'path':'research/capital_risk/alpaca_fit_inputs.py',
         **old['source_files']['research/capital_risk/alpaca_fit_inputs.py']}
     return {'artifact':artifact,'checkpoint':cp,'dataset_sha256':dataset_sha,'protocol_sha256':protocol_sha,
-        'prior_max_ordinary_seconds':max(t['ordinary_seconds'] for t in timing['transition_seconds'][-3:])},reference
+        'prior_ordinary_estimate_seconds':prior_ordinary},reference
 
 
-def prepare(case,destination,request_id,previous=None,artifact_id=None):
+def prepare(case,destination,request_id,previous=None,artifact_id=None,input_repair=None):
     case=Path(case);protocol=Path(__file__).with_name('alpaca-fit-protocol.json');p_sha=digest(protocol.read_bytes())
     captures={key:json.loads((case/folder/'transport.json').read_bytes()) for key,folder in
         [('prefix','transport-001'),('corroboration','transport-002'),('market','transport-003'),('bil','bil-transport-001')]}
@@ -97,6 +103,12 @@ def prepare(case,destination,request_id,previous=None,artifact_id=None):
     if previous:
         need(type(artifact_id) is int and artifact_id>0,'CONTINUATION_ARTIFACT')
         value['continuation'],value['input_reference']=continuation_request(previous,artifact_id,source,value['dataset_sha256'],p_sha)
+    if input_repair:
+        need(previous is not None,'REPAIR_REQUIRES_OWN_PREFIX')
+        path=Path(input_repair);name=path.as_posix();raw=path.read_bytes();repair=json.loads(raw)
+        need(name in source and source[name]=={'bytes':len(raw),'sha256':digest(raw)}
+             and repair['dataset_sha256']==value['dataset_sha256'] and repair['protocol_sha256']==p_sha,'EXACT_FACTUAL_REPAIR')
+        value['sparse_input_repair']={'path':name,**source[name]}
     destination=Path(destination);need(not destination.exists(),'REQUEST_COLLISION')
     destination.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n',encoding='utf-8',newline='\n')
     print(json.dumps({'request_sha256':digest(destination.read_bytes()),'source_files':len(value['source_files']),
@@ -107,4 +119,5 @@ if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--case',required=True);p.add_argument('--output',required=True)
     p.add_argument('--request-id',required=True)
     p.add_argument('--continue-from');p.add_argument('--artifact-id',type=int)
-    a=p.parse_args();prepare(a.case,a.output,a.request_id,a.continue_from,a.artifact_id)
+    p.add_argument('--input-repair')
+    a=p.parse_args();prepare(a.case,a.output,a.request_id,a.continue_from,a.artifact_id,a.input_repair)

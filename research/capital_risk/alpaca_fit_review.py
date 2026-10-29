@@ -36,6 +36,23 @@ def review(evidence,inputs,prefix_inputs,request,output):
     status=json.loads((root/'baseline-status.json').read_bytes())
     need(status['source_sha256']==binding and retained,'REVIEW_SOURCE_OR_NO_ORIGIN')
     origin_binding=plan.source_sha256;inherited={}
+    interpretation=request['dataset_sha256'];repair=None;repair_records=0
+    if request.get('sparse_input_repair'):
+        from alpaca_fit_identity_repair import digest
+        spec=request['sparse_input_repair'];path=Path('/src')/spec['path']
+        need(path.stat().st_size==spec['bytes'] and hashlib.sha256(path.read_bytes()).hexdigest()==spec['sha256'],'REVIEW_REPAIR_SOURCE')
+        repair=json.loads(path.read_bytes());fact=json.loads((root/'factual-input-admission.json').read_bytes())
+        basis=repair['predecessor'];anchor=root/basis['checkpoint']['file']
+        need(anchor.stat().st_size==basis['checkpoint']['bytes'] and hashlib.sha256(anchor.read_bytes()).hexdigest()==basis['checkpoint']['sha256'],
+             'REVIEW_FACTUAL_ANCHOR_FILE')
+        original=json.loads(gzip.decompress(anchor.read_bytes()))
+        need(original['canonical']['sha256']==basis['inner_sha256']
+             and original['canonical']['state_sha256']==basis['state_sha256']
+             and original['canonical']['plan']['source_sha256']==origin_binding,'REVIEW_FACTUAL_ANCHOR_CONTENT')
+        interpretation=digest({'dataset_sha256':request['dataset_sha256'],'factual_interpretation_sha256':digest(repair)})
+        need(fact['facts']['descriptor_sha256']==digest(repair) and fact['descriptor_file_sha256']==spec['sha256']
+             and fact['input_interpretation_sha256']==interpretation and fact['facts']['record_sha256']==repair['record_sha256']
+             and fact['facts']['provider_rows_or_financial_state_modified'] is False,'REVIEW_FACTUAL_ADMISSION')
     if request.get('continuation'):
         spec=request['continuation'];lineage=root/'lineage'
         previous_plan=json.loads((lineage/'previous-plan.json').read_bytes())
@@ -83,6 +100,16 @@ def review(evidence,inputs,prefix_inputs,request,output):
     from itertools import chain
     for proof,reply in chain(responses(Path(prefix_inputs)),responses(Path(inputs))):
         params=proof.get('params') or {}
+        if repair and proof['endpoint'].endswith('/corporate-actions'):
+            for record in reply['corporate_actions'].get('name_changes',[]):
+                if digest(record)!=repair['record_sha256']:continue
+                need(proof['file']==repair['response_file'] and proof['raw_sha256']==repair['raw_response_sha256']
+                     and proof['sha256']==repair['compressed_response_sha256'],'REVIEW_EXACT_NAME_RESPONSE')
+                need(record['old_cusip']==record['new_cusip'] and record['old_symbol']!=record['new_symbol']
+                     and record['process_date']==repair['effective_session'],'REVIEW_NAME_ONLY_FACT')
+                sid=ticker_to_sid[record['new_symbol']]
+                need(hashlib.sha256(sid.encode()).hexdigest()==repair['permanent_id_sha256'],'REVIEW_NAME_SID')
+                repair_records+=1
         if not proof['endpoint'].endswith('/bars'):continue
         if params.get('adjustment')=='all' and 'SPY' in reply.get('bars',{}):
             for (_,day),bar in bar_page_rows({'SPY':reply['bars']['SPY']},symbols={'SPY'},sessions=axis).items():
@@ -158,6 +185,7 @@ def review(evidence,inputs,prefix_inputs,request,output):
             need(receipt==inherited[receipt['file']],'OLD_CHECKPOINT_RECEIPT_UNCHANGED')
         else:
             need(value['source_sha256']==binding and value.get('origin_source_sha256',origin_binding)==origin_binding,'CP_EXECUTION_SOURCE')
+            need(value['input_interpretation_sha256']==interpretation,'CP_INPUT_INTERPRETATION')
         need(value['protocol_sha256']==request['protocol_sha256']
              and value['dataset_sha256']==request['dataset_sha256'],'CP_LINEAGE')
         commit=value['journal'];need(prefixes[commit['bytes']]==(commit['sha256'],commit['records'],commit['chain_sha256']),'HISTORICAL_PREFIX')
@@ -172,6 +200,10 @@ def review(evidence,inputs,prefix_inputs,request,output):
             if value['session'] is not None:need(value['controller_states'][key]==row['owned55_profiles'][key]['state'],'CP_CONTROLLER_STATES')
         reviewed.append({'file':receipt['file'],'canonical_restore':True,'historical_prefix':True})
     complete=formation_count==126 and measured_count==len(plan_record['measured_axis'])
+    if repair:
+        basis=repair['predecessor'];anchor=by_session[basis['checkpoint']['session']]
+        need(repair_records==1 and anchor['input_sha256']==basis['input_sha256']
+             and anchor['state_sha256']==basis['state_sha256'],'REVIEW_FACTUAL_SOURCE_AND_INPUT_ANCHOR')
     need(formation_count==status['formation_count'] and measured_count==status['measured_records'],'REVIEW_PROGRESS_COUNTS')
     if request.get('continuation'):
         spec=request['continuation'];old_commit=spec['checkpoint']['journal']
@@ -187,6 +219,7 @@ def review(evidence,inputs,prefix_inputs,request,output):
         'raw_price_preimages':checked_prices,'registered_controller_paths':108,'retained_checkpoints':reviewed,
         'all_journal_bytes_committed':True,'uncommitted_tail_bytes':0,'source_sha256':binding,'origin_source_sha256':origin_binding,
         'old_prefix_and_origin_preserved':bool(request.get('continuation')),
+        'input_interpretation_sha256':interpretation,'sparse_factual_amendment':bool(request.get('sparse_input_repair')),
         'funded_account_performance_admitted':False,'production_contacted':False}
     save(out/'independent-review.json',result)
     return result

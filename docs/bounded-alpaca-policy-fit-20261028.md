@@ -316,3 +316,39 @@ per worker) to finish the same registered date axis. A batch stop is an explicit
 partial prefix, not a complete trial or performance result. Preserve and resume
 its own exact state. This scheduling amendment changes no dates, capital, grid,
 selection rule, provider prices, action facts or financial transition.
+
+## Sparse factual identity amendment: PNM to TXNM
+
+The exact suffix stopped before August 5, 2024 because its action interpreter
+reset TXNM's history for a name change. Its August 2 predecessor has 22 reviewed
+formation closes, five immutable checkpoints and zero journal tails. TXNM is a
+protected controller reference here, not a held or pending Core position.
+
+The frozen Alpaca record identifies PNM to TXNM on August 5 with equal old/new
+CUSIPs. The issuer's [8-K, Item 8.01](https://www.sec.gov/Archives/edgar/data/1108426/000110842624000082/pnm-20240805.htm)
+and [Exhibit 99.1](https://www.sec.gov/Archives/edgar/data/1108426/000110842624000082/txnm08052024ex991.htm)
+establish unchanged common-stock identity and outstanding shareholder interests.
+The change of authorized share ceiling is not a split of outstanding holdings.
+The complete frozen provider archive was authenticated before extracting this
+record; no new price acquisition or inferred adjustment is needed.
+
+Admit one explicit research input-interpretation amendment, not a general rename
+exemption or a production parser change. Its hash-only descriptor binds this
+exact action-record digest, raw-response digest, original capture/protocol,
+permanent-ID digest and the exact own August 2 file/outer/inner/state/input/source
+and journal predecessor. The actual record must have equal valid CUSIPs, distinct
+old/new symbols, the bound date, a unique current target listing and no conflicting
+structural event. All other unsupported events retain their ordinary refusal.
+Remove only this record's dated history reset. Never change any provider row,
+security ID, share, price, cash, controller state or prior committed frame.
+
+Preserve the original dataset and FormationPlan commitments. A separate input
+interpretation digest binds the amendment into every new publication. The scalar
+and packed assemblers compare against this same explicitly amended normalized
+basis; that equality proves storage equivalence, not factual correctness of the
+amendment. Factual admission is separate and records the issuer evidence and
+exact predecessor proof. Current-source canonical restore, all old checkpoints,
+all journal prefixes and exact next-session adjacency remain required. Later
+suffixes must prove that this bound anchor remains in their own retained lineage.
+No warmup restart, arbitrary action suppression or production installation is
+authorized. Keep the initial refusal and negative findings intact.
