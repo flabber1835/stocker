@@ -22,7 +22,7 @@ def source_inventory():
         header,path=item.split(b'\t',1);name=path.decode();mode,blob,stage=header.decode().split()
         need(stage=='0','UNMERGED_INDEX')
         in_source=name.startswith(('sentinel/','shared/stock_strategy_shared/','research/capital_risk/'))
-        if name=='research/capital_risk/alpaca-fit-request.json':continue
+        if name in ('research/capital_risk/alpaca-fit-request.json','research/capital_risk/alpaca-funded-request.json'):continue
         if name in required or in_source and name.endswith(('.py','.json')):
             need(mode=='100644','SOURCE_LINK_OR_EXECUTABLE');selected.append((name,blob))
     need(required.issubset({name for name,_ in selected}),'FROZEN_RULE_CLOSURE')

@@ -101,11 +101,11 @@ def stopped_run(argv,name,output,deadline,inspector=None):
     return {'stopped':True,'exit_code':item['State']['ExitCode'],'oom_killed':item['State']['OOMKilled'],'wait_error':wait_error}
 
 
-def seal_output(root,path,key,protocol_sha,kind):
+def seal_output(root,path,key,protocol_sha,kind,*,stage='canonical-baseline'):
     members={p.relative_to(root).as_posix():{'bytes':p.stat().st_size,'sha256':sha256_file(p)}
         for p in sorted(root.rglob('*')) if p.is_file()}
     need(not any(p.is_symlink() for p in root.rglob('*')),'OUTPUT_SYMLINK')
-    manifest=json.dumps({'schema':'research.alpaca-fit-output/1','stage':'canonical-baseline','kind':kind,
+    manifest=json.dumps({'schema':'research.alpaca-fit-output/1','stage':stage,'kind':kind,
         'protocol_sha256':protocol_sha,'run_id':os.environ['GITHUB_RUN_ID'],'head':os.environ['GITHUB_SHA'],'members':members},sort_keys=True).encode()+b'\n'
     import hashlib
     with path.open('xb') as out:

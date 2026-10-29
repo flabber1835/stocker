@@ -10,7 +10,7 @@ from seal import decrypt,safe_name,sha256_file
 from alpaca_fit_inputs import need
 
 
-def extract(plain,destination,spec,previous,protocol):
+def extract(plain,destination,spec,previous,protocol,*,stage='canonical-baseline'):
     need(not destination.exists(),'PREDECESSOR_EXTRACTION_COLLISION')
     with tarfile.open(plain,'r:') as tar:
         members=tar.getmembers();first=members[0]
@@ -18,13 +18,13 @@ def extract(plain,destination,spec,previous,protocol):
         body=tar.extractfile(first).read();need(hashlib.sha256(body).hexdigest()==spec['manifest_sha256'],'PREDECESSOR_MANIFEST_HASH')
         manifest=json.loads(body)
         need(manifest['schema']=='research.alpaca-fit-output/1' and manifest['kind']=='FULL_STOPPED_EVIDENCE'
-            and manifest['stage']=='canonical-baseline' and manifest['run_id']==str(previous['run_id'])
+            and manifest['stage']==stage and manifest['run_id']==str(previous['run_id'])
             and manifest['head']==previous['head'] and manifest['protocol_sha256']==protocol,'PREDECESSOR_MANIFEST_IDENTITY')
         inventory=manifest['members'];seen=set();need(len(members)==len(inventory)+1<=5000,'PREDECESSOR_MEMBER_COUNT')
         for item in members[1:]:
             safe_name(item.name);need(item.isfile() and item.name in inventory and item.name not in seen,'PREDECESSOR_MEMBER')
             seen.add(item.name);expected=inventory[item.name]
-            need(item.size==expected['bytes'] and item.size<=128*1024**2
+            need(item.size==expected['bytes'] and item.size<=(512 if stage=='funded-fit' else 128)*1024**2
                 and hashlib.file_digest(tar.extractfile(item),'sha256').hexdigest()==expected['sha256'],'PREDECESSOR_MEMBER_HASH')
         destination.mkdir(mode=0o700)
         for item in members[1:]:

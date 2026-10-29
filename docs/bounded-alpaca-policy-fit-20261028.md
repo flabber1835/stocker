@@ -482,3 +482,41 @@ source role interpretation. All ordinary price corroboration, protected-history,
 Core financial, checkpoint and prefix checks remain. Registry membership is
 metadata-driven; separate issuer research covers the observed CLSK example,
 not every future entry. The provider-truth and current-cohort limits remain.
+
+## Bounded funded workflow contract
+
+Use a distinct `alpaca-funded-request.json` trigger, separate from the Core
+suffix trigger. Each request binds the actual reviewed Core artifact, encrypted
+inventory and required end date; later requests also bind the exact own funded
+artifact. A training request cannot start before the complete 2025 source is
+independently admitted. The diagnostic request additionally pins the actual
+training selection file and complete 2026 source. Continue the same accounts.
+
+The funded worker receives no credentials and only read-only source, market,
+Core and predecessor mounts, plus its private writable output. Preserve the
+8 GiB / 2 CPU / no-swap / no-network fences. Bound processing to 3,000 seconds
+with 120 seconds for closure; the host wait is 3,120 seconds. A separate stopped
+review worker has 900 seconds. The entire workflow remains bounded to 90 minutes.
+Durable inspections precede exceptions and exports. An unknown reviewer is not
+archived; an independently proven stopped financial writer may still be retained.
+
+The model identity includes financial implementation files, numerical protocol,
+dataset and the exact source prefix through the training cutoff. It excludes the
+later diagnostic suffix from the training identity, while admission still checks
+the entire supplied source chain. Orchestration/reviewer fixes do not relabel
+financial state. Freeze financial implementation before the first funded origin.
+Only unchanged component qualifications may be reused on exact continuations.
+
+For event equations reuse the existing independent cash/share/claim checker.
+Additionally derive defensive rounding using integer quotient/remainder and
+ties-to-even, independently of the financial Decimal calculation. Reconstruct
+every prior-close target separately, check complete action/order coverage,
+all raw marks, every checkpoint against its actual daily prefix, and every
+historical journal commitment. Preserve tails outside the economic path.
+
+An additional funded treatment means an actual positive fill sequence differs
+from baseline on the same date. A changed signal without a differing positive
+fill is insufficient. Lock selection only when all 108 accounts have complete
+reviewed training paths. Incomplete processing remains a prefix, not a score.
+Use the same gross SPY adjusted-open anchor for every comparison; disclose that
+SPY excludes stock trading fees, while funded accounts charge 10 basis points.
