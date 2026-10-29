@@ -9,6 +9,11 @@ import owned_grid_review as review
 
 
 class EquationTests(unittest.TestCase):
+    def test_retained_first_zero_text_is_preserved_exactly(self):
+        from owned_grid_worker import startup_projection
+        source={'held_allocation':None,'pending_allocation':'0.0','net_factor':'1'}
+        self.assertEqual(startup_projection(source,None,0.0,0),source)
+
     def test_funded_startup_can_commit_nonzero_exposure_for_following_open(self):
         from owned_grid_worker import startup_projection
         previous={'pending_allocation':'0'}

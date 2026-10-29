@@ -63,7 +63,9 @@ def startup_projection(economics,previous,target,number):
     else:
         need(D(previous['pending_allocation'])==0 and economics['initial_deployment'] is True
             and D(economics['held_allocation'])==0,'FIRST_FUNDED_OPEN_OLD_ZERO_COMMITMENT')
-    actual=deepcopy(economics);actual['pending_allocation']=format(D(str(target)).normalize(),'f')
+    actual=deepcopy(economics)
+    if D(economics['pending_allocation'])!=D(str(target)):
+        actual['pending_allocation']=format(D(str(target)).normalize(),'f')
     return actual
 
 

@@ -9,16 +9,16 @@
       "sha256": "7b98ab4eb1231e5b28bc1c6997f4aa7eea2c3f891812a152e878d3d032dab770"
     },
     "owned_grid_worker.py": {
-      "bytes": 15935,
-      "sha256": "d02725a59155c18236da23ff116e6187b29c6db143ccb411b235947e22246c97"
+      "bytes": 16002,
+      "sha256": "15fdf21a538550aca2923302cd06c08cfbbf713a18063f4db8b22a341bad95a7"
     },
     "owned_grid_review.py": {
-      "bytes": 16301,
-      "sha256": "b41b16b7b156194f2335bdb16dc36550942af9b30d5325c5e0f9fd69a184137f"
+      "bytes": 16374,
+      "sha256": "2db63059f6a9481ea1af373cf4981b5ef797c0d8700065d14eef538a8eaa1c04"
     },
     "owned_grid_job.py": {
-      "bytes": 10071,
-      "sha256": "815efeee554bf6a4f4cb65469666ce8c3737b4863a39c31178827058b5eefce7"
+      "bytes": 10373,
+      "sha256": "a19dfc1ce9d414d2a2b634d24877bf5175456a71d1de875aca6ddc702ad8f015"
     },
     "trace_screen.py": {
       "bytes": 14123,
@@ -60,12 +60,22 @@
   "execution_image": "sha256:1b449754a48473e4737fc34f3f51ae0b4226d5e84540dea54115d4693142ed9d",
   "production_contacted": false,
   "no_local_financial_execution": true,
-  "preserved_pre_search_refusal": {
-    "run_id": 40825055253,
-    "head": "a2afd1635c5b09b9b023e25748b1a2034746ceb0",
-    "artifact_id": 12876247293,
-    "artifact_zip_sha256": "2f62d80e1391d914dbd5d8211963aa05e33f9f83c22ca25c0d7cff80ad8da589",
-    "actual_objective_account_origins": 0,
-    "actual_controller_path_origins": 0
-  }
+  "preserved_pre_search_refusals": [
+    {
+      "run_id": 40825055253,
+      "head": "a2afd1635c5b09b9b023e25748b1a2034746ceb0",
+      "artifact_id": 12876247293,
+      "artifact_zip_sha256": "2f62d80e1391d914dbd5d8211963aa05e33f9f83c22ca25c0d7cff80ad8da589",
+      "actual_objective_account_origins": 0,
+      "actual_controller_path_origins": 0
+    },
+    {
+      "run_id": 40825630207,
+      "head": "d17eac3b57b211fc51aa4642d9c515b6dab0ad85",
+      "artifact_id": 12876218456,
+      "artifact_zip_sha256": "64365a3ba11b051b39345051788a2f539503f362238674aeca314f0578d99a82",
+      "actual_objective_account_origins": 0,
+      "actual_controller_path_origins": 0
+    }
+  ]
 }
