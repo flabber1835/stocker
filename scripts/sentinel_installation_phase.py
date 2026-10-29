@@ -37,6 +37,33 @@ class InstallationConfig:
 
 
 class InstallationDeploy(bootstrap.BootstrapDeploy):
+    def _installation_control(self, *, timeout=None):
+        """Read only the installation fence; financial health belongs to activation."""
+        code = (
+            "import json,os; from sentinel import deployment_fence; "
+            "from sentinel.automation import store as automation_store; "
+            "from sentinel.feed import store; "
+            "c=store.connect(os.environ['SENTINEL_DATABASE_URL'],"
+            "connect_timeout=3,statement_timeout_ms=5000);\n"
+            "try:\n deployment_fence.require(c); "
+            "control=automation_store.load_control(c); "
+            "print(json.dumps(dict(enabled=control.enabled,"
+            "kill_switch_engaged=control.kill_switch_engaged,"
+            "control_generation=control.generation)))\n"
+            "finally:\n c.rollback(); c.close()")
+        state = core._json_output(self.runner.run(self.base_compose + [
+            '--profile', 'cli', 'run', '--rm', '-T', '--no-deps',
+            '--entrypoint', 'python', 'sentinel', '-c', code],
+            capture=True, timeout=30 if timeout is None else timeout),
+            label='installation automation fence')
+        if (set(state) != {'enabled', 'kill_switch_engaged', 'control_generation'}
+                or type(state['enabled']) is not bool
+                or state['kill_switch_engaged'] is not True
+                or type(state['control_generation']) is not int
+                or state['control_generation'] < 1):
+            raise core.DeployRefused('installation automation fence is malformed or not killed')
+        return state
+
     def build_promote(self):
         self.phase('installation: independently verify the exact signed CI runtime')
         self.resolve_compose()

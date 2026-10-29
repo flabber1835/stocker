@@ -1945,6 +1945,9 @@ class AutonomousDeploy:
         return _json_output(self._base_cli(["status"], capture=True), label="status")
 
     def _automation_status(self, *, timeout: Optional[float] = None) -> Mapping:
+        if getattr(self, '_installation_only', False):
+            from sentinel_installation_phase import InstallationDeploy
+            return InstallationDeploy._installation_control(self, timeout=timeout)
         return _json_output(
             self._base_cli(["automation-status"], capture=True, timeout=timeout),
             label="automation-status")
