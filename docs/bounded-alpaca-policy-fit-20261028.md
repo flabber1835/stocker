@@ -416,3 +416,69 @@ That comparison establishes storage equivalence. The actual 300/301 source
 comparison and focused missing/conflicting-predecessor tests establish the new
 admission boundary separately. This is research source interpretation, with no
 PAPER parser installation or production certification.
+
+## Funded fitting execution and evidence
+
+Consume only an authenticated stopped canonical trace with an actual independent
+review covering the entire period being scored. Training needs every 2025 close;
+the later diagnostic needs the complete registered 2026 axis. Verify defensive
+and SPY inputs independently against the frozen benchmark response preimages.
+Do not derive returns by scaling old scalar-book returns. Use the persistent
+quantity operations, actual whole-share fills, cash clipping, explicit stock
+fees and recorded claims. Each of the 108 profiles owns its own 50,000 origin.
+
+Keep each Core opening's original signal/slot identity, including carried orders.
+Verify its source NAV/20 budget against that original source close. The funded
+account sizes its next-open allocation from the latest available prior close;
+it cannot use the executing session's close. Carried origin identity and current
+allocation-decision date are distinct. An unsupported operation remains a refusal.
+
+Four hosted component cases cover the new funded-open origin, fees, separate
+overnight/intraday defensive factors and exact serialized continuation. Existing
+financial primitives retain their earlier qualification; no new Core decision
+engine is introduced. Local checks use hand-valued geometry only.
+
+Write compressed event, daily-account and checkpoint-archive journals per profile.
+Each close commits only after its complete buffered event set, daily frame and
+checkpoint are durable. The archive retains every typed checkpoint and raw-prefix
+commitment; the current checkpoint additionally commits the archive prefix.
+Resume each exact own checkpoint and preserve old compressed journals, recovered
+uncommitted bytes and origin receipts. Never recreate a funded origin, conceal
+partial output or use a different profile's checkpoint. A processing bound is an
+explicit partial prefix. Unknown worker outcomes cannot produce a financial export.
+
+A separate stopped worker independently recomputes account events, quantities,
+cash, claims, raw-open fills, fees, factors, daily NAV, every checkpoint and all
+historical journal prefixes. Derive growth and drawdown from that reviewed path.
+Retain 108 score rows, including ties and refusals. Lock the preregistered training
+selection only after this review, before reading selected 2026 account results.
+Continue only the baseline and locked shortlist into 2026 from their own exact
+training checkpoints. All stages remain bounded isolated GitHub jobs; no local
+account replay, production operation or parameter retuning is implied.
+
+## Stock-merger recipient versus converted security
+
+The next reviewed prefix reaches October 31, 2024 / 85 formation closes. The
+November 1 refusal names CLSK, the acquirer in the frozen GRDI stock-merger
+record. The issuer's [closing 8-K](https://www.sec.gov/Archives/edgar/data/827876/000119312524248156/d863782d8k.htm)
+identifies GRDI common shares as the converted property and CLSK shares as newly
+issued consideration. Existing CLSK shares receive no mechanical conversion.
+Dilution and market-price changes remain in actual prices. The provider date and
+truncated ratio differ from the issuer's terms; retain that discrepancy and do
+not use it to settle any acquiree position.
+
+Freeze a separate future-event role registry before measured-return evaluation.
+For exact well-formed `stock_mergers` with distinct acquirer/acquiree symbols and
+valid distinct CUSIPs, positive finite rate fields, a uniquely bound current
+acquirer listing, and no conflicting structural event, remove only the
+acquirer's exact reset. Preserve the acquiree reset and every economic-action
+refusal. Do not create shares, cash, conversions, prices or broker mappings.
+Other merger kinds and malformed or ambiguous records remain unchanged.
+
+Bind the registry to the own October 31 file/inner/state/input/source/journal
+anchor and immutable provider response preimages. Retain the earlier name
+registry and split-context policy independently. This extends only research
+source role interpretation. All ordinary price corroboration, protected-history,
+Core financial, checkpoint and prefix checks remain. Registry membership is
+metadata-driven; separate issuer research covers the observed CLSK example,
+not every future entry. The provider-truth and current-cohort limits remain.

@@ -37,6 +37,14 @@ def review(evidence,inputs,prefix_inputs,request,output):
     need(status['source_sha256']==binding and retained,'REVIEW_SOURCE_OR_NO_ORIGIN')
     origin_binding=plan.source_sha256;inherited={}
     interpretation=request['dataset_sha256'];repair=None;repair_events={};repair_records={}
+    role=None;role_events={};role_records={}
+    if request.get('source_role_repair'):
+        from alpaca_fit_identity_repair import digest,predecessor
+        role_spec=request['source_role_repair'];path=Path('/src')/role_spec['path']
+        need(path.stat().st_size==role_spec['bytes'] and hashlib.sha256(path.read_bytes()).hexdigest()==role_spec['sha256'],'REVIEW_ROLE_SOURCE')
+        role=json.loads(path.read_bytes());role_fact=json.loads((root/'source-role-input-admission.json').read_bytes())
+        role_events={e['record_sha256']:e for e in role['events']}
+        need(predecessor(root,role,request['continuation'])==role_fact['predecessor'],'REVIEW_ROLE_OWN_ANCHOR')
     if request.get('sparse_input_repair'):
         from alpaca_fit_identity_repair import digest,predecessor
         spec=request['sparse_input_repair'];path=Path('/src')/spec['path']
@@ -55,11 +63,13 @@ def review(evidence,inputs,prefix_inputs,request,output):
              and original['canonical']['state_sha256']==basis['state_sha256']
              and original['canonical']['plan']['source_sha256']==origin_binding,'REVIEW_FACTUAL_ANCHOR_CONTENT')
         interpretation=digest({'dataset_sha256':request['dataset_sha256'],'factual_interpretation_sha256':digest(repair)})
+        if role:interpretation=digest({'source_interpretation_sha256':interpretation,'source_role_descriptor_sha256':digest(role)})
         if request.get('admission_context'):
             interpretation=digest({'source_interpretation_sha256':interpretation,'admission_context':request['admission_context']})
         need(fact['facts']['descriptor_sha256']==digest(repair) and fact['descriptor_file_sha256']==spec['sha256']
              and fact['input_interpretation_sha256']==interpretation and fact['facts']['record_sha256']==repair['record_sha256']
              and fact['facts']['provider_rows_or_financial_state_modified'] is False,'REVIEW_FACTUAL_ADMISSION')
+    if role and repair is None:interpretation=digest({'source_interpretation_sha256':interpretation,'source_role_descriptor_sha256':digest(role)})
     if request.get('admission_context'):
         from alpaca_fit_inputs import SPLIT_CONTEXT
         from sentinel.feed.rolling_contract import digest as input_digest
@@ -68,6 +78,11 @@ def review(evidence,inputs,prefix_inputs,request,output):
         context=json.loads((root/'input-context-admission.json').read_bytes())
         need(context=={'policy':SPLIT_CONTEXT,'input_interpretation_sha256':interpretation,'core_feature_sessions':300,
              'maximum_extra_source_predecessors':1,'inferred_rows':0},'REVIEW_CONTEXT_INTERPRETATION')
+    if role:
+        need(role_fact['descriptor_file_sha256']==role_spec['sha256'] and role_fact['input_interpretation_sha256']==interpretation
+             and role_fact['facts']['descriptor_sha256']==digest(role)
+             and role_fact['facts']['records_sha256']==role['records_sha256']
+             and role_fact['facts']['provider_rows_or_financial_state_modified'] is False,'REVIEW_ROLE_ADMISSION')
     if request.get('continuation'):
         spec=request['continuation'];lineage=root/'lineage'
         previous_plan=json.loads((lineage/'previous-plan.json').read_bytes())
@@ -129,6 +144,19 @@ def review(evidence,inputs,prefix_inputs,request,output):
                 sid=ticker_to_sid[record['new_symbol']]
                 need(hashlib.sha256(sid.encode()).hexdigest()==expected['permanent_id_sha256'],'REVIEW_NAME_SID')
                 repair_records[key]=repair_records.get(key,0)+1
+        if role and proof['endpoint'].endswith('/corporate-actions'):
+            for record in reply['corporate_actions'].get('stock_mergers',[]):
+                key=digest(record)
+                if key not in role_events:continue
+                expected=role_events[key]
+                if proof['file']!=expected['response_file']:continue
+                need(proof['raw_sha256']==expected['raw_response_sha256'] and proof['sha256']==expected['compressed_response_sha256']
+                     and record['acquirer_symbol']!=record['acquiree_symbol']
+                     and record['acquirer_cusip']!=record['acquiree_cusip']
+                     and record['effective_date']==expected['effective_session'],'REVIEW_RECIPIENT_ROLE_FACT')
+                sid=ticker_to_sid[record['acquirer_symbol']]
+                need(hashlib.sha256(sid.encode()).hexdigest()==expected['permanent_id_sha256'],'REVIEW_RECIPIENT_ID')
+                role_records[key]=role_records.get(key,0)+1
         if not proof['endpoint'].endswith('/bars'):continue
         if params.get('adjustment')=='all' and 'SPY' in reply.get('bars',{}):
             for (_,day),bar in bar_page_rows({'SPY':reply['bars']['SPY']},symbols={'SPY'},sessions=axis).items():
@@ -219,6 +247,7 @@ def review(evidence,inputs,prefix_inputs,request,output):
             if value['session'] is not None:need(value['controller_states'][key]==row['owned55_profiles'][key]['state'],'CP_CONTROLLER_STATES')
         reviewed.append({'file':receipt['file'],'canonical_restore':True,'historical_prefix':True})
     complete=formation_count==126 and measured_count==len(plan_record['measured_axis'])
+    if role:need(set(role_records)==set(role_events) and all(v==1 for v in role_records.values()),'REVIEW_ALL_RECIPIENT_PREIMAGES')
     if repair:
         basis=repair['predecessor'];anchor=by_session[basis['checkpoint']['session']]
         need(set(repair_records)==set(repair_events) and all(v==1 for v in repair_records.values())

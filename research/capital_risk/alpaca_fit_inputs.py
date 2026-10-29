@@ -97,7 +97,7 @@ class LazyBars(Mapping):
 
 
 class Inputs:
-    def __init__(self,root,bil_root,protocol,capture_sha,prefix_root=None,*,packed=False,factual_repair=None,admission_context=None):
+    def __init__(self,root,bil_root,protocol,capture_sha,prefix_root=None,*,packed=False,factual_repair=None,admission_context=None,role_repair=None):
         hosted()
         import numpy as np
         from sentinel.feed import calendar
@@ -201,6 +201,16 @@ class Inputs:
             source_manifest_sha=hashlib.sha256(((prefix_root or self.root)/'manifest.json').read_bytes()).hexdigest()
             self.factual_repair_receipt=apply(self,descriptor,source_manifest_sha256=source_manifest_sha)
             self.capture_sha=digest({'dataset_sha256':capture_sha,'factual_interpretation_sha256':digest(descriptor)})
+        self.role_repair_receipt=None
+        if role_repair is not None:
+            from alpaca_fit_merger_roles import apply
+            from alpaca_fit_identity_repair import digest
+            role=json.loads(Path(role_repair).read_bytes())
+            need(role['dataset_sha256']==capture_sha and role['protocol_sha256']==hashlib.sha256(
+                Path('/src/research/capital_risk/alpaca-fit-protocol.json').read_bytes()).hexdigest(),'ROLE_INPUT_BASIS')
+            source_manifest_sha=hashlib.sha256(((prefix_root or self.root)/'manifest.json').read_bytes()).hexdigest()
+            self.role_repair_receipt=apply(self,role,source_manifest_sha256=source_manifest_sha)
+            self.capture_sha=digest({'source_interpretation_sha256':self.capture_sha,'source_role_descriptor_sha256':digest(role)})
         if admission_context:
             from sentinel.feed.rolling_contract import digest
             self.capture_sha=digest({'source_interpretation_sha256':self.capture_sha,'admission_context':admission_context})

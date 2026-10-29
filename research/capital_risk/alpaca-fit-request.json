@@ -199,36 +199,36 @@
   },
   "continuation": {
     "artifact": {
-      "bytes": 23635631,
+      "bytes": 32575151,
       "full": {
-        "bytes": 23316516,
-        "manifest_sha256": "ae653c42bf490ee7e7ac3341ce391b8a64d95047b0db9065bd5c23c5759b17d4",
+        "bytes": 32245796,
+        "manifest_sha256": "49aba455c70b489d46fb0298d8baa03711afb01843ef9a66a2fa52ae48117d88",
         "name": "alpaca-fit-baseline-full.tar.crseal",
-        "sha256": "313f0e0a126ebaf8c3578fc01816d05adad3fff2511804ae48c1adf9e9999d0e"
+        "sha256": "50cf4878e25a9993424cfa639cf245dd88decaa38492ae0c7b96d2ddafc469d2"
       },
-      "head": "7dd0dd953f2a91121e2eb871d347a079db8c2cc3",
-      "id": 12865154342,
-      "run_id": 40799834201,
-      "sha256": "245343ae8f6bd5409b77cad777b32324e324bf1d9602793eaa0a9091ca8d8e3a"
+      "head": "5fdacb82d995d6b926e6f36dbc739904c0527abb",
+      "id": 12866858160,
+      "run_id": 40802118328,
+      "sha256": "9d656657f4dfadf2f70592870720d2781922c117f8bc0f55036544350f97c36d"
     },
     "checkpoint": {
-      "bytes": 1026135,
+      "bytes": 1006810,
       "canonical_roundtrip": true,
-      "file": "refused-prefix-2024-08-14.json.gz",
+      "file": "refused-prefix-2024-10-31.json.gz",
       "journal": {
-        "bytes": 2553170,
-        "chain_sha256": "2262e73219718871f32ef56f6aa46b18930a3bb4f0c53af7fa5a4195260d83e9",
+        "bytes": 7298165,
+        "chain_sha256": "204475abae1e5eb5b3103f0e910ad653f10b8fdd91abaaa446b718a3c9f76be5",
         "file": "canonical.jsonl",
-        "records": 31,
-        "sha256": "f9d16438e029399c5e0985a6a93283a01b9a373d655ed6d5f5201703f9daa191"
+        "records": 86,
+        "sha256": "5301c33cd95db7dfd56bfed958e7845d22be10bf72dfc9f0710f762f284eacf4"
       },
-      "session": "2024-08-14",
-      "sha256": "ea95957f58f07e926612138031d7ee9662b5b26cfebc4c8c3ee22b99fdc21538",
-      "state_sha256": "2808c80d0df5e7fb64e11678aee897b10c1721527824d26da26481454e845c4e"
+      "session": "2024-10-31",
+      "sha256": "e47d560f77df5d841a5a314775f7152b5200cfaa2a07c6158dfaa7285212bdec",
+      "state_sha256": "87d41ed2e4e31e707d8ba8ec2e9344bcb7622c4cd5a924f7aa4a4f82ef4239be"
     },
     "dataset_sha256": "82407a00140a67b1770a69aab31fc6cba6b35008367b3cedd00f89de61f3bc8b",
     "prior_fixed_transition_seconds": 1.0,
-    "prior_ordinary_estimate_seconds": 33.635468639,
+    "prior_ordinary_estimate_seconds": 15.559837951000002,
     "protocol_sha256": "a4edcee7ab83149dbe03465e28ba4721918ba1ce3bae6db0dd01712474b6a1bb",
     "timing_basis": "Prior measured packed input and bounded fixed-cost estimate; actual deadline still enforced."
   },
@@ -243,7 +243,7 @@
   "performance_result_expected_from_this_stage": false,
   "production_contacted": false,
   "protocol_sha256": "a4edcee7ab83149dbe03465e28ba4721918ba1ce3bae6db0dd01712474b6a1bb",
-  "request_id": "canonical-suffix-004",
+  "request_id": "canonical-suffix-005",
   "reused_component_qualification": {
     "artifact_id": 12857599938,
     "head": "734eb1d3bdf38b60a7f60759410dbb7a47573e30",
@@ -290,9 +290,13 @@
       "bytes": 1520,
       "sha256": "a4edcee7ab83149dbe03465e28ba4721918ba1ce3bae6db0dd01712474b6a1bb"
     },
+    "research/capital_risk/alpaca-fit-role-repairs.json": {
+      "bytes": 79066,
+      "sha256": "8dc091cbf9527d5be0edb5ebaefbd3028043fa2eca75df61b88b7cc6286c5228"
+    },
     "research/capital_risk/alpaca_fit_baseline.py": {
-      "bytes": 18184,
-      "sha256": "903cff79fbcc34db971a038fe79700e8c18de303468561fe18400ce804114284"
+      "bytes": 18902,
+      "sha256": "8b3a21ed04ce357d53710d65ca231e86c887d6e43300ce67fcf8801dda5cfa3b"
     },
     "research/capital_risk/alpaca_fit_bil.py": {
       "bytes": 1895,
@@ -315,20 +319,24 @@
       "sha256": "1cbcd0920e773c465820be84dfe1899ccfaa302840423b1d51b11fa1ef67bbbf"
     },
     "research/capital_risk/alpaca_fit_inputs.py": {
-      "bytes": 24701,
-      "sha256": "033fc8a137cfd910e651394ef64370edd7cb4390ba3be1368f954414e781af65"
+      "bytes": 25531,
+      "sha256": "6e833c39b573c05dd552e6be1d33a41fc6fd33a6d1f2819b8ac00fbb7171174b"
     },
     "research/capital_risk/alpaca_fit_job.py": {
-      "bytes": 12713,
-      "sha256": "db6dbb710b001c7db515f410b110fa83c5c6072b509ecc317dbc561815821210"
+      "bytes": 12775,
+      "sha256": "2d7cb9171065375d47488ad00c41e44d0e8a03ba1a4be7f45bcbf41a2921068d"
+    },
+    "research/capital_risk/alpaca_fit_merger_roles.py": {
+      "bytes": 3979,
+      "sha256": "d4057c0b35a34728e0d59de7e827671972952f5a501cdcc3d8617cad9d9a9746"
     },
     "research/capital_risk/alpaca_fit_policy.py": {
       "bytes": 6703,
       "sha256": "fd298cb23dae1daa2055d4ccd98f7f90e25b1c0c93d919ea98c01ff6e2a758e5"
     },
     "research/capital_risk/alpaca_fit_prepare.py": {
-      "bytes": 9418,
-      "sha256": "912f10feed64b3b33d30f3b812da6f65400a329b1aa6056e95b094db0775982d"
+      "bytes": 9934,
+      "sha256": "7f5c4a6400349f26ef3248247553a5e289e8a3cda2391e09dd0fbab6f75593af"
     },
     "research/capital_risk/alpaca_fit_prior.py": {
       "bytes": 5458,
@@ -347,8 +355,8 @@
       "sha256": "4b2c96b715d71fc661dfba43c7c3e8fb956f46b6abe1498d509fcdf0163e4e51"
     },
     "research/capital_risk/alpaca_fit_review.py": {
-      "bytes": 19304,
-      "sha256": "195e3206d37ccc267cfcf4cdd1f98072f97b4d4a7c64442712812b405da16320"
+      "bytes": 21788,
+      "sha256": "4414b215cb6c03888a9458a12934f9eac4728ba80b80caec04cba6401ce10523"
     },
     "research/capital_risk/alpaca_fit_stage.py": {
       "bytes": 10796,
@@ -545,6 +553,10 @@
     "research/capital_risk/forecast_tests/test_alpaca_job.py": {
       "bytes": 4138,
       "sha256": "dde253d2a713131561403860c403b8eb6079f1b06762d41f7b8040adf2be92a0"
+    },
+    "research/capital_risk/forecast_tests/test_alpaca_merger_roles.py": {
+      "bytes": 3344,
+      "sha256": "3543460c4eb2a1fec300d46641f009e6b8973dfc25739f6d0417afef68416bca"
     },
     "research/capital_risk/forecast_tests/test_alpaca_packed.py": {
       "bytes": 1176,
@@ -2946,6 +2958,11 @@
       "bytes": 1839,
       "sha256": "ff4f9ee94508feed4dd3662a3369bf956b674fb8db89be9cf7e9102d38b76391"
     }
+  },
+  "source_role_repair": {
+    "bytes": 79066,
+    "path": "research/capital_risk/alpaca-fit-role-repairs.json",
+    "sha256": "8dc091cbf9527d5be0edb5ebaefbd3028043fa2eca75df61b88b7cc6286c5228"
   },
   "sparse_input_repair": {
     "bytes": 260760,

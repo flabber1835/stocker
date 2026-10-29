@@ -77,7 +77,7 @@ def continuation_request(previous,artifact_id,source,dataset_sha,protocol_sha):
     return continuation,reference
 
 
-def prepare(case,destination,request_id,previous=None,artifact_id=None,input_repair=None,admission_context=None):
+def prepare(case,destination,request_id,previous=None,artifact_id=None,input_repair=None,admission_context=None,role_repair=None):
     case=Path(case);protocol=Path(__file__).with_name('alpaca-fit-protocol.json');p_sha=digest(protocol.read_bytes())
     captures={key:json.loads((case/folder/'transport.json').read_bytes()) for key,folder in
         [('prefix','transport-001'),('corroboration','transport-002'),('market','transport-003'),('bil','bil-transport-001')]}
@@ -117,6 +117,12 @@ def prepare(case,destination,request_id,previous=None,artifact_id=None,input_rep
     if admission_context:
         need(previous is not None and admission_context=='SPLIT_BOUNDARY_CAPTURED_PREDECESSOR_V1','BOUND_ADMISSION_CONTEXT')
         value['admission_context']=admission_context
+    if role_repair:
+        need(previous is not None,'ROLE_REQUIRES_OWN_PREFIX')
+        path=Path(role_repair);name=path.as_posix();raw=path.read_bytes();role=json.loads(raw)
+        need(name in source and source[name]=={'bytes':len(raw),'sha256':digest(raw)}
+             and role['dataset_sha256']==value['dataset_sha256'] and role['protocol_sha256']==p_sha,'EXACT_ROLE_REPAIR')
+        value['source_role_repair']={'path':name,**source[name]}
     destination=Path(destination);need(not destination.exists(),'REQUEST_COLLISION')
     destination.write_text(json.dumps(value,sort_keys=True,indent=2)+'\n',encoding='utf-8',newline='\n')
     print(json.dumps({'request_sha256':digest(destination.read_bytes()),'source_files':len(value['source_files']),
@@ -129,4 +135,5 @@ if __name__=='__main__':
     p.add_argument('--continue-from');p.add_argument('--artifact-id',type=int)
     p.add_argument('--input-repair')
     p.add_argument('--admission-context')
-    a=p.parse_args();prepare(a.case,a.output,a.request_id,a.continue_from,a.artifact_id,a.input_repair,a.admission_context)
+    p.add_argument('--role-repair')
+    a=p.parse_args();prepare(a.case,a.output,a.request_id,a.continue_from,a.artifact_id,a.input_repair,a.admission_context,a.role_repair)

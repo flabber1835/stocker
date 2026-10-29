@@ -91,6 +91,12 @@ def run(args):
         save(out/(tag+'-receipt.json'),retained[-1])
     try:
         repair=request.get('sparse_input_repair');repair_path=None
+        role=request.get('source_role_repair');role_path=None
+        if role:
+            role_path=Path('/src')/role['path']
+            need(role_path.stat().st_size==role['bytes'] and hashlib.sha256(role_path.read_bytes()).hexdigest()==role['sha256'],'ROLE_REPAIR_DESCRIPTOR')
+            from alpaca_fit_identity_repair import predecessor
+            role_proof=predecessor(args.resume_prefix,json.loads(role_path.read_bytes()),request['continuation'])
         if repair:
             repair_path=Path('/src')/repair['path']
             need(repair_path.stat().st_size==repair['bytes'] and hashlib.sha256(repair_path.read_bytes()).hexdigest()==repair['sha256'],
@@ -99,7 +105,10 @@ def run(args):
             proof=predecessor(args.resume_prefix,json.loads(repair_path.read_bytes()),request['continuation'])
             save(out/'factual-predecessor-admission.json',proof)
         data=Inputs(Path(args.inputs),Path(args.bil_inputs),protocol,request['dataset_sha256'],Path(args.prefix_inputs),
-            factual_repair=repair_path,admission_context=request.get('admission_context'))
+            factual_repair=repair_path,admission_context=request.get('admission_context'),role_repair=role_path)
+        if role:
+            save(out/'source-role-input-admission.json',{'facts':data.role_repair_receipt,'predecessor':role_proof,
+                'descriptor_file_sha256':role['sha256'],'input_interpretation_sha256':data.capture_sha})
         if request.get('admission_context'):
             save(out/'input-context-admission.json',{'policy':request['admission_context'],
                 'input_interpretation_sha256':data.capture_sha,'core_feature_sessions':300,
