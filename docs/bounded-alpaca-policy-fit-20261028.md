@@ -389,3 +389,30 @@ extension defines the research baseline used by all 108 variants; its results
 cannot certify the installed PAPER source parser. This bounded source capability
 avoids one workflow failure per ticker alias while retaining refusals for actual
 economic conversions and ambiguous identities.
+
+## Split predecessor at the rolling-window boundary
+
+The reviewed August 14 prefix has 30 formation closes. On August 15 its next
+300-session window starts June 7, 2023, exactly on GNLN's recorded reverse split.
+The unmodified canonical admission function rejects that 300-row input as
+`split_predecessor_missing`. The authenticated raw/split capture contains June 6;
+passing those same actual 301 paired observations and recorded split terms to
+the same canonical function succeeds. No financial transition was used for this
+diagnosis and no ratio, price or date was inferred.
+
+For source admission only, supply the single adjacent captured predecessor when
+the first requested window session has a recorded split and both predecessor
+price domains actually exist. Run the ordinary canonical admission function on
+that context and clip the returned admission start to the requested window.
+Keep the feature/strategy window exactly 300 sessions. A missing predecessor,
+conflicting adjustment, gap or unsupported action retains the ordinary refusal.
+This source capability changes neither stock selection rules nor split economics.
+
+Bind the explicit context-policy identifier into future input interpretations;
+retain every old publication and the exact own August 14 predecessor. For the
+scalar/packed comparison use this same qualified admission contract on both
+sides, while retaining the scalar reference's feature-vector/publication assembly.
+That comparison establishes storage equivalence. The actual 300/301 source
+comparison and focused missing/conflicting-predecessor tests establish the new
+admission boundary separately. This is research source interpretation, with no
+PAPER parser installation or production certification.

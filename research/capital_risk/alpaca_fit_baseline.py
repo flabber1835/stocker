@@ -99,7 +99,11 @@ def run(args):
             proof=predecessor(args.resume_prefix,json.loads(repair_path.read_bytes()),request['continuation'])
             save(out/'factual-predecessor-admission.json',proof)
         data=Inputs(Path(args.inputs),Path(args.bil_inputs),protocol,request['dataset_sha256'],Path(args.prefix_inputs),
-            factual_repair=repair_path)
+            factual_repair=repair_path,admission_context=request.get('admission_context'))
+        if request.get('admission_context'):
+            save(out/'input-context-admission.json',{'policy':request['admission_context'],
+                'input_interpretation_sha256':data.capture_sha,'core_feature_sessions':300,
+                'maximum_extra_source_predecessors':1,'inferred_rows':0})
         if repair:
             save(out/'factual-input-admission.json',{'facts':data.factual_repair_receipt,
                 'descriptor_file_sha256':repair['sha256'],'input_interpretation_sha256':data.capture_sha,

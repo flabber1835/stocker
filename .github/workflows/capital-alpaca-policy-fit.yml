@@ -33,9 +33,9 @@ jobs:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/alpaca_fit_stage.py --request research/capital_risk/alpaca-fit-request.json --output "$RUNNER_TEMP/alpaca-fit-stage-001"'
-      - name: Check changed sparse identity-fact interpretation
+      - name: Check changed split-boundary source context
         run: |
-          docker run --rm --pull never --network none --read-only --memory 1g --memory-swap 1g --cpus 1 --pids-limit 64 --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=64m --user "$(id -u):$(id -g)" --mount "type=bind,source=$GITHUB_WORKSPACE,target=/src,readonly" -w /src --entrypoint python sha256:1b449754a48473e4737fc34f3f51ae0b4226d5e84540dea54115d4693142ed9d -B -m unittest discover -s research/capital_risk/forecast_tests -p test_alpaca_identity_repair.py -q
+          docker run --rm --pull never --network none --read-only --memory 1g --memory-swap 1g --cpus 1 --pids-limit 64 --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=64m --user "$(id -u):$(id -g)" --mount "type=bind,source=$GITHUB_WORKSPACE,target=/src,readonly" -w /src --entrypoint python sha256:1b449754a48473e4737fc34f3f51ae0b4226d5e84540dea54115d4693142ed9d -B -m unittest discover -s research/capital_risk/forecast_tests -p test_alpaca_split_context.py -q
       - name: Canonical baseline with measured retained-prefix budget
         timeout-minutes: 73
         env:

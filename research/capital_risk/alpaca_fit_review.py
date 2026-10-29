@@ -55,9 +55,19 @@ def review(evidence,inputs,prefix_inputs,request,output):
              and original['canonical']['state_sha256']==basis['state_sha256']
              and original['canonical']['plan']['source_sha256']==origin_binding,'REVIEW_FACTUAL_ANCHOR_CONTENT')
         interpretation=digest({'dataset_sha256':request['dataset_sha256'],'factual_interpretation_sha256':digest(repair)})
+        if request.get('admission_context'):
+            interpretation=digest({'source_interpretation_sha256':interpretation,'admission_context':request['admission_context']})
         need(fact['facts']['descriptor_sha256']==digest(repair) and fact['descriptor_file_sha256']==spec['sha256']
              and fact['input_interpretation_sha256']==interpretation and fact['facts']['record_sha256']==repair['record_sha256']
              and fact['facts']['provider_rows_or_financial_state_modified'] is False,'REVIEW_FACTUAL_ADMISSION')
+    if request.get('admission_context'):
+        from alpaca_fit_inputs import SPLIT_CONTEXT
+        from sentinel.feed.rolling_contract import digest as input_digest
+        need(request['admission_context']==SPLIT_CONTEXT,'REVIEW_CONTEXT_POLICY')
+        if repair is None:interpretation=input_digest({'source_interpretation_sha256':interpretation,'admission_context':SPLIT_CONTEXT})
+        context=json.loads((root/'input-context-admission.json').read_bytes())
+        need(context=={'policy':SPLIT_CONTEXT,'input_interpretation_sha256':interpretation,'core_feature_sessions':300,
+             'maximum_extra_source_predecessors':1,'inferred_rows':0},'REVIEW_CONTEXT_INTERPRETATION')
     if request.get('continuation'):
         spec=request['continuation'];lineage=root/'lineage'
         previous_plan=json.loads((lineage/'previous-plan.json').read_bytes())

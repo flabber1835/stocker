@@ -87,6 +87,7 @@ def equivalent_inputs(data,reference,prior,day,version,formation):
     spec=importlib.util.spec_from_file_location('_admitted_old_alpaca_input',reference)
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     old=module.Inputs.__new__(module.Inputs);old.__dict__=data.__dict__.copy()
+    if getattr(data,'admission_context',None):old.admitted=data.admitted
     start=time.monotonic();before,_,_=old.published(prior,day,version,formation=formation,qualify=False)
     old_seconds=time.monotonic()-start
     data.packed=True;start=time.monotonic();after,_,_=data.published(prior,day,version,formation=formation,qualify=False)

@@ -16,12 +16,19 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+SPLIT_CONTEXT='SPLIT_BOUNDARY_CAPTURED_PREDECESSOR_V1'
+
 
 def need(value,reason):
     if not value:raise ValueError('REFUSED_ALPACA_FIT_'+reason)
 
 
 def hosted():need(os.environ.get('ALPACA_FIT_HOSTED')=='1','LOCAL_FINANCIAL_INPUT_EXECUTION')
+
+
+def context_policy(value):
+    need(value in (None,SPLIT_CONTEXT),'ADMISSION_CONTEXT_POLICY')
+    return value
 
 
 def split_fact(kind,record,axis,splits):
@@ -90,12 +97,13 @@ class LazyBars(Mapping):
 
 
 class Inputs:
-    def __init__(self,root,bil_root,protocol,capture_sha,prefix_root=None,*,packed=False,factual_repair=None):
+    def __init__(self,root,bil_root,protocol,capture_sha,prefix_root=None,*,packed=False,factual_repair=None,admission_context=None):
         hosted()
         import numpy as np
         from sentinel.feed import calendar
         from sentinel.feed.alpaca_observation import bar_page_rows,action_participants,structural_action_date
-        self.root=Path(root);self.protocol=protocol;self.capture_sha=capture_sha;self.packed=packed
+        admission_context=context_policy(admission_context)
+        self.root=Path(root);self.protocol=protocol;self.capture_sha=capture_sha;self.packed=packed;self.admission_context=admission_context
         capture=json.loads((self.root/'capture/capture.json').read_bytes())
         need(capture['status']=='COMPLETE' and capture['pagination_complete'] is True
              and capture['account_order_position_activity_calls']==0,'CAPTURE_NOT_COMPLETE')
@@ -193,6 +201,9 @@ class Inputs:
             source_manifest_sha=hashlib.sha256(((prefix_root or self.root)/'manifest.json').read_bytes()).hexdigest()
             self.factual_repair_receipt=apply(self,descriptor,source_manifest_sha256=source_manifest_sha)
             self.capture_sha=digest({'dataset_sha256':capture_sha,'factual_interpretation_sha256':digest(descriptor)})
+        if admission_context:
+            from sentinel.feed.rolling_contract import digest
+            self.capture_sha=digest({'source_interpretation_sha256':self.capture_sha,'admission_context':admission_context})
         need(not ({'BIL','SPY'}&set(self.undated)),'UNDATED_BENCHMARK_ACTION')
         need(not any(self.axis[0]<=day<=self.axis[-1] for day,_,_ in self.resets.get('BIL',[])),'UNSUPPORTED_BIL_ACTION')
         from sentinel.feed.alpaca_observation import admissible_history
@@ -211,6 +222,7 @@ class Inputs:
             'unresolved_cash_records':len(self.pending_cash),
             'undated_selected_symbols':sorted(set(self.undated)&set(self.by_ticker)),
             'current_cohort_survivor_conditioned':True,'publication_time_archive':False}
+        self.summary['admission_context_policy']=admission_context
 
     def paired(self,sid,day):return bool(self.present[self.sid_index[sid],self.index[day]].all())
 
@@ -243,15 +255,20 @@ class Inputs:
             if ticker in self.undated:
                 reasons['UNDATED_UNSUPPORTED_ACTION']+=1;continue
             resets=[d for d,_,_ in self.resets.get(ticker,()) if d<=days[-1]]
-            if self.packed:rows,absent=self.paired_rows(sid,days)
+            source_days=days
+            if getattr(self,'admission_context',None)==SPLIT_CONTEXT and (ticker,days[0]) in self.splits:
+                from sentinel.feed import calendar
+                predecessor=calendar.previous_sessions(days[0],2)[0]
+                if predecessor in self.index and self.paired(sid,predecessor):source_days=[predecessor,*days]
+            if self.packed:rows,absent=self.paired_rows(sid,source_days)
             else:
-                rows=[self.row(sid,d) for d in days if self.paired(sid,d)]
-                absent={(ticker,d) for d in days if bool(self.present[self.sid_index[sid],self.index[d]].any()) and not self.paired(sid,d)}
-            found,why=admissible_history(rows,axis=list(days),symbols={ticker},action_affected=frozenset(),pair_absent=absent,
+                rows=[self.row(sid,d) for d in source_days if self.paired(sid,d)]
+                absent={(ticker,d) for d in source_days if bool(self.present[self.sid_index[sid],self.index[d]].any()) and not self.paired(sid,d)}
+            found,why=admissible_history(rows,axis=list(source_days),symbols={ticker},action_affected=frozenset(),pair_absent=absent,
                 reset_after={ticker:max(resets)} if resets else {},
-                split_terms={k:v for k,v in self.split_by_symbol.get(ticker,{}).items() if days[0]<=k[1]<=days[-1]},
-                dividend_dates={ticker:{d for d in self.dividend_by_symbol.get(ticker,()) if days[0]<=d<=days[-1]}})
-            if ticker in found:result[sid]=found[ticker]
+                split_terms={k:v for k,v in self.split_by_symbol.get(ticker,{}).items() if source_days[0]<=k[1]<=source_days[-1]},
+                dividend_dates={ticker:{d for d in self.dividend_by_symbol.get(ticker,()) if source_days[0]<=d<=source_days[-1]}})
+            if ticker in found:result[sid]=max(days[0],found[ticker])
             reasons.update(why)
         return result,dict(reasons)
 
