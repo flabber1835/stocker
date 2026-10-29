@@ -37,3 +37,36 @@ def test_actual_primary_boundary_guard_removal(tmp_path):
     scope=dict(MidyearFacts.__init__.__globals__)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'<removed-midyear-date>','exec'),scope)
     assert scope['MidyearFacts'](p).catalog['terms'][1]['added']['session']=='2018-11-26'
+
+
+def test_midyear_complete_driver_dependencies_and_os_ports():
+    from forecast_tests.test_basis_job_sources import dependencies
+    from system_campaign_midyear_job import SOURCES
+    assert not dependencies(SOURCES)-set(SOURCES)
+    driver=CATALOG.parent/'system_campaign_midyear_job.py'
+    nodes=ast.walk(ast.parse(driver.read_bytes()))
+    attributes={n.attr for n in nodes if isinstance(n,ast.Attribute) and isinstance(n.value,ast.Name) and n.value.id=='os'}
+    assert attributes=={'environ','getuid','getgid','chmod'}
+
+
+def test_retained_six_components_require_actual_catalog_compiler_and_hydration(tmp_path):
+    from system_campaign_midyear_run import retained
+    from system_campaign_basis import CATALOG_REF,COMPILER_REF,HYDRATED_REF
+    driver=tmp_path/'driver';old=tmp_path/'old';out=tmp_path/'out'
+    for p in (driver,old,out):p.mkdir()
+    # Derive the declared tuples from the implementation's static data; ensure
+    # the v1 references equal the immutable compiler's actual public constants.
+    tree=ast.parse(Path(retained.__code__.co_filename).read_bytes())
+    node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='retained')
+    groups=ast.literal_eval(next(n.value for n in node.body if isinstance(n,ast.Assign)))
+    assert len(groups)==6
+    prefix='research:system-optimization-002/'
+    assert [prefix+groups[0][i]+'/1' for i in (0,4,5)]==[CATALOG_REF,COMPILER_REF,HYDRATED_REF]
+    refs=[]
+    import hashlib
+    for catalog,data,compiler,hydration,compiler_ref,hydrated_ref in groups:
+        for name,path in ((catalog,driver/data),(compiler_ref,driver/compiler),(hydrated_ref,old/hydration)):
+            path.write_bytes(name.encode());refs.append({'reference':prefix+name+'/1','sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
+    retained(refs,old,out,driver)
+    refs[-1]['sha256']='0'*64
+    with pytest.raises(ValueError,match='ALL_RETAINED_FACT_COMPONENTS'):retained(refs,old,out,driver)
