@@ -201,6 +201,14 @@ UNKNOWN stop outcomes never admit a financial snapshot.
 Preserve failed/refused and negative outcomes. No automatic production promotion,
 main merge, deployment, parameter tuning after evaluation or protected cleanup.
 Report what was actually evaluated, what improved and what remains uncertain.
+## Reviewed outcome of this bounded pass
+
+The new Core comparisons remain unusable after the export incident below; no stock-selection efficacy result or full-system optimum is claimed. No further Core replay was started. The remaining-budget parent reference calculation completed on run 40906196525 at source 0aef9c37832ffe5911271a7a35def106e7860da5, with authenticated encrypted artifact 12911078592 and separate stopped independent review.
+
+All 256 frozen controller proposals executed canonical transitions; 134 met the predeclared zero-startup evidence admission rule and 122 were excluded before financial scoring. The reference reproduces all 4,639 baseline daily economic fields. Independent equations verified all target decisions, 14,581 dated canonical account-factor pairs, every value prefix and the training-only locks. Two chronological comparisons produced inconsistent results: the earlier training lock improved both metrics in its next block, while the final training lock failed that joint objective in its later block. Training improvements therefore do not establish a reliable replacement, and do not establish optimality of the baseline either. Detailed financial values and attribution are retained only in the approved private evidence/report channel.
+
+The diagnosis attributes the final locked choice's later shortfall predominantly to lower exposure during positive-compounding periods, rather than sleeve transaction fees. This is post-selection explanation, not permission to retune on the later block. The fixed Core, provider/classification/action limitations, known-history status and scalar execution model remain. PAPER, main, broker/database systems and shared services were untouched.
+
 ## Export incident and remaining-budget reference calculation
 
 Recovery 40902009194 inherited worker-inspect.json and worker.log in its copied output. The exclusive receipt writer refused that collision after stopping C1/C2. No new financial snapshots were exported, so these outcomes remain UNKNOWN. The remaining affected run was cancelled to avoid continued computation with the same broken export path. The original authenticated prefixes remain intact but do not prove later progress; no continuation or rollback of the unknown branches is admitted. This is an orchestration error in this study, not a PAPER defect.
