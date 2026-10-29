@@ -398,9 +398,76 @@ def test_dead_missing_or_future_owner_cannot_create_a_wait(heartbeat):
     assert projection.changed_subject_wait(owner_at(heartbeat),waiting_receipt(),scope='PAPER',now=NOW) is None
 
 
-@pytest.mark.parametrize('state,errors',[('MISMATCH',[]),('UNKNOWN',[]),('SCHEDULED',['failed fact'])])
+@pytest.mark.parametrize('state,errors',[('UNKNOWN',[]),('SCHEDULED',['failed fact'])])
 def test_prior_negative_result_is_never_hidden_by_changed_subject_wait(state,errors):
     assert projection.changed_subject_wait(owner_at(NOW),waiting_receipt(state=state,errors=errors),scope='PAPER',now=NOW) is None
+
+
+def test_changed_subject_retains_only_bounded_negative_paper_history():
+    receipt=waiting_receipt(state='MISMATCH')
+    original=deepcopy(receipt[3])
+    result=projection.changed_subject_wait(owner_at(NOW),receipt,scope='PAPER',now=NOW)
+    row=result[0][0]
+    assert row.status==model.FAIL and row.value=='LAST CHECK FAILED · RECHECKING'
+    assert row.detail.startswith('LAST KNOWN FAILURE · ')
+    assert 'waiting for the current bounded check' in row.detail
+    assert row.as_of==NOW and row.valid_until==receipt[2]
+    assert row.required_current and row.recovery is None and row.paper_alignment is None
+    assert row.paper_plan is row.paper_account is row.trading_run is row.shadow_book is None
+    assert row.order_outcomes==[] and not result[3] and receipt[3]==original
+    assert model.Panel(rows=[row],now=NOW,local_paper_mode=True).operational==model.FAIL
+
+
+@pytest.mark.parametrize('heartbeat',[None,NOW-timedelta(seconds=46),NOW+timedelta(seconds=6)])
+def test_failed_history_cannot_claim_rechecking_without_live_owner(heartbeat):
+    assert projection.changed_subject_wait(owner_at(heartbeat),waiting_receipt(state='MISMATCH'),
+        scope='PAPER',now=NOW) is None
+
+
+@pytest.mark.parametrize('fault',['tampered','expired','future'])
+def test_failed_history_cannot_bypass_original_authentication_or_clocks(fault):
+    receipt=waiting_receipt(state='MISMATCH')
+    if fault=='tampered':receipt[3]['rows'][0]['detail']='forged failure'
+    instant=NOW+timedelta(seconds=601) if fault=='expired' else NOW-timedelta(seconds=1) if fault=='future' else NOW
+    with pytest.raises(ValueError):
+        projection.changed_subject_wait(owner_at(instant),receipt,scope='PAPER',now=instant)
+
+
+def test_failed_history_discards_every_positive_payload(monkeypatch):
+    negative=model.paper_reconciliation_row(state='MISMATCH')
+    sentinel=object()
+    negative=replace(negative,paper_plan=sentinel,paper_account=sentinel,shadow_book=sentinel,
+        trading_run=sentinel,order_outcomes=[sentinel])
+    monkeypatch.setattr(projection,'decode',lambda *a,**k:([negative],{},[],[]))
+    row=projection.changed_subject_wait(owner_at(NOW),waiting_receipt(),scope='PAPER',now=NOW)[0][0]
+    assert row.paper_plan is row.paper_account is row.trading_run is row.shadow_book is None
+    assert row.order_outcomes==[] and row.status==model.FAIL
+
+
+def test_promoting_previous_failure_to_amber_is_killed(monkeypatch):
+    source=inspect.getsource(projection.changed_subject_wait)
+    needle='status=model.FAIL,'
+    assert source.count(needle)==1
+    namespace=dict(projection.__dict__)
+    exec(compile(source.replace(needle,'status=model.WARN,'),'removed sticky failure','exec'),namespace)
+    monkeypatch.setattr(projection,'changed_subject_wait',namespace['changed_subject_wait'])
+    with pytest.raises(AssertionError):
+        test_changed_subject_retains_only_bounded_negative_paper_history()
+
+
+def test_changed_failed_receipt_is_red_in_actual_json_and_html(monkeypatch):
+    from sentinel.panel import app,render
+    row=projection.changed_subject_wait(owner_at(NOW),waiting_receipt(state='MISMATCH'),
+        scope='PAPER',now=NOW)[0][0]
+    panel=model.Panel(rows=[row],now=NOW,local_paper_mode=True)
+    monkeypatch.setattr(app,'_read_panel',lambda:panel)
+    value=json.loads(app.panel_json().body)
+    assert value['operational']==model.FAIL and value['color']=='red'
+    assert value['source_errors']==[] and value['rows'][0]['status']==model.FAIL
+    assert value['rows'][0]['value']=='LAST CHECK FAILED · RECHECKING'
+    html=render.render(panel)
+    assert 'LAST CHECK FAILED' in html and 'RECHECKING' in html
+    assert 'ValueError' not in html
 
 
 @pytest.mark.parametrize('fault',['tampered','expired'])
@@ -422,14 +489,15 @@ def test_changed_subject_owner_guard_has_a_falsifier(monkeypatch):
         test_dead_missing_or_future_owner_cannot_create_a_wait(NOW-timedelta(seconds=46))
 
 
-def test_real_consumer_withdraws_changed_paper_green_without_failing_independent_shadow(conn):
+@pytest.mark.parametrize('state',['CLEAN','MISMATCH'])
+def test_real_consumer_handles_changed_paper_without_failing_independent_shadow(conn,state):
     import uuid
     install_projection(conn)
     instant=datetime.now(timezone.utc)
     owner=str(uuid.uuid4())
     conn.execute('INSERT INTO sentinel_operational_verification_owner VALUES (1,%s,%s)',
         (owner,instant+timedelta(seconds=610)))
-    for scope,rows in [('SHADOW',shadow()),('PAPER',[model.paper_reconciliation_row(state='CLEAN')])]:
+    for scope,rows in [('SHADOW',shadow()),('PAPER',[model.paper_reconciliation_row(state=state)])]:
         rows=[replace(row,as_of=instant) for row in rows]
         subject=projection.subject(conn,conn.info.dsn,scope)
         value,signature=projection.make(scope,subject,rows,[],observed_at=instant)
@@ -440,5 +508,16 @@ def test_real_consumer_withdraws_changed_paper_green_without_failing_independent
     rows,_,_,errors=projection.read(conn.info.dsn,now=instant)
     selected={row.key:row for row in rows}
     assert not errors and selected['shadow_verification'].status==model.OK
-    assert selected['paper_reconciliation'].status==model.WARN
-    assert selected['paper_reconciliation'].value=='CHECK IN PROGRESS'
+    expected=(model.WARN,'CHECK IN PROGRESS') if state=='CLEAN' else (model.FAIL,'LAST CHECK FAILED · RECHECKING')
+    assert (selected['paper_reconciliation'].status,selected['paper_reconciliation'].value)==expected
+    if state=='MISMATCH':
+        assert selected['paper_reconciliation'].as_of==instant
+        assert selected['paper_reconciliation'].valid_until==instant+timedelta(seconds=600)
+    subject=projection.subject(conn,conn.info.dsn,'PAPER')
+    conn.rollback()
+    value,signature=projection.make('PAPER',subject,
+        [replace(model.paper_reconciliation_row(state='CLEAN'),as_of=instant+timedelta(seconds=1))],[],
+        observed_at=instant+timedelta(seconds=1))
+    projection.publish(conn,owner_id=owner,value=value,signature=signature);conn.commit()
+    rows,_,_,errors=projection.read(conn.info.dsn,now=instant+timedelta(seconds=1))
+    assert not errors and {row.key:row for row in rows}['paper_reconciliation'].status==model.OK

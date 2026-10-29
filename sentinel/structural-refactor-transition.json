@@ -696,7 +696,7 @@
     "panel/publication_wait.py": "ddcfe863e57391b8375ac8a65ac55a88f4827b0df1487dae1b4b617aa7895e32",
     "panel/push_enrollment.py": "3caf27c58efb1f607e5079250e9cf106f0ec30c05945dc595ec2b3a446f42c47",
     "panel/pwa.py": "60781f433737f00c6622b11d18be9a71b21cde05ec983f75fb2c6aef95bf7fce",
-    "panel/read_projection.py": "d06fa7cdcf14aadb7542834ebc86c57a6edae6718ca260a9c6ac8ff60fcf6f9e",
+    "panel/read_projection.py": "d910dfd6c1bc183b8670fc90289f102066748a383a87b68e45ed93133b797244",
     "panel/render.py": "6513e5261acc9c6291bcada1455e4b64a973cf00cc29574bd71efea571dc4142",
     "panel/retry_status.py": "4b55467115efb97cd25053e1b7f237c84d9317a5ebf23162ce911bebf7e80bbe",
     "panel/run_progress.py": "1fabd5be9fc8afdb3f510750a5c92b8746a4d4924a2434dcbae3d97038b28bed",

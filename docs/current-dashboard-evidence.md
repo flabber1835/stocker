@@ -65,6 +65,29 @@ and changed-configuration evidence never inherits verified styling. An observer
 may not renew its own attempt deadline or overlap another observer. Trading
 continues to use its canonical complete financial readers.
 
+An authenticated, unexpired failed PAPER receipt may retain only its negative
+historical status when the input revision changes and the independent verifier
+still has a fresh bounded ownership heartbeat. Show `LAST CHECK FAILED ·
+RECHECKING`, the original failure and original observation/expiry; do not turn
+that expected refresh into an opaque `ValueError`. This is not a current-subject
+financial proof. Remove retained account, plan, order, trading-run and typed
+readiness payloads. A successful old-subject receipt still loses positive
+styling immediately. Missing/dead ownership, expired/tampered evidence, producer
+errors and unknown results keep their existing strict unavailable behavior.
+
+For the owner-requested local presentation repair, qualify and preview the HTTP
+consumer separately from the financial verifier and trading workers. A local
+presentation image may layer the exact qualified presentation bytes and matching
+structural source pins over the installed signed foundation. Retain its actual
+commit/image, foundation and qualification in operator evidence. The financial
+runtime identity and verifier's evidence subjects remain unchanged. Preview only
+read-only GETs on a loopback port with the panel's existing broker-free environment.
+Replace only the HTTP panel through an operation-private image-selector overlay,
+preserving its configuration, mounts, ports and dependencies. Do not recreate
+financial roles, change control generation, issue authority, replay a plan or run
+backup/restore work. A failed panel startup or read check restores only the prior
+panel image; it grants no financial recovery permission.
+
 Reviewed dual mode must project its actual immutable shadow state and current
 paper intent. A missing legacy catchup cursor does not prove that this book is
 absent. The projection must use existing canonical readers and their lineage

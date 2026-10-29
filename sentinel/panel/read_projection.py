@@ -150,8 +150,11 @@ def publish(conn, *, owner_id, value, signature):
 def changed_subject_wait(conn, row, *, scope, now):
     """A changed input is checking, never a renewal of its old financial proof."""
     rows, _, _, errors = decode(row[3],row[4],current_subject=row[0],scope=scope,now=now)
-    if errors or any(item.status in {model.FAIL,model.UNKNOWN}
-                    or item.paper_alignment=='PRIOR_CYCLE_FAILED' for item in rows):
+    failed_paper = (scope == 'PAPER' and not errors and len(rows) == 1
+                    and rows[0].key == 'paper_reconciliation'
+                    and rows[0].status == model.FAIL)
+    if not failed_paper and (errors or any(item.status in {model.FAIL,model.UNKNOWN}
+                    or item.paper_alignment=='PRIOR_CYCLE_FAILED' for item in rows)):
         return None
     owner = conn.execute(f'SELECT expires_at FROM {schema.OWNER} WHERE id=1').fetchone()
     if owner is None:
@@ -159,6 +162,16 @@ def changed_subject_wait(conn, row, *, scope, now):
     heartbeat = owner[0]-timedelta(seconds=610)
     if not now-timedelta(seconds=45) <= heartbeat <= now+timedelta(seconds=5):
         return None
+    if failed_paper:
+        failed = replace(rows[0], value='LAST CHECK FAILED · RECHECKING',
+            status=model.FAIL,
+            detail=('LAST KNOWN FAILURE · '+rows[0].detail
+                    +'; inputs changed; waiting for the current bounded check'),
+            as_of=rows[0].as_of or row[1], required_current=True,
+            valid_until=min(row[2],rows[0].valid_until or row[2]), recovery=None,
+            shadow_book=None,paper_plan=None,paper_account=None,order_outcomes=[],
+            trading_run=None,paper_alignment=None)
+        return [failed], {}, [], []
     result = financial._unknown(scope=='PAPER',
         'account or verification inputs changed; waiting for the current bounded check',
         rows,checking_until=row[2])
