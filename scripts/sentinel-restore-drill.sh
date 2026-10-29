@@ -24,6 +24,7 @@ COMPLETED_NAME_RE='^base-[0-9]{8}T[0-9]{6}Z$'
 
 EXPECTED=""
 PHYSICAL_ONLY=0
+CHAIN_PROGRESS_WITNESS=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --backup)
@@ -38,12 +39,23 @@ while [ "$#" -gt 0 ]; do
       PHYSICAL_ONLY=1
       shift
       ;;
+    --chain-progress-witness)
+      [ "$#" -ge 2 ] && [ -z "$CHAIN_PROGRESS_WITNESS" ] || {
+        echo 'REFUSED: witness requires one unique output path' >&2; exit 2; }
+      CHAIN_PROGRESS_WITNESS="$2"
+      shift 2
+      ;;
     *)
       echo "REFUSED: usage: sentinel-restore-drill.sh [--backup PATH] [--physical-only]" >&2
       exit 2
       ;;
   esac
 done
+if [ -n "$CHAIN_PROGRESS_WITNESS" ]; then
+  [ "$PHYSICAL_ONLY" -eq 1 ] && [ -n "$EXPECTED" ] && \
+    [[ "$CHAIN_PROGRESS_WITNESS" = /* ]] && [ ! -e "$CHAIN_PROGRESS_WITNESS" ] || {
+      echo 'REFUSED: witness requires physical-only, exact backup and a new absolute output path' >&2; exit 2; }
+fi
 if [ -n "$EXPECTED" ]; then
   NAME="${EXPECTED##*/}"
   [[ "$NAME" =~ $COMPLETED_NAME_RE ]] || {
@@ -253,6 +265,37 @@ record_restore_evidence() {
 }
 
 if [ "$PHYSICAL_ONLY" -eq 1 ]; then
+  if [ -n "$CHAIN_PROGRESS_WITNESS" ]; then
+    RUNTIME_IMAGE="${SENTINEL_RUNTIME_IMAGE_REF:-}"
+    [[ "$RUNTIME_IMAGE" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*@sha256:[0-9a-f]{64}$ ]] && \
+      [[ "$METADATA_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+      echo 'REFUSED: witness requires immutable runtime and bound backup metadata' >&2; exit 4; }
+    SENTINEL_RESTORE_DATABASE_PASSWORD="${SENTINEL_POSTGRES_PASSWORD:?required for restore witness}"
+    export SENTINEL_RESTORE_DATABASE_PASSWORD
+    SEMANTIC_STARTED=1
+    WITNESS_DOCUMENT="$(docker run --rm --name "$CONTAINER-semantic" \
+      --label sentinel.restore-drill=v1 --network "$NETWORK" --read-only --cap-drop ALL \
+      --security-opt no-new-privileges --memory 768m --cpus 0.5 --pids-limit 128 \
+      -e SENTINEL_RESTORE_DATABASE_HOST=restored-postgres \
+      -e SENTINEL_RESTORE_DATABASE_PASSWORD -e SENTINEL_PUBLICATION_RECEIPT_KEY \
+      --entrypoint timeout "$RUNTIME_IMAGE" --kill-after=5s 600s \
+      python -B -m sentinel.chain_progress_recovery --snapshot --backup "$NAME" \
+      --marker "$MARKER" --metadata-sha256 "$METADATA_SHA256")"
+    [ "$(metadata_digest)" = "$METADATA_SHA256" ] || {
+      echo 'REFUSED: backup metadata changed during witness recovery' >&2; exit 4; }
+    printf '%s' "$WITNESS_DOCUMENT" | "$PYTHON" -c '
+import json,sys
+sys.path.insert(0,"scripts")
+from pathlib import Path
+from sentinel_autonomous_deploy import _json_value
+from sentinel_phase_records import publish_immutable
+value=_json_value(sys.stdin.buffer.read(),label="restored migration witness")
+if not isinstance(value,dict) or set(value)!={"witness","hmac_sha256"}:
+    raise SystemExit("REFUSED: restored witness envelope is malformed")
+publish_immutable(Path(sys.argv[1]),value)
+' "$CHAIN_PROGRESS_WITNESS"
+    echo "chain_progress_witness_ready:$CHAIN_PROGRESS_WITNESS"
+  fi
   exit 0
 fi
 
