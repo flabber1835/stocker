@@ -49,8 +49,12 @@ sites are recorded before scoring. These components are economically distinct:
 
 * Core selection: long momentum and skipped recent horizons, freshness threshold,
   leadership fraction/minimum population, durable-score volatility horizon and
-  five-session median ordering. The actual Median5 mixed-precision formulas are
-  the reference; the generic v1 signal function is not an interchangeable proxy.
+  five-session median ordering. Trace the actual input mode: this retained
+  current-window replay supplies `window_signals.feature` through
+  `snapshot_security_bars`; `Feed.advance` then bypasses Median5's rolling-sum
+  `advance_signals`. Patch the active feature route and its material/history
+  limits together. The mixed-precision rolling route is a different input mode,
+  not an interchangeable proxy. Retain the baseline's exact active formulas.
 * Core capital and exits: number of slots and consistent NAV/slot admission,
   admission cadence, close-based trailing retention, one-time review age and
   separate slot/security cooldowns. Persistent episodes, issuer restrictions,
@@ -106,6 +110,81 @@ continuation. Scalar-account screening remains labelled as such and cannot
 stand in for persistent account-share or protected-limit PAPER execution.
 Independent checks target the baseline equivalence and the economic changes,
 not redundant ceremonial validation of already completed components.
+
+## Measured speed decision and initial bounded coverage
+
+Run 40889340839 is authenticated and independently reviewed: six complete
+formation rows match the original bytes, canonical restore and all prefixes
+pass. Ordinary means were 2.71085 seconds for preparation and 2.84516 for the
+transition. The sixth profiled calls are excluded from those means. The full
+measurement took 407.525 seconds, including feature warmup and checkpoints.
+This early sample is not a guarantee about later ledger or action costs.
+
+The next permitted acceleration replaces only the session-state JSON encoder
+with the standard C JSON encoder using the identical sorting, separators,
+ASCII escaping and nonfinite-number refusal. The original chunk encoder already
+uses that encoder for every spelling. Synthetic byte-equivalence/failure cases,
+real checkpoint hashes and baseline financial-path comparison are required.
+This is complete-value encoding, not a cache that could conceal mutations.
+Checkpoint storage moves to origin, pre-event, month-end and controlled pause
+boundaries; daily financial records remain complete. A failed write or unknown
+stop remains unusable. Do not represent this storage schedule as production
+durability or erase uncommitted tails.
+
+The initial Core proposal pool uses deterministic space-filling coverage of
+trailing retention, review age, joint slot/security cooldown, leadership
+fraction, rank memory and entry/review freshness. Each dimension has three
+declared levels including its baseline: retention .60/.70/.80; review 63/119/189;
+cooldown 10/21/42; leadership .05/.10/.20; rank memory 1/5/10; freshness
+-.02/0/.02. Other Core fields and correlation rules stay fixed in this initial
+pool. This does not claim that all 57 mapped controls, independent cooldowns,
+new lookbacks, position-risk models or architectures have been optimized.
+
+The pool/order and chronological scoring rules must be sealed before inspecting
+candidate performance. Baseline and only the number of Core proposals justified
+by the accelerated timing budget may run. Reuse the same pure features across
+Core proposals only when their feature inputs/formulas agree. Each owns fresh
+299+126 initialization. The four previously verified corporate-action factual
+repairs may be combined and bound to that arm's own zero-financial-transition
+warmup predecessor, with exact file/outer/inner/state/source/input and all empty
+prefix checks; all affected sessions are future. Retain old descriptors as
+historical facts, never as new predecessor authority. Unknown new action facts
+refuse and remain explicit.
+
+For completed Core paths, sample parent Native entry/slow/recovery parameters and
+the nine Owned55 parameters jointly; ordinary Native exposure remains binary.
+Any changed duration must change its saturation/snapshot cap consistently.
+Rank only development metrics, lock several distinct finalists, then disclose
+the later results. The chronological blocks are development 2008-2012,
+validation 2013-2015; development 2008-2015, validation 2016-2019; development
+2008-2019, validation 2020-2022; final development 2008-2022, evaluation
+2023-July2026. Older known results prevent an unseen-data claim. No later
+performance may choose the proposal count, tune thresholds or replenish a
+shortlist. Every incomplete arm is excluded from efficacy conclusions.
+
+The measured cost cannot support several new twenty-year Core paths plus review
+inside four hours. Therefore this *initial* joint pass uses five dedicated hosted
+VMs: independent B/B0 controls and the three balanced Core proposals, each freshly
+formed for 2018-01-02..2026-07-31 (2,156 measured closes). Development is
+2018-2020 followed by 2021-2022 evaluation, then 2018-2022 development followed by
+locked 2023-2024 evaluation and 2025-July2026 diagnosis. These replace the earlier
+proposed four rolling blocks for this initial pass, before any performance is
+scored. They do not replace the original 2008-origin book or constitute its full
+twenty-year confirmation. That final confirmation remains a distinct remaining
+requirement, and will be reported as unfinished if it cannot fit this budget.
+
+No all-day infrastructure campaign is authorized: the economic jobs enforce the
+17:57 UTC hard study deadline, preserve each stopped partial prefix and reserve
+review/export headroom. B/B0 must match complete formation and measured records
+before interpreting proposals. Each job first measures twelve real transitions;
+if its conservative projection cannot finish and review before the deadline it
+preserves that prefix and refuses efficacy scoring rather than blindly waiting.
+The read-only accounting tap stores each actual ledger event count plus current
+receivables, not a duplicate of the lifetime ledger on every close. The stopped
+reviewer reconstructs each exact prefix from the final authenticated ledger,
+then independently checks cash, quantities, claims, raw marks and factors. It
+also checks all canonical checkpoints and journal commitments. This changes
+evidence storage only; canonical fills, cash and prices remain untouched.
 
 ## Isolation, evidence and delivery
 
