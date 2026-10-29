@@ -247,7 +247,11 @@ cls = entry.bootstrap.BootstrapDeploy
 assert cls.prepare_activate_start.__module__ == 'sentinel_autonomous_deploy_driver'
 obj = object.__new__(cls)
 obj.cfg = SimpleNamespace(account_id='SIMULATED', deployment_id='local', actor='fixture')
-obj.reviewed_validation = SimpleNamespace(mode=sys.argv[1])
+publication_binding = {'publication_fingerprint': 'f' * 64, 'visible_frontier': '2026-09-14'}
+reviewed_publication = entry.core._validation_subject_digest(
+    'data_publication', entry.core.data_publication_subject_value(publication_binding))
+obj.reviewed_validation = SimpleNamespace(mode=sys.argv[1],
+    data_publication_sha256=reviewed_publication if sys.argv[1] == 'dual' else None)
 obj.phase = lambda _: None
 obj.quiesce_activation_writers = lambda: None
 obj._require_activation_writers_stopped = lambda: None
@@ -259,6 +263,7 @@ def causal_timing():
     expired = (window == 'expired-before-plan'
                or (window == 'expires-before-release' and len(timing_checks) == 2))
     return {'frontier': '2026-09-14', 'target': '2026-09-14',
+            'publication_fingerprint': publication_binding['publication_fingerprint'],
             'target_source_final': True, 'prospective': not expired,
             'remaining_ms': 0 if expired else 60_000}
 obj._causal_timing = causal_timing
