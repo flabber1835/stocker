@@ -31,7 +31,7 @@
       "added": {
         "security_id": "528305894639165573",
         "kind": "CASH_PLUS_STOCK",
-        "reference": "https://www.sec.gov/Archives/edgar/data/1588238/000110465917068865/a17-26468_68k.htm",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1588238/000110465917068865/a17-26468_68k.htm | Fractional cash uses the frozen first effective-session EQT raw open proxy; actual exchange-agent net sale rate unobserved.",
         "delivered_security_id": "883677726045016523",
         "delivered_ticker": "EQT",
         "delivered_issuer_id": "SEC_CIK:33213",

@@ -569,3 +569,15 @@ session. Do not infer financial correctness from the reviewer fix or synthetic
 test alone. Read-only diagnostic retrieval may fetch the exact pinned pre-event
 gzip and its actual inspection/review evidence from authenticated stopped
 artifacts; no writer is launched by that retrieval.
+
+Some variants retained only their own earlier June-30 origin or July-17
+pre-event checkpoint, rather than July 31. Use that exact earlier predecessor.
+If its retained repair chain already contains v1 common facts, add only the
+new ordinary terminal overlay. Otherwise rebind the unchanged still-future v1
+facts (and its own still-future PNRA/MYOV facts at a zero-financial origin)
+together with the new facts in one ordinary input successor. Do not relabel
+an old descriptor or duplicate an already retained repair. All facts must still
+be future relative to the exact chosen predecessor, and the v1 FNF wrapper
+remains byte-identical. Qualify the composed input and preserve the entire
+superseded financial suffix as evidence. This advances the same own book from
+its documented factual boundary, not another feature warmup.

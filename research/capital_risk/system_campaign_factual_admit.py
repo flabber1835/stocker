@@ -97,6 +97,11 @@ def admit(spec,root,key):
     need(sha256_file(dest/'source-bindings.json')==spec['source_binding_sha256'],'FACTUAL_OLD_SOURCE_REVIEW')
     if spec.get('unadvanced_qualification_failure'):
         prove_unadvanced(spec,inventory,dest)
+    elif spec.get('review_refusal'):
+        # Admission of the immutable evidence is not financial admission.
+        # The corrected hosted preflight must independently review its entire
+        # current committed branch before choosing or advancing a predecessor.
+        prove_review_refusal(spec,inventory,dest)
     else:
         need(sha256_file(dest/'core-review.json')==spec['review_sha256'],'FACTUAL_OLD_REVIEW_BYTES')
     p=dest/spec['selected_checkpoint'];need(sha256_file(p)==spec['selected_file']['sha256'],'FACTUAL_SELECTED_GZIP')
@@ -109,6 +114,18 @@ def admit(spec,root,key):
         with (dest/f'book/{n}.jsonl').open('rb') as f:raw=f.read(c['bytes'])
         need(len(raw)==c['bytes'] and hashlib.sha256(raw).hexdigest()==c['prefix_sha256'],'FACTUAL_SELECTED_PREFIX')
     return dest
+
+
+def prove_review_refusal(spec,inventory,root):
+    need(spec['review_refusal']=='CONVERSION_IDENTITY_REVIEW' and
+         spec['receipt_schema']=='research.system-campaign-factual-suffix-receipt/1',
+         'FACTUAL_DECLARED_REVIEW_ONLY_REFUSAL')
+    log=root/'independent-review-stop/worker.log'
+    need(sha256_file(log)==spec['review_log_sha256'] and
+         'ValueError: REFUSED_LEDGER_SHARES' in log.read_text() and
+         'core-review.json' not in inventory,'FACTUAL_EXACT_REVIEW_REFUSAL_BYTES')
+    need(spec['inspections']['independent-review-stop/worker-inspect.json']['exit_code']==1,
+         'FACTUAL_ACTUAL_FAILED_REVIEW_STOP')
 
 
 def prove_unadvanced(spec,inventory,root):
