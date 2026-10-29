@@ -630,3 +630,43 @@ paths are missing coverage, never fabricated negative observations. A result
 with any missing predeclared coverage must be labelled a partial-class search;
 it does not establish the default's optimality or a global optimum. GP compute
 allocation uses only actual reviewed initial-path training objectives.
+
+After a training lock, confirm only its selected joint IDs against the direct
+canonical classifier and Account, before interpreting later performance.
+For each selected ID, re-read the complete authenticated causal captures;
+recompute the configured classifier without batched peer/threshold reuse;
+drive fresh canonical parent/Owned state through all 126 formation and 2156
+measured observations; and compare every target to the reviewed fast path.
+Carry its actual prior account directly through canonical Account.advance,
+checking every dated factor, full account and monthly value prefix against the
+independent equations and shared-factor result. Serialize/restore the controller
+at the same monthly boundaries. No Core holdings or financial source changes,
+new Core origin, or Core replay occurs in this calculation. Keep all full paths
+encrypted and bind the confirmation to the immutable training-lock SHA; never
+add a candidate selected from its later returns. This is the needed check on
+calculation reuse, not another tuning round.
+
+## Corrected winter facts after actual replay and clearinghouse evidence
+
+Keep the entire three-term March catalog/compiler and failed run immutable.
+Its Juno March 7 timing was a research interpretation error: OCC notice 42726,
+also published by MIAX, confirms completion before March 6 open. The issuer's
+March 7 requested suspension date was not the merger's effective trading
+boundary. Use a new five-term winter catalog: CUDA 27.55/February 12, SCMP
+18/February 13 (issuer completion plus OCC42610 preopen), JUNO87/March 6,
+BIVV105/March 8, and CSRA41.25/April 4. CSRA legally completed April 3;
+OCC42856 adjusts its deliverable April 4. Its next-session daily processing is
+an explicit convention for the intraday completion boundary, not a claimed
+preopen April 3 event. Preserve the April 3 trading observation.
+
+Select each own exact January 31 predecessor retained from before the old
+March overlay, whose gzip/input/repair hashes must match the latest fully
+authenticated stopped branch inventory. Reject a selected predecessor already
+committing the superseded March catalog. This permits the five complete
+future native replacements in one ordinary overlay, without a suppression
+depending on a same-overlay addition. Preserve every superseded branch and
+tail, including the failed Juno timing. Replaying only its own suffix uses no
+new origin, feature warmup, financial source or rule. The comparison basis now
+requires v1, the unchanged additional six facts, and the corrected five-term
+winter catalog. The superseded March version is historical evidence, never
+silently scored as equivalent to the corrected version. AAAP stays unresolved.

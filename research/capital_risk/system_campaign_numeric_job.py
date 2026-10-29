@@ -18,7 +18,11 @@ SOURCES=tuple(dict.fromkeys((*CORE_SOURCES,'system_campaign_numeric_job.py','sys
     'system_campaign_numeric_review.py','system_campaign_basis.py','system_campaign_joint_space.py',
     'system_campaign_correlation.py','system_campaign_terminal_facts.py','full_system_controller_policy.py',
     'full_system_controller_vector.py','full_system_controller_worker.py','full_system_controller_review.py',
-    'owned_grid.py','owned_value.py','selective_journal.py','system_campaign_march_facts.py')))
+    'owned_grid.py','owned_value.py','selective_journal.py','system_campaign_march_facts.py',
+    'system_campaign_confirm.py','system_campaign_selection.py','alpaca_fit_collect.py','alpaca_fit_compare.py',
+    'alpaca_fit_identity_repair.py','alpaca_fit_inputs.py','alpaca_fit_merger_roles.py','alpaca_fit_prior.py',
+    'alpaca_fit_relay.py','alpaca_fit_resume.py','core_lineage_review.py','forecast_collect.py','local_stage.py',
+    'owned_grid_worker.py','policy.py','trace_screen.py','system_campaign_winter_facts.py')))
 
 
 def expected_request(specifications):
@@ -29,7 +33,7 @@ def expected_request(specifications):
         'core_artifacts':specifications,'joint_registry_sha256':digest(joint_profiles()),
         'catalog_sha256':sha256_file(HERE/'system-campaign-factual-catalog.json'),
         'additional_catalog_sha256':sha256_file(HERE/'system-campaign-additional-terminal-facts.json'),
-        'march_catalog_sha256':sha256_file(HERE/'system-campaign-march-cash-facts.json'),
+        'winter_catalog_sha256':sha256_file(HERE/'system-campaign-corrected-winter-facts.json'),
         'sources':{n:sha256_file(HERE/n) for n in SOURCES},'worker_wait_seconds':7200,
         'review_wait_seconds':3600,'artifact_retention_days':7,'new_core_financial_sessions':0,
         'global_selection_performed':False,'production_contacted':False}
@@ -72,7 +76,8 @@ def command(name,source,frozen,out,core,evidence=None):
 def main(args):
     check_context(os.environ);need(os.environ.get('GITHUB_RUN_ATTEMPT')=='1','JOINT_NO_FRESH_RERUN')
     request=json.loads(args.request.read_bytes());need(request==expected_request(request['core_artifacts'])
-        and args.arm in request['core_artifacts'],'JOINT_EXACT_REQUEST')
+        and args.arm in request['core_artifacts'] and re.fullmatch(r'P[0-9]{2}',args.arm) is not None,
+        'JOINT_EXACT_PARAMETERIZED_CORE_REQUEST')
     spec=request['core_artifacts'][args.arm]
     need(spec['selected_checkpoint']=='book/checkpoint.json.gz' and spec['selected_session']=='2026-07-31'
          and not spec.get('review_refusal') and not spec.get('unadvanced_qualification_failure')

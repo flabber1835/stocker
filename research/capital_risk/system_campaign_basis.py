@@ -3,7 +3,7 @@ import hashlib,json
 from pathlib import Path
 from system_campaign_facts import digest,CATALOG_REF,COMPILER_REF,HYDRATED_REF
 from full_system_benchmark import need
-from system_campaign_march_facts import CATALOG as MARCH,COMPILER as MARCH_COMPILER,HYDRATED as MARCH_HYDRATED
+from system_campaign_winter_facts import CATALOG as WINTER,COMPILER as WINTER_COMPILER,HYDRATED as WINTER_HYDRATED
 
 ADDITIONAL='research:system-optimization-002/additional-terminal-catalog/1'
 ADDITIONAL_COMPILER='research:system-optimization-002/additional-terminal-compiler/1'
@@ -39,9 +39,9 @@ def basis(evidence,cp):
         ADDITIONAL:Path('/driver/system-campaign-additional-terminal-facts.json'),
         ADDITIONAL_COMPILER:Path('/driver/system_campaign_terminal_facts.py'),
         ADDITIONAL_HYDRATED:evidence/'hydrated-additional-terminal-catalog.json',
-        MARCH:Path('/driver/system-campaign-march-cash-facts.json'),
-        MARCH_COMPILER:Path('/driver/system_campaign_march_facts.py'),
-        MARCH_HYDRATED:evidence/'hydrated-march-cash-catalog.json'}
+        WINTER:Path('/driver/system-campaign-corrected-winter-facts.json'),
+        WINTER_COMPILER:Path('/driver/system_campaign_winter_facts.py'),
+        WINTER_HYDRATED:evidence/'hydrated-corrected-winter-cash-catalog.json'}
     need(all(p.is_file() for p in names.values()),'COMMON_BASIS_ACTUAL_COMPLETE_FACT_FILES')
     expected={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()};documents=[]
     for spec in cp['repairs']:
