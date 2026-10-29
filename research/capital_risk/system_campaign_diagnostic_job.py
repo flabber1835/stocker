@@ -14,7 +14,8 @@ SOURCES=('system_campaign_diagnostic_job.py','system_campaign_factual_admit.py',
 KEEP={'economic-worker.log','worker-inspect.json','economic-worker-inspect.json','factual-preflight.json','factual-overlay-admission.json',
     'factual-input-qualification.json','factual-outcome.json','old-branch-canonical-review.json','hydrated-factual-catalog.json',
     'independent-review-stop/worker.log','independent-review-stop/worker-inspect.json','independent-review-stop/core-review.json',
-    'book/checkpoint.json.gz','book/status.json','book/result.json'}
+    'book/checkpoint.json.gz','book/status.json','book/result.json','core-review.json','recovered-tail-proof.json',
+    'correlation-capture-proof.json','acceleration-proof.json'}
 
 
 def main(a):
@@ -72,6 +73,11 @@ def main(a):
                 log=(dest/name).read_text();codes=re.findall(r'\bREFUSED_[A-Z_]+\b',log)
                 locations=re.findall(r'File "/driver/([a-z_]+\.py)", line ([0-9]+), in ([a-z_]+)',log)
                 safe[name]={'error_codes':list(dict.fromkeys(codes)),'driver_locations':locations[-5:]}
+            if (dest/'book/result.json').exists():
+                result=json.loads((dest/'book/result.json').read_bytes());error=result.get('error','')
+                codes=re.findall(r'\bREFUSED_[A-Z_]+\b',error)
+                locations=re.findall(r'File "/(?:driver|variant)/([a-zA-Z0-9_/.]+)", line ([0-9]+), in ([a-z_]+)',error)
+                safe['book/result.json']={'error_codes':list(dict.fromkeys(codes)),'source_locations':locations[-8:]}
             print(json.dumps({'arm':arm,'authenticated_stopped_artifact_diagnostics':safe,'financial_sessions_advanced_by_reader':0}),flush=True)
     os.environ.pop('GH_TOKEN',None)
     (out/'diagnostic-proof.json').write_text(json.dumps(proofs,indent=2)+'\n')
