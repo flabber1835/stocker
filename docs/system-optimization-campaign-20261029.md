@@ -581,3 +581,52 @@ be future relative to the exact chosen predecessor, and the v1 FNF wrapper
 remains byte-identical. Qualify the composed input and preserve the entire
 superseded financial suffix as evidence. This advances the same own book from
 its documented factual boundary, not another feature warmup.
+
+## March 2018 cash supplement and comparison admission
+
+The new source-backed six-term catalog and its compiler are now immutable;
+resumed paths have committed them. Further facts use a third, separately
+versioned ordinary cash supplement. Juno's issuer completion 8-K records legal
+completion on March 6, 2018 and Nasdaq suspension before March 7 open. Replace
+the incomplete March 5 row with 87 USD cash on March 7, preserving March 5 and
+March 6 trading. This is the declared next-session daily processing convention
+for an event without a proven intraday completion timestamp, not a claim about
+the actual payment-agent settlement time. Bioverativ's issuer completion 8-K
+proves 105 USD cash and cessation before March 8 open; replace its incomplete
+March 8 row on that same session. Native term hashes and primary filing URLs
+are mandatory. No quote or voluntary tender assumption is needed.
+
+Before committing that supplement, the other stopped paths revealed Barracuda
+(CUDA) as another incomplete February 9 cash term. Its issuer completion 8-K
+confirms 27.55 USD, and OCC notice 42601 confirms consummation before February
+12 open. Include CUDA in the same still-uncommitted supplement, suppressing
+February 9 and adding February 12. The common earliest boundary is therefore
+February 9, and use each affected path's own January 31 checkpoint, retaining
+its complete later branch. Juno-only paths also need this common factual basis;
+do not omit an earlier correction merely because it did not stop that path.
+Bounded diagnostics may retrieve exact January 2018 month/pre-event gzips using
+the same byte/hash/size/known-stopped and inventory guards already used for
+2017; this permits no financial execution.
+
+Resume only a positively stopped own checkpoint before February 9, after the full
+immutable old branch passes canonical restore, every-prefix and independent
+accounting review. Retain both earlier catalogs, compiler identities, all old
+branches and unsent tails. Actual native packets and canonical replacements,
+wrong-predecessor and consumed-session refusals must pass before advancement.
+AAAP remains unresolved and its affected paths stay unscored; this supplement
+does not add any AAAP payment. No financial source, state or rule is converted.
+
+Joint numerical admission compares the exact economic union of suppression
+and replacement facts plus frozen bundle/archive identities, after validating
+all retained compiler/catalog/private-hydration references. Own predecessor
+hashes and descriptor partitions are lineage, not differences in factual terms.
+Missing supplement references require an exact canonical unchanged-path proof
+before equivalence; absence of a holding alone is insufficient.
+
+The global selector consumes training metrics only, uses the official default
+Core/default controller drawdown for every candidate's risk budget, and locks
+parameter IDs before later evaluation. Unknown, refused or incomplete Core
+paths are missing coverage, never fabricated negative observations. A result
+with any missing predeclared coverage must be labelled a partial-class search;
+it does not establish the default's optimality or a global optimum. GP compute
+allocation uses only actual reviewed initial-path training objectives.

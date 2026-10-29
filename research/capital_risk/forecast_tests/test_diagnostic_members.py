@@ -26,6 +26,16 @@ def test_exact_pinned_checkpoint_and_hash_guard_removal_falsifier():
     assert namespace['selected_members'](spec,wrong)==spec['selected_members']
 
 
+def test_2018_boundaries_use_identical_hash_and_member_size_guards():
+    check,_,_=function();name='book/month-end/2018-01-31.json.gz'
+    spec={'selected_members':{name:{'bytes':100,'sha256':'b'*64}}}
+    assert check(spec,spec['selected_members'])==spec['selected_members']
+    with pytest.raises(ValueError,match='PINNED_PRE_EVENT'):
+        check(spec,{name:{'bytes':101,'sha256':'b'*64}})
+    spec['selected_members'][name]['bytes']=8*1024**2
+    with pytest.raises(ValueError,match='PINNED_MEMBER_SHAPE'):check(spec)
+
+
 @pytest.mark.parametrize('name',('../book/checkpoint.json.gz','/book/predecessor-checkpoints/x.json.gz',
     'book/pre-event/2027-07-18.json.gz','book/formation.jsonl','../source-bindings.json'))
 def test_arbitrary_or_future_members_are_refused(name):

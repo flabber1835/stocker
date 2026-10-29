@@ -21,7 +21,7 @@ KEEP={'economic-worker.log','worker-inspect.json','economic-worker-inspect.json'
 def selected_members(spec,inventory=None):
     extra=spec.get('selected_members',{})
     need(len(extra)<=4 and all(n=='source-bindings.json' or
-         re.fullmatch(r'book/(?:month-end|pre-event)/2017-[0-9]{2}-[0-9]{2}(?:-[a-f0-9]{64})?\.json\.gz',n) or
+         re.fullmatch(r'book/(?:month-end|pre-event)/(?:2017|2018)-[0-9]{2}-[0-9]{2}(?:-[a-f0-9]{64})?\.json\.gz',n) or
          re.fullmatch(r'book/predecessor-checkpoints/[a-f0-9]{64}\.json\.gz',n)
          for n in extra),'DIAGNOSTIC_EXACT_PRE_EVENT_MEMBERS')
     need(all(set(v)=={'bytes','sha256'} and type(v['bytes']) is int and 0<=v['bytes']<8*1024**2
