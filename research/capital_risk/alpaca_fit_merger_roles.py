@@ -21,26 +21,49 @@ class StockMerger(BaseModel):
     payable_date:date|None=None
 
 
+class CashMerger(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    id:str=Field(min_length=1,max_length=128)
+    acquiree_symbol:str=Field(min_length=1,max_length=32)
+    acquirer_symbol:str=Field(min_length=1,max_length=32)
+    acquiree_cusip:str=Field(pattern='^[A-Z0-9]{9}$')
+    acquirer_cusip:str=Field(pattern='^[A-Z0-9]{9}$')
+    rate:Decimal=Field(gt=0,allow_inf_nan=False)
+    effective_date:date
+    process_date:date
+    payable_date:date|None=None
+
+
+def all_events(descriptor):
+    return [e for old in descriptor.get('legacy_registries',[]) for e in all_events(old)]+descriptor['events']
+
+
 def apply(data,descriptor,*,source_manifest_sha256):
     from sentinel.feed import calendar
     from sentinel.feed.alpaca_identity import action_sources
     from sentinel.feed.alpaca_observation import structural_action_date
-    need(descriptor['schema']=='research.alpaca-recipient-role-registry/1'
-         and descriptor['kind']=='STOCK_MERGER_ACQUIRER_ONLY'
+    stock=descriptor['schema']=='research.alpaca-recipient-role-registry/1' and descriptor['kind']=='STOCK_MERGER_ACQUIRER_ONLY'
+    cash=descriptor['schema']=='research.alpaca-recipient-role-registry/2' and descriptor['kind']=='CASH_MERGER_ACQUIRER_ONLY'
+    need((stock or cash)
          and descriptor['source_manifest_sha256']==source_manifest_sha256,'ROLE_REGISTRY_SCOPE')
     entries=descriptor['events'];hashes=[e['record_sha256'] for e in entries]
     need(0<len(entries)<=1000 and len(set(hashes))==len(hashes) and digest(sorted(hashes))==descriptor['records_sha256'],
          'ROLE_REGISTRY_RECORD_SET')
-    stocks={digest(r):(key,r) for key,(kind,r) in data.actions.items() if kind=='stock_mergers'}
+    selected_kind='stock_mergers' if stock else 'cash_mergers'
+    stocks={digest(r):(key,r) for key,(kind,r) in data.actions.items() if kind==selected_kind}
     structural={}
     for key,(kind,r) in data.actions.items():
         if kind=='cash_dividends':continue
         for symbol in action_sources(kind,r):structural.setdefault(symbol,[]).append((key,kind,r))
     receipts=[]
+    if cash:
+        for old in descriptor.get('legacy_registries',[]):
+            need(old['schema']=='research.alpaca-recipient-role-registry/1','ROLE_LEGACY_KIND')
+            receipts.extend(apply(data,old,source_manifest_sha256=source_manifest_sha256)['events'])
     for expected in entries:
         need(expected['effective_session']>descriptor['predecessor']['checkpoint']['session'],'ROLE_FUTURE_ONLY')
         need(expected['record_sha256'] in stocks,'EXACT_STOCK_MERGER_RECORD')
-        key,record=stocks[expected['record_sha256']];event=StockMerger.model_validate(record)
+        key,record=stocks[expected['record_sha256']];event=(StockMerger if stock else CashMerger).model_validate(record)
         buyer,target=event.acquirer_symbol,event.acquiree_symbol;day=str(event.effective_date)
         need(buyer!=target and event.acquirer_cusip!=event.acquiree_cusip and day==expected['effective_session']
              and calendar.previous_sessions(day,1)==[day],'ROLE_SYMBOL_CUSIP_DATE')
@@ -52,7 +75,7 @@ def apply(data,descriptor,*,source_manifest_sha256):
             if other_id==key:continue
             when=structural_action_date(kind,other)
             need(when is not None and when!=day,'ROLE_CONFLICTING_ACQUIRER_ACTION')
-        reset=(day,key,'stock_mergers');before=list(data.resets.get(buyer,[]))
+        reset=(day,key,selected_kind);before=list(data.resets.get(buyer,[]))
         need(before.count(reset)==1,'ROLE_EXACT_ACQUIRER_RESET')
         target_before=list(data.resets.get(target,[]))
         need(target not in data.by_ticker or reset in target_before,'ROLE_ACQUIREE_RESET_REQUIRED')

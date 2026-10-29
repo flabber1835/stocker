@@ -520,3 +520,26 @@ fill is insufficient. Lock selection only when all 108 accounts have complete
 reviewed training paths. Incomplete processing remains a prefix, not a score.
 Use the same gross SPY adjusted-open anchor for every comparison; disclose that
 SPY excludes stock trading fees, while funded accounts charge 10 basis points.
+
+## Cash-acquisition buyer role
+
+The independently reviewed prefix now contains all 126 formation closes and 37
+measured closes through February 26, 2025. The next protected-history refusal
+is IBM as the buyer in its HashiCorp acquisition. HashiCorp's
+[closing 8-K](https://www.sec.gov/Archives/edgar/data/1720671/000119312525037910/d898526d8k.htm)
+identifies HashiCorp shares as the canceled property receiving cash. IBM's
+existing shares are not converted by that event. IBM is a controller reference,
+not a held or queued Core position at this boundary.
+
+Extend the same exact role-classification contract to well-formed cash mergers:
+distinct buyer/target symbols and valid distinct CUSIPs, positive finite cash
+rate, exact current buyer ID, dated frozen raw preimage, and no conflicting
+buyer structural event. Remove only the buyer's exact reset. Do not settle the
+target, grant cash, alter prices or remove its guard. Freeze future metadata
+membership without holdings/return selection. Preserve all rejected facts.
+
+Use a new role-registry version bound to this own February 26 checkpoint and
+all source/input/journal identities. Embed the previous stock-role registry
+unchanged, and revalidate its original October 31 anchor in the retained prefix.
+Keep both predecessor identities and old publications. All facts except the
+observed issuer-backed case retain the stated provider-evidence limitation.

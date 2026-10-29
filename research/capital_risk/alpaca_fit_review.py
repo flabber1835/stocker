@@ -43,7 +43,8 @@ def review(evidence,inputs,prefix_inputs,request,output):
         role_spec=request['source_role_repair'];path=Path('/src')/role_spec['path']
         need(path.stat().st_size==role_spec['bytes'] and hashlib.sha256(path.read_bytes()).hexdigest()==role_spec['sha256'],'REVIEW_ROLE_SOURCE')
         role=json.loads(path.read_bytes());role_fact=json.loads((root/'source-role-input-admission.json').read_bytes())
-        role_events={e['record_sha256']:e for e in role['events']}
+        from alpaca_fit_merger_roles import all_events
+        role_events={e['record_sha256']:e for e in all_events(role)}
         need(predecessor(root,role,request['continuation'])==role_fact['predecessor'],'REVIEW_ROLE_OWN_ANCHOR')
     if request.get('sparse_input_repair'):
         from alpaca_fit_identity_repair import digest,predecessor
@@ -145,7 +146,7 @@ def review(evidence,inputs,prefix_inputs,request,output):
                 need(hashlib.sha256(sid.encode()).hexdigest()==expected['permanent_id_sha256'],'REVIEW_NAME_SID')
                 repair_records[key]=repair_records.get(key,0)+1
         if role and proof['endpoint'].endswith('/corporate-actions'):
-            for record in reply['corporate_actions'].get('stock_mergers',[]):
+            for record in reply['corporate_actions'].get('stock_mergers',[])+reply['corporate_actions'].get('cash_mergers',[]):
                 key=digest(record)
                 if key not in role_events:continue
                 expected=role_events[key]

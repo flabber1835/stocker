@@ -74,9 +74,12 @@ def predecessor(previous,descriptor,request_continuation):
     need(path.stat().st_size==cp['bytes'] and hashlib.sha256(path.read_bytes()).hexdigest()==cp['sha256'],
          'FACTUAL_OWN_PREDECESSOR_FILE')
     value=json.loads(gzip.decompress(path.read_bytes()))
-    need(value['canonical']['sha256']==basis['inner_sha256']
-         and value['canonical']['state_sha256']==basis['state_sha256']==cp['state_sha256']
-         and value['canonical']['plan']['source_sha256']==basis['original_source_sha256']
+    if value['formation']:
+        inner=value['canonical']['sha256'];state=value['canonical']['state_sha256'];origin=value['canonical']['plan']['source_sha256']
+    else:
+        inner=digest(value['canonical']);state=inner;origin=value['origin_source_sha256']
+    need(inner==basis['inner_sha256'] and state==basis['state_sha256']==cp['state_sha256']
+         and origin==basis['original_source_sha256']
          and value['source_sha256']==basis['execution_source_sha256'] and value['journal']==cp['journal']
          and value['dataset_sha256']==descriptor['dataset_sha256']
          and value['protocol_sha256']==descriptor['protocol_sha256'],'FACTUAL_OWN_PREDECESSOR_CONTENT')
@@ -96,4 +99,6 @@ def predecessor(previous,descriptor,request_continuation):
         'latest_predecessor_sha256':request_continuation['checkpoint']['sha256'],'no_state_conversion':True}
     if descriptor['schema']=='research.alpaca-sparse-factual-identity/2':
         result['legacy_anchors']=[predecessor(previous,e,request_continuation) for e in descriptor['legacy_events']]
+    if descriptor['schema']=='research.alpaca-recipient-role-registry/2':
+        result['legacy_role_anchors']=[predecessor(previous,e,request_continuation) for e in descriptor['legacy_registries']]
     return result

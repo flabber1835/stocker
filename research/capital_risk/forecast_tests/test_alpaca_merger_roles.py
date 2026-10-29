@@ -53,4 +53,20 @@ class MergerRoleTests(unittest.TestCase):
             roles.apply(data,spec,source_manifest_sha256='0'*64)
 
 
+class CashMergerRoleTests(MergerRoleTests):
+    def fixture(self):
+        data,spec=super().fixture();record=data.actions['synthetic'][1]
+        record.pop('acquirer_rate');record.pop('acquiree_rate');record['rate']=35.
+        data.actions['synthetic']=('cash_mergers',record)
+        for symbol in data.resets:data.resets[symbol]=[('2024-11-01','synthetic','cash_mergers')]
+        spec.update(schema='research.alpaca-recipient-role-registry/2',kind='CASH_MERGER_ACQUIRER_ONLY',legacy_registries=[])
+        spec['events'][0]['record_sha256']=digest(record);spec['records_sha256']=digest([digest(record)])
+        return data,spec
+
+    def test_nonpositive_cash_terms_are_not_role_evidence(self):
+        data,spec=self.fixture();data.actions['synthetic'][1]['rate']=0
+        key=digest(data.actions['synthetic'][1]);spec['events'][0]['record_sha256']=key;spec['records_sha256']=digest([key])
+        with self.assertRaises(ValueError):roles.apply(data,spec,source_manifest_sha256='0'*64)
+
+
 if __name__=='__main__':unittest.main()
