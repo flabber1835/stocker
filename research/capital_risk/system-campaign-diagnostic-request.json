@@ -16,6 +16,54 @@
     "stage.py": "2ab2596762e059c6178361b45295739a14973992701ca95ee0e77d34b534f163"
   },
   "arms": {
+    "B": {
+      "artifact_id": 12935808758,
+      "zip_bytes": 213494295,
+      "zip_sha256": "3af58977ddd7ef1d8b6e24d977060bc3da2daebc4f1e0d9e3f3beec05f84b6d9",
+      "receipt_name": "campaign-factual-B.json",
+      "receipt_sha256": "60421571fe47ef1e75c564424771eae6ad77d3fb3f7248cb4da0aed874fc899a",
+      "encrypted_output": {
+        "name": "campaign-factual-B.tar.crseal",
+        "bytes": 213491677,
+        "sha256": "dc8bcb7e0954063c5167c20b14c685834f5f7d49cc4c48074fc1a17a9bd5adad",
+        "manifest_sha256": "cb8cdf08fc12bc84b6d3d3415c923acd5ed0e48fba78ed2c90f3dea0e2c288e2",
+        "compression": "TAR_GZIP_V1"
+      },
+      "run_id": 40937446637,
+      "head": "419f26f723bc4cf42d9012e6a3812524bee85249"
+    },
+    "B0": {
+      "artifact_id": 12937041670,
+      "zip_bytes": 213497350,
+      "zip_sha256": "a0c231b8f5f106045614f5828d56d85d25b658e2798db98601b99b1764c298f1",
+      "receipt_name": "campaign-factual-B0.json",
+      "receipt_sha256": "c09ab998c1df7d8af184a961ad258733d8ed931cfe498c399ad54888ad8ee9e4",
+      "encrypted_output": {
+        "name": "campaign-factual-B0.tar.crseal",
+        "bytes": 213494726,
+        "sha256": "022d461769a24e2b09c68b275caf3b95ee4452b200c20b910fa514b942fb88c9",
+        "manifest_sha256": "389f87531d2ec8fc4cedcda3d58927309dad8d75a99f44154db3bf5f08bb7539",
+        "compression": "TAR_GZIP_V1"
+      },
+      "run_id": 40937446637,
+      "head": "419f26f723bc4cf42d9012e6a3812524bee85249"
+    },
+    "P00": {
+      "artifact_id": 12936188251,
+      "zip_bytes": 264661846,
+      "zip_sha256": "7e6a6a236154407e8510a01b36bc26761da78ebc97cf6705c6bf7c20c325ea19",
+      "receipt_name": "campaign-factual-P00.json",
+      "receipt_sha256": "b431f56de485e7875acf81e0f6706475ab97fa5b1e7da36dd228d9257121dd10",
+      "encrypted_output": {
+        "name": "campaign-factual-P00.tar.crseal",
+        "bytes": 264659216,
+        "sha256": "e4edd0a6fde4c964ca045ef8bbc380103f71e479c277951af328febd5742c3eb",
+        "manifest_sha256": "49e62ca44abb9a6eaa20ffb24e6d4d357dc92beab29e99ea823f8d3557e2c498",
+        "compression": "TAR_GZIP_V1"
+      },
+      "run_id": 40937446637,
+      "head": "419f26f723bc4cf42d9012e6a3812524bee85249"
+    },
     "P01": {
       "artifact_id": 12935757995,
       "zip_bytes": 159660264,
@@ -30,7 +78,17 @@
         "compression": "TAR_GZIP_V1"
       },
       "run_id": 40958368697,
-      "head": "b9b22a470f4919ebaaa7fb198346e4d11b91c73a"
+      "head": "b9b22a470f4919ebaaa7fb198346e4d11b91c73a",
+      "selected_members": {
+        "book/month-end/2018-03-29-c89abc41b51f814669e3ed747bb7dfb6b148195b946c9559a068b4a8fa14843c.json.gz": {
+          "bytes": 1141495,
+          "sha256": "4f3771428613456b51a71245a2ff4907fc7d79a5dcca842239b64c8972d4854c"
+        },
+        "source-bindings.json": {
+          "bytes": 61201,
+          "sha256": "cbff432d861381735e7bba6ecd79491b059405cde8840cc2d128dbbad85d0b14"
+        }
+      }
     },
     "P04": {
       "artifact_id": 12935816430,
@@ -46,31 +104,15 @@
         "compression": "TAR_GZIP_V1"
       },
       "run_id": 40958368697,
-      "head": "b9b22a470f4919ebaaa7fb198346e4d11b91c73a"
-    },
-    "P03": {
-      "artifact_id": 12935535490,
-      "zip_bytes": 93222204,
-      "zip_sha256": "23321bb67f40d102984de29a1ad74e555204c275f9eb208936a95e1092e1b3ff",
-      "receipt_name": "campaign-factual-P03.json",
-      "receipt_sha256": "210ee34f1f202f77985ba667ccab75a26b639f6c056489d9ed5bf3df0bede72c",
-      "encrypted_output": {
-        "name": "campaign-factual-P03.tar.crseal",
-        "bytes": 93219288,
-        "sha256": "2a5ef8e5536f7176817956405b9db58867a8c413c932af98a0150e3f526c1cae",
-        "manifest_sha256": "2145531edb24de05c3927cd841949b139480296637621ab84909c2195bfc7e78",
-        "compression": "TAR_GZIP_V1"
-      },
-      "run_id": 40958368697,
       "head": "b9b22a470f4919ebaaa7fb198346e4d11b91c73a",
       "selected_members": {
-        "book/month-end/2018-03-29-cd9371c8f1742ebda32ea1f9a2e4c578ba98ca9e0f62593fe64c2f80c383c1a9.json.gz": {
-          "bytes": 1055104,
-          "sha256": "5ee124e1ea9f8f4f14bfcc810e941c0afb05f1f8e869b38e39ad67b65dd283ae"
+        "book/month-end/2018-03-29-eb100142559b23b088dffece9ebd70f4e0d1ff8178e4d673c66878409cdb54fe.json.gz": {
+          "bytes": 794030,
+          "sha256": "5b402301a38df1c282074675e75df53e8cb4d1a7a9c5b77119e3372bdcdf4244"
         },
         "source-bindings.json": {
-          "bytes": 60980,
-          "sha256": "67054bed611978d386aa63843b82e51a8450a2bf54db3759f44e5435aa0faaa9"
+          "bytes": 61200,
+          "sha256": "6782a458d749d2ef60a7fc7fe99f75b5f0ad32dc67f0b26c8976ad1d5e5a5339"
         }
       }
     }
