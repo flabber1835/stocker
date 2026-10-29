@@ -1,0 +1,107 @@
+{
+  "schema": "research.sharadar-owned55-grid/1",
+  "study_id": "sharadar-owned55-grid-001",
+  "source": "RETAINED_AUDITED_SHARADAR_CORE_TRACE",
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "source_start": "2008-02-22",
+  "source_end": "2026-07-31",
+  "source_measured_closes": 4639,
+  "source_formation_closes": 126,
+  "training_start": "2018-01-02",
+  "training_end": "2022-12-30",
+  "evaluation_start": "2023-01-03",
+  "evaluation_end": "2024-12-31",
+  "diagnostic_start": "2025-01-02",
+  "diagnostic_end": "2026-07-31",
+  "family": "ALL_NINE_EXISTING_OWNED55_NUMERIC_FIELDS",
+  "grid": {
+    "entry_drawdown": [
+      "-0.075",
+      "-0.10",
+      "-0.15"
+    ],
+    "entry_damage": [
+      "0.50",
+      "0.63",
+      "0.75",
+      "0.88"
+    ],
+    "entry_green": [
+      "0.10",
+      "0.20",
+      "0.30"
+    ],
+    "entry_sessions": [
+      1,
+      3,
+      5
+    ],
+    "recovery_damage": [
+      "0.50",
+      "0.63",
+      "0.75"
+    ],
+    "recovery_green": [
+      "0.10",
+      "0.20",
+      "0.30"
+    ],
+    "recovery_core_r20_above": [
+      "-0.02",
+      "0",
+      "0.02"
+    ],
+    "recovery_sessions": [
+      3,
+      5,
+      8
+    ],
+    "active_ceiling": [
+      "0.25",
+      "0.55",
+      "0.75"
+    ]
+  },
+  "combinations": 26244,
+  "baseline": {
+    "entry_drawdown": "-0.10",
+    "entry_damage": "0.88",
+    "entry_green": "0.20",
+    "entry_sessions": 5,
+    "recovery_damage": "0.63",
+    "recovery_green": "0.20",
+    "recovery_core_r20_above": "0",
+    "recovery_sessions": 8,
+    "active_ceiling": "0.55"
+  },
+  "capital": "50000",
+  "relative_drawdown_budgets": [
+    "0.50",
+    "0.75",
+    "1.00"
+  ],
+  "maximum_shortlist": 4,
+  "selection": "TRAINING_PARETO_BUDGET_WINNERS_PLUS_BEST_STRICT_JOINT_GAIN_GROWTH_TURNOVER_ID",
+  "selection_tie_break": [
+    "LOWER_TURNOVER",
+    "BASELINE",
+    "PROFILE_ID"
+  ],
+  "selection_uses_evaluation": false,
+  "postselection_retuning": false,
+  "execution_model": "ORIGINAL_FROZEN_SCALAR_NEXT_OPEN_EXPOSURE_ACCOUNT",
+  "stock_and_cash_transition_cost": "0.001",
+  "unique_exact_exposure_path_cache": true,
+  "controller_state_per_profile": true,
+  "profile_inequality_exclusions": [],
+  "profile_worker_processes": 3,
+  "container_cpus": 4,
+  "container_memory_bytes": 8589934592,
+  "worker_seconds": 5400,
+  "workflow_minutes": 120,
+  "known_history_not_unseen": true,
+  "new_forecaster": false,
+  "core_financial_changes": false,
+  "production_contacted": false,
+  "scalar_success_requires_persistent_account_confirmation": true
+}
