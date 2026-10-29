@@ -83,3 +83,9 @@ lock, and calls the native transfer with only database/receipt-key access. A
 retained result or command log prohibits another automatic attempt. Inspect an
 interrupted operation rather than rerunning it. Only after this boundary passes
 may the original canonical activation proceed.
+
+The recovery-only writer-lock exemption is restricted to this native evidence
+transfer function with its authenticated predecessor, durable fence and source
+proofs. Financial plan and broker writers retain their runtime backup authority
+gate. The central exemption audit must bind the function and these guards,
+rather than granting a module-wide financial exception.

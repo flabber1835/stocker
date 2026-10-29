@@ -265,7 +265,7 @@ record_restore_evidence() {
 }
 
 if [ "$PHYSICAL_ONLY" -eq 1 ]; then
-  if [ -n "$CHAIN_PROGRESS_WITNESS" ]; then
+  if [ -n "${CHAIN_PROGRESS_WITNESS:-}" ]; then
     RUNTIME_IMAGE="${SENTINEL_RUNTIME_IMAGE_REF:-}"
     [[ "$RUNTIME_IMAGE" =~ ^[A-Za-z0-9][A-Za-z0-9._/:@-]*@sha256:[0-9a-f]{64}$ ]] && \
       [[ "$METADATA_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
