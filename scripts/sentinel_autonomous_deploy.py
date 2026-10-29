@@ -2346,6 +2346,7 @@ class AutonomousDeploy:
 
     def _verify_dual_plan_shadow_reconciliation(self) -> Mapping:
         """Re-earn the exact plan/shadow bridge inside the promoted runtime."""
+        import sentinel_activation_read as read_probe
         self.phase(
             "reconcile: exact certified shadow intent versus PAPER plan")
         code = (
@@ -2355,23 +2356,28 @@ class AutonomousDeploy:
             "from sentinel.execution.alpaca import upgrade_restore_reason; "
             "from sentinel.feed import store; "
             "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
-            "cur=c.cursor(); cur.execute('BEGIN TRANSACTION READ ONLY'); "
-            "reason=upgrade_restore_reason(c)\n"
-            "if reason:\n"
-            "    raise RuntimeError(reason)\n"
-            "p=journal.latest_plan(c); "
-            "assert p is not None, 'current PAPER plan is absent'; "
-            "r=dual_reconciliation.require_plan_matches_verified_shadow("
+            "\ntry:\n"
+            "    c.execute('BEGIN TRANSACTION READ ONLY')\n"
+            "    reason=upgrade_restore_reason(c)\n"
+            "    if reason:\n"
+            "        raise RuntimeError(reason)\n"
+            "    p=journal.latest_plan(c)\n"
+            "    assert p is not None, 'current PAPER plan is absent'\n"
+            "    r=dual_reconciliation.require_plan_matches_verified_shadow("
             "c,plan=p,observation_id=os.environ.get("
             "'SENTINEL_SHADOW_OBSERVATION_ID','primary'),"
             "starting_cash=Decimal(os.environ.get("
-            "'SENTINEL_SHADOW_STARTING_CASH','50000'))); "
-            "print('SENTINEL_DUAL_RECONCILIATION='+json.dumps("
-            "r,sort_keys=True)); c.rollback(); c.close()")
-        completed = self.runner.run(self._authorized_compose() + [
+            "'SENTINEL_SHADOW_STARTING_CASH','50000')))\n"
+            "    print('SENTINEL_DUAL_RECONCILIATION='+json.dumps(r,sort_keys=True))\n"
+            "finally:\n"
+            "    try:\n"
+            "        c.rollback()\n"
+            "    finally:\n"
+            "        c.close()")
+        completed = read_probe.run(self, self._authorized_compose() + [
             "--profile", "authorized-cli", "run", "--rm", "-T",
             "--entrypoint", "python", "sentinel-authorized-cli",
-            "-c", code], capture=True)
+            "-c", read_probe.child_code(code)], 'PAPER reconciliation', budget_seconds=300)
         payload = _marked_json_output(
             completed, marker="SENTINEL_DUAL_RECONCILIATION=",
             label="PAPER reconciliation")
@@ -2393,6 +2399,8 @@ class AutonomousDeploy:
 
     def _wait_for_dual_shadow_session(self, decision_session: str) -> Mapping:
         """Wait only for the already-started broker-free service to attest."""
+        import sentinel_activation_read as read_probe
+        import sentinel_activation_shadow as shadow_probe
         self.phase(
             "shadow: wait for current decision-close runtime attestation")
         started = time.monotonic()
@@ -2401,13 +2409,28 @@ class AutonomousDeploy:
         last_report = started
         last = None
         while time.monotonic() < deadline:
-            completed = self.runner.run(self._authorized_compose() + [
-                "--profile", "shadow", "exec", "-T", "sentinel-shadow",
-                "python", "-m", "sentinel", "shadow-status"],
-                capture=True, check=False, timeout=min(300, max(0.001, deadline - time.monotonic())))
+            completed = read_probe.run(self, self._authorized_compose() + [
+                "--profile", "shadow", "run", "--rm", "-T", "--no-deps",
+                "--entrypoint", "python", "sentinel-shadow", "-c",
+                read_probe.child_code(shadow_probe.code()),
+                'shadow-status'], 'shadow attestation', deadline=deadline,
+                timeout=min(300, max(0.001, deadline - time.monotonic())),
+                allowed_returncodes=(2, shadow_probe.FORMATION_EXIT), budget_seconds=300)
             if time.monotonic() >= deadline:
                 break
-            if completed.returncode == 0:
+            try:
+                forming = shadow_probe.decode_result(completed)
+            except ValueError as exc:
+                raise DeployRefused('shadow formation response is malformed or expired') from exc
+            if forming is not None:
+                last = forming
+            elif completed.returncode == 2:
+                last = _json_output(completed, label="shadow readiness wait")
+                if (last != {'mode': 'BROKER_FREE_SHADOW', 'status': 'NOT_STARTED',
+                             'broker_mutations_authorized': False}
+                        or last.get('broker_mutations_authorized') is not False):
+                    raise DeployRefused('shadow attestation failure is not a readiness wait')
+            else:
                 last = _json_output(completed, label="shadow attestation")
                 session = last.get('session')
                 if (session is None and last.get("shadow_verdict") == "SHADOW_GO"
@@ -2421,9 +2444,12 @@ class AutonomousDeploy:
                         datetime.strptime(session, "%Y-%m-%d")
                     except ValueError:
                         raise DeployRefused("shadow attestation contains an invalid decision session")
-                if (session is not None and session >= decision_session
-                        and last.get("shadow_verdict") == "SHADOW_GO"
-                        and last.get("verification") == "VERIFIED"):
+                if (last.get("mode") != 'BROKER_FREE_SHADOW'
+                        or last.get("broker_mutations_authorized") is not False
+                        or last.get("shadow_verdict") != "SHADOW_GO"
+                        or last.get("verification") != "VERIFIED"):
+                    raise DeployRefused('shadow attestation is contradictory or unverified')
+                if session is not None and session >= decision_session:
                     return last
             now = time.monotonic()
             if now - last_report >= 10:

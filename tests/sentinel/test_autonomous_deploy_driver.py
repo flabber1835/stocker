@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib
 import json
 import os
@@ -17,6 +18,15 @@ DRIVER = SCRIPTS / "sentinel_autonomous_deploy_driver.py"
 sys.path.insert(0, str(SCRIPTS))
 core = importlib.import_module("sentinel_autonomous_deploy")
 driver = importlib.import_module("sentinel_autonomous_deploy_driver")
+
+
+@pytest.fixture(autouse=True)
+def offline_activation_read_owner(monkeypatch):
+    import sentinel_activation_read as read_probe
+    @contextmanager
+    def owned(command):
+        yield {'command': list(command)}
+    monkeypatch.setattr(read_probe, 'owned_command', owned)
 
 
 def _config_env(tmp_path, exposure="1", revoke="0"):
@@ -114,12 +124,13 @@ def test_driver_attestation_wait_retains_bounded_next_decision_budget(
         assert 0 < kwargs['timeout'] <= 300
         clock[0] = elapsed
         return SimpleNamespace(returncode=0, stdout=json.dumps({
+            'mode': 'BROKER_FREE_SHADOW', 'broker_mutations_authorized': False,
             'session': '2026-08-28', 'verification': 'VERIFIED', 'shadow_verdict': 'SHADOW_GO'}))
 
     obj.runner = SimpleNamespace(run=status)
     monkeypatch.setattr(core.time, 'monotonic', lambda: clock[0])
     if expired:
-        with pytest.raises(core.ActivationPending, match='activation attempt timeout'):
+        with pytest.raises(core.ActivationPending, match='deadline'):
             obj._wait_for_dual_shadow_session('2026-08-28')
     else:
         assert obj._wait_for_dual_shadow_session('2026-08-28')['session'] == '2026-08-28'

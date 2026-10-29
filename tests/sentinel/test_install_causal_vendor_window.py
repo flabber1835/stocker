@@ -28,6 +28,7 @@ def _timing(*, target="2026-08-27", frontier="2026-08-26",
                      if prospective else 0)
     return {
         "frontier": frontier,
+        "publication_fingerprint": "f" * 64,
         "target": target,
         "target_source_final": source_final,
         "target_source_final_at": "2026-08-28T03:45:00+00:00",
@@ -61,7 +62,8 @@ def _stub_bind_probes(monkeypatch, events):
     def parity(*args, **kwargs):
         assert kwargs["runtime_image_digest"] == "sha256:" + "c" * 64
         assert kwargs["source_identity_sha256"] == "e" * 64
-        kwargs["subject_values"]["data_publication"] = "publication-v1"
+        kwargs["subject_values"]["data_publication"] = install_deploy.core.data_publication_subject_value({
+            'publication_fingerprint': 'f' * 64, 'visible_frontier': '2026-08-27'})
         return SimpleNamespace(status=go.PASS, evidence_sha256="e" * 64)
 
     monkeypatch.setattr(go, "probe_active_wealth_parity", parity)

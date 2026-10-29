@@ -21,10 +21,15 @@ UTC = timezone.utc
 
 def host(*, mode='dual', operational=True, **changes):
     obj = object.__new__(install.InstallAnytimeDeploy)
-    obj.reviewed_validation = SimpleNamespace(mode=mode)
+    publication = install.core.data_publication_subject_value({
+        'publication_fingerprint': 'f' * 64, 'visible_frontier': '2026-08-12'})
+    obj.reviewed_validation = SimpleNamespace(mode=mode, data_publication_sha256=
+        install.core._validation_subject_digest('data_publication', publication)
+        if mode == 'dual' else None)
     obj._operational_source_only = operational
     obj._causal_timing = lambda: dict(
         dict(target='2026-08-12', frontier='2026-08-12',
+             publication_fingerprint='f' * 64,
              target_source_final=True, prospective=False, remaining_ms=0),
         **changes)
     return obj
