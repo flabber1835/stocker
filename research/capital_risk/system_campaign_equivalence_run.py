@@ -9,6 +9,8 @@ from system_campaign_facts import FactualInputs,CATALOG_REF,sha
 from system_campaign_terminal_facts import TerminalFacts
 from system_campaign_winter_facts import WinterCash
 from system_campaign_spring_facts import SpringFacts
+from system_campaign_followup_facts import FollowupFacts
+from system_campaign_tgi_facts import TgiCash
 from system_campaign_terminal_run import merge_future_documents
 from system_campaign_factual_run import preflight,correlation_seed,SeededObservation,preserve_tails,review as canonical_review
 from system_campaign_equivalence import compare_buffers,compare_cutoff,compare_records
@@ -20,6 +22,55 @@ CUTOFF='2019-04-30'
 def read(root,name):
     from research.pooled_vacancy_funding import journal
     return journal.read_checkpoint(root/name)
+
+
+def own_snapshot(root,day,base,descriptors,inner=None):
+    """Resolve actual nested lineage by identity, never by date alone."""
+    from research.pooled_vacancy_funding import backtest,runtime
+    from research.pooled_input_support.bundle import axis
+    full=axis();wanted=full[full.index(backtest.START)-425:full.index(backtest.END)+1];found={}
+    for path in root.rglob(day+'*.json.gz'):
+        cp=read(path.parent,path.name)
+        if cp['source_cursor']!=day or cp['base']!=base or cp['repairs']!=descriptors:continue
+        if inner is not None and cp['run']['checkpoint_sha256']!=inner:continue
+        backtest.validate_checkpoint(cp,base,wanted)
+        state=runtime.restore(cp['run'],policy=base['policy'],input_sha256=backtest.input_hash(base,descriptors))
+        need(runtime.checkpoint(state)==cp['run'],'BASIS_PROOF_NESTED_OWN_CANONICAL_ROUNDTRIP')
+        found.setdefault(cp['sha256'],(cp,path))
+    need(len(found)==1,'BASIS_PROOF_UNIQUE_EXACT_NESTED_OWN_SNAPSHOT')
+    return next(iter(found.values()))
+
+
+def future_successors(old,complete,selected):
+    from research.pooled_vacancy_funding import backtest
+    from research.pooled_vacancy_funding.repair import load_repair
+    from full_system_core import committed_watch
+    count=len(selected['repairs']);extra=complete['repairs'][count:]
+    need(complete['repairs'][:count]==selected['repairs'],'BASIS_PROOF_RETAINED_REPAIR_PREFIX')
+    ids={d['sha256'] for d in extra}
+    events=[e for e in committed_watch(old/'book',complete)
+        if e.get('schema')=='research.pooled-action-successor/1' and e['overlay']['sha256'] in ids]
+    need([e['overlay'] for e in events]==extra,'BASIS_PROOF_ACTUAL_FUTURE_SUCCESSOR_AXIS')
+    documents=[];proofs=[]
+    for n,(descriptor,event) in enumerate(zip(extra,events),count):
+        raw=(old/'book/repairs'/descriptor['filename']).read_bytes()
+        need(sha(raw)==descriptor['sha256'],'BASIS_PROOF_FUTURE_REPAIR_ACTUAL_BYTES')
+        document=json.loads(raw);day=descriptor['resume_session']
+        parsed=load_repair(old/'book/repairs'/descriptor['filename'],resume_session=day,
+            predecessor_checkpoint_sha256=descriptor['predecessor_checkpoint_sha256'])
+        need(parsed.sha256==descriptor['sha256'] and parsed.earliest_affected_session>CUTOFF,
+             'BASIS_PROOF_CANONICAL_FUTURE_INPUT_PARSER')
+        need(day>CUTOFF and event['unchanged_through']==day,'BASIS_PROOF_FUTURE_BOUNDARY_AFTER_CUTOFF')
+        cp,path=own_snapshot(old,day,complete['base'],complete['repairs'][:n],descriptor['predecessor_checkpoint_sha256'])
+        need(event['predecessor_checkpoint_sha256']==cp['run']['checkpoint_sha256']
+             and event['state_sha256']==cp['run']['state_sha256']
+             and event['predecessor_input_sha256']==backtest.input_hash(complete['base'],complete['repairs'][:n])
+             and event['successor_input_sha256']==backtest.input_hash(complete['base'],complete['repairs'][:n+1]),
+             'BASIS_PROOF_ACTUAL_UNCHANGED_STATE_INPUT_REBIND')
+        documents.append(document);proofs.append({'overlay_sha256':descriptor['sha256'],
+            'predecessor_outer_sha256':cp['sha256'],'predecessor_gzip_sha256':sha(path.read_bytes()),
+            'unchanged_state_sha256':event['state_sha256'],'session':day})
+    return documents,proofs
 
 
 def repairs(book,cp):
@@ -51,10 +102,13 @@ def endpoints(old,out,spec):
     complete=read(old,'book/checkpoint.json.gz');selected=read(old,spec['selected_checkpoint'])
     need(complete['completed']==2156 and complete['source_cursor']=='2026-07-31'
          and selected['source_cursor']=='2017-07-31','BASIS_PROOF_COMPLETE_AND_PRE_EVENT_OWN_BOOK')
-    targets=list((old/'book/month-end').glob(CUTOFF+'*.json.gz'));need(len(targets)==1,'BASIS_PROOF_OWN_CUTOFF_CHECKPOINT')
-    old_cutoff=read(targets[0].parent,targets[0].name);new=read(out,'book/checkpoint.json.gz')
+    old_cutoff,old_path=own_snapshot(old,CUTOFF,complete['base'],selected['repairs'])
+    new=read(out,'book/checkpoint.json.gz')
     document=json.loads((out/'basis-input-overlay.json').read_bytes())
-    proof=compare_cutoff(old_cutoff,new,complete,selected,document,CUTOFF)
+    future,bindings=future_successors(old,complete,selected)
+    proof=compare_cutoff(old_cutoff,new,complete,selected,document,CUTOFF,future_documents=future)
+    proof['actual_future_input_bindings']=bindings
+    proof['old_cutoff_gzip_sha256']=sha(old_path.read_bytes())
     proof['financial_record_counts']=compare_records(old/'book',out/'book',old_cutoff,new)
     proof['causal_capture_records_exact']=compare_capture(old,out)
     return proof,new,selected
@@ -85,11 +139,11 @@ def run(out,old,spec):
     from research.pooled_input_support.bundle import axis
     from research.pooled_vacancy_funding import backtest,journal
     complete=read(old,'book/checkpoint.json.gz')
-    need(complete['completed']==2156 and complete['source_cursor']=='2026-07-31',
+    need(spec['arm']=='P00' and complete['completed']==2156 and complete['source_cursor']=='2026-07-31',
          'BASIS_PROOF_ONLY_COMPLETE_STOPPED_BOOK')
     cp=preflight(spec,old,out,before='2017-08-28')
-    need(cp['source_cursor']=='2017-07-31' and complete['repairs']==cp['repairs'],
-         'BASIS_PROOF_FIXED_OWN_BOUNDARY_NO_LATER_SUCCESSOR')
+    need(cp['source_cursor']=='2017-07-31' and complete['repairs'][:len(cp['repairs'])]==cp['repairs'],
+         'BASIS_PROOF_FIXED_OWN_BOUNDARY_RETAINED_REPAIRS')
     retained=[json.loads((old/'book/repairs'/d['filename']).read_bytes()) for d in cp['repairs']]
     need(any(v['reference']==CATALOG_REF for d in retained for v in d['source_evidence']),
          'BASIS_PROOF_RETAINED_V1_FACTS')
@@ -103,6 +157,12 @@ def run(out,old,spec):
     spring=SpringFacts('/driver/system-campaign-spring-terminal-facts.json')
     spring.hydrate(out/'hydrated-spring-terminal-catalog.json');spring.overlay(cp,out/'spring-component.json')
     merged=merge_future_documents(json.loads((out/'spring-component.json').read_bytes()),merged)
+    followup=FollowupFacts('/driver/system-campaign-followup-terminal-facts.json')
+    followup.hydrate(out/'hydrated-followup-terminal-catalog.json');followup.overlay(cp,out/'followup-component.json')
+    merged=merge_future_documents(json.loads((out/'followup-component.json').read_bytes()),merged)
+    tgi=TgiCash('/driver/system-campaign-tgi-cash-facts.json')
+    tgi.hydrate(out/'hydrated-tgi-cash-catalog.json');tgi.overlay(cp,out/'tgi-component.json')
+    merged=merge_future_documents(json.loads((out/'tgi-component.json').read_bytes()),merged)
     path=out/'basis-input-overlay.json';save(path,merged)
     from research.pooled_vacancy_funding.repair import load_repair
     loaded=load_repair(path,resume_session=cp['source_cursor'],predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
@@ -123,6 +183,7 @@ def run(out,old,spec):
     with v1:
         additional.qualify(loaded,out/'additional-input-qualification.json');winter.qualify(loaded,out/'winter-input-qualification.json')
         spring.qualify(loaded,out/'spring-input-qualification.json')
+        followup.qualify(loaded,out/'followup-input-qualification.json');tgi.qualify(loaded,out/'tgi-input-qualification.json')
         inputs.packets=packets;adapter.Buffer=construct
         try:
             with observer:

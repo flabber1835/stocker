@@ -41,14 +41,46 @@ def compare_buffers(old,new):
     return digest(left)
 
 
-def compare_cutoff(old,new,old_complete,selected,new_document,cutoff):
+def future_plan(document,cutoff):
+    need(set(document)=={'schema','predecessor_checkpoint_sha256','source_evidence','suppress','add'}
+         and document['schema']=='terminal-repair/1','EQUIVALENCE_ORDINARY_FUTURE_INPUT_ONLY')
+    result={}
+    for name in ('suppress','add'):
+        rows={}
+        for row in document[name]:
+            if row['session']<=cutoff:continue
+            key=row['session'],row['security_id']
+            need(key not in rows,'EQUIVALENCE_UNIQUE_FUTURE_ACTION')
+            rows[key]=row
+        result[name]=rows
+    return result
+
+
+def compare_future_inputs(old_complete,selected,old,new_document,cutoff,future_documents):
+    retained=selected['repairs'];extra=old_complete['repairs'][len(retained):]
+    need(old['repairs']==retained and old_complete['repairs'][:len(retained)]==retained
+         and len(extra)==len(future_documents),'EQUIVALENCE_EXACT_OLD_INPUT_SUCCESSOR_AXIS')
+    expected={'suppress':{},'add':{}}
+    for descriptor,document in zip(extra,future_documents):
+        need(descriptor['resume_session']>cutoff
+             and document['predecessor_checkpoint_sha256']==descriptor['predecessor_checkpoint_sha256']
+             and all(row['session']>cutoff for name in ('suppress','add') for row in document[name]),
+             'EQUIVALENCE_OLD_SUCCESSOR_STRICTLY_FUTURE')
+        for name,rows in future_plan(document,cutoff).items():
+            for key,row in rows.items():
+                need(key not in expected[name],'EQUIVALENCE_UNIQUE_OLD_FUTURE_ACTION')
+                expected[name][key]=row
+    need(future_plan(new_document,cutoff)==expected,'EQUIVALENCE_ALL_FUTURE_ACTION_INPUTS_EXACT')
+    return len(extra)
+
+
+def compare_cutoff(old,new,old_complete,selected,new_document,cutoff,*,future_documents=()):
     """Prove full recurrence state equality and finite support of new input facts."""
     need(old['source_cursor']==new['source_cursor']==cutoff and old['completed']==new['completed'],
          'EQUIVALENCE_EXACT_CUTOFF_AND_COUNT')
     need(old['base']==new['base']==old_complete['base']==selected['base'],
          'EQUIVALENCE_UNCHANGED_FULL_SOURCE_AND_INPUT_BASE')
-    need(old_complete['repairs']==selected['repairs']==old['repairs'],
-         'EQUIVALENCE_NO_LATER_OLD_INPUT_SUCCESSOR')
+    future_count=compare_future_inputs(old_complete,selected,old,new_document,cutoff,future_documents)
     need(new['repairs'][:-1]==old['repairs'] and len(new['repairs'])==len(old['repairs'])+1,
          'EQUIVALENCE_EXACT_SINGLE_INPUT_SUCCESSOR')
     need(old['run']['state']==new['run']['state'] and old['run']['state_sha256']==new['run']['state_sha256']
@@ -60,11 +92,12 @@ def compare_cutoff(old,new,old_complete,selected,new_document,cutoff):
          and new_document['predecessor_checkpoint_sha256']==selected['run']['checkpoint_sha256'],
          'EQUIVALENCE_OWN_INPUT_SUCCESSOR_BOUNDARY')
     changed=new_document['suppress']+new_document['add']
-    need(changed and all(selected['source_cursor']<v['session']<=cutoff for v in changed),
-         'EQUIVALENCE_ALL_INPUT_CHANGES_END_BEFORE_CUTOFF')
+    need(changed and all(selected['source_cursor']<v['session'] for v in changed)
+         and any(v['session']<=cutoff for v in changed),'EQUIVALENCE_ACTUAL_BOUNDED_CHANGED_INTERVAL')
     return {'cutoff':cutoff,'canonical_state_sha256':new['run']['state_sha256'],
         'old_complete_checkpoint_sha256':old_complete['sha256'],
         'old_cutoff_checkpoint_sha256':old['sha256'],'new_cutoff_checkpoint_sha256':new['sha256'],
+        'identical_future_ordinary_input_successors':future_count,
         'all_remaining_inputs_unchanged_by_finite_date_support':True,
         'complete_recurrence_state_exact':True,'old_physical_lineage_relabelled':False}
 

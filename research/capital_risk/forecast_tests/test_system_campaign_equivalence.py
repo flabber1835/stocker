@@ -4,7 +4,7 @@ from collections import deque
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
-from system_campaign_equivalence import exact,compare_buffers,compare_cutoff
+from system_campaign_equivalence import exact,compare_buffers,compare_cutoff,compare_future_inputs
 
 
 def buffer():
@@ -43,7 +43,7 @@ def case():
         economics={'nav':'100'},stats={'n':1},spy_base=1.,retries={'n':0},sha256='old-cutoff')
     full=copy.deepcopy(old);full['sha256']='complete';selected=copy.deepcopy(old);selected['source_cursor']='2017-07-31'
     selected['run']['checkpoint_sha256']='own';new=copy.deepcopy(old);new['repairs'].append({'sha':'new'});new['sha256']='new-cutoff'
-    doc={'schema':'terminal-repair/1','predecessor_checkpoint_sha256':'own','suppress':[],
+    doc={'schema':'terminal-repair/1','predecessor_checkpoint_sha256':'own','source_evidence':[],'suppress':[],
          'add':[{'session':'2018-03-06','security_id':'FAKE'}]}
     return old,new,full,selected,doc
 
@@ -53,9 +53,51 @@ def test_any_state_or_future_input_change_refuses_equivalence():
     args[1]['run']['state']['cash']=101.
     with pytest.raises(ValueError,match='CANONICAL_STATE_EXACT'):compare_cutoff(*args,'2019-04-30')
     args=case();args[-1]['add'][0]['session']='2020-01-02'
-    with pytest.raises(ValueError,match='ALL_INPUT_CHANGES_END'):compare_cutoff(*args,'2019-04-30')
+    with pytest.raises(ValueError,match='ALL_FUTURE_ACTION_INPUTS_EXACT'):compare_cutoff(*args,'2019-04-30')
     args=case();args[2]['repairs'].append({'sha':'later'})
-    with pytest.raises(ValueError,match='NO_LATER_OLD_INPUT_SUCCESSOR'):compare_cutoff(*args,'2019-04-30')
+    with pytest.raises(ValueError,match='EXACT_OLD_INPUT_SUCCESSOR_AXIS'):compare_cutoff(*args,'2019-04-30')
+
+
+def future_case():
+    args=case();d={'sha256':'future','resume_session':'2025-06-30','predecessor_checkpoint_sha256':'later-own'}
+    args[2]['repairs'].append(d)
+    future={'schema':'terminal-repair/1','predecessor_checkpoint_sha256':'later-own','source_evidence':[],
+        'suppress':[{'session':'2025-07-24','security_id':'TGI','term_sha256':'a'*64}],
+        'add':[{'session':'2025-07-25','security_id':'TGI','cash_per_share':26.}]}
+    for name in ('suppress','add'):args[-1][name].extend(copy.deepcopy(future[name]))
+    return args,future
+
+
+def test_identical_future_input_successor_and_economic_mutations():
+    args,future=future_case()
+    assert compare_cutoff(*args,'2019-04-30',future_documents=[future])['identical_future_ordinary_input_successors']==1
+    for field,value in (('cash_per_share',27.),('session','2025-07-28'),('security_id','OTHER')):
+        bad=copy.deepcopy(future);bad['add'][0][field]=value
+        with pytest.raises(ValueError,match='ALL_FUTURE_ACTION_INPUTS_EXACT'):
+            compare_cutoff(*args,'2019-04-30',future_documents=[bad])
+    bad=copy.deepcopy(future);bad['suppress'][0]['term_sha256']='b'*64
+    with pytest.raises(ValueError,match='ALL_FUTURE_ACTION_INPUTS_EXACT'):
+        compare_cutoff(*args,'2019-04-30',future_documents=[bad])
+    bad=copy.deepcopy(future);bad['bar_override']=[]
+    with pytest.raises(ValueError,match='ORDINARY_FUTURE_INPUT_ONLY'):
+        compare_cutoff(*args,'2019-04-30',future_documents=[bad])
+    args[2]['repairs'][-1]['resume_session']='2019-04-30'
+    with pytest.raises(ValueError,match='OLD_SUCCESSOR_STRICTLY_FUTURE'):
+        compare_cutoff(*args,'2019-04-30',future_documents=[future])
+
+
+def test_actual_future_equality_guard_removal_falsifier():
+    args,future=future_case();args[-1]['add'][-1]['cash_per_share']=27.
+    with pytest.raises(ValueError,match='ALL_FUTURE_ACTION_INPUTS_EXACT'):
+        compare_future_inputs(args[2],args[3],args[0],args[-1],'2019-04-30',[future])
+    node=next(n for n in ast.parse(Path(compare_future_inputs.__code__.co_filename).read_bytes()).body
+        if isinstance(n,ast.FunctionDef) and n.name=='compare_future_inputs')
+    node.body=[n for n in node.body if not any(isinstance(v,ast.Constant)
+        and v.value=='EQUIVALENCE_ALL_FUTURE_ACTION_INPUTS_EXACT' for v in ast.walk(n))]
+    scope=dict(compare_future_inputs.__globals__)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
+        '<removed-future-equality>','exec'),scope)
+    assert scope['compare_future_inputs'](args[2],args[3],args[0],args[-1],'2019-04-30',[future])==1
 
 
 def test_historical_differential_entry_refuses_locally_before_output(monkeypatch,tmp_path):

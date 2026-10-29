@@ -11,6 +11,12 @@ ADDITIONAL_HYDRATED='research:system-optimization-002/additional-private-termina
 SPRING='research:system-optimization-002/spring-terminal-catalog/1'
 SPRING_COMPILER='research:system-optimization-002/spring-terminal-compiler/1'
 SPRING_HYDRATED='research:system-optimization-002/spring-private-terminal-catalog/1'
+FOLLOWUP='research:system-optimization-002/followup-terminal-catalog/1'
+FOLLOWUP_COMPILER='research:system-optimization-002/followup-terminal-compiler/1'
+FOLLOWUP_HYDRATED='research:system-optimization-002/followup-private-terminal-catalog/1'
+TGI='research:system-optimization-002/tgi-cash-catalog/1'
+TGI_COMPILER='research:system-optimization-002/tgi-cash-compiler/1'
+TGI_HYDRATED='research:system-optimization-002/tgi-private-cash-catalog/1'
 
 
 def semantics(base,documents,expected):
@@ -47,7 +53,13 @@ def basis(evidence,cp):
         WINTER_HYDRATED:evidence/'hydrated-corrected-winter-cash-catalog.json',
         SPRING:Path('/driver/system-campaign-spring-terminal-facts.json'),
         SPRING_COMPILER:Path('/driver/system_campaign_spring_facts.py'),
-        SPRING_HYDRATED:evidence/'hydrated-spring-terminal-catalog.json'}
+        SPRING_HYDRATED:evidence/'hydrated-spring-terminal-catalog.json',
+        FOLLOWUP:Path('/driver/system-campaign-followup-terminal-facts.json'),
+        FOLLOWUP_COMPILER:Path('/driver/system_campaign_followup_facts.py'),
+        FOLLOWUP_HYDRATED:evidence/'hydrated-followup-terminal-catalog.json',
+        TGI:Path('/driver/system-campaign-tgi-cash-facts.json'),
+        TGI_COMPILER:Path('/driver/system_campaign_tgi_facts.py'),
+        TGI_HYDRATED:evidence/'hydrated-tgi-cash-catalog.json'}
     need(all(p.is_file() for p in names.values()),'COMMON_BASIS_ACTUAL_COMPLETE_FACT_FILES')
     expected={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()};documents=[]
     for spec in cp['repairs']:

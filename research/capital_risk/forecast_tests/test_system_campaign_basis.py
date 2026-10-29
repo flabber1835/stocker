@@ -61,7 +61,13 @@ def test_spring_hydration_is_required_and_actual_omission_falsifier(tmp_path,mon
         module.WINTER_HYDRATED:evidence/'hydrated-corrected-winter-cash-catalog.json',
         module.SPRING:driver/'system-campaign-spring-terminal-facts.json',
         module.SPRING_COMPILER:driver/'system_campaign_spring_facts.py',
-        module.SPRING_HYDRATED:evidence/'hydrated-spring-terminal-catalog.json'}
+        module.SPRING_HYDRATED:evidence/'hydrated-spring-terminal-catalog.json',
+        module.FOLLOWUP:driver/'system-campaign-followup-terminal-facts.json',
+        module.FOLLOWUP_COMPILER:driver/'system_campaign_followup_facts.py',
+        module.FOLLOWUP_HYDRATED:evidence/'hydrated-followup-terminal-catalog.json',
+        module.TGI:driver/'system-campaign-tgi-cash-facts.json',
+        module.TGI_COMPILER:driver/'system_campaign_tgi_facts.py',
+        module.TGI_HYDRATED:evidence/'hydrated-tgi-cash-catalog.json'}
     for ref,p in names.items():p.write_bytes(ref.encode())
     refs={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()}
     document={'schema':'terminal-repair/1','source_evidence':[{'reference':k,'sha256':v} for k,v in refs.items()],
