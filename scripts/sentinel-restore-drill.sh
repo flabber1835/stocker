@@ -273,14 +273,20 @@ if [ "$PHYSICAL_ONLY" -eq 1 ]; then
     SENTINEL_RESTORE_DATABASE_PASSWORD="${SENTINEL_POSTGRES_PASSWORD:?required for restore witness}"
     export SENTINEL_RESTORE_DATABASE_PASSWORD
     SEMANTIC_STARTED=1
-    WITNESS_DOCUMENT="$(docker run --rm --name "$CONTAINER-semantic" \
+    if WITNESS_DOCUMENT="$(docker run --rm --name "$CONTAINER-semantic" \
       --label sentinel.restore-drill=v1 --network "$NETWORK" --read-only --cap-drop ALL \
       --security-opt no-new-privileges --memory 768m --cpus 0.5 --pids-limit 128 \
       -e SENTINEL_RESTORE_DATABASE_HOST=restored-postgres \
       -e SENTINEL_RESTORE_DATABASE_PASSWORD -e SENTINEL_PUBLICATION_RECEIPT_KEY \
       --entrypoint timeout "$RUNTIME_IMAGE" --kill-after=5s 600s \
       python -B -m sentinel.chain_progress_recovery --snapshot --backup "$NAME" \
-      --marker "$MARKER" --metadata-sha256 "$METADATA_SHA256")"
+      --marker "$MARKER" --metadata-sha256 "$METADATA_SHA256")"; then
+      :
+    else
+      WITNESS_EXIT=$?
+      printf '%s\n' "$WITNESS_DOCUMENT" >&2
+      exit "$WITNESS_EXIT"
+    fi
     [ "$(metadata_digest)" = "$METADATA_SHA256" ] || {
       echo 'REFUSED: backup metadata changed during witness recovery' >&2; exit 4; }
     printf '%s' "$WITNESS_DOCUMENT" | "$PYTHON" -c '

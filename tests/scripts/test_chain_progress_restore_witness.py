@@ -10,7 +10,7 @@ import pytest
 ROOT=Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[2])
 
 
-@pytest.mark.parametrize('fault',[None,'metadata','docker','image'])
+@pytest.mark.parametrize('fault',[None,'metadata','docker','witness','deadline','image'])
 def test_actual_paused_restore_witness_launcher_has_no_broker_or_secret_arguments(tmp_path,fault):
     source=(ROOT/'scripts/sentinel-restore-drill.sh').read_text()
     start=source.index('\nif [ "$PHYSICAL_ONLY" -eq 1 ]; then')
@@ -33,6 +33,9 @@ assert set(forwarded)=={'SENTINEL_RESTORE_DATABASE_HOST','SENTINEL_RESTORE_DATAB
 assert forwarded['SENTINEL_RESTORE_DATABASE_PASSWORD']==os.environ['SENTINEL_POSTGRES_PASSWORD']
 assert not any(secret in arg for secret in (os.environ['SENTINEL_POSTGRES_PASSWORD'],os.environ['SENTINEL_PUBLICATION_RECEIPT_KEY']) for arg in args)
 if os.environ.get('FAIL_DOCKER')=='yes':raise SystemExit(2)
+if os.environ.get('WORKER_EXIT'):
+ print('REFUSED: RecoveryRefused: exact predecessor fixture refused')
+ raise SystemExit(int(os.environ['WORKER_EXIT']))
 print(json.dumps({'witness':{'private_fixture':True},'hmac_sha256':'a'*64}))
 ''')
     output=tmp_path/'witness.json'
@@ -46,6 +49,7 @@ print(json.dumps({'witness':{'private_fixture':True},'hmac_sha256':'a'*64}))
         ALPACA_API_KEY='must-not-forward',SENTINEL_DATABASE_URL='must-not-forward')
     if fault=='image':env['SENTINEL_RUNTIME_IMAGE_REF']='mutable:latest'
     if fault=='docker':env['FAIL_DOCKER']='yes'
+    if fault in ('witness','deadline'):env['WORKER_EXIT']='2' if fault=='witness' else '124'
     metadata='e'*64 if fault=='metadata' else 'a'*64
     adapter='docker() { "$RECORDING_PYTHON" "$RECORDING_DOCKER" "$@"; }\n'
     adapter+='metadata_digest() { printf "%s" "'+metadata+'"; }\n'
@@ -53,6 +57,10 @@ print(json.dumps({'witness':{'private_fixture':True},'hmac_sha256':'a'*64}))
                           capture_output=True,text=True)
     if fault:
         assert result.returncode!=0 and not output.exists()
+        if fault in ('witness','deadline'):
+            assert result.returncode==int(env['WORKER_EXIT'])
+            assert 'REFUSED: RecoveryRefused: exact predecessor fixture refused' in result.stderr
+            assert 'chain_progress_witness_ready:' not in result.stdout
     else:
         assert result.returncode==0, result.stderr
         assert json.loads(output.read_text())['witness']=={'private_fixture':True}
