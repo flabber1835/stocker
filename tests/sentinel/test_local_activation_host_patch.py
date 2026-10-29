@@ -1,5 +1,6 @@
 """The pinned local activation overlay preserves actual child identity checks."""
 import importlib.util
+import gzip
 import sys
 
 import pytest
@@ -10,11 +11,13 @@ from tests.sentinel import test_go_probe_artifact_identity as contract
 
 @pytest.fixture
 def sources():
-    new = (contract.ROOT/patch.MODULE).read_bytes()
-    needle = b'        "SENTINEL_TEST_IMAGE_DIGEST",\n'
-    assert new.count(needle) == 1
-    old = new.replace(needle, b'')
+    # Exact Git dda0195c module bytes. This historical overlay must not derive
+    # its predecessor from a current deployment script that keeps evolving.
+    old = gzip.decompress((contract.ROOT/'tests/sentinel/fixtures/activation-host-dda0195c.py.gz').read_bytes())
     assert patch.sha(old) == patch.BASE_SHA
+    needle = b'        "SENTINEL_RUNTIME_IMAGE_DIGEST",\n'
+    assert old.count(needle) == 1
+    new = old.replace(needle, needle + b'        "SENTINEL_TEST_IMAGE_DIGEST",\n')
     return old, new
 
 
