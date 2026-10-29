@@ -352,3 +352,40 @@ all journal prefixes and exact next-session adjacency remain required. Later
 suffixes must prove that this bound anchor remains in their own retained lineage.
 No warmup restart, arbitrary action suppression or production installation is
 authorized. Keep the initial refusal and negative findings intact.
+
+## Frozen name-fact registry after the second observed identity refusal
+
+The next reviewed suffix passed the TXNM event and stopped at UCBI to UCB on
+August 6. Its August 5 state has 23 formation closes and no measured returns.
+The issuer's [July 26 8-K](https://www.sec.gov/Archives/edgar/data/857855/000085785524000051/ucbi-20240726.htm)
+and [current investor facts](https://ir.ucbi.com/resources/investor-faqs?mobile=1)
+corroborate continued common-stock listing under the new symbol and unchanged
+CUSIP. This is the same source-compatibility class as the preceding refusal.
+
+Supersede the single-event-only research scope with a frozen, hash-enumerated
+registry of future non-economic name facts from the already authenticated Alpaca
+capture. Freeze it before any measured-return comparison. This changes research
+source interpretation, never production or numerical controller rules. Admit
+only well-formed `name_changes` with equal valid old/new CUSIPs, a unique current
+listing and permanent ID, exact raw-response/record commitments, an XNYS process
+date after the new exact August 5 anchor, and no conflicting structural event.
+Malformed, colliding or conflicting facts keep their original reset/refusal.
+The previously issuer-verified TXNM descriptor is retained as an explicit legacy
+component; no other past reset may be removed retrospectively.
+
+The frozen Alpaca event is the primary market-data evidence for registry members,
+using its [documented fields](https://docs.alpaca.markets/us/v1.1/reference/corporateactions-1).
+This is not a claim that every member received separate issuer/SEC research.
+Preserve that distinction, the accepted/rejected metadata inventory and provider
+truth limitations in the result. No price continuity may manufacture identity,
+and no future performance or holdings select registry membership. The ordinary
+raw/split corroboration, protected-history, canonical transition and independent
+accounting checks remain in force after exact reset interpretation.
+
+Bind the registry and every legacy component into the new publication's input
+interpretation digest. Preserve the exact own August 5 checkpoint, input, source,
+all historical prefixes and earlier interpretation commitments. The source
+extension defines the research baseline used by all 108 variants; its results
+cannot certify the installed PAPER source parser. This bounded source capability
+avoids one workflow failure per ticker alias while retaining refusals for actual
+economic conversions and ambiguous identities.

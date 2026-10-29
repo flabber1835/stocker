@@ -60,5 +60,21 @@ class SparseNameFactTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'NAME_PERMANENT_ID'):
             repair.apply(data,spec,source_manifest_sha256='0'*64)
 
+    def test_registry_removes_bound_future_facts_without_revising_past(self):
+        data,entry=self.fixture();entry['kind']='UNCHANGED_CUSIP_NAME_EVENT'
+        config={'schema':'research.alpaca-sparse-factual-identity/2','kind':'FROZEN_UNCHANGED_CUSIP_NAME_REGISTRY',
+            'source_manifest_sha256':'0'*64,'events':[entry],'legacy_events':[],
+            'predecessor':{'checkpoint':{'session':'2024-08-02'}},'record_sha256':repair.digest([entry['record_sha256']])}
+        result=repair.apply(data,config,source_manifest_sha256='0'*64)
+        self.assertEqual(result['future_events'],1);self.assertEqual(data.resets['NEW'],[('2023-04-03','other-event','mergers')])
+        data,_=self.fixture();config['predecessor']['checkpoint']['session']='2024-08-06'
+        with self.assertRaisesRegex(ValueError,'NAME_REGISTRY_FUTURE_ONLY'):
+            repair.apply(data,config,source_manifest_sha256='0'*64)
+
+    def test_unchanged_symbol_is_only_admitted_by_explicit_unchanged_cusip_type(self):
+        data,spec=self.fixture(old_symbol='NEW');spec['kind']='UNCHANGED_CUSIP_NAME_EVENT'
+        result=repair.apply(data,spec,source_manifest_sha256='0'*64)
+        self.assertFalse(result['provider_rows_or_financial_state_modified'])
+
 
 if __name__=='__main__':unittest.main()

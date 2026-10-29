@@ -36,12 +36,17 @@ def review(evidence,inputs,prefix_inputs,request,output):
     status=json.loads((root/'baseline-status.json').read_bytes())
     need(status['source_sha256']==binding and retained,'REVIEW_SOURCE_OR_NO_ORIGIN')
     origin_binding=plan.source_sha256;inherited={}
-    interpretation=request['dataset_sha256'];repair=None;repair_records=0
+    interpretation=request['dataset_sha256'];repair=None;repair_events={};repair_records={}
     if request.get('sparse_input_repair'):
-        from alpaca_fit_identity_repair import digest
+        from alpaca_fit_identity_repair import digest,predecessor
         spec=request['sparse_input_repair'];path=Path('/src')/spec['path']
         need(path.stat().st_size==spec['bytes'] and hashlib.sha256(path.read_bytes()).hexdigest()==spec['sha256'],'REVIEW_REPAIR_SOURCE')
         repair=json.loads(path.read_bytes());fact=json.loads((root/'factual-input-admission.json').read_bytes())
+        events=(repair['legacy_events']+repair['events']) if repair['schema'].endswith('/2') else [repair]
+        repair_events={e['record_sha256']:e for e in events}
+        need(len(repair_events)==len(events),'REVIEW_DISTINCT_FACT_REGISTRY')
+        exact=predecessor(root,repair,request['continuation'])
+        need(exact==fact['predecessor'],'REVIEW_ALL_FACTUAL_OWN_ANCHORS')
         basis=repair['predecessor'];anchor=root/basis['checkpoint']['file']
         need(anchor.stat().st_size==basis['checkpoint']['bytes'] and hashlib.sha256(anchor.read_bytes()).hexdigest()==basis['checkpoint']['sha256'],
              'REVIEW_FACTUAL_ANCHOR_FILE')
@@ -102,14 +107,18 @@ def review(evidence,inputs,prefix_inputs,request,output):
         params=proof.get('params') or {}
         if repair and proof['endpoint'].endswith('/corporate-actions'):
             for record in reply['corporate_actions'].get('name_changes',[]):
-                if digest(record)!=repair['record_sha256']:continue
-                need(proof['file']==repair['response_file'] and proof['raw_sha256']==repair['raw_response_sha256']
-                     and proof['sha256']==repair['compressed_response_sha256'],'REVIEW_EXACT_NAME_RESPONSE')
-                need(record['old_cusip']==record['new_cusip'] and record['old_symbol']!=record['new_symbol']
-                     and record['process_date']==repair['effective_session'],'REVIEW_NAME_ONLY_FACT')
+                key=digest(record)
+                if key not in repair_events:continue
+                expected=repair_events[key]
+                if proof['file']!=expected['response_file']:continue
+                need(proof['file']==expected['response_file'] and proof['raw_sha256']==expected['raw_response_sha256']
+                     and proof['sha256']==expected['compressed_response_sha256'],'REVIEW_EXACT_NAME_RESPONSE')
+                need(record['old_cusip']==record['new_cusip']
+                     and (record['old_symbol']!=record['new_symbol'] or expected['kind']=='UNCHANGED_CUSIP_NAME_EVENT')
+                     and record['process_date']==expected['effective_session'],'REVIEW_NAME_ONLY_FACT')
                 sid=ticker_to_sid[record['new_symbol']]
-                need(hashlib.sha256(sid.encode()).hexdigest()==repair['permanent_id_sha256'],'REVIEW_NAME_SID')
-                repair_records+=1
+                need(hashlib.sha256(sid.encode()).hexdigest()==expected['permanent_id_sha256'],'REVIEW_NAME_SID')
+                repair_records[key]=repair_records.get(key,0)+1
         if not proof['endpoint'].endswith('/bars'):continue
         if params.get('adjustment')=='all' and 'SPY' in reply.get('bars',{}):
             for (_,day),bar in bar_page_rows({'SPY':reply['bars']['SPY']},symbols={'SPY'},sessions=axis).items():
@@ -202,7 +211,8 @@ def review(evidence,inputs,prefix_inputs,request,output):
     complete=formation_count==126 and measured_count==len(plan_record['measured_axis'])
     if repair:
         basis=repair['predecessor'];anchor=by_session[basis['checkpoint']['session']]
-        need(repair_records==1 and anchor['input_sha256']==basis['input_sha256']
+        need(set(repair_records)==set(repair_events) and all(v==1 for v in repair_records.values())
+             and anchor['input_sha256']==basis['input_sha256']
              and anchor['state_sha256']==basis['state_sha256'],'REVIEW_FACTUAL_SOURCE_AND_INPUT_ANCHOR')
     need(formation_count==status['formation_count'] and measured_count==status['measured_records'],'REVIEW_PROGRESS_COUNTS')
     if request.get('continuation'):

@@ -12,28 +12,51 @@ def digest(value):
 
 
 def apply(data,descriptor,*,source_manifest_sha256):
+    if descriptor['schema']=='research.alpaca-sparse-factual-identity/2':
+        need(descriptor['kind']=='FROZEN_UNCHANGED_CUSIP_NAME_REGISTRY'
+             and descriptor['source_manifest_sha256']==source_manifest_sha256,'NAME_REGISTRY_SCOPE')
+        entries=descriptor['events'];legacy=descriptor['legacy_events']
+        need(0<len(entries)<=1000 and all(e['effective_session']>descriptor['predecessor']['checkpoint']['session'] for e in entries),
+             'NAME_REGISTRY_FUTURE_ONLY')
+        hashes=[e['record_sha256'] for e in legacy+entries]
+        need(len(hashes)==len(set(hashes)) and digest(sorted(hashes))==descriptor['record_sha256'],'NAME_REGISTRY_RECORD_SET')
+        receipts=[apply_single(data,e,source_manifest_sha256=source_manifest_sha256) for e in legacy+entries]
+        return {'schema':'research.alpaca-name-registry-admission/1','descriptor_sha256':digest(descriptor),
+            'record_sha256':descriptor['record_sha256'],'events':receipts,'future_events':len(entries),
+            'legacy_events':len(legacy),'all_other_resets_retained':True,'provider_rows_or_financial_state_modified':False}
+    return apply_single(data,descriptor,source_manifest_sha256=source_manifest_sha256)
+
+
+def apply_single(data,descriptor,*,source_manifest_sha256):
     """Remove only the exact dated reset; keep every source record and bar."""
     from sentinel.feed.alpaca_identity import NameChange,action_sources
     from sentinel.feed.alpaca_observation import structural_action_date
     from sentinel.feed import calendar
     need(descriptor['schema']=='research.alpaca-sparse-factual-identity/1'
-         and descriptor['kind']=='SAME_CUSIP_NAME_ONLY' and descriptor['record_kind']=='name_changes'
+         and descriptor['kind'] in ('SAME_CUSIP_NAME_ONLY','UNCHANGED_CUSIP_NAME_EVENT') and descriptor['record_kind']=='name_changes'
          and descriptor['source_manifest_sha256']==source_manifest_sha256,'FACTUAL_REPAIR_SCOPE')
-    matches=[(key,record) for key,(kind,record) in data.actions.items()
-        if kind=='name_changes' and digest(record)==descriptor['record_sha256']]
+    if not hasattr(data,'_name_fact_index'):
+        names={};structural={}
+        for event_id,(kind,r) in data.actions.items():
+            if kind=='name_changes':names.setdefault(digest(r),[]).append((event_id,r))
+            if kind!='cash_dividends':
+                for symbol in action_sources(kind,r):structural.setdefault(symbol,[]).append((event_id,kind,r))
+        data._name_fact_index=names;data._name_structure_index=structural
+    matches=data._name_fact_index.get(descriptor['record_sha256'],[])
     need(len(matches)==1,'EXACT_NAME_RECORD_NOT_UNIQUE')
     key,record=matches[0];event=NameChange.model_validate(record)
     day=str(event.process_date);old,new=event.old_symbol,event.new_symbol
-    need(event.old_cusip==event.new_cusip and old!=new
+    need(event.old_cusip==event.new_cusip and (old!=new or descriptor['kind']=='UNCHANGED_CUSIP_NAME_EVENT')
          and day==descriptor['effective_session'] and calendar.previous_sessions(day,1)==[day],
          'NAME_ONLY_CUSIP_SYMBOL_DATE')
-    need(new in data.by_ticker and old not in data.by_ticker,'UNIQUE_NAME_TARGET_LISTING')
+    need(new in data.by_ticker and (old==new or old not in data.by_ticker),'UNIQUE_NAME_TARGET_LISTING')
     sid=data.by_ticker[new]
     need(hashlib.sha256(sid.encode()).hexdigest()==descriptor['permanent_id_sha256'],'NAME_PERMANENT_ID')
     need(any(p['file']==descriptor['response_file'] and p['raw_sha256']==descriptor['raw_response_sha256']
              and p['sha256']==descriptor['compressed_response_sha256'] for p in data.action_proofs[key]),'EXACT_ACTION_PREIMAGE')
-    for other_id,(kind,other) in data.actions.items():
-        if other_id==key or kind=='cash_dividends' or not ({old,new}&action_sources(kind,other)):continue
+    conflicts={v[0]:v for symbol in {old,new} for v in data._name_structure_index.get(symbol,[])}
+    for other_id,kind,other in conflicts.values():
+        if other_id==key:continue
         when=structural_action_date(kind,other)
         need(when is not None and when!=day,'CONFLICTING_NAME_ACTION')
     target=(day,key,'name_changes');resets=data.resets.get(new,[])
@@ -57,7 +80,9 @@ def predecessor(previous,descriptor,request_continuation):
          and value['source_sha256']==basis['execution_source_sha256'] and value['journal']==cp['journal']
          and value['dataset_sha256']==descriptor['dataset_sha256']
          and value['protocol_sha256']==descriptor['protocol_sha256'],'FACTUAL_OWN_PREDECESSOR_CONTENT')
-    need(cp['session']<descriptor['effective_session']
+    effective=(min(e['effective_session'] for e in descriptor['events'])
+        if descriptor['schema']=='research.alpaca-sparse-factual-identity/2' else descriptor['effective_session'])
+    need(cp['session']<effective
          and cp['journal']['bytes']<=request_continuation['checkpoint']['journal']['bytes'],'FACTUAL_ANCHOR_CURSOR')
     with (previous/'canonical.jsonl').open('rb') as f:
         prefix=f.read(cp['journal']['bytes'])
@@ -66,6 +91,9 @@ def predecessor(previous,descriptor,request_continuation):
     last=json.loads(prefix.splitlines()[-1])
     need(last['state_sha256']==basis['state_sha256'] and last['input_sha256']==basis['input_sha256']
          and last['session']==cp['session'],'FACTUAL_ANCHOR_INPUT_STATE')
-    return {'exact_original_anchor_retained':True,'anchor_checkpoint_sha256':cp['sha256'],
+    result={'exact_original_anchor_retained':True,'anchor_checkpoint_sha256':cp['sha256'],
         'anchor_state_sha256':basis['state_sha256'],'anchor_input_sha256':basis['input_sha256'],
         'latest_predecessor_sha256':request_continuation['checkpoint']['sha256'],'no_state_conversion':True}
+    if descriptor['schema']=='research.alpaca-sparse-factual-identity/2':
+        result['legacy_anchors']=[predecessor(previous,e,request_continuation) for e in descriptor['legacy_events']]
+    return result

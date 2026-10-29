@@ -68,8 +68,13 @@ def continuation_request(previous,artifact_id,source,dataset_sha,protocol_sha):
         prior_ordinary=max(t['ordinary_seconds'] for t in timing['transition_seconds'][-3:])
     reference=old.get('input_reference') or {'commit':receipt['head'],'path':'research/capital_risk/alpaca_fit_inputs.py',
         **old['source_files']['research/capital_risk/alpaca_fit_inputs.py']}
-    return {'artifact':artifact,'checkpoint':cp,'dataset_sha256':dataset_sha,'protocol_sha256':protocol_sha,
-        'prior_ordinary_estimate_seconds':prior_ordinary},reference
+    continuation={'artifact':artifact,'checkpoint':cp,'dataset_sha256':dataset_sha,'protocol_sha256':protocol_sha,
+        'prior_ordinary_estimate_seconds':prior_ordinary}
+    if (root/'suffix-budget.json').is_file():
+        budget=json.loads((root/'suffix-budget.json').read_bytes())
+        continuation['prior_fixed_transition_seconds']=max(1.,budget['estimated_seconds_per_step']-budget['measured_input_seconds'])
+        continuation['timing_basis']='Prior measured packed input and bounded fixed-cost estimate; actual deadline still enforced.'
+    return continuation,reference
 
 
 def prepare(case,destination,request_id,previous=None,artifact_id=None,input_repair=None):

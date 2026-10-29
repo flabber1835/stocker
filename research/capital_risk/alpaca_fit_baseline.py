@@ -137,7 +137,8 @@ def run(args):
             need(comparison['packed_seconds']<.75*comparison['reference_seconds'],'INPUT_SPEEDUP_NOT_ESTABLISHED')
             estimate=request['continuation']
             ordinary=estimate.get('prior_ordinary_estimate_seconds',estimate.get('prior_max_ordinary_seconds'))
-            per_step=comparison['packed_seconds']+max(1.,ordinary-comparison['reference_seconds'])
+            fixed=estimate.get('prior_fixed_transition_seconds',max(1.,ordinary-comparison['reference_seconds']))
+            per_step=comparison['packed_seconds']+fixed
             batch_limit=max(0,min(300,len(sequence)-completed_before,int((protocol['initial_worker_seconds']-(time.monotonic()-started)-300)/(1.5*per_step))))
             need(batch_limit>0,'NO_BOUNDED_SUFFIX_BUDGET')
             save(out/'suffix-budget.json',{'measured_input_seconds':comparison['packed_seconds'],'estimated_seconds_per_step':per_step,
@@ -211,6 +212,8 @@ def run(args):
         save(out/'failure.json',failure)
         if state is not None and last is not None and not any(r['session']==last for r in retained):checkpoint('refused-prefix-'+last,last not in measured)
     finally:
+        save(out/'transition-timing.json',{'new_transitions':len(times),'step_times':times,
+            'maximum_ordinary_seconds':max((t['ordinary_seconds'] for t in times),default=None)})
         save(out/'feature-qualification.json',{'actual_boundary_samples':qualifications,
             'all_equal':bool(qualifications) or storage_equivalence is not None,
             'prior_canonical_feature_proof_reused':continuing,'packed_complete_input_preimage_equal':storage_equivalence is not None})
