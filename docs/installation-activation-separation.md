@@ -181,6 +181,86 @@ the supported control mutation; it preserves the book, account binding,
 authority history and command journals. A missing kill fence, failed
 deactivation or contradictory re-read remains a permanent refusal.
 
+### Bounded corpus contention at activation read boundaries
+
+The resumed publisher may legitimately own the corpus write pin while activation
+observes current source timing or reconciles the saved plan. A failed read-pin
+acquisition is availability, not evidence that the book or plan disagrees. Keep
+the publication guard and retry only the exact `CorpusLockUnavailable` type
+inside these read-only child probes. The child emits one fixed versioned busy
+document with a distinct exit status after its connection cleanup. The host
+accepts only that exact document/status pair; error text, generic CLI refusal,
+other exceptions, signals, duplicate/mixed output and contradictory success
+never authorize a retry.
+
+Use one monotonic deadline for each observation, capped by the existing
+300-second shadow financial-status read limit, caller timeout, outer shadow wait
+and original causal-wait deadline when present. Keep this financial read budget
+separate from the shorter process-health timeout: measured status reads may
+legitimately exceed that liveness budget. Timing and reconciliation observations
+gain the same finite 300-second ceiling rather than unbounded commands.
+Retries and their sleeps consume that original budget; successful
+output arriving after it cannot authorize startup. Disposable probe containers
+retain exact ownership and cleanup on success, failure, cancellation and timeout.
+A failed cleanup or timed-out child refuses rather than overlapping another
+probe. Exhausted ordinary contention yields a typed activation readiness wait;
+the existing activation transition fences execution and the coordinator retains
+its separate retry ownership. It never restarts installation or replays a plan
+inside the read retry.
+
+Apply this boundary to causal timing, exact plan/shadow reconciliation and the
+existing `shadow-status` poll. Each retry reopens the real guarded reader and
+obtains fresh publication, frontier and clock evidence. Preserve all subsequent
+decision-session, source-final, actual-open, exact plan, certificate/control and
+absent-dispatcher checks. A publication or decision that changes while waiting
+cannot inherit the prepared plan's authority. Operational dual late activation
+keeps its documented scheduler-only admission; ordinary PAPER open cutoffs stay
+mandatory. No cross-process cached PASS or widened execution window is introduced.
+The timing observation also returns the publication fingerprint from that same
+read pin. At reviewed dual activation, its canonical data-publication subject digest must still
+equal the reviewed digest. A replacement publication for the same session yields
+a readiness wait to re-earn admission; matching session dates or released control
+alone cannot authorize the prepared plan after such a replacement.
+Ordinary PAPER bundles retain their existing admission contract, which does not
+require a shadow data-publication subject; their source-final and actual-open
+checks remain mandatory.
+
+Shadow polling may also wait on the CLI's exact broker-free `NOT_STARTED`
+document and a separately versioned, negatively witnessed formation response.
+Normal publisher work has two real commit gaps: a new publication can precede
+its next checkpoint, and a committed checkpoint can precede its runtime authority.
+Classify only the exact native rolling refusal types/codes for these boundaries;
+never infer progress from CLI error text. A publication-ahead response requires
+the authenticated old checkpoint/authority, a pinned valid current Alpaca source
+and readiness proof, and exactly the next exchange session. Same-session changed
+publication, gaps or unknown bindings refuse. A trailing-candidate response must
+pass the existing nonstructural lineage classifier's current publication, timing
+and checkpoint/history checks. Both require an authenticated, freshly observed
+`RUNNING/ACTIVE_WORKER` publisher with matching runtime binding and pending attempt
+and an unexpired original worker deadline. These responses grant no `SHADOW_GO`,
+plan or transport authority; they only consume the original bounded formation
+wait. The native state-only reconstruction refusal has one separate negative
+`NEXT_FRESH_SESSION` witness: prove the authenticated reconstructed checkpoint,
+an unchanged current publication for that checkpoint session with valid native
+source/readiness, and exactly its next exchange session. Require a fresh bound
+`RUNNING/IDLE` publisher with no pending attempt, or the same fully bound active
+worker during its ordinary wake/yield handoff. Only the idle form of this response
+has null attempt/deadline fields. It waits for the first genuine new close without granting
+prospective authority to the reconstructed session. If the publisher finishes or
+advances while assembling a negative witness, reobserve native status once rather
+than return stale progress. Keep unknown/nonzero, malformed and contradictory
+responses terminal.
+Run this financial status observation in an exactly
+owned disposable child using the selected shadow service configuration; the
+separate structural-liveness check still inspects the actual resumed supervisor.
+Do not extend corpus retries to automation-health
+failures, observation integrity errors, broker calls or plan/control writer-lock
+refusals. Qualification must execute the installed timing child and real corpus
+advisory contention in separate processes, join the post-resume startup path,
+and kill deadline-removal, broad-error-retry, stale-evidence and missing-final-
+control-check mutants. Existing integrity, writer handoff, preservation and
+late-start acceptance suites remain required.
+
 Qualification must use separate real processes holding the PostgreSQL advisory
 lock, including a publisher active at the initial attestation, all three writer
 boundaries, a foreign owner, unsuccessful stops and resumed-worker failure.

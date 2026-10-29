@@ -14,9 +14,19 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import sentinel_autonomous_deploy_install_entry as install
 import sentinel_install_source_refresh as source
 
+FINGERPRINT = 'f' * 64
+
+
+def reviewed():
+    publication = install.core.data_publication_subject_value({
+        'publication_fingerprint': FINGERPRINT, 'visible_frontier': '2026-10-02'})
+    return SimpleNamespace(mode='dual', data_publication_sha256=
+        install.core._validation_subject_digest('data_publication', publication))
+
 
 def timing(**changes):
     value = dict(frontier='2026-10-02', target='2026-10-02',
+                 publication_fingerprint=FINGERPRINT,
                  target_source_final=True, prospective=True, remaining_ms=60_000,
                  execution_open_at='2026-10-05T13:30:00+00:00')
     value.update(changes)
@@ -85,16 +95,17 @@ def test_binding_retry_does_not_reset_the_wait_deadline(monkeypatch):
     dict(target='2026-10-05'), dict(frontier='2026-10-01')])
 def test_activation_rechecks_exact_attested_session(changes):
     obj = object.__new__(install.InstallAnytimeDeploy)
-    obj.reviewed_validation = SimpleNamespace(mode='dual')
+    obj.reviewed_validation = reviewed()
     obj._causal_timing = lambda: timing(**changes)
-    with pytest.raises(install.core.DeployRefused, match='exact attested decision'):
+    expected = 'source publication changed' if 'frontier' in changes else 'exact attested decision'
+    with pytest.raises(install.core.DeployRefused, match=expected):
         obj.assert_activation_timing('2026-10-02')
 
 
 def test_open_expiry_before_kill_release_leaves_paper_fenced(tmp_path):
     obj = object.__new__(install.InstallAnytimeDeploy)
     obj.cfg = SimpleNamespace(account_id='paper', deployment_id='fixture', actor='test')
-    obj.reviewed_validation = SimpleNamespace(mode='dual')
+    obj.reviewed_validation = reviewed()
     obj._deferred_install = lambda: True
     clock = iter([timing(), timing(prospective=False, remaining_ms=0)])
     obj._causal_timing = lambda: next(clock)

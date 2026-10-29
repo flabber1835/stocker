@@ -286,18 +286,22 @@ class InstallAnytimeDeploy(bootstrap.BootstrapDeploy):
 
     def _causal_timing(self) -> Mapping:
         """Observe both the owed closed session and the current publication."""
+        import sentinel_activation_read as read_probe
         code = r'''
 import json, os
 from datetime import datetime, timezone
+from sentinel.core.decision import publication_fingerprint
 from sentinel.feed import calendar, operational_snapshot, readers, store
 from sentinel.shadow_runtime import publication_not_before
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
+    c.execute('BEGIN TRANSACTION READ ONLY')
     with readers.pinned(c, commit=False) as current:
         if not readers.is_rolling(current):
             raise RuntimeError('operational install requires rolling Alpaca inputs')
         operational_snapshot.require_alpaca_openfigi(c, current)
         frontier = readers.frontier(c, current)
+        fingerprint = publication_fingerprint(current)
     if frontier is None or current.window_end != frontier:
         raise RuntimeError('current publication/frontier disagree')
     now = datetime.now(timezone.utc)
@@ -309,6 +313,7 @@ try:
     remaining_ms = max(0, int((execution_open - now).total_seconds() * 1000))
     print(json.dumps({
         'frontier': frontier,
+        'publication_fingerprint': fingerprint,
         'target': target,
         'target_source_final': now >= final_at,
         'target_source_final_at': final_at.isoformat(),
@@ -318,14 +323,19 @@ try:
         'remaining_ms': remaining_ms,
     }, sort_keys=True))
 finally:
-    c.rollback(); c.close()
+    try:
+        c.rollback()
+    finally:
+        c.close()
 '''.strip()
-        result = self.runner.run(self.base_compose + [
+        result = read_probe.run(self, self.base_compose + [
             "--profile", "cli", "run", "--rm", "-T", "--no-deps",
-            "--entrypoint", "python", "sentinel", "-c", code],
-            capture=True)
+            "--entrypoint", "python", "sentinel", "-c", read_probe.child_code(code)],
+            'causal deployment timing', budget_seconds=300)
         value = core._json_output(result, label="causal deployment timing")
         if (not isinstance(value.get("frontier"), str)
+                or type(value.get("publication_fingerprint")) is not str
+                or core._HEX64.fullmatch(value["publication_fingerprint"]) is None
                 or not isinstance(value.get("target"), str)
                 or type(value.get("target_source_final")) is not bool
                 or type(value.get("prospective")) is not bool
@@ -608,6 +618,14 @@ finally:
         if reviewed is None or reviewed.mode not in {"dual", "paper"}:
             return
         timing = self._causal_timing()
+        publication = core.data_publication_subject_value({
+            'publication_fingerprint': timing['publication_fingerprint'],
+            'visible_frontier': timing['frontier']})
+        if (reviewed.mode == 'dual'
+                and core._validation_subject_digest('data_publication', publication)
+                != reviewed.data_publication_sha256):
+            raise core.ActivationPending(
+                'paper activation source publication changed; re-earn current admission')
         # Operational dual activation installs a running scheduler. Its durable
         # cycle gate owns the next-open cutover; the host never retimes a plan.
         eligible = (timing.get("target_source_final") is True

@@ -134,6 +134,7 @@ def _timing(*, source_final, prospective, frontier="2026-08-26",
                      if prospective else 0)
     return {
         "frontier": frontier,
+        "publication_fingerprint": "f" * 64,
         "target": target,
         "target_source_final": source_final,
         "target_source_final_at": "2026-08-28T03:45:00+00:00",

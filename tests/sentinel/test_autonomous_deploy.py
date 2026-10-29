@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import importlib.util
+from contextlib import contextmanager
+import importlib
 import os
 from pathlib import Path
 import sys
@@ -15,10 +16,17 @@ ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
 SCRIPT = ROOT / "scripts" / "sentinel_autonomous_deploy.py"
 LAUNCHER = ROOT / "scripts" / "sentinel-autonomous-deploy.sh"
 
-spec = importlib.util.spec_from_file_location("sentinel_autonomous_deploy", SCRIPT)
-deploy = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-spec.loader.exec_module(deploy)
+sys.path.insert(0, str(ROOT / 'scripts'))
+deploy = importlib.import_module('sentinel_autonomous_deploy')
+
+
+@pytest.fixture(autouse=True)
+def offline_activation_read_owner(monkeypatch):
+    import sentinel_activation_read as read_probe
+    @contextmanager
+    def owned(command):
+        yield {'command': list(command)}
+    monkeypatch.setattr(read_probe, 'owned_command', owned)
 
 
 def _cfg(*, allow_empty=False):
@@ -38,9 +46,14 @@ def test_shadow_attestation_uses_data_budget_not_process_health_budget(monkeypat
     obj._authorized_compose = lambda: ["docker", "compose"]
     def status(*args, **kwargs):
         assert 0 < kwargs["timeout"] <= 120
+        if clock[0] < 60:
+            return SimpleNamespace(returncode=2, stdout=json.dumps({
+                'mode': 'BROKER_FREE_SHADOW', 'status': 'NOT_STARTED',
+                'broker_mutations_authorized': False}))
         return SimpleNamespace(returncode=0, stdout=json.dumps({
+            'mode': 'BROKER_FREE_SHADOW', 'broker_mutations_authorized': False,
             "session": "2026-08-28", "verification": "VERIFIED",
-            "shadow_verdict": "SHADOW_GO" if clock[0] >= 60 else "SHADOW_NO_GO"}))
+            "shadow_verdict": "SHADOW_GO"}))
     obj.runner = SimpleNamespace(run=status)
     monkeypatch.setattr(deploy.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(deploy.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
@@ -76,9 +89,14 @@ def test_real_config_allows_measured_formation_and_full_status_read(tmp_path, mo
             if kwargs["timeout"] < 79:  # Measured verified status: 78.45 seconds.
                 raise subprocess.TimeoutExpired("shadow-status", kwargs["timeout"])
             clock[0] += 79
+        else:
+            return SimpleNamespace(returncode=2, stdout=json.dumps({
+                'mode': 'BROKER_FREE_SHADOW', 'status': 'NOT_STARTED',
+                'broker_mutations_authorized': False}))
         return SimpleNamespace(returncode=0, stdout=json.dumps({
+            'mode': 'BROKER_FREE_SHADOW', 'broker_mutations_authorized': False,
             "session": "2026-08-28", "verification": "VERIFIED",
-            "shadow_verdict": "SHADOW_GO" if ready else "SHADOW_NO_GO"}))
+            "shadow_verdict": "SHADOW_GO"}))
     obj.runner = SimpleNamespace(run=status)
     monkeypatch.setattr(deploy.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(deploy.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
@@ -97,10 +115,11 @@ def test_shadow_read_cannot_authorize_after_data_deadline(tmp_path, monkeypatch)
         assert kwargs["timeout"] <= 30
         clock[0] = 30.01
         return SimpleNamespace(returncode=0, stdout=json.dumps({
+            'mode': 'BROKER_FREE_SHADOW', 'broker_mutations_authorized': False,
             "session": "2026-08-28", "verification": "VERIFIED", "shadow_verdict": "SHADOW_GO"}))
     obj.runner = SimpleNamespace(run=status)
     monkeypatch.setattr(deploy.time, "monotonic", lambda: clock[0])
-    with pytest.raises(deploy.ActivationPending, match="activation attempt timeout"):
+    with pytest.raises(deploy.ActivationPending, match="deadline"):
         obj._wait_for_dual_shadow_session("2026-08-28")
 
 
