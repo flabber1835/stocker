@@ -17,8 +17,20 @@
       "sha256": "2db63059f6a9481ea1af373cf4981b5ef797c0d8700065d14eef538a8eaa1c04"
     },
     "owned_grid_job.py": {
-      "bytes": 10373,
-      "sha256": "a19dfc1ce9d414d2a2b634d24877bf5175456a71d1de875aca6ddc702ad8f015"
+      "bytes": 14283,
+      "sha256": "936fa97520b8e76223fbcf00dbafac42080fcc776c5b2d217c54da6260315f93"
+    },
+    "owned_value.py": {
+      "bytes": 4095,
+      "sha256": "00fbabd8dc15242a4fd4bc4099a6b9c2e1d1f11929486de8be9d4bd308073f15"
+    },
+    "owned_value_worker.py": {
+      "bytes": 13029,
+      "sha256": "fd4f4395eae7b4579666240c74665c2986f242dbe7eebddc731bacfc84c47735"
+    },
+    "owned_value_review.py": {
+      "bytes": 10017,
+      "sha256": "a7d6375a5b779ae084dc351d59cd37e4f8d313388b3407495ac00227bdc64994"
     },
     "trace_screen.py": {
       "bytes": 14123,
@@ -60,6 +72,18 @@
   "execution_image": "sha256:1b449754a48473e4737fc34f3f51ae0b4226d5e84540dea54115d4693142ed9d",
   "production_contacted": false,
   "no_local_financial_execution": true,
+  "valuation_engine": "COMPACT_EXACT_VALUE_FUNCTION",
+  "encrypted_part_plaintext_bound": 134217728,
+  "preserved_export_failure": {
+    "run_id": 40826068033,
+    "head": "5c72610322dc4eea0964451a970b150acfe564b7",
+    "artifact_id": 12880905869,
+    "artifact_zip_sha256": "5681dcd19910f2f78ed6cc54e86ba22dfd6b3df174a68d9335807c754d5a8727",
+    "gcm_valid": false,
+    "authenticated_financial_snapshot": false,
+    "exact_suffix_available": false,
+    "new_calculation_is_recovery": false
+  },
   "preserved_pre_search_refusals": [
     {
       "run_id": 40825055253,

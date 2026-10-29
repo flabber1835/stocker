@@ -65,6 +65,53 @@ optimum over trading systems. Preserve null/negative findings.
 
 ## Accounting model and computation reuse
 
+### Export incident and compact numerical reconstruction
+
+Run 40826068033 stopped, but its exporter exceeded the fixed encrypted-asset
+size bound before finalizing GCM or writing its receipt. The complete GitHub
+ZIP is preserved and matches its published digest. Its ciphertext has an
+invalid tag; no financial plaintext was parsed. Its objective frontier and
+per-path continuation are unavailable. Do not describe another computation
+as recovery of that run or relabel an old checkpoint. Preserve the failure.
+
+Reconstruct the lost numerical calculation as a distinct compact value-function
+evaluation. This is authorized completion of the same frozen finite study,
+not a restart of Core, a persistent trading book, or PAPER. Keep every grid
+level, date, selection rule, original scalar model and interpretation unchanged.
+The obsolete per-path daily record design is superseded for this computation.
+
+The frozen Owned55 source reads `active_ceiling` only after constructing the
+new latch/counters. An exact source/AST guard establishes this dependency.
+Evaluate the canonical state transition for each of the 8,748 configurations
+of the other eight fields, then expand its three ceiling targets with the exact
+canonical `min(parent, ceiling)` expression. All 26,244 configurations and
+their own dated path/final state remain explicit. Independently recompute all
+paths and directly qualify the three ceiling variants. This quotient removes
+repeated identical state computations; it changes no controller predicate.
+
+The frozen scalar operation has a separable daily multiplier. After the two
+unchanged cold-start records, its gross/net factor depends on the date's fixed
+Core/BIL prices, previous held exposure and previous pending exposure. It does
+not depend on prior NAV or the target being committed at the current close.
+Compute the canonical factor once for every dated exposure pair actually used
+by the finite class. Independently check each factor from raw retained prices.
+Then apply the same Decimal-28 NAV multiplication/normalization in chronological
+order for each distinct path. Preserve exact NAV, prior exposures, dated path,
+factor commitments, block cursors and serialized checkpoints. Exact rational
+metrics use the resulting canonical Decimal NAV values; do not rank approximate
+float returns or scale an old return series. The complete baseline and every
+locked selected path must also match every field of the direct canonical
+operation. This is a numerical quotient of the objective, not another book.
+
+Retain one global factor journal, complete controller paths, compact per-path
+checkpoint commitments/scores, and full direct canonical evidence for baseline
+and the locked choices. The independent stopped reviewer recomputes all paths,
+scores and selection from committed inputs. Never select from evaluation data.
+Use bounded separately authenticated encrypted parts with a durable receipt
+per part; a later export failure must not erase earlier authenticated evidence.
+No plaintext financial evidence goes to public logs or artifacts. An incomplete
+numerical task resumes its own saved cursor; no completed value is reinitialized.
+
 The primary numerical pass uses the ORIGINAL scalar next-open exposure account
 operation from the frozen replay, including old overnight/new intraday
 exposure and 10 bp turnover costs. This is the same model as the reported

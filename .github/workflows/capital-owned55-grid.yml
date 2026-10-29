@@ -17,7 +17,7 @@ jobs:
   numerical-study:
     if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -34,7 +34,7 @@ jobs:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/owned-grid-staging.json'
       - name: Evaluate the frozen class and independently review stopped evidence
-        timeout-minutes: 105
+        timeout-minutes: 130
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/owned_grid_job.py --request research/capital_risk/owned-grid-request.json --staging artifacts/capital-risk/owned-grid-staging.json --output artifacts/capital-risk/owned-grid.json'
@@ -46,7 +46,7 @@ jobs:
           path: |
             artifacts/capital-risk/owned-grid-staging.json
             artifacts/capital-risk/owned-grid.json
-            artifacts/capital-risk/owned-grid.tar.crseal
+            artifacts/capital-risk/owned-grid-*.tar.crseal
           compression-level: 0
           retention-days: 7
           if-no-files-found: error
