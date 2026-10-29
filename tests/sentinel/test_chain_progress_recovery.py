@@ -210,3 +210,75 @@ def test_untracked_source_change_is_independently_refused_and_guard_removal_is_k
     if remove_source_proof:
         with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):check()
     else:check()
+
+
+@pytest.mark.parametrize('remove_empty_guard',[False,True])
+def test_unlogged_scratch_stays_in_proof_and_nonempty_primary_refuses(prepared,monkeypatch,remove_empty_guard):
+    c,document=prepared
+    assert 'sentinel_sep_staging' in document['witness']['sources']
+    c.execute("INSERT INTO sentinel_sep_staging(run_id,chunk,session,ticker) "
+              "VALUES(gen_random_uuid(),'fixture','2026-10-28','FIXTURE')")
+    c.commit()
+    if remove_empty_guard:
+        source=inspect.getsource(recovery._source_digests)
+        needle="_require(not conn.execute('SELECT EXISTS(SELECT 1 FROM sentinel_sep_staging LIMIT 1)')\n                         .fetchone()[0],'vendor scratch is not empty')"
+        assert source.count(needle)==1
+        namespace={}
+        exec(compile(source.replace(needle,"_require(True,'vendor scratch is not empty')"),
+            'removed-empty-scratch-guard','exec'),vars(recovery),namespace)
+        monkeypatch.setattr(recovery,'_source_digests',namespace['_source_digests'])
+    def check():
+        with pytest.raises(recovery.RecoveryRefused,match='scratch is not empty'):
+            apply(c,document)
+    if remove_empty_guard:
+        with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):check()
+    else:check()
+    c.rollback()
+
+
+def test_paused_physical_recovery_proves_unlogged_scratch_without_reading_it(monkeypatch):
+    import os,shutil,tempfile,time
+    from pathlib import Path
+    import psycopg
+    from tests.support.postgres import _find_pg_bin,_as_pg_user,_run
+    primary,restored=_EphemeralPostgres(),_EphemeralPostgres()
+    base=Path(tempfile.mkdtemp(prefix='sentinel_scratch_witness_',dir=Path(primary.datadir).parent))
+    try:
+        primary.start()
+        with psycopg.connect(primary.sync_dsn) as c:
+            schema.ensure_schema(c);store.migrate_schema(c);c.commit()
+        monkeypatch.setattr(recovery,'_sources',lambda _conn:{'sentinel_sep_staging'})
+        with psycopg.connect(primary.sync_dsn) as c:
+            expected=recovery._source_digests(c)
+        if os.geteuid()==0:shutil.chown(base,user='postgres',group='postgres')
+        result=_run(_as_pg_user([_find_pg_bin('pg_basebackup'),'-h','127.0.0.1',
+            '-p',str(primary.port),'-U',primary.user,'-D',str(base),'-Fp','-Xs','-c','fast']))
+        assert result.returncode==0,result.stderr
+        target=Path(restored.datadir)
+        shutil.copytree(base,target,dirs_exist_ok=True)
+        with (target/'postgresql.auto.conf').open('a') as f:
+            f.write("\nrecovery_target='immediate'\nrecovery_target_action='pause'\nrestore_command='false'\n")
+        (target/'recovery.signal').touch()
+        if os.geteuid()==0:
+            for item in [target,*target.rglob('*')]:shutil.chown(item,user='postgres',group='postgres')
+        result=_run(_as_pg_user([_find_pg_bin('pg_ctl'),'-D',str(target),
+            '-o',f'-p {restored.port} -h 127.0.0.1 -k {target}',
+            '-l',str(target/'restored.log'),'-w','-t','30','start']))
+        assert result.returncode==0,result.stderr
+        restored._started=True
+        with psycopg.connect(restored.sync_dsn,autocommit=True) as c:
+            deadline=time.monotonic()+15
+            while c.execute('SELECT pg_get_wal_replay_pause_state()').fetchone()[0]!='paused':
+                assert time.monotonic()<deadline;time.sleep(.1)
+            with pytest.raises(psycopg.errors.FeatureNotSupported):
+                c.execute('SELECT 1 FROM sentinel_sep_staging LIMIT 1')
+            assert recovery._source_digests(c)==expected
+            assert 'sentinel_sep_staging' in expected
+        with psycopg.connect(primary.sync_dsn) as c:
+            c.execute('ALTER TABLE sentinel_sep_staging ADD COLUMN unexpected integer');c.commit()
+            with pytest.raises(recovery.RecoveryRefused,match='column contract changed'):
+                recovery._source_digests(c)
+    finally:
+        restored.stop();primary.stop()
+        assert base.name.startswith('sentinel_scratch_witness_')
+        shutil.rmtree(base)

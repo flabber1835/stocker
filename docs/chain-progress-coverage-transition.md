@@ -89,3 +89,26 @@ transfer function with its authenticated predecessor, durable fence and source
 proofs. Financial plan and broker writers retain their runtime backup authority
 gate. The central exemption audit must bind the function and these guards,
 rather than granting a module-wide financial exception.
+
+## October 29 local recovery correction
+
+The owner authorized a locally qualified patch before open, with PR delivery
+after open. The actual paused physical recovery refused a read of
+`sentinel_sep_staging`: PostgreSQL cannot read unlogged relations during recovery.
+The feed schema deliberately defines this relation as disposable vendor scratch,
+never as the durable corpus. Keep it in the witness relation set. Bind its exact
+relation identity, unlogged persistence and column contract instead of claiming
+that a physical backup preserves its rows. On the primary, require this scratch
+relation to be empty while the existing SHARE source lock is held. Refuse any
+other unlogged source or a changed scratch contract. All durable source rows
+retain their original streaming byte proof and every existing account, prefix,
+DDL, ownership, fence and atomicity check remains mandatory.
+
+Qualify on an actual paused physical restore, including the original PostgreSQL
+refusal and nonempty-primary/changed-contract falsifiers. Local delivery changes
+only the one-shot recovery utility, mounted read-only over the installed signed
+foundation. Retain the exact local commit, worker hash, qualification report,
+foundation image and original commands in operator evidence; do not label the
+local worker CI-certified or change application service images. The same native
+host lifecycle lock and one-shot logs still own application. Activation of the
+unchanged installed release must independently pass normal financial admission.

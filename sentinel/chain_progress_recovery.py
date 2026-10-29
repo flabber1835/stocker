@@ -87,6 +87,32 @@ def _source_digests(conn):
         conn.execute(sql.SQL('SET LOCAL {} TO {}').format(sql.Identifier(setting),sql.Literal(value)))
     result={}
     for name in sorted(_sources(conn)):
+        if name=='sentinel_sep_staging':
+            # Physical recovery deliberately has no rows for UNLOGGED scratch.
+            # Retain its identity in the witness and require empty scratch on
+            # the locked primary; durable sources still use byte-for-byte COPY.
+            identity=conn.execute("SELECT c.oid::text,pg_relation_filenode(c.oid)::text,"
+                "c.relpersistence FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+                "WHERE n.nspname='public' AND c.relname=%s",(name,)).fetchone()
+            _require(identity is not None and identity[2]=='u','vendor scratch persistence changed')
+            if conn.execute('SELECT pg_is_in_recovery()').fetchone()[0] is not True:
+                _require(not conn.execute('SELECT EXISTS(SELECT 1 FROM sentinel_sep_staging LIMIT 1)')
+                         .fetchone()[0],'vendor scratch is not empty')
+            columns=conn.execute("SELECT attname,format_type(atttypid,atttypmod),attnotnull "
+                "FROM pg_attribute WHERE attrelid=%s::oid AND attnum>0 AND NOT attisdropped "
+                "ORDER BY attnum",(identity[0],)).fetchall()
+            expected=[('run_id','uuid',True),('chunk','text',True),('session','date',True),
+                      ('ticker','text',True)]
+            expected += [(field,'double precision',False) for field in
+                         ('open','close','closeunadj','closeadj','volume')]
+            expected += [(field+'_source','text',False) for field in
+                         ('open','close','closeunadj','closeadj','volume')]
+            _require(columns==expected,'vendor scratch column contract changed')
+            result[name]=coverage.digest(['unlogged-vendor-scratch-empty-primary/1',name,identity,columns])
+            continue
+        persistence=conn.execute("SELECT c.relpersistence FROM pg_class c JOIN pg_namespace n "
+            "ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=%s",(name,)).fetchone()
+        _require(persistence is not None and persistence[0]=='p','durable source persistence changed')
         where=sql.SQL('')
         if name=='sentinel_processed_sessions':
             where=sql.SQL(' WHERE cursor_name LIKE {} OR cursor_name LIKE {}').format(
