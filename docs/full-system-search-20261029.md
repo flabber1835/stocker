@@ -201,6 +201,14 @@ UNKNOWN stop outcomes never admit a financial snapshot.
 Preserve failed/refused and negative outcomes. No automatic production promotion,
 main merge, deployment, parameter tuning after evaluation or protected cleanup.
 Report what was actually evaluated, what improved and what remains uncertain.
+## Controller value calculation and shortlist coverage
+
+The fixed initial controller class contains the exact baseline plus 255 deterministic balanced joint proposals across 20 parent and nine Owned fields. Freeze all profile identities before scoring. Each profile executes actual canonical Native, CandidateA and Owned transitions, with separate array equations checking every target. Monthly serialized Native/CandidateA/leaf state is actually restored. Every Core path retains its own observations; holdings are never transplanted.
+
+Reuse only dated account factors proven independent of current target and NAV. Keep overnight exposure from the old holding and intraday exposure from the previously committed target, including 10bp costs. The fresh 2018 anchor is unfunded; its first funded open uses actual formed-basket quantities/raw marks and canonical fee treatment. It is not the old 2008 cold-start shortcut. Complete baseline account fields must reproduce the retained path. Exact Decimal value recurrences retain monthly prefix commitments; independent rational metrics and separate account equations verify them.
+
+Make separate training-only locks for 2018-2020 and 2018-2022 before disclosing their later blocks. Retain each Core's training growth/drawdown frontier, including growth ties, so a later global drawdown-budget selection cannot lose a possible winner merely because an individual Core has a different baseline drawdown. Direct canonical full account realization and serialized continuation is required for frontier groups and baseline; aliases retain all proposal identities. A complete B/B0 path equality gate and independently reviewed common-period global selection remain prerequisites to interpreting a joint-system result.
+
 # Exact PNRA suffix recovery, 15:30 UTC
 
 The initial five books stopped before measured performance. B/B0/C2/C3 encountered an incomplete July 17, 2017 PNRA merger; C1 stopped on a timing projection that incorrectly extrapolated daily formation checkpoint costs to all measured closes. Preserve both failures. SEC accession 0001193125-17-229854 establishes $315 cash on July 18. Panera's own GlobeNewswire release at 08:36 ET July 18 confirms completion before the market open. The Nasdaq July 19 administrative suspension notice is retained as a distinct administrative date, rather than moving economic consideration to that date.
