@@ -101,6 +101,10 @@ observations the existing short retry interval without weakening verification.
 [Verification workflow simplification](verification-workflow-simplification.md)
 removes duplicate source/catalog work and intent-only installation comparisons.
 
+[Closing-cycle readiness handoff](closing-cycle-readiness-handoff.md) records the
+publication-wait, existing-cycle scheduling, measured-readiness and immutable
+trial-attempt repairs. Its qualification and PR do not change the running release.
+
 The mobile view leads with one operational status card, the saved trading plan,
 recorded paper account and the twenty canonical slots/cooldowns. System details
 contains operational diagnostics. Failures remain visibly named even when details

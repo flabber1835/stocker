@@ -157,8 +157,8 @@ def _selected_full_restore_receipt(selected, observation, runner=run):
     return result
 
 
-def verified_base_chain_receipt(selected, observation, chain, runner=run):
-    """Use actual verified producer evidence, never manufacture a restore drill."""
+def verified_base_receipt(selected, observation, runner=run):
+    """Authenticate producer identity independently of a later archive scan."""
     name=selected['name']
     if not BASE_RE.fullmatch(name):
         raise Refused('invalid selected identity')
@@ -180,6 +180,19 @@ def verified_base_chain_receipt(selected, observation, chain, runner=run):
         return None  # Older bases retain their genuine exact-base restore receipt.
     if any(type(proof.get(k)) is not type(v) or proof.get(k)!=v for k,v in expected.items()):
         raise Refused('verified base producer evidence identity mismatch')
+    return proof
+
+
+def verified_base_chain_receipt(selected, observation, chain, runner=run):
+    """Use actual verified producer evidence, never manufacture a restore drill."""
+    if verified_base_receipt(selected, observation, runner) is None:
+        return None
+    return _base_chain_receipt(selected, observation, chain)
+
+
+def _base_chain_receipt(selected, observation, chain):
+    """Compose an already authenticated producer with the verified chain."""
+    name = selected['name']
     if (chain.get('base_backup')!=name or chain.get('system_identifier')!=observation['system_id']
             or chain.get('wal_integrity')!='sha256-sidecar-v1' or chain.get('enabled') is not True):
         raise Refused('verified base chain identity mismatch')
@@ -316,6 +329,14 @@ def publish_progress(progress, runner=run):
         raise Refused('maintenance progress was not persisted exactly')
 
 
+def _progress(progress, runner, **changes):
+    # Keep the last committed identity for failure reporting if this write fails.
+    successor = dict(progress, **changes)
+    publish_progress(successor, runner)
+    progress.clear()
+    progress.update(successor)
+
+
 def tick(root, runner=run):
     progress = {}
     started = time.monotonic()
@@ -344,12 +365,11 @@ def _tick(root, runner, progress, started):
         return result
     if renewed:
         first_second = observation['now'] - math.ceil(time.monotonic()-started)
-        progress.update(schema='sentinel.backup-maintenance-progress/1',
+        _progress(progress, runner, schema='sentinel.backup-maintenance-progress/1',
             attempt=uuid.uuid4().hex, started_at=first_second,
             deadline=first_second + INVOCATION_SECONDS,
             system_identifier=observation['system_id'], image=image,
             predecessor_base=selected['name'], base_backup=selected['name'],phase='BASE_BACKUP')
-        publish_progress(progress, runner)
         output = runner(["bash", "scripts/sentinel-base-backup.sh"],
                         timeout=BASE_COMMAND_SECONDS)
         paths = [line[len("verified_base_backup:"):] for line in output.splitlines()
@@ -362,8 +382,7 @@ def _tick(root, runner, progress, started):
         observation = observe_primary(runner)
         if renewal_due(selected, observation):
             raise Refused("successor already exhausts maintenance headroom")
-        progress.update(base_backup=selected['name'], phase='VERIFY_CHAIN')
-        publish_progress(progress, runner)
+        _progress(progress, runner, base_backup=selected['name'], phase='VERIFY_CHAIN')
     path = root + "/base/" + selected["name"]
     status=runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
     observation=observe_primary(runner)
@@ -379,8 +398,7 @@ def _tick(root, runner, progress, started):
         "segment_size": observation["segment_size"],
     })
     if progress:
-        progress['phase'] = 'COMPLETE'
-        publish_progress(progress, runner)
+        _progress(progress, runner, phase='COMPLETE')
     print(json.dumps({"maintenance_ready": True, "observed_at": observation["now"], "renewed": renewed,
                       "base": selected["name"], **result}, sort_keys=True))
     return result

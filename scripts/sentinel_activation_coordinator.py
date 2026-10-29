@@ -259,8 +259,10 @@ def attempt(path, request, receipt):
         if request['mode'] != 'shadow':
             obj.read_paper_account()
         bundle, confirmation = financial_bundle(obj, request)
-        reviewed = core.deployment_request(mode=request['mode'], validation_bundle=bundle,
-                                           confirmation=confirmation, env=obj.env)
+        # Parse the signed proposal here; run_activation binds software/account
+        # and reads current financial lineage once after confirming its fence.
+        reviewed = core.parse_reviewed_validation_bundle(
+            bundle, mode=request['mode'], confirmation=confirmation)
         if reviewed.git_commit != request['source_commit']:
             raise core.DeployRefused('financial bundle selects different installed software')
         obj.reviewed_validation = reviewed

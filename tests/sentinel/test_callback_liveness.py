@@ -204,7 +204,7 @@ def test_real_callback_remains_healthy_beyond_lease_without_extending_deadline(
 
 def historical_callback_catalog(conn):
     conn.execute('DROP TRIGGER sentinel_backup_progress_guard ON sentinel_backup_evidence')
-    conn.execute('DROP FUNCTION sentinel_backup_progress_guard()')
+    conn.execute('DROP FUNCTION sentinel_backup_progress_guard_v2()')
     conn.execute('ALTER TABLE sentinel_backup_evidence DROP CONSTRAINT sentinel_backup_evidence_kind_check')
     conn.execute("ALTER TABLE sentinel_backup_evidence ADD CONSTRAINT sentinel_backup_evidence_kind_check "
         "CHECK (kind IN ('BASE_BACKUP','RUNTIME_CHAIN','RESTORE_DRILL'))")

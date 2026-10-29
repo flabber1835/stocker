@@ -232,7 +232,13 @@ def _publication_closing_wait(exc, *, database_url, cycle):
     """An expected pin refusal needs its matching fresh live-writer proof."""
     from sentinel.feed.publication import CorpusLockUnavailable
 
-    if type(exc) is not CorpusLockUnavailable or cycle is None:
+    native = exc
+    if (type(exc) is TransientInfrastructureFailure
+            and type(exc.__cause__) is CorpusLockUnavailable):
+        expected = classify_dependency_failure(exc.__cause__)
+        if type(expected) is type(exc) and expected.args == exc.args:
+            native = exc.__cause__
+    if type(native) is not CorpusLockUnavailable or cycle is None:
         return None
     try:
         from sentinel.source_publication_wait import observe
@@ -961,7 +967,7 @@ class ProductionAutomation:
 
     async def refresh(self, context: CycleContext) -> RefreshResult:
         conn = None
-        cycle = None
+        cycle = getattr(context, 'cycle', None)
         try:
             conn = self.connect()
             feed_store.require_feed_schema(conn)
@@ -1068,9 +1074,12 @@ class ProductionAutomation:
                     if hasattr(progress, "to_dict") else str(progress),
                 })
         except BaseException as exc:                          # noqa: BLE001
-            publication_wait = (_publication_closing_wait(exc,
-                database_url=self.sentinel_config.database_url, cycle=cycle)
-                if type(exc) is publication.CorpusLockUnavailable else None)
+            publication_wait = None
+            if (type(exc) is publication.CorpusLockUnavailable
+                    or (type(exc) is TransientInfrastructureFailure
+                        and type(exc.__cause__) is publication.CorpusLockUnavailable)):
+                publication_wait = _publication_closing_wait(exc,
+                    database_url=self.sentinel_config.database_url, cycle=cycle)
             if publication_wait is not None:
                 raise publication_wait from exc
             mapped = classify_dependency_failure(exc)

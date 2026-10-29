@@ -115,6 +115,7 @@ def test_installer_runs_real_operational_shadow_preflight_during_market_hours(
     def preflight(reviewed, *, env, invoke):
         deploy._reviewed_shadow_lineage_preflight(reviewed, env=env, invoke=invoke)
     monkeypatch.setattr(deploy, 'verify_reviewed_validation_environment', preflight)
+    monkeypatch.setattr(deploy, 'verify_reviewed_software_environment', lambda *a,**k:None)
     monkeypatch.setattr(deploy, 'verify_reviewed_shadow_bindings', preflight)
     monkeypatch.setattr(deploy, 'verify_reviewed_account_binding', lambda *_: None)
     if stage == 'preflight':
@@ -126,7 +127,8 @@ def test_installer_runs_real_operational_shadow_preflight_during_market_hours(
         obj._bind_current_publication(timing)
         assert len(cleaned) == 1 and cleaned[0].startswith('sentinel-go-owned-')
         env['SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256'] = review.data_publication_sha256
-    assert calls == ['BEGIN TRANSACTION READ ONLY', 'provider-verified', 'rollback', 'close']
+    assert calls == ([] if stage=='preflight' else
+        ['BEGIN TRANSACTION READ ONLY', 'provider-verified', 'rollback', 'close'])
     assert obj.env == obj.runner.env == env
 
 
@@ -179,6 +181,7 @@ def test_real_installer_adapter_preserves_narrowed_reviewed_environment(tmp_path
         deploy._current_data_publication_subject(reviewed, env=env, invoke=invoke)
         deploy._reviewed_shadow_lineage_preflight(reviewed, env=env, invoke=invoke)
     monkeypatch.setattr(deploy, 'verify_reviewed_validation_environment', readers)
+    monkeypatch.setattr(deploy, 'verify_reviewed_software_environment', lambda *a,**k:None)
     monkeypatch.setattr(deploy, 'verify_reviewed_shadow_bindings', readers)
     monkeypatch.setattr(deploy, 'verify_reviewed_account_binding', lambda *args: None)
     if stage == 'preflight':
@@ -189,7 +192,7 @@ def test_real_installer_adapter_preserves_narrowed_reviewed_environment(tmp_path
         timing = _causal_adapter(obj, monkeypatch, tmp_path, readers)
         obj._bind_current_publication(timing)
         original['SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256'] = review.data_publication_sha256
-    assert len(reads) == 2
+    assert len(reads) == (0 if stage=='preflight' else 2)
     assert obj.env == obj.runner.env == original
 
 

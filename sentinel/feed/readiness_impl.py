@@ -178,7 +178,7 @@ class ReadinessSnapshot:
                 "failures": self.failures}
 
 
-def save_snapshot(conn, result: "Readiness") -> None:
+def save_snapshot(conn, result: "Readiness", *, commit: bool = True) -> None:
     """Persist a verdict so a page never has to compute one.
 
     Called wherever the check ALREADY runs — `check-data` computes a full
@@ -200,7 +200,8 @@ def save_snapshot(conn, result: "Readiness") -> None:
             " checks_total, checks) VALUES (%s,%s,%s,%s)",
             (result.ready, sum(1 for c in result.checks if c.ok),
              len(result.checks), json.dumps(payload)))
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def latest_snapshot(conn) -> Optional[ReadinessSnapshot]:

@@ -857,7 +857,7 @@ def verify_reviewed_shadow_bindings(
         reviewed, env=env, invoke=invoke)
 
 
-def verify_reviewed_validation_environment(
+def verify_reviewed_software_environment(
         reviewed: ReviewedValidation, *, env: Mapping[str, str],
         invoke=subprocess.run) -> None:
     """Bind reviewed bytes to the current checkout and exact local images."""
@@ -956,8 +956,14 @@ def verify_reviewed_validation_environment(
                 reviewed, env=env, invoke=invoke, root=ROOT)
         except ci_runtime.CertifiedInstallRefused as exc:
             raise DeployRefused(str(exc)) from None
-    verify_reviewed_shadow_bindings(
-        reviewed, env=env, invoke=invoke)
+
+
+def verify_reviewed_validation_environment(
+        reviewed: ReviewedValidation, *, env: Mapping[str, str],
+        invoke=subprocess.run) -> None:
+    """Complete standalone validation; activation owns a later fenced read."""
+    verify_reviewed_software_environment(reviewed, env=env, invoke=invoke)
+    verify_reviewed_shadow_bindings(reviewed, env=env, invoke=invoke)
 
 
 def verify_reviewed_validation_bundle(
@@ -1476,7 +1482,7 @@ class AutonomousDeploy:
             raise DeployRefused(
                 "reviewed validation identity changed before deployment")
 
-        verify_reviewed_validation_environment(
+        verify_reviewed_software_environment(
             reviewed, env=self.env, invoke=self._reviewed_invoke)
         verify_reviewed_account_binding(reviewed, self.cfg.account_id)
 
@@ -1939,6 +1945,9 @@ class AutonomousDeploy:
         return _json_output(self._base_cli(["status"], capture=True), label="status")
 
     def _automation_status(self, *, timeout: Optional[float] = None) -> Mapping:
+        if getattr(self, '_installation_only', False):
+            from sentinel_installation_phase import InstallationDeploy
+            return InstallationDeploy._installation_control(self, timeout=timeout)
         return _json_output(
             self._base_cli(["automation-status"], capture=True, timeout=timeout),
             label="automation-status")

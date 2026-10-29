@@ -238,6 +238,8 @@ _TARGET_CATALOG_SHA256 = {
 # column/type/null/default, constraints, indexes and triggers while ignoring
 # deployment-local OIDs and column order.
 _STAGE4_CATALOG_SHA256 = (
+    "5f92e365bacb537078308f10a4bce28ff71d7eef2a6634d7652b6566708b2262")
+_PRE_CHAIN_PROGRESS_CATALOG_SHA256 = (
     "2a2e4c82afd8fb8a20d28ece3a170ed91774c56455d553ba29270587dc971758")
 _PRE_BACKUP_PROGRESS_CATALOG_SHA256 = (
     "d11dc34bcab1ce9ff25605de38032d0d85db76c0c39e67e07e68c94913b49d19")
@@ -451,7 +453,7 @@ _INITIAL_AUTOMATION_CONTROL = """INSERT INTO sentinel_automation_control
 _INITIAL_AUTOMATION_LEASE = """INSERT INTO sentinel_automation_lease
     (id,fence_token) VALUES (1,0) ON CONFLICT (id) DO NOTHING"""
 
-_BACKUP_PROGRESS_DDL = (
+_BACKUP_PROGRESS_V1_DDL = (
     "ALTER TABLE sentinel_backup_evidence DROP CONSTRAINT IF EXISTS sentinel_backup_evidence_kind_check",
     """ALTER TABLE sentinel_backup_evidence ADD CONSTRAINT sentinel_backup_evidence_kind_check
         CHECK (kind IN ('BASE_BACKUP','RUNTIME_CHAIN','RESTORE_DRILL','MAINTENANCE_PROGRESS'))""",
@@ -487,6 +489,47 @@ _BACKUP_PROGRESS_DDL = (
     "DROP TRIGGER IF EXISTS sentinel_backup_progress_guard ON sentinel_backup_evidence",
     """CREATE TRIGGER sentinel_backup_progress_guard BEFORE INSERT OR UPDATE OR DELETE
         ON sentinel_backup_evidence FOR EACH ROW EXECUTE FUNCTION sentinel_backup_progress_guard()""",
+)
+
+# Keep the predecessor function frozen. A distinct trigger target makes this
+# operational phase-graph change visible to the existing catalog classifier.
+_BACKUP_PROGRESS_GUARD_V2 = """CREATE OR REPLACE FUNCTION sentinel_backup_progress_guard_v2() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    DECLARE previous jsonb;
+    BEGIN
+        IF TG_OP<>'INSERT' AND (OLD.kind='MAINTENANCE_PROGRESS' OR NEW.kind='MAINTENANCE_PROGRESS') THEN
+            RAISE EXCEPTION 'backup maintenance progress is append-only';
+        END IF;
+        IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+        IF NEW.kind<>'MAINTENANCE_PROGRESS' THEN RETURN NEW; END IF;
+        SELECT proof INTO previous FROM sentinel_backup_evidence
+            WHERE kind='MAINTENANCE_PROGRESS' AND proof->>'attempt'=NEW.proof->>'attempt'
+            ORDER BY seq DESC LIMIT 1;
+        IF previous IS NULL THEN
+            IF NEW.proof->>'phase' NOT IN ('BASE_BACKUP','VERIFY_RESTORE') THEN
+                RAISE EXCEPTION 'backup maintenance must start before work';
+            END IF;
+        ELSIF (previous - 'phase' - 'base_backup') IS DISTINCT FROM
+                (NEW.proof - 'phase' - 'base_backup')
+            OR previous->>'phase' IN ('COMPLETE','FAILED')
+            OR (previous->>'base_backup' IS DISTINCT FROM NEW.proof->>'base_backup'
+                AND NOT (previous->>'phase'='BASE_BACKUP'
+                    AND NEW.proof->>'phase' IN ('VERIFY_RESTORE','VERIFY_CHAIN')))
+            OR NOT (NEW.proof->>'phase'='FAILED'
+                OR (previous->>'phase'='BASE_BACKUP'
+                    AND NEW.proof->>'phase' IN ('VERIFY_RESTORE','VERIFY_CHAIN'))
+                OR (previous->>'phase'='VERIFY_RESTORE' AND NEW.proof->>'phase'='VERIFY_CHAIN')
+                OR (previous->>'phase'='VERIFY_CHAIN' AND NEW.proof->>'phase'='COMPLETE')) THEN
+            RAISE EXCEPTION 'backup maintenance identity, deadline or phase changed';
+        END IF;
+        RETURN NEW;
+    END $$"""
+_BACKUP_PROGRESS_DDL = (
+    *_BACKUP_PROGRESS_V1_DDL[:2],
+    _BACKUP_PROGRESS_GUARD_V2,
+    _BACKUP_PROGRESS_V1_DDL[3],
+    """CREATE TRIGGER sentinel_backup_progress_guard BEFORE INSERT OR UPDATE OR DELETE
+        ON sentinel_backup_evidence FOR EACH ROW EXECUTE FUNCTION sentinel_backup_progress_guard_v2()""",
 )
 
 DDL = (
@@ -2178,6 +2221,17 @@ def _migrate_backup_progress(cur, catalog) -> None:
         cur.execute(statement)
 
 
+def _migrate_chain_progress(cur, catalog) -> None:
+    """Correct the operational phase graph without rewriting any evidence."""
+    _validate_stage4_runtime(cur, catalog, expected_catalog=_PRE_CHAIN_PROGRESS_CATALOG_SHA256)
+    cur.execute('SELECT enabled,kill_switch_engaged FROM sentinel_automation_control WHERE id=1 FOR UPDATE')
+    enabled, killed = cur.fetchone()
+    if enabled and not killed:
+        raise _operator_refusal('chain progress migration requires fenced automation')
+    for statement in _BACKUP_PROGRESS_DDL[2:]:
+        cur.execute(statement)
+
+
 def _apply_v1(cur, bootstrap_kind: str) -> None:
     if bootstrap_kind in {"NEW", "LEGACY"}:
         for statement in DDL:
@@ -2285,6 +2339,7 @@ def ensure_schema(conn) -> None:
                         if (statement.startswith('ALTER TABLE sentinel_web_push_subscriptions')
                                 or statement.startswith('UPDATE sentinel_web_push_subscriptions')):
                             cur.execute(statement)
+                    _migrate_chain_progress(cur, _read_runtime_catalog(cur))
                     _validate_stage4_runtime(cur, _read_runtime_catalog(cur))
                     _finish_behavioral_version(cur)
                     conn.commit()
@@ -2309,6 +2364,12 @@ def ensure_schema(conn) -> None:
                     # Exact current shape and authority singletons proved.
                     # Reissuing IF NOT EXISTS still takes exclusive table
                     # locks; a no-op installer must not contend with readers.
+                    _finish_behavioral_version(cur)
+                    conn.commit()
+                    return
+                if stage4_sha == _PRE_CHAIN_PROGRESS_CATALOG_SHA256:
+                    _migrate_chain_progress(cur, catalog)
+                    _validate_stage4_runtime(cur, _read_runtime_catalog(cur))
                     _finish_behavioral_version(cur)
                     conn.commit()
                     return

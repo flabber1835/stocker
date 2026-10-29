@@ -244,13 +244,13 @@ def test_completed_source_trigger_bypass_withdraws_authenticated_prefix(conn,mon
 
 
 def test_removed_independent_ddl_epoch_is_killed_by_source_bypass_regression(conn,monkeypatch):
-    source=inspect.getsource(coverage.inventory)
-    needle='return digest([contracts,system,rows,ddl_epoch])'
+    source=inspect.getsource(coverage._inventory_material)
+    needle='return [contracts,system,rows,ddl_epoch]'
     assert source.count(needle)==1
     namespace={}
-    exec(compile(source.replace(needle,'return digest([contracts,system,rows])'),
+    exec(compile(source.replace(needle,'return [contracts,system,rows]'),
         'removed-independent-ddl-epoch','exec'),vars(coverage),namespace)
-    monkeypatch.setattr(coverage,'inventory',namespace['inventory'])
+    monkeypatch.setattr(coverage,'_inventory_material',namespace['_inventory_material'])
     seq=record(conn)[0];install(conn,monkeypatch);bootstrap(conn)
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
         bypass_source_guard_and_reenable(conn,seq)

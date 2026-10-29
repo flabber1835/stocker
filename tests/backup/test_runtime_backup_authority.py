@@ -371,9 +371,25 @@ def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
                     assert len(owners) == 1
                     assert owners[0].name == '_refresh_unchanged_health'
                     assert ast.unparse(node.func) == 'journal.writer_lock'
+                if relative == 'sentinel/chain_progress_recovery.py':
+                    # This explicit administrative transfer preserves the old
+                    # authenticated prefixes; it cannot exempt another caller
+                    # or a financial writer in the same module.
+                    owners = [f for f in ast.walk(tree)
+                              if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+                              and node in ast.walk(f)]
+                    assert len(owners) == 1 and owners[0].name == 'apply'
+                    assert ast.unparse(node.func) == 'journal.writer_lock'
+                    calls = {ast.unparse(call.func) for call in ast.walk(owners[0])
+                             if isinstance(call, ast.Call)}
+                    assert {'validate', 'deployment_fence.require',
+                            'schema.require_runtime_schema', 'automation_store.load_control',
+                            '_source_digests', 'coverage._authenticated', 'coverage.head',
+                            'coverage._inventory_material', 'coverage.write'} <= calls
     assert found == {
         "sentinel/automation/store.py", "sentinel/paper/recovery.py",
-        "sentinel/execution/executor.py", "sentinel/rolling_runtime.py"}
+        "sentinel/execution/executor.py", "sentinel/rolling_runtime.py",
+        "sentinel/chain_progress_recovery.py"}
 
 
 @pytest.mark.parametrize("event", ["advance", "failure"])

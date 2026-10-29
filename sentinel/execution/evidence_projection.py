@@ -34,7 +34,7 @@ def binding(conn):
     return None if row is None else [str(value) for value in row]
 
 
-def inventory(conn, domain):
+def _inventory_material(conn, domain):
     from sentinel import operational_ddl_epoch
     from sentinel.operational_catalog import OperationalCatalogRefused
     tables=set(evidence_schema.extension_tables)|set(evidence_schema._SOURCES)
@@ -55,7 +55,11 @@ def inventory(conn, domain):
     if {row[0] for row in rows}!=tables:
         raise EvidenceCoverageRefused('EVIDENCE_SOURCE_RELATION_ABSENT')
     system=conn.execute('SELECT system_identifier::text,current_database() FROM pg_control_system()').fetchone()
-    return digest([contracts,system,rows,ddl_epoch])
+    return [contracts,system,rows,ddl_epoch]
+
+
+def inventory(conn, domain):
+    return digest(_inventory_material(conn,domain))
 
 
 def head(conn, domain, *, lock=False):
@@ -67,7 +71,7 @@ def head(conn, domain, *, lock=False):
     return str(row[0]),int(row[1]),int(row[2])
 
 
-def load(conn, domain):
+def _authenticated(conn, domain):
     row=conn.execute('SELECT payload,hmac_sha256 FROM sentinel_execution_evidence_coverage '
         'WHERE domain=%s',(domain,)).fetchone()
     if row is None:
@@ -81,6 +85,13 @@ def load(conn, domain):
         raise EvidenceCoverageRefused('EVIDENCE_COVERAGE_SUBJECT_CHANGED')
     if not hmac.compare_digest(str(row[1]),_signature(payload)):
         raise EvidenceCoverageRefused('EVIDENCE_COVERAGE_AUTHENTICATION_FAILED')
+    return payload
+
+
+def load(conn, domain):
+    payload=_authenticated(conn,domain)
+    if payload is None:
+        return None
     incarnation,sequence,reset=head(conn,domain)
     if (payload['incarnation']!=incarnation or payload['reset_generation']!=reset
             or payload['binding']!=binding(conn) or payload['inventory']!=inventory(conn,domain)

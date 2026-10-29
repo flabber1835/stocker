@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import subprocess
 
 import pytest
 
@@ -36,6 +37,7 @@ class Commands:
         self.change_selection = False
         self.observes = 0
         self.recorded = []
+        self.archive = None
 
     def __call__(self, argv, timeout):
         assert timeout > 0
@@ -60,6 +62,11 @@ class Commands:
                 % (self.end, self.end-10, self.selected['name']))
         if 'psql' in argv:
             sql = argv[-1]
+            if "'mode',current_setting('archive_mode')" in sql:
+                return json.dumps(self.archive if self.archive is not None else dict(
+                    mode='on', system_identifier='123',
+                    wal='0000000100000000000000%02X' % self.end,
+                    last_ok=NOW, now=NOW, future=False, unresolved=False))
             if "'system_id'" in sql:
                 return json.dumps(self.observation)
             if "kind='BASE_BACKUP'" in sql:
@@ -116,6 +123,7 @@ def test_reuses_exact_full_proof_and_archives_committed_state_without_copy(comma
     assert result['new_base_created'] is False and result['full_restore_performed'] is False
     assert result['method'] == 'REUSED_FULL_RESTORE_AND_ARCHIVED_STATE'
     assert result['base_evidence_sha256'] == result['full_restore_receipt_sha256']
+    assert sum(a[:2] == ['bash', 'scripts/sentinel-backup-status.sh'] for a in commands.calls) == 1
 
 
 def test_verified_producer_reuses_base_without_claiming_a_restore(commands, capsys):
@@ -160,7 +168,7 @@ def test_unauthenticated_verified_producer_refuses_before_marker_or_legacy_fallb
     assert not any('INSERT' in a[-1] or "kind='RESTORE_DRILL'" in a[-1] for a in commands.calls)
 
 
-def test_malformed_chain_refuses_before_marker_or_legacy_fallback(commands):
+def test_malformed_chain_after_arrival_refuses_without_publishing_or_fallback(commands):
     def malformed(argv, timeout):
         value = commands(argv, timeout)
         if argv[:2] == ['bash', 'scripts/sentinel-backup-status.sh']:
@@ -168,7 +176,9 @@ def test_malformed_chain_refuses_before_marker_or_legacy_fallback(commands):
         return value
     with pytest.raises(maintenance.Refused, match='interval contradicts selected metadata'):
         checkpoint.reuse(Path('/backups'), malformed)
-    assert not any('INSERT' in a[-1] or "kind='RESTORE_DRILL'" in a[-1] for a in commands.calls)
+    assert not commands.recorded
+    assert sum('INSERT INTO sentinel_backup_recovery_markers' in a[-1] for a in commands.calls) == 1
+    assert not any('sentinel-base-backup.sh' in a or 'sentinel-restore-drill.sh' in a for a in commands.calls)
 
 
 @pytest.mark.parametrize('reason', ['absent', 'age', 'wal'])
@@ -272,7 +282,109 @@ def test_explicit_full_milestone_without_any_base_proof_creates_one_fresh_milest
         return SimpleNamespace(returncode=0,stdout=value,stderr='')
     assert install.milestone('full',runner=runner,reuse_current=True)==exact
     assert [a for a in calls if a[0]=='bash']==[
-        ['bash','scripts/sentinel-backup-status.sh','--backup','/backups/base/'+commands.selected['name']],
         ['bash','scripts/sentinel-base-backup.sh'],
         ['bash','scripts/sentinel-backup-status.sh','--backup',exact],
         ['bash','scripts/sentinel-restore-drill.sh','--backup',exact]]
+
+
+def test_full_chain_traversal_uses_its_own_budget_after_timely_arrival(commands, monkeypatch):
+    clock = [0]
+    monkeypatch.setattr(checkpoint.time, 'monotonic', lambda: clock[0])
+    scans = []
+    def slow_scan(argv, timeout):
+        if argv[:2] == ['bash','scripts/sentinel-backup-status.sh']:
+            scans.append(timeout)
+            assert timeout == 600
+            clock[0] += 90  # longer than archive-arrival budget, within chain budget
+        return commands(argv, timeout)
+    assert checkpoint.reuse(Path('/backups'), slow_scan)
+    assert scans == [600] and len(commands.recorded) == 1
+    assert clock[0] == 90
+
+
+def test_slow_hint_cannot_sneak_past_the_original_archive_deadline(commands, monkeypatch):
+    clock = [0]
+    monkeypatch.setattr(checkpoint.time, 'monotonic', lambda: clock[0])
+    def late_hint(argv, timeout):
+        if "'mode',current_setting('archive_mode')" in argv[-1]:
+            clock[0] = 61
+        return commands(argv, timeout)
+    with pytest.raises(RuntimeError,match='archive deadline exhausted'):
+        checkpoint.reuse(Path('/backups'), late_hint)
+    assert not commands.recorded
+    assert not any(a[:2] == ['bash','scripts/sentinel-backup-status.sh'] for a in commands.calls)
+
+
+@pytest.mark.parametrize('field,value',[
+    ('mode','off'),('system_identifier','456'),('future',True),('unresolved',True),
+    ('future',0),('last_ok',None),('last_ok',NOW+1),('last_ok',True),
+    ('wal','bad'),('wal','00000002000000000000000E'),('wal','000000010000000000000100'),
+])
+def test_archive_hint_refuses_malformed_failed_or_foreign_observation(commands, field, value):
+    commands.archive=dict(mode='on',system_identifier='123',wal=commands.barrier['wal'],
+        last_ok=NOW,now=NOW,future=False,unresolved=False)
+    commands.archive[field]=value
+    with pytest.raises(RuntimeError,match='archive observation refused'):
+        checkpoint.reuse(Path('/backups'),commands)
+    assert not commands.recorded
+
+
+@pytest.mark.parametrize('wal', ['00000001.history','00000001000000000000000E.00000001.backup'])
+def test_metadata_hint_waits_for_an_actual_segment(commands, monkeypatch, wal):
+    commands.archive=dict(mode='on',system_identifier='123',wal=wal,
+        last_ok=NOW,now=NOW,future=False,unresolved=False)
+    sleeps=[]
+    def arrive(duration):
+        sleeps.append(duration)
+        commands.archive['wal']=commands.barrier['wal']
+    monkeypatch.setattr(checkpoint.time,'sleep',arrive)
+    assert checkpoint.reuse(Path('/backups'),commands)
+    assert sleeps == [1]
+
+
+def test_positive_hint_never_substitutes_for_final_coverage(commands):
+    commands.archive=dict(mode='on',system_identifier='123',wal=commands.barrier['wal'],
+        last_ok=NOW,now=NOW,future=False,unresolved=False)
+    commands.end=13
+    with pytest.raises(RuntimeError,match='has not reached the verified archive'):
+        checkpoint.reuse(Path('/backups'),commands)
+    assert not commands.recorded
+
+
+def test_removed_final_coverage_guard_is_detected(commands, monkeypatch):
+    monkeypatch.setattr(checkpoint,'require_coverage',lambda *a,**k: True)
+    with pytest.raises(pytest.fail.Exception):
+        test_positive_hint_never_substitutes_for_final_coverage(commands)
+
+
+def test_removed_archive_observation_guard_is_detected(commands, monkeypatch):
+    monkeypatch.setattr(checkpoint,'archive_reached',lambda *a:True)
+    with pytest.raises(pytest.fail.Exception):
+        test_archive_hint_refuses_malformed_failed_or_foreign_observation(commands,'mode','off')
+
+
+def test_removed_arrival_deadline_guard_is_detected(commands, monkeypatch):
+    source=inspect.getsource(checkpoint.reuse)
+    needle='if time.monotonic() >= archive_deadline:'
+    assert source.count(needle)==1
+    namespace={}
+    exec(compile(source.replace(needle,'if False:',1),'arrival-deadline-falsifier','exec'),
+         checkpoint.__dict__,namespace)
+    monkeypatch.setattr(checkpoint,'reuse',namespace['reuse'])
+    with pytest.raises(pytest.fail.Exception):
+        test_slow_hint_cannot_sneak_past_the_original_archive_deadline(commands,monkeypatch)
+
+
+@pytest.mark.parametrize('raw',[
+    '[]','{}','null','{"mode":"on","mode":"off"}',
+    '{"now":NaN}','{"future":Infinity}',
+])
+def test_archive_wire_refuses_ambiguous_documents(commands,raw):
+    with pytest.raises(RuntimeError,match='archive observation refused'):
+        checkpoint.archive_reached(commands.barrier,commands.observation,lambda *a,**k:raw)
+
+
+def test_direct_host_checkpoint_import_does_not_require_pythonpath(tmp_path):
+    result=subprocess.run([sys.executable,'-B','-E',str(Path(checkpoint.__file__).resolve())],
+        cwd=tmp_path,capture_output=True,text=True,timeout=20)
+    assert result.returncode==0,result.stderr

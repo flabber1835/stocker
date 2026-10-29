@@ -53,7 +53,8 @@ def public_installer(monkeypatch, tmp_path):
                  discovery_failed=False, schema_transport_failed=False,
                  fence_reply=None, operator_failed=False, operator_final_failed=False,
                  operator_probes=0, handoff_failed=False, migrated=False,
-                 created=False, receipt_before_handoff=False, roles={}, role_fault=None)
+                 created=False, receipt_before_handoff=False, roles={}, role_fault=None,
+                 financial_health_failed=False, control_reply=None)
     role_ids = {role: format(index, '064x') for index, role in enumerate((
         'sentinel-panel', 'sentinel-verifier', 'sentinel-alert-dispatcher',
         'sentinel-execution-collector', 'sentinel-shadow', 'sentinel-automation'), 1)}
@@ -121,12 +122,20 @@ def public_installer(monkeypatch, tmp_path):
                     return completed('prior database unavailable', code=2)
                 return completed(state['discovery_reply'] or json.dumps(STATUS))
             if argv[-1] == 'automation-status':
+                if state['financial_health_failed']:
+                    raise core.DeployRefused('EVIDENCE_COVERAGE_BINDING_CHANGED')
                 return completed(json.dumps(dict(enabled=state['fence_lost'],
                                                 kill_switch_engaged=not state['fence_lost'])))
             if 'deactivate-paper-automation' in argv:
                 return completed()
             if '-c' in argv:
                 code = argv[argv.index('-c') + 1]
+                if 'automation_store.load_control' in code:
+                    assert 'deployment_fence.require(c)' in code
+                    assert '--no-deps' in argv
+                    return completed(state['control_reply'] if state['control_reply'] is not None
+                        else json.dumps(dict(enabled=state['fence_lost'],
+                            kill_switch_engaged=not state['fence_lost'], control_generation=67)))
                 if 'schema_current' in code:
                     if state['schema_transport_failed']:
                         raise core.DeployRefused('schema transport failed')
@@ -180,6 +189,48 @@ def public_installer(monkeypatch, tmp_path):
         return {'schema': 'sentinel.activation-handoff/1', 'activation_state': 'SUPERVISED'}
     monkeypatch.setattr(activation, 'handoff', handoff)
     return state, calls, tmp_path, prior_pointer
+
+
+@pytest.mark.parametrize('old_financial_reader', [False, True])
+@pytest.mark.parametrize('entrypoint', [install.main, entry.main, core.main,
+                                      install.bootstrap.main])
+def test_public_schema_transition_does_not_depend_on_old_financial_coverage(
+        public_installer, monkeypatch, old_financial_reader, entrypoint):
+    state, calls, root, _pointer = public_installer
+    state.update(schema='changed', financial_health_failed=True)
+    if old_financial_reader:
+        # Execute the removed boundary: the real public entry must refuse if
+        # its installation-only reader is replaced with financial health.
+        def financial_reader(obj, *, timeout=None):
+            return core._json_output(obj._base_cli(['automation-status'], capture=True,
+                timeout=timeout), label='automation-status')
+        monkeypatch.setattr(core.AutonomousDeploy, '_automation_status', financial_reader)
+    assert entrypoint(['--mode', 'dual']) == (2 if old_financial_reader else 0)
+    assert state['migrated']
+    receipts = list(root.rglob('installation-receipt.json'))
+    assert len(receipts) == (0 if old_financial_reader else 1)
+    if not old_financial_reader:
+        receipt = records.read_document(receipts[0])
+        assert receipt['automation_enabled'] is False and receipt['kill_switch_engaged'] is True
+        assert not any(call[-1] == 'automation-status' for call in calls)
+        assert state['roles']['sentinel-verifier'] is True
+    assert not any('release-paper-automation-kill-switch' in call for call in calls)
+
+
+@pytest.mark.parametrize('reply', ['{}', '[]',
+    '{"enabled":false,"kill_switch_engaged":true,"control_generation":true}',
+    '{"enabled":0,"kill_switch_engaged":true,"control_generation":67}',
+    '{"enabled":false,"kill_switch_engaged":false,"control_generation":67}',
+    '{"enabled":false,"kill_switch_engaged":true,"control_generation":0}',
+    '{"enabled":false,"kill_switch_engaged":true,"control_generation":67,"healthy":true}',
+    '{"enabled":false,"enabled":true,"kill_switch_engaged":true,"control_generation":67}'])
+def test_invalid_control_proof_refuses_before_runtime_selection(public_installer, reply):
+    state, _calls, root, pointer = public_installer
+    state['control_reply'] = reply
+    assert install.main(['--mode', 'dual']) == 2
+    assert selection.POINTER.read_bytes() == pointer
+    assert not list(root.rglob('installation-receipt.json'))
+    assert not state['created']
 
 
 @pytest.mark.parametrize('mode', [None, 'shadow', 'dual', 'paper'])
