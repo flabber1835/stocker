@@ -109,3 +109,35 @@ is staged on the PAPER host. The collector calls only market bars/actions;
 it does not call the trading catalog or financial endpoints. Frozen structural
 and CUSIP evidence is a separate identity admission requirement, not a reason to
 discard raw observations during capture.
+
+If the action-page ceiling is reached before prices, preserve that failed
+capture and authenticate its entire ciphertext/GCM/inventory. A distinct
+successor must re-request the exact final page and compare its complete JSON
+value, including array order and next token, before using that token. Retain
+the corroborating page too. Continue only the remaining action pages and the
+unstarted price plan. The 8,000-request / byte / time bounds apply cumulatively
+across the preserved prefix and successor, not afresh to each. A changed final
+page refuses continuation. No financial state or prior financial trial is
+restarted by this source-only operation.
+
+## Calculation reuse and parallel source work
+
+The 108 controller settings share one canonical Core path because these
+parameters do not choose Core holdings. Compute that path once, then maintain
+separate funded account states for the controller settings. Never scale old
+portfolio returns to stand in for actual quantities, cash and costs.
+
+The costly history-admission calculation depends only on frozen prices,
+metadata, action facts and the dated 299/300-session window. Three Linux fork
+workers may evaluate disjoint, sorted security-ID chunks with the same existing
+`Inputs.admitted` implementation. Fork them after input normalization and before
+creating the first Core/formation state. They receive no portfolio/controller
+state and do not advance a financial account. Keep the arrays read-only. Merge
+the returned maps in security-ID order and sum only integer diagnostic counts.
+The parent alone constructs protected histories, features and financial inputs.
+Compare the complete pooled and serial admission results at the actual initial
+299-session window and first 300-session window before accepting the speedup.
+Retain actual elapsed times and refuse unequal results. Existing complete
+canonical feature comparisons still apply; arithmetic/pure tests do not replace
+the hosted integration evidence. The private long-study worker requests four
+CPUs under its own exact selector/fences; old two-CPU selectors stay unchanged.
