@@ -45,7 +45,8 @@ def prepare(a):
             and review['status'] in ('COMPLETE_REVIEWED','PARTIAL_PREFIXES_REVIEWED'),'FUNDED_PREVIOUS_REVIEW')
         previous_request=json.loads((old/'request.json').read_bytes())
         from alpaca_fit_funded_book import FINANCIAL_FILES
-        need(all(source[x]==previous_request['source_files'][x] for x in FINANCIAL_FILES),'FUNDED_FINANCIAL_SOURCE_UNCHANGED')
+        closure=set(FINANCIAL_FILES)|{x for x in previous_request['source_files'] if x.startswith(('sentinel/','shared/stock_strategy_shared/'))}
+        need(all(source[x]==previous_request['source_files'][x] for x in closure),'FUNDED_FINANCIAL_SOURCE_UNCHANGED')
         request['previous_artifact']=artifact(old,a.previous_artifact_id,receipt)
         if a.stage=='DIAGNOSTIC':
             selected=old/'verified/full/stopped-independent-review/review/locked-selection.json'

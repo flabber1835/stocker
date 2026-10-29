@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from test_alpaca_account_geometry import AccountGeometryTests
-from alpaca_fit_funded_review import expected_pending,rounded_rational
+from alpaca_fit_funded_review import expected_pending,rounded_rational,fill_signature,treatment_days
 from risk_review_math import equation,digest
 
 
@@ -45,6 +45,21 @@ class FundedReviewContract(unittest.TestCase):
             with self.assertRaises(ValueError):equation(before,wrong,{'old/0':{'ticker':'A'}},{'A':{'raw_open':'50'}},{})
         wrong=deepcopy(observed);wrong['record']['state_without_chain']['cash']='1000'
         with self.assertRaises(ValueError):equation(before,wrong,{'old/0':{'ticker':'A'}},{'A':{'raw_open':'50'}},{})
+
+
+class FundedTreatmentContract(unittest.TestCase):
+    def test_avoiding_a_baseline_positive_fill_is_real_treatment(self):
+        self.assertEqual(treatment_days({'day':[]},{'day':[('lot','BUY','3','50','3/20')]}),1)
+
+    def test_only_changing_a_diagnostic_cause_is_not_treatment(self):
+        f={'episode':'lot','side':'BUY','filled_shares':'3','raw_open':'50','fees':'3/20','cause':'GLOBAL'}
+        other={**f,'cause':'INITIAL'}
+        self.assertEqual(treatment_days({'day':fill_signature([f])},{'day':fill_signature([other])}),0)
+
+    def test_zero_share_intents_are_not_funded_treatment(self):
+        f={'episode':'lot','side':'BUY','filled_shares':'0','raw_open':'50','fees':'0','cause':'GLOBAL'}
+        self.assertEqual(treatment_days({'day':fill_signature([f])},{'day':[]}),0)
+        with self.assertRaisesRegex(ValueError,'TREATMENT_COMMON_DATES'):treatment_days({'first':[]},{'other':[]})
 
 
 if __name__=='__main__':unittest.main()

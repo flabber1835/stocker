@@ -28,6 +28,15 @@ def rounded_rational(value,places=24):
     return Q(units+(2*remainder>value.denominator or 2*remainder==value.denominator and units%2==1),10**places)
 
 
+def fill_signature(fills):
+    return [(f['episode'],f['side'],f['filled_shares'],f['raw_open'],f['fees']) for f in fills if Q(f['filled_shares'])>0]
+
+
+def treatment_days(candidate,baseline):
+    need(set(candidate)==set(baseline),'TREATMENT_COMMON_DATES')
+    return sum(1 for day,fills in candidate.items() if (fills or baseline[day]) and fills!=baseline[day])
+
+
 def expected_pending(row,source,nav_,target,held_target,execution,initial=False):
     g=Q(str(target));held={};exits=[];opens={};targets={};core=Q(str(row['shadow_nav']))
     for e in row['wealth_core']['episodes'].values():
@@ -181,7 +190,7 @@ def review_book(root,source,protocol,profile,model):
         need(opening is not None,'REVIEW_MISSING_INTRADAY_OR_OPEN')
         action_coverage(row,action_state or opening_state,ev)
         verify_observed_order_coverage(opening_state,pending,actual_ids,row['prices'],ev,d['fills'])
-        funded_fills[day]=[(f['episode'],f['side'],f['filled_shares'],f['cause']) for f in d['fills'] if Q(f['filled_shares'])>0]
+        funded_fills[day]=fill_signature(d['fills'])
         compact={k:v for k,v in before.items() if k!='applied_events'}
         need(d['account']==compact and d['applied_events_count']==len(before['applied_events'])
             and d['applied_events_sha256']==hashlib.sha256(json.dumps(before['applied_events'],separators=(',',':')).encode()).hexdigest(),
@@ -234,7 +243,7 @@ def main(a):
         for r in reports:
             records.append({'profile_id':r['profile_id'],'period':'TRAINING','candidate_validation_metrics_included':False,
                 'status':'REVIEWED','metrics':r['metrics']['full'],'turnover':r['turnover'],
-                'additional_funded_transitions':sum(1 for day,fills in r['funded_fills'].items() if fills and fills!=base['funded_fills'][day])})
+                'additional_funded_transitions':treatment_days(r['funded_fills'],base['funded_fills'])})
         selection=select(records,protocol);(out/'locked-selection.json').write_bytes(encode(selection)+b'\n')
         (out/'all-108-training.json').write_bytes(encode(records)+b'\n')
     result={'schema':'research.alpaca-funded-independent-review/1','stage':request['stage'],

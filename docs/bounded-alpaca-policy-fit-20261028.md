@@ -500,8 +500,9 @@ review worker has 900 seconds. The entire workflow remains bounded to 90 minutes
 Durable inspections precede exceptions and exports. An unknown reviewer is not
 archived; an independently proven stopped financial writer may still be retained.
 
-The model identity includes financial implementation files, numerical protocol,
-dataset and the exact source prefix through the training cutoff. It excludes the
+The model identity includes financial implementation files, the frozen canonical
+source closure and runtime image, numerical protocol, dataset and the exact
+source prefix through the training cutoff. It excludes the
 later diagnostic suffix from the training identity, while admission still checks
 the entire supplied source chain. Orchestration/reviewer fixes do not relabel
 financial state. Freeze financial implementation before the first funded origin.
@@ -515,7 +516,9 @@ all raw marks, every checkpoint against its actual daily prefix, and every
 historical journal commitment. Preserve tails outside the economic path.
 
 An additional funded treatment means an actual positive fill sequence differs
-from baseline on the same date. A changed signal without a differing positive
+from baseline on the same date, with a positive fill on at least one side.
+Avoiding a baseline fill counts; merely changing its diagnostic cause does not.
+A changed signal without a differing positive
 fill is insufficient. Lock selection only when all 108 accounts have complete
 reviewed training paths. Incomplete processing remains a prefix, not a score.
 Use the same gross SPY adjusted-open anchor for every comparison; disclose that

@@ -21,6 +21,8 @@ FINANCIAL_FILES=('research/capital_risk/alpaca_fit_account.py','research/capital
 
 def model_basis(request,source):
     return {'schema':'research.alpaca-funded-model-basis/1','financial_source_files':{p:request['source_files'][p] for p in FINANCIAL_FILES},
+        'canonical_source_closure':{p:v for p,v in request['source_files'].items() if p.startswith(('sentinel/','shared/stock_strategy_shared/'))},
+        'execution_image':'sha256:1b449754a48473e4737fc34f3f51ae0b4226d5e84540dea54115d4693142ed9d',
         'protocol_sha256':request['protocol_sha256'],'dataset_sha256':request['dataset_sha256'],
         'training_source_prefix':source.training_prefix,'capital':'50000','initial_clock':'BEFORE_FIRST_MEASURED_OPEN',
         'stock_fee':'0.001','defensive_cash':'BIL_ADJUSTED_PROXY_SPLIT_OPEN_GEOMETRY',
