@@ -744,11 +744,37 @@ def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None,
         conn.rollback()
 
 
+def _existing_current_cycle(conn, *, permit, spec):
+    """Observe a known cycle without contending with financial writers."""
+    try:
+        if spec.control_generation != permit.control_generation:
+            raise StaleLeaderRefused('cycle identity does not match the leader generation')
+        require_leader(conn, permit)
+        control = load_control(conn)
+        if control.binding is None or any(
+                getattr(spec, key) != value
+                for key, value in control.binding.model_dump().items()):
+            raise AutomationRefused('cycle binding differs from current activation')
+        current = next((cycle for cycle in _cycles_in_scope(conn, spec)
+                        if cycle.control_generation == spec.control_generation), None)
+        if current is not None:
+            if _immutable_cycle(current) != spec.model_dump():
+                raise ImmutableCycleChanged(
+                    'deterministic automation cycle identity was reused with different immutable fields')
+            require_leader(conn, permit)
+        return current
+    finally:
+        conn.rollback()
+
+
 def create_cycle(
         conn, *, permit: LeaderPermit, spec: CycleSpec,
         now: datetime | None = None, config=None) -> CycleRecord:
     # This scheduling-only write cannot submit orders or bypass the independent
     # backup authority on the ordinary plan/execution writer boundary.
+    current = _existing_current_cycle(conn, permit=permit, spec=spec)
+    if current is not None:
+        return current
     owned = False
     try:
         with writer_lock(conn, recovery_only=True):

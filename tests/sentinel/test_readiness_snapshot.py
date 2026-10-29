@@ -168,7 +168,10 @@ class TestStalenessIsVISIBLE:
         rows, _ = sources._feed_rows(pg.sync_dsn)
         feed = [r for r in rows if r.key == "feed"][0]
         assert feed.status is not sources.model.FAIL
-        assert "not checked" in feed.detail.lower()
+        assert "current data verification pending" in feed.detail.lower()
+        assert "no matching stored verdict" in feed.detail.lower()
+        assert "check-data" not in feed.detail
+        assert "no verdict has ever" not in feed.detail.lower()
 
     def test_a_stale_snapshot_does_not_claim_to_be_READY(self, conn):
         """`ready` stays what was measured; `trustworthy` is what a caller

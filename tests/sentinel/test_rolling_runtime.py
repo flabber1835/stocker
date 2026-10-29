@@ -46,6 +46,45 @@ def test_first_runtime_approval_is_signed_bound_and_idempotent(conn, published):
         assert conn.execute("SELECT COUNT(*) FROM " + table).fetchone()[0] == 0
 
 
+def test_new_attestation_persists_its_already_measured_readiness(conn, published, monkeypatch):
+    from sentinel.feed import readers, readiness
+    monkeypatch.setattr(readiness, 'check_readiness', lambda *_a, **_kw:
+                        pytest.fail('attestation repeated a legacy full readiness scan'))
+    result = advance(conn)
+    frontier, snapshot = readers.status_snapshot(conn)
+    assert frontier == result.session and snapshot is not None and snapshot.ready
+    assert readers.snapshot_matches(readers.current(conn), snapshot)
+
+
+@pytest.mark.parametrize('premature_commit', [False, True])
+def test_attestation_and_display_verdict_share_the_final_commit(conn, published, monkeypatch, premature_commit):
+    from sentinel.feed import readers, readiness
+    before = conn.execute('SELECT count(*) FROM sentinel_readiness_snapshots').fetchone()[0]
+    conn.rollback()
+    save = readiness.save_snapshot
+    class InjectedFailure(RuntimeError):pass
+    def fail_after_insert(c, report, *, commit=True):
+        assert commit is False
+        save(c, report, commit=premature_commit)
+        raise InjectedFailure('after readiness insert, before attestation commit')
+    with monkeypatch.context() as damaged:
+        damaged.setattr(readiness, 'save_snapshot', fail_after_insert)
+        with pytest.raises(InjectedFailure):advance(conn)
+    def atomic():
+        assert authority.latest(conn, OBS) == []
+        assert conn.execute('SELECT count(*) FROM sentinel_readiness_snapshots').fetchone()[0] == before
+        conn.rollback()
+    if premature_commit:
+        # Executed falsifier: committing the auxiliary INSERT exposes the
+        # financial attestation even though its final transaction then failed.
+        with pytest.raises(AssertionError):atomic()
+    else:
+        atomic()
+        result = advance(conn)
+        assert result.verification == shadow.VERIFIED
+        assert readers.status_snapshot(conn)[1].ready
+
+
 def test_same_session_service_verifies_without_account_writer(conn, published, monkeypatch):
     """The real service read must coexist with the execution writer at open."""
     from sentinel.execution import journal

@@ -739,9 +739,9 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
                    as_of, required_current=True)
     if ready is None:
         return Row("feed", "Feed", f"{frontier}{behind}", WARN,
-                   "contract NOT CHECKED — no verdict has ever been stored. "
-                   "Run `check-data`; this is 'we have not asked', not 'the "
-                   "corpus failed'.", as_of, required_current=True,
+                   "current data verification pending — no matching stored "
+                   "verdict is available for this publication; awaiting the "
+                   "publisher's measured readiness handoff.", as_of, required_current=True,
                    valid_until=(checked_at + VERDICT_STALE_AFTER
                                 if checked_at else None))
     verdict = ("contract READY" if ready else "contract NOT READY")

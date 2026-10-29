@@ -275,6 +275,9 @@ def advance(conn, *, through, observation_id, starting_cash):
                     pitr=publication._publication_recovery_target(conn))
                 initial._timing(conn, through)
                 authority.append(conn, value)
+                from sentinel.feed import readiness, readers
+                readiness.save_snapshot(
+                    conn, readers.bound_readiness(pub, report), commit=False)
                 conn.commit()
                 return _result(candidate, value)
     except BaseException:
