@@ -2,17 +2,22 @@
 from datetime import datetime, timezone
 import hashlib
 import json
+from pathlib import Path
 import re
+import sys
 import time
 import uuid
 
+# Direct host-script execution starts with scripts/ on sys.path, not repo root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sentinel.backup_archive_names import archive_kind
 import sentinel_backup_maintenance as maintenance
 from sentinel_backup_deadlines import CHAIN_STATUS_SECONDS
 
 ARCHIVE_SECONDS = 60
 
 
-def _boundary_document(raw):
+def _document(raw):
     def pairs(items):
         value = {}
         for key, item in items:
@@ -22,8 +27,12 @@ def _boundary_document(raw):
         return value
     def invalid_constant(_value):
         raise ValueError('nonfinite checkpoint field')
+    return json.loads(raw, object_pairs_hook=pairs, parse_constant=invalid_constant)
+
+
+def _boundary_document(raw):
     try:
-        value = json.loads(raw, object_pairs_hook=pairs, parse_constant=invalid_constant)
+        value = _document(raw)
         if (not isinstance(value, dict)
                 or set(value) != {'system_identifier', 'lsn', 'wal'}
                 or not isinstance(value['system_identifier'], str)
@@ -44,9 +53,8 @@ def _lsn(value):
     return int(high, 16) * 2**32 + int(low, 16)
 
 
-def require_coverage(proof, barrier, observation, *, allow_pending=False):
-    if (barrier.get('system_identifier') != observation['system_id']
-            or proof['system_identifier'] != observation['system_id']):
+def _barrier_wal(barrier, observation):
+    if barrier.get('system_identifier') != observation['system_id']:
         raise RuntimeError('activation checkpoint cluster changed')
     wal = barrier.get('wal')
     if not isinstance(wal, str) or not re.fullmatch(r'[0-9A-F]{24}', wal):
@@ -57,10 +65,48 @@ def require_coverage(proof, barrier, observation, *, allow_pending=False):
             or int(wal[16:], 16) >= 2**32 // size
             or index != (_lsn(barrier.get('lsn')) - 1) // size):
         raise RuntimeError('activation checkpoint WAL geometry changed')
+    return wal
+
+
+def require_coverage(proof, barrier, observation, *, allow_pending=False):
+    wal = _barrier_wal(barrier, observation)
+    if proof['system_identifier'] != observation['system_id']:
+        raise RuntimeError('activation checkpoint cluster changed')
     first, last = proof['recoverable_from_wal'], proof['recoverable_through_wal']
     if wal < first or (wal > last and not allow_pending):
         raise RuntimeError('activation state has not reached the verified archive')
     return wal <= last
+
+
+def archive_reached(barrier, observation, runner):
+    """A cheap arrival hint, never authority for WAL integrity or durability."""
+    target = _barrier_wal(barrier, observation)
+    raw = maintenance.sql("""SELECT json_build_object(
+        'mode',current_setting('archive_mode'),'system_identifier',system_identifier::text,
+        'wal',last_archived_wal,
+        'last_ok',floor(extract(epoch FROM last_archived_time))::bigint,
+        'now',floor(extract(epoch FROM clock_timestamp()))::bigint,
+        'future',(coalesce(last_archived_time>clock_timestamp(),false) OR
+                  coalesce(last_failed_time>clock_timestamp(),false)),
+        'unresolved',coalesce(last_failed_time>last_archived_time,false))
+        FROM pg_stat_archiver,pg_control_system()""", runner)
+    try:
+        value = _document(raw)
+        if (not isinstance(value, dict) or set(value) != {
+                'mode','system_identifier','wal','last_ok','now','future','unresolved'}
+                or value['mode'] != 'on'
+                or value['system_identifier'] != observation['system_id']
+                or type(value['last_ok']) is not int or type(value['now']) is not int
+                or not 0 < value['last_ok'] <= value['now']
+                or value['future'] is not False or value['unresolved'] is not False
+                or not isinstance(value['wal'], str)):
+            raise ValueError('archive observation is unavailable or inconsistent')
+        kind = archive_kind(value['wal'], observation['segment_size'])
+        if value['wal'][:8] != observation['timeline']:
+            raise ValueError('archive timeline changed')
+    except (ValueError, TypeError, KeyError) as exc:
+        raise RuntimeError('activation checkpoint archive observation refused') from exc
+    return kind == 'SEGMENT' and value['wal'] >= target
 
 
 def commit_boundary(runner):
@@ -106,10 +152,7 @@ def reuse(root, command):
     if maintenance.renewal_due(selected, before):
         return None
     backup = str(root / 'base' / selected['name'])
-    status = command(['bash', 'scripts/sentinel-backup-status.sh', '--backup', backup],
-                     CHAIN_STATUS_SECONDS)
-    chain = maintenance.runtime_chain_proof(status, selected, before, str(root))
-    receipt = maintenance.verified_base_chain_receipt(selected, before, chain, runner)
+    receipt = maintenance.verified_base_receipt(selected, before, runner)
     verified_base = receipt is not None
     if receipt is None:
         # An older base may have genuine semantic restore evidence. Its
@@ -132,39 +175,40 @@ def reuse(root, command):
         remaining = archive_deadline - time.monotonic()
         if remaining <= 0:
             raise RuntimeError('activation checkpoint archive deadline exhausted')
-        # pg_stat_archiver can briefly name .backup/.history metadata. The
-        # canonical status command handles that with its existing bounded wait.
-        status = command(['bash', 'scripts/sentinel-backup-status.sh', '--backup', backup],
-                         remaining)
-        after = maintenance.observe_primary(runner)
-        current = maintenance.worker('observe', image, str(root), after, runner)
-        if current != selected or after['system_id'] != before['system_id'] or after['timeline'] != before['timeline']:
-            raise RuntimeError('activation checkpoint selected generation changed')
-        if _lsn(after['lsn']) < _lsn(barrier['lsn']):
-            raise RuntimeError('activation checkpoint boundary is ahead of primary WAL')
-        if maintenance.renewal_due(selected, after):
-            raise RuntimeError('activation checkpoint exhausted renewal headroom')
-        proof = maintenance.runtime_chain_proof(status, selected, after, str(root))
-        # Incomplete coverage may be normal archive latency; malformed identity
-        # and geometry are refusals. Never retry arbitrary integrity failures.
-        if require_coverage(proof, barrier, after, allow_pending=True):
+        if archive_reached(barrier, before, runner):
             if time.monotonic() >= archive_deadline:
                 raise RuntimeError('activation checkpoint archive deadline exhausted')
-            maintenance.publish_runtime_chain(status, selected, after, str(root), runner)
-            if time.monotonic() >= archive_deadline:
-                raise RuntimeError('activation checkpoint archive deadline exhausted')
-            evidence_sha256 = hashlib.sha256(json.dumps(
-                receipt, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-            checkpoint = dict(schema='sentinel.activation-recovery-checkpoint/1',
-                method=method,
-                base_backup=selected['name'], runtime_image=image,
-                system_identifier=after['system_id'], metadata_sha256=selected['metadata_sha256'],
-                base_evidence_sha256=evidence_sha256,
-                marker=marker, state_lsn=barrier['lsn'], state_wal=barrier['wal'],
-                recoverable_through_wal=proof['recoverable_through_wal'],
-                new_base_created=False, full_restore_performed=False)
-            if not verified_base:
-                checkpoint['full_restore_receipt_sha256'] = evidence_sha256
-            print('activation_recovery_checkpoint:' + json.dumps(checkpoint, sort_keys=True), flush=True)
-            return backup
+            break
         time.sleep(min(1, max(0, archive_deadline - time.monotonic())))
+    # Arrival and traversal have separate existing budgets. The enclosing
+    # milestone still bounds every command and the complete invocation.
+    archive_deadline = None
+    status = command(['bash', 'scripts/sentinel-backup-status.sh', '--backup', backup],
+                     CHAIN_STATUS_SECONDS)
+    after = maintenance.observe_primary(runner)
+    current = maintenance.worker('observe', image, str(root), after, runner)
+    if current != selected or after['system_id'] != before['system_id'] or after['timeline'] != before['timeline']:
+        raise RuntimeError('activation checkpoint selected generation changed')
+    if _lsn(after['lsn']) < _lsn(barrier['lsn']):
+        raise RuntimeError('activation checkpoint boundary is ahead of primary WAL')
+    if maintenance.renewal_due(selected, after):
+        raise RuntimeError('activation checkpoint exhausted renewal headroom')
+    proof = maintenance.runtime_chain_proof(status, selected, after, str(root))
+    require_coverage(proof, barrier, after)
+    if verified_base:
+        receipt = maintenance._base_chain_receipt(selected, after, proof)
+    maintenance.publish_runtime_chain(status, selected, after, str(root), runner)
+    evidence_sha256 = hashlib.sha256(json.dumps(
+        receipt, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    checkpoint = dict(schema='sentinel.activation-recovery-checkpoint/1',
+        method=method,
+        base_backup=selected['name'], runtime_image=image,
+        system_identifier=after['system_id'], metadata_sha256=selected['metadata_sha256'],
+        base_evidence_sha256=evidence_sha256,
+        marker=marker, state_lsn=barrier['lsn'], state_wal=barrier['wal'],
+        recoverable_through_wal=proof['recoverable_through_wal'],
+        new_base_created=False, full_restore_performed=False)
+    if not verified_base:
+        checkpoint['full_restore_receipt_sha256'] = evidence_sha256
+    print('activation_recovery_checkpoint:' + json.dumps(checkpoint, sort_keys=True), flush=True)
+    return backup
