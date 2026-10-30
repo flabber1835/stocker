@@ -4,7 +4,7 @@
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
   "sources": {
     "system_campaign_diagnostic_job.py": "08f986085defd48f2c79548d5741667de7ff487c415d370244a4d3e01cf96964",
-    "system_campaign_factual_admit.py": "f1e1434cf29c3b3c7550720d080a9c044e2a3aea3b71bb707de325654220eb5e",
+    "system_campaign_factual_admit.py": "ca0af75d55843e76ee5bb513e9f1389438a29fa9491aed53a71dc569a5384af0",
     "full_system_benchmark.py": "218b43bc86215984c45cdb6c7b8e52dd7a9c78d3906ee75d6695df1d142e89b5",
     "probe.py": "1008ed254c63c60269bbb6063b61c7c85e44943fabfd12d320d4327c9448a9a9",
     "seal.py": "9671e34e6895e594d20e6e1800c4899092c2da32ac33af7fecc93e26371bcc95",
@@ -17,54 +17,80 @@
   },
   "arms": {
     "P01": {
-      "artifact_id": 12939129405,
-      "zip_bytes": 204238992,
-      "zip_sha256": "6d92153a2e8a78ce8a4f76ff729f6e1c79a9eb5b282e2f2182839c5bf1823742",
+      "artifact_id": 12942913980,
+      "zip_bytes": 245354640,
+      "zip_sha256": "33b9def3e11c480e4e4b9a7ac2653c7cffbe681e8b38ce763db268ea0e1cc2fc",
       "receipt_name": "campaign-factual-P01.json",
-      "receipt_sha256": "75d812881a712e1e9ab1a6bbfc9bb9d99c9d6ffcf8d9adbe80f3b56471be9285",
+      "receipt_sha256": "7aefb7e94faadec0c586783a76d3094f46a4e64075fa0cf073eec468df293295",
       "encrypted_output": {
         "name": "campaign-factual-P01.tar.crseal",
-        "bytes": 204235791,
-        "sha256": "fbca761a48628662fb877ebc03bf520a6d1835580dc24c447c01af9d84396f3b",
-        "manifest_sha256": "7e44d9260daa61b8cf29119c05f977ee76b2947da20ba03c4efad70d85919374",
+        "bytes": 245351915,
+        "sha256": "5de64c871e52a3b8ec8fd9a688be300f89cc75e08e5ff33a09169ed56bb14778",
+        "manifest_sha256": "141776364aa322b220ef4af13e89dc94b8d72fe1e4470417b4cf8347e599084b",
         "compression": "TAR_GZIP_V1"
       },
-      "run_id": 40968169938,
-      "head": "1a0e0102e8002671458f73abf897dc757a5c044c",
+      "run_id": 40976268622,
+      "head": "f76cb78c64358778c66251f15663d06f76301628",
       "selected_members": {
         "source-bindings.json": {
           "bytes": 61201,
           "sha256": "cbff432d861381735e7bba6ecd79491b059405cde8840cc2d128dbbad85d0b14"
         },
-        "book/month-end/2018-06-29-0651f046728362f1f7740844ced3dcfb0b39a18bc0e855e28706d6b7861229bf.json.gz": {
+        "book/predecessor-checkpoints/0651f046728362f1f7740844ced3dcfb0b39a18bc0e855e28706d6b7861229bf.json.gz": {
           "bytes": 1173265,
           "sha256": "ef7d71a74fd604bbd714ce6f9e7fd69f96d9bff7606c8ead595b4a011edf5b53"
         }
       }
     },
-    "P04": {
-      "artifact_id": 12940036163,
-      "zip_bytes": 118397426,
-      "zip_sha256": "e35731a94b85a12995082ba35c11c30743d06347de537d79306f09bf22dd976c",
-      "receipt_name": "campaign-factual-P04.json",
-      "receipt_sha256": "5135af4399832daec8208960d26308630d1f043110a142a963d02cde839a8346",
+    "P07": {
+      "artifact_id": 12943371555,
+      "zip_bytes": 183418477,
+      "zip_sha256": "1f92495620af0964421cc185b0f49bc133ff32bbafdbce021c7d3533505b9f29",
+      "receipt_name": "campaign-factual-P07.json",
+      "receipt_sha256": "1407b05a6485ddd30fce77004305dd08e05ef788764eaeafb8c68e5619eff2a5",
       "encrypted_output": {
-        "name": "campaign-factual-P04.tar.crseal",
-        "bytes": 118394225,
-        "sha256": "a010cabb1ca82b0212411414947f7c043f10d7868085fd0dd5d61a258c795cf5",
-        "manifest_sha256": "c03f731d05c7d2870a635a30be5f51286f2d6ce214197810a5a2ee8047371947",
+        "name": "campaign-factual-P07.tar.crseal",
+        "bytes": 183415752,
+        "sha256": "c7ccf1f3ee58300cc807ff7d560646c71e5da141f3f44fa0f78a8acf1bcb8e93",
+        "manifest_sha256": "7a0f24eecb50adde5c58d2e91ab9c36f257a0c0978df8d9f041bd47da8eec3ab",
         "compression": "TAR_GZIP_V1"
       },
-      "run_id": 40968169938,
-      "head": "1a0e0102e8002671458f73abf897dc757a5c044c",
+      "run_id": 40976268622,
+      "head": "f76cb78c64358778c66251f15663d06f76301628",
       "selected_members": {
         "source-bindings.json": {
-          "bytes": 61200,
-          "sha256": "6782a458d749d2ef60a7fc7fe99f75b5f0ad32dc67f0b26c8976ad1d5e5a5339"
+          "bytes": 61209,
+          "sha256": "6598c227737d1696c6cd85fb18c15813643933663228c7bfc363efa2e358c27b"
         },
-        "book/month-end/2018-06-29-e93ed6d47b8e7e81b500afc3e7a4ac3218cf06b54f551afdef0b4593cf28c4fc.json.gz": {
-          "bytes": 828373,
-          "sha256": "8b5aeda580cc4a38e1e5698d7c9255916d3e6056e9db223c8dfb67c6154f30cb"
+        "book/predecessor-checkpoints/cb4e67fe5e3e2c8e0a8c181ebc76a54c4ca6b22747dd05a9cb8c225301a41c8a.json.gz": {
+          "bytes": 928162,
+          "sha256": "ae1ce4ffb4e2e305f9df36b95f5f540020ece54f4b3d1c76562d4fba3329ca95"
+        }
+      }
+    },
+    "P02": {
+      "artifact_id": 12943330757,
+      "zip_bytes": 76911771,
+      "zip_sha256": "cafeed4518253de475cbcce57c2fb80689a907efc813b47db8b0ca32c9d48d49",
+      "receipt_name": "campaign-factual-P02.json",
+      "receipt_sha256": "558e66f23b3696ff3b3256a99e4d51d75b28014864d9cd5db4542bda22f5a824",
+      "encrypted_output": {
+        "name": "campaign-factual-P02.tar.crseal",
+        "bytes": 76909047,
+        "sha256": "2c59d20e611efb33243abab6f1e2429c37cefaa02b563f075f0c89be8b8f7746",
+        "manifest_sha256": "b334cee45f34e0581c45a79c38c77a24abd8fa736f475da0c366b844d43d77b6",
+        "compression": "TAR_GZIP_V1"
+      },
+      "run_id": 40976268622,
+      "head": "f76cb78c64358778c66251f15663d06f76301628",
+      "selected_members": {
+        "source-bindings.json": {
+          "bytes": 61203,
+          "sha256": "d426b8258e5c16b401cd22718a290abe2a89f73c42a8ee2a14950f90c6c4a289"
+        },
+        "book/predecessor-checkpoints/1de7b70216729b6c268d477d8d10c7de9ffff1132d6127e2dd4b9972082ff2bf.json.gz": {
+          "bytes": 813255,
+          "sha256": "a0ff9b286640eef5393132074df7f72772e86ecc9a35119f95e35ac6ace67793"
         }
       }
     }
