@@ -153,3 +153,68 @@ financial/controller states, fees, raw-price domains, accounting factors,
 checkpoints and chains against the canonical cold path on hosted compute.
 Do not trade fidelity for throughput or use stale cached state. No local
 financial replay, broker/database contact, main merge or production promotion.
+## Data-driven cash calendar successor, October30,2026
+
+The adopted explicit amendment and its eight-cash loader remain immutable.
+P02 now has an authenticated own August31,2021 checkpoint at923 measured closes;
+the next incomplete term is Translate Bio/TBIO1 on September14. The actual
+merger became effective before that day's market open, so its native date is
+already correct. A blanket next-session shift would introduce a factual error.
+
+Add one reusable, data-driven cash-calendar loader, a separately versioned
+catalog and a hash-bound private witness payload. It produces ordinary canonical
+terminal-repair inputs only, without changing the515 financial-source files.
+The catalog declares actual completion date, confirmed last trading session,
+recognition session and either confirmed preopen completion or the retained
+next-session-after-last-trading convention. Same-native replacement is allowed
+only when native equals actual preopen recognition and the prior frozen trading
+session is the confirmed last trade. Intraday/unspecified-time completions retain
+the explicit next-session convention, not a fabricated preopen completion.
+
+Batch TBIO1/$38 with seven already researched cash completions (MIME/$80,
+CYBE/$54, ATVI/$95, SGEN/$229, SPLK/$157, CBAY/$32.50, AMED/$101).
+Each primary source confirms mandatory common-share consideration. Frozen
+provider aliases and issuer/eligibility metadata are retained, including TBIO1's
+original ticker-change/counterparty rows. Public catalogs contain only identity
+fields, primary terms and source-row hashes, never quote payloads.
+
+The latest own August31 checkpoint is the financial predecessor. The previously
+adopted future projection keeps its original March31 contract, preserved exact
+checkpoint and three private files. Its cutover is not moved to August31.
+Canonical restore and every journal prefix precede any new input; preserve all
+eight raw unsent sessions and the whole477-row interval certificate, seed only
+its469 committed rows, then resume September1. No restart or rollback.
+
+Before advancing, qualify actual source witnesses, alias archive/row hashes,
+all native suppressions and recognition-date packets through cumulative retained
+repairs and the canonical loader/terminal-return implementation. Test original
+incomplete refusal, wrong predecessor, consumed dates, conflicting prior actions
+and changed consideration. A same-day suppression/addition is one exact canonical
+replacement. Preserve every old descriptor/compiler/catalog/payload byte.
+
+New ordinary commitment groups are declared in an explicit registry mapping a
+versioned reference stem to its public catalog, loader and private payload.
+Validate all three byte commitments before adding them to common-basis semantics;
+reject unregistered research references. Adding another factual row need not add
+company-specific code. The existing strict default and historical conflict
+refusal stay intact. Independently restore/review every new checkpoint, retained
+prefix, factor, accounting snapshot, interval decision and common basis.
+
+Measured877-second worker timing identifies packet production137s, Buffer append
+48s, prepare200s and advance285s. Validation/source hashes are small costs;
+do not cache validation verdicts. Exact market-buffer reconstruction is a separate
+candidate under system-optimization-exact-resume-window.md and cannot be selected
+until actual hosted equivalence. All12/full2156/103-month scope stays unchanged;
+PAPER/main/broker/database/shared services remain untouched.
+
+### Retained evidence capacity for the next exact suffix
+
+The authenticated predecessor ZIP is903,616,692bytes and its full prior
+inventory943,334,840bytes. Preserving that ZIP plus a completed financial book
+could exceed the old1GiB export cap. Select a separate bounded exporter for this
+P02 suffix: at most2GiB expanded payload/5000members, unchanged AES-GCM format,
+encrypted Actions destination and seven-day retention. Keep the original1GiB
+exporter unchanged. The current predecessor still satisfies its original1GiB
+admission bound. Export-size growth is evidence retention, not a reason to drop
+ancestors, checkpoints, source preimages or raw tails. Unknown writer/reviewer
+state remains ineligible for a financial snapshot.

@@ -69,6 +69,8 @@ def basis(root, cp, *, amendment=None):
              'UNCERTAINTY_BASIS_EXACT_COMMITTED_AMENDMENT_PAYLOAD')
         factual={**factual,'declared_fact_compilers':{**factual['declared_fact_compilers'],**expected}}
         factual_hash=digest(factual)
+    from system_campaign_ordinary_registry import augment
+    factual=augment(root,cp,factual);factual_hash=digest(factual)
     model_document = deepcopy(uncertainty[0])
     model_document.pop('predecessor_checkpoint_sha256')
     value = dict(schema='research.system-campaign-common-factual-and-uncertainty-basis/1',

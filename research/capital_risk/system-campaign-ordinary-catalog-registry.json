@@ -1,0 +1,12 @@
+{
+  "schema": "research.ordinary-catalog-registry/1",
+  "groups": [
+    {
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar/1/",
+      "catalog_file": "system-campaign-cash-calendar-terminal-facts.json",
+      "loader_file": "system_campaign_cash_calendar.py",
+      "private_file": "hydrated-cash-calendar-terminal-catalog.json",
+      "overlay_file": "cash-calendar-overlay.json"
+    }
+  ]
+}
