@@ -21,6 +21,7 @@ from stage import SECRET, PROTOCOL, IMAGE
 from runtime_identity import EXECUTION_IMAGE
 from seal import sha256_file
 from system_campaign_sprint_facts import fetch_alias
+from system_campaign_support_recovery import hosted_view, SUPPORT
 
 HERE=Path(__file__).resolve().parent
 SOURCES=tuple(dict.fromkeys((*PRIOR,'system_campaign_p02_uncertainty_run.py',
@@ -28,20 +29,27 @@ SOURCES=tuple(dict.fromkeys((*PRIOR,'system_campaign_p02_uncertainty_run.py',
     'system_campaign_uncertainty_archive.py','system_campaign_medicines_facts.py',
     'system-campaign-medicines-terminal-facts.json','system_campaign_arqule_facts.py',
     'system-campaign-arqule-terminal-facts.json','system_campaign_sprint_facts.py',
-    'system-campaign-sprint-terminal-facts.json')))
+    'system-campaign-sprint-terminal-facts.json','system_campaign_support_recovery.py')))
 
 
 def expected_request():
     spec=json.loads((HERE/'system-campaign-p02-uncertainty-predecessor.json').read_bytes())
-    need(spec['arm']=='P02' and spec['run_id']==41086155048
+    need(spec['arm']=='P02' and spec['run_id']==41089567127
          and spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
          and spec['selected_session']=='2020-02-28','UNCERTAINTY_EXACT_SPRINT_OWN_PREDECESSOR')
+    support_file='system-campaign-p02-sprint-support-predecessor.json'
+    support=json.loads((HERE/support_file).read_bytes())
+    need(support['arm']=='P02' and support['run_id']==41080685843 and support['artifact_id']==12989368853
+         and support['outer_sha256']==spec['outer_sha256'] and set(support['support_files'])==set(SUPPORT),
+         'UNCERTAINTY_EXACT_SAME_BOOK_SUPPORT_SOURCE')
     proof=json.loads((HERE/'system-campaign-uncertainty-qualification.json').read_bytes())
     return dict(schema='research.system-p02-uncertainty-suffix-request/1',campaign='system-optimization-002',
         only_candidate='P02',concurrent_candidate_limit=1,
         protocol_sha256=sha256_file(HERE/'system-campaign-search-protocol.json'),
         predecessor_file='system-campaign-p02-uncertainty-predecessor.json',
         predecessor_sha256=sha256_file(HERE/'system-campaign-p02-uncertainty-predecessor.json'),
+        support_predecessor_file=support_file,support_predecessor_sha256=sha256_file(HERE/support_file),
+        support_recovery_min_disk_bytes=14*1024**3,
         execution_mode='SPRINT_FACTUAL_SUFFIX',
         sprint_catalog_sha256=sha256_file(HERE/'system-campaign-sprint-terminal-facts.json'),
         uncertainty_input_descriptor_sha256=spec['uncertainty_input_descriptor_sha256'],
@@ -76,8 +84,14 @@ def main(args):
          'UNCERTAINTY_EXACT_ECONOMIC_STAGING')
     key=base64.b64decode(os.environ.pop(SECRET,''),validate=True);need(len(key)==32,'UNCERTAINTY_KEY')
     temp=Path(os.environ['RUNNER_TEMP']);frozen=temp/'capital-risk-stage-001/inputs'
+    need(shutil.disk_usage(temp).free>=request['support_recovery_min_disk_bytes'],
+         'UNCERTAINTY_SUPPORT_RECOVERY_DISK_BUDGET')
     old=admit(spec,temp/'campaign-factual-transfer-p02-uncertainty-suffix',key,
               max_zip_bytes=request['source_archive_limit_bytes'])
+    out=temp/'p02-uncertainty-financial-output';out.mkdir(mode=0o700)
+    support=json.loads((HERE/request['support_predecessor_file']).read_bytes())
+    old=hosted_view(old,spec,support,out,temp,key,limit=request['source_archive_limit_bytes'])
+    need(all((old/name).is_file() for name in SUPPORT),'UNCERTAINTY_COMPLETE_SUPPORT_BEFORE_WORKER')
     os.environ.pop('GH_TOKEN',None)
     q=old/'independent-review-stop/core-review.json'
     need(sha256_file(q)==spec['review_sha256'],'UNCERTAINTY_ACTUAL_OLD_FINANCIAL_PREFIX_PROOF_BYTES')
@@ -88,7 +102,6 @@ def main(args):
     source=temp/'p02-uncertainty-financial-source'
     binding=build(frozen/'source-fixed',source,json.loads((old/'source-bindings.json').read_bytes())['parameters'])
     need(binding==json.loads((old/'source-bindings.json').read_bytes()),'UNCERTAINTY_EXACT_FINANCIAL_SOURCE_TREE')
-    out=temp/'p02-uncertainty-financial-output';out.mkdir(mode=0o700)
     capture_origin(old,old,out)
     for name,raw in [('source-bindings.json',(old/'source-bindings.json').read_bytes()),
                      ('request.json',args.request.read_bytes()),('spec.json',(HERE/request['predecessor_file']).read_bytes()),

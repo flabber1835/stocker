@@ -353,3 +353,42 @@ unsent tail in lineage/opaque ancestor). Reuse the authenticated original
 provider archive from this stopped branch. Hosted preflight and corrected
 actual-source qualification must pass before any financial session advances.
 PAPER and the fixed trial parameters remain untouched.
+
+
+### Restore missing nonfinancial support after a proven zero-advance failure
+
+Run41089567127 failed before any financial entry because the preceding failed
+branch had no completed common-basis file. The complete dependency check also
+found missing root certificate and correlation streams. The failed source's
+checkpoint gzip and ALL full journal bytes are identical to the independently
+reviewed ArQule book at Feb28/543. Its math certificate still passed before the
+failure. Preserve this second failure and both actual stopped inspections.
+
+Restore only these three missing NONFINANCIAL sidecars from that exact same
+book's authenticated run41080685843/artifact12989368853: common factual/model
+basis, uncertainty certificate, correlation capture. The original failed
+archive and decoded branch stay unchanged. Authenticate the already approved
+encrypted source with its exact run/head/manifest/inventory/source/stop proof;
+require identical book identity, current checkpoint gzip and every FULL journal
+hash/length before forming a separate read-only staged evidence view. Hardlink
+unchanged current files into that new view; copy only absent named sidecars.
+Never replace existing current evidence, checkpoint bytes, balances, input
+identity or journal tails, and refuse if the source book/prefix differs.
+This is support-record recovery, not a financial rollback or a new book.
+
+Keep the exact current failed branch as the physical encrypted ancestor. Store
+explicit per-file original/recovered provenance and a slim exact support copy
+in the new encrypted output before qualification. Existing financial preflight,
+strict certificate/chain verification and correlation-prefix checks run on the
+self-contained read-only input view before any advance. They filter source
+uncommitted sidecar rows at the current checkpoint and preserve the full source
+streams/tails. No representative valuation, row or financial state is invented.
+A completed common-basis result is still produced only by a successful actual
+independent review. If recovery cannot prove identity or a required sidecar is
+absent, refuse; never silently choose an older financial checkpoint.
+
+Use this bounded recovery only when required sidecars are missing; normal
+complete admitted outputs use their own files. The only additional hosted
+transfer is the already approved encrypted same-book source. Financial source,
+profile, controller, protocol and ordinary Sprint terms remain unchanged.
+PAPER/main/broker/database are untouched.

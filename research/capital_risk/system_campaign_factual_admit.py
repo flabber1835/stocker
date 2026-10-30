@@ -169,7 +169,7 @@ def prove_review_refusal(spec,inventory,root):
 def prove_unadvanced(spec,inventory,root):
     """Refuse any unexpected progress instead of adopting an earlier checkpoint."""
     kind=spec.get('unadvanced_failure_kind','QUALIFIER_PARTIAL_PACKET')
-    if kind=='SPRINT_PACKET_DAY_FIELD':
+    if kind in ('SPRINT_PACKET_DAY_FIELD','SPRINT_RETAINED_BASIS_FILE'):
         prove_unadvanced_sprint_packet(spec,inventory,root);return
     if kind=='ALDER_PACKET_DAY_FIELD':
         prove_unadvanced_alder_packet(spec,inventory,root);return
@@ -263,9 +263,12 @@ def prove_unadvanced_buffer_constructor(spec,inventory,root):
 
 
 def prove_unadvanced_sprint_packet(spec,inventory,root):
+    kind=spec.get('unadvanced_failure_kind')
     need(spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
          and spec['unadvanced_receipt_status']=='STOPPED_P02_UNCERTAINTY_PREFIX_PRESERVED'
-         and spec['arm']=='P02' and spec['run_id']==41086155048 and spec['selected_session']=='2020-02-28'
+         and ((kind=='SPRINT_PACKET_DAY_FIELD' and spec['run_id']==41086155048)
+              or (kind=='SPRINT_RETAINED_BASIS_FILE' and spec['run_id']==41089567127))
+         and spec['arm']=='P02' and spec['selected_session']=='2020-02-28'
          and spec['outer_sha256']=='04dbed001c745fa04aaa5a28320911a6a7ac3eb1cbfc2b418a42dadfaa5fcb0a',
          'SPRINT_PACKET_FAILURE_EXACT_DECLARED_SCOPE')
     need(inventory['book/checkpoint.json.gz']==spec['selected_file']==spec['unadvanced_original_selected_file']
@@ -278,9 +281,16 @@ def prove_unadvanced_sprint_packet(spec,inventory,root):
     need(inventory['lineage/verified-ancestor.zip']=={'bytes':ancestor['zip_bytes'],'sha256':ancestor['zip_sha256']}
          and ancestor['zip_sha256']==spec['unadvanced_complete_ancestor_zip_sha256'],'SPRINT_PACKET_FAILURE_EXACT_ANCESTOR')
     worker=(root/'economic-worker.log').read_bytes();review=(root/'independent-review-stop/worker.log').read_bytes()
+    if kind=='SPRINT_RETAINED_BASIS_FILE':
+        need(not any(n in inventory for n in ('common-factual-and-uncertainty-basis.json',
+             'uncertainty-certificate.jsonl','correlation-inputs.jsonl.gz','sprint-input-overlay.json'))
+             and b"FileNotFoundError: [Errno 2] No such file or directory: '/old/common-factual-and-uncertainty-basis.json'" in worker,
+             'SPRINT_BASIS_FAILURE_EXACT_MISSING_SUPPORT_BEFORE_INPUT_SUCCESSOR')
+    else:
+        need(b'facts.qualify(loaded' in worker and b'packet.session' in worker
+             and b"AttributeError: 'Packet' object has no attribute 'session'" in worker,
+             'SPRINT_PACKET_FAILURE_EXACT_SCHEMA_ERROR')
     need(hashlib.sha256(worker).hexdigest()==spec['unadvanced_worker_log_sha256']
-         and b'facts.qualify(loaded' in worker and b'packet.session' in worker
-         and b"AttributeError: 'Packet' object has no attribute 'session'" in worker
          and hashlib.sha256(review).hexdigest()==spec['unadvanced_reviewer_log_sha256']
          and b'REFUSED_FULL_SYSTEM_FACTUAL_EXACT_RECOVERED_TAIL' in review,'SPRINT_PACKET_FAILURE_EXACT_PRE_FINANCIAL_LOGS')
     for name in ('old-branch-canonical-review.json','independent-review-stop/core-review.json'):

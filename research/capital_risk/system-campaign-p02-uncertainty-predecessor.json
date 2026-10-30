@@ -1,20 +1,20 @@
 {
   "arm": "P02",
-  "artifact_id": 12991028902,
-  "zip_bytes": 486638970,
-  "zip_sha256": "7cd2dacbb378ff51dc965bd5abcb89a1dfb60b58bfb43efd049e148047dad1ef",
+  "artifact_id": 12993920969,
+  "zip_bytes": 516869026,
+  "zip_sha256": "b13822b0be2f781901f3f83692357ed96843cf2aad241ff189fb97d0963a4859",
   "receipt_name": "p02-uncertainty.json",
-  "receipt_sha256": "4d427adf5ede3a2421402d464ebe7cc31136b7c25d8bae04ae7cfabcdaee3525",
+  "receipt_sha256": "4ca860d54f56e1a6ff1cc59491873d24ecc8a15789d427b28df2afb630052e04",
   "receipt_schema": "research.system-p02-uncertainty-suffix-receipt/1",
-  "run_id": 41086155048,
-  "head": "7457cdc5ee44cfbb3e9af86d9f6f916ddf3b88ed",
-  "request_sha256": "41637920f0e77e42fa7d3e35dbce6da2358b507c9f40d0d7c20f2861bacf4b70",
+  "run_id": 41089567127,
+  "head": "0c6dc7d69e43bd9ea37948c26fc1b40f7b183429",
+  "request_sha256": "baf3e5c05f1301f59334f186ac2777cc570a4bde2932689fe1f59f13254faa79",
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
   "encrypted_output": {
     "name": "p02-uncertainty.tar.crseal",
-    "bytes": 486635656,
-    "sha256": "bee7e4726de059dd5b1a817925b4ec87dd2622029974c0b991ba1e8e970b0714",
-    "manifest_sha256": "5756f4d9956ee141714bf6e880a24fa7b48ee8dc2dd55e46f3085f2de3bea9f9",
+    "bytes": 516865712,
+    "sha256": "df38b6a44a34e732e14a8235fd7a52171d8d938c093a85847e04804e3f64dd87",
+    "manifest_sha256": "66dae7648afc7ef4125d13db65b1a83c67ec292a5c318edf6bbaea5e1a0e2f94",
     "compression": "TAR_GZIP_V1"
   },
   "stage": "campaign-factual-suffix",
@@ -400,22 +400,22 @@
   "review_sha256": "2434d3acf8a846c41ae87148e714ee5e82ededfee254a274c35854a6ac60efed",
   "inspections": {
     "economic-worker-inspect.json": {
-      "sha256": "f64dd0852f12eaef38363146204cd999ee0d228be13bd1beba1ee0f2368cac18",
-      "name": "/capital-system-factual-p02-worker-41086155048-1",
-      "id": "5cc20cb0298b5e8e8a732ce9daa11bc327c364deffc1f0120416d8bdeb81f11f",
+      "sha256": "ab7ff2f88603f0e7f40745e49483bfe4bd460b36057185496de50d9435087db4",
+      "name": "/capital-system-factual-p02-worker-41089567127-1",
+      "id": "fab8a4d787379e3747f31304400b33fb4a4233cfe4d5c3885617f2c05b4f097a",
       "exit_code": 1
     },
     "independent-review-stop/worker-inspect.json": {
-      "sha256": "d21167fab59124d5b7a9820302322b452bcbb4e3cde4ae0a9450136a91b491d0",
-      "name": "/capital-system-factual-p02-review-41086155048-1",
-      "id": "ac36913b059ebbe11f349554f28c6f46f04e4526d5181c42d6ae4ce60381136a",
+      "sha256": "3eb7611810afc408e8751f05adf288080f81f3851a18f6213df3fc8bf369775e",
+      "name": "/capital-system-factual-p02-review-41089567127-1",
+      "id": "a4706c6a2a2366c2fd5dfa6ef2ecfd38a75fd1c1f605b9a0da42d74cd1dee07e",
       "exit_code": 1
     }
   },
   "uncertainty_input_descriptor_sha256": "a41ff4867c1bd48284f0573eff648946f943727310d5879f681de449498e7809",
   "selected_measured_closes": 543,
   "unadvanced_qualification_failure": true,
-  "unadvanced_failure_kind": "SPRINT_PACKET_DAY_FIELD",
+  "unadvanced_failure_kind": "SPRINT_RETAINED_BASIS_FILE",
   "unadvanced_receipt_status": "STOPPED_P02_UNCERTAINTY_PREFIX_PRESERVED",
   "unadvanced_original_selected_file": {
     "bytes": 834923,
@@ -439,11 +439,11 @@
       "sha256": "b0a70d3ddfaf199723ceb07adc1cc6e0d2a14f624c4967a27fc6d13b43e4baeb"
     }
   },
-  "unadvanced_complete_ancestor_zip_sha256": "dca55422ae40bed9cb63bca6e1c272ccd3f6e2533ad6c75dc464fc2d14594fcd",
-  "unadvanced_worker_log_sha256": "69615221db5fe9207488a77b1c1e7755a1a90fe4d7046a9287339c4238f9ec8b",
+  "unadvanced_complete_ancestor_zip_sha256": "7cd2dacbb378ff51dc965bd5abcb89a1dfb60b58bfb43efd049e148047dad1ef",
+  "unadvanced_worker_log_sha256": "1cec2684bc3fa96b7dfd7458c2c6e44959b95cbc68957e9c987aaf996e38a2be",
   "unadvanced_reviewer_log_sha256": "8a8da6b84f81639ba455c1b7f7a15ed49328a8b5819108d56352fc0fbfb2277a",
   "unadvanced_prefix_reviews": {
-    "old-branch-canonical-review.json": "89f5e15e7d76fd4255c859a5776dc2b17577333144a653ed076d721ace9a538c",
+    "old-branch-canonical-review.json": "2434d3acf8a846c41ae87148e714ee5e82ededfee254a274c35854a6ac60efed",
     "independent-review-stop/core-review.json": "2434d3acf8a846c41ae87148e714ee5e82ededfee254a274c35854a6ac60efed"
   },
   "unadvanced_certificate_review_sha256": "8f231eda43afa9c3ad557ea68799043603188defea14004a84c3c7b06683d38b"

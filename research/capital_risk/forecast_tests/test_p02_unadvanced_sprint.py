@@ -42,3 +42,25 @@ def test_exact_failure_cannot_be_substituted_or_old_interval_unproved(tmp_path):
     spec,inventory=fixture(tmp_path);p=tmp_path/'old-uncertainty-certificate-review.json';v=json.loads(p.read_bytes());v['financial_path_invariant_over_declared_sensor_interval']=False;p.write_text(json.dumps(v))
     spec['unadvanced_certificate_review_sha256']=hashlib.sha256(p.read_bytes()).hexdigest()
     with pytest.raises(ValueError,match='RETAINED_INTERVAL_PROOF'):module.prove_unadvanced(spec,inventory,tmp_path)
+
+
+def basis_fixture(tmp_path):
+    spec,inventory=fixture(tmp_path)
+    spec.update(run_id=41089567127,unadvanced_failure_kind='SPRINT_RETAINED_BASIS_FILE')
+    raw=b"FileNotFoundError: [Errno 2] No such file or directory: '/old/common-factual-and-uncertainty-basis.json'\n"
+    (tmp_path/'economic-worker.log').write_bytes(raw)
+    spec['unadvanced_worker_log_sha256']=hashlib.sha256(raw).hexdigest()
+    return spec,inventory
+
+
+def test_exact_missing_support_failure_admitted_only_without_advancement(tmp_path):
+    spec,inventory=basis_fixture(tmp_path);module.prove_unadvanced(spec,inventory,tmp_path)
+    bad={**inventory,'book/daily.jsonl':{'bytes':12,'sha256':'b'*64}}
+    with pytest.raises(ValueError,match='NO_FINANCIAL_ADVANCEMENT'):module.prove_unadvanced(spec,bad,tmp_path)
+
+
+@pytest.mark.parametrize('name',('common-factual-and-uncertainty-basis.json',
+    'uncertainty-certificate.jsonl','correlation-inputs.jsonl.gz','sprint-input-overlay.json'))
+def test_missing_support_failure_cannot_hide_new_inputs_or_recovered_evidence(tmp_path,name):
+    spec,inventory=basis_fixture(tmp_path);inventory[name]={'bytes':0,'sha256':'f'*64}
+    with pytest.raises(ValueError,match='EXACT_MISSING_SUPPORT'):module.prove_unadvanced(spec,inventory,tmp_path)
