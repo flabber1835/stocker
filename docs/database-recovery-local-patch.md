@@ -171,3 +171,22 @@ software receipt's former unconditional green-page requirement. Qualify the
 executed final reader against the real typed source row, its negative/current
 mismatch variants, other warnings and original expiry, including removal of the
 typed-flag guard.
+
+## Canonical backed runtime metadata boundary
+
+Decision: 2026-10-30, before implementation. A canonical ACTIVE deployment has
+its immutable activation receipt and backed handoff build/journal, rather than
+the archive-off installer's `local-delivery.json`. Do not fabricate that legacy
+file. When it is truly absent, the backed host may install only the qualified
+candidate runtime environment after validating its exact build/request and
+authenticated ACTIVE predecessor chain under the existing complete native
+ownership locks. Missing ownership, changed anchors, symlinks or malformed
+existing metadata refuse before any environment write. A present ordinary
+archive metadata file retains the existing install/update behavior.
+
+Use the same literal round-trip and same-directory atomic environment replace,
+including file and directory fsync. Preserve every non-runtime value. An exact
+candidate environment is an idempotent replay after a lost host acknowledgement;
+other states refuse. Record this separately as qualified host-tool provenance,
+preserving the already-qualified application source, image, request, journal,
+financial controls and original finite handoff deadline.
