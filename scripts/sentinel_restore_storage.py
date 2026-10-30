@@ -16,7 +16,6 @@ import sys
 import uuid
 
 from sentinel_maintenance_process import run_bounded
-from sentinel_phase_records import publish_immutable
 
 KEYS = ("SENTINEL_RESTORE_SCRATCH_ROOT", "SENTINEL_RESTORE_SCRATCH_UUID",
         "SENTINEL_RESTORE_SCRATCH_DOCKER_ROOT")
@@ -419,6 +418,8 @@ def _receipt_target(scratch, receipt):
 
 def recover(scratch, name, receipt):
     """Explicitly close one legacy attempt after verified device renumbering."""
+    from sentinel_phase_records import publish_immutable
+
     _recovery_lock(scratch.backup_root)
     require(scratch.recovery_volume == name, "legacy scratch recovery target was not admitted")
     output = _receipt_target(scratch, receipt)

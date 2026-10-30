@@ -330,6 +330,27 @@ def test_host_storage_module_retains_python38_syntax():
     ast.parse((ROOT / "scripts/sentinel_restore_storage.py").read_text(), feature_version=(3, 8))
 
 
+def test_runtime_media_manifest_keeps_ordinary_capacity_import_independent_of_recovery(tmp_path):
+    import re
+    import shlex
+    import shutil
+
+    source = (ROOT / "scripts/test-backup-runtime-media.sh").read_text()
+    match = re.search(r"for name in (.*?); do", source, flags=re.S)
+    assert match is not None
+    names = shlex.split(match[1].replace("\\\n", " "))
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    for name in names:
+        assert Path(name).name == name
+        shutil.copyfile(ROOT / "scripts" / name, scripts / name)
+    result = subprocess.run(
+        [sys.executable, "-B", "-I", "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+         "import sentinel_storage_capacity; assert 'sentinel_phase_records' not in sys.modules",
+         str(scripts)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+
+
 def captured_device_change(scratch, *, legacy=False):
     """A prior boot captured another device number, with all inodes intact."""
     storage.prepare(scratch, VOLUME)
@@ -467,13 +488,13 @@ def test_explicit_legacy_recovery_preserves_original_evidence_before_exact_clean
     context = recovery_context(scratch, monkeypatch)
     handles, events = owned_cleanup_model(context, monkeypatch, original=original)
     receipt = tmp_path / "recovery-admission.json"
-    publish = storage.publish_immutable
+    from sentinel_phase_records import publish_immutable as publish
     def observed_publish(path, document):
         assert not any(event.startswith("remove:") for event in events)
         assert owner.read_bytes() == raw
         publish(path, document)
         events.append("admission-published")
-    monkeypatch.setattr(storage, "publish_immutable", observed_publish)
+    monkeypatch.setattr("sentinel_phase_records.publish_immutable", observed_publish)
     result = storage.recover(context, VOLUME, receipt)
     evidence = json.loads(receipt.read_bytes())
     assert base64.b64decode(evidence["original_owner_base64"], validate=True) == raw
@@ -519,7 +540,7 @@ def test_legacy_recovery_refusals_do_not_remove_any_handle_or_payload(scratch, m
         data.symlink_to(owner.parent / "old-data", target_is_directory=True)
     else:
         def refuse_publish(*_args): raise OSError("receipt publication refused")
-        monkeypatch.setattr(storage, "publish_immutable", refuse_publish)
+        monkeypatch.setattr("sentinel_phase_records.publish_immutable", refuse_publish)
     with pytest.raises((storage.Refused, OSError)):
         storage.recover(context, VOLUME, tmp_path / "never-cleaned.json")
     assert not events and owner.read_bytes() == raw
