@@ -549,6 +549,11 @@ def test_omitting_actual_deployment_go_lock_has_a_real_flock_falsifier(tmp_path,
         and len(node.elts)==2 and isinstance(node.elts[1],ast.Starred)]
     assert len(subjects)==1
     subjects[0].elts=subjects[0].elts[1:]
+    supers=[node for node in ast.walk(tree) if isinstance(node,ast.Call)
+        and isinstance(node.func,ast.Name) and node.func.id=='super'
+        and not node.args and not node.keywords]
+    assert len(supers)==1
+    supers[0].args=[ast.Name(id='BackedHost',ctx=ast.Load()),ast.Name(id='self',ctx=ast.Load())]
     namespace={}
     exec(compile(ast.fix_missing_locations(tree),'missing-actual-deployment-go-lock','exec'),
         vars(patch),namespace)
