@@ -98,11 +98,13 @@ EDGE_EVIDENCE = {
         "tests/scripts/test_sentinel_reviewed_deploy_gate.py",
     ),
     "pointer_to_panel": (
+        "tests/production_composition/test_runtime_handoff_atomicity.py",
         "tests/production_composition/test_operator_entry_process.py",
         "tests/scripts/test_sentinel_reviewed_deploy_gate.py",
         "tests/scripts/test_sentinel_bringup_entrypoint.py",
     ),
     "panel_to_handoff": (
+        "tests/production_composition/test_runtime_handoff_atomicity.py",
         "tests/production_composition/test_operator_entry_process.py",
         "tests/scripts/test_sentinel_reviewed_deploy_gate.py",
     ),

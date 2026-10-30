@@ -254,10 +254,12 @@ class Archive:
         self.checksum = self.namespace / f"{self.name}.sha256"
         self.bin = root / "bin"
         self.bin.mkdir()
-        self.env = {"PATH": os.environ["PATH"], "LANG": "C", "LC_ALL": "C"}
+        from fsync_adapter import install
+        self.baseline_path = install(root / "native-fsync", os.environ["PATH"])
+        self.env = {"PATH": self.baseline_path, "LANG": "C", "LC_ALL": "C"}
 
     def fault(self, command: str, phase: str, mode: str):
-        original = shutil.which(command)
+        original = shutil.which(command, path=self.baseline_path)
         assert original
         wrapper = self.bin / command
         wrapper.write_text(f"#!{sys.executable}\n" + (
@@ -284,10 +286,10 @@ class Archive:
             "sys.exit(74)\n"
         ))
         wrapper.chmod(0o755)
-        self.env["PATH"] = f"{self.bin}{os.pathsep}{os.environ['PATH']}"
+        self.env["PATH"] = f"{self.bin}{os.pathsep}{self.baseline_path}"
 
     def clear(self):
-        self.env["PATH"] = os.environ["PATH"]
+        self.env["PATH"] = self.baseline_path
 
     def command(self):
         return ["sh", str(ROOT / "scripts/sentinel-archive-wal.sh"),
