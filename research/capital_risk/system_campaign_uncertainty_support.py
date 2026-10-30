@@ -34,6 +34,6 @@ def retained(cp, old, out):
         need(sha((out / a).read_bytes()) == sha((out / b).read_bytes()),
              'UNCERTAINTY_IDENTICAL_RETAINED_PACKET_HYDRATION')
     item, value = descriptor
-    loaded = load_repair(old / 'book/repairs' / item['filename'], resume_session=cp['source_cursor'],
+    loaded = load_repair(old / 'book/repairs' / item['filename'], resume_session=item['resume_session'],
                          predecessor_checkpoint_sha256=value['predecessor_checkpoint_sha256'])
     return v1, spin, alder, loaded

@@ -134,7 +134,35 @@ and input roundtrip, preserved old gzip and all recovered tails. The candidate
 gate output is a distinct qualification lineage, never a relabelled completed
 financial run. Qualify the actual typed codec and gateway with owned/pending,
 wrong-predecessor, consumed-event and ambiguity falsifiers before any economic
-continuation. No such integration run has yet been dispatched.
+continuation. Gate41066166617/d089848d has now passed and its actual encrypted
+artifact12983555299 was independently authenticated: all 99 driver blobs, 79
+inventory members, stopped worker/fences, the unchanged financial/controller
+state and prefixes, 1,130 accounting snapshots and the exact 513,149-byte tail.
+Its new checkpoint is still September30,2019/439 measured closes. The typed
+input, gateway refusal cases and actual synthetic journal restart passed. This
+admits the input successor, not historical interval invariance or performance.
+
+The subsequent economic suffix must resume the gate's own newly committed
+checkpoint, retain all 16 factual groups plus the interval contract and use the
+same 515 financial source files and P02 parameters. Do not attach the uncertainty
+overlay again. Restore old repair objects with each descriptor's original
+`resume_session` and predecessor, as the canonical replay does; the current
+financial cursor is not an old repair's admission cursor.
+
+The economic worker retains the original own origin, all opaque ancestors,
+correlation prefix and recovered tails. It runs the same canonical transitions
+with the certified sensor context and watch-bound certificate. A separate
+stopped-evidence reviewer checks accounting, every historical checkpoint, all
+financial/watch prefixes, the certificate's complete committed axis and
+inductive controller decisions. Retain any later failure and unaffected prefix.
+Only full 2,156-close/103-month reviewed evidence may be scored.
+
+Keep the original strict factual-basis verifier for ordinary action documents.
+A separate explicit basis may compose that unchanged factual basis with exactly
+one independently validated uncertainty contract. Reject every other schema;
+never silently filter an unknown repair or compare differing model assumptions
+as matched results. Previously completed references remain preserved, but
+comparability still requires a qualified common factual/model basis across arms.
 
 Primary evidence:
 
