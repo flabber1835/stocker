@@ -1,0 +1,321 @@
+{
+  "schema": "research.system-campaign-2021-completions-facts/1",
+  "terms": [
+    {
+      "ticker": "WPX",
+      "security_id": "993356691887576902",
+      "native_session": "2021-01-06",
+      "native_term_sha256": "457c96c2ef3e941e99f23d23570fc5ebf7b74adc1526b3758a6f9ddf6b2f71e3",
+      "identity_witness": {
+        "session": "2021-01-05",
+        "security_id": "993356691887576902",
+        "ticker": "WPX",
+        "issuer_id": "SEC_CIK:1518832",
+        "listing_first_session": "2011-12-12",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "d731c77488b14362fdb100925770222a0c8adbb4185e387dd5e9ef28717da2b8"
+      },
+      "last_trading_session": "2021-01-06",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1518832/000110465921002045/tm2039568d3_8k.htm",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/876661/000087666121000020/ruleprovisionnotice.htm",
+      "description": "Completed mandatory common-share transaction before open on2021-01-07; preserve2021-01-06 trading and exact frozen source classifications.",
+      "added": {
+        "session": "2021-01-07",
+        "security_id": "993356691887576902",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1518832/000110465921002045/tm2039568d3_8k.htm | Completed mandatory common-share transaction before open on2021-01-07; preserve2021-01-06 trading and exact frozen source classifications.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 0.0,
+        "exchange_ratio": 0.5165,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": "603027491965685418",
+        "delivered_ticker": "DVN",
+        "delivered_issuer_id": "SEC_CIK:1090012"
+      },
+      "delivered_identity_witness": {
+        "session": "2021-01-07",
+        "security_id": "603027491965685418",
+        "ticker": "DVN",
+        "issuer_id": "SEC_CIK:1090012",
+        "listing_first_session": "1997-12-31",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "3a84ba8df7b79307782ad09382ed486264bf5d1871f9d6a488a4e376b8a4d12a"
+      }
+    },
+    {
+      "ticker": "BEAT1",
+      "security_id": "67573316626643986",
+      "native_session": "2021-02-08",
+      "native_term_sha256": "61ae8c758f78cf78e5ba10830395ff7bfc4c3f247f8235a44bd28854b3791370",
+      "identity_witness": {
+        "session": "2021-02-05",
+        "security_id": "67573316626643986",
+        "ticker": "BEAT1",
+        "issuer_id": "SEC_UNKNOWN:67573316626643986",
+        "listing_first_session": "2008-03-19",
+        "security_type_eligible": "0",
+        "source_observation_sha256": "97f2e6aadcd65e8c7b2ae66364e1c401be03ce8086682661f2cdfe924e8c5145"
+      },
+      "last_trading_session": "2021-02-08",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1574774/000119312521034268/d91269d8k.htm",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2021-16",
+      "description": "Completed mandatory common-share transaction before open on2021-02-09; preserve2021-02-08 trading and exact frozen source classifications.",
+      "added": {
+        "session": "2021-02-09",
+        "security_id": "67573316626643986",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1574774/000119312521034268/d91269d8k.htm | Completed mandatory common-share transaction before open on2021-02-09; preserve2021-02-08 trading and exact frozen source classifications.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 72.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      },
+      "provider_alias_proof": {
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "archive_bytes": 9855560,
+        "ticker": "BEAT1",
+        "original_ticker": "BEAT",
+        "company": "BIOTELEMETRY INC",
+        "counterparty_ticker": "PHG",
+        "counterparty_name": "KONINKLIJKE PHILIPS NV",
+        "session": "2021-02-08",
+        "selected_row_sha256": [
+          "a943a5db8b5f0368906006d92d9461d5bb59e5fa822390b0eb99eb9ccfc2291d",
+          "d30fccfedf2eb729f5a0ccfdd58c572a42a2145765e5a43207c25d7f74eff664",
+          "09165707d80ede62cddbe4a4e686d5a1a851827be185d3a2b7c75c5add2ea6b9",
+          "f370f968b66fe0caff1edeb61f3cc6253e420df55f414765a4a8360915ebe4f9",
+          "d4e9013b0f1463d99a98debc8eb9557ef6d66046961ecd23a693ad47c54605da"
+        ],
+        "rows_sha256": "70edd4731f9296c975a93bb10d77f6a1ce845b6a026e00e4d7e6ab9b7c05d07f"
+      }
+    },
+    {
+      "ticker": "MIK",
+      "security_id": "350829412574453923",
+      "native_session": "2021-04-14",
+      "native_term_sha256": "92b5b048e834f32ec0b4b8679cbace152ec986b064e5d0637c80a937ea472202",
+      "identity_witness": {
+        "session": "2021-04-13",
+        "security_id": "350829412574453923",
+        "ticker": "MIK",
+        "issuer_id": "SEC_CIK:1593936",
+        "listing_first_session": "2014-06-27",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "8abc5a8b0d0f62863a693cf3a7183cadb7716bbac91be7df1d35b7d7071a7f3c"
+      },
+      "last_trading_session": "2021-04-14",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1593936/000119312521117263/d145352d8k.htm",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2021-60",
+      "description": "Completed mandatory common-share transaction pays gross22.00USD per eligible share before market open on2021-04-15. Preserve2021-04-14 trading and all frozen source classifications.",
+      "added": {
+        "session": "2021-04-15",
+        "security_id": "350829412574453923",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1593936/000119312521117263/d145352d8k.htm | Completed mandatory common-share transaction pays gross22.00USD per eligible share before market open on2021-04-15. Preserve2021-04-14 trading and all frozen source classifications.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 22.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      }
+    },
+    {
+      "ticker": "VAR",
+      "security_id": "258412215698403601",
+      "native_session": "2021-04-14",
+      "native_term_sha256": "a184b667de19c35ba2c9a3ba3e1b80e0e132ef9c20d6bae283ef5d5644fde7d8",
+      "identity_witness": {
+        "session": "2021-04-13",
+        "security_id": "258412215698403601",
+        "ticker": "VAR",
+        "issuer_id": "SEC_CIK:203527",
+        "listing_first_session": "1997-12-31",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "5ccfe907847c45fa7582d0b54c45e6ce1540d5d6cd4497b5caad8dc0dbdd4da7"
+      },
+      "last_trading_session": "2021-04-14",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/203527/000119312521117256/d171798d8k.htm",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=48577",
+      "description": "Completed mandatory common-share transaction pays gross177.50USD per eligible share before market open on2021-04-15. Preserve2021-04-14 trading and all frozen source classifications.",
+      "added": {
+        "session": "2021-04-15",
+        "security_id": "258412215698403601",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/203527/000119312521117256/d171798d8k.htm | Completed mandatory common-share transaction pays gross177.50USD per eligible share before market open on2021-04-15. Preserve2021-04-14 trading and all frozen source classifications.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 177.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      }
+    },
+    {
+      "ticker": "NAV",
+      "security_id": "515332170991709358",
+      "native_session": "2021-06-30",
+      "native_term_sha256": "87224dc2937f8eba47e669e77e4f4ad676c56da6102f9975987482009709b621",
+      "identity_witness": {
+        "session": "2021-06-29",
+        "security_id": "515332170991709358",
+        "ticker": "NAV",
+        "issuer_id": "SEC_CIK:808450",
+        "listing_first_session": "1997-12-31",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "9a69687b778668530f3a9c9140abf32958e4a6c1489bf4499e4f5182b9a52946"
+      },
+      "last_trading_session": "2021-06-30",
+      "primary_source": "https://d18rn0p25nwr6d.cloudfront.net/CIK-0000808450/36edd933-a4be-4d7c-94f7-969619fa3b93.pdf",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=48931",
+      "description": "Completed mandatory common-share transaction pays gross44.50USD per eligible share before market open on2021-07-01. Preserve2021-06-30 trading and all frozen source classifications.",
+      "added": {
+        "session": "2021-07-01",
+        "security_id": "515332170991709358",
+        "kind": "CASH_MERGER",
+        "reference": "https://d18rn0p25nwr6d.cloudfront.net/CIK-0000808450/36edd933-a4be-4d7c-94f7-969619fa3b93.pdf | Completed mandatory common-share transaction pays gross44.50USD per eligible share before market open on2021-07-01. Preserve2021-06-30 trading and all frozen source classifications.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 44.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      }
+    },
+    {
+      "ticker": "WORK",
+      "security_id": "753795210944150814",
+      "native_session": "2021-07-20",
+      "native_term_sha256": "c14243b48f1f69a67752c093015abd9f415c235fe78c0802383c961b3600891b",
+      "identity_witness": {
+        "session": "2021-07-19",
+        "security_id": "753795210944150814",
+        "ticker": "WORK",
+        "issuer_id": "SEC_CIK:1764925",
+        "listing_first_session": "2019-06-20",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "302dbc40cd5717416da512de79a4818c197f9f632eb4f1774a4f73022c606c12"
+      },
+      "last_trading_session": "2021-07-20",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1764925/000119312521220234/d171429d8k.htm",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=49013",
+      "description": "Completed mandatory common-share transaction before open on2021-07-21; preserve2021-07-20 trading and exact frozen source classifications.",
+      "added": {
+        "session": "2021-07-21",
+        "security_id": "753795210944150814",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1764925/000119312521220234/d171429d8k.htm | Completed mandatory common-share transaction before open on2021-07-21; preserve2021-07-20 trading and exact frozen source classifications.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 26.79,
+        "exchange_ratio": 0.0776,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": "344177561147922007",
+        "delivered_ticker": "CRM",
+        "delivered_issuer_id": "SEC_CIK:1108524"
+      },
+      "delivered_identity_witness": {
+        "session": "2021-07-21",
+        "security_id": "344177561147922007",
+        "ticker": "CRM",
+        "issuer_id": "SEC_CIK:1108524",
+        "listing_first_session": "2004-06-23",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "70753ee913170ae7225f51d3954c0700ade85cb67dc8fceeecf968407ff802eb"
+      }
+    },
+    {
+      "ticker": "HOME",
+      "security_id": "914962085458002202",
+      "native_session": "2021-07-22",
+      "native_term_sha256": "7d3c8178c314fbdc8ae67722803989e46fa94e91c9843a2fe15602bd2823ac97",
+      "identity_witness": {
+        "session": "2021-07-21",
+        "security_id": "914962085458002202",
+        "ticker": "HOME",
+        "issuer_id": "SEC_CIK:1646228",
+        "listing_first_session": "2016-08-04",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "a4455778e7fbd21b46e441007100efe308f1d921cca190eed01884062db31094"
+      },
+      "last_trading_session": "2021-07-22",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1646228/000110465921095264/tm2122752d3_8k.htm",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=49025",
+      "description": "Completed mandatory common-share transaction pays gross37.00USD per eligible share before market open on2021-07-23. Preserve2021-07-22 trading and all frozen source classifications.",
+      "added": {
+        "session": "2021-07-23",
+        "security_id": "914962085458002202",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1646228/000110465921095264/tm2122752d3_8k.htm | Completed mandatory common-share transaction pays gross37.00USD per eligible share before market open on2021-07-23. Preserve2021-07-22 trading and all frozen source classifications.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 37.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      }
+    },
+    {
+      "ticker": "TRIL1",
+      "security_id": "1119755750402433659",
+      "native_session": "2021-11-16",
+      "native_term_sha256": "5057f8ad3fa88626ef5f2898847655a461bc8cea4c2d09270e199716b365dd43",
+      "identity_witness": {
+        "session": "2021-11-15",
+        "security_id": "1119755750402433659",
+        "ticker": "TRIL1",
+        "issuer_id": "SEC_UNKNOWN:1119755750402433659",
+        "listing_first_session": "2013-04-01",
+        "security_type_eligible": "0",
+        "source_observation_sha256": "0645e6c2ecd8974a0ab2428a6b19f90e91b8cbd182bfbf4012ede4aca98a5b2f"
+      },
+      "last_trading_session": "2021-11-16",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1616212/000110465921140375/tm2133223d1_8k.htm",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=49598",
+      "description": "Completed mandatory common-share transaction pays gross18.50USD per eligible share before market open on2021-11-17. Preserve2021-11-16 trading and all frozen source classifications.",
+      "added": {
+        "session": "2021-11-17",
+        "security_id": "1119755750402433659",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1616212/000110465921140375/tm2133223d1_8k.htm | Completed mandatory common-share transaction pays gross18.50USD per eligible share before market open on2021-11-17. Preserve2021-11-16 trading and all frozen source classifications.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 18.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      },
+      "provider_alias_proof": {
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "archive_bytes": 9855560,
+        "ticker": "TRIL1",
+        "original_ticker": "TRIL",
+        "company": "TRILLIUM THERAPEUTICS INC",
+        "counterparty_ticker": "PFE",
+        "counterparty_name": "PFIZER INC",
+        "session": "2021-11-16",
+        "selected_row_sha256": [
+          "5f35f1af49fbd824e055347d152043c35d377990155b3454cb68a20d36143067",
+          "da1bf6ddc10a8948f1060694439ab69363cd4a87d053f8898a9d7478d120372c",
+          "49c9482f3b060f794eae2aa6f3f9a2baa1f1a6956eaf65fba0a414153504bcfd",
+          "6f209e7325f897e932381e52d58e0ea528c118744de53884903ce17a7a140d1d",
+          "4374b7115345454151a2b9ce752ba211ff0095905e586110e3553c905277a782"
+        ],
+        "rows_sha256": "03cd736f4a5011a8092a61a5f0c1142ef89aa53df4611fb823f6c8bacdd8521d"
+      }
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "provider_metadata_upgraded": false,
+  "new_tax_or_settlement_model": false,
+  "production_contacted": false,
+  "cil_convention": "RETAINED_FROZEN_RAW_OPEN_PROXY_NOT_ACTUAL_ISSUER_SETTLEMENT",
+  "cash_model": "INHERITED_PRETAX_GROSS_COMMON_SHARE_CASH_NO_INDIVIDUAL_WITHHOLDING_OR_OPTION_SETTLEMENT_MODEL"
+}

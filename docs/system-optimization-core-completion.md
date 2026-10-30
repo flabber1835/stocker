@@ -519,3 +519,83 @@ accounting, daily factors/chains/months and interval-invariance gates. EE1/LM da
 are now consumed on this branch: do not retroactively add them to this suffix.
 This continues P02, followed sequentially by the other existing Core candidates;
 PAPER remains untouched.
+
+### Conditional preparation for later2021 cash gaps, without another writer
+
+While the autumn2020 suffix is active, prepare a separately versioned input
+compiler for five later observed native gaps. This is preparation only: do not
+change its running request, assume a future cursor, launch another writer or
+adopt a term whose native/effective date the next actual checkpoint has consumed.
+Select any subsequent overlay only from authenticated stopped evidence and its
+own exact predecessor, preserving the autumn compiler/catalog if adopted.
+
+Primary completion filings and preopen notices confirm VAR177.50 and MIK22 on
+April15, NAV44.50 on July1, HOME37 on July23, and TRIL18.50 on November17,2021.
+Native incomplete dates are the preceding trading sessions. Issuer SEC filings
+are203527/000119312521117256,1593936/000119312521117263,
+808450/000095010321009880 (final13E3/A),1646228/000110465921095264 and
+1616212/000110465921140375. OCC48577/48931/49025/49598 and NasdaqECA2021-60
+corroborate timing; Trillium's issuer filing explicitly states00:01PST closing.
+
+The frozen provider uses TRIL1, SEC_UNKNOWN and eligibility0. Its original pinned
+ACTIONS archive explicitly links TRIL1/TRIL, TRILLIUM THERAPEUTICS INC and Pfizer.
+Keep those frozen strategy metadata fields unchanged. Before accepting that
+factual mapping, the hosted compiler must verify the entire original archive
+length/SHA and all five exact November16 alias/acquisition/delisting rows,
+including the reciprocal Pfizer row. Do not infer identity from a ticker string
+alone, alter eligible membership, or use snapshot classifications as input.
+
+The prospective compiler must preserve every adopted earlier group and all
+immutable model references, bind actual native projections and full witnesses,
+qualify actual packets/notional consideration and original refusal guards,
+and satisfy the unchanged exact-suffix/accounting/prefix/tail gates. A prepared
+catalog or passing pure guard test is not actual adoption or a financial result.
+No financial parameters, source tree, tax/settlement assumptions or PAPER change.
+
+### Current next suffix: correct WPX's classification and batch known2021 gaps
+
+The autumn suffix41107815142 actually adopted its five-event input, qualified
+all10 packets and passed independent review at OWN December31,2020/756 closes.
+It reached January5/758 reported closes, then refused January6 on WPX's native
+incomplete CASH_MERGER. Preserve both uncommitted sessions and exact tails.
+The adopted autumn compiler/catalog/private commitments must now remain exact.
+
+WPX was an all-stock conversion: each ordinary share converted into0.5165 DVN
+before open January7,2021, with holder-level cash in lieu of fractional shares.
+Issuer8K1518832/000110465921002045, NYSE SEC notice876661/000087666121000020
+and OCC48127 establish terms/timing. Preserve January6 trading. Do not fill a
+cash amount from aggregate deal value or substitute an approximation for0.5165.
+
+The newly captured support also contains BEAT1 (BioTelemetry), whose mandatory
+remaining common-share merger paid72USD before open February9, preserving
+February8 (SEC1574774/000119312521034268 and NasdaqECA2021-16), and WORK, whose
+merger paid26.79USD plus0.0776 CRM before open July21, preserving July20
+(SEC1764925/000119312521220234 and OCC49013). Use final26.79, not a recollection
+or aggregate valuation.
+Use canonical CONVERSION for stock-only WPX and CASH_PLUS_STOCK for WORK:
+the canonical sensor adds the cash component only for CASH_PLUS_STOCK.
+Preserve the exact frozen source identities, including
+BEAT1/TRIL1 aliases, unknown issuers and eligibility flags. Actual original
+provider archive/alias rows must qualify both aliases before financial advance.
+Public source catalogs contain row hashes and necessary identity metadata only;
+keep full provider rows and market-price witnesses in private/encrypted evidence.
+
+Use a NEW separate2021-completions compiler/catalog for these three plus the
+five already researched, still-unconsumed VAR/MIK/NAV/HOME/TRIL1 completions.
+The unpublished five-cash draft is preparation, not an adopted input: retain its
+proof/source privately and replace it with this accurately named mixed-action
+compiler. All eight native/effective dates must be after this own December31
+checkpoint. Bind every exact native projection/full source witness, plus actual
+DVN January7 and CRM July21 raw-open rows and delivered frozen metadata.
+Explicitly retain the existing raw-open fractional-CIL proxy as a limitation;
+it is not the issuer's eventual settlement price or an OCC estimated price.
+
+Qualify actual canonical suppression/addition packets, original incomplete
+guards, selected Packet source/shape and stock-plus-cash notional values before
+advance. Missing/wrong delivery quote or metadata must refuse. Use unchanged
+canonical conversion/accounting and refuse unsupported exact fractions or
+pending representations, rather than rounding or bypassing. Retain all21 prior
+ordinary groups63refs and the immutable9-reference model. Strictly compare that
+old basis before advance; new66+9 only after actual adoption and review.
+Every own-origin/source/input/CP/prefix/tail/factor/chain/certificate gate remains.
+This is one exact P02 suffix, no new origin, parameter tuning or PAPER change.
