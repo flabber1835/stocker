@@ -59,6 +59,14 @@ def inspect(name,identity=None):
     return v
 
 
+def unadvanced_bytes(failed,old,spec):
+    need((failed/'book/checkpoint.json.gz').read_bytes()==(old/spec['selected_checkpoint']).read_bytes()
+         and all((failed/'book'/(n+'.jsonl')).stat().st_size==(old/'book'/(n+'.jsonl')).stat().st_size
+             and sha256_file(failed/'book'/(n+'.jsonl'))==sha256_file(old/'book'/(n+'.jsonl'))
+             for n in ('formation','daily','monthly','watch')),
+         'EQUIVALENCE_ACTUAL_FAILED_ATTEMPT_ADVANCED_ZERO_BYTES')
+
+
 def main(a):
     check_context(os.environ);need(os.environ.get('GITHUB_RUN_ATTEMPT')=='1','NO_FACTUAL_SUFFIX_RERUN')
     request=json.loads(a.request.read_bytes());need(request==expected_request(),'EXACT_FACTUAL_SUFFIX_REQUEST')
@@ -89,11 +97,7 @@ def main(a):
              and failed_spec['unadvanced_complete_ancestor_zip_sha256']==spec['zip_sha256'],
              'EQUIVALENCE_EXACT_UNADVANCED_ATTEMPT_BINDING')
         failed=admit(failed_spec,temp/('campaign-factual-transfer-unadvanced-'+a.arm),key,max_zip_bytes=512*1024**2)
-        need((failed/'book/checkpoint.json.gz').read_bytes()==(old/spec['selected_checkpoint']).read_bytes()
-             and all((failed/'book'/(n+'.jsonl')).stat().st_size==(old/'book'/(n+'.jsonl')).stat().st_size()
-                 and sha256_file(failed/'book'/(n+'.jsonl'))==sha256_file(old/'book'/(n+'.jsonl'))
-                 for n in ('formation','daily','monthly','watch')),
-             'EQUIVALENCE_ACTUAL_FAILED_ATTEMPT_ADVANCED_ZERO_BYTES')
+        unadvanced_bytes(failed,old,spec)
     os.environ.pop('GH_TOKEN',None)
     current=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
     need(current['sha256']==spec['complete_outer_sha256'] and current['completed']==2156

@@ -51,3 +51,20 @@ def test_actual_full_journal_guard_removal_falsifier(tmp_path):
     scope=dict(prove_unadvanced_buffer_constructor.__globals__)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'<removed-unadvanced-byte-guard>','exec'),scope)
     scope['prove_unadvanced_buffer_constructor'](spec,inventory,tmp_path)
+
+
+def test_actual_recovery_file_stat_and_same_length_hash_mutation(tmp_path):
+    from system_campaign_equivalence_job import unadvanced_bytes
+    old=tmp_path/'old';failed=tmp_path/'failed'
+    for root in (old,failed):
+        (root/'book').mkdir(parents=True);(root/'book/checkpoint.json.gz').write_bytes(b'EXACT-SYNTHETIC-CP')
+        for name in ('formation','daily','monthly','watch'):(root/'book'/(name+'.jsonl')).write_bytes(b'ORIGINAL')
+    spec={'selected_checkpoint':'book/checkpoint.json.gz'}
+    unadvanced_bytes(failed,old,spec)
+    (failed/'book/daily.jsonl').write_bytes(b'CHANGED!')
+    with pytest.raises(ValueError,match='ADVANCED_ZERO_BYTES'):unadvanced_bytes(failed,old,spec)
+    node=next(n for n in ast.parse(Path(unadvanced_bytes.__code__.co_filename).read_bytes()).body
+        if isinstance(n,ast.FunctionDef) and n.name=='unadvanced_bytes')
+    node.body=[ast.Pass()];scope=dict(unadvanced_bytes.__globals__)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'<removed-actual-recovery-byte-guard>','exec'),scope)
+    scope['unadvanced_bytes'](failed,old,spec)
