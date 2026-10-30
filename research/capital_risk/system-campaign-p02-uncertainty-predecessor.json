@@ -1,32 +1,32 @@
 {
   "arm": "P02",
-  "artifact_id": 12998730046,
-  "zip_bytes": 608739998,
-  "zip_sha256": "bc0130bd0485e70282c5e300e9a70e9f67b456da7d9162a1eae0f9a438d0370e",
+  "artifact_id": 12999812076,
+  "zip_bytes": 656406301,
+  "zip_sha256": "0dca452526826a834910f7755bdad4325ab61ba8753025d1a65b4a51c938c890",
   "receipt_name": "p02-uncertainty.json",
-  "receipt_sha256": "a29f1b8349792601f14d3a1bfa7b033057d752fcd28596c1a1a553ce9dc1118c",
+  "receipt_sha256": "5cfe55a6ef1d518abf5fadcf9f31300d7ef272b76cef32380014fbc42d863eeb",
   "receipt_schema": "research.system-p02-uncertainty-suffix-receipt/1",
-  "run_id": 41097856043,
-  "head": "a0b313794d0a02f6483be6c18697a44bdae590c4",
-  "request_sha256": "99a06ac49c2617accae4624b0e4611c3a399dca8fa4fe2f4737a47b52de3d099",
+  "run_id": 41101068845,
+  "head": "d6a0b2103d1960618eb2a7ca0abf2aa4ba0d9836",
+  "request_sha256": "7c3dda2566398aeacae48969807180e6f3ed21259f27c0f282d98282f648e202",
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
   "encrypted_output": {
     "name": "p02-uncertainty.tar.crseal",
-    "bytes": 608736685,
-    "sha256": "d9ceecb46f1d639398faeb1579d13a0d890e88cfc9c73eb278bb36a7acae16f4",
-    "manifest_sha256": "3d93a0778cbc31bc591ec195fb1f94fa650cb959cf481c2771f5b596e20d49c2",
+    "bytes": 656402875,
+    "sha256": "be2a341026e08d05fbe3de34ea19a1f244ae90514e2122c193f9660ec791e060",
+    "manifest_sha256": "0c4ff880732ecc7750449cf584452342f762821c1a5968e5eb12ef5332e7c3f1",
     "compression": "TAR_GZIP_V1"
   },
   "stage": "campaign-factual-suffix",
   "selected_checkpoint": "book/checkpoint.json.gz",
   "selected_file": {
-    "bytes": 873726,
-    "sha256": "a6fe8a39b6c435327936b806a1507b46ff26d9b6545e7b208814a58562c8df04"
+    "bytes": 842663,
+    "sha256": "8dcf8bddad3c7004352f0a239856ee21ee2aa165ba3a4f951f8c8f87e68d2c4a"
   },
-  "outer_sha256": "f1eaa54dea40bb4276f8af3aeba07c82f3c00ef8a7de42a6c5c8e8737aa51f4f",
-  "inner_sha256": "6f3642b1049a0d2b502f4370b8a517f25287586f3da64ca6ad75e9ef0d443c18",
-  "state_sha256": "a90c2e6a272e40ca71d9a9cb62e1c3d251af8394e1e0372d47a1fe1948e32424",
-  "input_sha256": "87111df059a2c063d6e173bc283f7c343e363e869937e461a6d489591cc4496f",
+  "outer_sha256": "a010cb427d4a50a87bf5150edac0d48cc48ec1c19ab24e938f1c4c76d3bfd9b3",
+  "inner_sha256": "fef9450483fe139550c76413a6300ebc74947b81a79aa0ef1f4023917671bf8c",
+  "state_sha256": "9ba4002dc4564cd6010982896e69a1c7439f11ebf9281ac3ed997c5421128082",
+  "input_sha256": "7c1a711a35017562cda5d27f122fb08c5200f23a823f80feec36ecc2333830f6",
   "base": {
     "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
     "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
@@ -269,12 +269,12 @@
     },
     "start": "2018-01-02"
   },
-  "selected_session": "2020-03-31",
+  "selected_session": "2020-08-31",
   "journals": {
     "daily": {
-      "bytes": 19104156,
-      "last_record_sha256": "10614404fac3c90ea0a297c74d6ea2cfdfae725e1eb7c6e6638fee853bc7b35b",
-      "prefix_sha256": "e96087d4e2b4bd39f62f64f4605b64e01c97de46344fee51750ffa258968fee0"
+      "bytes": 22757844,
+      "last_record_sha256": "5d6451dfeef1a4130ba109533eda001a8f913b2c3b8e2c45de7008fc2fe79938",
+      "prefix_sha256": "97314c9d10f87b6396cb940256a0e2d0fcfa83a77c99016cd21aeb7a272729cb"
     },
     "formation": {
       "bytes": 4074394,
@@ -282,14 +282,14 @@
       "prefix_sha256": "565a37f7d692f7f2b06d288beb3044e56dbd0d8b09a8cc5a12fc8fd62c7782a8"
     },
     "monthly": {
-      "bytes": 98345,
-      "last_record_sha256": "b6131af5b6cc83382aedf8e9a05578aa0c60423d35be74bf80a9aebcf2b06c50",
-      "prefix_sha256": "2dfecd67edf862e5d799cbecaafb5c1deb76c1e2e2b9bb15532407b2cfc8cd43"
+      "bytes": 116603,
+      "last_record_sha256": "760b0f5af908f951c7821ea9a8dd8fbf157292a080b28b6f44edc23b04b5460c",
+      "prefix_sha256": "f5932909a81ea313e6049590787bfcced7a3eb50020fc02669d74d5345e85e1f"
     },
     "watch": {
-      "bytes": 56734,
-      "last_record_sha256": "1fab0937d136e6bb1274f0361b12624c18d5c9ec7573cd4401a99785c36a3e79",
-      "prefix_sha256": "9764cb858daf7bb1154ead3492796b610cbc669e73c35aba9486440b84dd2545"
+      "bytes": 95259,
+      "last_record_sha256": "85723798f01ef2047db5adb3c1623945912e8c76bb8b03f01cc8b8dc5fbeac96",
+      "prefix_sha256": "371b3b94e4a5bec92808673a4ad0928a19b2e0597c012d448cdcd4061a06c7f3"
     }
   },
   "repairs": [
@@ -400,24 +400,29 @@
       "predecessor_checkpoint_sha256": "12ae4a079c24de6d02e102095670629fcd507940f76e0b2d4eb4e05ca27c9c79",
       "resume_session": "2020-02-28",
       "sha256": "510b8d642fd007a7bd77d66bd2d14e4776f1de4c2facf97fa61a765c58e96114"
+    },
+    {
+      "filename": "d9941abbe4d16174038dec3408621453b7011663a5a80e6b4440e170f956e04d.json",
+      "predecessor_checkpoint_sha256": "6f3642b1049a0d2b502f4370b8a517f25287586f3da64ca6ad75e9ef0d443c18",
+      "resume_session": "2020-03-31",
+      "sha256": "d9941abbe4d16174038dec3408621453b7011663a5a80e6b4440e170f956e04d"
     }
   ],
   "source_binding_sha256": "d426b8258e5c16b401cd22718a290abe2a89f73c42a8ee2a14950f90c6c4a289",
-  "review_sha256": "93727174c83ead87b87e918dbd34ab740969f1b8ae30085812d14123c2faad8f",
+  "review_sha256": "83cb36dcc92289524396c2c3eea8cd9159447295fded83eb80c3cab3a8bfed8d",
   "inspections": {
     "economic-worker-inspect.json": {
-      "sha256": "cb1701c29522b88dbe70e4d8185f6cf525df7eacc6128dceb720484647c855fd",
-      "name": "/capital-system-factual-p02-worker-41097856043-1",
-      "id": "4a1049e51a16753e75c126cf832d90238ee3f18816dc83eb87e176374f64a105",
+      "sha256": "bba6852aaefbe213704722186bc6c71ae720043e706db2e4651d5e8aa0bb6562",
+      "name": "/capital-system-factual-p02-worker-41101068845-1",
+      "id": "02d57843a6ca2d4b5a49603618c990744ca56e39669c494ebccecff3731fbc24",
       "exit_code": 1
     },
     "independent-review-stop/worker-inspect.json": {
-      "sha256": "6dadd17624c5e77cdc7d7045f0dbff9112344652d93949c11e258863958fc6f9",
-      "name": "/capital-system-factual-p02-review-41097856043-1",
-      "id": "b93b870d16e6f888f699ab6e46145214830ca13613ecb1126d28f2e4a9a374de",
+      "sha256": "23b44b1afe911e3f4975fe58c312298869652df9cf477532478683396835a645",
+      "name": "/capital-system-factual-p02-review-41101068845-1",
+      "id": "7974f2eef406ae53e836bcc01df3d1fabe2bc8911a0bce52ded57d56d98290b3",
       "exit_code": 0
     }
   },
-  "uncertainty_input_descriptor_sha256": "a41ff4867c1bd48284f0573eff648946f943727310d5879f681de449498e7809",
-  "selected_measured_closes": 565
+  "uncertainty_input_descriptor_sha256": "a41ff4867c1bd48284f0573eff648946f943727310d5879f681de449498e7809"
 }

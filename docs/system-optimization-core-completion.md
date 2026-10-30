@@ -473,3 +473,49 @@ continuation of the selected Core test, not a new financial trial. PAPER untouch
 EE1 and LM remain prospective research only. Their later actual closing/trading
 times and EE1's separate stub dividend require separate input reconciliation;
 do not include incomplete assumptions in this three-event overlay.
+
+### Retain the adopted spring facts; batch five unconsumed cash completions
+
+Run41101068845 adopted the spring cash batch and passed independent review at
+its OWN August31,2020 checkpoint (671 measured closes,126 formation). It reached
+September29 but refused September30 on incomplete MNTA consideration. Keep its
+20 uncommitted sessions and exact financial/certificate tails. Resume only the
+August31 checkpoint, with all60 ordinary and9 model commitments unchanged.
+The already adopted spring compiler/catalog/private evidence are immutable;
+use a separate autumn2020-cash compiler and three new input commitments.
+
+The five simple mandatory common-share completions are MNTA52.50 on October1,
+AIMT34.50 on October13, IMMU88 on October23, MYOK225 on November17 (all2020),
+and VRTU51.35 on February11,2021. SEC completion filings prove remaining ordinary
+shares automatically converted, independently of voluntary tender acceptance.
+Actual SEC/Nasdaq/OCC notices establish preopen completion. Preserve the native
+last trading sessions September30, October12, October22, November16 and February10
+respectively. In particular IMMU's October26 formal suspension is administrative:
+NasdaqECA2020-187 and OCC47745 explicitly prove October23 preopen consummation and
+October22 last trading. VRTU's formal February12 suspension likewise does not move
+its February11 preopen merger (NasdaqECA2020-222).
+
+These facts come from SEC8Ks1235010/000119312520261321,1631650/000119312520272122,
+722830/000110465920117764,1552451/000119312520296064 and1207074/000110465921020825;
+timing corroboration includes OCC47659/47711/47745 and NasdaqECA2020-181/187/222.
+Do not infer prices from aggregate deal values, use administrative suspension
+dates as economic dates, or add option settlement/tax/fee models. Retain the
+existing gross pre-tax common-share cash convention and all other limitations.
+
+Bind each exact native projection and unchanged frozen source observation.
+Hydrate the actual2020 and2021 partitions in one pass per partition; refuse
+missing/duplicate witnesses, native conflicts, consumed dates or metadata changes.
+Before replay qualify all10 actual packets, original incomplete guards and
+canonical notional consideration, exact selected Packet source/shape, wrong
+predecessor and consumed-date falsifiers. No local canonical financial execution.
+Ordinary canonical repair loading binds this descriptor to the exact own inner
+predecessor. All515 financial sources and P02 rules remain byte-identical.
+
+Retain prior20 ordinary groups, immutable interval model, own origin, all gzip
+checkpoints, opaque ancestors, every journal commitment and recovered tail.
+Strictly compare old60+9 semantics before advance; new63+9 semantics are admitted
+only after actual adoption and independent review. Require all canonical restores,
+accounting, daily factors/chains/months and interval-invariance gates. EE1/LM dates
+are now consumed on this branch: do not retroactively add them to this suffix.
+This continues P02, followed sequentially by the other existing Core candidates;
+PAPER remains untouched.

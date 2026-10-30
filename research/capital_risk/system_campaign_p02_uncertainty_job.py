@@ -29,14 +29,15 @@ SOURCES=tuple(dict.fromkeys((*PRIOR,'system_campaign_p02_uncertainty_run.py',
     'system-campaign-medicines-terminal-facts.json','system_campaign_arqule_facts.py',
     'system-campaign-arqule-terminal-facts.json','system_campaign_sprint_facts.py',
     'system-campaign-sprint-terminal-facts.json','system_campaign_support_recovery.py',
-    'system_campaign_spring2020_cash_facts.py','system-campaign-spring2020-cash-terminal-facts.json')))
+    'system_campaign_spring2020_cash_facts.py','system-campaign-spring2020-cash-terminal-facts.json',
+    'system_campaign_autumn2020_cash_facts.py','system-campaign-autumn2020-cash-terminal-facts.json')))
 
 
 def expected_request():
     spec=json.loads((HERE/'system-campaign-p02-uncertainty-predecessor.json').read_bytes())
-    need(spec['arm']=='P02' and spec['run_id']==41097856043
+    need(spec['arm']=='P02' and spec['run_id']==41101068845
          and spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
-         and spec['selected_session']=='2020-03-31','UNCERTAINTY_EXACT_SPRING2020_CASH_OWN_PREDECESSOR')
+         and spec['selected_session']=='2020-08-31','UNCERTAINTY_EXACT_AUTUMN2020_CASH_OWN_PREDECESSOR')
     proof=json.loads((HERE/'system-campaign-uncertainty-qualification.json').read_bytes())
     return dict(schema='research.system-p02-uncertainty-suffix-request/1',campaign='system-optimization-002',
         only_candidate='P02',concurrent_candidate_limit=1,
@@ -45,9 +46,10 @@ def expected_request():
         predecessor_sha256=sha256_file(HERE/'system-campaign-p02-uncertainty-predecessor.json'),
         initial_min_disk_bytes=12*1024**3,
         qualified_packet_source_sha256=spec['base']['sources'][PACKET_SOURCE_PATH],
-        execution_mode='SPRING2020_CASH_FACTUAL_SUFFIX',
+        execution_mode='AUTUMN2020_CASH_FACTUAL_SUFFIX',
         sprint_catalog_sha256=sha256_file(HERE/'system-campaign-sprint-terminal-facts.json'),
         spring2020_cash_catalog_sha256=sha256_file(HERE/'system-campaign-spring2020-cash-terminal-facts.json'),
+        autumn2020_cash_catalog_sha256=sha256_file(HERE/'system-campaign-autumn2020-cash-terminal-facts.json'),
         uncertainty_input_descriptor_sha256=spec['uncertainty_input_descriptor_sha256'],
         canonical_controller_sources=proof['canonical_controller_sources'],
         sources={n:sha256_file(HERE/n) for n in SOURCES},source_archive_limit_bytes=1024**3,
@@ -92,7 +94,7 @@ def main(args):
     value=json.loads(q.read_bytes())
     need(value['status']=='PARTIAL_CORE_PREFIX_REVIEWED' and value['checkpoint_sha256']==spec['outer_sha256']
          and value['all_prefixes_verified'] and value['all_daily_factors_and_chains_verified']
-         and value['counts']=={'formation':126,'daily':565},'UNCERTAINTY_ACTUAL_OWN_FINANCIAL_PREFIX')
+         and value['counts']=={'formation':126,'daily':671},'UNCERTAINTY_ACTUAL_OWN_FINANCIAL_PREFIX')
     source=temp/'p02-uncertainty-financial-source'
     binding=build(frozen/'source-fixed',source,json.loads((old/'source-bindings.json').read_bytes())['parameters'])
     need(binding==json.loads((old/'source-bindings.json').read_bytes()),'UNCERTAINTY_EXACT_FINANCIAL_SOURCE_TREE')
@@ -114,6 +116,7 @@ def main(args):
         uncertainty_input_descriptor_sha256=request['uncertainty_input_descriptor_sha256'],
         execution_mode=request['execution_mode'],sprint_catalog_sha256=request['sprint_catalog_sha256'],
         spring2020_cash_catalog_sha256=request['spring2020_cash_catalog_sha256'],
+        autumn2020_cash_catalog_sha256=request['autumn2020_cash_catalog_sha256'],
         new_origin=False,new_overlay=True,source_conversion=False,production_contacted=False,
         status='NOT_STARTED',performance_admitted=False)
     def cmd(name,mode,target):
