@@ -29,7 +29,8 @@ def run(out,old,spec):
     preserved={}
     for name in ('hydrated-additional-terminal-catalog.json','hydrated-march-cash-catalog.json',
                  'hydrated-corrected-winter-cash-catalog.json','hydrated-spring-terminal-catalog.json',
-                 'hydrated-followup-terminal-catalog.json','hydrated-tgi-cash-catalog.json'):
+                 'hydrated-followup-terminal-catalog.json','hydrated-tgi-cash-catalog.json',
+                 'hydrated-midyear-terminal-catalog.json','hydrated-late-terminal-catalog.json'):
         if (old/name).is_file():
             raw=(old/name).read_bytes();(out/name).write_bytes(raw);preserved[name]=sha(raw)
     parameters=json.loads((old/'source-bindings.json').read_bytes()).get('parameters',{})

@@ -27,3 +27,15 @@ def test_actual_current_boundary_guard_removal_falsifier():
     node.body=[ast.Pass()];scope=dict(selected_current.__globals__)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'<removed-current-checkpoint-guard>','exec'),scope)
     assert scope['selected_current'](s,c) is None
+
+
+def test_finish_actual_timeout_and_dependency_closure():
+    from system_campaign_finish_job import known_timeout,SOURCES
+    from forecast_tests.test_basis_job_sources import dependencies
+    assert not dependencies(SOURCES)-set(SOURCES)
+    r={'status':'PARTIAL_FACTUAL_PREFIX_REVIEWED','worker':{'stopped':True,'exit_code':0,'oom_killed':False,'wait_error':'TimeoutExpired'},
+        'reviewer':{'stopped':True,'exit_code':0,'oom_killed':False}}
+    s={'selected_checkpoint':'book/checkpoint.json.gz','timeout_known_stopped':True};known_timeout(r,s)
+    for field,bad in [('stopped',False),('oom_killed',True),('exit_code',1),('wait_error',None)]:
+        broken=copy.deepcopy(r);broken['worker'][field]=bad
+        with pytest.raises(ValueError,match='ACTUAL_REVIEWED_ORDERLY_TIMEOUT'):known_timeout(broken,s)
