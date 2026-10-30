@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -13,11 +16,13 @@ import sys
 import uuid
 
 from sentinel_maintenance_process import run_bounded
+from sentinel_phase_records import publish_immutable
 
 KEYS = ("SENTINEL_RESTORE_SCRATCH_ROOT", "SENTINEL_RESTORE_SCRATCH_UUID",
         "SENTINEL_RESTORE_SCRATCH_DOCKER_ROOT")
 IMAGE = "postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b"
-SCHEMA = "sentinel.restore-scratch/1"
+LEGACY_SCHEMA = "sentinel.restore-scratch/1"
+SCHEMA = "sentinel.restore-scratch/2"
 LABEL = "sentinel.restore-scratch"
 NAME = re.compile(r"sentinel-restore-drill-[0-9]{8}T[0-9]{6}Z-[1-9][0-9]*-[0-9a-f]{32}\Z")
 REPO = Path(__file__).resolve().parents[1]
@@ -85,9 +90,19 @@ class Scratch:
     backup_root: str
     docker_root: str
     engine_id: str
+    recovery_volume: str = ""
 
 
-def configured(backup_root, docker_root, *, env=None):
+def _recovery_lock(backup_root):
+    from sentinel_backup_lock import lock_is_held, LOCK_ROOT_ENV
+    require(os.environ.get(LOCK_ROOT_ENV) == str(backup_root) and lock_is_held(),
+            "legacy scratch recovery requires the canonical backup ownership lock")
+
+
+def configured(backup_root, docker_root, *, env=None, recovery_volume=""):
+    if recovery_volume:
+        require(NAME.fullmatch(recovery_volume), "invalid legacy recovery volume")
+        _recovery_lock(backup_root)
     settings = validate_settings(os.environ if env is None else env)
     if settings is None:
         return None
@@ -124,7 +139,8 @@ def configured(backup_root, docker_root, *, env=None):
         require(_usb(device), "WSL scratch must be on a verified physical USB device")
     engine = _run(["docker", "info", "--format", "{{.ID}}"] ).stdout.strip()
     require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9:_-]{8,127}", engine), "Docker engine identity is unavailable")
-    scratch = Scratch(root, filesystem_uuid, daemon_root, identity, str(backup_root), str(docker_root), engine)
+    scratch = Scratch(root, filesystem_uuid, daemon_root, identity, str(backup_root), str(docker_root),
+                      engine, recovery_volume)
     for child in root.iterdir():
         require(NAME.fullmatch(child.name), "scratch root contains an unowned entry")
         _record(scratch, child.name)
@@ -133,7 +149,8 @@ def configured(backup_root, docker_root, *, env=None):
 
 def recheck(scratch):
     settings = dict(zip(KEYS, (str(scratch.root), scratch.filesystem_uuid, scratch.daemon_root)))
-    require(configured(scratch.backup_root, scratch.docker_root, env=settings) == scratch,
+    require(configured(scratch.backup_root, scratch.docker_root, env=settings,
+                       recovery_volume=scratch.recovery_volume) == scratch,
             "scratch mount or directory changed since admission")
 
 
@@ -251,6 +268,26 @@ def prove(scratch):
     recheck(scratch)
 
 
+def _owner_bytes(record):
+    def fingerprint(info):
+        return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns,
+                info.st_mode, info.st_uid, info.st_gid, info.st_nlink)
+    info = record.lstat()
+    require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == os.getuid()
+            and stat.S_IMODE(info.st_mode) == 0o600 and info.st_size <= 8192,
+            "scratch ownership record is not private")
+    fd = os.open(str(record), os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        require(fingerprint(opened) == fingerprint(info),
+                "scratch ownership record changed while opening")
+        raw = stream.read(8193)
+        require(len(raw) <= 8192 and fingerprint(os.fstat(stream.fileno())) == fingerprint(opened),
+                "scratch ownership record changed while reading")
+    require(fingerprint(record.lstat()) == fingerprint(info), "scratch ownership record changed while reading")
+    return raw
+
+
 def _record(scratch, name):
     require(NAME.fullmatch(name), "invalid owned restore volume name")
     attempt = scratch.root / name
@@ -259,20 +296,39 @@ def _record(scratch, name):
     owner = attempt.stat()
     require(owner.st_uid == os.getuid() and stat.S_IMODE(owner.st_mode) == 0o700,
             "scratch attempt is not private and operator-owned")
-    info = record.lstat()
-    require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == os.getuid()
-            and stat.S_IMODE(info.st_mode) == 0o600 and info.st_size <= 8192,
-            "scratch ownership record is not private")
-    value = _json(record.read_bytes())
-    expected = dict(schema=SCHEMA, volume=name, filesystem_uuid=scratch.filesystem_uuid,
+    value = _json(_owner_bytes(record))
+    require(isinstance(value, dict) and value.get("schema") in (LEGACY_SCHEMA, SCHEMA),
+            "scratch ownership schema is unsupported")
+    identities = dict(root_identity=_identity(scratch.root), attempt_identity=_identity(attempt),
+                      data_identity=_identity(attempt / "data"))
+    require(identities["root_identity"] == scratch.identity
+            and all(item[0] == scratch.identity[0] for item in identities.values()),
+            "scratch device changed since admission")
+    recover_legacy = value["schema"] == LEGACY_SCHEMA and scratch.recovery_volume == name
+    if recover_legacy:
+        _recovery_lock(scratch.backup_root)
+    expected = dict(schema=value["schema"], volume=name, filesystem_uuid=scratch.filesystem_uuid,
             root_identity=scratch.identity, daemon_root=scratch.daemon_root,
-            attempt_identity=_identity(attempt), data_identity=_identity(attempt / "data"), owner=os.getuid(),
+            attempt_identity=identities["attempt_identity"], data_identity=identities["data_identity"], owner=os.getuid(),
             engine_id=scratch.engine_id)
+    if value["schema"] == SCHEMA or recover_legacy:
+        pairs = [value.get(key) for key in identities]
+        require(all(isinstance(pair, list) and len(pair) == 2
+                    and type(pair[0]) is int and pair[0] >= 0
+                    and type(pair[1]) is int and pair[1] > 0 for pair in pairs)
+                and len({pair[0] for pair in pairs}) == 1,
+                "scratch captured device identities are malformed")
+        if recover_legacy:
+            require(pairs[0][0] != scratch.identity[0], "legacy scratch device has not changed")
+        for key, pair in zip(identities, pairs):
+            # A persistent UUID/inode identifies v2 ownership. The saved device
+            # remains provenance; all operational identities use this admission.
+            expected[key] = [pair[0], identities[key][1]]
     require(json.dumps(value, sort_keys=True) == json.dumps(expected, sort_keys=True),
             "scratch attempt identity changed")
     require(set(child.name for child in attempt.iterdir()) == {"owner.json", "data"},
             "scratch attempt contains an unknown entry")
-    return value
+    return dict(value, **identities)
 
 
 def prepare(scratch, name):
@@ -347,17 +403,76 @@ def cleanup(scratch, name):
     attempt.rmdir()
 
 
+def _receipt_target(scratch, receipt):
+    path = Path(receipt)
+    require(path.is_absolute() and path.parent.resolve(strict=True) == path.parent
+            and not path.is_symlink() and not path.exists(),
+            "recovery receipt must be a new absolute nonaliased path")
+    parent = path.parent.stat()
+    require(stat.S_ISDIR(parent.st_mode) and parent.st_uid == os.getuid(),
+            "recovery receipt parent must be operator-owned")
+    require(not any(_overlap(path, protected) for protected in (
+                scratch.root, Path(scratch.backup_root).resolve(strict=True), Path(scratch.docker_root))),
+            "recovery receipt overlaps protected storage")
+    return path
+
+
+def recover(scratch, name, receipt):
+    """Explicitly close one legacy attempt after verified device renumbering."""
+    _recovery_lock(scratch.backup_root)
+    require(scratch.recovery_volume == name, "legacy scratch recovery target was not admitted")
+    output = _receipt_target(scratch, receipt)
+    value = _record(scratch, name)
+    owner = scratch.root / name / "owner.json"
+    original = _owner_bytes(owner)
+    require(_json(original)["schema"] == LEGACY_SCHEMA, "recovery requires a legacy ownership record")
+    prove(scratch)
+    device = scratch.daemon_root + "/" + name + "/data"
+    if _inspect_volume(name, absent_ok=True) is not None:
+        require(_inspect_volume(name + "-cleanup", absent_ok=True) is None,
+                "legacy recovery has ambiguous original and cleanup handles")
+        handle = name
+    else:
+        handle = name + "-cleanup"
+    _volume(handle, device, name)
+    _idle(handle)
+    _probe(handle, value["data_identity"])
+    recheck(scratch)
+    require(_record(scratch, name) == value and _owner_bytes(owner) == original,
+            "legacy ownership changed during recovery admission")
+    document = dict(schema="sentinel.restore-scratch-recovery-admission/1",
+                    admitted_at=datetime.now(timezone.utc).isoformat(),
+                    volume=name, cleanup_handle=handle,
+                    original_owner_base64=base64.b64encode(original).decode("ascii"),
+                    original_owner_sha256=hashlib.sha256(original).hexdigest(),
+                    admitted_owner=value, broker_contacted=False, operational_ready=False)
+    publish_immutable(output, document)
+    digest = hashlib.sha256(output.read_bytes()).hexdigest()
+    cleanup(scratch, name)
+    return dict(legacy_scratch_recovery="CLEANED", volume=name, receipt=str(output),
+                receipt_sha256=digest, broker_contacted=False, operational_ready=False)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("prepare", "verify", "cleanup"))
+    parser.add_argument("mode", choices=("prepare", "verify", "cleanup", "recover"))
     parser.add_argument("--volume", required=True)
     parser.add_argument("--backup-root", required=True)
+    parser.add_argument("--receipt")
     args = parser.parse_args(argv)
     try:
+        require(bool(args.receipt) == (args.mode == "recover"),
+                "only recover requires --receipt")
+        if args.mode == "recover":
+            _recovery_lock(args.backup_root)
         daemon = _run(["docker", "info", "--format", "{{.DockerRootDir}}"] ).stdout.strip()
         require(daemon.startswith("/") and str(Path(daemon)) == daemon, "Docker storage root is unresolved")
-        scratch = configured(args.backup_root, daemon)
+        scratch = configured(args.backup_root, daemon,
+                             recovery_volume=args.volume if args.mode == "recover" else "")
         require(scratch is not None, "external restore scratch is not configured")
+        if args.mode == "recover":
+            print(json.dumps(recover(scratch, args.volume, args.receipt), sort_keys=True))
+            return 0
         action = {"prepare": prepare, "verify": verify, "cleanup": cleanup}[args.mode]
         result = action(scratch, args.volume)
         if args.mode == "verify":

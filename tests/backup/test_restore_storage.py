@@ -1,5 +1,7 @@
 """External restore storage cannot substitute a fallback disk or an active owner."""
 import ast
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -326,3 +328,315 @@ def test_actual_restore_worker_refuses_before_copy_after_host_probe(tmp_path, fa
 
 def test_host_storage_module_retains_python38_syntax():
     ast.parse((ROOT / "scripts/sentinel_restore_storage.py").read_text(), feature_version=(3, 8))
+
+
+def captured_device_change(scratch, *, legacy=False):
+    """A prior boot captured another device number, with all inodes intact."""
+    storage.prepare(scratch, VOLUME)
+    path = scratch.root / VOLUME / "owner.json"
+    value = json.loads(path.read_bytes())
+    if legacy:
+        value["schema"] = storage.LEGACY_SCHEMA
+    for key in ("root_identity", "attempt_identity", "data_identity"):
+        value[key][0] += 1
+    path.write_text(json.dumps(value, sort_keys=True))
+    return path, path.read_bytes()
+
+
+def recovery_context(scratch, monkeypatch):
+    monkeypatch.setattr(storage, "_recovery_lock", lambda _root: None)
+    return storage.Scratch(scratch.root, scratch.filesystem_uuid, scratch.daemon_root,
+                           scratch.identity, scratch.backup_root, scratch.docker_root,
+                           scratch.engine_id, VOLUME)
+
+
+def owned_cleanup_model(scratch, monkeypatch, *, original=True, interrupted=False):
+    """Only model Docker; execute the existing deletion shell on private data."""
+    data = scratch.root / VOLUME / "data"
+    (data / "restored-relation").write_text("private disposable payload")
+    handles = {VOLUME if original else VOLUME + "-cleanup"}
+    events = []
+    def inspect(name, *, absent_ok=False):
+        if name in handles:
+            return volume_row(name)
+        storage.require(absent_ok, "scratch volume is unavailable")
+        return None
+    def create(name, device, token, **kwargs):
+        assert name not in handles
+        assert name == VOLUME + "-cleanup" and token == VOLUME
+        handles.add(name)
+        events.append("create:" + name)
+    def run(argv, **kwargs):
+        if argv[:3] == ["docker", "volume", "rm"]:
+            handles.remove(argv[-1])
+            events.append("remove:" + argv[-1])
+        elif argv[:2] == ["docker", "run"]:
+            assert VOLUME not in handles
+            script = argv[argv.index("-ceu") + 1].replace("/owned", str(data))
+            result = subprocess.run(["sh", "-ceu", script, *argv[argv.index("-ceu") + 2:]],
+                                    capture_output=True, text=True)
+            assert result.returncode == 0, result.stderr
+            events.append("delete-owned-data")
+        return SimpleNamespace(stdout="", stderr="", returncode=0)
+    def probe(name, identity, **kwargs):
+        assert identity == storage._identity(data)
+        if interrupted and name == VOLUME + "-cleanup":
+            raise RuntimeError("simulated host interruption")
+    monkeypatch.setattr(storage, "_inspect_volume", inspect)
+    monkeypatch.setattr(storage, "_create", create)
+    monkeypatch.setattr(storage, "_run", run)
+    monkeypatch.setattr(storage, "_probe", probe)
+    return handles, events
+
+
+def test_v2_device_renumbering_preserves_owner_and_uses_current_operational_identity(scratch):
+    owner, raw = captured_device_change(scratch)
+    current = storage._record(scratch, VOLUME)
+    assert current["schema"] == storage.SCHEMA == "sentinel.restore-scratch/2"
+    assert current["root_identity"] == scratch.identity
+    assert current["data_identity"] == storage._identity(owner.parent / "data")
+    assert owner.read_bytes() == raw
+
+
+def test_v2_device_renumbering_uses_normal_exact_owned_cleanup(scratch, monkeypatch):
+    owner, _raw = captured_device_change(scratch)
+    handles, events = owned_cleanup_model(scratch, monkeypatch)
+    storage.cleanup(scratch, VOLUME)
+    assert not handles and not owner.parent.exists()
+    assert "delete-owned-data" in events
+
+
+def test_v2_current_mount_replacement_refuses_even_when_captured_device_is_provenance(scratch, monkeypatch):
+    captured_device_change(scratch)
+    identity = storage._identity
+    def changed(path):
+        device, inode = identity(path)
+        return [device + 2, inode]
+    monkeypatch.setattr(storage, "_identity", changed)
+    with pytest.raises(storage.Refused, match="device changed since admission"):
+        storage._record(scratch, VOLUME)
+
+
+def test_legacy_device_renumbering_is_never_silently_admitted(scratch):
+    owner, raw = captured_device_change(scratch, legacy=True)
+    with pytest.raises(storage.Refused, match="identity changed"):
+        storage._record(scratch, VOLUME)
+    assert owner.read_bytes() == raw
+
+
+@pytest.mark.parametrize("fault", ["uuid", "engine", "root-inode", "attempt-inode", "data-inode",
+                                  "inconsistent-device", "boolean-device", "boolean-inode", "unknown-field"])
+def test_legacy_recovery_refuses_any_change_beyond_consistent_device_renumbering(scratch, monkeypatch, fault):
+    owner, _raw = captured_device_change(scratch, legacy=True)
+    value = json.loads(owner.read_bytes())
+    if fault == "uuid": value["filesystem_uuid"] = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    elif fault == "engine": value["engine_id"] = "another-engine-12345678"
+    elif fault == "boolean-device": value["data_identity"][0] = True
+    elif fault == "boolean-inode": value["data_identity"][1] = True
+    elif fault.endswith("-inode"): value[fault[:-6] + "_identity"][1] += 1
+    elif fault == "inconsistent-device": value["data_identity"][0] += 1
+    else: value["unreviewed"] = True
+    owner.write_text(json.dumps(value))
+    with pytest.raises(storage.Refused):
+        storage._record(recovery_context(scratch, monkeypatch), VOLUME)
+
+
+def test_legacy_recovery_cannot_admit_a_different_attempt(scratch, monkeypatch):
+    captured_device_change(scratch, legacy=True)
+    context = recovery_context(scratch, monkeypatch)
+    wrong = storage.Scratch(context.root, context.filesystem_uuid, context.daemon_root,
+                            context.identity, context.backup_root, context.docker_root,
+                            context.engine_id, VOLUME.replace("a" * 32, "b" * 32))
+    with pytest.raises(storage.Refused, match="identity changed"):
+        storage._record(wrong, VOLUME)
+
+
+def test_explicit_recovery_requires_a_real_target_bound_backup_lock(monkeypatch, tmp_path):
+    import sentinel_backup_lock
+    monkeypatch.setenv(sentinel_backup_lock.LOCK_ROOT_ENV, str(tmp_path))
+    monkeypatch.setattr(sentinel_backup_lock, "lock_is_held", lambda: False)
+    with pytest.raises(storage.Refused, match="backup ownership lock"):
+        storage._recovery_lock(str(tmp_path))
+
+
+@pytest.mark.parametrize("original", [True, False])
+def test_explicit_legacy_recovery_preserves_original_evidence_before_exact_cleanup(
+        scratch, monkeypatch, tmp_path, original):
+    Path(scratch.backup_root).mkdir()
+    owner, raw = captured_device_change(scratch, legacy=True)
+    context = recovery_context(scratch, monkeypatch)
+    handles, events = owned_cleanup_model(context, monkeypatch, original=original)
+    receipt = tmp_path / "recovery-admission.json"
+    publish = storage.publish_immutable
+    def observed_publish(path, document):
+        assert not any(event.startswith("remove:") for event in events)
+        assert owner.read_bytes() == raw
+        publish(path, document)
+        events.append("admission-published")
+    monkeypatch.setattr(storage, "publish_immutable", observed_publish)
+    result = storage.recover(context, VOLUME, receipt)
+    evidence = json.loads(receipt.read_bytes())
+    assert base64.b64decode(evidence["original_owner_base64"], validate=True) == raw
+    assert evidence["original_owner_sha256"] == hashlib.sha256(raw).hexdigest()
+    assert evidence["admitted_owner"]["root_identity"] == context.identity
+    assert stat.S_IMODE(receipt.stat().st_mode) == 0o600
+    assert result["legacy_scratch_recovery"] == "CLEANED"
+    assert result["receipt_sha256"] == hashlib.sha256(receipt.read_bytes()).hexdigest()
+    assert events[0] == "admission-published"
+    assert not handles and not owner.parent.exists()
+
+
+def test_interrupted_legacy_cleanup_recovery_preserves_owner_and_resumes_exact_cleaner(
+        scratch, monkeypatch, tmp_path):
+    Path(scratch.backup_root).mkdir()
+    owner, raw = captured_device_change(scratch, legacy=True)
+    context = recovery_context(scratch, monkeypatch)
+    handles, _events = owned_cleanup_model(context, monkeypatch, interrupted=True)
+    first = tmp_path / "first-admission.json"
+    with pytest.raises(RuntimeError, match="host interruption"):
+        storage.recover(context, VOLUME, first)
+    assert handles == {VOLUME + "-cleanup"}
+    assert first.exists() and owner.read_bytes() == raw
+    with pytest.raises(storage.Refused, match="new absolute"):
+        storage.recover(context, VOLUME, first)
+    monkeypatch.setattr(storage, "_probe", lambda *_a, **_k: None)
+    result = storage.recover(context, VOLUME, tmp_path / "resumed-admission.json")
+    assert result["legacy_scratch_recovery"] == "CLEANED" and not handles
+
+
+@pytest.mark.parametrize("fault", ["missing-handles", "live-consumer", "data-symlink", "publish-failure"])
+def test_legacy_recovery_refusals_do_not_remove_any_handle_or_payload(scratch, monkeypatch, tmp_path, fault):
+    Path(scratch.backup_root).mkdir()
+    owner, raw = captured_device_change(scratch, legacy=True)
+    context = recovery_context(scratch, monkeypatch)
+    handles, events = owned_cleanup_model(context, monkeypatch)
+    if fault == "missing-handles": handles.clear()
+    elif fault == "live-consumer":
+        monkeypatch.setattr(storage, "_idle", lambda _name: storage.require(False, "container consumer"))
+    elif fault == "data-symlink":
+        data = owner.parent / "data"
+        data.rename(owner.parent / "old-data")
+        data.symlink_to(owner.parent / "old-data", target_is_directory=True)
+    else:
+        def refuse_publish(*_args): raise OSError("receipt publication refused")
+        monkeypatch.setattr(storage, "publish_immutable", refuse_publish)
+    with pytest.raises((storage.Refused, OSError)):
+        storage.recover(context, VOLUME, tmp_path / "never-cleaned.json")
+    assert not events and owner.read_bytes() == raw
+
+
+@pytest.mark.parametrize("alias", [False, True])
+def test_existing_recovery_receipt_never_authorizes_replay(scratch, monkeypatch, tmp_path, alias):
+    Path(scratch.backup_root).mkdir()
+    captured_device_change(scratch, legacy=True)
+    context = recovery_context(scratch, monkeypatch)
+    target = tmp_path / "existing.json"
+    target.write_text("preserve")
+    path = tmp_path / "alias.json" if alias else target
+    if alias: path.symlink_to(target)
+    monkeypatch.setattr(storage, "prove", lambda _scratch: pytest.fail("existing receipt reached probe"))
+    with pytest.raises(storage.Refused, match="new absolute"):
+        storage.recover(context, VOLUME, path)
+    assert target.read_text() == "preserve"
+
+
+def test_fresh_uuid_mount_admission_accepts_only_v2_after_device_renumbering(mounted, monkeypatch):
+    root, backup, settings = mounted
+    context = storage.configured(backup, "/var/lib/docker", env=settings)
+    monkeypatch.setattr(storage, "prove", lambda _scratch: None)
+    monkeypatch.setattr(storage, "_create", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(storage, "_probe", lambda *_args, **_kwargs: None)
+    owner, raw = captured_device_change(context)
+    assert storage.configured(backup, "/var/lib/docker", env=settings) == context
+    assert owner.read_bytes() == raw
+    value = json.loads(raw)
+    value["schema"] = storage.LEGACY_SCHEMA
+    owner.write_text(json.dumps(value))
+    with pytest.raises(storage.Refused, match="identity changed"):
+        storage.configured(backup, "/var/lib/docker", env=settings)
+    monkeypatch.setattr(storage, "_recovery_lock", lambda _root: None)
+    recovery = storage.configured(backup, "/var/lib/docker", env=settings, recovery_volume=VOLUME)
+    assert recovery.recovery_volume == VOLUME and recovery.identity == storage._identity(root)
+
+
+def test_public_recovery_cli_drives_the_guarded_path_and_publishes_original_owner(
+        scratch, monkeypatch, tmp_path, capsys):
+    Path(scratch.backup_root).mkdir()
+    owner, raw = captured_device_change(scratch, legacy=True)
+    context = recovery_context(scratch, monkeypatch)
+    handles, events = owned_cleanup_model(context, monkeypatch)
+    model_run = storage._run
+    def run(argv, **kwargs):
+        if argv == ["docker", "info", "--format", "{{.DockerRootDir}}"]:
+            return SimpleNamespace(stdout=context.docker_root)
+        return model_run(argv, **kwargs)
+    def configured(backup_root, docker_root, *, recovery_volume=""):
+        assert (backup_root, docker_root, recovery_volume) == (
+            context.backup_root, context.docker_root, VOLUME)
+        return context
+    monkeypatch.setattr(storage, "_run", run)
+    monkeypatch.setattr(storage, "configured", configured)
+    receipt = tmp_path / "cli-admission.json"
+    assert storage.main(["recover", "--volume", VOLUME, "--backup-root", context.backup_root,
+                         "--receipt", str(receipt)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["legacy_scratch_recovery"] == "CLEANED" and not handles
+    assert "delete-owned-data" in events and not owner.parent.exists()
+    assert base64.b64decode(json.loads(receipt.read_bytes())["original_owner_base64"]) == raw
+
+
+def test_public_recovery_cli_rejects_a_forged_lock_before_external_io(monkeypatch, tmp_path, capsys):
+    import sentinel_backup_lock
+    monkeypatch.setenv(sentinel_backup_lock.LOCK_ROOT_ENV, str(tmp_path))
+    monkeypatch.setenv(sentinel_backup_lock.LOCK_HELD_ENV, "1")
+    monkeypatch.setattr(sentinel_backup_lock, "lock_is_held", lambda: False)
+    monkeypatch.setattr(storage, "_run", lambda *_a, **_k: pytest.fail("forged lock reached Docker"))
+    assert storage.main(["recover", "--volume", VOLUME, "--backup-root", str(tmp_path),
+                         "--receipt", str(tmp_path / "unused.json")]) == 4
+    assert "canonical backup ownership lock" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("mode,receipt", [("recover", None), ("cleanup", "unused.json")])
+def test_recovery_receipt_contract_refuses_before_docker_io(monkeypatch, mode, receipt, capsys):
+    monkeypatch.setattr(storage, "_run", lambda *_a, **_k: pytest.fail("bad receipt contract reached Docker"))
+    args = [mode, "--volume", VOLUME, "--backup-root", "/backup"]
+    if receipt: args += ["--receipt", receipt]
+    assert storage.main(args) == 4
+    assert "only recover requires --receipt" in capsys.readouterr().err
+
+
+def remove_record_guard(monkeypatch, reason):
+    """Mutate one executed guard while keeping the module's live globals."""
+    module = ast.parse((ROOT / "scripts/sentinel_restore_storage.py").read_text())
+    function = next(node for node in module.body
+                    if isinstance(node, ast.FunctionDef) and node.name == "_record")
+    removed = []
+    class RemoveGuard(ast.NodeTransformer):
+        def visit_Expr(self, node):
+            call = node.value
+            if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+                    and call.func.id == "require" and len(call.args) == 2
+                    and isinstance(call.args[1], ast.Constant) and call.args[1].value == reason):
+                removed.append(reason)
+                return ast.copy_location(ast.Pass(), node)
+            return self.generic_visit(node)
+    function = RemoveGuard().visit(function)
+    assert removed == [reason], "falsifier must remove exactly its intended guard"
+    mutated = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
+    functions = {}
+    exec(compile(mutated, "<executed-restore-ownership-mutant>", "exec"), storage.__dict__, functions)
+    monkeypatch.setattr(storage, "_record", functions["_record"])
+
+
+def test_executed_wrong_inode_falsifier_kills_removed_ownership_guard(scratch, monkeypatch):
+    remove_record_guard(monkeypatch, "scratch attempt identity changed")
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_legacy_recovery_refuses_any_change_beyond_consistent_device_renumbering(
+            scratch, monkeypatch, "data-inode")
+
+
+def test_executed_mount_swap_falsifier_kills_removed_current_device_guard(scratch, monkeypatch):
+    remove_record_guard(monkeypatch, "scratch device changed since admission")
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_v2_current_mount_replacement_refuses_even_when_captured_device_is_provenance(
+            scratch, monkeypatch)

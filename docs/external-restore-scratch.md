@@ -94,6 +94,52 @@ identity; switching Docker endpoints never makes a missing handle proof of death
 An already-created exact cleanup volume permits resuming a partial cleanup only
 after positive original-volume absence. Missing both handles preserves the data.
 
+## Restart-safe ownership recovery (2026-10-30)
+
+Linux device numbers describe the current mount, not permanent ownership across
+boots. New `sentinel.restore-scratch/2` records retain captured device/inode pairs
+as provenance, but persistent ownership binds the configured filesystem UUID,
+original directory inodes, private operator ownership, engine identity and exact
+volume options/labels. Each invocation freshly proves the UUID-backed USB mount
+and binds its current device number. Root, attempt and data must stay on that
+same device throughout the invocation; every existing before-use and in-worker
+device/inode check remains mandatory. Ordinary reads never rewrite records.
+
+Legacy version-1 records remain strict. The explicit `recover` mode may admit
+only its named legacy attempt when all original ownership fields and inodes
+match and the sole difference is one consistent historical device renumbering.
+It requires the canonical backup ownership lock, a fresh host/engine nonce
+mapping proof, the original engine, exact idle original or cleanup volume and
+fresh current-directory checks. Missing both volume handles, changed inodes,
+unknown contents or another engine preserve data and refuse recovery.
+
+Before cleanup, publish a new private immutable admission receipt at the
+operator-selected `--receipt` path, retaining the original ownership document
+and its digest plus the freshly admitted identities. An existing receipt is a
+refusal requiring inspection. Cleanup then uses the existing atomic original
+volume removal and bounded exact-child cleanup protocol. An interrupted cleanup
+retains its old owner record and can be explicitly recovered after inspecting
+the prior receipt and exact volume state. No owner record is edited in place,
+and no recovery authorizes production data, backup deletion or broker actions.
+
+With the literal maintenance environment already loaded, use the exact recorded
+volume name and a new absolute receipt path:
+
+```sh
+SENTINEL_BASE_BACKUP_LOCK_ROOT="$SENTINEL_BACKUP_DIR" \
+  python3 scripts/sentinel_backup_lock.py hold \
+  python3 scripts/sentinel_restore_storage.py recover \
+  --backup-root "$SENTINEL_BACKUP_DIR" --volume "$EXACT_OWNED_VOLUME" \
+  --receipt "$NEW_ABSOLUTE_RECOVERY_RECEIPT"
+```
+
+New attempts use version 2, so an ordinary reboot does not require another
+legacy migration. A mount/device change during an admitted operation still
+refuses. Tests must exercise device renumbering through admission and cleanup,
+interrupted cleanup, and wrong UUID, inode, engine, symlink, active consumer,
+missing-handle and mid-operation mount-swap refusals, including executed guard
+falsifiers. No full strategy replay is part of this storage qualification.
+
 ## Capacity and financial gates
 
 The existing copy estimate remains `ceil(1.5 * bytes) + 1 GiB`. The existing

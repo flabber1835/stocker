@@ -25,6 +25,10 @@ class Refused(RuntimeError):
     pass
 
 
+class ScratchIdentityRefused(Refused):
+    pass
+
+
 def run(argv):
     result = run_bounded(argv, timeout=30, private_group=False)
     if result.returncode:
@@ -144,8 +148,8 @@ def require_capacity(backup, restore, free, *, base_bytes=0, restore_bytes=0):
 def check(operation, backup_root, base_name=None, runner=run):
     try:
         scratch_storage.validate_settings(os.environ)
-    except scratch_storage.Refused as exc:
-        raise Refused(str(exc)) from None
+    except (scratch_storage.Refused, OSError, ValueError, KeyError, TypeError) as exc:
+        raise ScratchIdentityRefused(str(exc)) from None
     if operation == "base":
         raw = runner(COMPOSE + ["exec", "-T", "sentinel-postgres", "psql", "-U", "sentinel", "-d", "sentinel",
                                "-v", "ON_ERROR_STOP=1", "-Atc",
@@ -164,8 +168,8 @@ def check(operation, backup_root, base_name=None, runner=run):
         scratch = scratch_storage.configured(backup_root, parts[0])
         if scratch is not None:
             scratch_storage.prove(scratch)
-    except scratch_storage.Refused as exc:
-        raise Refused(str(exc)) from None
+    except (scratch_storage.Refused, OSError, ValueError, KeyError, TypeError) as exc:
+        raise ScratchIdentityRefused(str(exc)) from None
     if scratch is None:
         backup, restore, free = destinations(backup_root, *parts, runner=runner)
     else:
@@ -176,8 +180,8 @@ def check(operation, backup_root, base_name=None, runner=run):
     if scratch is not None:
         try:
             scratch_storage.recheck(scratch)
-        except scratch_storage.Refused as exc:
-            raise Refused(str(exc)) from None
+        except (scratch_storage.Refused, OSError, ValueError, KeyError, TypeError) as exc:
+            raise ScratchIdentityRefused(str(exc)) from None
     return result
 
 
@@ -191,7 +195,9 @@ def main(argv=None):
         print(json.dumps(check(args.operation, args.backup_root, args.base_name), sort_keys=True))
         return 0
     except (Refused, OSError, ValueError, KeyError, TypeError) as exc:
-        print("SENTINEL_STORAGE_REASON=PHYSICAL_CAPACITY_UNAVAILABLE", file=sys.stderr)
+        reason = ("RESTORE_SCRATCH_IDENTITY_UNAVAILABLE" if isinstance(exc, ScratchIdentityRefused)
+                  else "PHYSICAL_CAPACITY_UNAVAILABLE")
+        print("SENTINEL_STORAGE_REASON=" + reason, file=sys.stderr)
         print("REFUSED: " + str(exc), file=sys.stderr)
         return 4
 
