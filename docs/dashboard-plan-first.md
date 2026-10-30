@@ -53,6 +53,20 @@ and original last-progress/retry times, without an invented percentage, total
 or ETA. No corpus scans, provider requests, observer work or writes belong in
 this HTTP projection. Retained pages must withdraw the healthy/live-work claim
 at its original evidence boundary and cannot renew it by refreshing the page.
+Keep the existing general presentation budget. Shorten it for the particular
+normal-work proofs used to earn green, rather than turning every unrelated
+short operational lease into a new polling deadline. An idle-leader proof still
+uses its own lease boundary. A short proof may withdraw the display before a
+refresh succeeds, but must not force a one-second HTTP polling loop; use a
+bounded refresh cadence with the existing negative-only expiry timer.
+
+Completed publication metadata remains a dated data fact, not proof that a plan
+is still being prepared. If an admitted future saved plan exists, describe the
+publication without a pending-plan claim. Stop using a completed publication as
+next-plan preparation at its own effective-session exchange open, even if a new
+metadata read has a fresh observation time. Reuse the deterministic XNYS calendar;
+an unavailable session boundary withdraws this display fact rather than inventing
+another market clock. This does not change plan admission or any trading gate.
 
 The detailed checks retain the existing server operational verdict, required-current
 checks, failure reasons, source errors, original evidence clocks, JSON/machine

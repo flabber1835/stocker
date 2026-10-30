@@ -12,7 +12,7 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from sentinel.panel.model import FAIL, OK, UNKNOWN, Panel, PaperOrderOutcome, ShadowSlot
-from sentinel.panel.presentation import describe, dashboard_health, preparation_stage
+from sentinel.panel.presentation import describe, dashboard_health, preparation_stage, visible_preparation
 
 
 def _esc(value) -> str:
@@ -110,9 +110,7 @@ def _plan_html(panel: Panel) -> str:
         unavailable = any(item is not None and item.effective_status(panel.now) in {FAIL, UNKNOWN}
                           for item in (row, panel.row('trading_run'),
                                        panel.row('completed_trading_run')))
-        preparation = panel.row('ingest')
-        if (not unavailable and preparation is not None
-                and preparation.can_show_preparation(panel.now)):
+        if not unavailable and visible_preparation(panel) is not None:
             return ''  # The dated preparation card already describes this absence.
         message = 'Saved trading plan unavailable.' if unavailable else 'Next trading plan pending.'
         return ('<section class="overview-card next-plan" aria-labelledby="next-plan-title">'
@@ -154,10 +152,9 @@ def _preparation_html(panel: Panel, *, refresh_pending: bool = False) -> str:
     planned = panel.row('paper_plan')
     if planned is not None and planned.can_show_paper_plan(panel.now):
         return ''
-    row = panel.row('ingest')
-    if row is None or not row.can_show_preparation(panel.now):
+    work = visible_preparation(panel)
+    if work is None:
         return ''
-    work = row.preparation
     stage = preparation_stage(panel)
     if stage is None:
         return ''

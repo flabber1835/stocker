@@ -385,6 +385,14 @@ class Row:
 
     def effective_status(self, now: datetime) -> str:
         """Apply the shared operator recoverability policy."""
+        if self.paper_alignment == 'SCHEDULED_WITH_HISTORY':
+            if (self.key != 'paper_reconciliation' or self.status != WARN
+                    or self.required_current is not True or self.recovery is not None
+                    or not isinstance(self.valid_until, datetime)
+                    or self.valid_until.utcoffset() != timedelta(0)
+                    or self.is_future(now) or self.is_stale(now)):
+                return FAIL
+            return WARN
         if self.paper_alignment == 'PRIOR_CYCLE_FAILED':
             if (self.key != 'paper_reconciliation' or self.status != WARN
                     or not isinstance(self.valid_until,datetime)
@@ -620,13 +628,15 @@ def paper_reconciliation_row(
             "PAPER NOT VERIFIED · MISMATCH · BLOCKED", FAIL,
             (detail or "a durable PAPER discrepancy blocks future mutations")
             + suffix)
-    if normalized == "SCHEDULED" and scheduled_until is not None:
+    if normalized in {"SCHEDULED", "SCHEDULED_WITH_HISTORY"} and scheduled_until is not None:
+        historical = normalized == 'SCHEDULED_WITH_HISTORY'
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",
-            "PAPER NOT VERIFIED · SCHEDULED · POST-CLOSE EVIDENCE PENDING", OK,
+            ("PAPER NOT VERIFIED · SCHEDULED · HISTORICAL MIRROR WARNING" if historical else
+             "PAPER NOT VERIFIED · SCHEDULED · POST-CLOSE EVIDENCE PENDING"), WARN if historical else OK,
             detail + suffix, required_current=True,
             valid_until=scheduled_until - timedelta(microseconds=1),
-            paper_alignment='SCHEDULED')
+            paper_alignment='SCHEDULED_WITH_HISTORY' if historical else 'SCHEDULED')
     if normalized == "CLEAN":
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",

@@ -87,6 +87,17 @@ def test_scheduled_proof_guard_falsifier(monkeypatch):
     (True, False, 'unstamped', model.WARN),
     (True, True, 'mismatch', model.FAIL),
     (True, True, 'global_mismatch', model.FAIL),
+    (True, True, 'global_history', model.WARN),
+    (True, False, 'global_history', model.FAIL),
+    (True, True, 'history_bool', model.FAIL),
+    (True, True, 'history_zero', model.FAIL),
+    (True, True, 'integrity_refusal', model.FAIL),
+    (True, True, 'stamped_history', model.WARN),
+    (True, False, 'stamped_history', model.FAIL),
+    (True, True, 'stamped_history_no_count', model.FAIL),
+    (True, True, 'stamped_history_bool', model.FAIL),
+    (True, True, 'stamped_history_zero', model.FAIL),
+    (True, True, 'stamped_current_mismatch', model.FAIL),
 ])
 def test_future_unstamped_plan_requires_bound_local_scheduled_proof(
         monkeypatch, local, proof, defect, expected):
@@ -109,21 +120,39 @@ def test_future_unstamped_plan_requires_bound_local_scheduled_proof(
     monkeypatch.setattr(sources, '_scheduled_preopen_mirror', scheduled)
 
     def transport(*_, **__):
+        if defect.startswith('stamped_'):
+            return {'status': mirror.MISMATCH, 'historical_mismatch_count':
+                {'stamped_history':1, 'stamped_history_no_count':None,
+                 'stamped_history_bool':True, 'stamped_history_zero':0,
+                 'stamped_current_mismatch':1}[defect]}
+        if defect == 'integrity_refusal':
+            raise mirror.InformationalPaperMirrorRefused('authenticated mirror coverage changed')
+        if defect in {'global_history', 'history_bool', 'history_zero'}:
+            return {'status': mirror.MISMATCH, 'historical_mismatch_count':
+                {'global_history':1, 'history_bool':True, 'history_zero':0}[defect]}
         if defect == 'global_mismatch':
             return {'status': mirror.MISMATCH}
         return {'status': mirror.NO_UNIT_CHANGE}
     def current(*_, **__):
-        if defect == 'mismatch':
+        if defect in {'mismatch', 'stamped_current_mismatch'}:
             raise mirror.InformationalPaperMirrorMismatch('current mismatch')
+        if defect.startswith('stamped_'):
+            return {'status':mirror.PENDING}
         raise mirror.InformationalPaperMirrorUnstamped('future plan not transported')
     monkeypatch.setattr(mirror, 'require_transport_permitted', transport)
     monkeypatch.setattr(mirror, 'require_current_plan_status', current)
     row = sources._dual_paper_row(object(), informational_paper_mirror=mirror,
         publication=publication, feed_store=None)
     assert row.status == expected
-    assert bool(scheduled_calls) == (local and defect == 'unstamped')
+    assert bool(scheduled_calls) == (local and defect in {'unstamped','global_history','stamped_history'})
     if expected == model.OK:
         assert 'SCHEDULED' in row.value and 'NOT VERIFIED' in row.value
+    if defect in {'global_history','stamped_history'} and proof:
+        assert row.paper_alignment == 'SCHEDULED_WITH_HISTORY'
+        assert row.effective_status(NOW) == model.WARN
+        assert row.effective_status(OPEN) == model.FAIL
+        assert 'HISTORICAL MIRROR WARNING' in row.value and 'BLOCKED' not in row.value
+        assert 'earlier transported plans' in row.detail
 
 
 def test_removing_local_account_guard_breaks_normal_mode_regression(monkeypatch):

@@ -2200,6 +2200,28 @@ def _scheduled_preopen_mirror(conn, cycle, active_publication, frontier, *, now=
                 + "; orders have not completed and post-close mirror evidence remains pending"))
 
 
+def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror):
+    """Keep authenticated all-history warnings distinct from exact future readiness."""
+    from sentinel import informational_paper_mirror
+    historical = mirror.get('status') == informational_paper_mirror.MISMATCH
+    count = mirror.get('historical_mismatch_count')
+    if historical and (type(count) is not int or count <= 0):
+        return model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
+            detail='historical mirror mismatch has no valid authenticated count')
+    scheduled = _scheduled_preopen_mirror(conn, cycle, active_publication, frontier)
+    if historical:
+        if scheduled is None:
+            return model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
+                detail='historical mirror warning remains recorded; current scheduled readiness is unproved')
+        return model.paper_reconciliation_row(
+            state='SCHEDULED_WITH_HISTORY', cycle_state=cycle.get('state'),
+            scheduled_until=scheduled.valid_until+timedelta(microseconds=1),
+            detail=(f'{count} historical informational mirror mismatch(es) '
+                'remain recorded for earlier transported plans; this is not a '
+                'mismatch of the current scheduled plan. '+scheduled.detail))
+    return scheduled
+
+
 @dataclass(frozen=True)
 class RetiredPaperFailureEligibility:
     account_observed_at: datetime
@@ -2350,8 +2372,8 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                 detail=("the completed PAPER cycle has no exact durable clean "
                         "reconciliation"))
         if pending and plan_state == informational_paper_mirror.PENDING:
-            scheduled = _scheduled_preopen_mirror(
-                conn, cycle, active_publication, frontier)
+            scheduled = _scheduled_paper_mirror(
+                conn, cycle, active_publication, frontier, mirror)
             if scheduled is not None:
                 return scheduled
         return model.paper_reconciliation_row(
@@ -2370,12 +2392,8 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
     except informational_paper_mirror.InformationalPaperMirrorUnstamped as exc:
         from sentinel import local_paper
         if cycle_state == "WAITING_OPEN" and local_paper.require_bound_account(conn):
-            if mirror.get("status") == informational_paper_mirror.MISMATCH:
-                return model.paper_reconciliation_row(
-                    state="MISMATCH", cycle_state=cycle_state,
-                    detail="historical mirror share-unit mismatch remains recorded")
-            scheduled = _scheduled_preopen_mirror(
-                conn, cycle, active_publication, frontier)
+            scheduled = _scheduled_paper_mirror(
+                conn, cycle, active_publication, frontier, mirror)
             if scheduled is not None:
                 return scheduled
         return model.paper_reconciliation_row(

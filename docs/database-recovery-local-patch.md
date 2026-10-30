@@ -142,3 +142,32 @@ actual panel verdict, not claim a green dashboard. Notification-history checks
 remain strict throughout the handoff. After the verified operation releases
 ownership, acknowledge only incidents whose causes are then independently
 resolved through the supported CLI, and re-read local/public operational state.
+
+## Future scheduled plan with an informational history warning
+
+Decision: 2026-10-30, before implementation. The qualified local application
+repair may finish its PRE_OPEN software handoff with the exact typed
+`SCHEDULED_WITH_HISTORY` paper-alignment warning. The current independently
+admitted future WAITING_OPEN plan is intact; a discrepancy on an earlier
+transported informational plan remains visible. This is a bounded software
+receipt compatibility case, not green dashboard clearance or financial
+verification.
+
+Require the actual amber page and warning, its explicit paper-alignment flag,
+required-current status, no recovery override, and an original UTC validity
+boundary exactly one microsecond before the same saved plan's future execution.
+Require the current plan/session, verified source, enabled kill-released policy,
+fresh leader and current authority. The only warning rows permitted are that
+history row and the original bounded WAITING_OPEN cycle/open-step rows. Reject
+every failed/unreadable fact, source error, unrelated warning, ambiguous row,
+missing/malformed flag or expired/future evidence. Record the actual amber
+verdict and the retained warning identity, value and original boundary in the
+immutable software receipt; do not report operational readiness from it.
+
+Keep POST_TRADE behavior and all existing native financial, canonical old/new
+comparison, account/zero-order, source-idle, backup/WAL, plan, broker-outcome and
+history guards unchanged. This exception changes only the final PRE_OPEN
+software receipt's former unconditional green-page requirement. Qualify the
+executed final reader against the real typed source row, its negative/current
+mismatch variants, other warnings and original expiry, including removal of the
+typed-flag guard.

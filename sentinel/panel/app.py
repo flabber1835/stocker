@@ -298,6 +298,7 @@ def panel_json() -> JSONResponse:
                  "source_publication_version": r.source_publication_version,
                  "source_session": r.source_session,
                  "feed_readiness": r.feed_readiness,
+                 "paper_alignment": r.paper_alignment,
                  "valid_until": (
                      r.valid_until.isoformat() if r.valid_until else None),
                  "recovery": (

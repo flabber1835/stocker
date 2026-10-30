@@ -174,6 +174,31 @@ def _normal_warning(panel, row: Row) -> bool:
             and alignment.effective_status(panel.now) == 'ok')
 
 
+def _preparation_boundary(work) -> datetime | None:
+    boundary = work.observed_at+timedelta(seconds=45)
+    if work.state == 'PUBLISHED':
+        from sentinel.feed import calendar
+        try:
+            opened, _closed = calendar.session_window(work.effective_session.isoformat())
+        except (ValueError, TypeError, RuntimeError, OverflowError):
+            return None
+        boundary = min(boundary, opened)
+    return boundary
+
+
+def visible_preparation(panel):
+    """Completed data work stops describing next-plan preparation at its open."""
+    row = panel.row('ingest')
+    if row is None or not row.can_show_preparation(panel.now):
+        return None
+    work = row.preparation
+    if work.state == 'PUBLISHED':
+        boundary = _preparation_boundary(work)
+        if boundary is None or panel.now >= boundary:
+            return None
+    return work
+
+
 def preparation_stage(panel) -> str | None:
     """Describe admitted work, never infer a live stage from a retry string."""
     if _closing_source_proof(panel):
@@ -184,16 +209,17 @@ def preparation_stage(panel) -> str | None:
             return 'Publishing closing data'
         if phases & {'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION'}:
             return 'Preparing strategy verification'
-    row = panel.row('ingest')
-    if row is not None and row.can_show_preparation(panel.now):
-        work = row.preparation
+    work = visible_preparation(panel)
+    if work is not None:
         if work.active_at(panel.now):
             return {'ACQUIRING': 'Downloading closing data',
                     'STAGING': 'Preparing downloaded data',
                     'VALIDATING': 'Validating market data',
                     'READY': 'Waiting to publish validated data'}[work.state]
         if work.state == 'PUBLISHED':
-            return 'Market data published · plan preparation pending'
+            plan = panel.row('paper_plan')
+            saved = plan is not None and plan.can_show_paper_plan(panel.now)
+            return 'Market data published'+('' if saved else ' · plan preparation pending')
         if work.state in {'WAIT_SOURCE', 'RETRY_WAIT'}:
             return 'Waiting to retry data acquisition'
         return 'Data preparation awaiting a worker'
@@ -234,13 +260,18 @@ def dashboard_health(panel) -> dict:
             and broker.recovery is not None and broker.recovery.phase == 'BROKER_FILL_SNAPSHOT'
             and broker.recovery.active(panel.now)):
         label = 'Reconciling fills'
-    boundaries = [_row_boundary(row) for row, item_status in statuses
-                  if row.required_current and item_status in {'ok', 'warn'}]
+    admitted = [row for row in warnings if _normal_warning(panel, row)]
+    boundaries = [_row_boundary(row) for row in admitted]
+    if any(is_closing_data_preparation(row, 'warn') for row in admitted):
+        boundaries.append(_row_boundary(panel.row('shadow_worker')))
+    if any(_normal_idle(panel, row) for row in admitted):
+        boundaries.append(_row_boundary(panel.row('automation_leader')))
     boundaries = [value for value in boundaries if value is not None]
-    work_row = panel.row('ingest')
-    if work_row is not None and work_row.can_show_preparation(panel.now):
-        work = work_row.preparation
-        boundaries.append(work.observed_at+timedelta(seconds=45))
+    work = visible_preparation(panel)
+    if work is not None:
+        boundary = _preparation_boundary(work)
+        if boundary is not None:
+            boundaries.append(boundary)
         if work.active_at(panel.now) and not (stage == 'Publishing closing data'):
             boundaries.append(work.active_until)
     boundary = min(boundaries) if boundaries else None

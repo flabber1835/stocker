@@ -412,11 +412,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     worker = panel.row('shadow_worker')
     if worker is not None and worker.effective_status(now) == OK and worker.valid_until is not None:
         document_age = min(document_age, max(0, (worker.valid_until-now).total_seconds()))
-        refresh_seconds = min(refresh_seconds, max(1, int(document_age)-15))
     if health['valid_until'] is not None:
         health_until = datetime.fromisoformat(health['valid_until'])
         document_age = min(document_age, max(0, (health_until-now).total_seconds()))
-        refresh_seconds = min(refresh_seconds, max(1, int(document_age)-15))
+    if document_age < PRESENTATION_MAX_AGE_SECONDS:
+        refresh_seconds = min(refresh_seconds, max(5, int(document_age/2)))
     overall = panel.overall
     operational = panel.operational
     if health['status'] == OK:

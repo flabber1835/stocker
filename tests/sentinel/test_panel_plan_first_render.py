@@ -258,6 +258,73 @@ def test_waiting_retry_and_published_work_keep_recorded_stage_without_inventing_
     assert 'Calculating' not in overview.overview_html(published)
 
 
+def test_published_work_does_not_call_an_admitted_saved_plan_pending():
+    from sentinel.panel.presentation import dashboard_health, preparation_stage
+    panel = example_panel()
+    published = preparing_panel(state='PUBLISHED',owner_registered=False,lease_until=None).rows[0]
+    panel = replace(panel,rows=[*panel.rows,replace(published,status=model.OK,recovery=None)])
+    assert preparation_stage(panel) == 'Market data published'
+    assert dashboard_health(panel)['plan_readiness'] == 'ready'
+    assert dashboard_health(panel)['label'] == 'Healthy · Market data published'
+    html = overview.overview_html(panel)
+    assert 'Next trading plan: saved for its scheduled market open.' in html
+    assert 'plan preparation pending' not in html and 'preparation-title' not in html
+    assert 'data-security-id="PANW"' in html
+
+
+def _published_panel(now):
+    panel = preparing_panel(now=now,state='PUBLISHED',owner_registered=False,lease_until=None)
+    return replace(panel,rows=[replace(panel.rows[0],status=model.OK,recovery=None)])
+
+
+def test_completed_publication_expires_at_its_own_effective_open_not_a_new_metadata_read():
+    from sentinel.feed import calendar
+    from sentinel.panel.presentation import dashboard_health, preparation_stage
+    from sentinel.panel.render import render
+    opened, _ = calendar.session_window('2026-10-23')
+    before = _published_panel(opened-timedelta(seconds=15))
+    assert preparation_stage(before) == 'Market data published · plan preparation pending'
+    assert dashboard_health(before)['valid_until'] == opened.isoformat()
+    html = render(before)
+    assert 'data-max-age-seconds="15.0"' in html and 'refreshes every 7s' in html
+    # A fresh metadata read of the same old PUBLISHED job buys no new next-plan clock.
+    for now in (opened,opened+timedelta(minutes=20),opened+timedelta(days=1)):
+        after = _published_panel(now)
+        assert after.rows[0].can_show_preparation(now)
+        assert preparation_stage(after) is None
+        assert dashboard_health(after)['valid_until'] is None
+        html = overview.overview_html(after)
+        assert 'preparation-title' not in html and 'Market data published' not in html
+        assert 'Next trading plan pending.' in html
+
+
+def test_unavailable_effective_session_clock_withdraws_completed_preparation(monkeypatch):
+    from sentinel.feed import calendar
+    from sentinel.panel.presentation import preparation_stage
+    monkeypatch.setattr(calendar,'session_window',lambda _:(_ for _ in ()).throw(
+        calendar.CalendarUnavailable('pinned calendar unavailable')))
+    panel = _published_panel(NOW)
+    assert preparation_stage(panel) is None
+    assert 'preparation-title' not in overview.overview_html(panel)
+
+
+def test_effective_open_guard_has_an_executed_removal_falsifier(monkeypatch):
+    from sentinel.panel import presentation
+    from sentinel.feed import calendar
+    opened, _ = calendar.session_window('2026-10-23')
+    panel = _published_panel(opened)
+    assert presentation.preparation_stage(panel) is None
+    source = inspect.getsource(presentation.visible_preparation)
+    guard = 'if boundary is None or panel.now >= boundary:'
+    assert source.count(guard) == 1
+    namespace = dict(vars(presentation))
+    exec(compile(source.replace(guard,'if boundary is None:'),
+        'missing-completed-publication-open-boundary','exec'),namespace)
+    monkeypatch.setattr(presentation,'visible_preparation',namespace['visible_preparation'])
+    with pytest.raises(AssertionError):
+        assert presentation.preparation_stage(panel) is None
+
+
 def test_atomic_publication_proof_wins_over_the_committed_jobs_old_lease():
     from sentinel.panel.presentation import dashboard_health
     panel = preparing_panel(state='PUBLISHED',owner_registered=False,lease_until=NOW)
@@ -410,7 +477,8 @@ def test_preparation_copy_escapes_data_and_retained_views_withdraw_current_claim
     panel = preparing_panel(lease_until=NOW+timedelta(seconds=12))
     html = render(panel)
     assert 'data-max-age-seconds="12.0"' in html
-    assert '}, 1000)' in html  # Refresh at one second when only twelve seconds remain.
+    assert 'refreshes every 6s' in html
+    assert '}, 6000)' in html
     retained = render(panel,refresh_pending=True)
     assert 'class="state ok"' not in retained.split('</header>',1)[0]
     assert 'Last known · Downloading closing data' in retained
@@ -419,6 +487,58 @@ def test_preparation_copy_escapes_data_and_retained_views_withdraw_current_claim
     monkeypatch.setattr(overview,'preparation_stage',lambda _:attack)
     html = overview.overview_html(panel)
     assert attack not in html and '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;' in html
+
+
+def test_acquisition_health_does_not_poll_on_an_unrelated_routine_leader_lease():
+    from sentinel.panel.presentation import dashboard_health
+    from sentinel.panel.render import render
+    panel = preparing_panel()
+    deadline = NOW+timedelta(hours=1)
+    panel = replace(panel,rows=[*panel.rows,
+        model.Row('automation_leader','Leader','ACTIVE',model.OK,as_of=NOW,
+            required_current=True,valid_until=NOW+timedelta(seconds=12)),
+        model.Row('shadow_worker','Worker','RUNNING',model.OK,as_of=NOW,
+            required_current=True,valid_until=NOW+timedelta(seconds=60)),
+        model.Row('shadow_verification','Shadow','WAITING FOR INPUTS',model.WARN,
+            as_of=NOW,required_current=True,valid_until=deadline,
+            recovery=RecoveryEvidence(phase='SOURCE_FRONTIER',automatic=True,deadline=deadline)),
+        model.Row('paper_plan','Next plan','NOT PREPARED',model.PENDING)])
+    assert dashboard_health(panel)['label'] == 'Healthy · Downloading closing data'
+    assert dashboard_health(panel)['valid_until'] == (NOW+timedelta(seconds=35)).isoformat()
+    html = render(panel)
+    assert 'data-max-age-seconds="35.0"' in html and 'refreshes every 17s' in html
+    assert 'refreshes every 1s' not in html
+    # An actual publication/worker proof still expires at that proof's own clock.
+    worker_short = replace(panel,rows=[replace(row,valid_until=NOW+timedelta(seconds=9))
+        if row.key == 'shadow_worker' else row for row in panel.rows])
+    assert dashboard_health(worker_short)['valid_until'] == (NOW+timedelta(seconds=9)).isoformat()
+    assert 'data-max-age-seconds="9.0"' in render(worker_short)
+    assert 'refreshes every 5s' in render(worker_short)
+
+
+def test_health_polling_uses_the_proof_actually_needed_to_call_the_wait_normal():
+    from sentinel.panel.presentation import dashboard_health
+    from sentinel.panel.render import render
+    recovery = RecoveryEvidence(phase='AUTOMATION_DISCOVERY',automatic=True,
+        deadline=NOW+timedelta(minutes=1))
+    rows = [model.Row('automation','Automation','ENABLED · KILL RELEASED',model.OK),
+        model.Row('automation_leader','Leader','ACTIVE',model.OK,as_of=NOW,
+            required_current=True,valid_until=NOW+timedelta(seconds=8)),
+        model.Row('automation_cycle','Cycle','WAITING FOR NEXT DECISION',model.WARN,
+            required_current=True,recovery=recovery)]
+    idle = model.Panel(now=NOW,rows=rows)
+    assert dashboard_health(idle)['label'] == 'Healthy · Waiting for next decision'
+    assert dashboard_health(idle)['valid_until'] == (NOW+timedelta(seconds=8)).isoformat()
+    assert 'data-max-age-seconds="8.0"' in render(idle)
+    assert 'refreshes every 5s' in render(idle)
+    # Once no warning depends on that lease, the established general page budget applies.
+    healthy = replace(idle,rows=rows[:-1])
+    assert dashboard_health(healthy)['valid_until'] is None
+    assert 'data-max-age-seconds="45"' in render(healthy)
+    assert 'refreshes every 30s' in render(healthy)
+    near_expiry = preparing_panel(lease_until=NOW+timedelta(seconds=4))
+    assert 'data-max-age-seconds="4.0"' in render(near_expiry)
+    assert 'refreshes every 5s' in render(near_expiry)  # The age timer withdraws first.
 
 
 def test_live_owner_admission_has_an_executed_health_removal_falsifier(monkeypatch):
