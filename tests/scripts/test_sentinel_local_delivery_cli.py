@@ -1,6 +1,7 @@
 """Qualified bytes, immutable requests and explicit resumable host operations."""
 from contextlib import contextmanager
 from copy import deepcopy
+import ast
 import importlib
 import importlib.util
 import inspect
@@ -136,11 +137,15 @@ def test_build_qualification_requires_clean_committed_feature_branch(inputs,monk
 
 
 def test_removed_qualified_source_check_is_detected(inputs,monkeypatch):
-    source=inspect.getsource(qualification.validate_report)
-    needle="report['source_files'] == source_files(source)"
-    assert source.count(needle)==1
+    source=ast.parse(inspect.getsource(qualification.validate_report))
+    guards=[node for node in ast.walk(source) if isinstance(node,ast.Call)
+        and isinstance(node.func,ast.Name) and node.func.id=='require'
+        and len(node.args)==2 and isinstance(node.args[1],ast.Constant)
+        and node.args[1].value=='QUALIFIED_SOURCE_BYTES_CHANGED']
+    assert len(guards)==1
+    guards[0].args[0]=ast.Constant(value=True)
     namespace={}
-    exec(compile(source.replace(needle,'True'),'removed-qualified-source-check','exec'),
+    exec(compile(ast.fix_missing_locations(source),'removed-qualified-source-check','exec'),
         vars(qualification),namespace)
     monkeypatch.setattr(qualification,'validate_report',namespace['validate_report'])
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
@@ -532,10 +537,16 @@ def test_operational_qualification_refuses_nonoperational_changes_before_reading
 
 def test_operational_changed_input_guard_removal_is_detected(operational_inputs):
     value=operational_inputs
-    source=inspect.getsource(qualification.source_files)
-    assert source.count('or name in changed')==1
+    source=ast.parse(inspect.getsource(qualification.source_files))
+    guards=[node for node in ast.walk(source) if isinstance(node,ast.Compare)
+        and isinstance(node.left,ast.Name) and node.left.id=='name'
+        and len(node.ops)==1 and isinstance(node.ops[0],ast.In)
+        and len(node.comparators)==1 and isinstance(node.comparators[0],ast.Name)
+        and node.comparators[0].id=='changed']
+    assert len(guards)==1
+    guards[0].comparators[0]=ast.Tuple(elts=[],ctx=ast.Load())
     scope=dict(qualification.__dict__)
-    exec(source.replace('or name in changed',''),scope)
+    exec(compile(ast.fix_missing_locations(source),'removed-changed-input-guard','exec'),scope)
     broken=scope['source_files'](value.source,scope=qualification.OPERATIONAL_SCOPE,
                                  predecessor_commit=OLD)
     with pytest.raises(AssertionError):
