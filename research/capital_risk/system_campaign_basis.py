@@ -35,6 +35,9 @@ PARSLEY_HYDRATED='research:system-optimization-002/parsley-private-terminal-cata
 EARLY2019='research:system-optimization-002/early2019-terminal-catalog/1'
 EARLY2019_COMPILER='research:system-optimization-002/early2019-terminal-compiler/1'
 EARLY2019_HYDRATED='research:system-optimization-002/early2019-private-terminal-catalog/1'
+DISTRIBUTION='research:system-optimization-002/distribution-catalog/1'
+DISTRIBUTION_COMPILER='research:system-optimization-002/distribution-compiler/1'
+DISTRIBUTION_HYDRATED='research:system-optimization-002/distribution-private-catalog/1'
 
 
 def semantics(base,documents,expected):
@@ -95,7 +98,10 @@ def basis(evidence,cp):
         PARSLEY_HYDRATED:evidence/'hydrated-parsley-terminal-catalog.json',
         EARLY2019:Path('/driver/system-campaign-early2019-terminal-facts.json'),
         EARLY2019_COMPILER:Path('/driver/system_campaign_early2019_facts.py'),
-        EARLY2019_HYDRATED:evidence/'hydrated-early2019-terminal-catalog.json'}
+        EARLY2019_HYDRATED:evidence/'hydrated-early2019-terminal-catalog.json',
+        DISTRIBUTION:Path('/driver/system-campaign-distribution-facts.json'),
+        DISTRIBUTION_COMPILER:Path('/driver/system_campaign_distribution_facts.py'),
+        DISTRIBUTION_HYDRATED:evidence/'hydrated-distribution-catalog.json'}
     need(all(p.is_file() for p in names.values()),'COMMON_BASIS_ACTUAL_COMPLETE_FACT_FILES')
     expected={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()};documents=[]
     for spec in cp['repairs']:
