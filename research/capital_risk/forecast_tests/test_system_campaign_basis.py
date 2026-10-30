@@ -49,7 +49,7 @@ def test_actual_compiler_guard_removal_falsifier():
     assert scope['semantics'](base,[one],refs)['declared_fact_compilers']['facts']=='0'*64
 
 
-@pytest.mark.parametrize('removed',('SPRING','LATE','YEAREND','FOLLOWON'))
+@pytest.mark.parametrize('removed',('SPRING','LATE','YEAREND','FOLLOWON','PARSLEY'))
 def test_required_hydrations_and_actual_omission_falsifier(tmp_path,monkeypatch,removed):
     driver=tmp_path/'driver';driver.mkdir();evidence=tmp_path/'evidence';evidence.mkdir()
     names={module.CATALOG_REF:driver/'system-campaign-factual-catalog.json',
@@ -80,7 +80,10 @@ def test_required_hydrations_and_actual_omission_falsifier(tmp_path,monkeypatch,
         module.YEAREND_HYDRATED:evidence/'hydrated-yearend-terminal-catalog.json',
         module.FOLLOWON:driver/'system-campaign-followon-terminal-facts.json',
         module.FOLLOWON_COMPILER:driver/'system_campaign_followon_facts.py',
-        module.FOLLOWON_HYDRATED:evidence/'hydrated-followon-terminal-catalog.json'}
+        module.FOLLOWON_HYDRATED:evidence/'hydrated-followon-terminal-catalog.json',
+        module.PARSLEY:driver/'system-campaign-parsley-terminal-facts.json',
+        module.PARSLEY_COMPILER:driver/'system_campaign_parsley_facts.py',
+        module.PARSLEY_HYDRATED:evidence/'hydrated-parsley-terminal-catalog.json'}
     for ref,p in names.items():p.write_bytes(ref.encode())
     refs={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()}
     document={'schema':'terminal-repair/1','source_evidence':[{'reference':k,'sha256':v} for k,v in refs.items()],

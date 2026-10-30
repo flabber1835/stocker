@@ -97,3 +97,41 @@ such; no metadata normalization turns an old path into a corrected one. Further
 genuine missing facts retain refusal until verified, never fabricated, rounded,
 skipped or tuned away. FMSA exact cash and AAAP remaining-holder entitlement
 remain unresolved; this repair does not claim to solve those separate blockers.
+
+## Newly stopped P04 and the prelaunch driver error
+
+The first Followon launch40990173778 stopped before any financial worker or
+input-artifact admission: main passed a predecessor filename to a zero-argument
+request function. Preserve all three staging-only artifacts and the TypeError.
+Restore the documented exact-filename call contract; test the actual main
+handoff up to the absent staging file, without running a local financial engine.
+This engineering correction does not change any catalog, term or financial
+state. A new SHA/request is required; do not rerun attempt2.
+
+P04 subsequently stopped and its full artifact12948432972 was authenticated.
+Its own current checkpoint is December31,2020/756daily; last good session
+January11,2021, next refusal January12 for PE980948154175032078. PE is Parsley
+Energy, not Fitbit. Preserve that distinction and the actual failure.
+
+Pioneer's issuer completed release/SEC merger disclosure and OCC48155 establish
+0.1252 PXD common shares per eligible Parsley ClassA share. This is an all-stock
+conversion, not the provider's incomplete CASH_MERGER. The transaction completed
+January12; the OCC adjustment is January13. Use the retained next-session daily
+boundary January13 and preserve January12, with the exact legal minute
+unobserved. Verify the actual frozen PXD security/issuer and January13 raw-open
+proxy before compiling a separately named Parsley fact component. No invented
+base cash payment or Fitbit7.35 term is admitted.
+
+- https://www.sec.gov/Archives/edgar/data/1038357/000119312521007366/d239794dex991.htm
+- https://www.sec.gov/Archives/edgar/data/1038357/000103835721000033/proformapxdpedpt2021.htm
+- https://infomemo.theocc.com/infomemos?number=48155
+
+Add P04 only after its actual old stop is proven. All four select their own
+retained November30,2018 predecessor before the new common facts. Retain all
+eight prior groups and merge immutable Yearend, immutable Followon, and the new
+Parsley component as three future groups. Preserve all later old checkpoints,
+full journals and recovered tails. The additional earlier replay is necessary
+to apply common December2018 facts causally; P04's December2020 state cannot
+be relabelled as if those earlier facts had been present. No origin restart.
+Require eleven factual groups before any formal cross-arm numerical ranking;
+the still-running default remains on its pinned request and is not duplicated.

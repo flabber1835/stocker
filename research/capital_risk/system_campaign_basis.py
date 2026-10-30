@@ -29,6 +29,9 @@ YEAREND_HYDRATED='research:system-optimization-002/yearend-private-terminal-cata
 FOLLOWON='research:system-optimization-002/followon-terminal-catalog/1'
 FOLLOWON_COMPILER='research:system-optimization-002/followon-terminal-compiler/1'
 FOLLOWON_HYDRATED='research:system-optimization-002/followon-private-terminal-catalog/1'
+PARSLEY='research:system-optimization-002/parsley-terminal-catalog/1'
+PARSLEY_COMPILER='research:system-optimization-002/parsley-terminal-compiler/1'
+PARSLEY_HYDRATED='research:system-optimization-002/parsley-private-terminal-catalog/1'
 
 
 def semantics(base,documents,expected):
@@ -83,7 +86,10 @@ def basis(evidence,cp):
         YEAREND_HYDRATED:evidence/'hydrated-yearend-terminal-catalog.json',
         FOLLOWON:Path('/driver/system-campaign-followon-terminal-facts.json'),
         FOLLOWON_COMPILER:Path('/driver/system_campaign_followon_facts.py'),
-        FOLLOWON_HYDRATED:evidence/'hydrated-followon-terminal-catalog.json'}
+        FOLLOWON_HYDRATED:evidence/'hydrated-followon-terminal-catalog.json',
+        PARSLEY:Path('/driver/system-campaign-parsley-terminal-facts.json'),
+        PARSLEY_COMPILER:Path('/driver/system_campaign_parsley_facts.py'),
+        PARSLEY_HYDRATED:evidence/'hydrated-parsley-terminal-catalog.json'}
     need(all(p.is_file() for p in names.values()),'COMMON_BASIS_ACTUAL_COMPLETE_FACT_FILES')
     expected={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()};documents=[]
     for spec in cp['repairs']:

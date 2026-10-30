@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        arm: [P01, P02, P07]
+        arm: [P01, P02, P04, P07]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:

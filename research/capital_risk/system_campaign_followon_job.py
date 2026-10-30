@@ -18,11 +18,14 @@ from seal import sha256_file
 
 HERE=Path(__file__).resolve().parent
 SOURCES=tuple(dict.fromkeys((*PRIOR_SOURCES,'system_campaign_followon_job.py',
-    'system_campaign_followon_run.py','system_campaign_followon_facts.py')))
+    'system_campaign_followon_run.py','system_campaign_followon_facts.py','system_campaign_parsley_facts.py')))
 
 
-def expected_request():
+def expected_request(predecessors_file='system-campaign-followon-predecessors.json'):
+    need(predecessors_file=='system-campaign-followon-predecessors.json','FOLLOWON_EXACT_PREDECESSOR_FILE')
     return {'schema':'research.system-campaign-followon-suffix-request/1','campaign':'system-optimization-002',
+        'superseded_prelaunch_run_id':40990173778,
+        'superseded_prelaunch_request_sha256':'7a1bd5ea1a0da66cfe99a1e2043fce9103b3cccd312ec463270e1113fa7c9160',
         'protocol_sha256':sha256_file(HERE/'system-campaign-search-protocol.json'),
         'predecessors_file':'system-campaign-followon-predecessors.json',
         'predecessors_sha256':sha256_file(HERE/'system-campaign-followon-predecessors.json'),
@@ -30,6 +33,7 @@ def expected_request():
         'catalog_sha256':sha256_file(HERE/'system-campaign-factual-catalog.json'),
         'yearend_catalog_sha256':sha256_file(HERE/'system-campaign-yearend-terminal-facts.json'),
         'followon_catalog_sha256':sha256_file(HERE/'system-campaign-followon-terminal-facts.json'),
+        'parsley_catalog_sha256':sha256_file(HERE/'system-campaign-parsley-terminal-facts.json'),
         'sources':{n:sha256_file(HERE/n) for n in SOURCES},'financial_wait_seconds':12600,
         'review_wait_seconds':2700,'artifact_retention_days':7,'production_contacted':False,
         'all_financial_source_bytes_identical':True,'old_branches_preserved':True,'new_origin':False}
@@ -65,7 +69,7 @@ def main(a):
     check_context(os.environ);need(os.environ.get('GITHUB_RUN_ATTEMPT')=='1','NO_FACTUAL_SUFFIX_RERUN')
     request=json.loads(a.request.read_bytes());need(request==expected_request(request['predecessors_file']),'EXACT_FACTUAL_SUFFIX_REQUEST')
     specifications=json.loads((HERE/request['predecessors_file']).read_bytes())['arms']
-    need(a.arm in ('P01','P02','P07'),'FOLLOWON_ONLY_STOPPED_SELECTED_ARMS')
+    need(a.arm in ('P01','P02','P04','P07'),'FOLLOWON_ONLY_STOPPED_SELECTED_ARMS')
     spec=specifications[a.arm]
     predecessor_receipt(spec)
     stage=json.loads(a.staging.read_bytes())
@@ -99,6 +103,7 @@ def main(a):
         'predecessor_run_id':spec['run_id'],'selected_predecessor_outer_sha256':spec['outer_sha256'],
         'catalog_sha256':request['catalog_sha256'],'yearend_catalog_sha256':request['yearend_catalog_sha256'],
         'followon_catalog_sha256':request['followon_catalog_sha256'],
+        'parsley_catalog_sha256':request['parsley_catalog_sha256'],
         'production_contacted':False,'performance_admitted':False,'status':'NOT_STARTED'}
     def cmd(name,mode,output):
         values=command(name,source,frozen,output,mode);values[values.index('/driver/full_system_core.py')]='/driver/system_campaign_followon_run.py'

@@ -62,7 +62,7 @@ def test_complete_source_closure_and_workflow_only_stopped_arms():
     from system_campaign_numeric_job import SOURCES as NUMERIC
     assert not dependencies(SOURCES)-set(SOURCES) and not dependencies(NUMERIC)-set(NUMERIC)
     workflow=(ROOT.parents[1]/'.github/workflows/capital-system-followon-factual-suffix.yml').read_text()
-    assert 'arm: [P01, P02, P07]' in workflow and 'arm: [P00' not in workflow
+    assert 'arm: [P01, P02, P04, P07]' in workflow and 'arm: [P00' not in workflow
     assert "paths: ['research/capital_risk/system-campaign-followon-request.json']" in workflow
     tree=ast.parse((ROOT/'system_campaign_followon_run.py').read_bytes())
     values={n.value for n in ast.walk(tree) if isinstance(n,ast.Constant) and isinstance(n.value,str)}
@@ -75,7 +75,33 @@ def test_frozen_request_binds_exact_own_reviewed_predecessors():
     request=json.loads((ROOT/'system-campaign-followon-request.json').read_bytes())
     assert request==expected_request()
     arms=json.loads((ROOT/request['predecessors_file']).read_bytes())['arms']
-    assert set(arms)=={'P01','P02','P07'}
+    assert set(arms)=={'P01','P02','P04','P07'}
     assert all(s['selected_session']=='2018-11-30' and s['run_id']==40986345436 for s in arms.values())
     assert all(s['receipt_name']=='campaign-factual-'+a+'.json' for a,s in arms.items())
     assert request['source_archive_limit_bytes']==1024**3
+
+
+def test_actual_main_request_handoff_without_staging_or_financial_work(monkeypatch,tmp_path):
+    from types import SimpleNamespace
+    import system_campaign_followon_job as job
+    monkeypatch.setattr(job,'check_context',lambda env:None)
+    monkeypatch.setenv('GITHUB_RUN_ATTEMPT','1')
+    args=SimpleNamespace(request=ROOT/'system-campaign-followon-request.json',staging=tmp_path/'absent-staging',arm='P01')
+    with pytest.raises(FileNotFoundError):job.main(args)
+    # The exact former zero-argument function fails at this same real handoff.
+    original=job.expected_request
+    monkeypatch.setattr(job,'expected_request',lambda:original())
+    with pytest.raises(TypeError,match='positional'):job.main(args)
+
+
+def test_parsley_is_stock_conversion_not_cash_or_fitbit(tmp_path,monkeypatch):
+    from system_campaign_parsley_facts import ParsleyFacts
+    p=ROOT/'system-campaign-parsley-terminal-facts.json';f=ParsleyFacts(p);term,=f.catalog['terms']
+    assert term['ticker']=='PE' and term['added']['kind']=='CONVERSION'
+    assert term['added']['cash_per_share'] is None and term['added']['exchange_ratio']==.1252
+    assert term['added']['session']=='2021-01-13' and term['added']['delivered_security_id']=='276044719892003870'
+    for field,bad in [('cash_per_share',7.35),('kind','CASH_MERGER'),('session','2021-01-12')]:
+        v=json.loads(p.read_bytes());v['terms'][0]['added'][field]=bad;wrong=tmp_path/field;wrong.write_text(json.dumps(v))
+        with pytest.raises(ValueError,match='EXACT_PRIMARY_STOCK_CONVERSION'):ParsleyFacts(wrong)
+    monkeypatch.delenv('FULL_SYSTEM_HOSTED',raising=False)
+    with pytest.raises(ValueError,match='HOSTED_PARSLEY'):f.hydrate(tmp_path/'absent')
