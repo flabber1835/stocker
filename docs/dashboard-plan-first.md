@@ -111,6 +111,8 @@ copy, without claiming a current financial PASS. Preserve all financial/machine
 WARNs and the original PAPER and leader deadlines; introduce no observer,
 acknowledgement, authority or renewed lifetime. Only an actual historical audit
 flag receives the historical-audit label.
+The original browser budget also ends at the saved future plan's execution
+start, even when a checking or leader deadline extends beyond that boundary.
 
 The detailed checks retain the existing server operational verdict, required-current
 checks, failure reasons, source errors, original evidence clocks, JSON/machine

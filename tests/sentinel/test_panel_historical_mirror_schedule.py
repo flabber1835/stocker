@@ -363,6 +363,11 @@ def test_periodic_paper_check_keeps_its_original_deadline_and_leader_bound():
     assert presentation.dashboard_health(near)['valid_until']==near.row('paper_reconciliation').valid_until.isoformat()
     assert 'data-max-age-seconds="4.0"' in render(near) and 'refreshes every 5s' in render(near)
     assert presentation.dashboard_health(replace(near,now=near.row('paper_reconciliation').valid_until))['color']!='green'
+    before_open = checking_schedule_panel(now=LIVE_OPEN-timedelta(seconds=8),check_seconds=120)
+    assert before_open.row('paper_reconciliation').valid_until>LIVE_OPEN
+    assert presentation.dashboard_health(before_open)['valid_until']==LIVE_OPEN.isoformat()
+    assert 'data-max-age-seconds="8.0"' in render(before_open)
+    assert presentation.dashboard_health(replace(before_open,now=LIVE_OPEN))['color']!='green'
 
 
 def test_periodic_check_phase_guard_has_an_executed_false_green_falsifier(monkeypatch):

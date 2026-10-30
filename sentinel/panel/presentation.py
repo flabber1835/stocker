@@ -359,6 +359,7 @@ def dashboard_health(panel) -> dict:
         boundaries.append(_row_boundary(panel.row('automation_leader')))
     if _scheduled_work_normal(panel):
         boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
+        boundaries.append(panel.row('paper_plan').paper_plan.execute_at)
         history = panel.row('paper_reconciliation')
         if history.freshness is not None and _aware(history.as_of):
             boundaries.append(history.as_of+history.freshness)
