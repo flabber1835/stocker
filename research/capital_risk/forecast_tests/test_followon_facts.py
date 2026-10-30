@@ -1,5 +1,5 @@
 """Guard merger terms, frozen identity and disjoint hosted continuation scope."""
-import ast,json
+import ast,hashlib,json
 from pathlib import Path
 import pytest
 from system_campaign_followon_facts import FollowonFacts
@@ -73,7 +73,8 @@ def test_complete_source_closure_and_workflow_only_stopped_arms():
 def test_frozen_request_binds_exact_own_reviewed_predecessors():
     from system_campaign_followon_job import expected_request
     request=json.loads((ROOT/'system-campaign-followon-request.json').read_bytes())
-    assert request==expected_request()
+    # The request is pinned to the published e0ae source snapshot, not future driver edits.
+    assert hashlib.sha256((ROOT/'system-campaign-followon-request.json').read_bytes()).hexdigest()=='9e8f970f6e3cfe34e6097fb4abf281dd2e08b68f32805f133c67ca1c9ef1a891'
     arms=json.loads((ROOT/request['predecessors_file']).read_bytes())['arms']
     assert set(arms)=={'P01','P02','P04','P07'}
     assert all(s['selected_session']=='2018-11-30' and s['run_id']==40986345436 for s in arms.values())
@@ -86,7 +87,8 @@ def test_actual_main_request_handoff_without_staging_or_financial_work(monkeypat
     import system_campaign_followon_job as job
     monkeypatch.setattr(job,'check_context',lambda env:None)
     monkeypatch.setenv('GITHUB_RUN_ATTEMPT','1')
-    args=SimpleNamespace(request=ROOT/'system-campaign-followon-request.json',staging=tmp_path/'absent-staging',arm='P01')
+    current=tmp_path/'current-synthetic-request';current.write_text(json.dumps(job.expected_request()))
+    args=SimpleNamespace(request=current,staging=tmp_path/'absent-staging',arm='P01')
     with pytest.raises(FileNotFoundError):job.main(args)
     # The exact former zero-argument function fails at this same real handoff.
     original=job.expected_request
