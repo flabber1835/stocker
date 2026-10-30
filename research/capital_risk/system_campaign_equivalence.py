@@ -1,6 +1,7 @@
 """Strict differential state/input comparison; no local financial replay entry."""
 from collections import deque
 from dataclasses import asdict,is_dataclass
+from enum import Enum
 import array,hashlib,json,struct,sys
 from pathlib import Path
 import numpy as np
@@ -11,6 +12,9 @@ from system_campaign_facts import digest
 
 def exact(value):
     """Typed deterministic buffer material; no lossy fallback for unknown types."""
+    if isinstance(value,Enum):
+        return {'enum_type':type(value).__module__+'.'+type(value).__qualname__,
+            'member_name':value.name,'value':exact(value.value)}
     if value is None or type(value) in (bool,int,str):return value
     if type(value) is float:return {'binary64':struct.pack('>d',value).hex()}
     if isinstance(value,np.generic):return {'numpy_scalar':str(value.dtype),'bytes':value.tobytes().hex()}

@@ -1,5 +1,6 @@
 """Synthetic differential proof guards, not a historical replay/economic result."""
 import array,ast,copy
+from enum import Enum
 from collections import deque
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +24,16 @@ def test_buffer_bits_capacity_and_complete_fields_are_material():
     new=copy.deepcopy(old);new.extra=0
     with pytest.raises(ValueError,match='COMPLETE_BUFFER_FIELDS'):compare_buffers(old,new)
     with pytest.raises(ValueError,match='UNSUPPORTED_BUFFER_TYPE'):exact(object())
+
+
+def test_exact_typed_terminal_enum_does_not_collapse_to_string():
+    class Kind(str,Enum):
+        CASH='CASH'
+        STOCK='STOCK'
+    class Other(str,Enum):
+        CASH='CASH'
+    assert exact(Kind.CASH)!=exact('CASH') and exact(Kind.CASH)!=exact(Other.CASH)
+    assert exact(Kind.CASH)!=exact(Kind.STOCK) and exact(Kind.CASH)['member_name']=='CASH'
 
 
 def test_actual_buffer_equality_guard_removal_falsifier():

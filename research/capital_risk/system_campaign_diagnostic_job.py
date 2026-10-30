@@ -1,7 +1,7 @@
 """Hosted read-only stopped-artifact diagnostics; ZERO financial execution."""
 import argparse,base64,hashlib,json,os,re,shutil,subprocess,tarfile,zipfile
 from pathlib import Path
-from system_campaign_factual_admit import authenticate,AuthenticatedStream,hosted_destination
+from system_campaign_factual_admit import authenticate,AuthenticatedStream,hosted_destination,archive_bound
 from full_system_benchmark import need
 from probe import check_context
 from seal import safe_name,sha256_file,EncryptWriter
@@ -41,7 +41,7 @@ def main(a):
     out=root/'output';out.mkdir(mode=0o700);proofs={}
     for arm,spec in request['arms'].items():
         archive=root/(arm+'.zip')
-        need(spec['zip_bytes']<256*1024**2,'DIAGNOSTIC_ZIP_BOUND')
+        archive_bound(spec,spec.get('source_archive_limit_bytes',256*1024**2))
         with archive.open('xb') as f:subprocess.run(['gh','api',f"repos/flabber1835/stocker/actions/artifacts/{spec['artifact_id']}/zip"],stdout=f,check=True,timeout=180)
         need(archive.stat().st_size==spec['zip_bytes'] and sha256_file(archive)==spec['zip_sha256'],'DIAGNOSTIC_ZIP_SHA')
         dest=out/arm;dest.mkdir(mode=0o700);captured={}
