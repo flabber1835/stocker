@@ -97,7 +97,7 @@ def test_required_hydrations_and_actual_omission_falsifier(tmp_path,monkeypatch,
         module.TABLEAU_COMPILER:driver/'system_campaign_tableau_facts.py',
         module.TABLEAU_HYDRATED:evidence/'hydrated-tableau-terminal-catalog.json',
         module.ALDER:driver/'system-campaign-alder-unresolved-date.json',
-        module.ALDER_COMPILER:driver/'system_campaign_alder_facts.py',
+        module.ALDER_COMPILER:driver/'system_campaign_alder_date_v2.py',
         module.ALDER_HYDRATED:evidence/'hydrated-alder-unresolved-date.json'}
     for ref,p in names.items():p.write_bytes(ref.encode())
     refs={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()}

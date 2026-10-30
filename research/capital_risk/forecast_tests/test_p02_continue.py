@@ -72,7 +72,7 @@ def test_explicit_registry_and_actual_main_handoff(monkeypatch,tmp_path):
     with pytest.raises(ValueError,match='EXPLICIT_COMPONENT_REGISTRY'):runner.component('invented')
     with pytest.raises(ValueError,match='EXPLICIT_NEXT_COMPONENT'):job.expected_request(new_component='array')
     arms=json.loads((ROOT/v['predecessors_file']).read_bytes())['arms'];assert set(arms)=={'P02'} and arms['P02']['new_component']=='alder'
-    assert arms['P02']['run_id']==41009896481 and arms['P02']['outer_sha256']=='daa13136da1356bbf43cdcbf1114f2887a23ab5ddc9796b8b5b558d17b75c733'
+    assert arms['P02']['run_id']==41013907113 and arms['P02']['outer_sha256']=='daa13136da1356bbf43cdcbf1114f2887a23ab5ddc9796b8b5b558d17b75c733'
     monkeypatch.setattr(job,'check_context',lambda env:None);monkeypatch.setenv('GITHUB_RUN_ATTEMPT','1')
     with pytest.raises(ValueError,match='P02_ONLY_OWNER_SELECTED'):job.main(SimpleNamespace(request=p,staging=tmp_path/'absent',arm='P01'))
     with pytest.raises(FileNotFoundError):job.main(SimpleNamespace(request=p,staging=tmp_path/'absent',arm='P02'))

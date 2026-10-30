@@ -160,3 +160,18 @@ accounting gates remain mandatory. No other candidate starts.
 - https://www.sec.gov/Archives/edgar/data/1423824/000119312519271319/d822414d8k.htm
 - https://www.miaxglobal.com/sites/default/files/alert-files/ALDR_Merger_45844..pdf
 - https://nasdaqtrader.com/TraderNews.aspx?id=ECA2019-208
+
+The first date wrapper0ef03c73 failed in actual packet qualification before
+financial entry: its code used `packet.session`, whereas the frozen Packet field
+is `day`. Preserve that compiler and its failed export unchanged. Publish a
+separate v2 wrapper that corrects only this field access. A synthetic packet must
+use the exact frozen dataclass field contract, and the original function must
+fail the regression. No contingent term or valuation changes.
+
+Admit the newly failed export only with an exact unadvanced-failure proof: same
+selected gzip, all four full journal hashes/lengths including tails unchanged,
+no backtest status/result/acceleration entry, exact actual qualifier error and
+reviewer tail-refusal logs, and the successful read-only prefix/accounting review
+written before that consequential refusal. Retain the exact complete encrypted
+parent. New hosted preflight still restores and verifies the entire own prefix
+before Journal.recover. This is not permission to roll back later financial work.

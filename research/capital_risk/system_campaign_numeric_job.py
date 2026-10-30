@@ -24,7 +24,7 @@ SOURCES=tuple(dict.fromkeys((*CORE_SOURCES,*EQUIVALENCE_SOURCES,'system_campaign
     'alpaca_fit_identity_repair.py','alpaca_fit_inputs.py','alpaca_fit_merger_roles.py','alpaca_fit_prior.py',
     'alpaca_fit_relay.py','alpaca_fit_resume.py','core_lineage_review.py','forecast_collect.py','local_stage.py',
     'owned_grid_worker.py','policy.py','trace_screen.py','system_campaign_winter_facts.py','system_campaign_spring_facts.py',
-    'system_campaign_followup_facts.py','system_campaign_tgi_facts.py','system_campaign_late_facts.py','system_campaign_yearend_facts.py','system_campaign_followon_facts.py','system_campaign_parsley_facts.py','system_campaign_early2019_facts.py','system_campaign_distribution_facts.py','system_campaign_array_facts.py','system_campaign_tableau_facts.py','system_campaign_alder_facts.py')))
+    'system_campaign_followup_facts.py','system_campaign_tgi_facts.py','system_campaign_late_facts.py','system_campaign_yearend_facts.py','system_campaign_followon_facts.py','system_campaign_parsley_facts.py','system_campaign_early2019_facts.py','system_campaign_distribution_facts.py','system_campaign_array_facts.py','system_campaign_tableau_facts.py','system_campaign_alder_facts.py','system_campaign_alder_date_v2.py')))
 
 
 def expected_request(specifications,equivalence_proofs=None):

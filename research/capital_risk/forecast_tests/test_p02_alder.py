@@ -4,7 +4,7 @@ from dataclasses import dataclass,replace
 from pathlib import Path
 from types import ModuleType,SimpleNamespace
 import pytest
-from system_campaign_alder_facts import AlderFacts
+from system_campaign_alder_date_v2 import AlderDateV2 as AlderFacts
 from system_campaign_facts import digest
 
 ROOT=Path(__file__).parents[1];CATALOG=ROOT/'system-campaign-alder-unresolved-date.json'
@@ -20,7 +20,7 @@ class Term:
 
 @dataclass(frozen=True)
 class Packet:
-    session:str
+    day:str
     terminal:tuple
 
 
@@ -29,7 +29,7 @@ def fixture(monkeypatch,tmp_path,cls=AlderFacts):
     p=tmp_path/'catalog';p.write_text(json.dumps(v));f=cls(p);f.native=native;f.hydrated_sha='a'*64
     module=ModuleType('research.pooled_vacancy_funding')
     def original(packet,loaded):
-        return replace(packet,terminal=tuple(t for t in packet.terminal if not(t.security_id==native.security_id and packet.session=='2019-10-21')))
+        return replace(packet,terminal=tuple(t for t in packet.terminal if not(t.security_id==native.security_id and packet.day=='2019-10-21')))
     module.backtest=SimpleNamespace(apply_repair=original);monkeypatch.setitem(sys.modules,'research.pooled_vacancy_funding',module)
     return f,module.backtest,original
 
@@ -61,7 +61,7 @@ def test_actual_unresolved_guard_removal_falsifier(monkeypatch,tmp_path):
     corrected=next(n for n in entry.body if isinstance(n,ast.FunctionDef))
     corrected.body=[n for n in corrected.body if not any(isinstance(v,ast.Constant) and v.value=='ALDER_UNRESOLVED_TERM_NOT_COMPLETED' for v in ast.walk(n))]
     scope=dict(AlderFacts.__init__.__globals__);exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'<actual-unresolved-guard-removed>','exec'),scope)
-    mutant,backtest,_=fixture(monkeypatch,tmp_path,scope['AlderFacts']);mutant.native=replace(mutant.native,cash_per_share=18.)
+    mutant,backtest,_=fixture(monkeypatch,tmp_path,scope['AlderDateV2']);mutant.native=replace(mutant.native,cash_per_share=18.)
     with mutant:assert backtest.apply_repair(Packet('2019-10-22',()),None).terminal[0].cash_per_share==18.
 
 
@@ -79,3 +79,12 @@ def test_local_hydration_and_consumed_event_refuse(monkeypatch,tmp_path):
     f.hydrated_sha='a'*64;f.hydrated_digest=digest(f.catalog)
     with pytest.raises(ValueError,match='UNCONSUMED_EVENT'):f.overlay({'source_cursor':'2019-10-21'},tmp_path/'out')
     assert not (tmp_path/'out').exists()
+
+
+def test_published_v1_fails_actual_day_only_packet_contract(monkeypatch,tmp_path):
+    from system_campaign_alder_facts import AlderFacts as V1
+    f,backtest,_=fixture(monkeypatch,tmp_path,V1)
+    with f:
+        with pytest.raises(AttributeError,match='session'):backtest.apply_repair(Packet('2019-10-22',()),None)
+    source=Path(V1.__init__.__code__.co_filename).read_bytes()
+    assert __import__('hashlib').sha256(source).hexdigest()==json.loads((ROOT/'system-campaign-p02-continuation-request.json').read_bytes())['sources']['system_campaign_alder_facts.py']

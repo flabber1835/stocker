@@ -9,7 +9,7 @@ from system_campaign_facts import FactualInputs,sha,digest
 from system_campaign_distribution_facts import DistributionFacts
 from system_campaign_array_facts import ArrayFacts
 from system_campaign_tableau_facts import TableauFacts
-from system_campaign_alder_facts import AlderFacts
+from system_campaign_alder_date_v2 import AlderDateV2
 from system_campaign_p02_run import retained_thirteen
 from system_campaign_factual_run import preflight,correlation_seed,SeededObservation,preserve_tails,review as canonical_review
 from system_campaign_own_origin import qualify as qualify_origin
@@ -21,8 +21,8 @@ COMPONENTS=(
     {'name':'tableau','class':TableauFacts,'catalog':'system-campaign-tableau-terminal-facts.json',
      'compiler':'system_campaign_tableau_facts.py','hydrated':'hydrated-tableau-terminal-catalog.json',
      'earliest':'2019-07-31','reference_prefix':'tableau','packet_checks':10},
-    {'name':'alder','class':AlderFacts,'catalog':'system-campaign-alder-unresolved-date.json',
-     'compiler':'system_campaign_alder_facts.py','hydrated':'hydrated-alder-unresolved-date.json',
+    {'name':'alder','class':AlderDateV2,'catalog':'system-campaign-alder-unresolved-date.json',
+     'compiler':'system_campaign_alder_date_v2.py','hydrated':'hydrated-alder-unresolved-date.json',
      'earliest':'2019-10-21','reference_prefix':'alder','packet_checks':2,'input_wrapper':True})
 
 

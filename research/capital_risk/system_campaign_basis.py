@@ -118,7 +118,7 @@ def basis(evidence,cp):
         TABLEAU_COMPILER:Path('/driver/system_campaign_tableau_facts.py'),
         TABLEAU_HYDRATED:evidence/'hydrated-tableau-terminal-catalog.json',
         ALDER:Path('/driver/system-campaign-alder-unresolved-date.json'),
-        ALDER_COMPILER:Path('/driver/system_campaign_alder_facts.py'),
+        ALDER_COMPILER:Path('/driver/system_campaign_alder_date_v2.py'),
         ALDER_HYDRATED:evidence/'hydrated-alder-unresolved-date.json'}
     need(all(p.is_file() for p in names.values()),'COMMON_BASIS_ACTUAL_COMPLETE_FACT_FILES')
     expected={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()};documents=[]
