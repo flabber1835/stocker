@@ -347,11 +347,12 @@ class BackedHost(Host):
     def owned(self):
         values=self.load_values()
         authority=Path(values['SENTINEL_AUTHORITY_ARTIFACTS_DIR'])
+        go_roots=tuple(dict.fromkeys((self.deployment,*self.predecessor_roots)))
         paths=[authority/'activation-coordinator.lock',authority/'autonomous-deploy.lock',
             *(root/'artifacts/sentinel/go-validation/go-validation.lock'
-              for root in self.predecessor_roots)]
+              for root in go_roots)]
         with ExitStack() as stack:
-            for path in paths:
+            for path in dict.fromkeys(paths):
                 require(path.is_absolute() and not path.is_symlink(), 'BACKED_OWNER_LOCK_PATH')
                 path.parent.mkdir(parents=True,exist_ok=True)
                 handle=stack.enter_context(path.open('a+'))

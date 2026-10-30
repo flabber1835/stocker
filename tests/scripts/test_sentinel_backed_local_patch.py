@@ -489,3 +489,69 @@ def test_reconciliation_guard_removal_has_a_falsifier(monkeypatch):
         None if reason=='POST_TRADE_POSITIVE_RECONCILIATION_REQUIRED' else original(value,reason))
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
         test_post_trade_refuses_unsettled_or_unsupported_handoffs('wrong_observation')
+
+
+def ownership_host(tmp_path,*,duplicate=False):
+    deployment=tmp_path/'actual-deployment';deployment.mkdir(parents=True)
+    retained=tmp_path/'shared-receipt-root';retained.mkdir()
+    authority=tmp_path/'shared-authority';authority.mkdir()
+    host=object.__new__(patch.BackedHost)
+    host.deployment=deployment
+    host.predecessor_roots=(retained,deployment,retained,deployment) if duplicate else (retained,)
+    host.load_values=lambda:{'SENTINEL_AUTHORITY_ARTIFACTS_DIR':str(authority)}
+    return host,retained,authority
+
+
+def go_lock_path(root):
+    return root/'artifacts/sentinel/go-validation/go-validation.lock'
+
+
+@pytest.mark.parametrize('held_root',['deployment','retained'])
+def test_backed_handoff_refuses_actual_or_retained_go_owner_before_yield(tmp_path,held_root):
+    import fcntl
+    host,retained,authority=ownership_host(tmp_path)
+    selected=go_lock_path(host.deployment if held_root=='deployment' else retained)
+    selected.parent.mkdir(parents=True)
+    yielded=False
+    with selected.open('a+') as owner:
+        fcntl.flock(owner,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        with pytest.raises(patch.DeliveryRefused,match='ANOTHER_CANONICAL_OWNER_IS_ACTIVE'):
+            with host.owned():yielded=True
+    assert yielded is False
+    # Refusal also releases earlier authority locks, without yielding ownership.
+    for name in ('activation-coordinator.lock','autonomous-deploy.lock'):
+        with (authority/name).open('a+') as probe:
+            fcntl.flock(probe,fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+
+def test_backed_handoff_holds_actual_and_retained_go_paths_and_deduplicates_roots(tmp_path):
+    import fcntl
+    host,retained,authority=ownership_host(tmp_path,duplicate=True)
+    with host.owned():
+        paths=[go_lock_path(host.deployment),go_lock_path(retained),
+            authority/'activation-coordinator.lock',authority/'autonomous-deploy.lock',
+            host.deployment/'.local-delivery.lock']
+        for path in paths:
+            with path.open('a+') as competitor:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(competitor,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    for path in paths:
+        with path.open('a+') as available:
+            fcntl.flock(available,fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+
+def test_omitting_actual_deployment_go_lock_has_a_real_flock_falsifier(tmp_path,monkeypatch):
+    import ast
+    tree=ast.parse(textwrap.dedent(inspect.getsource(patch.BackedHost.owned)))
+    subjects=[node for node in ast.walk(tree) if isinstance(node,ast.Tuple) and node.elts
+        and isinstance(node.elts[0],ast.Attribute) and node.elts[0].attr=='deployment'
+        and isinstance(node.elts[0].value,ast.Name) and node.elts[0].value.id=='self'
+        and len(node.elts)==2 and isinstance(node.elts[1],ast.Starred)]
+    assert len(subjects)==1
+    subjects[0].elts=subjects[0].elts[1:]
+    namespace={}
+    exec(compile(ast.fix_missing_locations(tree),'missing-actual-deployment-go-lock','exec'),
+        vars(patch),namespace)
+    monkeypatch.setattr(patch.BackedHost,'owned',namespace['owned'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_backed_handoff_refuses_actual_or_retained_go_owner_before_yield(tmp_path,'deployment')
