@@ -24,6 +24,17 @@ def retained_twelve(refs,old,out,driver=Path('/driver')):
     name='hydrated-early2019-terminal-catalog.json';(out/name).write_bytes((old/name).read_bytes())
 
 
+def merge_components(distribution,early,out):
+    """Retain both exact components and create a distinct compound document."""
+    merged=json.loads(distribution.read_bytes());other=json.loads(early.read_bytes())
+    need(merged['predecessor_checkpoint_sha256']==other['predecessor_checkpoint_sha256'],
+         'DISTRIBUTION_SAME_OWN_PREDECESSOR')
+    for name in ('source_evidence','suppress','add'):merged[name]+=other[name]
+    target=out/'distribution-early2019-input-overlay.json'
+    need(target not in (distribution,early),'DISTRIBUTION_DISJOINT_COMPOUND_DOCUMENT')
+    save(target,merged);return target
+
+
 def run(out,old,spec):
     hosted()
     from research.pooled_vacancy_funding import backtest,journal
@@ -48,10 +59,8 @@ def run(out,old,spec):
     if extra:
         early=Early2019Facts('/driver/system-campaign-early2019-terminal-facts.json')
         early.hydrate(out/'hydrated-early2019-terminal-catalog.json');path=out/'early2019-component.json';early.overlay(cp,path)
-        merged=json.loads(overlay.read_bytes());other=json.loads(path.read_bytes())
-        need(merged['predecessor_checkpoint_sha256']==other['predecessor_checkpoint_sha256'],'DISTRIBUTION_SAME_OWN_PREDECESSOR')
-        for name in ('source_evidence','suppress','add'):merged[name]+=other[name]
-        save(overlay,merged);loaded=load_repair(overlay,resume_session=cp['source_cursor'],predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
+        overlay=merge_components(overlay,path,out)
+        loaded=load_repair(overlay,resume_session=cp['source_cursor'],predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
     need(facts._bound(loaded),'DISTRIBUTION_FINAL_OWN_COMPOUND_BINDING')
     for cursor,predecessor in ((cp['source_cursor'],'0'*64),(loaded.earliest_affected_session,cp['run']['checkpoint_sha256'])):
         try:load_repair(overlay,resume_session=cursor,predecessor_checkpoint_sha256=predecessor)

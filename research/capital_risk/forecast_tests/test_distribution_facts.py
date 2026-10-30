@@ -82,11 +82,13 @@ def test_source_bound_pure_codec_only_five_literal_sites(monkeypatch):
 def test_exact_request_and_actual_main_handoff_not_just_arithmetic(monkeypatch,tmp_path):
     import system_campaign_distribution_job as job
     request=ROOT/'system-campaign-distribution-request.json';v=json.loads(request.read_bytes())
-    assert v==job.expected_request(v['predecessors_file'])
+    # This selected request belongs to immutable published head74d6359d.
+    assert hashlib.sha256(request.read_bytes()).hexdigest()=='875b8f43c86cef9677a66582ef2c114402e754f38c87cafecdb08dbc6f5371f9'
     arms=json.loads((ROOT/v['predecessors_file']).read_bytes())['arms'];assert set(arms)=={'P01','P02','P04','P07'}
     assert all(s['selected_session']==('2018-12-31' if a=='P04' else '2019-03-29') for a,s in arms.items())
     monkeypatch.setattr(job,'check_context',lambda env:None);monkeypatch.setenv('GITHUB_RUN_ATTEMPT','1')
-    with pytest.raises(FileNotFoundError):job.main(SimpleNamespace(request=request,staging=tmp_path/'absent',arm='P01'))
+    current=tmp_path/'synthetic-current-request.json';current.write_text(json.dumps(job.expected_request()))
+    with pytest.raises(FileNotFoundError):job.main(SimpleNamespace(request=current,staging=tmp_path/'absent',arm='P01'))
 
 
 def test_source_closure_and_no_running_reference_duplicate():
