@@ -9,7 +9,7 @@ from system_campaign_basis import basis as ordinary_basis
 from system_campaign_uncertainty_review import validate_input_commitment
 
 
-def basis(root, cp):
+def basis(root, cp, *, amendment=None):
     validate_input_commitment(root, cp)
     ordinary = [];uncertainty = [];additional=[]
     for descriptor in cp['repairs']:
@@ -23,7 +23,21 @@ def basis(root, cp):
         else:raise ValueError('REFUSED_UNCERTAINTY_BASIS_UNDECLARED_SCHEMA')
     need(len(uncertainty) == 1, 'UNCERTAINTY_BASIS_EXACTLY_ONE_MODEL')
     view = {**cp, 'repairs':ordinary}
-    factual_hash, factual = ordinary_basis(root, view)
+    if amendment is None:
+        factual_hash, factual = ordinary_basis(root, view)
+    else:
+        from system_campaign_future_amendment import TARGET,effective_documents,documents
+        from system_campaign_basis import semantics
+        need(any(v['sha256']==amendment.activation_sha for v in ordinary),
+             'UNCERTAINTY_BASIS_AMENDMENT_ACTUALLY_COMMITTED')
+        # Every archived byte is authenticated; only the declared future pair
+        # is retired in this explicitly selected semantic view.
+        original=documents(root,cp)
+        effective=effective_documents(original,amendment.payload['policy'])
+        baseline={**cp,'repairs':[v for v in ordinary if v['sha256'] not in (TARGET,amendment.activation_sha)]}
+        _,prior=ordinary_basis(root,baseline)
+        factual=semantics(cp['base'],[effective[v['sha256']] for v in ordinary],prior['declared_fact_compilers'])
+        factual_hash=digest(factual)
     if additional:
         from system_campaign_medicines_facts import CATALOG as MC,COMPILER as MP,HYDRATED as MH
         from system_campaign_arqule_facts import CATALOG as AC,COMPILER as AP,HYDRATED as AH
@@ -42,7 +56,18 @@ def basis(root, cp):
                 refs[2]:sha((root/('hydrated-'+stem+'-terminal-catalog.json')).read_bytes())}
             need(len(selected)==3 and {v['reference']:v['sha256'] for v in selected}==expected,
                  'UNCERTAINTY_BASIS_EXPLICIT_'+label+'_FACTUAL_COMMITMENTS')
+            if amendment is not None and label=='FOLLOWING_COMPLETIONS':
+                continue  # Validated historical commitments, explicitly superseded.
             factual={**factual,'declared_fact_compilers':{**factual['declared_fact_compilers'],**expected}}
+        factual_hash=digest(factual)
+    if amendment is not None:
+        from system_campaign_future_amendment import CATALOG,COMPILER,HYDRATED
+        expected={**amendment.payload['projection_evidence'],HYDRATED:sha(amendment.payload_raw)}
+        doc=documents(root,cp)[amendment.activation_sha]
+        selected=[v for v in doc['source_evidence'] if v['reference'] in expected]
+        need(len(selected)==3 and {v['reference']:v['sha256'] for v in selected}==expected,
+             'UNCERTAINTY_BASIS_EXACT_COMMITTED_AMENDMENT_PAYLOAD')
+        factual={**factual,'declared_fact_compilers':{**factual['declared_fact_compilers'],**expected}}
         factual_hash=digest(factual)
     model_document = deepcopy(uncertainty[0])
     model_document.pop('predecessor_checkpoint_sha256')

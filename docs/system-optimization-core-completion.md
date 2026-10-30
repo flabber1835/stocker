@@ -670,3 +670,34 @@ and delivery metadata, original incomplete guards, missing-quote, wrong-term,
 wrong-predecessor and consumed-date falsifiers remain mandatory. Only after
 actual adoption/review admit new69+9 basis. No financial source/rule/origin change,
 restart, skipped session, rounding, model tuning or PAPER contact.
+
+### Prior-input collision preflight after the APHA duplicate discovery
+
+The read-only remaining-action inventory found that APHA's native suppression
+and May3 conversion are already committed in distribution repairb8aa73d1.
+That admitted repair follows the Plan of Arrangement's whole-share round-down
+with no fractional payment, encoded as exact zero CIL consideration. The new
+following-completions attempt incorrectly duplicated APHA with a raw-open CIL
+proxy. Preserve that attempt and authenticate its actual failure before choosing
+state or altering any compiler/catalog. If unadopted, remove APHA from the new
+batch and preserve the original repair exactly; if adopted, an explicit qualified
+unconsumed-input correction would be required. Do not silently edit old inputs.
+
+Introduce a reusable data-only preflight before future factual publication and
+again after hosted own-prefix restoration. Hash-bind every retained repair;
+collect its ordinary suppression and addition keys. Refuse any new native key
+already suppressed, any new effective key already added, any repeated key within
+the new catalog, and any native/effective session consumed by the chosen own
+checkpoint. A different hash or reference does not make a duplicate action new.
+Produce an explicit conflict report; do not silently deduplicate or override
+consideration. The metadata report is bound to the own checkpoint/input and exact
+catalog contents, and must agree locally and hosted before hydration/financial
+entry. Actual canonical combined-prior/new qualification remains mandatory.
+
+This guard neither interprets uncertain corporate actions nor changes financial
+equations, strategy parameters, source classifications or state. Qualify its
+actual duplicate and conflicting-consideration rejection, prior-file corruption,
+consumed-date and internal-duplicate cases with a guard-removal falsifier. The
+known bad APHA catalog must fail the real metadata guard against the admitted
+branch before another financial job is selected. No new job until the current
+attempt is authenticated and exact worker/root outcomes are established.

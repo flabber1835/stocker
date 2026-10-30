@@ -11,7 +11,7 @@ from full_system_benchmark import need
 from full_system_trials_job import command, seal
 from system_campaign_uncertainty_integration_job import SOURCES as PRIOR
 from system_campaign_p02_continue_job import inspect as prior_inspect
-from system_campaign_factual_admit import admit
+from system_campaign_future_admit import admit
 from system_campaign_own_origin import capture as capture_origin
 from system_campaign_ancestor import preserve as preserve_ancestor
 from system_campaign_variants import build
@@ -32,15 +32,20 @@ SOURCES=tuple(dict.fromkeys((*PRIOR,'system_campaign_p02_uncertainty_run.py',
     'system_campaign_spring2020_cash_facts.py','system-campaign-spring2020-cash-terminal-facts.json',
     'system_campaign_autumn2020_cash_facts.py','system-campaign-autumn2020-cash-terminal-facts.json',
     'system_campaign_2021_completions_facts.py','system-campaign-2021-completions-terminal-facts.json',
-    'system_campaign_following_completions_facts.py','system-campaign-following-completions-terminal-facts.json')))
+    'system_campaign_following_completions_facts.py','system-campaign-following-completions-terminal-facts.json',
+    'system_campaign_phase_timing.py','system_campaign_replay_timing.py','system_campaign_action_preflight.py',
+    'system_campaign_future_amendment.py','system_campaign_amendment_build.py',
+    'system_campaign_amendment_gate.py','system_campaign_cash_batch.py','system_campaign_future_admit.py',
+    'system-campaign-future-input-amendment-catalog.json')))
 
 
 def expected_request():
     spec=json.loads((HERE/'system-campaign-p02-uncertainty-predecessor.json').read_bytes())
-    need(spec['arm']=='P02' and spec['run_id']==41116676849
+    need(spec['arm']=='P02' and spec['run_id']==41120539423
          and not spec.get('unadvanced_qualification_failure')
+         and spec.get('review_refusal')=='FOLLOWING_FUTURE_APHA_CONFLICT'
          and spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
-         and spec['selected_session']=='2021-01-29','UNCERTAINTY_EXACT_FOLLOWING_OWN_PREDECESSOR')
+         and spec['selected_session']=='2021-03-31','UNCERTAINTY_EXACT_FUTURE_AMENDMENT_OWN_PREDECESSOR')
     proof=json.loads((HERE/'system-campaign-uncertainty-qualification.json').read_bytes())
     return dict(schema='research.system-p02-uncertainty-suffix-request/1',campaign='system-optimization-002',
         only_candidate='P02',concurrent_candidate_limit=1,
@@ -49,12 +54,13 @@ def expected_request():
         predecessor_sha256=sha256_file(HERE/'system-campaign-p02-uncertainty-predecessor.json'),
         initial_min_disk_bytes=12*1024**3,
         qualified_packet_source_sha256=spec['base']['sources'][PACKET_SOURCE_PATH],
-        execution_mode='FOLLOWING_COMPLETIONS_FACTUAL_SUFFIX',
+        execution_mode='FUTURE_INPUT_AMENDMENT_CASH_BATCH_SUFFIX',
         sprint_catalog_sha256=sha256_file(HERE/'system-campaign-sprint-terminal-facts.json'),
         spring2020_cash_catalog_sha256=sha256_file(HERE/'system-campaign-spring2020-cash-terminal-facts.json'),
         autumn2020_cash_catalog_sha256=sha256_file(HERE/'system-campaign-autumn2020-cash-terminal-facts.json'),
         completions2021_catalog_sha256=sha256_file(HERE/'system-campaign-2021-completions-terminal-facts.json'),
         following_catalog_sha256=sha256_file(HERE/'system-campaign-following-completions-terminal-facts.json'),
+        future_amendment_catalog_sha256=sha256_file(HERE/'system-campaign-future-input-amendment-catalog.json'),
         uncertainty_input_descriptor_sha256=spec['uncertainty_input_descriptor_sha256'],
         canonical_controller_sources=proof['canonical_controller_sources'],
         sources={n:sha256_file(HERE/n) for n in SOURCES},source_archive_limit_bytes=1024**3,
@@ -91,15 +97,17 @@ def main(args):
     old=admit(spec,temp/'campaign-factual-transfer-p02-uncertainty-suffix',key,
               max_zip_bytes=request['source_archive_limit_bytes'])
     out=temp/'p02-uncertainty-financial-output';out.mkdir(mode=0o700)
-    need(all((old/name).is_file() for name in ('common-factual-and-uncertainty-basis.json',
-         'uncertainty-certificate.jsonl','correlation-inputs.jsonl.gz')),'UNCERTAINTY_COMPLETE_SUPPORT_BEFORE_WORKER')
+    need(all((old/name).is_file() for name in ('independent-review-stop/core-review.json',
+         'uncertainty-certificate.jsonl','correlation-inputs.jsonl.gz'))
+         and not (old/'common-factual-and-uncertainty-basis.json').exists(),
+         'UNCERTAINTY_EXACT_FUTURE_CONFLICT_PREFIX_SUPPORT_BEFORE_WORKER')
     os.environ.pop('GH_TOKEN',None)
-    q=old/'core-review.json'
+    q=old/'independent-review-stop/core-review.json'
     need(sha256_file(q)==spec['review_sha256'],'UNCERTAINTY_ACTUAL_OLD_FINANCIAL_PREFIX_PROOF_BYTES')
     value=json.loads(q.read_bytes())
     need(value['status']=='PARTIAL_CORE_PREFIX_REVIEWED' and value['checkpoint_sha256']==spec['outer_sha256']
          and value['all_prefixes_verified'] and value['all_daily_factors_and_chains_verified']
-         and value['counts']=={'formation':126,'daily':775},'UNCERTAINTY_ACTUAL_OWN_FINANCIAL_PREFIX')
+         and value['counts']=={'formation':126,'daily':817},'UNCERTAINTY_ACTUAL_OWN_FINANCIAL_PREFIX')
     source=temp/'p02-uncertainty-financial-source'
     binding=build(frozen/'source-fixed',source,json.loads((old/'source-bindings.json').read_bytes())['parameters'])
     need(binding==json.loads((old/'source-bindings.json').read_bytes()),'UNCERTAINTY_EXACT_FINANCIAL_SOURCE_TREE')
@@ -124,6 +132,7 @@ def main(args):
         autumn2020_cash_catalog_sha256=request['autumn2020_cash_catalog_sha256'],
         completions2021_catalog_sha256=request['completions2021_catalog_sha256'],
         following_catalog_sha256=request['following_catalog_sha256'],
+        future_amendment_catalog_sha256=request['future_amendment_catalog_sha256'],
         new_origin=False,new_overlay=True,source_conversion=False,production_contacted=False,
         status='NOT_STARTED',performance_admitted=False)
     def cmd(name,mode,target):
