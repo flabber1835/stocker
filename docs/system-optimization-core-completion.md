@@ -13,6 +13,12 @@ journal commitment and recovered tail. An incomplete or materially ambiguous
 path must remain unscored. Completion means actual reviewed evidence, not CI
 success, a prepared report or a plausible estimate.
 
+The decision objective is higher net CAGR and a smaller maximum drawdown.
+Compare candidates on that two-dimensional frontier; do not conceal a return
+sacrifice inside an arbitrary combined error score. Preserve the reference and
+report honestly if no candidate improves both. These 12 existing proposals are
+a bounded Core screen, not exhaustive optimization or unseen out-of-sample proof.
+
 All computation remains on isolated GitHub-hosted research workers. PAPER,
 main, deployment, brokers, databases and shared local services remain untouched.
 Use the existing research branch/PR542 and approved encrypted evidence channel.
@@ -83,6 +89,19 @@ committing the uncertainty contract; ordinary action parsers retain their guards
 The actual unresolved terminal remains in the publication. Only its notional
 sensor interpretation is interval-certified.
 
+The existing watch journal is the commitment channel. Before appending each
+post-event daily row, fsync its separate certificate record, append a watch
+record binding that certificate chain to the exact session/input/next-state,
+then append the original financial row. Canonical checkpoints commit the watch
+prefix without adding a field to the financial state or weakening its schema.
+On recovery select only the certificate rows bound by the selected checkpoint's
+watch and financial prefixes, preserve the original complete certificate and its
+unsent tail, and seed a new stream with the exact admitted prefix. Require one
+certificate/watch commitment for every post-event financial row. A missing
+nonempty prefix must refuse. Retain an additional pre-event checkpoint for the
+sensor event even when the cash book does not hold it; this is storage cadence,
+not a change to the strategy.
+
 Persist a chained, fsynced certificate stream bound to actual prior/next state
 identities, input identity and the original event. Save enough proof state at
 each committed checkpoint to resume the same certificate; preserve unsent
@@ -97,6 +116,25 @@ with falsifiers. Only then admit a P02 financial suffix. If a comparison is
 ambiguous, retain that exact refusal and assess explicit scenario bounds or a
 better evidenced model; never choose the profitable branch or tune thresholds.
 No financial suffix or claim of invariance has yet passed these new gates.
+
+The first hosted synthetic gate41061791611 qualified 70 actual canonical recovery
+calls and 140 comparisons, the original incomplete-term refusal, a deliberately
+ambiguous actual comparison and three math-state continuations. Its encrypted
+artifact12980735536 was independently authenticated. It advanced zero historical
+sessions and did not qualify an own-checkpoint successor. Do not repeat that
+completed gate as evidence of historical financial progress.
+
+The next integration gate must use the admitted own September30 checkpoint and
+the canonical resume/input-successor path. Request its existing graceful pause
+immediately after its RESUMED status, before any runtime transition. The canonical
+save then commits the new input identity and unchanged financial/controller
+state with all old financial prefixes. Assert zero advance calls, unchanged
+cursor/count/state/account/statistics, exact descriptor addition, actual source
+and input roundtrip, preserved old gzip and all recovered tails. The candidate
+gate output is a distinct qualification lineage, never a relabelled completed
+financial run. Qualify the actual typed codec and gateway with owned/pending,
+wrong-predecessor, consumed-event and ambiguity falsifiers before any economic
+continuation. No such integration run has yet been dispatched.
 
 Primary evidence:
 
