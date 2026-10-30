@@ -24,7 +24,7 @@ SOURCES=tuple(dict.fromkeys((*CORE_SOURCES,*EQUIVALENCE_SOURCES,'system_campaign
     'alpaca_fit_identity_repair.py','alpaca_fit_inputs.py','alpaca_fit_merger_roles.py','alpaca_fit_prior.py',
     'alpaca_fit_relay.py','alpaca_fit_resume.py','core_lineage_review.py','forecast_collect.py','local_stage.py',
     'owned_grid_worker.py','policy.py','trace_screen.py','system_campaign_winter_facts.py','system_campaign_spring_facts.py',
-    'system_campaign_followup_facts.py','system_campaign_tgi_facts.py')))
+    'system_campaign_followup_facts.py','system_campaign_tgi_facts.py','system_campaign_late_facts.py','system_campaign_yearend_facts.py')))
 
 
 def expected_request(specifications,equivalence_proofs=None):
@@ -41,9 +41,11 @@ def expected_request(specifications,equivalence_proofs=None):
         'followup_catalog_sha256':sha256_file(HERE/'system-campaign-followup-terminal-facts.json'),
         'tgi_catalog_sha256':sha256_file(HERE/'system-campaign-tgi-cash-facts.json'),
         'midyear_catalog_sha256':sha256_file(HERE/'system-campaign-midyear-terminal-facts.json'),
+        'late_catalog_sha256':sha256_file(HERE/'system-campaign-late-terminal-facts.json'),
+        'yearend_catalog_sha256':sha256_file(HERE/'system-campaign-yearend-terminal-facts.json'),
         'sources':{n:sha256_file(HERE/n) for n in SOURCES},'worker_wait_seconds':7200,
         'review_wait_seconds':3600,'artifact_retention_days':7,'new_core_financial_sessions':0,
-        'source_archive_limit_bytes':512*1024**2,
+        'source_archive_limit_bytes':1024**3,
         'global_selection_performed':False,'production_contacted':False}
 
 
@@ -111,7 +113,7 @@ def main(args):
          'JOINT_EXACT_FROZEN_STAGING')
     key=base64.b64decode(os.environ.pop(SECRET,''),validate=True);need(len(key)==32,'KEY')
     temp=Path(os.environ['RUNNER_TEMP']);frozen=temp/'capital-risk-stage-001/inputs'
-    core=admit(spec,temp/('campaign-factual-transfer-joint-'+args.arm),key,max_zip_bytes=512*1024**2)
+    core=admit(spec,temp/('campaign-factual-transfer-joint-'+args.arm),key,max_zip_bytes=request['source_archive_limit_bytes'])
     equivalence=None
     if args.arm in proofs:
         proof_spec=proofs[args.arm]
@@ -123,7 +125,7 @@ def main(args):
              and proof_spec['inspections']['independent-review-stop/worker-inspect.json']['exit_code']==0
              and not proof_spec.get('review_refusal') and not proof_spec.get('unadvanced_qualification_failure'),
              'JOINT_AUTHENTICATED_REVIEWED_BASIS_SPEC')
-        equivalence=admit(proof_spec,temp/('campaign-factual-transfer-basis-'+args.arm),key,max_zip_bytes=512*1024**2)
+        equivalence=admit(proof_spec,temp/('campaign-factual-transfer-basis-'+args.arm),key,max_zip_bytes=request['source_archive_limit_bytes'])
         certificate=json.loads((equivalence/'independent-review-stop/basis-equivalence-review.json').read_bytes())
         need(certificate['independent_review_passed'] is True
              and certificate['old_complete_checkpoint_sha256']==spec['outer_sha256'],

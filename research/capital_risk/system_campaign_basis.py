@@ -20,6 +20,12 @@ TGI_HYDRATED='research:system-optimization-002/tgi-private-cash-catalog/1'
 MIDYEAR='research:system-optimization-002/midyear-terminal-catalog/1'
 MIDYEAR_COMPILER='research:system-optimization-002/midyear-terminal-compiler/1'
 MIDYEAR_HYDRATED='research:system-optimization-002/midyear-private-terminal-catalog/1'
+LATE='research:system-optimization-002/late-terminal-catalog/1'
+LATE_COMPILER='research:system-optimization-002/late-terminal-compiler/1'
+LATE_HYDRATED='research:system-optimization-002/late-private-terminal-catalog/1'
+YEAREND='research:system-optimization-002/yearend-terminal-catalog/1'
+YEAREND_COMPILER='research:system-optimization-002/yearend-terminal-compiler/1'
+YEAREND_HYDRATED='research:system-optimization-002/yearend-private-terminal-catalog/1'
 
 
 def semantics(base,documents,expected):
@@ -65,7 +71,13 @@ def basis(evidence,cp):
         TGI_HYDRATED:evidence/'hydrated-tgi-cash-catalog.json',
         MIDYEAR:Path('/driver/system-campaign-midyear-terminal-facts.json'),
         MIDYEAR_COMPILER:Path('/driver/system_campaign_midyear_facts.py'),
-        MIDYEAR_HYDRATED:evidence/'hydrated-midyear-terminal-catalog.json'}
+        MIDYEAR_HYDRATED:evidence/'hydrated-midyear-terminal-catalog.json',
+        LATE:Path('/driver/system-campaign-late-terminal-facts.json'),
+        LATE_COMPILER:Path('/driver/system_campaign_late_facts.py'),
+        LATE_HYDRATED:evidence/'hydrated-late-terminal-catalog.json',
+        YEAREND:Path('/driver/system-campaign-yearend-terminal-facts.json'),
+        YEAREND_COMPILER:Path('/driver/system_campaign_yearend_facts.py'),
+        YEAREND_HYDRATED:evidence/'hydrated-yearend-terminal-catalog.json'}
     need(all(p.is_file() for p in names.values()),'COMMON_BASIS_ACTUAL_COMPLETE_FACT_FILES')
     expected={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()};documents=[]
     for spec in cp['repairs']:

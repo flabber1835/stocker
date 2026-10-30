@@ -49,7 +49,8 @@ def test_actual_compiler_guard_removal_falsifier():
     assert scope['semantics'](base,[one],refs)['declared_fact_compilers']['facts']=='0'*64
 
 
-def test_spring_hydration_is_required_and_actual_omission_falsifier(tmp_path,monkeypatch):
+@pytest.mark.parametrize('removed',('SPRING','LATE','YEAREND'))
+def test_required_hydrations_and_actual_omission_falsifier(tmp_path,monkeypatch,removed):
     driver=tmp_path/'driver';driver.mkdir();evidence=tmp_path/'evidence';evidence.mkdir()
     names={module.CATALOG_REF:driver/'system-campaign-factual-catalog.json',
         module.COMPILER_REF:driver/'system_campaign_facts.py',module.HYDRATED_REF:evidence/'hydrated-factual-catalog.json',
@@ -70,7 +71,13 @@ def test_spring_hydration_is_required_and_actual_omission_falsifier(tmp_path,mon
         module.TGI_HYDRATED:evidence/'hydrated-tgi-cash-catalog.json',
         module.MIDYEAR:driver/'system-campaign-midyear-terminal-facts.json',
         module.MIDYEAR_COMPILER:driver/'system_campaign_midyear_facts.py',
-        module.MIDYEAR_HYDRATED:evidence/'hydrated-midyear-terminal-catalog.json'}
+        module.MIDYEAR_HYDRATED:evidence/'hydrated-midyear-terminal-catalog.json',
+        module.LATE:driver/'system-campaign-late-terminal-facts.json',
+        module.LATE_COMPILER:driver/'system_campaign_late_facts.py',
+        module.LATE_HYDRATED:evidence/'hydrated-late-terminal-catalog.json',
+        module.YEAREND:driver/'system-campaign-yearend-terminal-facts.json',
+        module.YEAREND_COMPILER:driver/'system_campaign_yearend_facts.py',
+        module.YEAREND_HYDRATED:evidence/'hydrated-yearend-terminal-catalog.json'}
     for ref,p in names.items():p.write_bytes(ref.encode())
     refs={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()}
     document={'schema':'terminal-repair/1','source_evidence':[{'reference':k,'sha256':v} for k,v in refs.items()],
@@ -81,14 +88,14 @@ def test_spring_hydration_is_required_and_actual_omission_falsifier(tmp_path,mon
     def path(value):return driver/Path(value).name if str(value).startswith('/driver/') else Path(value)
     monkeypatch.setattr(module,'Path',path)
     assert set(module.basis(evidence,cp)[1]['declared_fact_compilers'])==set(refs)
-    names[module.SPRING_HYDRATED].unlink()
+    names[getattr(module,removed+'_HYDRATED')].unlink()
     with pytest.raises(ValueError,match='ACTUAL_COMPLETE_FACT_FILES'):module.basis(evidence,cp)
     node=next(n for n in ast.parse(Path(module.basis.__code__.co_filename).read_bytes()).body
         if isinstance(n,ast.FunctionDef) and n.name=='basis')
     mapping=next(n.value for n in node.body if isinstance(n,ast.Assign) and isinstance(n.value,ast.Dict))
-    pairs=[(k,v) for k,v in zip(mapping.keys,mapping.values) if not isinstance(k,ast.Name) or not k.id.startswith('SPRING')]
+    pairs=[(k,v) for k,v in zip(mapping.keys,mapping.values) if not isinstance(k,ast.Name) or not k.id.startswith(removed)]
     mapping.keys=[k for k,v in pairs];mapping.values=[v for k,v in pairs]
     scope=dict(module.basis.__globals__)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
-        '<removed-spring-basis-requirements>','exec'),scope)
-    assert module.SPRING not in scope['basis'](evidence,cp)[1]['declared_fact_compilers']
+        '<removed-required-basis-component>','exec'),scope)
+    assert getattr(module,removed) not in scope['basis'](evidence,cp)[1]['declared_fact_compilers']

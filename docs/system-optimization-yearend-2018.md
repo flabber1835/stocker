@@ -77,3 +77,12 @@ larger exact lineage artifacts. Defaults256MiB and512MiB callers are unchanged;
 plaintext1GiB/count5000 and every cryptographic/member/fence check remain.
 The finite bound must appear in the frozen request and capacity must be checked
 before transfer. It does not authorize extra sources, logs, trials or cleanup.
+
+For every year-end suffix, retain the exact verified incoming encrypted ZIP as
+an opaque ancestor instead of repeatedly expanding/copying nested histories.
+Preflight still canonically reviews the entire admitted old current branch and
+all its retained checkpoints/commitments before advancing. The new branch keeps
+its own selected predecessor, recovered tails, all newly committed checkpoints,
+and the original own zero-session origin receipt/gzip in readable lineage.
+The immutable ancestor keeps all older financials/checkpoints/stop evidence.
+This is storage deduplication, not omission of old proof or a state conversion.
