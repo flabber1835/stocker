@@ -26,6 +26,9 @@ LATE_HYDRATED='research:system-optimization-002/late-private-terminal-catalog/1'
 YEAREND='research:system-optimization-002/yearend-terminal-catalog/1'
 YEAREND_COMPILER='research:system-optimization-002/yearend-terminal-compiler/1'
 YEAREND_HYDRATED='research:system-optimization-002/yearend-private-terminal-catalog/1'
+FOLLOWON='research:system-optimization-002/followon-terminal-catalog/1'
+FOLLOWON_COMPILER='research:system-optimization-002/followon-terminal-compiler/1'
+FOLLOWON_HYDRATED='research:system-optimization-002/followon-private-terminal-catalog/1'
 
 
 def semantics(base,documents,expected):
@@ -77,7 +80,10 @@ def basis(evidence,cp):
         LATE_HYDRATED:evidence/'hydrated-late-terminal-catalog.json',
         YEAREND:Path('/driver/system-campaign-yearend-terminal-facts.json'),
         YEAREND_COMPILER:Path('/driver/system_campaign_yearend_facts.py'),
-        YEAREND_HYDRATED:evidence/'hydrated-yearend-terminal-catalog.json'}
+        YEAREND_HYDRATED:evidence/'hydrated-yearend-terminal-catalog.json',
+        FOLLOWON:Path('/driver/system-campaign-followon-terminal-facts.json'),
+        FOLLOWON_COMPILER:Path('/driver/system_campaign_followon_facts.py'),
+        FOLLOWON_HYDRATED:evidence/'hydrated-followon-terminal-catalog.json'}
     need(all(p.is_file() for p in names.values()),'COMMON_BASIS_ACTUAL_COMPLETE_FACT_FILES')
     expected={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()};documents=[]
     for spec in cp['repairs']:

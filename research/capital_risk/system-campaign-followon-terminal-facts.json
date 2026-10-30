@@ -1,0 +1,99 @@
+{
+  "schema": "research.system-campaign-followon-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "XOXO",
+      "security_id": "877089441021151565",
+      "native_session": "2018-12-20",
+      "native_term_sha256": "d7ca9959882723243b9daaa860a4c5f4c6316b94adc539184d200517575982b1",
+      "added": {
+        "security_id": "877089441021151565",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1062292/000114420418066063/tv509729_8k.htm | Issuer completion8K confirms35USD eligible common share mandatory conversion, legalDecember21,2018 and suspension BEFORE December21NYSEopen. PreserveDecember20. No appraisal election/tax/fee inference.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-12-21",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 35.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1062292/000114420418066063/tv509729_8k.htm",
+      "description": "Issuer completion8K confirms35USD eligible common share mandatory conversion, legalDecember21,2018 and suspension BEFORE December21NYSEopen. PreserveDecember20. No appraisal election/tax/fee inference.",
+      "proxy": null
+    },
+    {
+      "ticker": "MB2",
+      "security_id": "599899221506959001",
+      "native_session": "2019-02-14",
+      "native_term_sha256": "d782515dd2cb0481ef5fdb1ecb88159141dd872cec6743918fbec653422ac28a",
+      "added": {
+        "security_id": "599899221506959001",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1458962/000119312519041728/d659409d8k.htm | Issuercompletion8K andOCC44577 confirm36.50USD ClassA mandatory conversion BEFORE February15,2019open. https://www.miaxglobal.com/sites/default/files/alert-files/MB_Merger_44577.pdf . February14 shareholdervote isNOTconversion. FrozenMB2alias mapping is declared inference from matchingJune19,2015listing/February14,2019terminal endpoints, issuer10K https://www.sec.gov/Archives/edgar/data/1458962/000145896217000005/mb_12-31x2016x10xk.htm . Preserve SEC_UNKNOWN and unknown/ineligible classification, not an issuer upgrade.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-02-15",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 36.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1458962/000119312519041728/d659409d8k.htm",
+      "description": "Issuercompletion8K andOCC44577 confirm36.50USD ClassA mandatory conversion BEFORE February15,2019open. https://www.miaxglobal.com/sites/default/files/alert-files/MB_Merger_44577.pdf . February14 shareholdervote isNOTconversion. FrozenMB2alias mapping is declared inference from matchingJune19,2015listing/February14,2019terminal endpoints, issuer10K https://www.sec.gov/Archives/edgar/data/1458962/000145896217000005/mb_12-31x2016x10xk.htm . Preserve SEC_UNKNOWN and unknown/ineligible classification, not an issuer upgrade.",
+      "proxy": null
+    },
+    {
+      "ticker": "ESRX",
+      "security_id": "511603882679036944",
+      "native_session": "2018-12-20",
+      "native_term_sha256": "9a031462df3a8a0b3b3ff5a5555558573972ad72850f8bca3e8483bad5421079",
+      "added": {
+        "security_id": "511603882679036944",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1532063/000114036118045477/form8k.htm | Issuercompletion8K confirms48.75USD plus0.2434newCI common shares, legalDecember20,2018 with oldstocks cease/newCI starts BEFORE December21open. OldCI1:1newCI continuity isexplicit; preserve provider CI security/stored oldCIK701221, no identity upgrade. OCC44234 confirms terms https://www.miaxglobal.com/sites/default/files/alert-files/ESRX_Merger_44234.pdf . PreserveDecember20. Fractional holdercash uses frozenDecember21raw-open proxy, not actual agent net sale rate.",
+        "delivered_security_id": "748996679961773527",
+        "delivered_ticker": "CI",
+        "delivered_issuer_id": "SEC_CIK:701221",
+        "session": "2018-12-21",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 48.75,
+        "exchange_ratio": 0.2434,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1532063/000114036118045477/form8k.htm",
+      "description": "Issuercompletion8K confirms48.75USD plus0.2434newCI common shares, legalDecember20,2018 with oldstocks cease/newCI starts BEFORE December21open. OldCI1:1newCI continuity isexplicit; preserve provider CI security/stored oldCIK701221, no identity upgrade. OCC44234 confirms terms https://www.miaxglobal.com/sites/default/files/alert-files/ESRX_Merger_44234.pdf . PreserveDecember20. Fractional holdercash uses frozenDecember21raw-open proxy, not actual agent net sale rate.",
+      "proxy": {
+        "session": "2018-12-21",
+        "security_id": "748996679961773527",
+        "source_observation_sha256": "adc6fb5b17e2c734fee78087d74afdec23ab5fa043a67e8653e48e3a103f75d2"
+      }
+    }
+  ],
+  "identity_witnesses": [
+    {
+      "session": "2019-02-13",
+      "security_id": "599899221506959001",
+      "ticker": "MB2",
+      "issuer_id": "SEC_UNKNOWN:599899221506959001",
+      "listing_first_session": "2015-06-19",
+      "security_type_eligible": "0",
+      "source_observation_sha256": "d64587a4a7b45df681ef98cd21a98ef5442a4954a279b65ca0192670a821298e"
+    },
+    {
+      "session": "2019-02-14",
+      "security_id": "599899221506959001",
+      "ticker": "MB2",
+      "issuer_id": "SEC_UNKNOWN:599899221506959001",
+      "listing_first_session": "2015-06-19",
+      "security_type_eligible": "0",
+      "source_observation_sha256": "a6c562c57ba7dacf3d96c3d7c232ebed969b0393ee96eaa34884662028bcd39c"
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "FMSA_exact_cash_unproven": true,
+  "AAAP_mandatory_payment_unproven": true
+}

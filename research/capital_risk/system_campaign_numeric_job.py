@@ -24,7 +24,7 @@ SOURCES=tuple(dict.fromkeys((*CORE_SOURCES,*EQUIVALENCE_SOURCES,'system_campaign
     'alpaca_fit_identity_repair.py','alpaca_fit_inputs.py','alpaca_fit_merger_roles.py','alpaca_fit_prior.py',
     'alpaca_fit_relay.py','alpaca_fit_resume.py','core_lineage_review.py','forecast_collect.py','local_stage.py',
     'owned_grid_worker.py','policy.py','trace_screen.py','system_campaign_winter_facts.py','system_campaign_spring_facts.py',
-    'system_campaign_followup_facts.py','system_campaign_tgi_facts.py','system_campaign_late_facts.py','system_campaign_yearend_facts.py')))
+    'system_campaign_followup_facts.py','system_campaign_tgi_facts.py','system_campaign_late_facts.py','system_campaign_yearend_facts.py','system_campaign_followon_facts.py')))
 
 
 def expected_request(specifications,equivalence_proofs=None):
@@ -43,6 +43,7 @@ def expected_request(specifications,equivalence_proofs=None):
         'midyear_catalog_sha256':sha256_file(HERE/'system-campaign-midyear-terminal-facts.json'),
         'late_catalog_sha256':sha256_file(HERE/'system-campaign-late-terminal-facts.json'),
         'yearend_catalog_sha256':sha256_file(HERE/'system-campaign-yearend-terminal-facts.json'),
+        'followon_catalog_sha256':sha256_file(HERE/'system-campaign-followon-terminal-facts.json'),
         'sources':{n:sha256_file(HERE/n) for n in SOURCES},'worker_wait_seconds':7200,
         'review_wait_seconds':3600,'artifact_retention_days':7,'new_core_financial_sessions':0,
         'source_archive_limit_bytes':1024**3,
