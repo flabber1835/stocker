@@ -84,6 +84,41 @@ def snapshot(reader, result, *, scope, now):
         return read_projection.make(scope,key,rows,errors,observed_at=observed,valid_until=expiry)
 
 
+def _restore_readers(conn, readers, database_url, *, now):
+    """Resume current completed display evidence, never another owner's job."""
+    previous = {}
+    conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+    try:
+        schema.require_schema(conn)
+        try:
+            facts = read_projection._subject_facts(conn)
+        except (ValueError,TypeError,KeyError,OverflowError):
+            return previous
+        for scope, reader in readers.items():
+            try:
+                key = read_projection._subject(conn,database_url,scope,facts=facts)
+                row = conn.execute(f'SELECT subject_sha256,observed_at,valid_until,envelope,signature FROM {schema.RECEIPTS} WHERE scope=%s',
+                                   (scope,)).fetchone()
+                if (row is None or row[0] != key or row[1].isoformat() != row[3].get('observed_at')
+                        or row[2].isoformat() != row[3].get('valid_until')):
+                    continue
+                rows, _, _, errors = read_projection.decode(row[3],row[4],
+                    current_subject=key,scope=scope,now=now)
+                if (row[2] != row[1]+timedelta(seconds=financial.FRESH_SECONDS)
+                        or any(item.recovery is not None
+                               and item.recovery.phase == 'FINANCIAL_VERIFICATION' for item in rows)):
+                    continue
+                reader.answer = (key,observer_codec.pack(rows,errors,observed_at=row[1]),None,now)
+                previous[scope] = (row[3],row[4])
+            except (ValueError,TypeError,KeyError,OverflowError,AttributeError):
+                # Absent or malformed display evidence starts ordinary work.
+                # No current subject, owner or database failure is repaired.
+                continue
+    finally:
+        conn.rollback()
+    return previous
+
+
 def _drain_readers(readers):
     # Reader already owns finite queue/work/subprocess-reap deadlines. Joining
     # those existing jobs creates no new admission or fresh time allowance.
@@ -124,7 +159,7 @@ def run(*, stopped=None):
             unknown_factory=paper_unknown if scope == 'PAPER' else None,execution_slot=slot,
             scope_label='paper alignment verification' if scope == 'PAPER' else 'retained portfolio verification')
             for scope in ('SHADOW','PAPER')}
-        previous = {}
+        previous = _restore_readers(conn,readers,database_url,now=datetime.now(timezone.utc))
         while not stopped.is_set():
             # Renew ownership separately; this never extends a receipt's clocks.
             row = conn.execute(f'UPDATE {schema.OWNER} SET expires_at=clock_timestamp()+INTERVAL \'610 seconds\' '

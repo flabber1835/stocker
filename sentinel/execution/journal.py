@@ -101,15 +101,21 @@ def writer_lock(conn, *, recovery_only: bool = False):
     scope is reserved for broker-observation journals and scheduler leases;
     nested ordinary writer locks independently enforce the mutation gate.
     """
-    with conn.cursor() as cur:
-        cur.execute("SELECT pg_try_advisory_lock(%s)", (WRITER_LOCK_KEY,))
-        acquired = bool(cur.fetchone()[0])
-    if not acquired:
-        raise WriterLockUnavailable(
-            "another process holds the Sentinel writer lock on this database. "
-            "One appliance controls one account and there is exactly one "
-            "writer; a second would race every command it creates.")
+    acquired = False
     try:
+        if not recovery_only:
+            # Cold/due archive scrubs must not monopolize account ownership.
+            # The inner guard still rechecks fresh media facts under the lock.
+            backup_runtime_authority.require(
+                conn, operation="plan/execution writer mutation")
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s)", (WRITER_LOCK_KEY,))
+            acquired = bool(cur.fetchone()[0])
+        if not acquired:
+            raise WriterLockUnavailable(
+                "another process holds the Sentinel writer lock on this database. "
+                "One appliance controls one account and there is exactly one "
+                "writer; a second would race every command it creates.")
         if not recovery_only:
             backup_runtime_authority.require(
                 conn, operation="plan/execution writer mutation")
@@ -122,9 +128,10 @@ def writer_lock(conn, *, recovery_only: bool = False):
         conn.rollback()
         raise
     finally:
-        with conn.cursor() as cur:
-            cur.execute("SELECT pg_advisory_unlock(%s)", (WRITER_LOCK_KEY,))
-        conn.commit()
+        if acquired:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pg_advisory_unlock(%s)", (WRITER_LOCK_KEY,))
+            conn.commit()
 
 
 # ---------------------------------------------------------------------------

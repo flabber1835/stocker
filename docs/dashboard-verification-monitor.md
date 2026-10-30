@@ -122,3 +122,29 @@ required exact-head checks pass, install the protected certified image, perform
 the normal retained activation and any necessary generic unsent recovery, then
 verify current dashboard colors and next-open paper readiness. No manual orders
 or unreviewed execution changes are introduced.
+
+## Reuse within one display snapshot and verifier restart (2026-10-30)
+
+SHADOW and PAPER subject keys read in the same repeatable-read transaction share
+one physical-database, authenticated-installation, DDL-epoch and semantic-runtime
+observation. Their independent revision rows and scope names remain separate;
+the exact existing subject digest bytes do not change. This removes repeated
+catalog and lineage reads inside one HTTP snapshot, not a later snapshot's
+invalidation checks.
+
+After acquiring the sole verifier session lock, a replacement verifier may resume
+an authenticated, exact-current-subject completed receipt. It uses the original
+observation and expiry clocks, preserves negative results and row-specific
+execution deadlines, and still refreshes at the existing five-minute threshold.
+Queued/running receipts are never restored as completed work. Missing, changed,
+tampered, future or expired receipts start a fresh bounded observation. The first
+ordinary Reader identity check after loading must still discard a receipt if its
+subject changed in the meantime. This grants no trading authority and does not
+resume another process's worker or extend a deadline.
+
+An admitted display check records a bounded reason in its existing detail:
+missing completed proof, changed subject, expired proof, periodic refresh, or
+retry after a failed check. This describes why new work was admitted without
+inventing a historical dependency mutation or persisting private configuration.
+No invalidating dependency, independent scope, authentication check, single-owner
+rule or ten-minute proof lifetime is removed.

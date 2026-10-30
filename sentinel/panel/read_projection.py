@@ -42,20 +42,26 @@ def subject(conn, database_url, scope):
     return _subject(conn,database_url,scope)
 
 
-def _subject(conn, database_url, scope):
+def _subject_facts(conn):
+    """Common facts reused only inside this caller's coherent read snapshot."""
     from sentinel import operational_ddl_epoch, operational_schema
+    physical=conn.execute('SELECT system_identifier::text,current_database() FROM pg_control_system()').fetchone()
+    installation=operational_schema.installation(conn,required=False)
+    return (physical,installation,operational_ddl_epoch.current(conn),
+            {key: os.environ.get(key, '') for key in sorted(SUBJECT_ENV)})
+
+
+def _subject(conn, database_url, scope, *, facts=None):
     if scope not in SCOPES:
         raise ValueError('unknown operational verification scope')
     row = conn.execute(f'SELECT incarnation::text,revision,xmin::text FROM {schema.REVISION} WHERE scope=%s',
                        (scope,)).fetchone()
     if row is None:
         raise ValueError('verification invalidation state unavailable')
-    physical=conn.execute('SELECT system_identifier::text,current_database() FROM pg_control_system()').fetchone()
-    installation=operational_schema.installation(conn,required=False)
+    physical,installation,epoch,environment = facts if facts is not None else _subject_facts(conn)
     return _digest([SCHEMA, database_url, scope, list(row),list(physical),
                     installation['installation_id'] if installation is not None else None,
-                    operational_ddl_epoch.current(conn),
-                    {key: os.environ.get(key, '') for key in sorted(SUBJECT_ENV)}])
+                    epoch,environment])
 
 
 def subject_for(database_url, include_paper):
@@ -188,10 +194,18 @@ def read(database_url, *, include_paper=True, now=None):
     try:
         conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         schema.require_schema(conn)
-        for scope in ('SHADOW','PAPER') if include_paper else ('SHADOW',):
+        scopes=('SHADOW','PAPER') if include_paper else ('SHADOW',)
+        facts = facts_error = None
+        try:
+            facts=_subject_facts(conn)
+        except (ValueError,TypeError,KeyError,OverflowError) as exc:
+            facts_error=exc
+        for scope in scopes:
             key = row = None
             try:
-                key = _subject(conn, database_url, scope)
+                if facts_error is not None:
+                    raise facts_error
+                key = _subject(conn, database_url, scope, facts=facts)
                 row = conn.execute(f'SELECT subject_sha256,observed_at,valid_until,envelope,signature FROM {schema.RECEIPTS} WHERE scope=%s', (scope,)).fetchone()
                 if (row is None or row[1].isoformat() != row[3].get('observed_at')
                         or row[2].isoformat() != row[3].get('valid_until')):

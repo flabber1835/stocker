@@ -44,8 +44,8 @@ class Media:
         self.backup = self.base / BASE
         self.backup.mkdir()
         self.selection = self.base / f".sentinel-runtime-base-{SYSTEM_ID}-v1"
-        self.selection.write_text(
-            f"schema=sentinel.runtime-base/1\nsystem_identifier={SYSTEM_ID}\nbase_backup={BASE}\n")
+        self.selection.write_bytes(
+            f"schema=sentinel.runtime-base/1\nsystem_identifier={SYSTEM_ID}\nbase_backup={BASE}\n".encode("ascii"))
         self.metadata = (
             f"marker=sentinel-backup-20260910T110000Z-42\nlsn=0/300040\n"
             f"wal={wal_name(3)}\nsystem_identifier={SYSTEM_ID}\n")
