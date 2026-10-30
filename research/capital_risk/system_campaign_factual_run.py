@@ -54,7 +54,9 @@ def preflight(spec,old,out,*,before='2017-08-09'):
 def correlation_seed(old,cp):
     capture=old/'correlation-inputs.jsonl.gz'
     if not capture.exists():capture=old/'lineage/old-branch/correlation-inputs.jsonl.gz'
-    if not capture.exists():return []
+    if not capture.exists():
+        need(not any(cp['journals'][n]['bytes'] for n in ('formation','daily')),'FACTUAL_NONEMPTY_CORRELATION_PREFIX_REQUIRED')
+        return []
     financial={}
     for n in ('formation','daily'):
         with (old/f'book/{n}.jsonl').open('rb') as f:

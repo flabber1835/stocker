@@ -175,3 +175,41 @@ reviewer tail-refusal logs, and the successful read-only prefix/accounting revie
 written before that consequential refusal. Retain the exact complete encrypted
 parent. New hosted preflight still restores and verifies the entire own prefix
 before Journal.recover. This is not permission to roll back later financial work.
+
+The v2 run41015633386 actually preservedOctober21 trading and reached the correct
+October22 event. It then exposed two research-driver defects. Canonical replay
+calls apply_repair once for every retained overlay; the v2 date wrapper tried to
+inject its same unresolved terminal on every call. Its duplicate guard correctly
+refused. Also, the earlier prelaunch failure exported no correlation observer
+stream, so seeding from that failed branch lost the older committed observer
+prefix. The independent financial review passed before its separate correlation
+axis check refused. Preserve both failures without describing them as successful
+CVR handling or complete prefix admission.
+
+Recover only this P02 branch from its own newSeptember30 checkpoint and full
+513149-byte daily tail. This is a retained-input engineering suffix: no new fact
+overlay, input-hash change, financial-source change, profile or origin. Keep the
+published v1/v2 compilers unchanged. An outer dispatcher may remove only the
+byte-exact already-injected unresolved Alder term before invoking the existing
+v2 wrapper again; it must reject every different/duplicate same-ID term. This
+makes the intended date transform idempotent across retained-overlay dispatch,
+without weakening the underlying unresolved-term or duplicate-conflict guards.
+Qualify actual repeated packet calls on hosted compute before advancing.
+
+Reconstruct the correlation seed from the separately authenticated ancestor
+41009896481, whose committed financial rows and selected state are identical to
+the current branch throughSeptember30. Pin its exact artifact/receipt/cipher/
+inventory/source/own-checkpoint specification. Verify every observer chain and
+next-state hash against the current committed formation/daily rows. Write a
+distinct derived-prefix file and provenance; do not edit the original capture,
+book or archive. That source archive is already preserved in the exact encrypted
+ancestor route. Include the derived prefix and provenance in the next encrypted
+export. The financial container receives read-only admitted inputs and no key.
+Missing observer data for a nonempty prefix must refuse rather than seed empty.
+
+Admission of the stopped branch must pin the actual correlation-axis refusal,
+the prior successful hosted canonical/accounting/factor/prefix review and exact
+recovered-tail proof. Fresh hosted preflight still verifies the entire own book.
+No workflow rerun, fresh formation, history rollback or other candidate is allowed.
+After this engineering correction, the canonical engine must still refuse any
+economically relevant unresolved CVR; no18/20 valuation has been chosen.

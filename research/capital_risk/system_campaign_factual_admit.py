@@ -122,6 +122,18 @@ def admit(spec,root,key,*,max_zip_bytes=256*1024**2):
 
 
 def prove_review_refusal(spec,inventory,root):
+    if spec['review_refusal']=='CORRELATION_COMMITTED_AXIS':
+        need(spec['receipt_schema']=='research.system-campaign-factual-suffix-receipt/1'
+             and sha256_file(root/'independent-review-stop/worker.log')==spec['review_log_sha256']
+             and 'REFUSED_FULL_SYSTEM_FACTUAL_CORRELATION_COMMITTED_AXIS' in (root/'independent-review-stop/worker.log').read_text()
+             and 'core-review.json' not in inventory,'P02_EXACT_NONFINANCIAL_REVIEW_REFUSAL')
+        name='independent-review-stop/core-review.json';need(sha256_file(root/name)==spec['review_sha256'],'P02_RETAINED_HOSTED_FINANCIAL_REVIEW_BYTES')
+        proof=json.loads((root/name).read_bytes())
+        need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified']
+             and proof['checkpoint_sha256']==spec['outer_sha256'],'P02_RETAINED_HOSTED_FINANCIAL_REVIEW_PASSED')
+        name='independent-review-stop/reviewed-recovered-tail-proof.json'
+        need(sha256_file(root/name)==spec['reviewed_tail_proof_sha256'],'P02_RETAINED_EXACT_RECOVERED_TAIL_REVIEW')
+        return
     need(spec['review_refusal']=='CONVERSION_IDENTITY_REVIEW' and
          spec['receipt_schema']=='research.system-campaign-factual-suffix-receipt/1',
          'FACTUAL_DECLARED_REVIEW_ONLY_REFUSAL')

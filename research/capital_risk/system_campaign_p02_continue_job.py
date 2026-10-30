@@ -8,6 +8,7 @@ from system_campaign_factual_admit import admit
 from system_campaign_p02_job import SOURCES as PRIOR_SOURCES
 from system_campaign_own_origin import capture as capture_origin
 from system_campaign_p02_continue_run import component,registry_commitment
+from system_campaign_correlation_prefix import restore as restore_correlation
 from system_campaign_ancestor import preserve as preserve_ancestor
 from system_campaign_variants import build as candidate_source
 from system_campaign_source import build as baseline_source
@@ -19,12 +20,15 @@ from seal import sha256_file
 
 HERE=Path(__file__).resolve().parent
 SOURCES=tuple(dict.fromkeys((*PRIOR_SOURCES,'system_campaign_p02_continue_job.py',
-    'system_campaign_p02_continue_run.py','system_campaign_tableau_facts.py','system_campaign_alder_facts.py','system_campaign_alder_date_v2.py')))
+    'system_campaign_p02_continue_run.py','system_campaign_tableau_facts.py','system_campaign_alder_facts.py','system_campaign_alder_date_v2.py',
+    'system_campaign_p02_retained_run.py','system_campaign_correlation_prefix.py')))
 
 
-def expected_request(predecessors_file='system-campaign-p02-continuation-predecessors.json',new_component='tableau'):
+def expected_request(predecessors_file='system-campaign-p02-continuation-predecessors.json',new_component='tableau',execution_mode='ADD_FACTUAL_COMPONENT'):
     need(predecessors_file=='system-campaign-p02-continuation-predecessors.json','EARLY2019_EXACT_PREDECESSOR_FILE')
     index,c=component(new_component);need(index>=1,'P02_EXPLICIT_NEXT_COMPONENT')
+    need(execution_mode in ('ADD_FACTUAL_COMPONENT','RETAINED_EXACT_SUFFIX'),'P02_EXPLICIT_EXECUTION_MODE')
+    need(execution_mode!='RETAINED_EXACT_SUFFIX' or new_component=='alder','P02_EXACT_RETAINED_COMPONENT_SCOPE')
     return {'schema':'research.system-campaign-p02-continuation-request/1','campaign':'system-optimization-002',
         'protocol_sha256':sha256_file(HERE/'system-campaign-search-protocol.json'),
         'predecessors_file':predecessors_file,'predecessors_sha256':sha256_file(HERE/predecessors_file),
@@ -38,6 +42,9 @@ def expected_request(predecessors_file='system-campaign-p02-continuation-predece
         'array_catalog_sha256':sha256_file(HERE/'system-campaign-array-terminal-facts.json'),
         'owner_candidate_priority':'P02','concurrent_candidate_limit':1,
         'new_component':new_component,'component_registry_sha256':registry_commitment(),
+        'execution_mode':execution_mode,
+        'correlation_source_file':'system-campaign-p02-correlation-source.json' if execution_mode=='RETAINED_EXACT_SUFFIX' else None,
+        'correlation_source_sha256':sha256_file(HERE/'system-campaign-p02-correlation-source.json') if execution_mode=='RETAINED_EXACT_SUFFIX' else None,
         'new_catalog_sha256':sha256_file(HERE/c['catalog']),
         'sources':{n:sha256_file(HERE/n) for n in SOURCES},'financial_wait_seconds':12600,
         'review_wait_seconds':2700,'artifact_retention_days':7,'production_contacted':False,
@@ -72,10 +79,11 @@ def predecessor_receipt(spec):
 
 def main(a):
     check_context(os.environ);need(os.environ.get('GITHUB_RUN_ATTEMPT')=='1','NO_FACTUAL_SUFFIX_RERUN')
-    request=json.loads(a.request.read_bytes());need(request==expected_request(request['predecessors_file'],request['new_component']),'EXACT_FACTUAL_SUFFIX_REQUEST')
+    request=json.loads(a.request.read_bytes());need(request==expected_request(request['predecessors_file'],request['new_component'],request['execution_mode']),'EXACT_FACTUAL_SUFFIX_REQUEST')
     specifications=json.loads((HERE/request['predecessors_file']).read_bytes())['arms']
     need(a.arm=='P02','P02_ONLY_OWNER_SELECTED_CANDIDATE')
     spec=specifications[a.arm]
+    need(spec.get('execution_mode','ADD_FACTUAL_COMPONENT')==request['execution_mode'],'P02_EXACT_SELECTED_EXECUTION_MODE')
     need(spec['new_component']==request['new_component'],'P02_EXACT_SELECTED_COMPONENT')
     predecessor_receipt(spec)
     stage=json.loads(a.staging.read_bytes())
@@ -89,6 +97,15 @@ def main(a):
     key=base64.b64decode(os.environ.pop(SECRET,''),validate=True);need(len(key)==32,'KEY')
     temp=Path(os.environ['RUNNER_TEMP']);frozen=temp/'capital-risk-stage-001/inputs'
     old=admit(spec,temp/('campaign-factual-transfer-'+a.arm),key,max_zip_bytes=request['source_archive_limit_bytes'])
+    prefix_proof=None
+    if request['execution_mode']=='RETAINED_EXACT_SUFFIX':
+        source=json.loads((HERE/request['correlation_source_file']).read_bytes());cs=source['source_spec']
+        need(cs['arm']=='P02' and cs['run_id']==41009896481
+             and cs['head']=='ced9891455c6e46a8610487834605b7eed5aef3b'
+             and cs['outer_sha256']=='daa13136da1356bbf43cdcbf1114f2887a23ab5ddc9796b8b5b558d17b75c733',
+             'P02_EXACT_QUALIFIED_CORRELATION_ANCESTOR')
+        prefix=admit(cs,temp/'campaign-factual-transfer-p02-correlation',key,max_zip_bytes=request['source_archive_limit_bytes'])
+        prefix_proof=restore_correlation(old,prefix,old/'derived-correlation-prefix',cs,source['expected_raw_prefix'])
     reference=old
     os.environ.pop('GH_TOKEN',None)
     source=temp/'campaign-factual-source'
@@ -97,6 +114,9 @@ def main(a):
     need(binding==old_binding,'FACTUAL_ENTIRE_FINANCIAL_SOURCE_IDENTICAL')
     out=temp/'campaign-factual-output';out.mkdir(mode=0o700)
     capture_origin(reference,old,out)
+    if prefix_proof is not None:
+        shutil.copytree(old/'derived-correlation-prefix',out/'derived-correlation-prefix')
+        (out/'correlation-source-spec.json').write_bytes((HERE/request['correlation_source_file']).read_bytes())
     (out/'source-bindings.json').write_bytes((old/'source-bindings.json').read_bytes())
     (out/'request.json').write_bytes(a.request.read_bytes());(out/'spec.json').write_text(json.dumps(spec,indent=2)+'\n')
     diagnostic=temp/'campaign-factual-diagnostic';diagnostic.mkdir(mode=0o700)
@@ -115,9 +135,11 @@ def main(a):
         'array_catalog_sha256':request['array_catalog_sha256'],
         'new_component':request['new_component'],'new_catalog_sha256':request['new_catalog_sha256'],
         'component_registry_sha256':request['component_registry_sha256'],
+        'execution_mode':request['execution_mode'],'new_overlay_added':request['execution_mode']=='ADD_FACTUAL_COMPONENT',
         'production_contacted':False,'performance_admitted':False,'status':'NOT_STARTED'}
     def cmd(name,mode,output):
-        values=command(name,source,frozen,output,mode);values[values.index('/driver/full_system_core.py')]='/driver/system_campaign_p02_continue_run.py'
+        values=command(name,source,frozen,output,mode);values[values.index('/driver/full_system_core.py')]=(
+            '/driver/system_campaign_p02_retained_run.py' if request['execution_mode']=='RETAINED_EXACT_SUFFIX' else '/driver/system_campaign_p02_continue_run.py')
         i=values.index('--entrypoint');values[i:i]=['--mount',f'type=bind,source={old},target=/old,readonly']
         if mode=='review':
             i=values.index('--entrypoint');values[i:i]=['--mount',f'type=bind,source={out},target=/evidence,readonly']
