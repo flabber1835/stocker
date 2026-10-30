@@ -545,8 +545,12 @@ def _commit_binding_change(case, monkeypatch):
     monkeypatch.setattr(backup_runtime_authority, 'require', durability)
     with pytest.raises(admission.Refused, match='^BACKED_PAPER_ACCOUNT_BINDING_REQUIRED$'):
         admission.admit(case.conn, context=case.context, manifest=case.manifest)
-    assert operations == ['plan/execution writer mutation', 'compatible retained runtime admission',
-        'compatible retained runtime admission commit']
+    assert operations == [
+        'plan/execution writer mutation',  # Cold preflight precedes ownership.
+        'plan/execution writer mutation',  # Fresh inner guard remains mandatory.
+        'compatible retained runtime admission',
+        'compatible retained runtime admission commit',
+    ]
     assert case.conn.execute('SELECT count(*) FROM sentinel_processed_sessions '
         'WHERE cursor_name=%s', (admission._key(case.context),)).fetchone()[0] == 0
     assert binding.require(case.conn).broker_account_id == 'PAFOREIGN'

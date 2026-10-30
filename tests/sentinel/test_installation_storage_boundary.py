@@ -18,6 +18,7 @@ import sentinel_activation_coordinator as activation
 import sentinel_phase_records as records
 import sentinel_runtime_selection as selection
 import sentinel_autonomous_deploy_entry as entry
+import sentinel_autonomous_deploy_ci_runtime as ci_runtime
 
 core = install.core
 SHA = 'a' * 40
@@ -44,10 +45,10 @@ def public_installer(monkeypatch, tmp_path):
                SENTINEL_AUTHORITY_ARTIFACTS_DIR=str(tmp_path / 'authority'),
                SENTINEL_RUNTIME_IMAGE_REPOSITORY='ghcr.io/flabber1835/stocker/sentinel')
     monkeypatch.setattr(core, 'merged_environment', lambda: dict(env))
-    proof = dict(source_commit=SHA, software_certification='VERIFIED',
+    proof = dict(source_commit=SHA, source_tree=SHA, software_certification='VERIFIED',
                  required_ci_jobs='PASS', certified_image=IMAGE,
                  image_digest='sha256:' + 'b' * 64)
-    monkeypatch.setattr(install.certification, 'verify_current', lambda **kwargs: proof)
+    monkeypatch.setattr(ci_runtime.verifier, 'verify_current', lambda **kwargs: proof)
     state = dict(schema='current', schema_reply=None, backup='EXPIRED_HORIZON',
                  backup_marker=None, discovery_reply=None, fence_lost=False,
                  discovery_failed=False, schema_transport_failed=False,
@@ -180,6 +181,11 @@ def public_installer(monkeypatch, tmp_path):
 
     monkeypatch.setattr(core.Runner, 'run', lambda _runner, argv, **kwargs: invoke(argv, **kwargs))
     monkeypatch.setattr(install.bootstrap, '_run', invoke)
+    # SoftwareVerification now owns the actual verifier call and its local Git
+    # context. Route only those Git observations through the same explicit fake
+    # boundary; keep the real owner/context and source-tree binding checks.
+    monkeypatch.setattr(ci_runtime.verifier, '_git',
+                        lambda _root, *args: invoke(['git', *args]).stdout.strip())
 
     def handoff(path):
         _request, receipt = activation.validate_request(path)
@@ -189,6 +195,22 @@ def public_installer(monkeypatch, tmp_path):
         return {'schema': 'sentinel.activation-handoff/1', 'activation_state': 'SUPERVISED'}
     monkeypatch.setattr(activation, 'handoff', handoff)
     return state, calls, tmp_path, prior_pointer
+
+
+@pytest.mark.parametrize('field', ['source_commit', 'source_tree'])
+def test_public_installer_keeps_real_software_owner_source_binding(
+        public_installer, monkeypatch, field):
+    state, calls, root, pointer = public_installer
+    proof = dict(source_commit=SHA, source_tree=SHA, software_certification='VERIFIED',
+                 required_ci_jobs='PASS', certified_image=IMAGE,
+                 image_digest='sha256:' + 'b' * 64)
+    proof[field] = 'e' * 40
+    monkeypatch.setattr(ci_runtime.verifier, 'verify_current', lambda **kwargs: proof)
+    assert install.main(['--mode', 'dual']) == 2
+    assert selection.POINTER.read_bytes() == pointer
+    assert not state['created'] and not state['migrated']
+    assert not list(root.rglob('installation-receipt.json'))
+    assert not any(call[:2] == ['docker', 'pull'] for call in calls)
 
 
 @pytest.mark.parametrize('old_financial_reader', [False, True])
