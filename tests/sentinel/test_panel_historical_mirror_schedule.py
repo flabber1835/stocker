@@ -155,6 +155,15 @@ def changed_history_panel(panel,key,**changes):
     return replace(panel,rows=[replace(row,**changes) if row.key==key else row for row in panel.rows])
 
 
+def checking_schedule_panel(*, now=LIVE_NOW, check_seconds=120):
+    page = healthy_history_panel(now=now)
+    deadline = now+timedelta(seconds=check_seconds)
+    checking = model.Row('paper_reconciliation','Paper alignment','CHECK IN PROGRESS',model.WARN,
+        'No current financial verification is claimed.',required_current=True,valid_until=deadline,
+        recovery=model.RecoveryEvidence(phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline))
+    return replace(page,rows=[checking if row.key=='paper_reconciliation' else row for row in page.rows])
+
+
 def test_complete_current_schedule_is_human_green_while_the_historical_audit_stays_financial_amber():
     from sentinel.panel.render import render
     page = healthy_history_panel()
@@ -284,3 +293,84 @@ def test_missing_current_clock_guard_has_an_executed_false_green_falsifier(monke
     monkeypatch.setattr(presentation,'_current_health_fact',namespace['_current_health_fact'])
     with pytest.raises(AssertionError):
         test_current_unreadable_stale_or_undated_proof_always_wins_over_history('alpaca_account','missing_clock')
+
+
+def test_periodic_owned_paper_check_keeps_healthy_scheduling_green_without_claiming_financial_pass():
+    from sentinel.panel.render import render
+    page = checking_schedule_panel()
+    before = deepcopy(page)
+    health = presentation.dashboard_health(page)
+    assert health['label']=='Healthy · Checking paper account'
+    assert health['color']=='green' and health['plan_readiness']=='ready'
+    assert page.overall==page.operational==model.WARN
+    assert page.row('paper_reconciliation').paper_alignment is None
+    assert page.row('paper_reconciliation').as_of is None  # Existing owned-check wire shape.
+    html = render(page)
+    assert 'Healthy · Checking paper account</span>' in html
+    assert 'class="row warn" id="status-paper_reconciliation"' in html
+    assert 'Historical paper audit' not in html
+    assert 'No current financial verification is claimed.' in html
+    assert page==before
+
+
+def test_periodic_check_label_precedes_a_retained_published_job():
+    page = checking_schedule_panel()
+    now = page.now
+    work = model.PreparationWork(job_id='published-october-30',decision_session=date(2026,10,30),
+        effective_session=date(2026,11,2),state='PUBLISHED',rows_done=1720712,components_done=31,
+        created_at=now-timedelta(minutes=20),updated_at=now-timedelta(minutes=2),
+        last_progress_at=now-timedelta(minutes=2),observed_at=now,deadline=now+timedelta(hours=1),
+        owner_registered=False,fence=4)
+    page = replace(page,rows=[*page.rows,model.Row('ingest','Acquisition','PUBLISHED',model.OK,
+        as_of=work.updated_at,preparation=work)])
+    assert presentation.preparation_stage(page)=='Checking paper account'
+    assert presentation.dashboard_health(page)['label']=='Healthy · Checking paper account'
+
+
+@pytest.mark.parametrize('fault',['wrong_phase','dead_owner','operator_required','missing_owner',
+    'expired','changed_deadline','not_required','current_fail','current_unknown','other_warning',
+    'restriction_retry','missing_account','stale_source','wrong_value'])
+def test_only_current_owned_bounded_paper_checks_can_explain_a_scheduled_wait(fault):
+    page = checking_schedule_panel()
+    check = page.row('paper_reconciliation')
+    if fault=='wrong_phase': check = replace(check,recovery=replace(check.recovery,phase='SOMETHING_ELSE'))
+    elif fault=='dead_owner': check = replace(check,recovery=replace(check.recovery,automatic=False))
+    elif fault=='operator_required': check = replace(check,recovery=replace(check.recovery,operator_required=True))
+    elif fault=='missing_owner':
+        check = replace(check,status=model.UNKNOWN,value='OWNER UNAVAILABLE',recovery=None)
+    elif fault=='expired': page = replace(page,now=check.valid_until+timedelta(seconds=1))
+    elif fault=='changed_deadline': check = replace(check,valid_until=check.valid_until+timedelta(seconds=1))
+    elif fault=='not_required': check = replace(check,required_current=False)
+    elif fault=='current_fail': check = replace(check,status=model.FAIL)
+    elif fault=='current_unknown': check = replace(check,status=model.UNKNOWN)
+    elif fault=='other_warning':
+        page = replace(page,rows=[*page.rows,model.Row('other','Other','UNEXPECTED',model.WARN)])
+    elif fault=='restriction_retry':
+        page = changed_history_panel(page,'automation_cycle',value='RETRY_WAIT')
+    elif fault=='missing_account': page = replace(page,rows=[row for row in page.rows if row.key!='alpaca_account'])
+    elif fault=='stale_source':
+        page = changed_history_panel(page,'feed',valid_until=page.now-timedelta(seconds=1))
+    elif fault=='wrong_value': check = replace(check,value='WAITING')
+    page = replace(page,rows=[check if row.key=='paper_reconciliation' else row for row in page.rows])
+    assert presentation.dashboard_health(page)['color']!='green'
+
+
+def test_periodic_paper_check_keeps_its_original_deadline_and_leader_bound():
+    from sentinel.panel.render import render
+    page = checking_schedule_panel()
+    assert presentation.dashboard_health(page)['valid_until']==(page.now+timedelta(seconds=12)).isoformat()
+    near = checking_schedule_panel(check_seconds=4)
+    assert presentation.dashboard_health(near)['valid_until']==near.row('paper_reconciliation').valid_until.isoformat()
+    assert 'data-max-age-seconds="4.0"' in render(near) and 'refreshes every 5s' in render(near)
+    assert presentation.dashboard_health(replace(near,now=near.row('paper_reconciliation').valid_until))['color']!='green'
+
+
+def test_periodic_check_phase_guard_has_an_executed_false_green_falsifier(monkeypatch):
+    source = inspect.getsource(presentation._paper_check_normal)
+    guard = "and recovery.phase == 'FINANCIAL_VERIFICATION'"
+    assert source.count(guard)==1
+    namespace = dict(vars(presentation))
+    exec(compile(source.replace(guard,''),'<missing-bounded-paper-check-phase>','exec'),namespace)
+    monkeypatch.setattr(presentation,'_paper_check_normal',namespace['_paper_check_normal'])
+    with pytest.raises(AssertionError):
+        test_only_current_owned_bounded_paper_checks_can_explain_a_scheduled_wait('wrong_phase')

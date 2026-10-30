@@ -173,25 +173,44 @@ def _current_reconciliation_usable(panel) -> bool:
             and _row_boundary(row) is not None)
 
 
-def _history_schedule_normal(panel) -> bool:
-    """An old audit discrepancy is informational only beside complete current proof."""
-    if (not panel.local_paper_mode or panel.source_errors
-            or len({row.key for row in panel.rows}) != len(panel.rows)):
-        return False
-    history, saved = panel.row('paper_reconciliation'), panel.row('paper_plan')
+def _paper_check_normal(panel, row: Row | None) -> bool:
+    recovery = row.recovery if row is not None else None
+    return (row is not None and row.key == 'paper_reconciliation'
+            and row.value == 'CHECK IN PROGRESS' and row.paper_alignment is None
+            and row.status == row.effective_status(panel.now) == 'warn'
+            and row.required_current is True and not row.is_future(panel.now)
+            and not row.is_stale(panel.now) and recovery is not None
+            and recovery.phase == 'FINANCIAL_VERIFICATION'
+            and recovery.automatic and not recovery.operator_required
+            and _aware(recovery.deadline) and panel.now < recovery.deadline
+            and row.valid_until == recovery.deadline and recovery.active(panel.now))
+
+
+def _historical_schedule_evidence(panel, history: Row | None, saved: Row) -> bool:
     if (history is None or history.paper_alignment != 'SCHEDULED_WITH_HISTORY'
             or history.effective_status(panel.now) != 'warn'
             or history.required_current is not True or history.recovery is not None
             or not _aware(history.as_of)
-            or history.is_future(panel.now) or history.is_stale(panel.now)
-            or saved is None or not saved.can_show_paper_plan(panel.now)):
+            or history.is_future(panel.now) or history.is_stale(panel.now)):
         return False
     plan = saved.paper_plan
-    if (history.valid_until != plan.execute_at-timedelta(microseconds=1)
-            or not panel.now < history.valid_until
-            or (history.freshness is not None
-                and not panel.now < history.as_of+history.freshness)
-            or any(leg.action == 'UNAVAILABLE' for leg in plan.legs)
+    return (history.valid_until == plan.execute_at-timedelta(microseconds=1)
+            and panel.now < history.valid_until
+            and (history.freshness is None or panel.now < history.as_of+history.freshness))
+
+
+def _scheduled_work_normal(panel) -> bool:
+    """Share current scheduling proof for historical audit and bounded PAPER work."""
+    if (not panel.local_paper_mode or panel.source_errors
+            or len({row.key for row in panel.rows}) != len(panel.rows)):
+        return False
+    paper, saved = panel.row('paper_reconciliation'), panel.row('paper_plan')
+    if (saved is None or not saved.can_show_paper_plan(panel.now)
+            or not (_historical_schedule_evidence(panel, paper, saved)
+                    or _paper_check_normal(panel, paper))):
+        return False
+    plan = saved.paper_plan
+    if (any(leg.action == 'UNAVAILABLE' for leg in plan.legs)
             or not all(_current_health_fact(panel, key) for key in _HISTORY_CURRENT_FACTS)
             or panel.row('automation').value != 'ENABLED · KILL RELEASED'
             or not panel.row('alpaca_account').can_show_paper_account(panel.now)
@@ -216,7 +235,7 @@ def _history_schedule_normal(panel) -> bool:
 
 def _normal_warning(panel, row: Row) -> bool:
     if (row.key in {'paper_reconciliation', 'automation_cycle', 'automation_step_open'}
-            and _history_schedule_normal(panel)):
+            and _scheduled_work_normal(panel)):
         return True
     recovery = row.recovery
     if (row.effective_status(panel.now) != 'warn' or recovery is None
@@ -226,9 +245,7 @@ def _normal_warning(panel, row: Row) -> bool:
         return False
     if (is_closing_data_preparation(row, 'warn') and _closing_source_proof(panel)):
         return True
-    if (row.key == 'paper_reconciliation' and row.value == 'CHECK IN PROGRESS'
-            and row.required_current and recovery.phase == 'FINANCIAL_VERIFICATION'
-            and row.valid_until == recovery.deadline and not row.is_stale(panel.now)):
+    if _paper_check_normal(panel, row):
         return True
     if (row.key == 'ingest' and recovery.phase == 'FEED_INGEST'
             and row.can_show_preparation(panel.now)
@@ -272,8 +289,9 @@ def visible_preparation(panel):
 
 def preparation_stage(panel) -> str | None:
     """Describe admitted work, never infer a live stage from a retry string."""
-    if _history_schedule_normal(panel):
-        return 'Waiting for market open'
+    if _scheduled_work_normal(panel):
+        return ('Checking paper account' if _paper_check_normal(panel, panel.row('paper_reconciliation'))
+                else 'Waiting for market open')
     if _closing_source_proof(panel):
         phases = {row.recovery.phase for row in panel.rows
                   if is_closing_data_preparation(row, row.effective_status(panel.now))
@@ -339,10 +357,10 @@ def dashboard_health(panel) -> dict:
         boundaries.append(_row_boundary(panel.row('shadow_worker')))
     if any(_normal_idle(panel, row) for row in admitted):
         boundaries.append(_row_boundary(panel.row('automation_leader')))
-    if _history_schedule_normal(panel):
+    if _scheduled_work_normal(panel):
         boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
         history = panel.row('paper_reconciliation')
-        if history.freshness is not None:
+        if history.freshness is not None and _aware(history.as_of):
             boundaries.append(history.as_of+history.freshness)
     boundaries = [value for value in boundaries if value is not None]
     work = visible_preparation(panel)

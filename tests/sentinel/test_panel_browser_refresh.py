@@ -159,6 +159,15 @@ def test_historical_audit_human_green_withdraws_at_the_actual_schedule_proof_bou
     assert broken.returncode!=0 and 'original proof expiry withdraws green' in broken.stderr
 
 
+def test_periodic_paper_check_green_withdraws_at_its_original_owned_work_deadline():
+    from tests.sentinel.test_panel_historical_mirror_schedule import checking_schedule_panel
+    page = checking_schedule_panel(check_seconds=4)
+    result = run_refresh('busy',wake='proof-expiry',panel=page)
+    assert result.returncode==0,result.stderr
+    broken = run_refresh('busy',wake='proof-expiry',mutation='age-withdrawal',panel=page)
+    assert broken.returncode!=0 and 'original proof expiry withdraws green' in broken.stderr
+
+
 def run_push(scenario, *, remove_guard=False):
     node = shutil.which('node')
     if node is None:

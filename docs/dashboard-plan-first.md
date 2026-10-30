@@ -98,6 +98,20 @@ checks. A restriction represented by a current failed, blocked or retrying fact
 retains its negative priority; no missing positive clean/restriction receipt is
 invented to complete this read-only presentation.
 
+Decision, 2026-10-30, before implementation: the same complete current scheduling
+predicate also admits the existing owned, finite PAPER `CHECK IN PROGRESS`
+observation as healthy expected work. Require its required-current WARN,
+automatic non-operator `FINANCIAL_VERIFICATION` evidence, matching original
+validity/deadline and live bound, plus the same saved future plan, healthy current
+facts and bounded WAITING_OPEN cycle/open steps. A previous failed or unknown
+result is not checking evidence and keeps its negative priority. Missing/dead
+ownership, another warning class or exhausted original clocks cannot borrow this
+state. Label this workflow `Checking paper account` ahead of old PUBLISHED-job
+copy, without claiming a current financial PASS. Preserve all financial/machine
+WARNs and the original PAPER and leader deadlines; introduce no observer,
+acknowledgement, authority or renewed lifetime. Only an actual historical audit
+flag receives the historical-audit label.
+
 The detailed checks retain the existing server operational verdict, required-current
 checks, failure reasons, source errors, original evidence clocks, JSON/machine
 readiness and browser negative-authority withdrawal rules. A green health card
