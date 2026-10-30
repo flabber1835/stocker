@@ -1,0 +1,37 @@
+{
+  "schema": "research.system-campaign-array-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "ARRY1",
+      "security_id": "331866698645518730",
+      "native_session": "2019-07-30",
+      "native_term_sha256": "a41cf151c67df6b11edc3229d57f7e209a0ceb9d214f0cd6a0a2cf50698c39aa",
+      "added": {
+        "security_id": "331866698645518730",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1100412/000119312519206255/d733992d8k.htm | Completed251hmerger gives48USD to eligible remaining common shareholders, not assumed voluntarytender. Issuer requestsNasdaq cessation BEFOREJuly30,2019open; native same-day term replaced without moving date. NasdaqECA2019-146/OCC45419 corroborate. StoredARRY1 historicalArrayBioPharma identity/SEC_UNKNOWN/unknown-ineligible retained; not currentArrayTechnologies.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-07-30",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 48.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1100412/000119312519206255/d733992d8k.htm",
+      "description": "Completed251hmerger gives48USD to eligible remaining common shareholders, not assumed voluntarytender. Issuer requestsNasdaq cessation BEFOREJuly30,2019open; native same-day term replaced without moving date. NasdaqECA2019-146/OCC45419 corroborate. StoredARRY1 historicalArrayBioPharma identity/SEC_UNKNOWN/unknown-ineligible retained; not currentArrayTechnologies."
+    }
+  ],
+  "identity_witness": {
+    "session": "2019-07-29",
+    "security_id": "331866698645518730",
+    "ticker": "ARRY1",
+    "issuer_id": "SEC_UNKNOWN:331866698645518730",
+    "listing_first_session": "2000-11-30",
+    "security_type_eligible": "0",
+    "source_observation_sha256": "a3b7fad4fd69d2da98c714d902e1874fd198ccbc159a128a66d2545971ee15f7"
+  },
+  "canonical_financial_source_changed": false,
+  "production_contacted": false
+}
