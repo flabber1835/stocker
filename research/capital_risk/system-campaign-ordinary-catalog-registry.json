@@ -7,6 +7,13 @@
       "loader_file": "system_campaign_cash_calendar.py",
       "private_file": "hydrated-cash-calendar-terminal-catalog.json",
       "overlay_file": "cash-calendar-overlay.json"
+    },
+    {
+      "catalog_file": "system-campaign-december-cash-calendar-terminal-facts.json",
+      "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "december-cash-calendar-overlay.json",
+      "private_file": "hydrated-december-cash-calendar-terminal-catalog.json",
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-december/1/"
     }
   ]
 }

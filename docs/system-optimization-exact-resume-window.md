@@ -113,3 +113,71 @@ qualification request. A known stopped failed probe is preserved, not admitted.
 The actual evidence must be authenticated and independently inspected before a
 later economic request may select the acceleration. Prepare the CoreSite factual
 repair concurrently as metadata/source research; never apply it retroactively.
+
+## Actual qualification admission and subsequent input boundary
+
+Run41138859385/headfd0a26d42ef175a70bfc81b56fbe7339dc43ab94 completed
+with one stopped/noOOM worker. Its exact encrypted artifact and196 inventory
+members were authenticated before inspection. Independent review verified all136
+driver Git blobs,515 financial-source files, both2226-snapshot accounting reviews,
+all prefixes/tails, seven material falsifiers per probe, exact buffers/publications,
+complete next checkpoints and journal rows. Each new December1 row also matched
+the original immutable unsent row, independently of cold/bounded agreement.
+
+The cold driver took221.728849203seconds, bounded79.358297351seconds:142.370551852
+seconds saved in this one-transition restart comparison. This measures restart
+reconstruction plus one transition, not a2.794-fold whole-period improvement.
+The actual P02 predecessor remains November30/986; no probe checkpoint is selected.
+
+Before economic activation, bind the actual qualification receipt/cipher/manifest,
+independent review and unchanged reconstruction-module bytes in the new request.
+The hosted admission must authenticate that same qualification artifact and verify
+actual stopped fences, matching own predecessor/source/profile, proof hashes and
+the observed equality/timings. Preserve all qualification member bytes in the new
+lineage. Its duplicate opaque financial ancestor may refer to the identical exact
+financial ancestor already preserved in that lineage, with explicit hash/length
+equality; retain the original qualification ZIP locally. Never drop unique proof,
+journal, checkpoint or raw-tail bytes to reduce storage.
+
+The next cash repair can append a new ordinary input only if all added/suppressed
+terminal dates lie strictly after the qualified next session (December1), and it
+changes no bars, metadata, classifications or other packet fields. Then the
+qualified checkpoint buffer and first next publication are unchanged market
+material. Canonical loading still binds the new descriptor to the original own
+November30 predecessor and commits its new input/chain identity normally. The
+acceleration returns no cached financial transition or qualification state; it
+only reconstructs the original derived buffer from its300 sessions with exact
+absolute indices. Same515 source/profile/model and exact own predecessor are
+mandatory. A changed source, profile, preceding market packet or earlier new
+event requires another actual qualification, not an assumed equivalence.
+
+## December economic integration
+
+The next normal P02 suffix resumes its own November30 checkpoint, never either
+qualification book. A separate request pins qualification41138859385, its exact
+ZIP/receipt/cipher/manifest, external independent review and all unique inventory
+members. Hosted admission authenticates AES-GCM before plaintext parsing, checks
+actual stopped identity/fences and exact source/predecessor, then rechecks cold
+and bounded checkpoint/journal equality. Keep the original qualified modules
+unchanged. Retain every unique qualification member under a separate lineage;
+replace only its identical opaque financial ancestor with an explicit reference
+to the very same financial ZIP retained by this continuation. Hash and length
+must agree before that reference is allowed.
+
+The financial wrapper requires the qualified cursor-buffer fingerprint and the
+first actual next publication fingerprint before advancing that publication.
+Only later-dated terminal corrections may be added. Ordinary input identity and
+chain change canonically; all old descriptors, original March31 amendment and
+every recovered raw tail remain intact. Subsequent reconstruction uses the same
+300-session context; daily trading operations remain unchanged.
+
+A new cash-calendar registry group, without editing the adopted loader or first
+group, contains eight primary-confirmed cash cases: COR2/DRNA December28,2021;
+ARNA March11 and EPAY May13,2022; CCXI1 October20,2022; NEWR November8,2023;
+IMGN February12,2024; CTLT December18,2024. Each retains frozen full-row/native
+hashes and metadata, plus original five-row aliases where applicable. Dates are
+recognition boundaries backed by completion/timing evidence, not a universal
+one-day shift. Unsupported stock/mixed actions and insolvencies remain explicit
+unresolved cases. Before financial replay, qualify all eight against the actual
+canonical loader, cumulative old repairs, original refusal guards and own exact
+predecessor. This is a factual batch, not a policy or parameter change.
