@@ -231,6 +231,48 @@ def test_enqueue_is_idempotent_and_content_immutable(conn) -> None:
         assert cur.fetchone()[0] == 1
 
 
+def test_completed_predecessor_wait_preserves_legacy_alert_across_new_permits(conn):
+    """Reproduce the real immutable-key crash without editing its old evidence."""
+    import asyncio
+    import inspect
+    import textwrap
+    from sentinel import automation_runtime
+    from test_automation_runtime import config,production,completed_predecessor_wait
+
+    cfg=config();runtime=production(cfg)
+    original=completed_predecessor_wait(cfg,generation=86,fence=118)
+    key=f'cycle:{original.cycle.cycle_id}:WAITING:{original.reason}'
+    first=outbox.enqueue(conn,idempotency_key=key,event_type='AUTOMATION_WAITING',
+        severity='WARN',payload={
+            'cycle_id':original.cycle.cycle_id,'action':'WAITING','reason':original.reason,
+            'state':'SUCCEEDED','control_generation':86,'fence_token':118,
+        },max_attempts=cfg.alert_max_attempts)
+    def snapshot():
+        return conn.execute('SELECT to_jsonb(a) FROM sentinel_alert_outbox a WHERE alert_id=%s',
+                            (first.alert_id,)).fetchone()[0]
+    before=snapshot()
+    for generation,fence in ((86,118),(86,118),(86,119),(87,120)):
+        result=completed_predecessor_wait(cfg,generation=generation,fence=fence)
+        assert asyncio.run(runtime.notify(conn,result)) is None
+        assert snapshot()==before
+    assert conn.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone()[0]==1
+
+    # Disable only the new quiet branch. The unchanged native enqueue must
+    # reproduce the original collision, proving the test reaches that failure.
+    source=textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation.notify))
+    guard='if (result.action.value == "WAITING"'
+    assert source.count(guard)==1
+    scope={}
+    exec(compile(source.replace(guard,'if (False and result.action.value == "WAITING"',1),
+                 '<removed-completed-predecessor-quiet-guard>','exec'),
+         vars(automation_runtime),scope)
+    reacquired=completed_predecessor_wait(cfg,generation=86,fence=119)
+    with pytest.raises(ImmutableAlertChanged,match='different content'):
+        asyncio.run(scope['notify'](runtime,conn,reacquired))
+    assert snapshot()==before
+    assert conn.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone()[0]==1
+
+
 def test_alert_adapters_come_from_an_explicit_registry() -> None:
     adapter = outbox.LogAlertAdapter()
     registry = outbox.AlertAdapterRegistry({"log": adapter})

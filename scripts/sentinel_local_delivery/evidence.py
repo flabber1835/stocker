@@ -96,6 +96,7 @@ def snapshot(host):
     """Select exactly one current, prepared future cycle and its source closure."""
     mode = handoff_mode(host.request)
     repair = mode=='BLOCKED_UNSENT'
+    successor = mode=='POST_TRADE_SUCCESSOR'
     if repair:
         require(getattr(host,'supports_blocked_unsent',False)
             and host.load_values().get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1',
@@ -104,6 +105,10 @@ def snapshot(host):
         require(getattr(host,'supports_post_trade',False)
             and host.load_values().get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1',
             'POST_TRADE_BACKED_ADAPTER_REQUIRED')
+    if successor:
+        require(getattr(host,'supports_post_trade_successor',False)
+            and host.load_values().get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1',
+            'POST_TRADE_SUCCESSOR_BACKED_ADAPTER_REQUIRED')
     current = host.sql(checks.snapshot_sql(mode))
     require(isinstance(current, dict) and current.get('candidate_count') == 1,
             'Exactly one current-generation plan matching the handoff mode is required')
@@ -157,18 +162,21 @@ def snapshot(host):
             and all(type(proof.get(key)) is int and proof[key]==0 for key in
                 ('lease_live','scoped_plans','scoped_commands','transport_events')),
             'BLOCKED_UNSENT_NOT_FENCED_OR_UNSENT')
+    elif successor:
+        require_post_trade_successor(current)
     else:
         require(current['ready'] is True and cycle['plan_id'] == plan['plan_id']
                 and cycle['control_generation'] == control['generation'],
                 'Saved plan is not ready with sufficient future execution margin')
-    if mode=='POST_TRADE':
+    if mode in {'POST_TRADE','POST_TRADE_SUCCESSOR'}:
         require(cycle.get('state')=='SUCCEEDED' and cycle.get('completed_at') is not None
             and cycle.get('failure_code') is None and cycle.get('failure_detail') is None
             and isinstance(current.get('reconciliation'),dict)
             and str(current['reconciliation']['seq'])==str(cycle.get('last_clean_reconciliation_id')),
             'POST_TRADE_POSITIVE_RECONCILIATION_REQUIRED')
-    for key in (*_BINDING_KEYS, 'certificate_sha256', 'rollout_mode',
-                'rollout_version', 'config_sha256'):
+    cycle_keys = _BINDING_KEYS if successor else (*_BINDING_KEYS, 'certificate_sha256',
+        'rollout_mode', 'rollout_version', 'config_sha256')
+    for key in cycle_keys:
         require(cycle[key] == control[key], 'Plan/control binding changed: '+key)
     require(current['inflight'] == 0 and current['other_active'] == 0,
             'An uncertain command or another active financial cycle exists')
@@ -186,6 +194,76 @@ def snapshot(host):
     return current
 
 
+def require_post_trade_successor(current):
+    """Authenticate old completion without promoting its obsolete authority."""
+    control,cycle,plan = current['control'],current['cycle'],current['plan']
+    relation=current.get('successor')
+    require(isinstance(relation,dict) and set(relation)=={
+        'original_plan','current_plan','current_cycles','current_plans',
+        'current_authority_md5','current_projection_md5','current_opening_md5'},
+        'POST_TRADE_SUCCESSOR_SUBJECT_MALFORMED')
+    require(relation['current_authority_md5'] is not None,
+        'POST_TRADE_SUCCESSOR_CURRENT_AUTHORITY_ABSENT')
+    original,active=relation['original_plan'],relation['current_plan']
+    require(type(relation['current_cycles']) is int and relation['current_cycles']==0
+        and type(relation['current_plans']) is int and relation['current_plans']==1,
+        'POST_TRADE_SUCCESSOR_CURRENT_SCOPE_CHANGED')
+    require(isinstance(original,dict) and isinstance(active,dict)
+        and current['ready'] is True and cycle.get('historical_state_only') is False
+        and type(cycle.get('control_generation')) is int
+        and cycle['control_generation']<control['generation']
+        and original.get('plan_id')==cycle.get('plan_id')
+        and original.get('superseded_by')==plan.get('plan_id')==active.get('plan_id')
+        and original['plan_id']!=active['plan_id'] and active.get('superseded_by') is None,
+        'POST_TRADE_SUCCESSOR_DIRECT_LINEAGE_CHANGED')
+    for key in _BINDING_KEYS:
+        require(original.get(key)==active.get(key)==cycle.get(key)==control.get(key),
+            'POST_TRADE_SUCCESSOR_ACCOUNT_CHANGED: '+key)
+    for key in ('decision_session','effective_session'):
+        require(original.get(key)==active.get(key)==cycle.get(key),
+            'POST_TRADE_SUCCESSOR_SESSION_CHANGED: '+key)
+    require(isinstance(original.get('target_basket'),dict)
+        and original['target_basket']==active.get('target_basket')
+        and original.get('target_exposure')==active.get('target_exposure'),
+        'POST_TRADE_SUCCESSOR_TARGETS_CHANGED')
+    for key in ('rollout_mode','rollout_version'):
+        require(original.get(key)==cycle.get(key) and active.get(key)==control.get(key),
+            'POST_TRADE_SUCCESSOR_ROLLOUT_CHANGED: '+key)
+    require(original.get('rollout_certificate_sha256')==cycle.get('certificate_sha256')
+        and active.get('rollout_certificate_sha256')==control.get('certificate_sha256'),
+        'POST_TRADE_SUCCESSOR_CERTIFICATE_CHANGED')
+    incidents=current.get('retained_incidents')
+    require(isinstance(incidents,dict) and bool(incidents),
+        'POST_TRADE_SUCCESSOR_WORKER_INCIDENT_ABSENT')
+    for alert_id,alert in incidents.items():
+        payload=alert.get('payload') if isinstance(alert,dict) else None
+        require(isinstance(alert_id,str) and re.fullmatch('[0-9a-f]{64}',alert_id)
+            and alert.get('event_type')=='AUTOMATION_OPERATIONAL_RED'
+            and alert.get('severity')=='CRITICAL' and alert.get('ack_state')=='UNACKNOWLEDGED'
+            and isinstance(payload,dict) and payload.get('reason')=='WAITING_FOR_LEADER'
+            and payload.get('control_generation')==control['generation']
+            and payload.get('broker_outcome_unresolved')==0,
+            'POST_TRADE_SUCCESSOR_UNRELATED_INCIDENT')
+
+
+def require_successor_worker_restart(host, item):
+    """Only the identified old worker's fresh immutable-alert collision may wait."""
+    require(handoff_mode(host.request)=='POST_TRADE_SUCCESSOR'
+        and getattr(host,'supports_post_trade_successor',False)
+        and item['Image']==host.request['predecessor']['image']
+        and (item['State']['Running'] or item['State']['Restarting'])
+        and not item['State']['OOMKilled'], 'POST_TRADE_SUCCESSOR_WORKER_NOT_OWNED')
+    result=host.run(['docker','logs','--tail','80','--since','120s','--timestamps',item['Id']],timeout=15)
+    def text(value):
+        return value.decode(errors='replace') if isinstance(value,bytes) else value or ''
+    lines=(text(result.stdout)+'\n'+text(getattr(result,'stderr',''))).splitlines()
+    errors=[line for line in lines if re.search(r'\b[A-Za-z_][A-Za-z_0-9.]*: ',line)
+        and ('Error:' in line or 'Refused:' in line or 'Changed:' in line)]
+    require(bool(errors) and 'ImmutableAlertChanged:' in errors[-1],
+        'POST_TRADE_SUCCESSOR_WORKER_INCIDENT_NOT_EXACT')
+    return dict(container=item['Id'],image=item['Image'],exception='ImmutableAlertChanged')
+
+
 def canonical_check(host, values, state):
     """Return the complete current-image proof for exact predecessor comparison."""
     bound = {key: state['binding'][key] for key in _BINDING_KEYS}
@@ -198,12 +276,19 @@ def canonical_check(host, values, state):
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
     if handoff_mode(host.request)=='POST_TRADE':
         expected.update(handoff_mode='POST_TRADE',reconciliation_id=state['reconciliation']['seq'])
+    if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR':
+        expected.update(handoff_mode='POST_TRADE_SUCCESSOR',
+            reconciliation_id=state['reconciliation']['seq'],cycle_id=state['cycle']['cycle_id'],
+            original_plan=state['successor']['original_plan'],
+            original_plan_fingerprint=state['cycle']['plan_fingerprint'],
+            original_execute_at=state['cycle']['execute_at'])
     if repair:
         expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
             generation=state['control']['generation'])
     result = host.compose(values, 'run', '--rm', '--no-deps', '--pull', 'never',
         '--entrypoint', 'python', 'sentinel-authorized-cli', '-B', '-c',
-        checks.BLOCKED_CANONICAL if repair else checks.CANONICAL,
+        checks.BLOCKED_CANONICAL if repair else checks.SUCCESSOR_CANONICAL
+            if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR' else checks.CANONICAL,
         json.dumps(expected, sort_keys=True), timeout=300)
     proof = json.loads(result.stdout)
     require(isinstance(proof, dict) and proof.get('transaction_read_only') is True,
@@ -370,7 +455,7 @@ def check_drain(host, values, target, proof):
 def migrate_operational_schema(host, candidate):
     result=host.compose(candidate,'run','--rm','--no-deps','--pull','never','--entrypoint','python',
         'sentinel-authorized-cli','-B','-c',
-        checks.READ_OPERATIONAL_SCHEMA if handoff_mode(host.request)=='BLOCKED_UNSENT'
+        checks.READ_OPERATIONAL_SCHEMA if handoff_mode(host.request) in {'BLOCKED_UNSENT','POST_TRADE_SUCCESSOR'}
         else checks.INSTALL_OPERATIONAL_SCHEMA,timeout=150)
     value=json.loads(result.stdout)
     require(isinstance(value,dict) and set(value)=={'installation','complete'}
@@ -387,10 +472,15 @@ def panel(host, state):
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
     if handoff_mode(host.request)=='POST_TRADE':
         expected['handoff_mode']='POST_TRADE'
+    if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR':
+        expected.update(handoff_mode='POST_TRADE_SUCCESSOR',
+            cycle_id=state['cycle']['cycle_id'],original_plan=state['cycle']['plan_id'],
+            retained_incidents=state['retained_incidents'])
     if repair:
         expected.update(handoff_mode='BLOCKED_UNSENT',cycle_id=state['cycle']['cycle_id'],
             certificate=state['control']['certificate_sha256'],core_exposure=host.repair_core_exposure(state))
     result = host.run(['docker', 'exec', data['Id'], 'python', '-B', '-c',
-        checks.BLOCKED_PANEL if repair else checks.PANEL,
+        checks.BLOCKED_PANEL if repair else checks.SUCCESSOR_PANEL
+            if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR' else checks.PANEL,
         json.dumps(expected, sort_keys=True)], timeout=35)
     return json.loads(result.stdout)

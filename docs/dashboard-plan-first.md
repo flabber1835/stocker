@@ -9,6 +9,16 @@ Use the existing dark plum and restrained gold Caesar's Palace identity without
 decorative stage clutter. Keep the page usable at 320 CSS pixels and keyboard
 accessible. No financial actions are introduced.
 
+## Full-width existing brand graphic
+
+Owner selection, 2026-10-30, before implementation: enlarge the existing
+Caesar's Palace graphic to the full available header width, preserving its
+aspect ratio. Remove the separate visible Caesar's Palace heading and
+Sentinel/PAPER subtitle because the graphic already contains the brand name.
+Keep an accessible image description, the document title, operational labels,
+and every other dashboard section and layout unchanged. Reuse the existing
+asset; do not generate another image or introduce horizontal overflow.
+
 ## Display evidence and ownership
 
 The health card retains the existing server operational verdict, required-current

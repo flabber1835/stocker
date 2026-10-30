@@ -447,7 +447,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
             trial_status = FAIL
             trial_headline = shadow.value
         page_name = "Caesar's Palace"
-        page_heading = "CAESAR'S PALACE"
         footer_authority = (
             "Strategy results come from the checked simulated portfolio. Alpaca paper holdings are shown separately.")
     else:
@@ -475,7 +474,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
                 for row in panel.rows
             ]
         page_name = "Caesar's Palace"
-        page_heading = "CAESAR'S PALACE"
         footer_authority = (
             "Paper account results are shown as checked or unverified.")
     stale_headline = "OPERATIONAL RED — STATUS NOT CURRENT"
@@ -539,9 +537,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
-  <div class="brand"><img src="/static/caesars-palace-192.png" alt="">
-    <h1>{_esc(page_heading)}</h1></div>
-  <p class="brand-subtitle">Sentinel · PAPER</p>
+  <div class="brand"><img src="/static/caesars-palace-512.png" alt="{_esc(page_name)}"></div>
   <span id="operational-state" class="state {headline_status}" title="{_esc(operational_headline)}">{_esc(compact_headline)}</span>
   {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"

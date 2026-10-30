@@ -247,6 +247,9 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
             '--entrypoint','python',image,'-B','-c',code,json.dumps(config,sort_keys=True)],timeout=90).stdout)
 
     def verify_candidate(self):
+        require(handoff_mode(self.request)!='POST_TRADE_SUCCESSOR'
+            or getattr(self,'supports_post_trade_successor',False),
+            'POST_TRADE_SUCCESSOR_BACKED_ADAPTER_REQUIRED')
         require(handoff_mode(self.request)=='PRE_OPEN' or getattr(self,'supports_post_trade',False),
                 'POST_TRADE_BACKED_ADAPTER_REQUIRED')
         require(handoff_mode(self.request)!='BLOCKED_UNSENT' or getattr(self,'supports_blocked_unsent',False),

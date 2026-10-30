@@ -460,3 +460,83 @@ def test_importing_entrypoint_performs_no_operation(monkeypatch):
     monkeypatch.setattr(builder.subprocess,'run',lambda *args,**kwargs: pytest.fail('import launched a child'))
     spec=importlib.util.spec_from_file_location('local_delivery_entrypoint',ROOT/'scripts/sentinel_local_delivery.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+
+
+@pytest.fixture
+def operational_inputs(inputs,monkeypatch):
+    value=inputs
+    additions={
+        'sentinel/unchanged.py':'untouched = True\n',
+        'scripts/sentinel_local_delivery/host.py':'host = True\n',
+        'scripts/sentinel_backed_local_patch.py':'entry = True\n',
+        'services/bt-engine/protected.py':'private synthetic backtest marker\n',
+    }
+    for name,body in additions.items():
+        path=value.source/name;path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(body);value.files[name]=body
+    value.approved.extend(['docs/current.md','tests/test_example.py'])
+    original=value.git
+    def git(root,*args):
+        if args==('diff','--name-only','-z',OLD,'HEAD'):
+            return '\0'.join(value.approved)+'\0'
+        return original(root,*args)
+    monkeypatch.setattr(qualification,'git',git)
+    original_sha=qualification.sha256_file
+    def safe_sha(path):
+        assert 'bt-engine' not in Path(path).parts, 'protected source was opened'
+        return original_sha(path)
+    monkeypatch.setattr(qualification,'sha256_file',safe_sha)
+    report=deepcopy(value.report)
+    report.update(schema=qualification.OPERATIONAL_SCHEMA,
+        source_scope=qualification.OPERATIONAL_SCOPE,
+        source_files=qualification.source_files(value.source,
+            scope=qualification.OPERATIONAL_SCOPE,predecessor_commit=OLD))
+    value.report=report
+    value.report_path.write_text(json.dumps(report))
+    value.report_sha=original_sha(value.report_path)
+    return value
+
+
+def test_operational_qualification_covers_runtime_host_and_changes_without_protected_reads(operational_inputs):
+    value=operational_inputs
+    report=validate(value)
+    assert {'sentinel/module.py','sentinel/unchanged.py',
+        'scripts/sentinel_local_delivery/host.py','scripts/sentinel_backed_local_patch.py',
+        'docs/current.md','tests/test_example.py'} <= set(report['source_files'])
+    assert not any(name.startswith('services/') for name in report['source_files'])
+
+
+@pytest.mark.parametrize('fault',['missing_runtime','missing_change','extra_protected',
+                                'runtime_changed','host_changed','unknown_scope'])
+def test_operational_qualification_refuses_incomplete_or_changed_inputs(operational_inputs,fault):
+    value=operational_inputs;report=value.report
+    if fault=='missing_runtime':report['source_files'].pop('sentinel/unchanged.py')
+    elif fault=='missing_change':report['source_files'].pop('docs/current.md')
+    elif fault=='extra_protected':report['source_files']['services/bt-engine/protected.py']='a'*64
+    elif fault=='runtime_changed':(value.source/'sentinel/unchanged.py').write_text('changed = True\n')
+    elif fault=='host_changed':(value.source/'scripts/sentinel_local_delivery/host.py').write_text('changed = True\n')
+    else:report['source_scope']='UNKNOWN'
+    value.report_path.write_text(json.dumps(report))
+    value.report_sha=qualification.sha256_file(value.report_path)
+    with pytest.raises(model.DeliveryRefused,match='QUALIFIED_SOURCE_BYTES_CHANGED|SOURCE_SCOPE_INVALID'):
+        validate(value)
+
+
+def test_operational_qualification_refuses_nonoperational_changes_before_reading_them(operational_inputs):
+    value=operational_inputs
+    value.approved.append('services/bt-engine/protected.py')
+    with pytest.raises(model.DeliveryRefused,match='NONOPERATIONAL_DELTA'):
+        qualification.source_files(value.source,scope=qualification.OPERATIONAL_SCOPE,
+                                   predecessor_commit=OLD)
+
+
+def test_operational_changed_input_guard_removal_is_detected(operational_inputs):
+    value=operational_inputs
+    source=inspect.getsource(qualification.source_files)
+    assert source.count('or name in changed')==1
+    scope=dict(qualification.__dict__)
+    exec(source.replace('or name in changed',''),scope)
+    broken=scope['source_files'](value.source,scope=qualification.OPERATIONAL_SCOPE,
+                                 predecessor_commit=OLD)
+    with pytest.raises(AssertionError):
+        assert set(value.approved) <= set(broken)

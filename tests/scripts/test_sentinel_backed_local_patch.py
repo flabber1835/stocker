@@ -277,6 +277,112 @@ def test_post_trade_preserves_a_completed_reconciled_plan():
     assert host.calls==[fixture.checks.snapshot_sql('POST_TRADE')]
 
 
+def successor_host():
+    host=settled_host();host.supports_post_trade_successor=True
+    host.request['handoff_mode']='POST_TRADE_SUCCESSOR'
+    state=host.state;control=state['control'];cycle=state['cycle']
+    cycle.update(control_generation=98,plan_id='completed-plan',cycle_id='b'*64,
+        historical_state_only=False,certificate_sha256='old-certificate',config_sha256='old-config',
+        plan_fingerprint='original-fingerprint',execute_at='2031-04-22T13:31:00Z')
+    shared={key:control[key] for key in fixture.evidence._BINDING_KEYS}
+    shared.update(decision_session=cycle['decision_session'],effective_session=cycle['effective_session'],
+        target_basket={'fictional-security':'7'},target_exposure='0.55',
+        rollout_mode=control['rollout_mode'],rollout_version=control['rollout_version'])
+    original=dict(shared,plan_id='completed-plan',superseded_by='current-plan',
+        rollout_certificate_sha256='old-certificate',created_at='2031-04-22T12:00:00Z')
+    active=dict(shared,plan_id='current-plan',superseded_by=None,
+        rollout_certificate_sha256=control['certificate_sha256'])
+    state['plan']={'plan_id':'current-plan'}
+    state['successor']=dict(original_plan=original,current_plan=active,current_cycles=0,current_plans=1,
+        current_authority_md5='current-authority',current_projection_md5=None,current_opening_md5=None)
+    state['retained_incidents']={'a'*64:dict(event_type='AUTOMATION_OPERATIONAL_RED',severity='CRITICAL',
+        ack_state='UNACKNOWLEDGED',payload=dict(reason='WAITING_FOR_LEADER',
+            control_generation=control['generation'],broker_outcome_unresolved=0))}
+    return host
+
+
+def test_post_trade_successor_keeps_completed_and_current_authority_distinct():
+    host=successor_host()
+    assert fixture.evidence.snapshot(host)==host.state
+    statement=host.calls[0]
+    assert 's.control_generation<c.generation' in statement
+    assert 'p.plan_id=original.superseded_by' in statement
+    assert 'p.target_basket=original.target_basket' in statement
+    assert "'current_cycles'" in statement and "'retained_incidents'" in statement
+    assert "interval '15 minutes'" in statement
+    for mode in ('PRE_OPEN','POST_TRADE'):
+        assert 's.control_generation=c.generation AND s.config_sha256=c.config_sha256' in fixture.checks.snapshot_sql(mode)
+        assert "'successor'" not in fixture.checks.snapshot_sql(mode)
+
+
+@pytest.mark.parametrize('path,value',[
+    (('successor','current_cycles'),1),(('successor','current_plans'),2),
+    (('successor','current_authority_md5'),None),
+    (('successor','current_cycles'),False),(('cycle','control_generation'),99),
+    (('cycle','historical_state_only'),True),(('cycle','state'),'FAILED'),
+    (('cycle','failure_detail'),'incident'),(('cycle','plan_id'),'foreign'),
+    (('successor','original_plan','superseded_by'),'foreign'),
+    (('successor','current_plan','superseded_by'),'other'),
+    (('successor','current_plan','broker_account_id'),'foreign'),
+    (('successor','current_plan','effective_session'),'2031-04-23'),
+    (('successor','current_plan','target_basket'),{'fictional-security':'8'}),
+    (('successor','current_plan','rollout_certificate_sha256'),'foreign'),
+    (('successor','original_plan','rollout_certificate_sha256'),'foreign'),
+    (('retained_incidents',),{}),(('reconciliation',),None),
+    (('inflight',),1),(('jobs_active',),1),(('control','kill_switch_engaged'),True),
+])
+def test_post_trade_successor_refuses_changed_completed_current_or_idle_subject(path,value):
+    host=successor_host();target=host.state
+    for key in path[:-1]:target=target[key]
+    target[path[-1]]=value
+    with pytest.raises(fixture.model.DeliveryRefused):fixture.evidence.snapshot(host)
+
+
+def test_post_trade_successor_scope_guard_has_an_executed_falsifier(monkeypatch):
+    original=fixture.evidence.require
+    monkeypatch.setattr(fixture.evidence,'require',lambda ok,reason:
+        None if reason=='POST_TRADE_SUCCESSOR_CURRENT_SCOPE_CHANGED' else original(ok,reason))
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_post_trade_successor_refuses_changed_completed_current_or_idle_subject(
+            ('successor','current_cycles'),1)
+
+
+@pytest.mark.parametrize('mode,supported,exception',[
+    ('POST_TRADE_SUCCESSOR',True,'ImmutableAlertChanged'),
+    ('POST_TRADE_SUCCESSOR',True,'ConnectionTimeout'),
+    ('POST_TRADE',True,'ImmutableAlertChanged'),
+    ('POST_TRADE_SUCCESSOR',False,'ImmutableAlertChanged')])
+def test_only_exact_owned_successor_restart_is_an_admissible_predecessor(mode,supported,exception):
+    from types import SimpleNamespace
+    host=successor_host();host.request['handoff_mode']=mode
+    host.supports_post_trade_successor=supported
+    host.request['predecessor']['image']='old-image'
+    item=dict(Id='owned-worker',Image='old-image',
+        State=dict(Running=True,Restarting=True,OOMKilled=False))
+    host.run=lambda *a,**k:SimpleNamespace(stdout=b'',stderr=(
+        '2031-04-22T14:00:00Z sentinel.automation.model.'+exception+': exact failure').encode())
+    if mode=='POST_TRADE_SUCCESSOR' and supported and exception=='ImmutableAlertChanged':
+        assert fixture.evidence.require_successor_worker_restart(host,item)['container']=='owned-worker'
+    else:
+        with pytest.raises(fixture.model.DeliveryRefused):
+            fixture.evidence.require_successor_worker_restart(host,item)
+
+
+def test_successor_probe_validates_old_intent_and_current_canonical_plan_separately():
+    code=fixture.checks.SUCCESSOR_CANONICAL
+    compile(code,'successor-canonical','exec')
+    assert code.count('rolling_runtime.status(')==1 and code.count('authority.rederive_plan(')==1
+    assert 'project_original_intent(historical,original_saved)' in code
+    assert 'original.superseded_by==plan.plan_id' in code
+    assert 'cycle.control_generation<control.generation' in code
+    assert 'cycle.execution_close_at>now+timedelta(minutes=15)' in code
+    assert 'journal.latest_plan(conn)' in code
+    compile(fixture.checks.SUCCESSOR_PANEL,'successor-panel','exec')
+    assert "row['key']=='automation_alerts'" in fixture.checks.SUCCESSOR_PANEL
+    assert "assert actual==expected['retained_incidents']" in fixture.checks.SUCCESSOR_PANEL
+    assert 'operational_ready=False' in fixture.checks.SUCCESSOR_PANEL
+
+
 @pytest.mark.parametrize('fault',['adapter','policy','state','completed','reconciliation','wrong_observation','failure'])
 def test_post_trade_refuses_unsettled_or_unsupported_handoffs(fault):
     host=settled_host()

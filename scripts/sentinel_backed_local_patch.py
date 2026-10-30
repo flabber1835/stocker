@@ -176,6 +176,7 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
 class BackedHost(Host):
     supports_post_trade = True
     supports_blocked_unsent = True
+    supports_post_trade_successor = True
     def __init__(self, request, operation_dir, *, predecessor_receipt=None, allow_started=False):
         super().__init__(request,operation_dir)
         built = self.operation_dir/'build.json'

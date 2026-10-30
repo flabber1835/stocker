@@ -1669,6 +1669,19 @@ class ProductionAutomation:
             payload = {"error_type": type(result).__name__,
                        "detail": str(result)[:4000]}
         else:
+            # An already completed predecessor is normal idle history after
+            # activation. A new permit/fence must not turn that same wait into
+            # a mutable replay of its old warning or one alert per lease.
+            if (result.action.value == "WAITING"
+                    and result.cycle is not None
+                    and result.cycle.state.value == "SUCCEEDED"
+                    and result.permit is not None
+                    and result.cycle.control_generation
+                    < result.permit.control_generation
+                    and result.reason == (
+                        "this decision-session obligation was terminalized by a "
+                        "generation boundary; no replacement old plan is created")):
+                return None
             cycle_id = result.cycle.cycle_id if result.cycle else "none"
             # Submission followed by reconciliation is not completion and is
             # not a reason to wake an operator. The durable state remains on

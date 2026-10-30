@@ -11,6 +11,8 @@ import subprocess
 from .model import read_json, require
 
 SCHEMA = 'sentinel.local-paper-qualification/1'
+OPERATIONAL_SCHEMA = 'sentinel.local-paper-qualification/2'
+OPERATIONAL_SCOPE = 'SENTINEL_AND_CHANGED_TRACKED_V1'
 _HEX = re.compile(r'[0-9a-f]{64}\Z')
 
 
@@ -45,12 +47,27 @@ def git(source, *args):
     return result.stdout.decode('utf-8').strip()
 
 
-def source_files(source):
-    """Hash the exact complete tracked input set, never ignored local evidence."""
+def source_files(source, *, scope=None, predecessor_commit=None):
+    """Hash the complete declared input scope, never ignored local evidence."""
+    require(scope is None or scope == OPERATIONAL_SCOPE, 'QUALIFICATION_SOURCE_SCOPE_INVALID')
     source = Path(source).resolve()
     names = git(source,'ls-files','-z').split('\0')
     names = [name for name in names if name]
     require(names and len(names) == len(set(names)), 'QUALIFICATION_SOURCE_SET_EMPTY')
+    if scope == OPERATIONAL_SCOPE:
+        require(re.fullmatch(r'[0-9a-f]{40}', predecessor_commit or '') is not None,
+                'QUALIFICATION_PREDECESSOR_INVALID')
+        changed = set(filter(None,git(source,'diff','--name-only','-z',
+            predecessor_commit,'HEAD').split('\0')))
+        require(all(name.startswith(('sentinel/','scripts/','tests/','docs/','tools/'))
+                    for name in changed), 'QUALIFICATION_NONOPERATIONAL_DELTA')
+        names = [name for name in names if name.startswith(
+            ('sentinel/','scripts/sentinel_local_delivery/'))
+            or name == 'scripts/sentinel_backed_local_patch.py' or name in changed]
+        require(any(name.startswith('sentinel/') for name in names)
+                and any(name.startswith('scripts/sentinel_local_delivery/') for name in names)
+                and 'scripts/sentinel_backed_local_patch.py' in names,
+                'QUALIFICATION_OPERATIONAL_INPUTS_MISSING')
     result = {}
     for name in sorted(names):
         path = PurePosixPath(name)
@@ -82,12 +99,16 @@ def validate_report(path, expected_sha, source, commit, predecessor_commit):
     require(isinstance(expected_sha,str) and _HEX.fullmatch(expected_sha) is not None
             and sha256_file(path) == expected_sha, 'QUALIFICATION_REPORT_CHANGED')
     report = read_json(path)
+    operational = isinstance(report,dict) and report.get('schema') == OPERATIONAL_SCHEMA
     require(isinstance(report,dict) and set(report) == {
         'schema','commit','predecessor_commit','at','source_files','results',
-        'source_files_unchanged','final'}, 'QUALIFICATION_REPORT_SHAPE')
-    require(report['schema'] == SCHEMA and report['commit'] == commit
+        'source_files_unchanged','final'} | ({'source_scope'} if operational else set()),
+        'QUALIFICATION_REPORT_SHAPE')
+    require(report['schema'] in {SCHEMA,OPERATIONAL_SCHEMA} and report['commit'] == commit
             and report['predecessor_commit'] == predecessor_commit,
             'QUALIFICATION_RUNTIME_CHANGED')
+    if operational:
+        require(report['source_scope'] == OPERATIONAL_SCOPE, 'QUALIFICATION_SOURCE_SCOPE_INVALID')
     require(report['source_files_unchanged'] is True and report['final'] is True,
             'QUALIFICATION_NOT_FINAL')
     try:
@@ -97,7 +118,10 @@ def validate_report(path, expected_sha, source, commit, predecessor_commit):
     require(observed.utcoffset() is not None and observed.utcoffset().total_seconds() == 0,
             'QUALIFICATION_TIME_INVALID')
     clean_candidate(source,commit,predecessor_commit)
-    require(report['source_files'] == source_files(source), 'QUALIFIED_SOURCE_BYTES_CHANGED')
+    current_files = (source_files(source,scope=report['source_scope'],
+        predecessor_commit=predecessor_commit) if operational else source_files(source))
+    require(report['source_files'] == current_files,
+        'QUALIFIED_SOURCE_BYTES_CHANGED')
     results = report['results']
     require(isinstance(results,list) and results, 'QUALIFICATION_RESULTS_ABSENT')
     seen = set()
