@@ -1,15 +1,24 @@
 """Readmit exact stopped reconstruction evidence; no financial state is adopted."""
-import hashlib,json,os,re,shutil,subprocess,tarfile,zipfile
+import ast,hashlib,json,os,re,shutil,subprocess,tarfile,zipfile
 from pathlib import Path
 from full_system_benchmark import need,save
 from system_campaign_factual_admit import hosted_destination,authenticate,AuthenticatedStream
-from system_campaign_resume_qualification import compare_books,fingerprint
-from system_campaign_resume_window import exact_buffer,plain
 from full_system_core import hosted
 from probe import FORBIDDEN_CREDENTIALS,check_context
 from runtime_identity import EXECUTION_IMAGE
 from stage import SECRET
 from seal import safe_name,sha256_file
+
+
+def compare_stopped_books(cold,bounded,source,expected_sha256):
+    """Reuse only the qualified pure byte comparator, without replay imports."""
+    raw=Path(source).read_bytes()
+    need(hashlib.sha256(raw).hexdigest()==expected_sha256,'RECONSTRUCTION_ADMISSION_QUALIFIED_COMPARATOR_SOURCE')
+    tree=ast.parse(raw);nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='compare_books']
+    need(len(nodes)==1 and not nodes[0].decorator_list,'RECONSTRUCTION_ADMISSION_ONE_PURE_QUALIFIED_COMPARATOR')
+    module=ast.fix_missing_locations(ast.Module(body=nodes,type_ignores=[]));scope={'json':json,'need':need}
+    exec(compile(module,'<qualified-stopped-book-byte-comparator>','exec'),scope)
+    return scope['compare_books'](cold,bounded)
 
 
 def require_scope(admission,spec):
@@ -136,7 +145,9 @@ def admit(admission,spec,old,out,key,*,driver=Path('/driver')):
     require_stopped(json.loads((dest/'worker-inspect.json').read_bytes()),admission['worker_identity'])
     q=json.loads((dest/'reconstruction-qualification.json').read_bytes())
     need(q['status']=='EXACT_NEXT_TRANSITION_EQUAL' and not q['selected_for_economic_use']
-         and q['predecessor']==spec['outer_sha256'] and compare_books(dest/'cold',dest/'bounded')==q['comparison'],
+         and q['predecessor']==spec['outer_sha256'] and compare_stopped_books(dest/'cold',dest/'bounded',
+             driver/'system_campaign_resume_qualification.py',
+             admission['qualified_reconstruction_source_sha256']['system_campaign_resume_qualification.py'])==q['comparison'],
          'RECONSTRUCTION_ADMISSION_ACTUAL_NEXT_CHECKPOINT_AND_STREAM_EQUALITY')
     need(q['probes']['COLD']['buffer_fingerprints']==q['probes']['BOUNDED']['buffer_fingerprints']
          and q['probes']['COLD']['published_fingerprint']==q['probes']['BOUNDED']['published_fingerprint']
@@ -167,6 +178,8 @@ class FirstMaterial:
     def __init__(self,proof,out):self.proof=proof;self.out=out;self.buffers=[];self.published=False
     def __enter__(self):
         hosted()
+        from system_campaign_resume_qualification import fingerprint
+        from system_campaign_resume_window import exact_buffer,plain
         from research.pooled_input_support.adapter import Buffer
         self.Buffer=Buffer;self.append=Buffer.append;self.prepare=Buffer.prepare
         def append(buffer,packet):

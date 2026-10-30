@@ -1,5 +1,5 @@
 """Pure admission falsifiers and source/workflow boundary checks; no replay."""
-import ast,inspect,json
+import ast,gzip,hashlib,inspect,json,os,subprocess,sys
 from copy import deepcopy
 from pathlib import Path
 import pytest
@@ -73,6 +73,40 @@ def test_actual_first_material_is_checked_before_returning_to_runtime():
     assert 'FirstMaterial(admission,out),reconstruction:' in wrapper
     assert "financial_driver_total',backtest.main,args+['--repair-overlay',str(overlay)]" in wrapper
     assert "spec['run_id']==41134805155" in wrapper and "spec['selected_session']=='2021-11-30'" in wrapper
+
+
+def test_host_job_imports_in_a_fresh_transfer_only_interpreter():
+    script='''import importlib.abc,sys
+class NoReplayPackages(importlib.abc.MetaPathFinder):
+    def find_spec(self,fullname,path=None,target=None):
+        if fullname.split('.')[0] in {'pydantic','numpy','pandas','research','sentinel'}:
+            raise ModuleNotFoundError('Replay-only import forbidden in transfer process: '+fullname)
+sys.meta_path.insert(0,NoReplayPackages())
+import system_campaign_p02_december_job as job
+assert len(job.SOURCES)==140
+'''
+    env=dict(os.environ);env['PYTHONPATH']=str(ROOT)
+    result=subprocess.run([sys.executable,'-B','-c',script],capture_output=True,text=True,env=env,timeout=30)
+    assert result.returncode==0,result.stderr
+    old=subprocess.check_output(['git','show','9ecce2dd8d45dd67717e8f33bd425d447d39428f:research/capital_risk/system_campaign_reconstruction_admit.py']).decode()
+    broken=script.split('import system_campaign_p02_december_job')[0]+"exec("+repr(old)+", {'__name__':'prior_failed_import'})\n"
+    failure=subprocess.run([sys.executable,'-B','-c',broken],capture_output=True,text=True,env=env,timeout=30)
+    assert failure.returncode!=0 and 'pydantic' in failure.stderr
+
+
+def test_exact_qualified_pure_comparator_runs_without_replay_imports(tmp_path):
+    cp=dict(journals={'daily':dict(bytes=4)},sha256='synthetic',completed=1,cash=50)
+    for name in ('cold','bounded'):
+        root=tmp_path/name;(root/'book').mkdir(parents=True)
+        (root/'book/checkpoint.json.gz').write_bytes(gzip.compress(json.dumps(cp).encode()))
+        (root/'book/daily.jsonl').write_bytes(b'row\n')
+        (root/'correlation-inputs.jsonl.gz').write_bytes(gzip.compress(b'correlation\n'))
+        (root/'uncertainty-certificate.jsonl').write_bytes(b'certificate\n')
+    source=ROOT/'system_campaign_resume_qualification.py';h=hashlib.sha256(source.read_bytes()).hexdigest()
+    assert a.compare_stopped_books(tmp_path/'cold',tmp_path/'bounded',source,h)['all_next_checkpoint_fields_and_journal_bytes_equal']
+    with pytest.raises(ValueError):a.compare_stopped_books(tmp_path/'cold',tmp_path/'bounded',source,'0'*64)
+    cp['cash']=51;(tmp_path/'bounded/book/checkpoint.json.gz').write_bytes(gzip.compress(json.dumps(cp).encode()))
+    with pytest.raises(ValueError):a.compare_stopped_books(tmp_path/'cold',tmp_path/'bounded',source,h)
 
 
 @pytest.mark.parametrize('field',('NetworkMode','MemorySwap','ReadonlyRootfs'))

@@ -181,3 +181,19 @@ one-day shift. Unsupported stock/mixed actions and insolvencies remain explicit
 unresolved cases. Before financial replay, qualify all eight against the actual
 canonical loader, cumulative old repairs, original refusal guards and own exact
 predecessor. This is a factual batch, not a policy or parameter change.
+
+## Transfer-process import boundary
+
+Run41142382253 failed at module import, before job main or a financial worker,
+because the transfer-only environment lacks pydantic. Preserve its staging-only
+artifact and exact traceback. The unchanged November30 predecessor remains valid;
+no financial suffix or origin was created by this attempt.
+
+Keep pydantic/typed-buffer imports inside the offline financial container. The
+host transfer process may reuse only the exact qualified stopped-book comparator:
+verify the whole qualification module hash, extract its sole undecorated
+compare_books function via AST, and execute that pure JSON/gzip/byte comparison
+with explicit json/need globals. It does not restore or advance financial state.
+Do not broaden transfer dependencies or modify the qualified implementation.
+Add an import test that blocks replay-only packages in a fresh interpreter, then
+publish a distinct same-predecessor continuation with the failed attempt pinned.
