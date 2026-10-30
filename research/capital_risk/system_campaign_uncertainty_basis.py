@@ -18,7 +18,7 @@ def basis(root, cp):
         document = json.loads(raw)
         if document['schema'] == 'terminal-repair/1':
             ordinary.append(descriptor)
-            additional.extend(v for v in document['source_evidence'] if v['reference'].startswith(('research:system-optimization-002/medicines-','research:system-optimization-002/arqule-','research:system-optimization-002/sprint-','research:system-optimization-002/spring2020-cash-','research:system-optimization-002/autumn2020-cash-','research:system-optimization-002/2021-completions-')))
+            additional.extend(v for v in document['source_evidence'] if v['reference'].startswith(('research:system-optimization-002/medicines-','research:system-optimization-002/arqule-','research:system-optimization-002/sprint-','research:system-optimization-002/spring2020-cash-','research:system-optimization-002/autumn2020-cash-','research:system-optimization-002/2021-completions-','research:system-optimization-002/following-completions-')))
         elif document['schema'] == 'research.leadership-uncertainty-input/1':uncertainty.append(document)
         else:raise ValueError('REFUSED_UNCERTAINTY_BASIS_UNDECLARED_SCHEMA')
     need(len(uncertainty) == 1, 'UNCERTAINTY_BASIS_EXACTLY_ONE_MODEL')
@@ -31,9 +31,10 @@ def basis(root, cp):
         from system_campaign_spring2020_cash_facts import CATALOG as CC,COMPILER as CP,HYDRATED as CH
         from system_campaign_autumn2020_cash_facts import CATALOG as FC,COMPILER as FP,HYDRATED as FH
         from system_campaign_2021_completions_facts import CATALOG as NC,COMPILER as NP,HYDRATED as NH
-        need(all(v['reference'] in {MC,MP,MH,AC,AP,AH,SC,SP,SH,CC,CP,CH,FC,FP,FH,NC,NP,NH} for v in additional),
+        from system_campaign_following_completions_facts import CATALOG as GC,COMPILER as GP,HYDRATED as GH
+        need(all(v['reference'] in {MC,MP,MH,AC,AP,AH,SC,SP,SH,CC,CP,CH,FC,FP,FH,NC,NP,NH,GC,GP,GH} for v in additional),
              'UNCERTAINTY_BASIS_EXPLICIT_KNOWN_ADDITIONAL_FACTUAL_COMMITMENTS')
-        for label,refs,stem in (('MEDICINES',(MC,MP,MH),'medicines'),('ARQULE',(AC,AP,AH),'arqule'),('SPRINT',(SC,SP,SH),'sprint'),('SPRING2020_CASH',(CC,CP,CH),'spring2020-cash'),('AUTUMN2020_CASH',(FC,FP,FH),'autumn2020-cash'),('COMPLETIONS2021',(NC,NP,NH),'2021-completions')):
+        for label,refs,stem in (('MEDICINES',(MC,MP,MH),'medicines'),('ARQULE',(AC,AP,AH),'arqule'),('SPRINT',(SC,SP,SH),'sprint'),('SPRING2020_CASH',(CC,CP,CH),'spring2020-cash'),('AUTUMN2020_CASH',(FC,FP,FH),'autumn2020-cash'),('COMPLETIONS2021',(NC,NP,NH),'2021-completions'),('FOLLOWING_COMPLETIONS',(GC,GP,GH),'following-completions')):
             selected=[v for v in additional if v['reference'] in refs]
             if not selected:continue
             expected={refs[0]:sha((Path('/driver')/('system-campaign-'+stem+'-terminal-facts.json')).read_bytes()),

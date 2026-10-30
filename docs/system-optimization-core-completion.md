@@ -627,3 +627,46 @@ preserve71647 daily and712 watch tail bytes through actual Journal.recover.
 Hosted preflight must restore the same checkpoint, verify every prefix, old302
 certificate and63+9 basis before canonical repair loading and16 actual packet
 probes. A pure schema/guard test is not hosted canonical qualification or a result.
+
+### Following ordinary completions from OWN January29,2021
+
+Run41116676849 passed the corrected canonical load and16 actual packet probes,
+adopted the eight-event2021 input and independently passed1802 accounting
+snapshots/126formation+775 measured closes at January29. Its compiler/catalog
+and private commitments are now immutable. Preserve the18 uncommitted sessions
+through February25 and all daily/watch/certificate tails. The February26 refusal
+is ACIA's native incomplete cash term, not another schema failure.
+
+Prepare one new following-completions input for six primary-confirmed, still
+unconsumed transactions. ACIA115USD completes March1,2021 before open
+(SEC1651235/000119312521062708, OCC48363), preserving February26. APHA's last
+trading date is April30; apply its0.8381TLRY conversion on retained next session May3
+(SEC1731348/000114036121015755, NasdaqECA2021-71). CATM39USD completes before
+open June21, preserving June18 (SEC1671013/000110465921083463,
+NasdaqECA2021-107). AZPN1 receives87.69USD plus0.42newAZPN on the existing
+May16,2022 closing/May17 next-session convention
+(SEC929940/000114036122019468, NasdaqECA2022-100). REGI61.50USD completes
+before open June13, preserving June10 (SEC1463258/000119312522172511,
+NasdaqECA2022-136). PLAN63.75USD completes before open June22, preserving
+June21 (SEC1540755/000119312522178282, OCC50625). Use mandatory common-share
+terms, excluding option/award considerations and individual tax assumptions.
+
+Use CONVERSION with explicit null cash for APHA; CASH_PLUS_STOCK for AZPN1;
+CASH_MERGER for the other four. Bind all six native projections and eight full
+source/delivery witnesses. Preserve the frozen AZPN1 unknown issuer/eligibility0
+and delivered AZPN issuerCIK929940/eligibility1, explicitly disclosing the
+actual new issuerCIK1897982 difference. Verify the entire original ACTIONS
+archive and all five exact AZPN1/AZPN ticker-change and reciprocal merger rows;
+do not substitute the acquisitionby alias guard. Keep actual frozen delivered
+raw-open fractional-CIL proxies and disclose they are not issuer settlement.
+
+Use normal admission of latest self-contained41116676849, with its own
+January29 checkpoint and full journals; no older state/support selection.
+The new compiler must explicitly preserve all three adopted2021 references and
+private bytes in addition to every earlier group and the immutable9-model
+references. Recompute and match old66+9 basis before advance. Hosted canonical
+restore/all historical prefixes/321-row certificate/12 actual packets, source
+and delivery metadata, original incomplete guards, missing-quote, wrong-term,
+wrong-predecessor and consumed-date falsifiers remain mandatory. Only after
+actual adoption/review admit new69+9 basis. No financial source/rule/origin change,
+restart, skipped session, rounding, model tuning or PAPER contact.
