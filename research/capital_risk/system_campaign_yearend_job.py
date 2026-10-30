@@ -20,10 +20,12 @@ SOURCES=tuple(dict.fromkeys((*CANDIDATE_SOURCES,'system_campaign_source.py','sys
     'system_campaign_factual_job.py','system_campaign_factual_admit.py','system_campaign_factual_run.py','system_campaign_terminal_job.py','system_campaign_terminal_run.py','system_campaign_terminal_facts.py','system_campaign_march_job.py','system_campaign_march_run.py','system_campaign_march_facts.py','system_campaign_winter_job.py','system_campaign_winter_run.py','system_campaign_winter_facts.py','system_campaign_yearend_job.py','system_campaign_yearend_run.py','system_campaign_yearend_facts.py','system_campaign_late_run.py','system_campaign_late_facts.py','system_campaign_own_origin.py','system_campaign_ancestor.py','system_campaign_midyear_run.py','system_campaign_midyear_facts.py')))
 
 
-def expected_request():
+def expected_request(predecessors_file='system-campaign-yearend-predecessors.json'):
+    need(predecessors_file in ('system-campaign-yearend-predecessors.json','system-campaign-yearend-default-predecessors.json'),
+         'YEAREND_EXACT_PREDECESSOR_FILE')
     return {'schema':'research.system-campaign-yearend-suffix-request/1','campaign':'system-optimization-002',
         'protocol_sha256':sha256_file(HERE/'system-campaign-search-protocol.json'),
-        'predecessors_sha256':sha256_file(HERE/'system-campaign-yearend-predecessors.json'),
+        'predecessors_file':predecessors_file,'predecessors_sha256':sha256_file(HERE/predecessors_file),
         'origin_references_sha256':sha256_file(HERE/'system-campaign-yearend-origins.json'),
         'source_archive_limit_bytes':1024**3,
         'catalog_sha256':sha256_file(HERE/'system-campaign-factual-catalog.json'),
@@ -52,11 +54,19 @@ def inspect(name,identity=None):
     return v
 
 
+def predecessor_receipt(spec):
+    prefixes={'research.system-campaign-factual-suffix-receipt/1':'campaign-factual-',
+        'research.system-campaign-basis-equivalence-receipt/1':'campaign-equivalence-'}
+    need(spec['receipt_schema'] in prefixes and spec['receipt_name']==prefixes[spec['receipt_schema']]+spec['arm']+'.json',
+         'YEAREND_ACTUAL_RECEIPT_SCHEMA_FILENAME')
+
+
 def main(a):
     check_context(os.environ);need(os.environ.get('GITHUB_RUN_ATTEMPT')=='1','NO_FACTUAL_SUFFIX_RERUN')
-    request=json.loads(a.request.read_bytes());need(request==expected_request(),'EXACT_FACTUAL_SUFFIX_REQUEST')
-    specifications=json.loads((HERE/'system-campaign-yearend-predecessors.json').read_bytes())['arms']
+    request=json.loads(a.request.read_bytes());need(request==expected_request(request['predecessors_file']),'EXACT_FACTUAL_SUFFIX_REQUEST')
+    specifications=json.loads((HERE/request['predecessors_file']).read_bytes())['arms']
     spec=specifications[a.arm]
+    predecessor_receipt(spec)
     stage=json.loads(a.staging.read_bytes())
     need(stage['status']=='STAGING_PASSED' and stage['run_id']==os.environ['GITHUB_RUN_ID']
          and stage['source_commit']==os.environ['GITHUB_SHA'] and stage['protocol_sha256']==PROTOCOL

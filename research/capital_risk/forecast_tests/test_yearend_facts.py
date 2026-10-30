@@ -49,3 +49,15 @@ def test_complete_yearend_and_numeric_dependencies():
     attributes={n.attr for n in ast.walk(ast.parse((CATALOG.parent/'system_campaign_yearend_job.py').read_bytes()))
         if isinstance(n,ast.Attribute) and isinstance(n.value,ast.Name) and n.value.id=='os'}
     assert attributes=={'environ','getuid','getgid','chmod'}
+
+
+def test_actual_deployed_filename_error_refused_and_guard_removal():
+    from system_campaign_yearend_job import predecessor_receipt
+    # Exact metadata from the failed request; no financial field is evaluated.
+    broken=json.loads((CATALOG.parent/'system-campaign-yearend-predecessors.json').read_bytes())['arms']['P00']
+    with pytest.raises(ValueError,match='RECEIPT_SCHEMA_FILENAME'):predecessor_receipt(broken)
+    corrected={**broken,'receipt_name':'campaign-equivalence-P00.json'};predecessor_receipt(corrected)
+    node=next(n for n in ast.parse(Path(predecessor_receipt.__code__.co_filename).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='predecessor_receipt')
+    node.body=[ast.Pass()];scope=dict(predecessor_receipt.__globals__)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'<removed-receipt-filename-guard>','exec'),scope)
+    assert scope['predecessor_receipt'](broken) is None

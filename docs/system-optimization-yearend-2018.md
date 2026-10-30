@@ -86,3 +86,12 @@ its own selected predecessor, recovered tails, all newly committed checkpoints,
 and the original own zero-session origin receipt/gzip in readable lineage.
 The immutable ancestor keeps all older financials/checkpoints/stop evidence.
 This is storage deduplication, not omission of old proof or a state conversion.
+
+The first default handoff in run40986345436 failed BEFORE any financial worker:
+its specification incorrectly named a factual receipt while the exact incoming
+archive contains the equivalence-attempt receipt. Preserve that attempt and its
+KeyError. Correct only the filename, retain the same own October predecessor,
+and use a distinct default-only request/workflow so the four active candidate
+writers are never duplicated. Bind the receipt filename to the exact known
+receipt schema before transfer; reject the actual erroneous specification in a
+targeted falsifier. No financial suffix from this failed handoff is invented.
