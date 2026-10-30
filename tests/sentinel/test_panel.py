@@ -737,6 +737,7 @@ class TestRuntimeRowsAreDurableFacts:
         # These runtime-source fixtures predate current-session execution data.
         # The composed trading-run tests supply their own exact current run.
         monkeypatch.setattr(sources, '_current_trading_run', lambda _conn: None)
+        monkeypatch.setattr(sources, '_completed_trading_run', lambda _conn: None)
         return sources, conn
 
     def test_current_plan_book_and_observation_replace_the_old_placeholders(
