@@ -230,3 +230,44 @@ Primary evidence:
 
 - https://www.sec.gov/Archives/edgar/data/1423824/000119312519271319/d822414d8k.htm
 - https://www.sec.gov/Archives/edgar/data/1423824/000119312519273714/d823064dsc13da.htm
+
+
+### ArQule exact factual continuation after the MDCO prefix (2026-10-30)
+
+The actual MDCO continuation run41077393767 stopped REFUSED at January15,2020
+on ARQL/security37487278358102709, after January14/512 reported closes. Its
+worker exit1/noOOM and reviewer exit0/noOOM, full1258 committed accounting
+snapshots,49 interval rows/103 comparisons and retained Dec31/503 checkpoint
+passed independent artifact review. All original failures remain failures.
+The actual current checkpoint has MDCO's input successor already committed;
+January2..14 financial/certificate bytes are uncommitted tails, not a newer
+checkpoint. Resume this exact own checkpoint; preserve every tail and ancestor.
+
+SEC8-K accession0001104659-20-004500, Introductory Note, confirms ArQule's
+completed January16 DGCL251(h) merger converts eligible common shares not
+purchased in the tender into20USD each. Nasdaq ECA2020-6 explicitly confirms
+January16 before-open completion and January15 last trading. Merck's January16
+8:34am release corroborates completed mandatory remaining-share conversion.
+Suppress only the exact incomplete January15 native term; add the complete
+January16 cash20 term. Do not move unrelated Audentes/BOLD actions, equate a
+voluntary tender with remaining-share merger, change issuer identity or use
+aggregate deal value as a share price.
+
+Add a separate ArQule factual compiler/catalog, leaving the qualified MDCO
+compiler/catalog and all nine interval commitments byte-identical. Hosted
+hydration must prove actual native-term and frozen January14 identity-row
+hashes, both repaired packet dates, original immutability, wrong predecessor
+and consumed-date refusal. Carry the exact authenticated MDCO private catalog
+with its original three source commitments; verify all retained commitments
+before any advance. The combined common basis adds only ArQule's explicit
+three commitments (54 factual plus the same9 interval-model references).
+
+Reuse the existing bounded one-writer P02 workflow with an explicit
+ARQL_FACTUAL_SUFFIX request pinned to the actual new checkpoint, stopped
+artifact and passed review. Canonical --resume keeps the source/strategy,
+controller, native publication and all old repair descriptors immutable.
+The existing strict archive-adapted certificate review must still pass before
+financial advance. Independent stopped-prefix review checks all accounting,
+canonical checkpoints, historical prefixes, recovered tails and certificate
+continuations. No restart/new origin/rollback/rounding or performance admission
+from an incomplete prefix. PAPER and production are untouched.
