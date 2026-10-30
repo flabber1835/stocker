@@ -599,3 +599,31 @@ ordinary groups63refs and the immutable9-reference model. Strictly compare that
 old basis before advance; new66+9 only after actual adoption and review.
 Every own-origin/source/input/CP/prefix/tail/factor/chain/certificate gate remains.
 This is one exact P02 suffix, no new origin, parameter tuning or PAPER change.
+
+### Exact recovery of the unadvanced2021 conversion-schema failure
+
+Run41113691657/b64c05cb actually stopped before financial entry: canonical
+AddedTerm rejected WPX CONVERSION with numeric zero cash. Its contract requires
+explicit null for unused stock-only cash; WORK remains CASH_PLUS_STOCK26.79.
+Correct only the still-unadopted2021 catalog/compiler representation. Treat null
+as zero solely for the independent notional arithmetic. Do not weaken canonical
+validation, change consideration, edit an adopted compiler or modify strategy.
+
+Use the latest failed run as predecessor, not the older December31 artifact.
+Add an explicit typed admission for this exact run/head/P02/December31 checkpoint,
+actual schema-error and reviewer-tail-error logs, full checkpoint/journal bytes,
+unadopted overlay and hydration, stopped inspections and canonical prefix proofs.
+Require absence of financial-entry/qualification/recovery proofs; any unexpected
+progress or identity must refuse. Preserve this failed attempt and its opaque
+ancestor. New input is bound to that same own checkpoint; next session January4.
+
+Three proof sidecars were not exported because entry failed. Reuse the existing
+same-book support recovery from authenticated41107815142 only after comparing
+checkpoint, financial identities, source, repairs and EVERY full journal byte,
+including uncommitted tails. Populate only missing sidecars in a disjoint view;
+never choose state from support. Retain provenance and the original branch.
+Preserve full304 certificate rows, its23315-byte unsent tail and seed302 only;
+preserve71647 daily and712 watch tail bytes through actual Journal.recover.
+Hosted preflight must restore the same checkpoint, verify every prefix, old302
+certificate and63+9 basis before canonical repair loading and16 actual packet
+probes. A pure schema/guard test is not hosted canonical qualification or a result.

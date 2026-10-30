@@ -20,7 +20,7 @@ HYDRATED='research:system-optimization-002/2021-completions-private-terminal-cat
 ALIAS_SHA='db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02'
 CIL='RETAINED_FROZEN_RAW_OPEN_PROXY_NOT_ACTUAL_ISSUER_SETTLEMENT'
 EXPECTED=(
-    ('WPX','993356691887576902','2021-01-06','2021-01-07','CONVERSION',0.,0.5165,
+    ('WPX','993356691887576902','2021-01-06','2021-01-07','CONVERSION',None,0.5165,
      ('603027491965685418','DVN','SEC_CIK:1090012')),
     ('BEAT1','67573316626643986','2021-02-08','2021-02-09','CASH_MERGER',72.,None,None),
     ('MIK','350829412574453923','2021-04-14','2021-04-15','CASH_MERGER',22.,None,None),
@@ -32,6 +32,14 @@ EXPECTED=(
     ('TRIL1','1119755750402433659','2021-11-16','2021-11-17','CASH_MERGER',18.5,None,None))
 ALIASES={'BEAT1':('BEAT','BIOTELEMETRY INC','PHG','KONINKLIJKE PHILIPS NV'),
          'TRIL1':('TRIL','TRILLIUM THERAPEUTICS INC','PFE','PFIZER INC')}
+
+
+def notional(added,bar):
+    # Canonical stock-only terms use null for unused cash, never numeric zero.
+    cash=added['cash_per_share']
+    value=Fraction(0) if cash is None else Fraction(str(cash))
+    if bar is not None:value+=Fraction(str(added['exchange_ratio']))*Fraction(str(bar.raw_close))
+    return value
 
 
 def require_witness(row,w):
@@ -187,8 +195,7 @@ class CompletionFacts:
                     need(len(matches)==1 and asdict(matches[0])==t['added'] and matches[0].completeness(1)[0],
                          'COMPLETIONS2021_ACTUAL_COMPLETE_ORDINARY_HOLDER_TERM')
                     values=terminal_returns.values(prior=prior(t,t['last_trading_session']),published=published_packet(fixed))
-                    expected=Fraction(str(t['added']['cash_per_share']))
-                    if bar is not None:expected+=Fraction(str(t['added']['exchange_ratio']))*Fraction(str(bar.raw_close))
+                    expected=notional(t['added'],bar)
                     need(values[sid]==float(expected),'COMPLETIONS2021_ACTUAL_CANONICAL_NOTIONAL_CONSIDERATION')
                     if bar is not None:
                         stock+=1;bad=SimpleNamespace(session=day,bars=(),terminal_events=fixed.terminal)

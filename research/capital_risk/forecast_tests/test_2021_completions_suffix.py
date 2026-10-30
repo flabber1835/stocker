@@ -3,6 +3,8 @@ import ast
 from copy import deepcopy
 import inspect
 import json
+from fractions import Fraction
+from types import SimpleNamespace
 from pathlib import Path
 import pytest
 import system_campaign_2021_completions_facts as module
@@ -28,6 +30,7 @@ def test_eight_final_terms_include_separate_stock_and_cash_plus_stock_types():
     terms=module.CompletionFacts(PATH).catalog['terms']
     assert len(terms)==8
     assert (terms[0]['ticker'],terms[0]['added']['kind'],terms[0]['added']['exchange_ratio'])==('WPX','CONVERSION',0.5165)
+    assert terms[0]['added']['cash_per_share'] is None
     assert (terms[5]['ticker'],terms[5]['added']['kind'],terms[5]['added']['cash_per_share'],terms[5]['added']['exchange_ratio'])==('WORK','CASH_PLUS_STOCK',26.79,0.0776)
     assert all(t['last_trading_session']==t['native_session']<t['added']['session'] for t in terms)
 
@@ -36,10 +39,17 @@ def test_eight_final_terms_include_separate_stock_and_cash_plus_stock_types():
     (0,'delivered_security_id','wrong'),(1,'cash_per_share',71.),(2,'session','2021-04-14'),
     (3,'cash_per_share',177.),(4,'cash_per_share',44.),(5,'kind','CONVERSION'),
     (5,'cash_per_share',27.79),(5,'exchange_ratio',0.077),(6,'cash_per_share',36.),
-    (7,'session','2021-11-16'),(0,'cash_in_lieu_price_per_delivered_share',19.)])
+    (7,'session','2021-11-16'),(0,'cash_in_lieu_price_per_delivered_share',19.),(0,'cash_per_share',0.)])
 def test_wrong_kind_consideration_date_or_unsourced_proxy_refuses(tmp_path,index,field,value):
     c=catalog();c['terms'][index]['added'][field]=value;p=tmp_path/'bad.json';p.write_text(json.dumps(c))
     with pytest.raises(ValueError):module.CompletionFacts(p)
+
+
+def test_null_stock_cash_and_positive_mixed_cash_independent_notional():
+    terms=module.CompletionFacts(PATH).catalog['terms'];bar=SimpleNamespace(raw_close=20.)
+    assert module.notional(terms[0]['added'],bar)==Fraction('0.5165')*20
+    assert module.notional(terms[5]['added'],bar)==Fraction('26.79')+Fraction('0.0776')*20
+    assert module.notional(terms[1]['added'],None)==72
 
 
 @pytest.mark.parametrize('index', (1,7))

@@ -12,6 +12,7 @@ from full_system_trials_job import command, seal
 from system_campaign_uncertainty_integration_job import SOURCES as PRIOR
 from system_campaign_p02_continue_job import inspect as prior_inspect
 from system_campaign_factual_admit import admit
+from system_campaign_support_recovery import hosted_view
 from system_campaign_own_origin import capture as capture_origin
 from system_campaign_ancestor import preserve as preserve_ancestor
 from system_campaign_variants import build
@@ -31,12 +32,14 @@ SOURCES=tuple(dict.fromkeys((*PRIOR,'system_campaign_p02_uncertainty_run.py',
     'system-campaign-sprint-terminal-facts.json','system_campaign_support_recovery.py',
     'system_campaign_spring2020_cash_facts.py','system-campaign-spring2020-cash-terminal-facts.json',
     'system_campaign_autumn2020_cash_facts.py','system-campaign-autumn2020-cash-terminal-facts.json',
-    'system_campaign_2021_completions_facts.py','system-campaign-2021-completions-terminal-facts.json')))
+    'system_campaign_2021_completions_facts.py','system-campaign-2021-completions-terminal-facts.json',
+    'system-campaign-p02-uncertainty-support-predecessor.json')))
 
 
 def expected_request():
     spec=json.loads((HERE/'system-campaign-p02-uncertainty-predecessor.json').read_bytes())
-    need(spec['arm']=='P02' and spec['run_id']==41107815142
+    need(spec['arm']=='P02' and spec['run_id']==41113691657
+         and spec['unadvanced_failure_kind']=='COMPLETIONS2021_NULL_CONVERSION_CASH_SCHEMA'
          and spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
          and spec['selected_session']=='2020-12-31','UNCERTAINTY_EXACT_COMPLETIONS2021_OWN_PREDECESSOR')
     proof=json.loads((HERE/'system-campaign-uncertainty-qualification.json').read_bytes())
@@ -45,9 +48,11 @@ def expected_request():
         protocol_sha256=sha256_file(HERE/'system-campaign-search-protocol.json'),
         predecessor_file='system-campaign-p02-uncertainty-predecessor.json',
         predecessor_sha256=sha256_file(HERE/'system-campaign-p02-uncertainty-predecessor.json'),
+        support_predecessor_file='system-campaign-p02-uncertainty-support-predecessor.json',
+        support_predecessor_sha256=sha256_file(HERE/'system-campaign-p02-uncertainty-support-predecessor.json'),
         initial_min_disk_bytes=12*1024**3,
         qualified_packet_source_sha256=spec['base']['sources'][PACKET_SOURCE_PATH],
-        execution_mode='COMPLETIONS2021_FACTUAL_SUFFIX',
+        execution_mode='COMPLETIONS2021_NULL_SCHEMA_EXACT_SUFFIX',
         sprint_catalog_sha256=sha256_file(HERE/'system-campaign-sprint-terminal-facts.json'),
         spring2020_cash_catalog_sha256=sha256_file(HERE/'system-campaign-spring2020-cash-terminal-facts.json'),
         autumn2020_cash_catalog_sha256=sha256_file(HERE/'system-campaign-autumn2020-cash-terminal-facts.json'),
@@ -88,10 +93,13 @@ def main(args):
     old=admit(spec,temp/'campaign-factual-transfer-p02-uncertainty-suffix',key,
               max_zip_bytes=request['source_archive_limit_bytes'])
     out=temp/'p02-uncertainty-financial-output';out.mkdir(mode=0o700)
+    support=json.loads((HERE/request['support_predecessor_file']).read_bytes())
+    need(support['run_id']==41107815142,'UNCERTAINTY_EXACT_SAME_BOOK_SUPPORT_SOURCE')
+    old=hosted_view(old,spec,support,out,temp,key,limit=request['source_archive_limit_bytes'])
     need(all((old/name).is_file() for name in ('common-factual-and-uncertainty-basis.json',
          'uncertainty-certificate.jsonl','correlation-inputs.jsonl.gz')),'UNCERTAINTY_COMPLETE_SUPPORT_BEFORE_WORKER')
     os.environ.pop('GH_TOKEN',None)
-    q=old/'core-review.json'
+    q=old/'independent-review-stop/core-review.json'
     need(sha256_file(q)==spec['review_sha256'],'UNCERTAINTY_ACTUAL_OLD_FINANCIAL_PREFIX_PROOF_BYTES')
     value=json.loads(q.read_bytes())
     need(value['status']=='PARTIAL_CORE_PREFIX_REVIEWED' and value['checkpoint_sha256']==spec['outer_sha256']

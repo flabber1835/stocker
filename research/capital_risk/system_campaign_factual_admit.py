@@ -169,6 +169,8 @@ def prove_review_refusal(spec,inventory,root):
 def prove_unadvanced(spec,inventory,root):
     """Refuse any unexpected progress instead of adopting an earlier checkpoint."""
     kind=spec.get('unadvanced_failure_kind','QUALIFIER_PARTIAL_PACKET')
+    if kind=='COMPLETIONS2021_NULL_CONVERSION_CASH_SCHEMA':
+        prove_unadvanced_completions_schema(spec,inventory,root);return
     if kind in ('SPRINT_PACKET_DAY_FIELD','SPRINT_RETAINED_BASIS_FILE','SPRINT_VARIANT_PACKET_SOURCE'):
         prove_unadvanced_sprint_packet(spec,inventory,root);return
     if kind=='ALDER_PACKET_DAY_FIELD':
@@ -260,6 +262,61 @@ def prove_unadvanced_buffer_constructor(spec,inventory,root):
          and partial['all_prefixes_verified'] and partial['all_daily_factors_and_chains_verified']
          and partial['counts']==spec['unadvanced_review_counts'],
          'BUFFER_FAILURE_ACTUAL_CANONICAL_OLD_AND_UNADVANCED_PREFIX')
+
+
+def prove_unadvanced_completions_schema(spec,inventory,root):
+    need(spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
+         and spec['unadvanced_receipt_status']=='STOPPED_P02_UNCERTAINTY_PREFIX_PRESERVED'
+         and spec['run_id']==41113691657 and spec['head']=='b64c05cb315f798251f1d82bd8d2909f16a77ade'
+         and spec['arm']=='P02' and spec['selected_session']=='2020-12-31'
+         and spec['outer_sha256']=='cbca264ce9e9b47f251e21b975d27d489607441ae781a9b562312c974d028a29'
+         and spec['inspections']['economic-worker-inspect.json']['exit_code']==1
+         and spec['inspections']['independent-review-stop/worker-inspect.json']['exit_code']==1,
+         'COMPLETIONS2021_SCHEMA_FAILURE_EXACT_SCOPE')
+    need(inventory['book/checkpoint.json.gz']==spec['selected_file']==spec['unadvanced_original_selected_file']
+         and all(inventory['book/'+n+'.jsonl']==spec['unadvanced_original_journals'][n]
+                 for n in ('formation','daily','monthly','watch')),
+         'COMPLETIONS2021_SCHEMA_FAILURE_NO_FINANCIAL_ADVANCEMENT')
+    need(not any(n in inventory for n in ('book/status.json','book/result.json',
+         '2021-completions-input-qualification.json','acceleration-proof.json',
+         'correlation-capture-proof.json','recovered-tail-proof.json',
+         'common-factual-and-uncertainty-basis.json','uncertainty-certificate.jsonl',
+         'correlation-inputs.jsonl.gz')),'COMPLETIONS2021_SCHEMA_FAILURE_BEFORE_FINANCIAL_ENTRY')
+    ancestor=json.loads((root/'lineage/ancestor.json').read_bytes())
+    need(inventory['lineage/verified-ancestor.zip']=={'bytes':ancestor['zip_bytes'],'sha256':ancestor['zip_sha256']}
+         and ancestor['zip_sha256']==spec['unadvanced_complete_ancestor_zip_sha256'],
+         'COMPLETIONS2021_SCHEMA_FAILURE_EXACT_ANCESTOR')
+    worker=(root/'economic-worker.log').read_bytes();review=(root/'independent-review-stop/worker.log').read_bytes()
+    need(hashlib.sha256(worker).hexdigest()==spec['unadvanced_worker_log_sha256']
+         and b'loaded=facts.overlay(cp,overlay)' in worker
+         and b'ValidationError: 1 validation error for Repair' in worker
+         and b'pure conversion cash must be explicitly null' in worker
+         and hashlib.sha256(review).hexdigest()==spec['unadvanced_reviewer_log_sha256']
+         and b'REFUSED_FULL_SYSTEM_FACTUAL_EXACT_RECOVERED_TAIL' in review,
+         'COMPLETIONS2021_SCHEMA_FAILURE_EXACT_LOGS')
+    need(sha256_file(root/'2021-completions-input-overlay.json')==spec['unadvanced_input_overlay_sha256']
+         and sha256_file(root/'hydrated-2021-completions-terminal-catalog.json')==spec['unadvanced_hydrated_catalog_sha256'],
+         'COMPLETIONS2021_SCHEMA_FAILURE_EXACT_UNADOPTED_INPUT')
+    overlay=json.loads((root/'2021-completions-input-overlay.json').read_bytes())
+    need(overlay['predecessor_checkpoint_sha256']==spec['inner_sha256']
+         and overlay['add'][0]['kind']=='CONVERSION' and overlay['add'][0]['cash_per_share']==0.,
+         'COMPLETIONS2021_SCHEMA_FAILURE_ACTUAL_UNUSED_NUMERIC_CASH')
+    for name in ('old-branch-canonical-review.json','independent-review-stop/core-review.json'):
+        need(sha256_file(root/name)==spec['unadvanced_prefix_reviews'][name],
+             'COMPLETIONS2021_SCHEMA_FAILURE_PREFIX_REVIEW_BYTES')
+        proof=json.loads((root/name).read_bytes())
+        need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified']
+             and proof['checkpoint_sha256']==spec['outer_sha256'] and not proof['complete']
+             and proof['counts']=={'formation':126,'daily':756},
+             'COMPLETIONS2021_SCHEMA_FAILURE_CANONICAL_PREFIX_PROOF')
+    path=root/'old-uncertainty-certificate-review.json'
+    need(sha256_file(path)==spec['unadvanced_certificate_review_sha256'],
+         'COMPLETIONS2021_SCHEMA_FAILURE_OLD_CERTIFICATE_BYTES')
+    proof=json.loads(path.read_bytes())
+    need(proof['status']=='COMMITTED_PREFIX_INTERVAL_INVARIANT' and proof['checkpoint_sha256']==spec['outer_sha256']
+         and proof['through']=='2020-12-31' and proof['rows']==302 and proof['comparisons']==608
+         and proof['financial_path_invariant_over_declared_sensor_interval'],
+         'COMPLETIONS2021_SCHEMA_FAILURE_RETAINED_INTERVAL_PROOF')
 
 
 def prove_unadvanced_sprint_packet(spec,inventory,root):

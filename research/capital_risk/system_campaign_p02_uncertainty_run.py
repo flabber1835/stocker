@@ -26,8 +26,8 @@ from system_campaign_facts import sha
 def run(out, old, spec, request):
     hosted()
     from research.pooled_vacancy_funding import backtest,journal
-    need(spec['arm']=='P02' and spec['run_id']==41107815142 and spec['selected_session']=='2020-12-31'
-         and request['execution_mode']=='COMPLETIONS2021_FACTUAL_SUFFIX','UNCERTAINTY_EXACT_COMPLETIONS2021_PREFIX')
+    need(spec['arm']=='P02' and spec['run_id']==41113691657 and spec['selected_session']=='2020-12-31'
+         and request['execution_mode']=='COMPLETIONS2021_NULL_SCHEMA_EXACT_SUFFIX','UNCERTAINTY_EXACT_COMPLETIONS2021_PREFIX')
     cp = preflight(spec,old,out,before='2021-01-06')
     need(cp['base']['sources'][PACKET_SOURCE_PATH]==request['qualified_packet_source_sha256'],
          'UNCERTAINTY_PACKET_SOURCE_BOUND_TO_SELECTED_CANONICAL_BASE')
