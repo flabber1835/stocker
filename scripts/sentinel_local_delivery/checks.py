@@ -468,6 +468,8 @@ _SUCCESSOR_HISTORY = r'''        from datetime import datetime,timedelta,timezon
         assert original_saved is not None and original_saved['plan_fingerprint']==original.fingerprint()
         historical=original.to_dict()
         historical.update(cycle_id=cycle.cycle_id,plan_fingerprint=original.fingerprint(),
+            broker=original.broker,broker_account_id=original.broker_account_id,
+            deployment_id=original.deployment_id,takeover_epoch=original.takeover_epoch,
             execute_at=cycle.execute_at,
             created_at=datetime.fromisoformat(expected['original_plan']['created_at']))
         original_intent=project_original_intent(historical,original_saved)

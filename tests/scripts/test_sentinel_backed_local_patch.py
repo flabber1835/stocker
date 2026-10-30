@@ -404,6 +404,72 @@ def test_successor_probe_validates_old_intent_and_current_canonical_plan_separat
     assert 'operational_ready=False' in fixture.checks.SUCCESSOR_PANEL
 
 
+def execute_successor_historical_preflight(monkeypatch,program=None):
+    """Compose the actual historical body, real ExecutionPlan and real projector."""
+    from datetime import datetime,timedelta,timezone
+    from decimal import Decimal
+    from types import SimpleNamespace
+    from zoneinfo import ZoneInfo
+    from sentinel.automation import store as automation_store
+    from sentinel.execution import journal
+    from sentinel.execution.plan import ExecutionPlan
+    from sentinel import dual_plan_authority as authority
+    now=datetime.now(timezone.utc)
+    day=now.astimezone(ZoneInfo('America/New_York')).date()
+    binding=dict(deployment_id='owned',broker='alpaca',broker_account_id='PAPER-Z',takeover_epoch=7)
+    common=dict(decision_session=day-timedelta(days=1),effective_session=day,
+        target_exposure=Decimal('.55'),target_basket={'fictional-security':Decimal('7')},
+        rollout_mode='CONTROLLER',**binding)
+    original=ExecutionPlan(plan_id='completed-plan',rollout_version=11,
+        rollout_certificate_sha256='a'*64,superseded_by='current-plan',**common)
+    current=ExecutionPlan(plan_id='current-plan',rollout_version=12,
+        rollout_certificate_sha256='b'*64,**common)
+    assert 'broker_account_id' not in original.to_dict()
+    cycle=SimpleNamespace(cycle_id='b'*64,plan_id=original.plan_id,
+        plan_fingerprint=original.fingerprint(),state=SimpleNamespace(value='SUCCEEDED'),
+        historical_state_only=False,failure_code=None,failure_detail=None,control_generation=98,
+        decision_session=original.decision_session,effective_session=day,
+        execute_at=now-timedelta(hours=1),completed_at=now-timedelta(minutes=30),
+        execution_close_at=now+timedelta(hours=1),certificate_sha256='a'*64,
+        rollout_mode='CONTROLLER',rollout_version=11,**binding)
+    control=SimpleNamespace(enabled=True,kill_switch_engaged=False,generation=99,
+        rollout_mode='CONTROLLER',rollout_version=12,certificate_sha256='b'*64)
+    saved=dict(plan_id=original.plan_id,plan_fingerprint=original.fingerprint(),authority_sha256='c'*64,
+        tickers={'fictional-security':'TEST'},broker_observation=dict(completeness='COMPLETE',
+            account_identity=dict(broker='alpaca',account_id='PAPER-Z'),
+            observed_at=(now-timedelta(hours=2)).isoformat(),
+            positions=[dict(instrument=dict(security_id='fictional-security'),quantity='7')]))
+    monkeypatch.setattr(automation_store,'load_control',lambda _:control)
+    monkeypatch.setattr(automation_store,'load_cycle',lambda *_:cycle)
+    monkeypatch.setattr(journal,'load_plan',lambda *a:original)
+    monkeypatch.setattr(journal,'latest_plan',lambda _:current)
+    monkeypatch.setattr(authority,'load_authority',lambda *a,**k:saved)
+    namespace=dict(conn=object(),plan=current,bound=SimpleNamespace(**binding),journal=journal,
+        authority=authority,json=json,hashlib=__import__('hashlib'),expected=dict(
+            cycle_id=cycle.cycle_id,original_plan=dict(plan_id=original.plan_id,
+                created_at=(now-timedelta(minutes=90)).isoformat()),
+            original_plan_fingerprint=original.fingerprint()))
+    exec(compile(textwrap.dedent(program or fixture.checks._SUCCESSOR_HISTORY),
+        'complete-successor-historical-preflight','exec'),namespace)
+    return namespace
+
+
+def test_successor_historical_preflight_composes_real_plan_shape_and_account_bound_intent(monkeypatch):
+    result=execute_successor_historical_preflight(monkeypatch)
+    intent=result['original_intent']
+    assert intent.plan_id=='completed-plan' and intent.legs[0].action=='HOLD'
+    assert result['historical_completion']['plan_id']=='completed-plan'
+    assert result['historical']['broker_account_id']=='PAPER-Z'
+
+
+def test_original_nested_deployment_shape_has_an_executed_flat_account_falsifier(monkeypatch):
+    program=fixture.checks._SUCCESSOR_HISTORY
+    needle='broker=original.broker,broker_account_id=original.broker_account_id,'
+    assert program.count(needle)==1
+    with pytest.raises(KeyError,match='broker_account_id'):
+        execute_successor_historical_preflight(monkeypatch,program.replace(needle,''))
+
+
 @pytest.mark.parametrize('fault',['adapter','policy','state','completed','reconciliation','wrong_observation','failure'])
 def test_post_trade_refuses_unsettled_or_unsupported_handoffs(fault):
     host=settled_host()
