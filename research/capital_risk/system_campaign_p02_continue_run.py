@@ -1,5 +1,6 @@
 """P02-only ordinary factual suffixes with an explicit frozen component registry."""
 import argparse,json
+from contextlib import ExitStack
 from pathlib import Path
 from full_system_core import arguments,hosted
 from full_system_benchmark import need,save
@@ -8,6 +9,7 @@ from system_campaign_facts import FactualInputs,sha,digest
 from system_campaign_distribution_facts import DistributionFacts
 from system_campaign_array_facts import ArrayFacts
 from system_campaign_tableau_facts import TableauFacts
+from system_campaign_alder_facts import AlderFacts
 from system_campaign_p02_run import retained_thirteen
 from system_campaign_factual_run import preflight,correlation_seed,SeededObservation,preserve_tails,review as canonical_review
 from system_campaign_own_origin import qualify as qualify_origin
@@ -18,7 +20,10 @@ COMPONENTS=(
      'earliest':'2019-07-30','reference_prefix':'array','packet_checks':1},
     {'name':'tableau','class':TableauFacts,'catalog':'system-campaign-tableau-terminal-facts.json',
      'compiler':'system_campaign_tableau_facts.py','hydrated':'hydrated-tableau-terminal-catalog.json',
-     'earliest':'2019-07-31','reference_prefix':'tableau','packet_checks':10})
+     'earliest':'2019-07-31','reference_prefix':'tableau','packet_checks':10},
+    {'name':'alder','class':AlderFacts,'catalog':'system-campaign-alder-unresolved-date.json',
+     'compiler':'system_campaign_alder_facts.py','hydrated':'hydrated-alder-unresolved-date.json',
+     'earliest':'2019-10-21','reference_prefix':'alder','packet_checks':2,'input_wrapper':True})
 
 
 def component(name):
@@ -73,7 +78,14 @@ def run(out,old,spec):
         'registry_sha256':registry_commitment()})
     observer=SeededObservation(out/'correlation-inputs.jsonl.gz',correlation_seed(old,cp));args=arguments(out/'book',True)
     args[args.index('--policy')+1]=cp['base']['policy']
-    with v1,spin:
+    with v1,spin,ExitStack() as wrappers:
+        for retained in COMPONENTS[:index]:
+            if not retained.get('input_wrapper'):continue
+            wrapper=retained['class'](Path('/driver')/retained['catalog'])
+            independent=out/('independent-'+retained['hydrated']);wrapper.hydrate(independent)
+            need(sha(independent.read_bytes())==sha((out/retained['hydrated']).read_bytes()),'P02_IDENTICAL_RETAINED_WRAPPER_HYDRATION')
+            wrappers.enter_context(wrapper)
+        if c.get('input_wrapper'):wrappers.enter_context(facts)
         facts.qualify(loaded,out/(c['name']+'-input-qualification.json'))
         with observer:
             with Execution('FAST',signal_closes=1) as execution:code=backtest.main(args+['--repair-overlay',str(overlay)])

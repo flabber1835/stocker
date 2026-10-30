@@ -67,12 +67,12 @@ def test_actual_prior_array_hydration_required(monkeypatch,tmp_path):
 def test_explicit_registry_and_actual_main_handoff(monkeypatch,tmp_path):
     import system_campaign_p02_continue_job as job
     p=ROOT/'system-campaign-p02-continuation-request.json';v=json.loads(p.read_bytes())
-    assert v==job.expected_request(v['predecessors_file'],v['new_component']) and v['new_component']=='tableau'
+    assert v==job.expected_request(v['predecessors_file'],v['new_component']) and v['new_component']=='alder'
     assert runner.component('tableau')[1]['packet_checks']==10
     with pytest.raises(ValueError,match='EXPLICIT_COMPONENT_REGISTRY'):runner.component('invented')
     with pytest.raises(ValueError,match='EXPLICIT_NEXT_COMPONENT'):job.expected_request(new_component='array')
-    arms=json.loads((ROOT/v['predecessors_file']).read_bytes())['arms'];assert set(arms)=={'P02'} and arms['P02']['new_component']=='tableau'
-    assert arms['P02']['run_id']==41006716250 and arms['P02']['outer_sha256']=='3402f199b4b5f5d2cfb7a9a4e40a8b9eb43d19e3d2dbe0c37fe7636accd8f0ac'
+    arms=json.loads((ROOT/v['predecessors_file']).read_bytes())['arms'];assert set(arms)=={'P02'} and arms['P02']['new_component']=='alder'
+    assert arms['P02']['run_id']==41009896481 and arms['P02']['outer_sha256']=='daa13136da1356bbf43cdcbf1114f2887a23ab5ddc9796b8b5b558d17b75c733'
     monkeypatch.setattr(job,'check_context',lambda env:None);monkeypatch.setenv('GITHUB_RUN_ATTEMPT','1')
     with pytest.raises(ValueError,match='P02_ONLY_OWNER_SELECTED'):job.main(SimpleNamespace(request=p,staging=tmp_path/'absent',arm='P01'))
     with pytest.raises(FileNotFoundError):job.main(SimpleNamespace(request=p,staging=tmp_path/'absent',arm='P02'))

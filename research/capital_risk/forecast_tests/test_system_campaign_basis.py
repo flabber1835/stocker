@@ -49,7 +49,7 @@ def test_actual_compiler_guard_removal_falsifier():
     assert scope['semantics'](base,[one],refs)['declared_fact_compilers']['facts']=='0'*64
 
 
-@pytest.mark.parametrize('removed',('SPRING','LATE','YEAREND','FOLLOWON','PARSLEY','EARLY2019','DISTRIBUTION','ARRAY','TABLEAU'))
+@pytest.mark.parametrize('removed',('SPRING','LATE','YEAREND','FOLLOWON','PARSLEY','EARLY2019','DISTRIBUTION','ARRAY','TABLEAU','ALDER'))
 def test_required_hydrations_and_actual_omission_falsifier(tmp_path,monkeypatch,removed):
     driver=tmp_path/'driver';driver.mkdir();evidence=tmp_path/'evidence';evidence.mkdir()
     names={module.CATALOG_REF:driver/'system-campaign-factual-catalog.json',
@@ -95,7 +95,10 @@ def test_required_hydrations_and_actual_omission_falsifier(tmp_path,monkeypatch,
         module.ARRAY_HYDRATED:evidence/'hydrated-array-terminal-catalog.json',
         module.TABLEAU:driver/'system-campaign-tableau-terminal-facts.json',
         module.TABLEAU_COMPILER:driver/'system_campaign_tableau_facts.py',
-        module.TABLEAU_HYDRATED:evidence/'hydrated-tableau-terminal-catalog.json'}
+        module.TABLEAU_HYDRATED:evidence/'hydrated-tableau-terminal-catalog.json',
+        module.ALDER:driver/'system-campaign-alder-unresolved-date.json',
+        module.ALDER_COMPILER:driver/'system_campaign_alder_facts.py',
+        module.ALDER_HYDRATED:evidence/'hydrated-alder-unresolved-date.json'}
     for ref,p in names.items():p.write_bytes(ref.encode())
     refs={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()}
     document={'schema':'terminal-repair/1','source_evidence':[{'reference':k,'sha256':v} for k,v in refs.items()],

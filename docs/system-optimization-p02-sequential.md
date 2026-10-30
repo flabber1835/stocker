@@ -117,3 +117,46 @@ logic. The batch requires ten actual native/added packet probes before advance.
 - https://www.sec.gov/Archives/edgar/data/315449/000110465919043460/a19-16495_18k.htm
 - https://www.sec.gov/Archives/edgar/data/890491/000119312519214770/d764069d8k.htm
 - https://www.miaxglobal.com/sites/default/files/alert-files/BKS_Merger_45459.pdf
+
+## Alder: correct the date without inventing contingent consideration
+
+P02's actual stopped continuation41009896481 reachedOctober18,2019 and refused
+the nativeOctober21 ALDR terminal. Its saved own checkpoint isSeptember30/439;
+the later14 daily rows remain an unsent tail, not a resume checkpoint. Preserve
+that checkpoint, all15 prior components and the full479338-byte tail.
+
+Completed issuer8K1423824/000119312519271319 and OCC45844 establish a merger
+beforeOctober22 open, with18USD plus one non-transferable contingent value right
+per eligible common share. NasdaqECA2019-208 confirmsOctober21 trading. The
+conditional2USD payment is not upfront cash. The current canonical interfaces
+cannot represent this contingent right. P02 had no ALDR holding at its last
+good close, but its actual failure proves an active leadership-sensor dependency.
+Neither a zero-valued right nor20USD completion cash is admissible.
+
+One factual correction is independent of that valuation problem: reschedule the
+entire unresolved native terminal fromOctober21 toOctober22. A separate immutable
+input component must suppress only the exact misdated native term, then inject
+its same unresolved fields onOctober22. It must not fill cash_per_share with18,
+claim complete consideration, change a bar or extend the terminal kinds. The
+known18USD and contingent-right contract remain explicit source evidence. The
+ordinary own-predecessor-bound repair commits the suppression and all three
+component hashes; its input wrapper commits the exact one-day rescheduling.
+
+Qualify both actual packets, original-packet immutability, exact native digest,
+correct date and deliberately retained incompleteness before advancing. Activate
+this wrapper together with retained v1/distribution wrappers; every later suffix
+must retain and reactivate it with identical hydration. The canonical engine
+must still refuse if the unresolved terminal has a relevant holding, pending
+order or leadership dependency. Passing an unused term does not create a CVR or
+authorize ignoring an owned right. No incomplete consideration may be relabelled
+complete to finish the run. An actual subsequent refusal onOctober22 is preserved
+and identifies the remaining model limitation after correcting the false date.
+
+This is the same P02-only exact suffix, not a new profile or valuation convention.
+No canonical financial-source bytes, policy, balances, flags or origin change.
+The shared single-writer group, source/restore/all-prefix/tail and independent
+accounting gates remain mandatory. No other candidate starts.
+
+- https://www.sec.gov/Archives/edgar/data/1423824/000119312519271319/d822414d8k.htm
+- https://www.miaxglobal.com/sites/default/files/alert-files/ALDR_Merger_45844..pdf
+- https://nasdaqtrader.com/TraderNews.aspx?id=ECA2019-208

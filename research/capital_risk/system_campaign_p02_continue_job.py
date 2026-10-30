@@ -19,7 +19,7 @@ from seal import sha256_file
 
 HERE=Path(__file__).resolve().parent
 SOURCES=tuple(dict.fromkeys((*PRIOR_SOURCES,'system_campaign_p02_continue_job.py',
-    'system_campaign_p02_continue_run.py','system_campaign_tableau_facts.py')))
+    'system_campaign_p02_continue_run.py','system_campaign_tableau_facts.py','system_campaign_alder_facts.py')))
 
 
 def expected_request(predecessors_file='system-campaign-p02-continuation-predecessors.json',new_component='tableau'):
