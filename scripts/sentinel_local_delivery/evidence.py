@@ -242,6 +242,7 @@ def require_post_trade_successor(current):
             and alert.get('severity')=='CRITICAL' and alert.get('ack_state')=='UNACKNOWLEDGED'
             and isinstance(payload,dict) and payload.get('reason')=='WAITING_FOR_LEADER'
             and payload.get('control_generation')==control['generation']
+            and type(payload.get('broker_outcome_unresolved')) is int
             and payload.get('broker_outcome_unresolved')==0,
             'POST_TRADE_SUCCESSOR_UNRELATED_INCIDENT')
 
@@ -257,9 +258,16 @@ def require_successor_worker_restart(host, item):
     def text(value):
         return value.decode(errors='replace') if isinstance(value,bytes) else value or ''
     lines=(text(result.stdout)+'\n'+text(getattr(result,'stderr',''))).splitlines()
+    starts=[index for index,line in enumerate(lines) if 'Traceback (most recent call last):' in line]
+    require(bool(starts),'POST_TRADE_SUCCESSOR_WORKER_INCIDENT_NOT_EXACT')
+    lines=lines[starts[-1]:]
     errors=[line for line in lines if re.search(r'\b[A-Za-z_][A-Za-z_0-9.]*: ',line)
         and ('Error:' in line or 'Refused:' in line or 'Changed:' in line)]
-    require(bool(errors) and 'ImmutableAlertChanged:' in errors[-1],
+    collision='ImmutableAlertChanged: alert idempotency key was reused with different content'
+    traceback='\n'.join(lines)
+    require(bool(errors) and errors[-1].endswith(collision)
+        and re.search(r'File "[^"]*/sentinel/automation_runtime\.py", line [0-9]+, in notify\b',traceback)
+        and re.search(r'File "[^"]*/sentinel/automation/outbox\.py", line [0-9]+, in enqueue\b',traceback),
         'POST_TRADE_SUCCESSOR_WORKER_INCIDENT_NOT_EXACT')
     return dict(container=item['Id'],image=item['Image'],exception='ImmutableAlertChanged')
 

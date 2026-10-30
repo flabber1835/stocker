@@ -329,6 +329,7 @@ def test_post_trade_successor_keeps_completed_and_current_authority_distinct():
     (('successor','current_plan','rollout_certificate_sha256'),'foreign'),
     (('successor','original_plan','rollout_certificate_sha256'),'foreign'),
     (('retained_incidents',),{}),(('reconciliation',),None),
+    (('retained_incidents','a'*64,'payload','broker_outcome_unresolved'),False),
     (('inflight',),1),(('jobs_active',),1),(('control','kill_switch_engaged'),True),
 ])
 def test_post_trade_successor_refuses_changed_completed_current_or_idle_subject(path,value):
@@ -359,13 +360,33 @@ def test_only_exact_owned_successor_restart_is_an_admissible_predecessor(mode,su
     host.request['predecessor']['image']='old-image'
     item=dict(Id='owned-worker',Image='old-image',
         State=dict(Running=True,Restarting=True,OOMKilled=False))
-    host.run=lambda *a,**k:SimpleNamespace(stdout=b'',stderr=(
-        '2031-04-22T14:00:00Z sentinel.automation.model.'+exception+': exact failure').encode())
+    log=('2031-04-22T14:00:00Z Traceback (most recent call last):\n'
+         '2031-04-22T14:00:00Z   File "/app/sentinel/automation_runtime.py", line 99, in notify\n'
+         '2031-04-22T14:00:00Z   File "/app/sentinel/automation/outbox.py", line 99, in enqueue\n'
+         '2031-04-22T14:00:00Z sentinel.automation.model.'+exception+
+         ': alert idempotency key was reused with different content')
+    host.run=lambda *a,**k:SimpleNamespace(stdout=b'',stderr=log.encode())
     if mode=='POST_TRADE_SUCCESSOR' and supported and exception=='ImmutableAlertChanged':
         assert fixture.evidence.require_successor_worker_restart(host,item)['container']=='owned-worker'
     else:
         with pytest.raises(fixture.model.DeliveryRefused):
             fixture.evidence.require_successor_worker_restart(host,item)
+
+
+@pytest.mark.parametrize('fault',['message','notify_frame','outbox_frame'])
+def test_successor_rejects_same_exception_from_another_message_or_call_path(fault):
+    from types import SimpleNamespace
+    host=successor_host();host.request['predecessor']['image']='old-image'
+    item=dict(Id='owned-worker',Image='old-image',
+        State=dict(Running=True,Restarting=True,OOMKilled=False))
+    message='alert idempotency key was reused with different content' if fault!='message' else 'different integrity failure'
+    lines=['Traceback (most recent call last):']
+    if fault!='notify_frame':lines.append('  File "/app/sentinel/automation_runtime.py", line 99, in notify')
+    if fault!='outbox_frame':lines.append('  File "/app/sentinel/automation/outbox.py", line 99, in enqueue')
+    lines.append('sentinel.automation.model.ImmutableAlertChanged: '+message)
+    host.run=lambda *a,**k:SimpleNamespace(stdout=b'',stderr='\n'.join(lines).encode())
+    with pytest.raises(fixture.model.DeliveryRefused,match='INCIDENT_NOT_EXACT'):
+        fixture.evidence.require_successor_worker_restart(host,item)
 
 
 def test_successor_probe_validates_old_intent_and_current_canonical_plan_separately():
