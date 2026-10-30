@@ -730,7 +730,7 @@ def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
             raise CorpusLockUnavailable('panel source pin retry deadline expired') from last_error
         _set_statement_timeout(conn, max(1, int(remaining * 1000)))
         try:
-            return readers.status_snapshot(conn)
+            return readers.status_snapshot(conn, include_publication=True)
         except CorpusLockUnavailable as exc:
             last_error = exc
             conn.rollback()
@@ -776,7 +776,11 @@ def _feed_rows(database_url: str, *, post_close_wait=None,
         # A rolling page load verifies receipts, not the full price window.
         feed, front_err = _read(conn, _feed_status_snapshot,
                                STATEMENT_TIMEOUT_MS, default=(None, None))
-        frontier, snap = feed
+        if len(feed) == 3:
+            frontier, snap, publication_version = feed
+        else:
+            frontier, snap = feed
+            publication_version = None
         if snap is None:
             # NEVER False. Nothing has computed a verdict — "we have not asked"
             # is not "the corpus failed a clause", and `model.feed_row` already
@@ -827,6 +831,9 @@ def _feed_rows(database_url: str, *, post_close_wait=None,
                              f"OPERATIONAL SNAPSHOT · {run['current_chunk']}"),
                              detail=(run['current_chunk'] if run.get('status') == 'success'
                                      else ingest.detail))
+            if run.get('preparation') is not None:
+                ingest = replace(ingest,
+                    preparation=model.PreparationWork.model_validate(run['preparation']))
         rows = [
             # A frontier that TIMED OUT is not an unreadable database — the
             # connection is open and the ingest row right below was just read
@@ -844,7 +851,7 @@ def _feed_rows(database_url: str, *, post_close_wait=None,
                            error=(f"frontier {front_err}" if front_err else None),
                            ingest_running=(run.get("status") == "running"),
                            ingest_updated_at=_utc(run.get("updated_at")),
-                           frontier_ahead=ahead),
+                           frontier_ahead=ahead, publication_version=publication_version),
             ingest,
         ]
         if (post_close_wait is not None and not run_err and not front_err
@@ -2023,23 +2030,104 @@ def _latest_verified_chain(history: list[dict]) -> list[dict]:
             if row.get("verdict") == "VERIFIED"]
 
 
-def _operational_acquisition(conn):
+_PREPARATION_SQL = """WITH current_publication AS (
+    SELECT version,previous_version FROM sentinel_corpus_publications
+    ORDER BY version DESC LIMIT 1)
+    SELECT to_jsonb(j),clock_timestamp(),p.version,p.previous_version,
+        (b.job_id IS NOT NULL),
+        EXISTS (SELECT 1 FROM sentinel_snapshot_workers w
+            WHERE w.owner=j.owner AND w.job_id=j.job_id),
+        (SELECT count(*) FROM sentinel_snapshot_job_components c WHERE c.job_id=j.job_id)
+    FROM sentinel_snapshot_jobs j
+    JOIN sentinel_operational_snapshot_jobs o USING(job_id)
+    LEFT JOIN current_publication p ON TRUE
+    LEFT JOIN sentinel_operational_snapshots b ON b.publication_version=p.version
+        AND b.job_id=j.job_id AND b.candidate_id=j.candidate_id
+        AND j.publication_version=p.version
+    WHERE j.request #>> '{window,sessions,-1}'=%s
+        AND j.request->>'cursor' IS NULL
+        AND j.state IN ('ACQUIRING','WAIT_SOURCE','STAGING','VALIDATING',
+                        'READY','RETRY_WAIT','PUBLISHED')
+        AND ((j.state<>'PUBLISHED' AND j.request->>'expected_publication_version'
+                IS NOT DISTINCT FROM p.version::text)
+            OR (j.state='PUBLISHED' AND b.job_id IS NOT NULL))
+    ORDER BY j.created_at DESC,j.job_id DESC LIMIT 2"""
+
+
+def _preparation_work(record, *, target):
+    """Validate cheap producer metadata, never corpus or execution admission."""
+    from sentinel.feed import calendar, operational_snapshot, rolling_go_inputs, rolling_jobs
+    from sentinel.feed.rolling_contract import digest
+
+    job, sampled, current_version, prior_version, published_binding, registered, components = record
+    def clock(value):
+        if value is None:
+            return None
+        parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+        if not isinstance(parsed, datetime) or parsed.utcoffset() is None:
+            raise ValueError('operational preparation clock is not timezone aware')
+        return parsed
+    sampled = clock(sampled)
+    created = clock(job['created_at'])
+    request = rolling_jobs.PreparationRequest.model_validate(job['request'])
+    expected_scope = digest({'schema': operational_snapshot.SCHEMA,
+        'dependencies': digest({'scope': rolling_go_inputs.SCHEMA})})
+    if (request.request_sha256 != job['request_sha256']
+            or request.cursor is not None
+            or request.dependencies_sha256 != expected_scope
+            or str(request.window.end) != target
+            or calendar.latest_closed_session(sampled) != target
+            or created < calendar.session_window(target)[1]):
+        raise ValueError('operational preparation request is not current closing-data work')
+    if job['state'] == 'PUBLISHED':
+        if (published_binding is not True or type(current_version) is not int
+                or job['publication_version'] != current_version
+                or request.expected_publication_version != prior_version):
+            raise ValueError('published preparation lacks the current job/candidate binding')
+    elif request.expected_publication_version != current_version:
+        raise ValueError('operational preparation publication CAS changed')
+    # No strategy-source/dependency hashing here: this is a progress fact, not
+    # the independent feed readiness or signed financial subject proof.
+    return model.PreparationWork(job_id=str(job['job_id']),
+        decision_session=date.fromisoformat(target),
+        effective_session=date.fromisoformat(calendar.next_session(target)),
+        state=job['state'], rows_done=job['rows_done'], components_done=components,
+        created_at=created, updated_at=clock(job['updated_at']),
+        last_progress_at=clock(job['last_progress_at']), observed_at=sampled,
+        deadline=clock(job['deadline']), lease_until=clock(job.get('lease_until')),
+        owner_registered=registered, fence=job['fence'],
+        next_retry=clock(job.get('next_retry'))).model_dump()
+
+
+def _operational_acquisition(conn, *, now=None):
     """Current source jobs, never the empty legacy ingest ledger."""
     record = conn.execute(
-        "SELECT j.state,j.reason,j.updated_at,j.rows_done,j.publication_version "
+        "SELECT j.state,j.reason,j.updated_at,j.rows_done,j.publication_version,j.job_id "
         "FROM sentinel_snapshot_jobs j JOIN sentinel_operational_snapshot_jobs o USING(job_id) "
         "ORDER BY j.created_at DESC,j.job_id DESC LIMIT 1").fetchone()
     if record is None:
         return []
-    state, reason, updated, count, version = record
+    state, reason, updated, count, version, latest_job_id = record
     if state == 'PUBLISHED' and version is None:
         raise ValueError('published acquisition lacks publication identity')
     status = ('success' if state == 'PUBLISHED' else 'failed' if state in {
         'REFUSED', 'ABORTED'} else 'running')
-    return [dict(kind='OPERATIONAL SNAPSHOT', status=status, updated_at=updated,
+    run = dict(kind='OPERATIONAL SNAPSHOT', status=status, updated_at=updated,
                  rows_written=count, chunks_done=0, chunks_total=0,
                  current_chunk=f'{state} · publication {version}' if version is not None else state,
-                 error_message=reason if status == 'failed' else None)]
+                 error_message=reason if status == 'failed' else None)
+    from sentinel.feed import calendar
+    target = calendar.latest_closed_session(now or datetime.now(timezone.utc))
+    candidates = conn.execute(_PREPARATION_SQL, (target,)).fetchall()
+    if len(candidates) == 1:
+        try:
+            if str(candidates[0][0]['job_id']) == str(latest_job_id):
+                run['preparation'] = _preparation_work(candidates[0], target=target)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            # Optional progress cannot hide or reinterpret the existing job
+            # status. Missing/foreign/malformed metadata simply earns no badge.
+            pass
+    return [run]
 
 
 def _informational_mirror_count(conn) -> int:

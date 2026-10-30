@@ -188,3 +188,247 @@ def test_guard_falsifier_detects_a_book_bypassing_its_authentication_gate():
     assert 'data-slot-id=' not in overview._slots_html(panel)
     with pytest.raises(AssertionError):
         assert 'data-slot-id=' not in namespace['_slots_html'](panel)
+
+
+def preparing_panel(*, now=NOW, state='ACQUIRING', **changes):
+    values = dict(job_id='owned-next-close', decision_session=date(2026,10,22),
+        effective_session=date(2026,10,23), state=state, rows_done=1720712,
+        components_done=31, created_at=now-timedelta(minutes=20), updated_at=now,
+        last_progress_at=now-timedelta(minutes=2), observed_at=now,
+        deadline=now+timedelta(hours=1), lease_until=now+timedelta(seconds=35),
+        owner_registered=True, fence=4)
+    values.update(changes)
+    work = model.PreparationWork(**values)
+    ingest = model.Row('ingest','Acquisition','OPERATIONAL SNAPSHOT · '+state,model.WARN,
+        as_of=now, required_current=True, valid_until=work.deadline,
+        recovery=RecoveryEvidence(phase='FEED_INGEST',automatic=True,deadline=work.deadline),
+        preparation=work)
+    return model.Panel(now=now, rows=[ingest])
+
+
+def _headline(panel, **options):
+    from sentinel.panel.render import render
+    return render(panel, **options).split('id="operational-state"',1)[1].split('</span>',1)[0]
+
+
+@pytest.mark.parametrize('state,stage',[
+    ('ACQUIRING','Downloading closing data'), ('STAGING','Preparing downloaded data'),
+    ('VALIDATING','Validating market data'), ('READY','Waiting to publish validated data')])
+def test_owned_preparation_is_healthy_without_claiming_a_saved_plan(state,stage):
+    from sentinel.panel.presentation import dashboard_health
+    panel = preparing_panel(state=state)
+    before = deepcopy(panel)
+    health = dashboard_health(panel)
+    assert health['status'] == 'ok' and health['color'] == 'green'
+    assert health['label'] == 'Healthy · '+stage and health['plan_readiness'] == 'pending'
+    assert health['valid_until'] == (NOW+timedelta(seconds=35)).isoformat()
+    assert panel.overall == panel.operational == model.WARN
+    assert 'class="state ok"' in _headline(panel)
+    html = overview.overview_html(panel)
+    assert stage in html and 'Next trading plan: not ready yet.' in html
+    assert 'Friday, Oct 23' in html and 'Closing session: 2026-10-22' in html
+    assert 'Current-stage rows recorded: 1,720,712. Source components completed: 31.' in html
+    assert 'Oct 22, 2026 · 9:11 PM Pacific' in html  # Original progress, not render time.
+    assert '%' not in html and 'ETA' not in html and 'Ready to trade' not in html
+    assert panel == before
+
+
+@pytest.mark.parametrize('changes',[
+    {'owner_registered':False}, {'fence':0}, {'lease_until':None}, {'lease_until':NOW},
+    {'state':'WAIT_SOURCE'}, {'state':'RETRY_WAIT'}])
+def test_unowned_expired_or_parked_preparation_stays_amber_without_active_copy(changes):
+    from sentinel.panel.presentation import dashboard_health
+    panel = preparing_panel(**changes)
+    health = dashboard_health(panel)
+    assert health['status'] == 'warn' and health['label'].startswith('Preparation delayed')
+    assert 'Downloading closing data' not in overview.overview_html(panel)
+    assert 'Healthy' not in _headline(panel)
+
+
+def test_waiting_retry_and_published_work_keep_recorded_stage_without_inventing_calculation():
+    from sentinel.panel.presentation import dashboard_health
+    retry = preparing_panel(state='RETRY_WAIT',next_retry=NOW+timedelta(minutes=5))
+    html = overview.overview_html(retry)
+    assert 'Waiting to retry data acquisition' in html and 'Recorded retry:' in html
+    assert 'Downloading closing data' not in html
+    published = preparing_panel(state='PUBLISHED',owner_registered=False,lease_until=None)
+    row = published.rows[0]
+    published = replace(published,rows=[replace(row,status=model.OK,recovery=None)])
+    assert dashboard_health(published)['label'] == 'Healthy · Market data published · plan preparation pending'
+    assert 'Calculating' not in overview.overview_html(published)
+
+
+def test_atomic_publication_proof_wins_over_the_committed_jobs_old_lease():
+    from sentinel.panel.presentation import dashboard_health
+    panel = preparing_panel(state='PUBLISHED',owner_registered=False,lease_until=NOW)
+    deadline = NOW+timedelta(minutes=2)
+    panel = replace(panel,rows=[replace(panel.rows[0],status=model.OK,recovery=None),
+        model.Row('shadow_worker','Worker','RUNNING',model.OK,as_of=NOW,
+            required_current=True,valid_until=NOW+timedelta(seconds=60)),
+        model.Row('feed','Feed','WAITING',model.WARN,as_of=NOW,
+            required_current=True,valid_until=deadline,recovery=RecoveryEvidence(
+                phase='SOURCE_PUBLICATION',automatic=True,deadline=deadline))])
+    health = dashboard_health(panel)
+    assert health['label'] == 'Healthy · Publishing closing data'
+    assert health['valid_until'] == (NOW+timedelta(seconds=45)).isoformat()
+    assert 'Publishing closing data' in overview.overview_html(panel)
+    assert 'Downloading closing data' not in _headline(panel)
+
+
+@pytest.mark.parametrize('negative',[
+    model.Row('automation_alerts','Alerts','CURRENT INCIDENT',model.FAIL),
+    model.Row('shadow_nav','Metric','UNREADABLE',model.UNKNOWN),
+    model.Row('other','Other','UNAVAILABLE',model.UNKNOWN)])
+def test_healthy_preparation_never_overrules_any_visible_negative_check(negative):
+    from sentinel.panel.presentation import dashboard_health
+    panel = preparing_panel()
+    panel = replace(panel,rows=[*panel.rows,negative])
+    assert dashboard_health(panel)['status'] == 'fail'
+    assert '>Needs attention' in _headline(panel) and 'Healthy' not in _headline(panel)
+
+
+@pytest.mark.parametrize('other',[
+    model.Row('other','Other','WAITING',model.WARN),
+    model.Row('automation_cycle','Cycle','PREPARING',model.WARN)])
+def test_unclassified_waits_need_review_even_beside_a_live_job(other):
+    from sentinel.panel.presentation import dashboard_health
+    panel = preparing_panel()
+    panel = replace(panel,rows=[*panel.rows,other])
+    assert dashboard_health(panel)['status'] == 'warn'
+    assert 'Needs review' in _headline(panel) and 'Healthy' not in _headline(panel)
+
+
+def test_expected_future_capabilities_are_neutral_but_an_empty_setup_or_required_pending_is_not_green():
+    from sentinel.panel.presentation import dashboard_health
+    pending = [model.Row('paper_plan','Next plan','NOT PREPARED',model.PENDING),
+        *[model.Row('automation_step_'+key,key,'NOT REACHED',model.PENDING)
+          for key in ('prepare','open','transport','reconcile','complete')]]
+    panel = preparing_panel()
+    panel = replace(panel,rows=[*panel.rows,*pending])
+    assert dashboard_health(panel)['status'] == 'ok'
+    assert dashboard_health(panel)['plan_readiness'] == 'pending'
+    assert panel.operational == model.WARN
+    assert dashboard_health(model.Panel(now=NOW,rows=pending))['status'] == 'warn'
+    required = model.Row('other','Required','PENDING',model.PENDING,required_current=True)
+    assert dashboard_health(replace(panel,rows=[*panel.rows,required]))['status'] == 'fail'
+
+
+def test_composed_closing_run_has_healthy_acquisition_without_claiming_financial_readiness():
+    from sentinel.panel.presentation import dashboard_health
+    deadline = NOW+timedelta(hours=1)
+    source = RecoveryEvidence(phase='SOURCE_FRONTIER',automatic=True,deadline=deadline)
+    cycle = RecoveryEvidence(phase='AUTOMATION_CLOSING_DATA',automatic=True,deadline=deadline)
+    verify = RecoveryEvidence(phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline)
+    panel = preparing_panel()
+    rows = [*panel.rows,
+        model.Row('shadow_worker','Strategy worker','RUNNING',model.OK,as_of=NOW,
+            required_current=True,valid_until=NOW+timedelta(seconds=60)),
+        model.Row('shadow_verification','Shadow','WAITING FOR INPUTS',model.WARN,
+            as_of=NOW,required_current=True,valid_until=deadline,recovery=source),
+        model.Row('feed','Feed','WAITING FOR CLOSING DATA',model.WARN,
+            as_of=NOW,required_current=True,valid_until=deadline,recovery=source),
+        model.Row('automation_cycle','Cycle','WAITING FOR CLOSING DATA',model.WARN,
+            as_of=NOW,required_current=True,valid_until=deadline,recovery=cycle),
+        model.Row('automation_step_data','Data','WAITING FOR CLOSING DATA',model.WARN,
+            as_of=NOW,required_current=True,valid_until=deadline,recovery=cycle),
+        model.Row('paper_reconciliation','Paper','CHECK IN PROGRESS',model.WARN,
+            as_of=NOW,required_current=True,valid_until=deadline,recovery=verify),
+        model.Row('paper_plan','Next plan','NOT PREPARED',model.PENDING),
+        *[model.Row('automation_step_'+key,key,'NOT REACHED',model.PENDING)
+          for key in ('prepare','open','transport','reconcile','complete')]]
+    panel = replace(panel,rows=rows)
+    assert panel.overall == panel.operational == model.WARN
+    assert dashboard_health(panel)['label'] == 'Healthy · Downloading closing data'
+    assert dashboard_health(panel)['plan_readiness'] == 'pending'
+    assert 'Next trading plan: not ready yet.' in overview.overview_html(panel)
+    failure = model.Row('automation_alerts','Alerts','CURRENT INCIDENT',model.FAIL)
+    assert dashboard_health(replace(panel,rows=[*rows,failure]))['status'] == 'fail'
+
+
+@pytest.mark.parametrize('fault',[None,'missing_leader','disabled','bare_wait','expired'])
+def test_normal_discovery_wait_needs_current_policy_and_live_worker_proof(fault):
+    from sentinel.panel.presentation import dashboard_health
+    deadline = NOW+timedelta(seconds=20)
+    recovery = RecoveryEvidence(phase='AUTOMATION_DISCOVERY',automatic=True,deadline=deadline)
+    rows = [model.Row('automation','Automation','ENABLED · KILL RELEASED',model.OK),
+        model.Row('automation_leader','Leader','ACTIVE',model.OK,as_of=NOW,
+            required_current=True,valid_until=deadline),
+        model.Row('automation_cycle','Cycle','WAITING FOR NEXT DECISION',model.WARN,
+            required_current=True,recovery=recovery)]
+    if fault == 'missing_leader': rows.pop(1)
+    elif fault == 'disabled': rows[0] = replace(rows[0],value='DISABLED')
+    elif fault == 'bare_wait': rows[-1] = replace(rows[-1],required_current=False,recovery=None)
+    panel = model.Panel(now=deadline+timedelta(seconds=1) if fault == 'expired' else NOW,rows=rows)
+    if fault is None:
+        assert dashboard_health(panel)['label'] == 'Healthy · Waiting for next decision'
+        assert dashboard_health(panel)['valid_until'] == deadline.isoformat()
+    else:
+        assert dashboard_health(panel)['status'] != 'ok'
+
+
+@pytest.mark.parametrize('change',[
+    {'key':'other'}, {'value':'WAITING'}, {'required_current':False},
+    {'valid_until':NOW+timedelta(minutes=2)}, {'recovery':None}])
+def test_only_the_exact_bounded_financial_check_is_a_normal_health_wait(change):
+    from sentinel.panel.presentation import dashboard_health
+    deadline = NOW+timedelta(minutes=1)
+    row = model.Row('paper_reconciliation','Paper','CHECK IN PROGRESS',model.WARN,
+        required_current=True,valid_until=deadline,recovery=RecoveryEvidence(
+            phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline))
+    assert dashboard_health(model.Panel(now=NOW,rows=[row]))['label'] == 'Healthy · Checking paper account'
+    assert dashboard_health(model.Panel(now=NOW,rows=[replace(row,**change)]))['status'] != 'ok'
+
+
+def test_source_errors_and_original_progress_expiry_withdraw_healthy_copy():
+    from sentinel.panel.presentation import dashboard_health
+    panel = preparing_panel()
+    assert dashboard_health(replace(panel,source_errors=['unreadable']))['status'] == 'fail'
+    expired = replace(panel,now=NOW+timedelta(seconds=46))
+    assert dashboard_health(expired)['status'] != 'ok'
+    assert 'preparation-title' not in overview.overview_html(expired)
+    assert 'Downloading closing data' not in overview.overview_html(expired)
+    assert 'Next trading plan pending.' in overview.overview_html(expired)
+
+
+def test_preparation_precedes_completed_history_and_yields_to_an_actual_future_plan():
+    from test_panel_trading_run import completed_history, NOW as COMPLETED_NOW
+    panel = preparing_panel(now=COMPLETED_NOW)
+    panel = replace(panel,rows=[*panel.rows,completed_history()])
+    html = overview.overview_html(panel)
+    assert html.index('preparation-title') < html.index('Today’s trades · completed')
+    assert 'The next trading plan is pending.' in html
+    current = example_panel()
+    current = replace(current,rows=[*current.rows,*preparing_panel().rows])
+    html = overview.overview_html(current)
+    assert 'preparation-title' not in html
+    assert 'Next trading plan: saved for its scheduled market open.' in html
+    assert 'data-security-id="PANW"' in html
+
+
+def test_preparation_copy_escapes_data_and_retained_views_withdraw_current_claims(monkeypatch):
+    from sentinel.panel.render import render
+    panel = preparing_panel(lease_until=NOW+timedelta(seconds=12))
+    html = render(panel)
+    assert 'data-max-age-seconds="12.0"' in html
+    assert '}, 1000)' in html  # Refresh at one second when only twelve seconds remain.
+    retained = render(panel,refresh_pending=True)
+    assert 'class="state ok"' not in retained.split('</header>',1)[0]
+    assert 'Last known · Downloading closing data' in retained
+    assert 'Last known · Next trading plan: not ready yet.' in retained
+    attack = '<script>alert("x")</script>'
+    monkeypatch.setattr(overview,'preparation_stage',lambda _:attack)
+    html = overview.overview_html(panel)
+    assert attack not in html and '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;' in html
+
+
+def test_live_owner_admission_has_an_executed_health_removal_falsifier(monkeypatch):
+    from sentinel.panel import presentation
+    source = inspect.getsource(presentation._normal_warning)
+    guard = 'and row.preparation.active_at(panel.now)'
+    assert source.count(guard) == 1
+    namespace = dict(vars(presentation))
+    exec(compile(source.replace(guard,''),'missing-live-preparation-owner','exec'),namespace)
+    monkeypatch.setattr(presentation,'_normal_warning',namespace['_normal_warning'])
+    with pytest.raises(AssertionError):
+        test_unowned_expired_or_parked_preparation_stays_amber_without_active_copy(
+            {'owner_registered':False})

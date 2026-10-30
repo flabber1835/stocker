@@ -101,6 +101,25 @@ def project_progress(feed_rows, automation_rows, financial_rows, worker, *, now)
     """Withdraw old PASS; preserve failures while confirmed publication runs."""
     publication=publication_deadline(financial_rows,worker,now=now)
     attestation=attestation_deadline(financial_rows,worker,now=now)
+    if attestation is not None:
+        from sentinel.panel.shadow_source_wait import attestation_source
+        proof = next(row for row in financial_rows if row.key == 'shadow_verification')
+        source = attestation_source(proof, now=now)
+        boundary = min(attestation, worker.valid_until)
+        if now < boundary and source is not None:
+            feed_rows = [replace(row, valid_until=boundary,
+                detail=('Current publication is awaiting its measured readiness handoff; '
+                        f'certified strategy attestation is active within its original deadline '
+                        f'{boundary.isoformat()}. No readiness verdict has been claimed.'),
+                recovery=model.RecoveryEvidence(phase='SHADOW_ATTESTATION', automatic=True,
+                                               deadline=boundary))
+                if (row.key == 'feed' and row.status == model.WARN and row.required_current
+                    and row.feed_readiness == 'AWAITING_VERDICT'
+                    and type(row.source_publication_version) is int
+                    and row.source_publication_version == source[0]
+                    and row.source_session == source[1]
+                    and not row.is_future(now) and not row.is_stale(now))
+                else row for row in feed_rows]
     if publication is not None:
         feed_rows=[replace(row,status=model.WARN,value='DATA PUBLICATION IN PROGRESS',
             detail=('Live atomic publisher confirmed; last committed progress '

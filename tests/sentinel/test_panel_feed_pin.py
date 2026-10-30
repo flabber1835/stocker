@@ -37,7 +37,8 @@ def test_reacquires_snapshot_and_keeps_negative_verdict_and_original_clock(monke
     original = ('2026-10-22', SimpleNamespace(ready=False,
         computed_at=datetime(2026, 10, 22, 22, tzinfo=timezone.utc)))
 
-    def attempt(_):
+    def attempt(_, *, include_publication=False):
+        assert include_publication is True
         calls.append(True)
         if len(calls) == 1:
             raise CorpusLockUnavailable('publication owns the pin')
@@ -54,7 +55,8 @@ def test_reacquires_snapshot_and_keeps_negative_verdict_and_original_clock(monke
 def test_persistent_lock_expires_at_original_deadline(monkeypatch):
     clock, conn, timeouts = Clock(), Connection(), []
 
-    def busy(_):
+    def busy(_, *, include_publication=False):
+        assert include_publication is True
         raise CorpusLockUnavailable('still owned')
 
     monkeypatch.setattr(readers, 'status_snapshot', busy)
@@ -70,7 +72,8 @@ def test_persistent_lock_expires_at_original_deadline(monkeypatch):
 def test_integrity_and_timeouts_are_not_retried(monkeypatch, error):
     clock, conn, calls = Clock(), Connection(), []
 
-    def fail(_):
+    def fail(_, *, include_publication=False):
+        assert include_publication is True
         calls.append(True)
         raise error
 
@@ -87,7 +90,8 @@ def test_full_feed_projection_recovers_or_stays_red_without_erasing_ingest(monke
     now = datetime(2026, 10, 23, 14, tzinfo=timezone.utc)
     snapshot = SimpleNamespace(ready=True, checks_passed=7, checks_total=7, computed_at=now)
 
-    def attempt(_):
+    def attempt(_, *, include_publication=False):
+        assert include_publication is True
         calls.append(True)
         if persistent or len(calls) == 1:
             raise CorpusLockUnavailable('snapshot reader cannot pin during publication or retirement')

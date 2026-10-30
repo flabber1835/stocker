@@ -41,6 +41,8 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None):
     elif mutation == 'resume-renewal':
         script = script.replace('if (resumeStarted === null)', 'if (true)').replace(
             'resumeStarted = Date.now();', 'clearTimeout(resumeTimer); resumeStarted = Date.now();')
+    elif mutation == 'preparation-withdrawal':
+        script = script.replace('withdrawPreparation();', '')
     return subprocess.run([node, str(Path(__file__).with_name('panel_refresh_harness.cjs'))],
         input=json.dumps({'script':script,'generated':generated.isoformat(),'failure':failure,
                           'wake':wake,'budget':str(PRESENTATION_MAX_AGE_SECONDS)}),
@@ -135,6 +137,14 @@ def test_broken_app_resume_guards_are_detected(mutation,wake,expected):
     result=run_refresh('busy',wake=wake,mutation=mutation)
     assert result.returncode != 0
     assert expected in result.stderr
+
+
+@pytest.mark.parametrize('wake', ['ordinary-expiry','resume-success','offline'])
+def test_live_preparation_copy_cannot_survive_its_original_document_authority(wake):
+    result = run_refresh('busy',wake=wake)
+    assert result.returncode == 0, result.stderr
+    broken = run_refresh('busy',wake=wake,mutation='preparation-withdrawal')
+    assert broken.returncode != 0 and 'withdraw live preparation copy' in broken.stderr
 
 
 def run_push(scenario, *, remove_guard=False):

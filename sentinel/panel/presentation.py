@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 import re
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.model import Row, FINANCIAL_AUTHORITY_ROW_KEYS
+from sentinel.panel.model import Row, FINANCIAL_AUTHORITY_ROW_KEYS, OPERATIONAL_INFORMATIONAL_ROW_KEYS
 
 _CLOSING_DATA_PHASES = frozenset({
     'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
@@ -100,6 +100,153 @@ def is_closing_data_preparation(row: Row, status: str) -> bool:
             and recovery.automatic and not recovery.operator_required
             and _pacific(row.valid_until) is not None
             and row.valid_until == recovery.deadline)
+
+
+def _aware(value) -> bool:
+    return isinstance(value, datetime) and value.utcoffset() is not None
+
+
+def _row_boundary(row: Row) -> datetime | None:
+    values = []
+    if _aware(row.valid_until):
+        values.append(row.valid_until)
+    elif _aware(row.as_of) and row.freshness is not None:
+        values.append(row.as_of+row.freshness)
+    if row.recovery is not None and _aware(row.recovery.deadline):
+        values.append(row.recovery.deadline)
+    return min(values) if values else None
+
+
+def _fresh_worker(panel, key: str) -> bool:
+    row = panel.row(key)
+    return (row is not None and row.effective_status(panel.now) == 'ok'
+            and row.required_current and _aware(row.as_of)
+            and not row.is_future(panel.now) and not row.is_stale(panel.now)
+            and _row_boundary(row) is not None and panel.now < _row_boundary(row))
+
+
+def _closing_source_proof(panel) -> bool:
+    return (_fresh_worker(panel, 'shadow_worker') and any(
+        is_closing_data_preparation(row, row.effective_status(panel.now))
+        and row.recovery.active(panel.now)
+        and row.recovery.phase in {
+            'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
+            'SHADOW_ATTESTATION'} for row in panel.rows))
+
+
+def _normal_idle(panel, row: Row) -> bool:
+    policy = panel.row('automation')
+    return (row.key in {'automation_cycle', 'automation_step_discovery'}
+            and row.value in {'WAITING FOR NEXT DECISION', 'WAITING FOR CYCLE'}
+            and row.recovery is not None and row.recovery.phase == 'AUTOMATION_DISCOVERY'
+            and row.recovery.active(panel.now) and _aware(row.recovery.deadline)
+            and panel.now < row.recovery.deadline and policy is not None
+            and policy.effective_status(panel.now) == 'ok'
+            and policy.value == 'ENABLED · KILL RELEASED'
+            and _fresh_worker(panel, 'automation_leader'))
+
+
+def _normal_warning(panel, row: Row) -> bool:
+    recovery = row.recovery
+    if (row.effective_status(panel.now) != 'warn' or recovery is None
+            or not recovery.automatic or recovery.operator_required
+            or not recovery.active(panel.now) or not _aware(recovery.deadline)
+            or not panel.now < recovery.deadline or row.is_future(panel.now)):
+        return False
+    if (is_closing_data_preparation(row, 'warn') and _closing_source_proof(panel)):
+        return True
+    if (row.key == 'paper_reconciliation' and row.value == 'CHECK IN PROGRESS'
+            and row.required_current and recovery.phase == 'FINANCIAL_VERIFICATION'
+            and row.valid_until == recovery.deadline and not row.is_stale(panel.now)):
+        return True
+    if (row.key == 'ingest' and recovery.phase == 'FEED_INGEST'
+            and row.can_show_preparation(panel.now)
+            and row.preparation.active_at(panel.now)):
+        return True
+    if _normal_idle(panel, row):
+        return True
+    alignment = panel.row('paper_reconciliation')
+    return (panel.local_paper_mode and panel.operational == 'ok'
+            and row.key in {'automation_cycle', 'automation_step_open'}
+            and row.value == 'WAITING_OPEN'
+            and recovery.phase in {'AUTOMATION_WAITING_OPEN', 'AUTOMATION_OPEN'}
+            and alignment is not None and alignment.paper_alignment == 'SCHEDULED'
+            and alignment.effective_status(panel.now) == 'ok')
+
+
+def preparation_stage(panel) -> str | None:
+    """Describe admitted work, never infer a live stage from a retry string."""
+    if _closing_source_proof(panel):
+        phases = {row.recovery.phase for row in panel.rows
+                  if is_closing_data_preparation(row, row.effective_status(panel.now))
+                  and row.recovery.active(panel.now)}
+        if 'SOURCE_PUBLICATION' in phases:
+            return 'Publishing closing data'
+        if phases & {'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION'}:
+            return 'Preparing strategy verification'
+    row = panel.row('ingest')
+    if row is not None and row.can_show_preparation(panel.now):
+        work = row.preparation
+        if work.active_at(panel.now):
+            return {'ACQUIRING': 'Downloading closing data',
+                    'STAGING': 'Preparing downloaded data',
+                    'VALIDATING': 'Validating market data',
+                    'READY': 'Waiting to publish validated data'}[work.state]
+        if work.state == 'PUBLISHED':
+            return 'Market data published · plan preparation pending'
+        if work.state in {'WAIT_SOURCE', 'RETRY_WAIT'}:
+            return 'Waiting to retry data acquisition'
+        return 'Data preparation awaiting a worker'
+    if _closing_source_proof(panel):
+        return 'Waiting for closing data'
+    if any(row.key == 'paper_reconciliation' and row.recovery is not None
+           and row.recovery.phase == 'FINANCIAL_VERIFICATION'
+           and _normal_warning(panel, row) for row in panel.rows):
+        return 'Checking paper account'
+    if any(_normal_idle(panel, row) for row in panel.rows):
+        return 'Waiting for next decision'
+    return None
+
+
+def dashboard_health(panel) -> dict:
+    """Human system health is separate from unchanged machine readiness."""
+    plan = panel.row('paper_plan')
+    plan_readiness = ('ready' if plan is not None and plan.can_show_paper_plan(panel.now)
+                      else 'unavailable' if plan is not None
+                      and plan.effective_status(panel.now) in {'fail', 'unknown'} else 'pending')
+    statuses = [(row, row.effective_status(panel.now)) for row in panel.rows]
+    warnings = [row for row, status in statuses
+                if status == 'warn' and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS]
+    negative = bool(panel.source_errors) or any(
+        status in {'fail', 'unknown'} for _row, status in statuses)
+    normal = bool(panel.rows) and not negative and (
+        all(_normal_warning(panel, row) for row in warnings) if warnings
+        else any(status == 'ok' for _row, status in statuses))
+    status = 'fail' if negative else 'ok' if normal else 'warn'
+    stage = preparation_stage(panel)
+    label = ('Needs attention' if negative else 'Healthy'+(' · '+stage if stage else '')
+             if status == 'ok' else
+             ('Preparation delayed' if stage in {'Waiting to retry data acquisition',
+                 'Data preparation awaiting a worker'} else 'Needs review')
+             +(' · '+stage if stage else ''))
+    broker = panel.row('broker')
+    if (status == 'warn' and broker is not None and broker.effective_status(panel.now) == 'warn'
+            and broker.recovery is not None and broker.recovery.phase == 'BROKER_FILL_SNAPSHOT'
+            and broker.recovery.active(panel.now)):
+        label = 'Reconciling fills'
+    boundaries = [_row_boundary(row) for row, item_status in statuses
+                  if row.required_current and item_status in {'ok', 'warn'}]
+    boundaries = [value for value in boundaries if value is not None]
+    work_row = panel.row('ingest')
+    if work_row is not None and work_row.can_show_preparation(panel.now):
+        work = work_row.preparation
+        boundaries.append(work.observed_at+timedelta(seconds=45))
+        if work.active_at(panel.now) and not (stage == 'Publishing closing data'):
+            boundaries.append(work.active_until)
+    boundary = min(boundaries) if boundaries else None
+    return dict(status=status, color={'ok': 'green', 'warn': 'amber', 'fail': 'red'}[status],
+                label=label, valid_until=boundary.isoformat() if boundary is not None else None,
+                plan_readiness=plan_readiness)
 
 
 def describe(row: Row, status: str) -> tuple[str, str, str]:

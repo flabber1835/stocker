@@ -13,6 +13,8 @@ const reads = [];
 const writes = [];
 const badge = { className: ['known-failure','resume-known-failure'].includes(input.wake) ? 'state fail' : 'state ok', textContent: 'current' };
 const heartbeat = { textContent: 'current' };
+const preparation = { textContent: 'Downloading closing data' };
+const planReadiness = { textContent: 'Next trading plan: not ready yet.' };
 const classes = new Set();
 let focusRestored = false;
 const expandedDetail = {dataset: {detailKey: 'shadow-holdings'}, open: true,
@@ -25,7 +27,8 @@ const document = {
       refreshPending: ['initial-pending','resume-initial-pending'].includes(input.wake) ? 'true' : 'false' } },
   documentElement: { classList: { add: value => classes.add(value), remove: value => classes.delete(value) } },
   visibilityState: input.wake === 'initial-hidden' ? 'hidden' : 'visible',
-  getElementById: id => id === 'operational-state' ? badge : heartbeat,
+  getElementById: id => ({'operational-state': badge, 'preparation-stage': preparation,
+    'plan-readiness': planReadiness})[id] ?? heartbeat,
   addEventListener: (name, fn) => { listeners[name] = fn; },
   querySelectorAll: selector => selector.includes('[open]') ?
     [expandedDetail].filter(item => item.open) : [expandedDetail],
@@ -104,6 +107,9 @@ function failRead(read) {
       process.stdout.write('PASS\n'); return;
     }
     assert.equal(badge.className, 'state warn', 'resume withdraws green without inventing red');
+    assert.equal(preparation.textContent, 'Last known preparation stage · refresh required',
+      'background return must withdraw live preparation copy');
+    assert.equal(planReadiness.textContent, 'Plan readiness not current · refreshing status');
     assert(classes.has('refreshing-status'), 'saved financial values need last-known styling');
     assert.equal(document.body.dataset.generatedAt, original, 'resume cannot renew evidence clocks');
     if (input.wake === 'resume-offline') {
@@ -189,6 +195,9 @@ function failRead(read) {
       } else if (input.wake === 'ordinary-expiry') {
         now = original + Number(input.budget) * 1000 + 1; fireDelay(1000);
         assert.equal(badge.className, 'state fail', 'original expiry withdraws current');
+        assert.equal(preparation.textContent, 'Last known preparation stage · refresh required',
+          'original expiry must withdraw live preparation copy');
+        assert.equal(planReadiness.textContent, 'Plan readiness not current · refreshing status');
         assert.equal(reads.length, first + 1, 'expiry cannot overlap the pending read');
         now = original + 32000; fireDelay(1000);
         assert.equal(badge.className, 'state fail', 'clock rollback cannot restore green');
@@ -217,6 +226,8 @@ function failRead(read) {
     assert(heartbeat.textContent.includes('UPDATED 1s'));
     now += Number(input.budget) * 1000; fireDelay(1000);
     assert.equal(badge.className, 'state fail');
+    assert.equal(preparation.textContent, 'Last known preparation stage · refresh required',
+      'original evidence must withdraw live preparation copy');
     now = stamp + 1000; fireDelay(1000);
     assert.equal(badge.className, 'state fail', 'a local clock cannot restore green');
   } else if (['invalid-date', 'future-date'].includes(input.wake)) {
@@ -241,6 +252,8 @@ function failRead(read) {
     }
     assert.equal(reads.length, 0, 'offline cannot start a network read');
     assert.equal(badge.className, 'state fail');
+    assert.equal(preparation.textContent, 'Last known preparation stage · refresh required',
+      'offline must withdraw live preparation copy');
     listeners.pageshow({persisted: true});
     assert.equal(reads.length, 0);
     context.navigator.onLine = true; listeners.online();

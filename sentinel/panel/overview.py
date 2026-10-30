@@ -12,7 +12,7 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from sentinel.panel.model import FAIL, OK, UNKNOWN, Panel, PaperOrderOutcome, ShadowSlot
-from sentinel.panel.presentation import describe
+from sentinel.panel.presentation import describe, dashboard_health, preparation_stage
 
 
 def _esc(value) -> str:
@@ -110,6 +110,10 @@ def _plan_html(panel: Panel) -> str:
         unavailable = any(item is not None and item.effective_status(panel.now) in {FAIL, UNKNOWN}
                           for item in (row, panel.row('trading_run'),
                                        panel.row('completed_trading_run')))
+        preparation = panel.row('ingest')
+        if (not unavailable and preparation is not None
+                and preparation.can_show_preparation(panel.now)):
+            return ''  # The dated preparation card already describes this absence.
         message = 'Saved trading plan unavailable.' if unavailable else 'Next trading plan pending.'
         return ('<section class="overview-card next-plan" aria-labelledby="next-plan-title">'
                 '<div class="overview-heading"><h2 id="next-plan-title">Next trading plan</h2></div>'
@@ -144,6 +148,47 @@ def _plan_html(panel: Panel) -> str:
         '<p class="overview-note">Decision close: '+_esc(plan.decision_session)+'. Saved '
         +_esc(_clock(plan.created_at))+'. Targets are estimates based on the dated account snapshot.</p>'
         '</div></details></section>')
+
+
+def _preparation_html(panel: Panel, *, refresh_pending: bool = False) -> str:
+    planned = panel.row('paper_plan')
+    if planned is not None and planned.can_show_paper_plan(panel.now):
+        return ''
+    row = panel.row('ingest')
+    if row is None or not row.can_show_preparation(panel.now):
+        return ''
+    work = row.preparation
+    stage = preparation_stage(panel)
+    if stage is None:
+        return ''
+    if refresh_pending:
+        stage = 'Last known · '+stage
+    date = work.effective_session.strftime('%A, %b %d').replace(' 0', ' ')
+    retry = (_stamp(work.next_retry, label='Recorded retry:')
+             if work.state in {'WAIT_SOURCE', 'RETRY_WAIT'} and work.next_retry is not None else '')
+    return (
+        '<section class="overview-card next-plan" aria-labelledby="preparation-title">'
+        '<div class="overview-heading"><div><p class="overview-eyebrow">The next session</p>'
+        '<h2 id="preparation-title">Next trading plan · preparing</h2></div>'
+        '<span class="overview-tag">PAPER</span></div>'
+        '<div class="plan-schedule"><strong>'+_esc(date)+'</strong>'
+        '<span>Plan not ready yet</span></div>'
+        '<p id="preparation-stage" class="overview-note">'+_esc(stage)+'</p>'
+        '<p class="overview-note">Current-stage rows recorded: '+_esc(f'{work.rows_done:,}')
+        +'. Source components completed: '+_esc(f'{work.components_done:,}')+'.</p>'
+        '<p class="overview-note">Closing session: '+_esc(work.decision_session)
+        +'. These recorded counters do not estimate completion time.</p>'
+        +_stamp(work.last_progress_at, label='Last recorded progress:')+retry+'</section>')
+
+
+def _plan_readiness_html(panel: Panel, *, refresh_pending: bool = False) -> str:
+    readiness = dashboard_health(panel)['plan_readiness']
+    value = {'ready': 'Next trading plan: saved for its scheduled market open.',
+             'pending': 'Next trading plan: not ready yet.',
+             'unavailable': 'Next trading plan: unavailable; see System details.'}[readiness]
+    if refresh_pending:
+        value = 'Last known · '+value
+    return '<p id="plan-readiness" class="overview-note">'+_esc(value)+'</p>'
 
 
 def _run_html(panel: Panel) -> str:
@@ -299,7 +344,8 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
     css = 'overview retained-overview' if refresh_pending else 'overview'
     return ('<main class="'+css+'" aria-label="Trading overview">'
             '<p class="overview-withdrawn">Last known overview · status is not current.</p>'
-            +retained+_plan_html(panel)
+            +retained+_plan_readiness_html(panel, refresh_pending=refresh_pending)
+            +_preparation_html(panel, refresh_pending=refresh_pending)+_plan_html(panel)
             +(_run_html(panel) if panel.row('paper_plan') is not None
               and panel.row('paper_plan').can_show_paper_plan(panel.now) else '')
             +_account_html(panel)+_slots_html(panel)+'</main>')

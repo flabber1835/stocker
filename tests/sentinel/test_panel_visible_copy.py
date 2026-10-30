@@ -158,9 +158,11 @@ def test_preparation_headline_requires_it_to_explain_every_operational_warning()
         recovery=RecoveryEvidence(phase='SOURCE_FRONTIER', automatic=True,
             deadline=NOW+timedelta(minutes=1)))
     def headline(rows, **kwargs):
+        rows = [model.Row('shadow_worker', 'Worker', 'RUNNING', model.OK,
+            as_of=NOW, required_current=True, valid_until=NOW+timedelta(minutes=1)), *rows]
         page = render(model.Panel(rows=rows, now=NOW, **kwargs))
         return page.split('id="operational-state"', 1)[1].split('</span>', 1)[0]
-    assert '>Preparing closing data' in headline([row])
+    assert '>Healthy · Waiting for closing data' in headline([row])
     for other in (
             model.Row('other', 'Other', 'FAILED', model.FAIL),
             model.Row('other', 'Other', 'UNAVAILABLE', model.UNKNOWN),
@@ -170,9 +172,9 @@ def test_preparation_headline_requires_it_to_explain_every_operational_warning()
                 as_of=NOW, required_current=True, recovery=RecoveryEvidence(
                     phase='AUTOMATION_REFRESH_AVAILABILITY', automatic=True,
                     deadline=NOW+timedelta(minutes=1)))):
-        assert '>Preparing closing data' not in headline([row, other])
-    assert '>Preparing closing data' not in headline([row], source_errors=['unreadable'])
-    assert '>Preparing closing data' not in headline([replace(row,
+        assert '>Healthy' not in headline([row, other])
+    assert '>Healthy' not in headline([row], source_errors=['unreadable'])
+    assert '>Healthy' not in headline([replace(row,
         valid_until=NOW-timedelta(seconds=1), recovery=replace(row.recovery,
             deadline=NOW-timedelta(seconds=1)))])
     refreshing = render(model.Panel(rows=[row], now=NOW), refresh_pending=True)

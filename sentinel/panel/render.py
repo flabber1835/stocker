@@ -22,12 +22,12 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.presentation import describe, is_closing_data_preparation
+from sentinel.panel.presentation import describe, dashboard_health
 from sentinel.panel.overview import overview_html
 from sentinel.panel.styles import CSS
 
 from sentinel.panel.model import (
-    FAIL, OK, OPERATIONAL_INFORMATIONAL_ROW_KEYS, PENDING, TRIAL_ROW_KEYS,
+    FAIL, OK, PENDING, TRIAL_ROW_KEYS,
     UNKNOWN, WARN, Panel, Row)
 
 #: Refresh cadence. Long enough not to hammer the database from a phone left on
@@ -407,22 +407,27 @@ def _local_paper_guide(panel: Panel) -> str:
 def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
            refresh_pending: bool = False) -> str:
     now = panel.now
+    health = dashboard_health(panel)
     document_age = PRESENTATION_MAX_AGE_SECONDS
     worker = panel.row('shadow_worker')
     if worker is not None and worker.effective_status(now) == OK and worker.valid_until is not None:
         document_age = min(document_age, max(0, (worker.valid_until-now).total_seconds()))
         refresh_seconds = min(refresh_seconds, max(1, int(document_age)-15))
+    if health['valid_until'] is not None:
+        health_until = datetime.fromisoformat(health['valid_until'])
+        document_age = min(document_age, max(0, (health_until-now).total_seconds()))
+        refresh_seconds = min(refresh_seconds, max(1, int(document_age)-15))
     overall = panel.overall
     operational = panel.operational
-    if operational == OK:
+    if health['status'] == OK:
         headline_status = OK
-        operational_headline = "OPERATIONAL GREEN — HEALTHY AND CURRENT"
-    elif operational in {WARN, PENDING}:
+        operational_headline = "SYSTEM HEALTH GREEN — NORMAL CURRENT OPERATION; PLAN READINESS IS SEPARATE"
+    elif health['status'] == WARN:
         headline_status = WARN
-        operational_headline = "OPERATIONAL AMBER — NO ACTION REQUIRED YET"
+        operational_headline = "SYSTEM HEALTH AMBER — DEGRADED OR NEEDS REVIEW"
     else:
         headline_status = FAIL
-        operational_headline = "OPERATIONAL RED — OPERATOR ACTION REQUIRED"
+        operational_headline = "SYSTEM HEALTH RED — FAILED OR UNREADABLE CHECK"
     errs = "".join(
         f'<div class="err">source unreadable — {_esc(e)}</div>'
         for e in panel.source_errors)
@@ -478,7 +483,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
             "Paper account results are shown as checked or unverified.")
     stale_headline = "OPERATIONAL RED — STATUS NOT CURRENT"
     if refresh_pending:
-        headline_status = FAIL if operational in {FAIL, UNKNOWN} else WARN
+        headline_status = FAIL if health['status'] == FAIL else WARN
         operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
     rows = "".join(_row_html(r, now, refresh_pending=refresh_pending) for r in rendered_rows)
     overview = overview_html(panel, refresh_pending=refresh_pending)
@@ -495,29 +500,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
                    if reasons else '')
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
-    compact_headline = ({OK: 'System ready', WARN: 'System waiting', FAIL: 'Needs attention'}
-                        .get(headline_status, 'Status unavailable'))
+    compact_headline = health['label']
     if refresh_pending:
         compact_headline = 'Refreshing status · last known values'
-    elif headline_status == WARN:
-        broker = panel.row('broker')
-        if (broker is not None and broker.effective_status(now)==WARN
-                and broker.recovery is not None and broker.recovery.phase=='BROKER_FILL_SNAPSHOT'):
-            compact_headline = 'Reconciling fills'
-        elif not panel.source_errors and all(
-                row.effective_status(now) not in {FAIL, UNKNOWN} for row in panel.rows):
-            warnings = [row for row in panel.rows
-                        if row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
-                        and row.effective_status(now) == WARN]
-            source_wait = any(is_closing_data_preparation(row, WARN)
-                              and row.recovery.phase in {
-                                  'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
-                                  'SHADOW_ATTESTATION'}
-                              for row in warnings)
-            if source_wait and all(is_closing_data_preparation(row, WARN) for row in warnings):
-                compact_headline = ('Preparing strategy verification'
-                    if any(row.recovery.phase == 'SHADOW_ATTESTATION' for row in warnings)
-                    else 'Preparing closing data')
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -550,7 +535,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   <p><strong>Your strategy, at a glance.</strong> Wealth Core records the unscaled stock-selection book. The controller’s simulated strategy value combines its Core allocation, Treasury-bill sleeve and transaction costs. The Alpaca paper account has its own recorded holdings and value.</p>
   <p>Alpaca supplies daily prices, corporate actions and listed-asset information. OpenFIGI classifies eligible equity instruments. Formation simulates earlier sessions to build the model book; daily updates carry it forward. A simulated portfolio check does not mean paper orders have been placed.</p>
   {_local_paper_guide(panel)}
-  <p>Green means the check passed. Amber means waiting or review needed. Red means a failed or unreadable check. Open technical details for the precise reason.</p>
+  <p>The main health colour is green for healthy normal work or scheduled waiting, amber for degraded operation or review, and red for a failed or unreadable check. Plan readiness is shown separately. Detailed check colours retain their own evidence verdicts; green health does not certify portfolio values or grant trading permission.</p>
 </div></details>
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
   <div class="label">Notifications</div>
@@ -566,7 +551,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   as of {_esc(stamp)} · refreshes every {refresh_seconds}s<br>
   This page shows status; it cannot place trades.<br>
   {_esc(footer_authority)}<br>
-  <details class="technical" data-detail-key="technical-status"><summary>Technical status</summary>Current operational checks: {_esc(operational)} · all displayed checks, including notifications and unverified results: {_esc(overall)}. The attention list above identifies each failing check; this aggregate alone does not diagnose a stopped worker.</details>
+  <details class="technical" data-detail-key="technical-status"><summary>Technical status</summary>Dashboard system health: {_esc(health['status'])} · strict operational readiness: {_esc(operational)} · all recorded check verdicts: {_esc(overall)}. Health, plan readiness and detailed checks are separate facts; each keeps its original evidence time. The attention list above identifies each failing check; an aggregate alone does not diagnose a stopped worker.</details>
 </footer>
 </div>
 <script>
@@ -576,6 +561,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var invalidated = false;
   var badge = document.getElementById("operational-state");
   var heartbeat = document.getElementById("dashboard-heartbeat");
+  var preparation = document.getElementById("preparation-stage");
+  var planReadiness = document.getElementById("plan-readiness");
   var generated = Date.parse(document.body.dataset.generatedAt);
   var budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
   var maximumBudget = {PRESENTATION_MAX_AGE_SECONDS * 1000};
@@ -655,6 +642,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age <= budget;
   }}
   function pendingRefresh(){{
+    withdrawPreparation();
     refreshDelayed = true;
     if (!knownFailure){{
       badge.className = "state warn";
@@ -669,6 +657,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function showResume(){{
     if (invalidated || knownFailure){{ return; }}
+    withdrawPreparation();
     refreshDelayed = true;
     document.documentElement.classList.add("refreshing-status");
     badge.className = "state warn";
@@ -693,6 +682,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function invalidate(andReload){{
     if (!invalidated){{
+      withdrawPreparation();
       invalidated = true;
       document.documentElement.classList.remove("refreshing-status");
       document.documentElement.classList.add("not-current");
@@ -701,6 +691,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       heartbeat.textContent = "DASHBOARD HEARTBEAT LOST · STATUS STALE";
     }}
     if (andReload){{ refreshDocument(); }}
+  }}
+  function withdrawPreparation(){{
+    if (preparation){{ preparation.textContent = "Last known preparation stage · refresh required"; }}
+    if (planReadiness){{ planReadiness.textContent = "Plan readiness not current · refreshing status"; }}
   }}
   function checkAge(){{
     var age = Date.now() - generated;

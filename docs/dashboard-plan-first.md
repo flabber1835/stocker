@@ -21,10 +21,44 @@ asset; do not generate another image or introduce horizontal overflow.
 
 ## Display evidence and ownership
 
-The health card retains the existing server operational verdict, required-current
+### System health and visible background work
+
+Owner selection, 2026-10-30, before implementation: the main colour answers
+whether the system is doing its expected work, not whether a trading plan has
+already been saved. Green means healthy normal work or scheduled waiting;
+amber means degraded operation, an unexpected delay or a condition needing
+review; red retains failed or unreadable required checks. Show the actual
+stage, such as acquiring closing data, publishing data or preparing strategy
+verification, beside the colour. Keep plan readiness explicit and separate.
+
+Admit green for normal pending work only from the existing bounded, automatic
+recovery proofs and current producer ownership, never merely a WAITING/RUNNING
+string or an unexpired retry. Unknown warning classes stay amber. Existing
+failures, unreadable sources, missing ownership, expired clocks and unresolved
+notifications keep their negative priority. Do not change row verdicts,
+financial verification, native scheduling, execution permission or installation
+gates. Preserve the existing machine `overall`, `operational` and `color`
+contracts; expose the separate dashboard health interpretation explicitly in
+JSON and in the visible legend. Green health does not certify financial values
+or grant permission to trade.
+
+Put the next plan's current preparation above today's completed history. Reuse
+the bounded operational-job metadata read: validate its immutable request/hash,
+current closing-session target and publication predecessor, and require its
+registered owner, live lease and original deadline before describing active
+acquisition. Use existing exact atomic-publication proofs for publishing; an old
+committed lease alone cannot prove that an atomic writer stopped. Parked retry
+states describe waiting, not downloading. Show recorded stage-local counters
+and original last-progress/retry times, without an invented percentage, total
+or ETA. No corpus scans, provider requests, observer work or writes belong in
+this HTTP projection. Retained pages must withdraw the healthy/live-work claim
+at its original evidence boundary and cannot renew it by refreshing the page.
+
+The detailed checks retain the existing server operational verdict, required-current
 checks, failure reasons, source errors, original evidence clocks, JSON/machine
-health and browser negative-authority withdrawal rules. A green card means
-operational readiness, not completed trades. Failures remain visibly named at
+readiness and browser negative-authority withdrawal rules. A green health card
+means normal current operation; plan readiness and completed trades remain
+separate facts. Failures remain visibly named at
 the top even when System details is collapsed. Retained pages and stale browser
 documents label all overview values last known; no new green styling is earned
 by moving a value into an overview.
