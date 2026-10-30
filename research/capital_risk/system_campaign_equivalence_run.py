@@ -20,6 +20,13 @@ from system_campaign_basis import basis
 CUTOFF='2019-04-30'
 
 
+def observed_buffer_type(original,instances):
+    class ObservedBuffer(original):
+        def __init__(self):
+            super().__init__();instances.append(self)
+    return ObservedBuffer
+
+
 def read(root,name):
     from research.pooled_vacancy_funding import journal
     return journal.read_checkpoint(root/name)
@@ -182,8 +189,7 @@ def run(out,old,spec):
                 for term in old_repairs:value=backtest.apply_repair(value,term)
                 old_buffer.append(value)
             yield packet
-    def construct():
-        value=original_buffer();new_buffers.append(value);return value
+    observed=observed_buffer_type(original_buffer,new_buffers)
     observer=SeededObservation(out/'correlation-inputs.jsonl.gz',correlation_seed(old,cp))
     args=arguments(out/'book',True);args[args.index('--policy')+1]=cp['base']['policy']
     with v1:
@@ -192,7 +198,7 @@ def run(out,old,spec):
         spring.qualify(loaded,out/'spring-input-qualification.json')
         followup.qualify(loaded,out/'followup-input-qualification.json');tgi.qualify(loaded,out/'tgi-input-qualification.json')
         midyear.qualify(loaded,out/'midyear-input-qualification.json')
-        inputs.packets=packets;adapter.Buffer=construct
+        inputs.packets=packets;adapter.Buffer=observed
         try:
             with observer:
                 with Execution('FAST',signal_closes=1) as execution:

@@ -26,6 +26,8 @@ def expected_request():
     return {'schema':'research.system-campaign-basis-equivalence-request/1','campaign':'system-optimization-002',
         'protocol_sha256':sha256_file(HERE/'system-campaign-search-protocol.json'),
         'predecessors_sha256':sha256_file(HERE/'system-campaign-equivalence-predecessors.json'),
+        'unadvanced_attempt_sha256':sha256_file(HERE/'system-campaign-equivalence-unadvanced.json')
+            if (HERE/'system-campaign-equivalence-unadvanced.json').is_file() else None,
         'catalog_sha256':sha256_file(HERE/'system-campaign-factual-catalog.json'),
         'tgi_catalog_sha256':sha256_file(HERE/'system-campaign-tgi-cash-facts.json'),
         'additional_catalog_sha256':sha256_file(HERE/'system-campaign-additional-terminal-facts.json'),
@@ -77,7 +79,22 @@ def main(a):
          and stage['runtime_index_config_layer_chain_verified'] and not stage['replay_started'],'FACTUAL_SUFFIX_STAGING')
     key=base64.b64decode(os.environ.pop(SECRET,''),validate=True);need(len(key)==32,'KEY')
     temp=Path(os.environ['RUNNER_TEMP']);frozen=temp/'capital-risk-stage-001/inputs'
-    old=admit(spec,temp/('campaign-factual-transfer-'+a.arm),key,max_zip_bytes=512*1024**2);os.environ.pop('GH_TOKEN',None)
+    old=admit(spec,temp/('campaign-factual-transfer-'+a.arm),key,max_zip_bytes=512*1024**2)
+    failed=None
+    if request['unadvanced_attempt_sha256'] is not None:
+        failed_spec=json.loads((HERE/'system-campaign-equivalence-unadvanced.json').read_bytes())['arms'][a.arm]
+        need(failed_spec['unadvanced_failure_kind']=='PROOF_BUFFER_CONSTRUCTOR'
+             and failed_spec['outer_sha256']==spec['outer_sha256']
+             and failed_spec['source_binding_sha256']==spec['source_binding_sha256']
+             and failed_spec['unadvanced_complete_ancestor_zip_sha256']==spec['zip_sha256'],
+             'EQUIVALENCE_EXACT_UNADVANCED_ATTEMPT_BINDING')
+        failed=admit(failed_spec,temp/('campaign-factual-transfer-unadvanced-'+a.arm),key,max_zip_bytes=512*1024**2)
+        need((failed/'book/checkpoint.json.gz').read_bytes()==(old/spec['selected_checkpoint']).read_bytes()
+             and all((failed/'book'/(n+'.jsonl')).stat().st_size==(old/'book'/(n+'.jsonl')).stat().st_size()
+                 and sha256_file(failed/'book'/(n+'.jsonl'))==sha256_file(old/'book'/(n+'.jsonl'))
+                 for n in ('formation','daily','monthly','watch')),
+             'EQUIVALENCE_ACTUAL_FAILED_ATTEMPT_ADVANCED_ZERO_BYTES')
+    os.environ.pop('GH_TOKEN',None)
     current=json.loads(gzip.decompress((old/'book/checkpoint.json.gz').read_bytes()))
     need(current['sha256']==spec['complete_outer_sha256'] and current['completed']==2156
          and current['source_cursor']=='2026-07-31','EQUIVALENCE_ACTUAL_COMPLETE_SOURCE_CP')
@@ -88,6 +105,15 @@ def main(a):
     out=temp/'campaign-factual-output';out.mkdir(mode=0o700)
     (out/'source-bindings.json').write_bytes((old/'source-bindings.json').read_bytes())
     (out/'request.json').write_bytes(a.request.read_bytes());(out/'spec.json').write_text(json.dumps(spec,indent=2)+'\n')
+    if failed is not None:
+        retained=out/'lineage/unadvanced-proof-failure';retained.mkdir(parents=True)
+        for name in ('request.json','economic-worker.log','economic-worker-inspect.json','book/checkpoint.json.gz',
+                     'independent-review-stop/worker.log','independent-review-stop/worker-inspect.json',
+                     'independent-review-stop/core-review.json','factual-preflight.json'):
+            target=retained/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(failed/name,target)
+        (retained/'admission.json').write_text(json.dumps({'failed_artifact':failed_spec,
+            'exact_same_predecessor_and_full_four_journals':True,'financial_sessions_advanced_by_failed_attempt':0,
+            'no_old_failure_relabelled':True,'original_complete_ancestor_unchanged':True},indent=2)+'\n')
     diagnostic=temp/'campaign-factual-diagnostic';diagnostic.mkdir(mode=0o700)
     for root in (source,old):
         for p in root.rglob('*'):os.chmod(p,0o555 if p.is_dir() else 0o444)
@@ -97,6 +123,7 @@ def main(a):
         'head':os.environ['GITHUB_SHA'],'request_sha256':sha256_file(a.request),'protocol_sha256':request['protocol_sha256'],
         'predecessor_run_id':spec['run_id'],'selected_predecessor_outer_sha256':spec['outer_sha256'],
         'catalog_sha256':request['catalog_sha256'],'tgi_catalog_sha256':request['tgi_catalog_sha256'],
+        'unadvanced_failed_attempt_artifact':failed_spec['artifact_id'] if failed is not None else None,
         'production_contacted':False,'performance_admitted':False,'status':'NOT_STARTED'}
     def cmd(name,mode,output):
         values=command(name,source,frozen,output,mode);values[values.index('/driver/full_system_core.py')]='/driver/system_campaign_equivalence_run.py'

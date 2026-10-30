@@ -124,3 +124,20 @@ def test_historical_differential_entry_refuses_locally_before_output(monkeypatch
     with pytest.raises(ValueError,match='HOSTED'):
         run(target,Path('/missing-old'),{})
     assert not target.exists()
+
+
+def test_observed_constructor_retains_class_prepare_protocol_and_recurrence_fields():
+    from system_campaign_equivalence_run import observed_buffer_type
+    class FakeBuffer:
+        def __init__(self):self.index=-1
+        def prepare(self):return 'original'
+    captured=[];observed=observed_buffer_type(FakeBuffer,captured)
+    assert isinstance(observed,type) and observed.prepare is FakeBuffer.prepare
+    observed.prepare=lambda self:'accelerated'
+    value=observed();assert captured==[value] and vars(value)=={'index':-1}
+    assert value.prepare()=='accelerated' and FakeBuffer().prepare()=='original'
+    # Exact constructor from the deployed failed proof, executed only with the
+    # synthetic class above: the actual required class protocol rejects it.
+    prior_source='def construct():\n    value=original_buffer();new_buffers.append(value);return value\n'
+    scope={'original_buffer':FakeBuffer,'new_buffers':[]};exec(prior_source,scope)
+    with pytest.raises(AttributeError):scope['construct'].prepare

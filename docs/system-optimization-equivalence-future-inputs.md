@@ -91,3 +91,21 @@ wrong-source or wrong-predecessor certificates refuse admission. The numerical
 driver authenticates the proof's own stopped workers, receipt, ciphertext and
 all inventory bytes before mounting it. This never adds descriptors to the
 original complete checkpoint or rewrites its input identity.
+
+The first actual proof attempt40975799881 stopped in the research wrapper:
+its constructor observer replaced Buffer with a function, while the qualified
+Execution scope requires a class exposing prepare. It never entered the
+backtest. Its actual current checkpoint remains the selected July17 predecessor;
+all four full journal byte streams match the admitted complete ancestor before
+recovery. The original failed artifact, logs and receipt remain preserved.
+
+Correct the observer with an otherwise unchanged subclass, adding instances
+only to an external list and no recurrence fields. Before another distinct
+proof request, authenticate the failed artifact independently and prove exact
+same checkpoint, full journal hashes, source binding, known stopped worker and
+reviewer, expected constructor error, absence of financial entry outputs, and
+the exact SHA-bound complete encrypted ancestor. The failed prefix's independent
+canonical review must pass; its later tail-preservation refusal is expected
+because recovery was never entered. Reuse the identical own predecessor only
+after this zero-advancement proof. Do not treat a financial refusal or changed
+journal as this exception. Retain the failure evidence, not a relabelled success.

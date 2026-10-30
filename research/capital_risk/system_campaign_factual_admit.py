@@ -136,6 +136,8 @@ def prove_review_refusal(spec,inventory,root):
 def prove_unadvanced(spec,inventory,root):
     """Refuse any unexpected progress instead of adopting an earlier checkpoint."""
     kind=spec.get('unadvanced_failure_kind','QUALIFIER_PARTIAL_PACKET')
+    if kind=='PROOF_BUFFER_CONSTRUCTOR':
+        prove_unadvanced_buffer_constructor(spec,inventory,root);return
     need(kind in ('QUALIFIER_PARTIAL_PACKET','RESUME_REPAIR_PERMISSION'),'FACTUAL_DECLARED_UNADVANCED_FAILURE')
     prefix=spec.get('immutable_old_branch_prefix','lineage/old-branch/')
     need(prefix in ('lineage/old-branch/','lineage/old-branch/lineage/old-branch/'),'FACTUAL_DECLARED_IMMUTABLE_BRANCH')
@@ -163,3 +165,34 @@ def prove_unadvanced(spec,inventory,root):
     proof=json.loads((root/'old-branch-canonical-review.json').read_bytes())
     need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified'] and not proof['complete'],
          'FACTUAL_UNADVANCED_CANONICAL_PREFIX_REVIEW')
+
+
+def prove_unadvanced_buffer_constructor(spec,inventory,root):
+    need(spec['receipt_schema']=='research.system-campaign-basis-equivalence-receipt/1'
+         and spec['unadvanced_receipt_status']=='STOPPED_FACTUAL_PREFIX_PRESERVED',
+         'BUFFER_FAILURE_EXACT_DECLARED_PROOF_SCOPE')
+    need(inventory['book/checkpoint.json.gz']==spec['selected_file']==spec['unadvanced_original_selected_file']
+         and all(inventory['book/'+n+'.jsonl']==spec['unadvanced_original_journals'][n]
+             for n in ('formation','daily','monthly','watch')),
+         'BUFFER_FAILURE_NO_FINANCIAL_OR_JOURNAL_ADVANCEMENT')
+    need(not any(n in inventory for n in ('book/status.json','book/result.json','basis-equivalence-worker.json',
+         'acceleration-proof.json','correlation-capture-proof.json')),
+         'BUFFER_FAILURE_NEVER_ENTERED_FINANCIAL_BACKTEST')
+    ancestor=json.loads((root/'lineage/ancestor.json').read_bytes())
+    need(inventory['lineage/verified-ancestor.zip']=={'bytes':ancestor['zip_bytes'],'sha256':ancestor['zip_sha256']}
+         and ancestor['zip_sha256']==spec['unadvanced_complete_ancestor_zip_sha256'],
+         'BUFFER_FAILURE_EXACT_COMPLETE_ENCRYPTED_ANCESTOR')
+    raw=(root/'economic-worker.log').read_bytes()
+    need(hashlib.sha256(raw).hexdigest()==spec['unadvanced_worker_log_sha256']
+         and b"AttributeError: 'function' object has no attribute 'prepare'" in raw
+         and b'File "/driver/system_campaign_acceleration.py", line 56, in __enter__' in raw
+         and sha256_file(root/'request.json')==spec['request_sha256'],
+         'BUFFER_FAILURE_EXACT_PRE_FINANCIAL_CONSTRUCTOR_REFUSAL')
+    old=json.loads((root/'old-branch-canonical-review.json').read_bytes())
+    partial=json.loads((root/'independent-review-stop/core-review.json').read_bytes())
+    need(old['complete'] and old['counts']=={'formation':126,'daily':2156}
+         and old['all_prefixes_verified'] and old['all_daily_factors_and_chains_verified']
+         and partial['checkpoint_sha256']==spec['outer_sha256']
+         and partial['all_prefixes_verified'] and partial['all_daily_factors_and_chains_verified']
+         and partial['counts']==spec['unadvanced_review_counts'],
+         'BUFFER_FAILURE_ACTUAL_CANONICAL_OLD_AND_UNADVANCED_PREFIX')
