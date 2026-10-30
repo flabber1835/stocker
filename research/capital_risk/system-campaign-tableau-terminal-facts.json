@@ -1,0 +1,137 @@
+{
+  "schema": "research.system-campaign-tableau-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "DATA",
+      "security_id": "1043452212170571060",
+      "native_session": "2019-07-31",
+      "native_term_sha256": "1cbaa93baf604a9c04c0c15ce0d82c14bc8ee0c8e0f94ee1fd2bd2b767af2243",
+      "added": {
+        "security_id": "1043452212170571060",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1303652/000119312519209946/d775315d8k.htm | Completed251hmerger converts each eligible remainingDATAshare into1.103CRMshares, no basecash. Issuer explicitlycessation BEFOREAugust1,2019NYSEopen. SuppressJuly31incompletecash/preserveJuly31trading. FractionalCIL is retainedfrozenAugust1CRMraw-open researchproxy, notactualagentnetproceeds; no voluntaryexchange election assumed.",
+        "delivered_security_id": "344177561147922007",
+        "delivered_ticker": "CRM",
+        "delivered_issuer_id": "SEC_CIK:1108524",
+        "session": "2019-08-01",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": null,
+        "exchange_ratio": 1.103,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1303652/000119312519209946/d775315d8k.htm",
+      "description": "Completed251hmerger converts each eligible remainingDATAshare into1.103CRMshares, no basecash. Issuer explicitlycessation BEFOREAugust1,2019NYSEopen. SuppressJuly31incompletecash/preserveJuly31trading. FractionalCIL is retainedfrozenAugust1CRMraw-open researchproxy, notactualagentnetproceeds; no voluntaryexchange election assumed.",
+      "proxy": {
+        "session": "2019-08-01",
+        "security_id": "344177561147922007",
+        "source_observation_sha256": "a181e7804abf0e7bf89e15659da8a91facd0c0c38515c70fd00c7f1e84c02dc0"
+      }
+    },
+    {
+      "ticker": "TCF1",
+      "security_id": "216684274153477700",
+      "native_session": "2019-07-31",
+      "native_term_sha256": "a643cdb5e4484ea5cd816b365bc7b3278854fa0e3d9920c3c3d72bce169578c3",
+      "added": {
+        "security_id": "216684274153477700",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/19612/000001961219000187/a8-kmergerlongform.htm | Issuer completedmerger/exhibitconfirms .5081newTCFshares andAug1trading; preserveJuly31. CHFC sharescontinue1:1 asnewTCF. FrozennewTCFsecurity707661213264749628 andCIK814184 retaineddespitelegalnewissuer19612; noeligibilityupgrade. FractionalCIL usesAug1frozenraw-openproxy, notagentproceeds.",
+        "delivered_security_id": "707661213264749628",
+        "delivered_ticker": "TCF",
+        "delivered_issuer_id": "SEC_CIK:814184",
+        "session": "2019-08-01",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": null,
+        "exchange_ratio": 0.5081,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/19612/000001961219000187/a8-kmergerlongform.htm",
+      "description": "Issuer completedmerger/exhibitconfirms .5081newTCFshares andAug1trading; preserveJuly31. CHFC sharescontinue1:1 asnewTCF. FrozennewTCFsecurity707661213264749628 andCIK814184 retaineddespitelegalnewissuer19612; noeligibilityupgrade. FractionalCIL usesAug1frozenraw-openproxy, notagentproceeds.",
+      "proxy": {
+        "session": "2019-08-01",
+        "security_id": "707661213264749628",
+        "source_observation_sha256": "b915d775f6a2f7f1db61a13bdc8c36ff43f2af4de44ff98473259947f884c79d"
+      }
+    },
+    {
+      "ticker": "CTRL",
+      "security_id": "261788311002817744",
+      "native_session": "2019-07-31",
+      "native_term_sha256": "420af78438f9dd3a4f88e776c83ab59350468fa92fdd7e09ca1d68813e08c0ac",
+      "added": {
+        "security_id": "261788311002817744",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1259515/000110465919043368/a19-16467_4s8pos.htm | CompletedAug1 mandatory23.91commonshare cash; NasdaqECA2019-150 saysJuly31lasttrading/Aug1halt. Exactlegalminuteunobserved; retainednext-sessionAug2convention, NOTclaimedpreopenAug1. SuppressnativeJuly31/preserveJuly31trading.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-08-02",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 23.91,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1259515/000110465919043368/a19-16467_4s8pos.htm",
+      "description": "CompletedAug1 mandatory23.91commonshare cash; NasdaqECA2019-150 saysJuly31lasttrading/Aug1halt. Exactlegalminuteunobserved; retainednext-sessionAug2convention, NOTclaimedpreopenAug1. SuppressnativeJuly31/preserveJuly31trading.",
+      "proxy": null
+    },
+    {
+      "ticker": "UQM",
+      "security_id": "3393863893051950",
+      "native_session": "2019-07-31",
+      "native_term_sha256": "4511b20717491d24a41ead44087815477a69bf4ce95f50dee21be5a0c6c42be8",
+      "added": {
+        "security_id": "3393863893051950",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/315449/000110465919043460/a19-16495_18k.htm | IssuercompletedJuly31 merger cancelseligiblecommonshares for1.71USD. Exactintradayminuteunobserved; retainednext-sessionAug1convention. PreserveJuly31, noexpectedclosingdateorvoluntarytenderassumption.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-08-01",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 1.71,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/315449/000110465919043460/a19-16495_18k.htm",
+      "description": "IssuercompletedJuly31 merger cancelseligiblecommonshares for1.71USD. Exactintradayminuteunobserved; retainednext-sessionAug1convention. PreserveJuly31, noexpectedclosingdateorvoluntarytenderassumption.",
+      "proxy": null
+    },
+    {
+      "ticker": "BKS",
+      "security_id": "268110096969655215",
+      "native_session": "2019-08-06",
+      "native_term_sha256": "01b5eec64d7faee41d44f16ac01d7324652b8e8ad20fbe4f9de5093e721c9c4a",
+      "added": {
+        "security_id": "268110096969655215",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/890491/000119312519214770/d764069d8k.htm | Issuercompleted251hmerger andOCC45459 confirm6.50USD mandatoryeligibleuntenderedcommonshares BEFOREAug7open. SuppressAug6incompletecash/preserveAug6trading; no tender-electionassumption.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-08-07",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 6.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/890491/000119312519214770/d764069d8k.htm",
+      "description": "Issuercompleted251hmerger andOCC45459 confirm6.50USD mandatoryeligibleuntenderedcommonshares BEFOREAug7open. SuppressAug6incompletecash/preserveAug6trading; no tender-electionassumption.",
+      "proxy": null
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "unreviewed_preferred_security_untouched": "884451527437425797",
+  "identity_witnesses": [
+    {
+      "session": "2019-07-31",
+      "security_id": "216684274153477700",
+      "ticker": "TCF1",
+      "issuer_id": "SEC_UNKNOWN:216684274153477700",
+      "listing_first_session": "1997-12-31",
+      "security_type_eligible": "0",
+      "source_observation_sha256": "583ff6d787a1c7984c19cd04ddae54678a13d8d459c0519fc187cc9119274177"
+    }
+  ]
+}

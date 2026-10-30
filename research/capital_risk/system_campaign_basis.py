@@ -41,6 +41,9 @@ DISTRIBUTION_HYDRATED='research:system-optimization-002/distribution-private-cat
 ARRAY='research:system-optimization-002/array-terminal-catalog/1'
 ARRAY_COMPILER='research:system-optimization-002/array-terminal-compiler/1'
 ARRAY_HYDRATED='research:system-optimization-002/array-private-terminal-catalog/1'
+TABLEAU='research:system-optimization-002/tableau-terminal-catalog/1'
+TABLEAU_COMPILER='research:system-optimization-002/tableau-terminal-compiler/1'
+TABLEAU_HYDRATED='research:system-optimization-002/tableau-private-terminal-catalog/1'
 
 
 def semantics(base,documents,expected):
@@ -107,7 +110,10 @@ def basis(evidence,cp):
         DISTRIBUTION_HYDRATED:evidence/'hydrated-distribution-catalog.json',
         ARRAY:Path('/driver/system-campaign-array-terminal-facts.json'),
         ARRAY_COMPILER:Path('/driver/system_campaign_array_facts.py'),
-        ARRAY_HYDRATED:evidence/'hydrated-array-terminal-catalog.json'}
+        ARRAY_HYDRATED:evidence/'hydrated-array-terminal-catalog.json',
+        TABLEAU:Path('/driver/system-campaign-tableau-terminal-facts.json'),
+        TABLEAU_COMPILER:Path('/driver/system_campaign_tableau_facts.py'),
+        TABLEAU_HYDRATED:evidence/'hydrated-tableau-terminal-catalog.json'}
     need(all(p.is_file() for p in names.values()),'COMMON_BASIS_ACTUAL_COMPLETE_FACT_FILES')
     expected={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in names.items()};documents=[]
     for spec in cp['repairs']:
