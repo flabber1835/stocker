@@ -64,3 +64,31 @@ def test_exact_missing_support_failure_admitted_only_without_advancement(tmp_pat
 def test_missing_support_failure_cannot_hide_new_inputs_or_recovered_evidence(tmp_path,name):
     spec,inventory=basis_fixture(tmp_path);inventory[name]={'bytes':0,'sha256':'f'*64}
     with pytest.raises(ValueError,match='EXACT_MISSING_SUPPORT'):module.prove_unadvanced(spec,inventory,tmp_path)
+
+
+def variant_fixture(tmp_path):
+    spec,inventory=fixture(tmp_path)
+    spec.update(run_id=41094977331,unadvanced_failure_kind='SPRINT_VARIANT_PACKET_SOURCE')
+    raw=b'facts.qualify(loaded\nValueError: REFUSED_FULL_SYSTEM_SPRINT_EXACT_ACTUAL_CANONICAL_PACKET_SCHEMA\n'
+    (tmp_path/'economic-worker.log').write_bytes(raw)
+    spec['unadvanced_worker_log_sha256']=hashlib.sha256(raw).hexdigest()
+    overlay=tmp_path/'sprint-input-overlay.json';overlay.write_bytes(b'prepared but never committed input')
+    spec['unadvanced_input_overlay_sha256']=hashlib.sha256(overlay.read_bytes()).hexdigest()
+    for name in ('sprint-input-overlay.json','uncertainty-certificate.jsonl','correlation-inputs.jsonl.gz'):
+        inventory[name]={'bytes':0,'sha256':'f'*64}
+    return spec,inventory
+
+
+def test_exact_variant_source_failure_is_zero_financial_advance(tmp_path):
+    spec,inventory=variant_fixture(tmp_path);module.prove_unadvanced(spec,inventory,tmp_path)
+    bad={**inventory,'book/daily.jsonl':{'bytes':12,'sha256':'b'*64}}
+    with pytest.raises(ValueError,match='NO_FINANCIAL_ADVANCEMENT'):module.prove_unadvanced(spec,bad,tmp_path)
+
+
+@pytest.mark.parametrize('mutation',('overlay','financial_entry','certificate'))
+def test_variant_failure_cannot_substitute_input_or_hide_financial_entry(tmp_path,mutation):
+    spec,inventory=variant_fixture(tmp_path)
+    if mutation=='overlay':(tmp_path/'sprint-input-overlay.json').write_bytes(b'other uncommitted overlay')
+    elif mutation=='financial_entry':inventory['book/status.json']={'bytes':0,'sha256':'f'*64}
+    else:inventory.pop('uncertainty-certificate.jsonl')
+    with pytest.raises(ValueError):module.prove_unadvanced(spec,inventory,tmp_path)

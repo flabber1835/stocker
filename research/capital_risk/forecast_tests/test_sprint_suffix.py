@@ -126,3 +126,39 @@ def test_published_bridge_uses_actual_packet_day_schema_and_prior_bug_fails():
     raw=inspect.getsource(published_packet);broken=raw.replace('packet.day','packet.session',1);assert broken!=raw
     namespace={};exec(textwrap.dedent(broken),published_packet.__globals__,namespace)
     with pytest.raises(AttributeError,match='session'):namespace['published_packet'](packet)
+
+
+class VariantPacket:
+    day: str
+    bars: tuple
+    meta: dict
+    sectors: dict
+    spy: float
+    cash: dict
+    terminal: tuple
+    spins: tuple
+
+
+def test_qualified_variant_packet_source_passes_but_template_or_mutation_refuses(monkeypatch):
+    from system_campaign_sprint_facts import qualify_packet_schema
+    actual=hashlib.sha256(Path(inspect.getfile(VariantPacket)).read_bytes()).hexdigest()
+    qualify_packet_schema(VariantPacket,actual)
+    # A whole-module template pin is incorrect even when its Packet declaration
+    # has the same shape: other code in a selected variant legitimately differs.
+    with pytest.raises(ValueError,match='ACTUAL_CANONICAL_PACKET_SCHEMA'):
+        qualify_packet_schema(VariantPacket,'b3d87d4a0c5356a4ef88bc65638eeb8cbb387990405c1ec01b4300c7bc4898b3')
+    monkeypatch.setattr(VariantPacket,'__annotations__',{'session':str})
+    with pytest.raises(ValueError,match='ACTUAL_CANONICAL_PACKET_SCHEMA'):
+        qualify_packet_schema(VariantPacket,actual)
+
+
+def test_actual_packet_source_guard_removal_falsifier():
+    from system_campaign_sprint_facts import qualify_packet_schema
+    with pytest.raises(ValueError,match='ACTUAL_CANONICAL_PACKET_SCHEMA'):
+        qualify_packet_schema(VariantPacket,'0'*64)
+    import ast
+    node=ast.parse(textwrap.dedent(inspect.getsource(qualify_packet_schema))).body[0]
+    node.body=[ast.Pass()]
+    scope=dict(qualify_packet_schema.__globals__)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'<actual-packet-source-guard-removed>','exec'),scope)
+    scope[node.name](VariantPacket,'0'*64)

@@ -20,7 +20,7 @@ from probe import check_context, memory_bytes
 from stage import SECRET, PROTOCOL, IMAGE
 from runtime_identity import EXECUTION_IMAGE
 from seal import sha256_file
-from system_campaign_sprint_facts import fetch_alias
+from system_campaign_sprint_facts import fetch_alias, PACKET_SOURCE_PATH
 from system_campaign_support_recovery import hosted_view, SUPPORT
 
 HERE=Path(__file__).resolve().parent
@@ -34,7 +34,7 @@ SOURCES=tuple(dict.fromkeys((*PRIOR,'system_campaign_p02_uncertainty_run.py',
 
 def expected_request():
     spec=json.loads((HERE/'system-campaign-p02-uncertainty-predecessor.json').read_bytes())
-    need(spec['arm']=='P02' and spec['run_id']==41089567127
+    need(spec['arm']=='P02' and spec['run_id']==41094977331
          and spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
          and spec['selected_session']=='2020-02-28','UNCERTAINTY_EXACT_SPRINT_OWN_PREDECESSOR')
     support_file='system-campaign-p02-sprint-support-predecessor.json'
@@ -50,6 +50,7 @@ def expected_request():
         predecessor_sha256=sha256_file(HERE/'system-campaign-p02-uncertainty-predecessor.json'),
         support_predecessor_file=support_file,support_predecessor_sha256=sha256_file(HERE/support_file),
         support_recovery_min_disk_bytes=14*1024**3,
+        qualified_packet_source_sha256=spec['base']['sources'][PACKET_SOURCE_PATH],
         execution_mode='SPRINT_FACTUAL_SUFFIX',
         sprint_catalog_sha256=sha256_file(HERE/'system-campaign-sprint-terminal-facts.json'),
         uncertainty_input_descriptor_sha256=spec['uncertainty_input_descriptor_sha256'],

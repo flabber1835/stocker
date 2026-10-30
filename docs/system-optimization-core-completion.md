@@ -392,3 +392,39 @@ complete admitted outputs use their own files. The only additional hosted
 transfer is the already approved encrypted same-book source. Financial source,
 profile, controller, protocol and ordinary Sprint terms remain unchanged.
 PAPER/main/broker/database are untouched.
+
+
+### Qualify packet shape against the selected variant, not the frozen template
+
+Actual run41094977331 proved the complete support recovery, old canonical
+prefix and interval certificate, then refused before backtest entry at the
+Sprint packet-source guard. The guard incorrectly pinned the unparameterized
+frozen adapter module. P02's already-qualified adapter has source hash b69d85d4
+because its selected lookback changes other functions in that module; its
+Packet shape remains the same eight fields. Preserve the failed worker and
+reviewer, exact current checkpoint/full journals, uncommitted overlay and proof
+streams. No session advanced and the overlay is not in the checkpoint.
+
+Bind qualification to the actual selected checkpoint base.sources entry for
+research/pooled_input_support/adapter.py, also frozen explicitly in the hosted
+request. Preflight already requires this entire source map to equal the
+actual runtime tree. Verify the actual imported module's bytes and the eight
+Packet fields against those two authorities before the stock-action probe.
+Do not weaken or remove the source guard, change any financial source, or
+substitute the original template hash for a parameterized variant. The same
+factual compiler can then qualify different explicitly bound Core variants.
+
+Reconstruct the selected variant with the existing pure source compiler and
+compare all515 source hashes plus Packet AST shape locally; this executes no
+strategy/account replay. Add a synthetic regression where the template hash
+refuses a legitimate variant, the exact variant hash passes, and any wrong
+module or field shape refuses; demonstrate the real guard-removal falsifier.
+
+Admit only this newly documented, exact SPRINT_VARIANT_PACKET_SOURCE stopped
+zero-advance failure. Recover only the absent completed-basis sidecar using
+the unchanged same-book support design. Keep existing89-row certificate and
+669-row correlation streams rather than replacing them with longer source
+streams. Their prior full110-row source certificate/tail remain byte-exact
+inside retained lineage and the opaque current ancestor. Seed only committed
+rows, preserve any current tails, and resume only from the current same own
+Feb28 checkpoint. PAPER and trial parameters remain untouched.

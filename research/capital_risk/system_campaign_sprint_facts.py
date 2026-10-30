@@ -22,12 +22,17 @@ SID='957008674074369745'
 ALIAS_SHA='db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02'
 ALIAS_BYTES=9855560
 ALIAS_URL='https://raw.githubusercontent.com/flabber1835/stocker/86fe82c474396ce84c91e8b774ae97a4500f7b39/sharadar/SHARADAR_ACTIONS.zip'
-PACKET_SOURCE_SHA='b3d87d4a0c5356a4ef88bc65638eeb8cbb387990405c1ec01b4300c7bc4898b3'
+PACKET_SOURCE_PATH='research/pooled_input_support/adapter.py'
 PACKET_FIELDS=('day','bars','meta','sectors','spy','cash','terminal','spins')
 
 
 def published_packet(packet):
     return SimpleNamespace(session=packet.day,bars=packet.bars,terminal_events=packet.terminal)
+
+
+def qualify_packet_schema(packet_type,expected_sha256):
+    need(len(expected_sha256)==64 and sha(Path(inspect.getfile(packet_type)).read_bytes())==expected_sha256
+         and tuple(packet_type.__annotations__)==PACKET_FIELDS,'SPRINT_EXACT_ACTUAL_CANONICAL_PACKET_SCHEMA')
 
 
 def alias_rows(path,expected):
@@ -123,14 +128,13 @@ class SprintFacts:
         from research.pooled_vacancy_funding.repair import load_repair
         return load_repair(out,resume_session=cp['source_cursor'],predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
 
-    def qualify(self,loaded,out):
+    def qualify(self,loaded,out,*,packet_source_sha256):
         from research.pooled_input_support import inputs
         from research.pooled_input_support.adapter import Packet
         from research.bounded_20y.run import vendor
         from research.pooled_vacancy_funding import backtest
         from sentinel.controller import terminal_returns
-        need(sha(Path(inspect.getfile(Packet)).read_bytes())==PACKET_SOURCE_SHA
-             and tuple(Packet.__annotations__)==PACKET_FIELDS,'SPRINT_EXACT_ACTUAL_CANONICAL_PACKET_SCHEMA')
+        qualify_packet_schema(Packet,packet_source_sha256)
         actions=inputs.load_actions(Path('/frozen/bundle'));bar=vendor(self.delivered)
         for day in ('2020-03-31','2020-04-01'):
             original=Packet(day,(bar,) if day=='2020-04-01' else (),{},{},1.,{},tuple(actions.terminal.get(day,())),());before=digest(asdict(original))
@@ -153,7 +157,7 @@ class SprintFacts:
         else:raise ValueError('SPRINT_MISSING_DELIVERED_QUOTE_GUARD_MISSING')
         save(out,dict(actual_native_and_added_packet_checks=2,original_packets_unchanged=True,
             actual_canonical_notional_conversion_verified=True,original_incomplete_guard_retained=True,missing_delivered_quote_refused=True,
-            actual_packet_source_sha256=PACKET_SOURCE_SHA,actual_packet_fields=PACKET_FIELDS,
+            actual_packet_source_sha256=packet_source_sha256,actual_packet_fields=PACKET_FIELDS,
             source_unknown_issuer_and_ineligible_preserved=True,ratio='0.10256',last_trading_session='2020-03-31',effective_preopen_session='2020-04-01',
             cil_convention=self.catalog['cil_convention'],catalog_sha256=self.catalog_sha,compiler_sha256=self.compiler_sha,
             private_hydrated_sha256=self.hydrated_sha,financial_sessions_advanced=0))

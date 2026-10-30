@@ -16,16 +16,18 @@ from system_campaign_uncertainty_context import SensorCertificate
 from system_campaign_uncertainty_review import preserve_and_seed, validate_input_commitment
 from system_campaign_uncertainty_archive import review as review_certificate, preserve as preserve_event_archive
 from system_campaign_uncertainty_basis import basis
-from system_campaign_sprint_facts import SprintFacts, preserve_prior_facts
+from system_campaign_sprint_facts import SprintFacts, preserve_prior_facts, PACKET_SOURCE_PATH
 from system_campaign_facts import sha
 
 
 def run(out, old, spec, request):
     hosted()
     from research.pooled_vacancy_funding import backtest,journal
-    need(spec['arm']=='P02' and spec['run_id']==41089567127 and spec['selected_session']=='2020-02-28'
+    need(spec['arm']=='P02' and spec['run_id']==41094977331 and spec['selected_session']=='2020-02-28'
          and request['execution_mode']=='SPRINT_FACTUAL_SUFFIX','UNCERTAINTY_EXACT_SPRINT_PREFIX')
     cp = preflight(spec,old,out,before='2020-03-31')
+    need(cp['base']['sources'][PACKET_SOURCE_PATH]==request['qualified_packet_source_sha256'],
+         'UNCERTAINTY_PACKET_SOURCE_BOUND_TO_SELECTED_CANONICAL_BASE')
     qualify_origin(out,cp,out/'own-origin-qualification.json')
     v1,spin,alder,_ = retained(cp,old,out)
     (out/'hydrated-uncertainty-event.json').write_bytes((old/'hydrated-uncertainty-event.json').read_bytes())
@@ -56,7 +58,7 @@ def run(out, old, spec, request):
         historical_financial_source_changed=False,new_origin=False,new_overlay=True,
         actual_selected_cursor=cp['source_cursor'],original_packet_components_retained=18))
     with v1,spin,alder,idempotent_dispatch(alder),codec,certificate,observer:
-        facts.qualify(loaded,out/'sprint-input-qualification.json')
+        facts.qualify(loaded,out/'sprint-input-qualification.json',packet_source_sha256=request['qualified_packet_source_sha256'])
         with Execution('FAST',signal_closes=1) as execution:
             code = backtest.main(args+['--repair-overlay',str(overlay)])
     save(out/'acceleration-proof.json',execution.proof())

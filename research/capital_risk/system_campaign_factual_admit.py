@@ -169,7 +169,7 @@ def prove_review_refusal(spec,inventory,root):
 def prove_unadvanced(spec,inventory,root):
     """Refuse any unexpected progress instead of adopting an earlier checkpoint."""
     kind=spec.get('unadvanced_failure_kind','QUALIFIER_PARTIAL_PACKET')
-    if kind in ('SPRINT_PACKET_DAY_FIELD','SPRINT_RETAINED_BASIS_FILE'):
+    if kind in ('SPRINT_PACKET_DAY_FIELD','SPRINT_RETAINED_BASIS_FILE','SPRINT_VARIANT_PACKET_SOURCE'):
         prove_unadvanced_sprint_packet(spec,inventory,root);return
     if kind=='ALDER_PACKET_DAY_FIELD':
         prove_unadvanced_alder_packet(spec,inventory,root);return
@@ -267,7 +267,8 @@ def prove_unadvanced_sprint_packet(spec,inventory,root):
     need(spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
          and spec['unadvanced_receipt_status']=='STOPPED_P02_UNCERTAINTY_PREFIX_PRESERVED'
          and ((kind=='SPRINT_PACKET_DAY_FIELD' and spec['run_id']==41086155048)
-              or (kind=='SPRINT_RETAINED_BASIS_FILE' and spec['run_id']==41089567127))
+              or (kind=='SPRINT_RETAINED_BASIS_FILE' and spec['run_id']==41089567127)
+              or (kind=='SPRINT_VARIANT_PACKET_SOURCE' and spec['run_id']==41094977331))
          and spec['arm']=='P02' and spec['selected_session']=='2020-02-28'
          and spec['outer_sha256']=='04dbed001c745fa04aaa5a28320911a6a7ac3eb1cbfc2b418a42dadfaa5fcb0a',
          'SPRINT_PACKET_FAILURE_EXACT_DECLARED_SCOPE')
@@ -286,6 +287,13 @@ def prove_unadvanced_sprint_packet(spec,inventory,root):
              'uncertainty-certificate.jsonl','correlation-inputs.jsonl.gz','sprint-input-overlay.json'))
              and b"FileNotFoundError: [Errno 2] No such file or directory: '/old/common-factual-and-uncertainty-basis.json'" in worker,
              'SPRINT_BASIS_FAILURE_EXACT_MISSING_SUPPORT_BEFORE_INPUT_SUCCESSOR')
+    elif kind=='SPRINT_VARIANT_PACKET_SOURCE':
+        need(b'facts.qualify(loaded' in worker
+             and b'REFUSED_FULL_SYSTEM_SPRINT_EXACT_ACTUAL_CANONICAL_PACKET_SCHEMA' in worker
+             and sha256_file(root/'sprint-input-overlay.json')==spec['unadvanced_input_overlay_sha256']
+             and 'common-factual-and-uncertainty-basis.json' not in inventory
+             and 'uncertainty-certificate.jsonl' in inventory and 'correlation-inputs.jsonl.gz' in inventory,
+             'SPRINT_VARIANT_FAILURE_EXACT_SCHEMA_GUARD_AND_UNCOMMITTED_INPUT')
     else:
         need(b'facts.qualify(loaded' in worker and b'packet.session' in worker
              and b"AttributeError: 'Packet' object has no attribute 'session'" in worker,
