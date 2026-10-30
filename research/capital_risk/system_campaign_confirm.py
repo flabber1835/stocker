@@ -16,7 +16,7 @@ from system_campaign_numeric import hosted,load_complete,LEVELS
 from system_campaign_joint_space import joint_profiles
 from system_campaign_correlation import module,decode
 from system_campaign_facts import digest
-from system_campaign_basis import basis
+from system_campaign_basis_admit import admitted_basis
 from system_campaign_selection import CUTOFFS
 from system_campaign_space import record
 
@@ -40,12 +40,14 @@ def selected_for_core(locks,core_id):
     return [identity for identity in ids if identity in wanted]
 
 
-def confirm(core,numeric,audit,selection,out):
+def confirm(core,numeric,audit,selection,out,equivalence_proof=None):
     hosted();need(not out.exists(),'FINALIST_OUTPUT_ALREADY_EXISTS')
-    cp,rows,origin=load_complete(core);common_sha,_=basis(core,cp)
+    cp,rows,origin=load_complete(core);common_sha,_,admission=admitted_basis(core,cp,equivalence_proof)
     source=json.loads((core/'source-bindings.json').read_bytes());core_id=record(source['parameters'])['id']
     locks=json.loads(selection.read_bytes());ids=selected_for_core(locks,core_id)
     proof=json.loads((audit/'independent-review.json').read_bytes())
+    need(json.loads((numeric/'semantic-basis-admission.json').read_bytes())==admission,
+         'FINALIST_SAME_INDEPENDENT_FACTUAL_ADMISSION')
     need(proof['status']=='JOINT_NUMERICAL_TRAINING_REVIEW_PASSED_FINALISTS_REQUIRE_DIRECT_CLASSIFIER_AND_ACCOUNT'
          and proof['canonical_core_checkpoint_sha256']==cp['sha256']
          and proof['common_factual_basis_sha256']==common_sha and proof['all_training_metrics_verified']
@@ -135,4 +137,5 @@ def confirm(core,numeric,audit,selection,out):
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     for name in ('core','numeric','audit','selection','output'):parser.add_argument('--'+name,type=Path,required=True)
-    args=parser.parse_args();confirm(args.core,args.numeric,args.audit,args.selection,args.output)
+    parser.add_argument('--equivalence-proof',type=Path)
+    args=parser.parse_args();confirm(args.core,args.numeric,args.audit,args.selection,args.output,args.equivalence_proof)
