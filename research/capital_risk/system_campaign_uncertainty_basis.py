@@ -18,7 +18,7 @@ def basis(root, cp):
         document = json.loads(raw)
         if document['schema'] == 'terminal-repair/1':
             ordinary.append(descriptor)
-            additional.extend(v for v in document['source_evidence'] if v['reference'].startswith(('research:system-optimization-002/medicines-','research:system-optimization-002/arqule-')))
+            additional.extend(v for v in document['source_evidence'] if v['reference'].startswith(('research:system-optimization-002/medicines-','research:system-optimization-002/arqule-','research:system-optimization-002/sprint-')))
         elif document['schema'] == 'research.leadership-uncertainty-input/1':uncertainty.append(document)
         else:raise ValueError('REFUSED_UNCERTAINTY_BASIS_UNDECLARED_SCHEMA')
     need(len(uncertainty) == 1, 'UNCERTAINTY_BASIS_EXACTLY_ONE_MODEL')
@@ -27,9 +27,10 @@ def basis(root, cp):
     if additional:
         from system_campaign_medicines_facts import CATALOG as MC,COMPILER as MP,HYDRATED as MH
         from system_campaign_arqule_facts import CATALOG as AC,COMPILER as AP,HYDRATED as AH
-        need(all(v['reference'] in {MC,MP,MH,AC,AP,AH} for v in additional),
+        from system_campaign_sprint_facts import CATALOG as SC,COMPILER as SP,HYDRATED as SH
+        need(all(v['reference'] in {MC,MP,MH,AC,AP,AH,SC,SP,SH} for v in additional),
              'UNCERTAINTY_BASIS_EXPLICIT_KNOWN_ADDITIONAL_FACTUAL_COMMITMENTS')
-        for label,refs,stem in (('MEDICINES',(MC,MP,MH),'medicines'),('ARQULE',(AC,AP,AH),'arqule')):
+        for label,refs,stem in (('MEDICINES',(MC,MP,MH),'medicines'),('ARQULE',(AC,AP,AH),'arqule'),('SPRINT',(SC,SP,SH),'sprint')):
             selected=[v for v in additional if v['reference'] in refs]
             if not selected:continue
             expected={refs[0]:sha((Path('/driver')/('system-campaign-'+stem+'-terminal-facts.json')).read_bytes()),

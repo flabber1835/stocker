@@ -271,3 +271,53 @@ financial advance. Independent stopped-prefix review checks all accounting,
 canonical checkpoints, historical prefixes, recovered tails and certificate
 continuations. No restart/new origin/rollback/rounding or performance admission
 from an incomplete prefix. PAPER and production are untouched.
+
+
+### Sprint provider-alias and stock-consideration repair (2026-10-30)
+
+Run41080685843 passed independent committed-prefix review through Feb28,2020
+(543closes/1338accounting snapshots/89interval rows/165 comparisons), after
+replaying through March30/564reportedcloses. It stopped on March31's native
+incomplete CASH_MERGER for security957008674074369745/tickerS2. This is not a
+complete financial result. Preserve all original failed and reviewed evidence.
+
+The original public repository ACTIONS archive at commit86fe82c474396ce84c91e8b774ae97a4500f7b39,
+sharadar/SHARADAR_ACTIONS.zip, has SHA256db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02
+and9855560bytes, matching the original frozen PIT manifest source commitment.
+Its four March31 S2 rows explicitly nameSPRINT CORP, recordtickerchangefromS
+andacquisitionbyTMUS/T-MOBILE US INC. These descriptive fields are separately
+qualified only to identify the historical provider alias for primary-source
+merger reconstruction. Never admit them as new strategy metadata. TICKERS
+snapshot categories, dates, sectors and permaticker are not replay inputs.
+
+Sprint8-K0001193125-20-093630, Item2.01/3.01, and T-Mobile8-K0001193125-20-093622
+confirm April1 closing before the market opened: each ordinary Sprint common
+share converts into0.10256 TMUS shares, with holder-aggregate cash in lieu of
+fractions. Preserve March31 trading, suppress only the exact incomplete native
+cash term, and add the April1 CONVERSION. SoftBank-specific share surrender or
+contingent reissuance is not the ordinary common-holder ratio. There is no cash
+merger amount inferred from aggregate deal value. The frozen S2 issuer stays
+SEC_UNKNOWN:957008674074369745, typeunknown/eligible0, and its historical tape
+stays intact. Delivered TMUS retains its exact frozen security/issuer identity.
+The existing explicitly limited delivered raw-open fractional-CIL proxy is
+retained from the frozen April1 TMUS row; it is not an issuer settlement price.
+
+Before advancing, the hosted orchestrator retrieves that exact original public
+ACTIONS archive into the private encrypted evidence root and verifies complete
+length/hash before parsing. The offline worker independently rechecks it and
+the exact four row hashes/alias links, native action and both frozen identity
+rows. No production/new provider connection or historical input rewrite occurs.
+The actual raw source archive and selected-source proof remain encrypted in
+the approved artifact channel. Qualify both dates and the actual canonical
+notional conversion/old incomplete guard using the frozen delivered quote.
+Any unknown identity, missing quote, altered ratio or original packet mutation
+refuses. This is an ordinary own-predecessor-bound factual repair.
+
+Keep the MDCO and ArQule compiler/catalog bytes and nine interval commitments
+unchanged. Carry both authenticated private catalogs with original commitments;
+verify the old common basis before advancing. Sprint adds only three declared
+commitments (57 factual plus the same9 model references). Resume from the OWN
+actual Feb28/543 checkpoint with all March financial/watch/certificate tails
+preserved; no restart, rollback or source/profile/controller change. Independent
+stopped review still covers every checkpoint, prefix, daily factor, accounting
+snapshot, month and interval certificate. PAPER remains untouched.

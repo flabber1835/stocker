@@ -20,28 +20,30 @@ from probe import check_context, memory_bytes
 from stage import SECRET, PROTOCOL, IMAGE
 from runtime_identity import EXECUTION_IMAGE
 from seal import sha256_file
+from system_campaign_sprint_facts import fetch_alias
 
 HERE=Path(__file__).resolve().parent
 SOURCES=tuple(dict.fromkeys((*PRIOR,'system_campaign_p02_uncertainty_run.py',
     'system_campaign_uncertainty_basis.py','system_campaign_p02_uncertainty_job.py',
     'system_campaign_uncertainty_archive.py','system_campaign_medicines_facts.py',
     'system-campaign-medicines-terminal-facts.json','system_campaign_arqule_facts.py',
-    'system-campaign-arqule-terminal-facts.json')))
+    'system-campaign-arqule-terminal-facts.json','system_campaign_sprint_facts.py',
+    'system-campaign-sprint-terminal-facts.json')))
 
 
 def expected_request():
     spec=json.loads((HERE/'system-campaign-p02-uncertainty-predecessor.json').read_bytes())
-    need(spec['arm']=='P02' and spec['run_id']==41077393767
+    need(spec['arm']=='P02' and spec['run_id']==41080685843
          and spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
-         and spec['selected_session']=='2019-12-31','UNCERTAINTY_EXACT_ARQULE_OWN_PREDECESSOR')
+         and spec['selected_session']=='2020-02-28','UNCERTAINTY_EXACT_SPRINT_OWN_PREDECESSOR')
     proof=json.loads((HERE/'system-campaign-uncertainty-qualification.json').read_bytes())
     return dict(schema='research.system-p02-uncertainty-suffix-request/1',campaign='system-optimization-002',
         only_candidate='P02',concurrent_candidate_limit=1,
         protocol_sha256=sha256_file(HERE/'system-campaign-search-protocol.json'),
         predecessor_file='system-campaign-p02-uncertainty-predecessor.json',
         predecessor_sha256=sha256_file(HERE/'system-campaign-p02-uncertainty-predecessor.json'),
-        execution_mode='ARQL_FACTUAL_SUFFIX',
-        arqule_catalog_sha256=sha256_file(HERE/'system-campaign-arqule-terminal-facts.json'),
+        execution_mode='SPRINT_FACTUAL_SUFFIX',
+        sprint_catalog_sha256=sha256_file(HERE/'system-campaign-sprint-terminal-facts.json'),
         uncertainty_input_descriptor_sha256=spec['uncertainty_input_descriptor_sha256'],
         canonical_controller_sources=proof['canonical_controller_sources'],
         sources={n:sha256_file(HERE/n) for n in SOURCES},source_archive_limit_bytes=1024**3,
@@ -82,7 +84,7 @@ def main(args):
     value=json.loads(q.read_bytes())
     need(value['status']=='PARTIAL_CORE_PREFIX_REVIEWED' and value['checkpoint_sha256']==spec['outer_sha256']
          and value['all_prefixes_verified'] and value['all_daily_factors_and_chains_verified']
-         and value['counts']=={'formation':126,'daily':503},'UNCERTAINTY_ACTUAL_OWN_FINANCIAL_PREFIX')
+         and value['counts']=={'formation':126,'daily':543},'UNCERTAINTY_ACTUAL_OWN_FINANCIAL_PREFIX')
     source=temp/'p02-uncertainty-financial-source'
     binding=build(frozen/'source-fixed',source,json.loads((old/'source-bindings.json').read_bytes())['parameters'])
     need(binding==json.loads((old/'source-bindings.json').read_bytes()),'UNCERTAINTY_EXACT_FINANCIAL_SOURCE_TREE')
@@ -92,6 +94,7 @@ def main(args):
                      ('request.json',args.request.read_bytes()),('spec.json',(HERE/request['predecessor_file']).read_bytes()),
                      ('admitted-prior-financial-review.json',q.read_bytes())]:
         (out/name).write_bytes(raw)
+    fetch_alias(out)
     for root in (source,old):
         for path in root.rglob('*'):os.chmod(path,0o555 if path.is_dir() else 0o444)
         os.chmod(root,0o555)
@@ -102,7 +105,7 @@ def main(args):
         request_sha256=sha256_file(args.request),protocol_sha256=request['protocol_sha256'],
         predecessor_run_id=spec['run_id'],selected_predecessor_outer_sha256=spec['outer_sha256'],
         uncertainty_input_descriptor_sha256=request['uncertainty_input_descriptor_sha256'],
-        execution_mode=request['execution_mode'],arqule_catalog_sha256=request['arqule_catalog_sha256'],
+        execution_mode=request['execution_mode'],sprint_catalog_sha256=request['sprint_catalog_sha256'],
         new_origin=False,new_overlay=True,source_conversion=False,production_contacted=False,
         status='NOT_STARTED',performance_admitted=False)
     def cmd(name,mode,target):
