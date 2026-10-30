@@ -122,6 +122,27 @@ def admit(spec,root,key,*,max_zip_bytes=256*1024**2):
 
 
 def prove_review_refusal(spec,inventory,root):
+    if spec['review_refusal']=='UNCERTAINTY_ARCHIVE_NAME':
+        need(spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
+             and spec['arm']=='P02' and spec['run_id']==41069193936
+             and spec['selected_session']=='2019-12-31'
+             and spec['outer_sha256']=='994874c1abcbb5bb406d1ea76c9f0c6c751a5e500b073bf0134c6b00bc7912cb',
+             'UNCERTAINTY_EXACT_ARCHIVE_REVIEW_FAILURE_SCOPE')
+        log=root/'independent-review-stop/worker.log'
+        need(sha256_file(log)==spec['review_log_sha256']
+             and "FileNotFoundError: [Errno 2] No such file or directory: '/evidence/book/pre-event/2019-10-22.json.gz'" in log.read_text()
+             and 'core-review.json' not in inventory,'UNCERTAINTY_EXACT_ORIGINAL_ARCHIVE_REVIEW_REFUSAL')
+        name='independent-review-stop/core-review.json'
+        need(sha256_file(root/name)==spec['review_sha256'],'UNCERTAINTY_RETAINED_FINANCIAL_REVIEW_BYTES')
+        proof=json.loads((root/name).read_bytes())
+        need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified']
+             and proof['checkpoint_sha256']==spec['outer_sha256']
+             and proof['counts']=={'formation':126,'daily':503} and proof['accounting_snapshots']==1258
+             and not proof['complete'],'UNCERTAINTY_ACTUAL_PASSED_COMMITTED_FINANCIAL_PREFIX')
+        need(spec['inspections']['economic-worker-inspect.json']['exit_code']==1
+             and spec['inspections']['independent-review-stop/worker-inspect.json']['exit_code']==1,
+             'UNCERTAINTY_ORIGINAL_FAILED_STOPS_NOT_RELABELED')
+        return
     if spec['review_refusal']=='CORRELATION_COMMITTED_AXIS':
         need(spec['receipt_schema']=='research.system-campaign-factual-suffix-receipt/1'
              and sha256_file(root/'independent-review-stop/worker.log')==spec['review_log_sha256']

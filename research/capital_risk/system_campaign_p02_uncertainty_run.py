@@ -13,16 +13,19 @@ from system_campaign_uncertainty_support import retained
 from system_campaign_uncertainty_facts import evidence
 from system_campaign_uncertainty_input import InputCodec
 from system_campaign_uncertainty_context import SensorCertificate
-from system_campaign_uncertainty_review import preserve_and_seed, review as review_certificate, validate_input_commitment
+from system_campaign_uncertainty_review import preserve_and_seed, validate_input_commitment
+from system_campaign_uncertainty_archive import review as review_certificate, preserve as preserve_event_archive
 from system_campaign_uncertainty_basis import basis
+from system_campaign_medicines_facts import MedicinesFacts
 from system_campaign_facts import sha
 
 
 def run(out, old, spec, request):
     hosted()
     from research.pooled_vacancy_funding import backtest,journal
-    need(spec['arm']=='P02' and spec['selected_session']=='2019-09-30', 'UNCERTAINTY_FIRST_EXACT_QUALIFIED_PREFIX')
-    cp = preflight(spec,old,out,before='2019-10-22')
+    need(spec['arm']=='P02' and spec['run_id']==41069193936 and spec['selected_session']=='2019-12-31'
+         and request['execution_mode']=='MDCO_FACTUAL_SUFFIX','UNCERTAINTY_EXACT_MDCO_PREFIX')
+    cp = preflight(spec,old,out,before='2020-01-03')
     qualify_origin(out,cp,out/'own-origin-qualification.json')
     v1,spin,alder,_ = retained(cp,old,out)
     (out/'hydrated-uncertainty-event.json').write_bytes((old/'hydrated-uncertainty-event.json').read_bytes())
@@ -30,6 +33,16 @@ def run(out, old, spec, request):
     need(model==request['uncertainty_input_descriptor_sha256'], 'UNCERTAINTY_EXACT_ADMITTED_INPUT_MODEL')
     prefix = preserve_and_seed(old,out,cp)
     review_certificate(old,out/'old-uncertainty-certificate-review.json')
+    preserve_event_archive(old,out)
+    medicines=MedicinesFacts('/driver/system-campaign-medicines-terminal-facts.json')
+    medicines.hydrate(out/'hydrated-medicines-terminal-catalog.json')
+    overlay=out/'medicines-input-overlay.json'
+    loaded=medicines.overlay(cp,overlay)
+    from research.pooled_vacancy_funding.repair import load_repair
+    for cursor,predecessor in ((cp['source_cursor'],'0'*64),('2020-01-03',cp['run']['checkpoint_sha256'])):
+        try:load_repair(overlay,resume_session=cursor,predecessor_checkpoint_sha256=predecessor)
+        except ValueError:pass
+        else:raise ValueError('REFUSED_MEDICINES_WRONG_PREDECESSOR_OR_CONSUMED_SESSION')
     observer = SeededObservation(out/'correlation-inputs.jsonl.gz',correlation_seed(old,cp))
     codec = InputCodec(evidence(out))
     event_source = json.loads((out/'hydrated-uncertainty-event.json').read_bytes())
@@ -37,20 +50,23 @@ def run(out, old, spec, request):
     args = arguments(out/'book',True);args[args.index('--policy')+1] = cp['base']['policy']
     save(out/'uncertainty-economic-admission.json',dict(only_candidate='P02',predecessor_outer_sha256=cp['sha256'],
         input_sha256=cp['run']['input_sha256'],uncertainty_input_descriptor_sha256=model,
-        historical_financial_source_changed=False,new_origin=False,new_overlay=False,
+        historical_financial_source_changed=False,new_origin=False,new_overlay=True,
         actual_selected_cursor=cp['source_cursor'],original_packet_components_retained=16))
     with v1,spin,alder,idempotent_dispatch(alder),codec,certificate,observer:
+        medicines.qualify(loaded,out/'medicines-input-qualification.json')
         with Execution('FAST',signal_closes=1) as execution:
-            code = backtest.main(args)
+            code = backtest.main(args+['--repair-overlay',str(overlay)])
     save(out/'acceleration-proof.json',execution.proof())
     save(out/'correlation-capture-proof.json',observer.proof())
     save(out/'recovered-tail-proof.json',preserve_tails(out/'book',json.loads((out/'factual-preflight.json').read_bytes())))
     current=journal.read_checkpoint(out/'book/checkpoint.json.gz')
-    need(current['base']==cp['base'] and current['repairs']==cp['repairs']
-         and current['run']['input_sha256']==cp['run']['input_sha256'], 'UNCERTAINTY_EXACT_RETAINED_SOURCE_AND_INPUT')
+    need(current['base']==cp['base'] and current['repairs'][:-1]==cp['repairs']
+         and current['repairs'][-1]['sha256']==loaded.sha256
+         and current['run']['input_sha256']==backtest.input_hash(current['base'],current['repairs']),
+         'UNCERTAINTY_EXACT_OWN_MDCO_INPUT_SUCCESSOR')
     save(out/'uncertainty-economic-outcome.json',dict(session=current['source_cursor'],completed=current['completed'],
         complete=current['source_cursor']==backtest.END and current['completed']==2156,
-        only_candidate='P02',new_origin=False,new_overlay=False,production_contacted=False))
+        only_candidate='P02',new_origin=False,new_overlay=True,production_contacted=False))
     need(code==0,'UNCERTAINTY_FINANCIAL_REFUSAL_PREFIX_PRESERVED')
 
 

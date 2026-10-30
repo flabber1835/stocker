@@ -164,6 +164,68 @@ never silently filter an unknown repair or compare differing model assumptions
 as matched results. Previously completed references remain preserved, but
 comparability still requires a qualified common factual/model basis across arms.
 
+### Read-only archive-name compatibility
+
+Static inspection after starting41069193936 found a reviewer mistake: the frozen
+producer's `archive_checkpoint` writes `2019-10-22-<outer-sha256>.json.gz`, while
+the immutable interval reviewer requests `2019-10-22.json.gz`. Do not change the
+running financial worker or the nine committed model-code hashes to repair a
+reader filename. Preserve any resulting original reviewer failure.
+
+A separate read-only resolver may supply that one requested path with the
+actual archived file, without creating an alias file, renaming a checkpoint,
+changing bytes or relaxing a financial guard. Require exactly one producer-named
+October22 archive whose canonical outer digest matches its filename, whose
+cursor is October21, and whose prior state and input identities match the first
+committed certificate row. The existing whole checkpoint/prefix reviewer still
+validates that file and its journals. Record the real path/hash and the exact
+compatibility mapping in the new review output. Preserve strict default behavior
+for all other paths and scopes. A stopped-evidence review with this adapter may
+qualify the immutable result; it must not rerun any financial session.
+
+### Next factual suffix: The Medicines Company
+
+Run41069193936 actually advanced P02 through January2,2020/504 reported closes.
+Its own saved checkpoint is December31,2019/503, outer994874c1abcbb5bb406d1ea76c9f0c6c751a5e500b073bf0134c6b00bc7912cb.
+The financial reviewer passed 1,258 accounting snapshots, all factors, canonical
+checkpoints and prefixes before its separate archive-name failure. Preserve both
+original failures: the financial worker stopped at incomplete MDCO consideration
+on January3, and the reviewer stopped on its filename mistake. There is no
+complete performance result. The old committed interval certificate must pass
+the read-only resolver and unchanged mathematical reviewer before any advance.
+
+SEC8K1113481/000110465920001367 establishes mandatory remaining-common-share
+consideration of $85 following the January6,2020 merger under DGCL251(h). The
+Nasdaq updated ECA2019-296 explicitly places completion before January6 open and
+preserves January3 as the last trading session. January4 tender acceptance is not
+the mandatory merger date. Nasdaq's narrative suspension year2019 is an apparent
+typo; the detailed January7,2020 table and explicit January6 closing agree with
+the issuer filing. Do not use the typo to infer a different effective session.
+
+The next suffix may combine the read-only review correction and this sparse
+factual input, with a hard sequencing gate: authenticate the exact stopped
+artifact and original failures, then validate the old certificate through the
+December31 checkpoint using the actual hash-named event archive. Only after that
+passes, restore the same own financial checkpoint and apply an ordinary
+predecessor-bound overlay suppressing the exact incomplete January3 MDCO term
+and adding complete January6 $85 cash consideration. Preserve January3 trading,
+all 16 prior factual groups, the immutable nine-file interval-model commitment,
+all raw journal tails and the original full certificate plus its unsent tail.
+Carry the original October22 archive into the new disjoint evidence with its
+same name and bytes so future independent review can validate the proof origin.
+
+This sequencing avoids replaying already committed financial days for a reader
+fix. It resumes only the actual unsent January2 and later suffix. No new Core
+origin, balance, price bar, classification, policy or parameter change is allowed.
+MDCO's frozen CIK1113481/eligible-common identity is preserved. The ordinary cash
+terms require no new CVR valuation. Add its distinct catalog/compiler/private
+witness commitments explicitly to the common factual basis; do not silently
+drop that new factual component from comparison provenance. Full independent
+accounting, all checkpoints/prefixes, sensor certificate and tail checks remain.
+
+- https://www.sec.gov/Archives/edgar/data/1113481/000110465920001367/tm201193-1_8k.htm
+- https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2019-296
+
 Primary evidence:
 
 - https://www.sec.gov/Archives/edgar/data/1423824/000119312519271319/d822414d8k.htm
