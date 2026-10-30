@@ -68,6 +68,36 @@ metadata read has a fresh observation time. Reuse the deterministic XNYS calenda
 an unavailable session boundary withdraws this display fact rather than inventing
 another market clock. This does not change plan admission or any trading gate.
 
+Decision, 2026-10-30, before implementation: a typed, authenticated
+`SCHEDULED_WITH_HISTORY` record is a historical audit warning, not by itself a
+current operational incident. The human health card may be green only while
+the exact admitted future saved plan and its original schedule boundary agree,
+the policy is enabled and kill-released, the current account, source, authority,
+leader, canonical portfolio, runtime, backups and notifications are healthy,
+and the current represented broker/reconciliation evidence is usable. The typed
+history state already requires the exact native scheduled-readiness proof;
+broker RUNNING text alone does not establish this eligibility. Require the
+original bounded WAITING_OPEN cycle and open-step proofs; missing, unknown,
+blocked, retrying, stale, expired or contradictory current facts prevent this treatment.
+Use only the already-projected typed evidence; do not start an observer or read
+another database source from the presentation.
+
+Keep the financial row's WARN severity, PAPER-not-verified qualification,
+historical detail, original validity and machine aggregates unchanged. Describe
+it as a historical paper audit inside System details, without an actionable
+front-page attention item while every current proof is healthy. Its original
+expiry or a current incident remains actionable. No acknowledgement, manual
+review marker, new authority or transport permission is created. Bound green
+by the original current proof deadlines it uses, including the live leader,
+and retain the existing browser withdrawal and minimum refresh cadence.
+Green means healthy autonomous future scheduling under the native execution
+safeguards. It does not assert that every holding is unrestricted, that an old
+corporate-action discrepancy is resolved, or that future orders will fill.
+Execution still performs its fresh account, source, restriction and reconciliation
+checks. A restriction represented by a current failed, blocked or retrying fact
+retains its negative priority; no missing positive clean/restriction receipt is
+invented to complete this read-only presentation.
+
 The detailed checks retain the existing server operational verdict, required-current
 checks, failure reasons, source errors, original evidence clocks, JSON/machine
 readiness and browser negative-authority withdrawal rules. A green health card

@@ -536,6 +536,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   <p>Alpaca supplies daily prices, corporate actions and listed-asset information. OpenFIGI classifies eligible equity instruments. Formation simulates earlier sessions to build the model book; daily updates carry it forward. A simulated portfolio check does not mean paper orders have been placed.</p>
   {_local_paper_guide(panel)}
   <p>The main health colour is green for healthy normal work or scheduled waiting, amber for degraded operation or review, and red for a failed or unreadable check. Plan readiness is shown separately. Detailed check colours retain their own evidence verdicts; green health does not certify portfolio values or grant trading permission.</p>
+  <p>A historical paper audit discrepancy remains recorded here when current autonomous scheduling is healthy. Green health does not resolve that old discrepancy or promise unrestricted holdings or filled orders; native execution keeps its fresh safeguards.</p>
 </div></details>
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
   <div class="label">Notifications</div>

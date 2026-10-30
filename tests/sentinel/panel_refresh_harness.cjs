@@ -78,6 +78,21 @@ function failRead(read) {
   vm.runInNewContext(input.script, context, {
     filename: 'sentinel-panel-refresh://' + sourceHash
   });
+  if (input.wake === 'proof-expiry') {
+    assert.equal(badge.className,'state ok');
+    const original=document.body.dataset.generatedAt;
+    now=stamp+Number(input.budget)*1000+1;
+    fireDelay(1000);
+    assert.equal(badge.className,'state fail','original proof expiry withdraws green');
+    assert.equal(planReadiness.textContent,'Plan readiness not current · refreshing status');
+    assert.equal(document.body.dataset.generatedAt,original,'proof expiry cannot renew the observation');
+    assert.equal(reads.length,1);
+    listeners.pageshow({persisted:true});
+    assert.equal(reads.length,1,'expired proof cannot start competing reads');
+    now=stamp+1000;fireDelay(1000);
+    assert.equal(badge.className,'state fail','clock rollback cannot restore the historical exception');
+    process.stdout.write('PASS\n');return;
+  }
   if (input.wake.startsWith('resume-')) {
     async function advance(ms) {
       now += ms;

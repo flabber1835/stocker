@@ -6,7 +6,10 @@ from decimal import Decimal, InvalidOperation
 import re
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.model import Row, FINANCIAL_AUTHORITY_ROW_KEYS, OPERATIONAL_INFORMATIONAL_ROW_KEYS
+from sentinel.panel.model import (
+    Row, FINANCIAL_AUTHORITY_ROW_KEYS,
+    OPERATIONAL_INFORMATIONAL_ROW_KEYS,
+)
 
 _CLOSING_DATA_PHASES = frozenset({
     'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
@@ -146,7 +149,75 @@ def _normal_idle(panel, row: Row) -> bool:
             and _fresh_worker(panel, 'automation_leader'))
 
 
+_HISTORY_CURRENT_FACTS = (
+    'automation', 'automation_leader', 'authority', 'alpaca_account', 'broker',
+    'feed', 'shadow_worker', 'shadow_verification', 'book', 'exposure', 'terminals',
+    'runtime_identity', 'backup_restore', 'alert_dispatcher', 'automation_alerts',
+)
+
+
+def _current_health_fact(panel, key: str) -> bool:
+    row = panel.row(key)
+    if (row is None or row.effective_status(panel.now) != 'ok'
+            or not _aware(row.as_of) or row.is_future(panel.now) or row.is_stale(panel.now)):
+        return False
+    boundary = _row_boundary(row)
+    return boundary is None or panel.now < boundary
+
+
+def _current_reconciliation_usable(panel) -> bool:
+    """Current display evidence; native execution still rechecks restrictions."""
+    row = panel.row('broker')
+    return (_current_health_fact(panel, 'broker')
+            and row.required_current is True and row.recovery is None
+            and _row_boundary(row) is not None)
+
+
+def _history_schedule_normal(panel) -> bool:
+    """An old audit discrepancy is informational only beside complete current proof."""
+    if (not panel.local_paper_mode or panel.source_errors
+            or len({row.key for row in panel.rows}) != len(panel.rows)):
+        return False
+    history, saved = panel.row('paper_reconciliation'), panel.row('paper_plan')
+    if (history is None or history.paper_alignment != 'SCHEDULED_WITH_HISTORY'
+            or history.effective_status(panel.now) != 'warn'
+            or history.required_current is not True or history.recovery is not None
+            or not _aware(history.as_of)
+            or history.is_future(panel.now) or history.is_stale(panel.now)
+            or saved is None or not saved.can_show_paper_plan(panel.now)):
+        return False
+    plan = saved.paper_plan
+    if (history.valid_until != plan.execute_at-timedelta(microseconds=1)
+            or not panel.now < history.valid_until
+            or (history.freshness is not None
+                and not panel.now < history.as_of+history.freshness)
+            or any(leg.action == 'UNAVAILABLE' for leg in plan.legs)
+            or not all(_current_health_fact(panel, key) for key in _HISTORY_CURRENT_FACTS)
+            or panel.row('automation').value != 'ENABLED · KILL RELEASED'
+            or not panel.row('alpaca_account').can_show_paper_account(panel.now)
+            or panel.row('feed').value != str(plan.decision_session)+' · 0 sessions behind'
+            or panel.row('shadow_verification').value != 'SHADOW VERIFIED THROUGH '+str(plan.decision_session)
+            or not _current_reconciliation_usable(panel)):
+        return False
+    for key, phase in (('automation_cycle', 'AUTOMATION_WAITING_OPEN'),
+                       ('automation_step_open', 'AUTOMATION_OPEN')):
+        row = panel.row(key)
+        recovery = row.recovery if row is not None else None
+        if (row is None or row.value != 'WAITING_OPEN'
+                or row.effective_status(panel.now) != 'warn' or not row.required_current
+                or not _aware(row.as_of) or row.is_future(panel.now) or row.is_stale(panel.now)
+                or recovery is None or recovery.phase != phase
+                or not recovery.automatic or recovery.operator_required
+                or not _aware(recovery.deadline) or recovery.deadline < plan.execute_at
+                or not recovery.active(panel.now)):
+            return False
+    return True
+
+
 def _normal_warning(panel, row: Row) -> bool:
+    if (row.key in {'paper_reconciliation', 'automation_cycle', 'automation_step_open'}
+            and _history_schedule_normal(panel)):
+        return True
     recovery = row.recovery
     if (row.effective_status(panel.now) != 'warn' or recovery is None
             or not recovery.automatic or recovery.operator_required
@@ -201,6 +272,8 @@ def visible_preparation(panel):
 
 def preparation_stage(panel) -> str | None:
     """Describe admitted work, never infer a live stage from a retry string."""
+    if _history_schedule_normal(panel):
+        return 'Waiting for market open'
     if _closing_source_proof(panel):
         phases = {row.recovery.phase for row in panel.rows
                   if is_closing_data_preparation(row, row.effective_status(panel.now))
@@ -266,6 +339,11 @@ def dashboard_health(panel) -> dict:
         boundaries.append(_row_boundary(panel.row('shadow_worker')))
     if any(_normal_idle(panel, row) for row in admitted):
         boundaries.append(_row_boundary(panel.row('automation_leader')))
+    if _history_schedule_normal(panel):
+        boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
+        history = panel.row('paper_reconciliation')
+        if history.freshness is not None:
+            boundaries.append(history.as_of+history.freshness)
     boundaries = [value for value in boundaries if value is not None]
     work = visible_preparation(panel)
     if work is not None:
@@ -307,6 +385,18 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
                        'references and historical strategy certification.')
     scheduled_paper = key == 'paper_reconciliation' and row.value == (
         'PAPER NOT VERIFIED · SCHEDULED · POST-CLOSE EVIDENCE PENDING')
+    if key == 'paper_reconciliation' and row.paper_alignment == 'SCHEDULED_WITH_HISTORY':
+        label = 'Historical paper audit'
+        if status == 'warn':
+            value = 'Earlier-plan discrepancy retained · current plan scheduled'
+            explanation = ('An authenticated discrepancy on an earlier transported plan remains '
+                'recorded for audit. It does not by itself describe a current scheduling failure. '
+                'PAPER performance remains unverified; future execution still runs its fresh '
+                'account, restriction and reconciliation checks. '+row.detail)
+        else:
+            value = 'Current scheduled proof cannot be confirmed'
+            explanation = ('The historical record remains retained, but its current scheduling '
+                'proof is unavailable or expired. Current checks need attention. '+row.detail)
     if scheduled_paper:
         label = 'Paper alignment pending'
         value = ('Scheduled · alignment and post-close verification pending'

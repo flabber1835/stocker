@@ -95,6 +95,12 @@ current-plan mismatch, integrity refusal, absent scheduled proof, or expired
 proof remains red. No panel read creates a stamp, changes a transport gate,
 acknowledges an incident, or certifies historical PAPER performance.
 
+The separate human-health interpretation may treat this historical-only audit
+record as informational after the complete current proofs in
+`dashboard-plan-first.md` pass. Its raw financial WARN and machine amber remain
+unchanged; green human health does not certify the old discrepancy or clear a
+current restriction, unknown outcome, stale proof or scheduling failure.
+
 Deploy presentation-only updates while a future WAITING_OPEN plan is quiescent
 by stopping all application workers, confirming no in-flight commands, and
 requiring identical native automation configuration fingerprints in the old and

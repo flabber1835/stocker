@@ -3,23 +3,25 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
 import pytest
 
 from sentinel.panel.model import Panel
-from sentinel.panel.render import PRESENTATION_MAX_AGE_SECONDS, PUSH_SCRIPT, render
+from sentinel.panel.render import PUSH_SCRIPT, render
 
 
-def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None):
+def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, panel=None):
     node = shutil.which('node')
     if node is None:
         if os.environ.get('SENTINEL_IN_IMAGE') == '1':
             pytest.fail('Node is required in the CI lens; browser qualification cannot skip')
         pytest.skip('Node is required only for this browser-controller execution test')
-    generated = datetime(2026, 10, 6, 4, tzinfo=timezone.utc)
-    html = render(Panel(rows=[], now=generated))
+    generated = panel.now if panel is not None else datetime(2026, 10, 6, 4, tzinfo=timezone.utc)
+    html = render(panel if panel is not None else Panel(rows=[], now=generated))
+    budget = re.search(r'data-max-age-seconds="([^"]+)"',html).group(1)
     script = '// Negative authority only.' + html.split('// Negative authority only.', 1)[1].split('</script>', 1)[0]
     if remove_guard:
         script = script.replace('refreshing || retryTimer !== null || ', '')
@@ -45,7 +47,7 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None):
         script = script.replace('withdrawPreparation();', '')
     return subprocess.run([node, str(Path(__file__).with_name('panel_refresh_harness.cjs'))],
         input=json.dumps({'script':script,'generated':generated.isoformat(),'failure':failure,
-                          'wake':wake,'budget':str(PRESENTATION_MAX_AGE_SECONDS)}),
+                          'wake':wake,'budget':budget}),
         text=True,capture_output=True,timeout=10)
 
 
@@ -145,6 +147,16 @@ def test_live_preparation_copy_cannot_survive_its_original_document_authority(wa
     assert result.returncode == 0, result.stderr
     broken = run_refresh('busy',wake=wake,mutation='preparation-withdrawal')
     assert broken.returncode != 0 and 'withdraw live preparation copy' in broken.stderr
+
+
+def test_historical_audit_human_green_withdraws_at_the_actual_schedule_proof_boundary():
+    from datetime import timedelta
+    from tests.sentinel.test_panel_historical_mirror_schedule import healthy_history_panel,LIVE_OPEN
+    page = healthy_history_panel(now=LIVE_OPEN-timedelta(seconds=8))
+    result = run_refresh('busy',wake='proof-expiry',panel=page)
+    assert result.returncode==0,result.stderr
+    broken = run_refresh('busy',wake='proof-expiry',mutation='age-withdrawal',panel=page)
+    assert broken.returncode!=0 and 'original proof expiry withdraws green' in broken.stderr
 
 
 def run_push(scenario, *, remove_guard=False):
