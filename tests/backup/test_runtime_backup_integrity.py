@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
-import subprocess
 
 import pytest
 
@@ -145,11 +144,11 @@ def test_archive_command_publishes_timeline_history_in_cluster_namespace(tmp_pat
     env = dict(lab.env)
     env["PATH"] = f"{lab.bin}{os.pathsep}{env['PATH']}"
     env["PGDATA"] = str(pgdata)
-    result = subprocess.run(
+    result = lab.run(
         ["sh", str(Path(__file__).resolve().parents[2] / "scripts" /
                    "sentinel-archive-wal.sh"),
          str(history), "00000002.history", str(lab.archive)],
-        env=env, capture_output=True, text=True, timeout=10)
+        env=env)
     assert result.returncode == 0, result.stderr
     published = lab.namespace / "00000002.history"
     assert published.read_bytes() == history.read_bytes()
@@ -161,11 +160,11 @@ def test_archive_command_refuses_history_without_cluster_identity(tmp_path):
     lab = Archive(tmp_path)
     history = tmp_path / "00000002.history.source"
     history.write_text("1\t0/0\tno recovery target specified\n")
-    result = subprocess.run(
+    result = lab.run(
         ["sh", str(Path(__file__).resolve().parents[2] / "scripts" /
                    "sentinel-archive-wal.sh"),
          str(history), "00000002.history", str(lab.archive)],
-        env=lab.env, capture_output=True, text=True, timeout=10)
+        env=lab.env)
     assert result.returncode != 0
     assert "system identifier" in result.stderr
 

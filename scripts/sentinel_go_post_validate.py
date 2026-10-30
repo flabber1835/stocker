@@ -57,13 +57,13 @@ def running_panel_image_id(env) -> str:
     container = (ps.stdout or "").strip()
     if (ps.returncode != 0 or CONTAINER_ID.fullmatch(container) is None
             or "\n" in container):
-        raise Refused("recreated panel container is not uniquely running")
+        raise Refused("selected panel container is not uniquely running")
     inspected = run([
         "docker", "container", "inspect", "--format", "{{.Image}}", container,
     ], env=env)
     image = (inspected.stdout or "").strip()
     if inspected.returncode != 0 or IMAGE_ID.fullmatch(image) is None:
-        raise Refused("recreated panel image identity is unavailable")
+        raise Refused("selected panel image identity is unavailable")
     observed = run([
         "docker", "container", "inspect", "--format", "{{json .State}}", container,
     ], env=env)
@@ -76,21 +76,22 @@ def running_panel_image_id(env) -> str:
             or state.get("Restarting") is not False
             or not isinstance(state.get("Health"), dict)
             or state["Health"].get("Status") != "healthy"):
-        raise Refused("recreated panel is not healthy and running")
+        raise Refused("selected panel is not healthy and running")
     return image
 
 
-def recreate_panel(env, *, expected_image_id: str) -> None:
+def reconcile_panel(env, *, expected_image_id: str) -> None:
+    """Compose replaces changed configuration without restarting an exact match."""
     completed = run([
         "bash", "scripts/sentinel-compose.sh", "--run",
-        "up", "-d", "--no-deps", "--force-recreate", "--wait",
+        "up", "-d", "--no-deps", "--wait",
         "--wait-timeout", "180", "sentinel-panel",
     ], env=env)
     if completed.returncode != 0:
-        raise Refused("promoted panel could not be recreated")
+        raise Refused("promoted panel could not be reconciled")
     observed = running_panel_image_id(env)
     if observed != expected_image_id:
-        raise Refused("recreated panel does not use the promoted runtime")
+        raise Refused("selected panel does not use the promoted runtime")
 
 
 def atomic_json(path: Path, value: dict) -> None:
@@ -197,13 +198,13 @@ def main(argv=None) -> int:
             if local_full else _ci_handoff(commit, runner)
         )
         env = runtime._merged_environment()
-        recreate_panel(env, expected_image_id=expected_image_id)
+        reconcile_panel(env, expected_image_id=expected_image_id)
         atomic_json(OUT, handoff)
     except (OSError, runtime.RuntimeSelectionRefused, Refused) as exc:
         print("REFUSED: GO post-validation handoff failed: %s" % exc, file=sys.stderr)
         return 2
 
-    print("post-validation: panel recreated and verified on the one validated runtime", flush=True)
+    print("post-validation: panel reconciled and verified on the one validated runtime", flush=True)
     if local_full:
         print(
             "post-validation: local-full runtime recorded for exact registry promotion; test lens remains certification-only",

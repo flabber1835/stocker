@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
+import hashlib
+import os
 from pathlib import Path
 import re
 from typing import Mapping
@@ -13,15 +16,66 @@ class CertifiedInstallRefused(RuntimeError):
     pass
 
 
+def _verification_context(root: Path, commit: str):
+    """Cheap local facts, never a substitute for the initial signed verification."""
+    identity = verifier.current_identity(root)
+    if identity['commit'] != commit or verifier._git(
+            root, 'status', '--porcelain', '--untracked-files=all'):
+        raise CertifiedInstallRefused('software proof requires its exact clean checkout')
+    policy = verifier._promotion_policy()
+    modules = (verifier, policy)
+    sources = tuple((str(Path(module.__file__).resolve()),
+                     hashlib.sha256(Path(module.__file__).read_bytes()).hexdigest())
+                    for module in modules)
+    # These globals select trusted repositories, workflows, schemas and subjects.
+    # Bind their loaded values as well as the files from which they were imported.
+    trust = tuple((module.__name__, tuple(sorted(
+        (key, repr(value)) for key, value in vars(module).items()
+        if key.isupper()))) for module in modules)
+    return (os.getpid(), str(Path(root).resolve()), identity, sources, trust)
+
+
+class SoftwareVerification:
+    """One deployment owner; never persist or inherit its authenticated result."""
+    def __init__(self):
+        self._context = None
+        self._result = None
+
+    def verify(self, *, root: Path, commit: str, env: Mapping[str, str]):
+        try:
+            context = _verification_context(root, commit)
+            if self._context is not None:
+                if context != self._context:
+                    raise CertifiedInstallRefused('software verification context changed')
+                return deepcopy(self._result)
+            result = verifier.verify_current(
+                root=root, commit=commit,
+                client=verifier.GitHubReadClient(
+                    token=env.get('SENTINEL_GITHUB_READ_TOKEN')
+                    or env.get('GITHUB_TOKEN') or env.get('GH_TOKEN')))
+            if (result.get('source_commit') != context[2]['commit']
+                    or result.get('source_tree') != context[2]['tree']
+                    or _verification_context(root, commit) != context):
+                raise CertifiedInstallRefused('software identity changed during verification')
+            self._context, self._result = context, deepcopy(result)
+            return deepcopy(result)
+        except verifier.CertificationVerificationRefused as exc:
+            raise CertifiedInstallRefused('%s: %s' % (exc.code, exc.detail)) from None
+        except OSError as exc:
+            raise CertifiedInstallRefused('software verification context is unavailable') from exc
+
+
 def verify_reviewed_runtime(reviewed, *, env: Mapping[str, str], invoke,
-                            root: Path) -> Mapping:
+                            root: Path, software_verification=None) -> Mapping:
     """Bind signed GitHub evidence to the exact reviewed local image bytes."""
     try:
-        result = verifier.verify_current(
-            root=root, commit=reviewed.git_commit,
-            client=verifier.GitHubReadClient(
-                token=env.get("SENTINEL_GITHUB_READ_TOKEN")
-                or env.get("GITHUB_TOKEN") or env.get("GH_TOKEN")))
+        result = (software_verification.verify(
+            root=root, commit=reviewed.git_commit, env=env)
+            if software_verification is not None else verifier.verify_current(
+                root=root, commit=reviewed.git_commit,
+                client=verifier.GitHubReadClient(
+                    token=env.get("SENTINEL_GITHUB_READ_TOKEN")
+                    or env.get("GITHUB_TOKEN") or env.get("GH_TOKEN"))))
     except verifier.CertificationVerificationRefused as exc:
         raise CertifiedInstallRefused("%s: %s" % (exc.code, exc.detail)) from None
     reference = str(result.get("certified_image") or "")

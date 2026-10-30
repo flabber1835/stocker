@@ -16,6 +16,7 @@ import sentinel_installation_phase as install
 import sentinel_activation_coordinator as activate
 import sentinel_phase_records as records
 import sentinel_env as host_env
+import sentinel_autonomous_deploy_ci_runtime as ci_runtime
 from sentinel_env_writer import safe_update_dotenv
 
 core = install.core
@@ -80,7 +81,8 @@ def test_discovery_preserves_binding_without_signer_lookup(monkeypatch):
 @pytest.mark.parametrize('defect', [None, 'source', 'signature', 'digest', 'revision', 'inspect-type'])
 def test_independent_software_admission_rejects_mismatch_before_any_financial_work(monkeypatch, tmp_path, defect):
     cfg = install.InstallationConfig({'SENTINEL_AUTHORITY_ARTIFACTS_DIR': str(tmp_path)})
-    proof = {'source_commit': SHA, 'software_certification': 'VERIFIED', 'required_ci_jobs': 'PASS',
+    proof = {'source_commit': SHA, 'source_tree': 'f' * 40,
+             'software_certification': 'VERIFIED', 'required_ci_jobs': 'PASS',
              'certified_image': IMAGE, 'image_digest': 'sha256:' + 'b' * 64}
     if defect == 'source': proof['source_commit'] = 'c' * 40
     if defect == 'signature': proof['software_certification'] = 'UNVERIFIED'
@@ -96,7 +98,9 @@ def test_independent_software_admission_rejects_mismatch_before_any_financial_wo
     obj = install.InstallationDeploy(cfg, SimpleNamespace(env={}, run=run), tmp_path)
     obj.commit = SHA
     obj.resolve_compose = lambda: None
-    monkeypatch.setattr(install.certification, 'verify_current', lambda **kwargs: proof)
+    monkeypatch.setattr(ci_runtime, '_verification_context', lambda root, commit:
+        (123, str(root), {'commit': SHA, 'tree': 'f' * 40}, (), ()))
+    monkeypatch.setattr(ci_runtime.verifier, 'verify_current', lambda **kwargs: proof)
     if defect:
         with pytest.raises(core.DeployRefused): obj.build_promote()
         assert not (tmp_path / 'ci-certified-runtime.json').exists()

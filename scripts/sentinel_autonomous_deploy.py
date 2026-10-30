@@ -859,7 +859,7 @@ def verify_reviewed_shadow_bindings(
 
 def verify_reviewed_software_environment(
         reviewed: ReviewedValidation, *, env: Mapping[str, str],
-        invoke=subprocess.run) -> None:
+        invoke=subprocess.run, software_verification=None) -> None:
     """Bind reviewed bytes to the current checkout and exact local images."""
     def git_output(*args: str) -> str:
         completed = _read_only_command(invoke, ["git", *args])
@@ -953,7 +953,8 @@ def verify_reviewed_software_environment(
         import sentinel_autonomous_deploy_ci_runtime as ci_runtime
         try:
             ci_runtime.verify_reviewed_runtime(
-                reviewed, env=env, invoke=invoke, root=ROOT)
+                reviewed, env=env, invoke=invoke, root=ROOT,
+                software_verification=software_verification)
         except ci_runtime.CertifiedInstallRefused as exc:
             raise DeployRefused(str(exc)) from None
 
@@ -1446,6 +1447,13 @@ class AutonomousDeploy:
         self.ownership_state = "UNKNOWN"
         self.reviewed_validation = reviewed_validation
 
+    def software_verification(self):
+        """Only this deployment instance may reuse its signed software result."""
+        if not hasattr(self, '_software_verification'):
+            from sentinel_autonomous_deploy_ci_runtime import SoftwareVerification
+            self._software_verification = SoftwareVerification()
+        return self._software_verification
+
     def phase(self, text: str) -> None:
         print("\n== %s" % text, flush=True)
 
@@ -1483,7 +1491,8 @@ class AutonomousDeploy:
                 "reviewed validation identity changed before deployment")
 
         verify_reviewed_software_environment(
-            reviewed, env=self.env, invoke=self._reviewed_invoke)
+            reviewed, env=self.env, invoke=self._reviewed_invoke,
+            software_verification=self.software_verification())
         verify_reviewed_account_binding(reviewed, self.cfg.account_id)
 
     def _reviewed_invoke(self, argv, *, cwd=ROOT, env=None, check=False,

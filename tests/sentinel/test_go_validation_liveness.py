@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import importlib.util
+import json
 import os
 from pathlib import Path
 import sys
+import subprocess
+
+import pytest
 
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
@@ -276,12 +280,13 @@ def test_runtime_promotion_refreshes_origin_main_at_final_boundary():
     assert '["git", "fetch", "--quiet", "origin", "main"]' in text
 
 
-def test_post_validation_recreates_panel_then_publishes_single_runtime_handoff():
+def test_post_validation_reconciles_panel_then_publishes_single_runtime_handoff():
     text = (ROOT / "scripts" / "sentinel_go_post_validate.py").read_text(
         encoding="utf-8")
     assert 'env = runtime._merged_environment()' in text
     assert '"scripts/sentinel-compose.sh", "--run"' in text
-    assert '"--force-recreate", "--wait"' in text
+    assert '"--no-deps", "--wait"' in text
+    assert '--force-recreate' not in text and '--no-recreate' not in text
     assert '"--wait-timeout", "180", "sentinel-panel"' in text
     assert '"ps", "-q", "sentinel-panel"' in text
     assert '"docker", "container", "inspect", "--format", "{{.Image}}"' in text
@@ -298,9 +303,46 @@ def test_post_validation_recreates_panel_then_publishes_single_runtime_handoff()
     assert "phase._load_with_ordinary" in text
     assert 'docker", "image", "rm"' not in text
     choose = text.index("expected_image_id, handoff = (")
-    recreate = text.index("recreate_panel(env, expected_image_id=expected_image_id)", choose)
+    recreate = text.index("reconcile_panel(env, expected_image_id=expected_image_id)", choose)
     publish = text.index("atomic_json(OUT, handoff)", recreate)
     assert choose < recreate < publish
+
+
+@pytest.mark.parametrize('fault', [None, 'compose', 'image', 'unhealthy', 'malformed'])
+def test_panel_reconciliation_keeps_compose_config_detection_and_exact_final_proof(
+        monkeypatch, fault):
+    import sentinel_go_post_validate as post
+    expected = 'sha256:' + 'a' * 64
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(argv)
+        code, output = 0, ''
+        if 'up' in argv:
+            assert '--no-deps' in argv and '--wait' in argv
+            assert '--force-recreate' not in argv and '--no-recreate' not in argv
+            assert kwargs['env'] == {'EXACT_CONFIG': 'unchanged'}
+            if fault == 'compose':
+                code = 2
+        elif 'ps' in argv:
+            output = 'a' * 64
+        elif '{{.Image}}' in argv:
+            output = 'sha256:' + 'b' * 64 if fault == 'image' else expected
+        elif '{{json .State}}' in argv:
+            output = json.dumps({'Status': 'running', 'Running': True,
+                'Restarting': False, 'Health': {'Status':
+                    'unhealthy' if fault == 'unhealthy' else 'healthy'}})
+            if fault == 'malformed':
+                output = 'not JSON'
+        else:
+            pytest.fail('Unexpected command ' + repr(argv))
+        return subprocess.CompletedProcess(argv, code, output, '')
+    monkeypatch.setattr(post, 'run', run)
+    if fault:
+        with pytest.raises(post.Refused):
+            post.reconcile_panel({'EXACT_CONFIG': 'unchanged'}, expected_image_id=expected)
+    else:
+        post.reconcile_panel({'EXACT_CONFIG': 'unchanged'}, expected_image_id=expected)
+        assert len(calls) == 4
 
 def test_autonomous_deploy_promotes_exact_reviewed_local_ids_to_repo_digests():
     text = (ROOT / "scripts" / "sentinel_autonomous_deploy.py").read_text(

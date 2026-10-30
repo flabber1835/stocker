@@ -143,6 +143,7 @@ class Reader:
         self.work_started = None
         self.work_clock = None
         self.last_result_at = None
+        self.check_reason = 'NO_COMPLETED_PROOF'
 
     def _work(self, key, database_url, include_paper):
         acquired = False
@@ -180,6 +181,8 @@ class Reader:
             return self.unknown(include_paper, 'current financial identity unreadable: '+type(exc).__name__)
         with self.lock:
             if key != self.configuration:
+                self.check_reason = ('SUBJECT_CHANGED' if self.configuration is not None
+                                     else 'NO_COMPLETED_PROOF')
                 self.configuration = key
                 self.retained = None
                 self.completed = None
@@ -261,10 +264,13 @@ class Reader:
                     fresh = (rows, {}, [], errors)
                 else:
                     self.completed = None
+                    self.check_reason = 'PROOF_EXPIRED'
             refresh_due = (fresh is None or self.failure is not None
                            or age >= timedelta(seconds=REFRESH_SECONDS))
             if (allow_start and refresh_due and self.pending is None
                     and self.clock()-self.last_attempt >= RETRY_SECONDS):
+                self.check_reason = ('PRIOR_CHECK_FAILED' if self.failure is not None else
+                                     'PERIODIC_REFRESH' if fresh is not None else self.check_reason)
                 self.last_attempt = self.clock()
                 self.pending_clock = self.last_attempt
                 self.pending_key = key
@@ -278,7 +284,8 @@ class Reader:
             if fresh is not None:
                 if self.pending is not None and self.pending_key == key:
                     rows, details, history, errors = fresh
-                    rows = [replace(row, detail=row.detail+' · background refresh running; last verified '+observed.isoformat())
+                    rows = [replace(row, detail=row.detail+' · background refresh running; last verified '+observed.isoformat()
+                                    +' · reason '+self.check_reason)
                             if row.status == model.OK else row for row in rows]
                     return rows, details, history, errors
                 return fresh
@@ -297,6 +304,7 @@ class Reader:
                         detail = self.scope_label+' is running'
                     detail += (' · elapsed '+str(max(0, int(self.clock()-self.pending_clock)))
                                +'s · deadline '+deadline.isoformat())
+                detail += ' · reason '+self.check_reason
                 if (self.failure is None
                         and self.pending_clock <= self.clock() < deadline_clock
                         and self.pending_at <= self.wall_clock()

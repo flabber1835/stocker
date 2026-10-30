@@ -44,8 +44,8 @@ class Media:
         self.backup = self.base / BASE
         self.backup.mkdir()
         self.selection = self.base / f".sentinel-runtime-base-{SYSTEM_ID}-v1"
-        self.selection.write_text(
-            f"schema=sentinel.runtime-base/1\nsystem_identifier={SYSTEM_ID}\nbase_backup={BASE}\n")
+        self.selection.write_bytes(
+            f"schema=sentinel.runtime-base/1\nsystem_identifier={SYSTEM_ID}\nbase_backup={BASE}\n".encode("ascii"))
         self.metadata = (
             f"marker=sentinel-backup-20260910T110000Z-42\nlsn=0/300040\n"
             f"wal={wal_name(3)}\nsystem_identifier={SYSTEM_ID}\n")
@@ -254,10 +254,12 @@ class Archive:
         self.checksum = self.namespace / f"{self.name}.sha256"
         self.bin = root / "bin"
         self.bin.mkdir()
-        self.env = {"PATH": os.environ["PATH"], "LANG": "C", "LC_ALL": "C"}
+        from fsync_adapter import install
+        self.baseline_path = install(root / "native-fsync", os.environ["PATH"])
+        self.env = {"PATH": self.baseline_path, "LANG": "C", "LC_ALL": "C"}
 
     def fault(self, command: str, phase: str, mode: str):
-        original = shutil.which(command)
+        original = shutil.which(command, path=self.baseline_path)
         assert original
         wrapper = self.bin / command
         wrapper.write_text(f"#!{sys.executable}\n" + (
@@ -284,18 +286,26 @@ class Archive:
             "sys.exit(74)\n"
         ))
         wrapper.chmod(0o755)
-        self.env["PATH"] = f"{self.bin}{os.pathsep}{os.environ['PATH']}"
+        self.env["PATH"] = f"{self.bin}{os.pathsep}{self.baseline_path}"
 
     def clear(self):
-        self.env["PATH"] = os.environ["PATH"]
+        self.env["PATH"] = self.baseline_path
 
     def command(self):
         return ["sh", str(ROOT / "scripts/sentinel-archive-wal.sh"),
                 str(self.source), self.name, str(self.archive)]
 
-    def run(self):
-        return subprocess.run(self.command(), env=self.env, capture_output=True,
-                              text=True, timeout=10)
+    def run(self, argv=None, *, env=None, timeout=10):
+        # A timed-out shell may leave sync/copy descendants holding inherited
+        # pipes. Reuse the production's bounded private-group transport rather
+        # than killing only the direct shell or inventing another supervisor.
+        scripts = str(ROOT / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from sentinel_maintenance_process import run_bounded
+        return run_bounded(self.command() if argv is None else argv,
+                           env=self.env if env is None else env,
+                           timeout=timeout)
 
     def assert_exact(self):
         assert self.target.read_bytes() == self.source.read_bytes()

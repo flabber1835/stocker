@@ -321,7 +321,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
                     invoke=lambda argv, **kwargs: self.runner.run(
                         argv, capture=True, check=kwargs.get("check", False),
                         cwd=Path(kwargs["cwd"]), timeout=kwargs["timeout"]),
-                    root=core.ROOT)
+                    root=core.ROOT, software_verification=self.software_verification())
             except ci_runtime.CertifiedInstallRefused as exc:
                 raise core.DeployRefused(str(exc)) from None
             self.runtime_repo_digest = str(result["certified_image"])

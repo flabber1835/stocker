@@ -314,6 +314,20 @@ def _refresh_unchanged_health(conn, result, verified_inventory):
         conn.rollback()
 
 
+def _maintain_verified_inputs(conn):
+    """Disposable cleanup owns its own admission after financial ownership ends."""
+    import sys
+    from sentinel.feed import retention
+    try:
+        retention.maintain(conn)
+    except Exception as exc:
+        # Normal maintenance failures are handled by maintain itself. Preserve
+        # verified trading state even if admission/diagnostic setup fails first.
+        conn.rollback()
+        print('WARNING: rolling input maintenance unavailable: ' +
+              type(exc).__name__, file=sys.stderr, flush=True)
+
+
 def service_advance(conn, *, through, observation_id, starting_cash, acquisition_deadline=None):
     """Acquire only after checking the previous runtime authority and adjacency."""
     from sentinel import shadow_budget
@@ -328,8 +342,7 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
         from sentinel.feed import readiness
         readiness.save_snapshot(conn, classified['_readiness_snapshot'])
         _refresh_unchanged_health(conn, result, classified['inventory_sha256'])
-        from sentinel.feed import retention
-        retention.maintain(conn)
+        _maintain_verified_inputs(conn)
         return result
     if classified['status'] == 'NOT_STARTED':
         context = initial._context(observation_id, starting_cash)
@@ -365,13 +378,11 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
                             absolute_deadline=acquisition_deadline)
     # Fresh genesis and crash recovery must consume the reviewed/current exact
     # publication; neither is permitted to replace it with newly acquired data.
-    # Keep the same canonical session lock through post-commit retention and
-    # the small health projection, so it cannot certify a concurrently changed
-    # behavioral row inventory. Financial guards never consume the projection.
+    # Keep canonical ownership through the small validated health projection.
+    # Disposable retention then earns its own admission without holding this
+    # financial transition's lock through a cold backup proof or deletion pass.
     with journal.writer_lock(conn):
         result = advance(conn, through=through, observation_id=observation_id, starting_cash=starting_cash)
-        from sentinel.feed import retention
-        retention.maintain(conn)
         import os, sys
         if os.environ.get('SENTINEL_FEED_SERVICE_MODE') == 'SHADOW':
             try:
@@ -381,4 +392,5 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
             except Exception as exc:
                 print('WARNING: shadow health projection unavailable: ' +
                       type(exc).__name__, file=sys.stderr, flush=True)
-        return result
+    _maintain_verified_inputs(conn)
+    return result
