@@ -65,3 +65,25 @@ def test_two_sequential_full_journal_probes_never_select_a_new_predecessor():
     assert "for mode in ('COLD','BOUNDED'):" in text
     assert "maximum=1" in text and "current['repairs']==cp['repairs']" in text
     assert 'qualification_only_not_economic_predecessor=True' in text and 'selected_for_economic_use=False' in text
+
+
+def test_job_request_closure_and_exact_latest_own_checkpoint():
+    import system_campaign_reconstruction_job as job
+    from forecast_tests.test_basis_job_sources import dependencies
+    assert not dependencies(job.SOURCES)-set(job.SOURCES)
+    request=job.expected_request()
+    assert request['economic_suffix_started'] is False and request['new_origin'] is False
+    assert request['new_overlay'] is False and request['probe_next_session']=='2021-12-01'
+    assert request['probe_modes']==['COLD','BOUNDED'] and request['probe_measured_transitions_each']==1
+    assert request['qualification_wait_seconds']==1200 and request['artifact_retention_days']==7
+    assert json.loads((job.HERE/'system-campaign-reconstruction-request.json').read_bytes())==request
+
+
+def test_qualification_workflow_is_isolated_and_request_triggered():
+    path=Path(__file__).resolve().parents[3]/'.github/workflows/capital-system-reconstruction-qualification.yml'
+    text=path.read_text()
+    assert 'branches: [codex/capital-risk-research]' in text
+    assert "paths: ['research/capital_risk/system-campaign-reconstruction-request.json']" in text
+    assert 'system-optimization-002-p02-only' in text and 'cancel-in-progress: false' in text
+    assert 'timeout-minutes: 45' in text and 'retention-days: 7' in text
+    assert 'system_campaign_reconstruction_job.py' in text and 'environment: production' not in text

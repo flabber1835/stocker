@@ -184,3 +184,14 @@ def qualify(out,old,spec,controller_sources):
         predecessor=spec['outer_sha256'],probes=proofs,comparison=result,
         financial_candidate_or_parameters_changed=False,selected_for_economic_use=False,production_contacted=False)
     save(out/'reconstruction-qualification.json',proof);return proof
+
+
+if __name__=='__main__':
+    import argparse
+    hosted()
+    parser=argparse.ArgumentParser();parser.add_argument('--spec',type=Path,required=True)
+    parser.add_argument('--request',type=Path,required=True);args=parser.parse_args()
+    spec=json.loads(args.spec.read_bytes());request=json.loads(args.request.read_bytes())
+    need(request['schema']=='research.exact-reconstruction-request/1' and request['only_candidate']=='P02'
+         and request['economic_suffix_started'] is False,'RECONSTRUCTION_EXPLICIT_QUALIFICATION_REQUEST')
+    qualify(Path('/out'),Path('/old'),spec,request['canonical_controller_sources'])

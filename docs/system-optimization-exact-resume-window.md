@@ -93,3 +93,23 @@ Keep actual elapsed reconstruction/transition timings for admission decisions.
 
 This qualifier is engineering prepared while the one existing cash-calendar
 job runs. It must not dispatch itself or activate acceleration in that job.
+
+## Selected first qualification boundary, October30
+
+The cash-calendar run stopped and its artifact was authenticated independently:
+P02's latest financial predecessor is November30,2021/986 closes, with17 raw
+unsent sessions preserved. Select one dedicated qualification workflow from that
+exact predecessor, unchanged515-source basis and adopted24 inputs. The probes
+each replay only December1 in disjoint qualification books. The actual economic
+predecessor remains November30 regardless of qualification outcome.
+
+Use one fenced hosted worker,1200-second processing limit and45-minute job limit,
+sequential cold/bounded probes and the existing encrypted Actions channel for
+seven days. Authenticate the original960MB predecessor using its existing1GiB
+admission bound. Preserve the exact encrypted ancestor and all probe evidence
+with the separately bounded2GiB exporter. No new market-data input, Core setting,
+origin, economic suffix, candidate or production contact is authorized by this
+qualification request. A known stopped failed probe is preserved, not admitted.
+The actual evidence must be authenticated and independently inspected before a
+later economic request may select the acceleration. Prepare the CoreSite factual
+repair concurrently as metadata/source research; never apply it retroactively.
