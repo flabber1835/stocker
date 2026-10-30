@@ -1,20 +1,20 @@
 {
   "arm": "P02",
-  "artifact_id": 12989368853,
-  "zip_bytes": 446506112,
-  "zip_sha256": "dca55422ae40bed9cb63bca6e1c272ccd3f6e2533ad6c75dc464fc2d14594fcd",
+  "artifact_id": 12991028902,
+  "zip_bytes": 486638970,
+  "zip_sha256": "7cd2dacbb378ff51dc965bd5abcb89a1dfb60b58bfb43efd049e148047dad1ef",
   "receipt_name": "p02-uncertainty.json",
-  "receipt_sha256": "06dba3ea9d7596ae2310dfaca4faf2254498486cde973afd3991f34afc961439",
+  "receipt_sha256": "4d427adf5ede3a2421402d464ebe7cc31136b7c25d8bae04ae7cfabcdaee3525",
   "receipt_schema": "research.system-p02-uncertainty-suffix-receipt/1",
-  "run_id": 41080685843,
-  "head": "dd331c2f5553420dee3719473fa3195a005049d0",
-  "request_sha256": "c14621464c6168d2281914f7f97a69657b9e3ba6a450394aa028bbd92a76d147",
+  "run_id": 41086155048,
+  "head": "7457cdc5ee44cfbb3e9af86d9f6f916ddf3b88ed",
+  "request_sha256": "41637920f0e77e42fa7d3e35dbce6da2358b507c9f40d0d7c20f2861bacf4b70",
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
   "encrypted_output": {
     "name": "p02-uncertainty.tar.crseal",
-    "bytes": 446502801,
-    "sha256": "b225a18221672048b0544b4e4559bdfc110b91aaff62c0784592481ac7faee19",
-    "manifest_sha256": "933f39802fb1e2043bd2d0ef2711cec89fd030ed4dfdbd7a7a74f8df5bf2d27f",
+    "bytes": 486635656,
+    "sha256": "bee7e4726de059dd5b1a817925b4ec87dd2622029974c0b991ba1e8e970b0714",
+    "manifest_sha256": "5756f4d9956ee141714bf6e880a24fa7b48ee8dc2dd55e46f3085f2de3bea9f9",
     "compression": "TAR_GZIP_V1"
   },
   "stage": "campaign-factual-suffix",
@@ -397,21 +397,54 @@
     }
   ],
   "source_binding_sha256": "d426b8258e5c16b401cd22718a290abe2a89f73c42a8ee2a14950f90c6c4a289",
-  "review_sha256": "89f5e15e7d76fd4255c859a5776dc2b17577333144a653ed076d721ace9a538c",
+  "review_sha256": "2434d3acf8a846c41ae87148e714ee5e82ededfee254a274c35854a6ac60efed",
   "inspections": {
     "economic-worker-inspect.json": {
-      "sha256": "1ff5e3dc2794ddc7f682447961361ed6e25374d7f2c850252bbaf846542d6e46",
-      "name": "/capital-system-factual-p02-worker-41080685843-1",
-      "id": "de3f2547eb9d3219047cbb72ee3b1a4a0469dc62b84352bab46c50fc71380d6f",
+      "sha256": "f64dd0852f12eaef38363146204cd999ee0d228be13bd1beba1ee0f2368cac18",
+      "name": "/capital-system-factual-p02-worker-41086155048-1",
+      "id": "5cc20cb0298b5e8e8a732ce9daa11bc327c364deffc1f0120416d8bdeb81f11f",
       "exit_code": 1
     },
     "independent-review-stop/worker-inspect.json": {
-      "sha256": "2d44e9d84a0719bb9e5c9dce9cefa391b411272a020b542abd005d54676aa081",
-      "name": "/capital-system-factual-p02-review-41080685843-1",
-      "id": "b23aa935d0c848aa88e5f27338b2ebe70578b8ffa18e4a02e17824531341008f",
-      "exit_code": 0
+      "sha256": "d21167fab59124d5b7a9820302322b452bcbb4e3cde4ae0a9450136a91b491d0",
+      "name": "/capital-system-factual-p02-review-41086155048-1",
+      "id": "ac36913b059ebbe11f349554f28c6f46f04e4526d5181c42d6ae4ce60381136a",
+      "exit_code": 1
     }
   },
   "uncertainty_input_descriptor_sha256": "a41ff4867c1bd48284f0573eff648946f943727310d5879f681de449498e7809",
-  "selected_measured_closes": 543
+  "selected_measured_closes": 543,
+  "unadvanced_qualification_failure": true,
+  "unadvanced_failure_kind": "SPRINT_PACKET_DAY_FIELD",
+  "unadvanced_receipt_status": "STOPPED_P02_UNCERTAINTY_PREFIX_PRESERVED",
+  "unadvanced_original_selected_file": {
+    "bytes": 834923,
+    "sha256": "ad0a8dcb46dabbf0a396e36291f0a423e81041d848d6b952fed8966d4050e6ae"
+  },
+  "unadvanced_original_journals": {
+    "daily": {
+      "bytes": 19075782,
+      "sha256": "af3ae43ec7d506ecaf535a1ffcf799f44a41261dd21fd45532180859b7a5dd74"
+    },
+    "formation": {
+      "bytes": 4074394,
+      "sha256": "565a37f7d692f7f2b06d288beb3044e56dbd0d8b09a8cc5a12fc8fd62c7782a8"
+    },
+    "monthly": {
+      "bytes": 94658,
+      "sha256": "4d95ba087894a39ded0dc50cf81a5dae886f8d9507cd22cc6af6939eb01203d2"
+    },
+    "watch": {
+      "bytes": 55589,
+      "sha256": "b0a70d3ddfaf199723ceb07adc1cc6e0d2a14f624c4967a27fc6d13b43e4baeb"
+    }
+  },
+  "unadvanced_complete_ancestor_zip_sha256": "dca55422ae40bed9cb63bca6e1c272ccd3f6e2533ad6c75dc464fc2d14594fcd",
+  "unadvanced_worker_log_sha256": "69615221db5fe9207488a77b1c1e7755a1a90fe4d7046a9287339c4238f9ec8b",
+  "unadvanced_reviewer_log_sha256": "8a8da6b84f81639ba455c1b7f7a15ed49328a8b5819108d56352fc0fbfb2277a",
+  "unadvanced_prefix_reviews": {
+    "old-branch-canonical-review.json": "89f5e15e7d76fd4255c859a5776dc2b17577333144a653ed076d721ace9a538c",
+    "independent-review-stop/core-review.json": "2434d3acf8a846c41ae87148e714ee5e82ededfee254a274c35854a6ac60efed"
+  },
+  "unadvanced_certificate_review_sha256": "8f231eda43afa9c3ad557ea68799043603188defea14004a84c3c7b06683d38b"
 }

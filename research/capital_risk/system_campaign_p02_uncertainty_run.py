@@ -23,7 +23,7 @@ from system_campaign_facts import sha
 def run(out, old, spec, request):
     hosted()
     from research.pooled_vacancy_funding import backtest,journal
-    need(spec['arm']=='P02' and spec['run_id']==41080685843 and spec['selected_session']=='2020-02-28'
+    need(spec['arm']=='P02' and spec['run_id']==41086155048 and spec['selected_session']=='2020-02-28'
          and request['execution_mode']=='SPRINT_FACTUAL_SUFFIX','UNCERTAINTY_EXACT_SPRINT_PREFIX')
     cp = preflight(spec,old,out,before='2020-03-31')
     qualify_origin(out,cp,out/'own-origin-qualification.json')

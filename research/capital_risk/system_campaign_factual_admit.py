@@ -169,6 +169,8 @@ def prove_review_refusal(spec,inventory,root):
 def prove_unadvanced(spec,inventory,root):
     """Refuse any unexpected progress instead of adopting an earlier checkpoint."""
     kind=spec.get('unadvanced_failure_kind','QUALIFIER_PARTIAL_PACKET')
+    if kind=='SPRINT_PACKET_DAY_FIELD':
+        prove_unadvanced_sprint_packet(spec,inventory,root);return
     if kind=='ALDER_PACKET_DAY_FIELD':
         prove_unadvanced_alder_packet(spec,inventory,root);return
     if kind=='PROOF_BUFFER_CONSTRUCTOR':
@@ -258,3 +260,38 @@ def prove_unadvanced_buffer_constructor(spec,inventory,root):
          and partial['all_prefixes_verified'] and partial['all_daily_factors_and_chains_verified']
          and partial['counts']==spec['unadvanced_review_counts'],
          'BUFFER_FAILURE_ACTUAL_CANONICAL_OLD_AND_UNADVANCED_PREFIX')
+
+
+def prove_unadvanced_sprint_packet(spec,inventory,root):
+    need(spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
+         and spec['unadvanced_receipt_status']=='STOPPED_P02_UNCERTAINTY_PREFIX_PRESERVED'
+         and spec['arm']=='P02' and spec['run_id']==41086155048 and spec['selected_session']=='2020-02-28'
+         and spec['outer_sha256']=='04dbed001c745fa04aaa5a28320911a6a7ac3eb1cbfc2b418a42dadfaa5fcb0a',
+         'SPRINT_PACKET_FAILURE_EXACT_DECLARED_SCOPE')
+    need(inventory['book/checkpoint.json.gz']==spec['selected_file']==spec['unadvanced_original_selected_file']
+         and all(inventory['book/'+n+'.jsonl']==spec['unadvanced_original_journals'][n]
+                 for n in ('formation','daily','monthly','watch')),'SPRINT_PACKET_FAILURE_NO_FINANCIAL_ADVANCEMENT')
+    need(not any(n in inventory for n in ('book/status.json','book/result.json','sprint-input-qualification.json',
+         'acceleration-proof.json','correlation-capture-proof.json','recovered-tail-proof.json')),
+         'SPRINT_PACKET_FAILURE_BEFORE_FINANCIAL_ENTRY')
+    ancestor=json.loads((root/'lineage/ancestor.json').read_bytes())
+    need(inventory['lineage/verified-ancestor.zip']=={'bytes':ancestor['zip_bytes'],'sha256':ancestor['zip_sha256']}
+         and ancestor['zip_sha256']==spec['unadvanced_complete_ancestor_zip_sha256'],'SPRINT_PACKET_FAILURE_EXACT_ANCESTOR')
+    worker=(root/'economic-worker.log').read_bytes();review=(root/'independent-review-stop/worker.log').read_bytes()
+    need(hashlib.sha256(worker).hexdigest()==spec['unadvanced_worker_log_sha256']
+         and b'facts.qualify(loaded' in worker and b'packet.session' in worker
+         and b"AttributeError: 'Packet' object has no attribute 'session'" in worker
+         and hashlib.sha256(review).hexdigest()==spec['unadvanced_reviewer_log_sha256']
+         and b'REFUSED_FULL_SYSTEM_FACTUAL_EXACT_RECOVERED_TAIL' in review,'SPRINT_PACKET_FAILURE_EXACT_PRE_FINANCIAL_LOGS')
+    for name in ('old-branch-canonical-review.json','independent-review-stop/core-review.json'):
+        need(sha256_file(root/name)==spec['unadvanced_prefix_reviews'][name],'SPRINT_PACKET_FAILURE_REVIEW_BYTES')
+        proof=json.loads((root/name).read_bytes())
+        need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified']
+             and proof['checkpoint_sha256']==spec['outer_sha256'] and not proof['complete']
+             and proof['counts']=={'formation':126,'daily':543},'SPRINT_PACKET_FAILURE_CANONICAL_PREFIX_REVIEW')
+    path=root/'old-uncertainty-certificate-review.json'
+    need(sha256_file(path)==spec['unadvanced_certificate_review_sha256'],'SPRINT_PACKET_FAILURE_OLD_CERTIFICATE_BYTES')
+    proof=json.loads(path.read_bytes())
+    need(proof['status']=='COMMITTED_PREFIX_INTERVAL_INVARIANT' and proof['checkpoint_sha256']==spec['outer_sha256']
+         and proof['through']=='2020-02-28' and proof['rows']==89 and proof['comparisons']==165
+         and proof['financial_path_invariant_over_declared_sensor_interval'],'SPRINT_PACKET_FAILURE_RETAINED_INTERVAL_PROOF')

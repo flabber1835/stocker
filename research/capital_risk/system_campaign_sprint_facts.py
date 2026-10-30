@@ -6,9 +6,10 @@ import io
 import json
 import math
 import os
+import shutil
+import inspect
 from pathlib import Path
 from types import SimpleNamespace
-import urllib.request
 import zipfile
 
 from full_system_benchmark import need,save
@@ -21,6 +22,12 @@ SID='957008674074369745'
 ALIAS_SHA='db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02'
 ALIAS_BYTES=9855560
 ALIAS_URL='https://raw.githubusercontent.com/flabber1835/stocker/86fe82c474396ce84c91e8b774ae97a4500f7b39/sharadar/SHARADAR_ACTIONS.zip'
+PACKET_SOURCE_SHA='b3d87d4a0c5356a4ef88bc65638eeb8cbb387990405c1ec01b4300c7bc4898b3'
+PACKET_FIELDS=('day','bars','meta','sectors','spy','cash','terminal','spins')
+
+
+def published_packet(packet):
+    return SimpleNamespace(session=packet.day,bars=packet.bars,terminal_events=packet.terminal)
 
 
 def alias_rows(path,expected):
@@ -39,14 +46,14 @@ def alias_rows(path,expected):
     return rows
 
 
-def fetch_alias(out):
+def fetch_alias(out,old):
     need(os.environ.get('GITHUB_ACTIONS')=='true' and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted'
          and os.environ.get('GITHUB_RUN_ATTEMPT')=='1','SPRINT_PUBLIC_SOURCE_HOSTED_ORCHESTRATOR_ONLY')
     folder=out/'provider-source';folder.mkdir();target=folder/'SHARADAR_ACTIONS.zip'
-    count=0
-    with urllib.request.urlopen(ALIAS_URL,timeout=45) as source,target.open('xb') as dest:
-        while raw:=source.read(1024**2):
-            count+=len(raw);need(count<=ALIAS_BYTES,'SPRINT_BOUNDED_ORIGINAL_PROVIDER_DOWNLOAD');dest.write(raw)
+    retained=old/'provider-source/SHARADAR_ACTIONS.zip'
+    need(retained.stat().st_size==ALIAS_BYTES and sha(retained.read_bytes())==ALIAS_SHA,
+         'SPRINT_EXACT_AUTHENTICATED_PROVIDER_ARCHIVE_REUSED')
+    shutil.copyfile(retained,target);count=target.stat().st_size
     catalog=json.loads(Path('/driver/system-campaign-sprint-terminal-facts.json').read_bytes()) if Path('/driver').is_dir() else json.loads((Path(__file__).parent/'system-campaign-sprint-terminal-facts.json').read_bytes())
     rows=alias_rows(target,catalog['provider_alias_source']['selected_row_sha256'])
     save(out/'provider-alias-proof.json',dict(source_sha256=ALIAS_SHA,source_bytes=count,selected_rows=rows,
@@ -122,6 +129,8 @@ class SprintFacts:
         from research.bounded_20y.run import vendor
         from research.pooled_vacancy_funding import backtest
         from sentinel.controller import terminal_returns
+        need(sha(Path(inspect.getfile(Packet)).read_bytes())==PACKET_SOURCE_SHA
+             and tuple(Packet.__annotations__)==PACKET_FIELDS,'SPRINT_EXACT_ACTUAL_CANONICAL_PACKET_SCHEMA')
         actions=inputs.load_actions(Path('/frozen/bundle'));bar=vendor(self.delivered)
         for day in ('2020-03-31','2020-04-01'):
             original=Packet(day,(bar,) if day=='2020-04-01' else (),{},{},1.,{},tuple(actions.terminal.get(day,())),());before=digest(asdict(original))
@@ -133,11 +142,10 @@ class SprintFacts:
                 need(len(terms)==1 and asdict(terms[0])==self.catalog['added'] and terms[0].completeness(1)[0],
                      'SPRINT_COMPLETE_ORDINARY_HOLDER_CONVERSION');new=fixed
         def prior(day):return SimpleNamespace(median5={'selected':[SID]},feed={'series':{SID:{'signal_basis_anchor':(day,1.,1.)}}},last_processed_session=day)
-        def published(packet):return SimpleNamespace(session=packet.session,bars=packet.bars,terminal_events=packet.terminal)
-        try:terminal_returns.values(prior=prior('2020-03-30'),published=published(old))
+        try:terminal_returns.values(prior=prior('2020-03-30'),published=published_packet(old))
         except ValueError as error:need('incomplete leadership cash terminal' in str(error),'SPRINT_ORIGINAL_INCOMPLETE_GUARD_REASON')
         else:raise ValueError('SPRINT_ORIGINAL_INCOMPLETE_GUARD_MISSING')
-        value=terminal_returns.values(prior=prior('2020-03-31'),published=published(new))
+        value=terminal_returns.values(prior=prior('2020-03-31'),published=published_packet(new))
         need(value[SID]==float(Fraction('0.10256')*Fraction(str(bar.raw_close))),'SPRINT_ACTUAL_CANONICAL_NOTIONAL_STOCK_CONSIDERATION')
         bad=SimpleNamespace(session='2020-04-01',bars=(),terminal_events=new.terminal)
         try:terminal_returns.values(prior=prior('2020-03-31'),published=bad)
@@ -145,6 +153,7 @@ class SprintFacts:
         else:raise ValueError('SPRINT_MISSING_DELIVERED_QUOTE_GUARD_MISSING')
         save(out,dict(actual_native_and_added_packet_checks=2,original_packets_unchanged=True,
             actual_canonical_notional_conversion_verified=True,original_incomplete_guard_retained=True,missing_delivered_quote_refused=True,
+            actual_packet_source_sha256=PACKET_SOURCE_SHA,actual_packet_fields=PACKET_FIELDS,
             source_unknown_issuer_and_ineligible_preserved=True,ratio='0.10256',last_trading_session='2020-03-31',effective_preopen_session='2020-04-01',
             cil_convention=self.catalog['cil_convention'],catalog_sha256=self.catalog_sha,compiler_sha256=self.compiler_sha,
             private_hydrated_sha256=self.hydrated_sha,financial_sessions_advanced=0))

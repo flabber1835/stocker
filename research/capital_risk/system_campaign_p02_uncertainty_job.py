@@ -33,7 +33,7 @@ SOURCES=tuple(dict.fromkeys((*PRIOR,'system_campaign_p02_uncertainty_run.py',
 
 def expected_request():
     spec=json.loads((HERE/'system-campaign-p02-uncertainty-predecessor.json').read_bytes())
-    need(spec['arm']=='P02' and spec['run_id']==41080685843
+    need(spec['arm']=='P02' and spec['run_id']==41086155048
          and spec['receipt_schema']=='research.system-p02-uncertainty-suffix-receipt/1'
          and spec['selected_session']=='2020-02-28','UNCERTAINTY_EXACT_SPRINT_OWN_PREDECESSOR')
     proof=json.loads((HERE/'system-campaign-uncertainty-qualification.json').read_bytes())
@@ -79,7 +79,7 @@ def main(args):
     old=admit(spec,temp/'campaign-factual-transfer-p02-uncertainty-suffix',key,
               max_zip_bytes=request['source_archive_limit_bytes'])
     os.environ.pop('GH_TOKEN',None)
-    q=old/'core-review.json'
+    q=old/'independent-review-stop/core-review.json'
     need(sha256_file(q)==spec['review_sha256'],'UNCERTAINTY_ACTUAL_OLD_FINANCIAL_PREFIX_PROOF_BYTES')
     value=json.loads(q.read_bytes())
     need(value['status']=='PARTIAL_CORE_PREFIX_REVIEWED' and value['checkpoint_sha256']==spec['outer_sha256']
@@ -94,7 +94,7 @@ def main(args):
                      ('request.json',args.request.read_bytes()),('spec.json',(HERE/request['predecessor_file']).read_bytes()),
                      ('admitted-prior-financial-review.json',q.read_bytes())]:
         (out/name).write_bytes(raw)
-    fetch_alias(out)
+    fetch_alias(out,old)
     for root in (source,old):
         for path in root.rglob('*'):os.chmod(path,0o555 if path.is_dir() else 0o444)
         os.chmod(root,0o555)

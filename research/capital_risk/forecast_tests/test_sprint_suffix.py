@@ -113,3 +113,16 @@ def test_actual_frozen_eligibility_guard_removal_falsifier(tmp_path):
     namespace={};exec(textwrap.dedent(broken),SprintFacts.__init__.__globals__,namespace)
     obj=SimpleNamespace();namespace['__init__'](obj,path)
     assert obj.catalog['source_identity_witness']['security_type_eligible']=='1'
+
+
+def test_published_bridge_uses_actual_packet_day_schema_and_prior_bug_fails():
+    from dataclasses import make_dataclass
+    from system_campaign_sprint_facts import PACKET_FIELDS,published_packet
+    Packet=make_dataclass('Packet',[(n,object) for n in PACKET_FIELDS],frozen=True)
+    packet=Packet('2020-04-01',('source-quote',),{},{},1.,{},('source-term',),())
+    assert not hasattr(packet,'session')
+    result=published_packet(packet)
+    assert result.session==packet.day and result.bars is packet.bars and result.terminal_events is packet.terminal
+    raw=inspect.getsource(published_packet);broken=raw.replace('packet.day','packet.session',1);assert broken!=raw
+    namespace={};exec(textwrap.dedent(broken),published_packet.__globals__,namespace)
+    with pytest.raises(AttributeError,match='session'):namespace['published_packet'](packet)

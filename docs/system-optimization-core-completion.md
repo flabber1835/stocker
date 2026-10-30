@@ -321,3 +321,35 @@ actual Feb28/543 checkpoint with all March financial/watch/certificate tails
 preserved; no restart, rollback or source/profile/controller change. Independent
 stopped review still covers every checkpoint, prefix, daily factor, accounting
 snapshot, month and interval certificate. PAPER remains untouched.
+
+
+### Sprint qualification field-name failure; exact zero-advance recovery
+
+Actual run41086155048 stopped worker1/reviewer1/noOOM before financial entry.
+The research-only qualifier incorrectly used Packet.session; the immutable
+packet schema declares day. No book/status or result or acceleration output
+was created. Authenticated checkpoint gzip and ALL full journals, including
+uncommitted tails, are identical to the own admitted predecessor. Both old
+and current canonical prefix reviews and the old89-row interval certificate
+passed. The reviewer correctly refused missing recovered-tail files, because
+Journal.recover had never run. Preserve these failures without relabelling.
+
+Correct only the qualifier's shape adapter to Packet.day. Pin and inspect the
+actual Packet source hash and eight declared fields during hosted qualification,
+and add a pure regression whose real-shaped packet has no session attribute;
+the actual prior broken access must fail it. No financial/source/profile rule
+changes. The ordinary Sprint input was not committed, so its compiler may be
+corrected before the first canonical resume adopts it; all already committed
+MDCO/ArQule and nine interval source commitments remain byte-identical.
+
+Admit only this exact stopped failed branch using a new explicit
+SPRINT_PACKET_DAY_FIELD no-advancement evidence contract: exact old/current
+gzip and every full journal hash/length, both known stopped inspections,
+absence of financial-entry artifacts, actual two exception logs, original
+opaque ancestor, two passed canonical prefix proofs and old interval proof.
+Resume its OWN same Feb28/543 checkpoint; do not select an earlier book.
+Carry all tails and the complete prior certificate (including its earlier
+unsent tail in lineage/opaque ancestor). Reuse the authenticated original
+provider archive from this stopped branch. Hosted preflight and corrected
+actual-source qualification must pass before any financial session advances.
+PAPER and the fixed trial parameters remain untouched.
