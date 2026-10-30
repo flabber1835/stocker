@@ -293,9 +293,17 @@ class Archive:
         return ["sh", str(ROOT / "scripts/sentinel-archive-wal.sh"),
                 str(self.source), self.name, str(self.archive)]
 
-    def run(self):
-        return subprocess.run(self.command(), env=self.env, capture_output=True,
-                              text=True, timeout=10)
+    def run(self, argv=None, *, env=None, timeout=10):
+        # A timed-out shell may leave sync/copy descendants holding inherited
+        # pipes. Reuse the production's bounded private-group transport rather
+        # than killing only the direct shell or inventing another supervisor.
+        scripts = str(ROOT / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from sentinel_maintenance_process import run_bounded
+        return run_bounded(self.command() if argv is None else argv,
+                           env=self.env if env is None else env,
+                           timeout=timeout)
 
     def assert_exact(self):
         assert self.target.read_bytes() == self.source.read_bytes()

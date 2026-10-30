@@ -117,6 +117,37 @@ Retained pre-upgrade WAL is never retroactively granted checksum authority. Afte
 installing the checksum-aware archive command, create a fresh verified base so its
 required restore horizon consists of provenance-bearing archive objects.
 
+### File-scoped sync in private host qualification (2026-10-30)
+
+The host's uutils 0.8.0 `sync FILE` invokes the global `sync()` syscall rather
+than `fsync()` for the named file. An own-child syscall trace proved this while
+intercepting the global call before it could flush unrelated filesystems. This
+explains the original ten-second archive test timeout on a 35-byte private file;
+it was not evidence of a slow fsync of that file. The upstream report is
+[uutils/coreutils issue 14591](https://github.com/uutils/coreutils/issues/14591).
+The intended operand semantics are specified by the
+[GNU sync manual](https://www.gnu.org/software/coreutils/manual/html_node/sync-invocation.html).
+
+The private POSIX backup harness supplies a small `sync` adapter that opens each
+explicitly named object and performs real `os.fsync()` on that descriptor. It
+supports regular files and directories, propagates open/fsync failures, closes
+descriptors on failure and refuses an absent operand. There is no global sync,
+filesystem-wide flush, success stub or silent fallback. The adapter lives in a
+separate private directory from injected command-fault wrappers. Restoring the
+baseline PATH after a fault must retain it. Other shell operations and every
+archive content, source-stability, checksum, rename and directory-durability
+guard still execute the production script.
+
+This is a correction to the host test boundary, not a PostgreSQL runtime change.
+The pinned Debian PostgreSQL image retains its native GNU file/directory sync;
+the separate physical recovery/timeline gates continue to exercise that image.
+Do not introduce a Python dependency into PostgreSQL or increase the ten-second
+host test deadline to accommodate an unrelated global flush. Qualification must
+prove actual file and directory fsync calls, error propagation, baseline adapter
+retention, immunity to a broken ambient sync, and failure of a removed-fsync
+falsifier. Test timeouts must reap the test's own process group so descendants
+cannot continue after its finite deadline.
+
 ## Bounded runtime integrity proof
 
 The runtime proves only the archive objects required by the selected base-to-frontier

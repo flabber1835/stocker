@@ -18,6 +18,7 @@ operational evidence paths, not the strategy, controller or economic book.
 | One dashboard read snapshot | Computed the same cluster, installation, DDL epoch and environment facts separately for SHADOW and PAPER subjects. | Read those common facts once in the existing repeatable-read snapshot. Keep independent scope revisions and byte-identical subject digests. |
 | Verifier restart | Discarded still-valid authenticated completed display evidence and immediately repeated the expensive observation. | Restore only a completed, exact-current-subject receipt under the sole verifier owner. Preserve its original observation and expiry; never resume another owner's pending work. |
 | Verification diagnostics | A queued check did not identify why it was needed. | Distinguish changed subject, expiry, periodic refresh, prior failure and absence of a completed proof. These are display diagnostics, not new authority. |
+| Private archive qualification | The host's uutils `sync FILE` called global `sync()`, blocking on unrelated filesystems. A timed-out shell could also leave its child running. | Use genuine descriptor-specific fsync in the private host boundary and reuse the existing bounded process-group launcher. The formerly failing case passes under the original ten-second limit; production archive code remains unchanged. |
 
 The detailed decisions and invalidation rules are in
 [software proof reuse](activation-software-proof-reuse.md),
@@ -25,6 +26,8 @@ The detailed decisions and invalidation rules are in
 [backup writer admission](backup-writer-admission-cost.md). The source compatibility seal admits only these exact
 reviewed operational successors; historical baselines and economic compiler
 identities remain unchanged.
+The [archive qualification correction](backup-reliability-harness.md#file-scoped-sync-in-private-host-qualification-2026-10-30)
+records the demonstrated host utility defect and real-fsync replacement.
 
 ## Work that still earns new evidence
 

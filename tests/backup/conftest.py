@@ -14,7 +14,7 @@ if not os.environ.get("SENTINEL_IN_IMAGE"):
 
 
 @pytest.fixture(autouse=True)
-def isolated_environment(monkeypatch):
+def isolated_environment(monkeypatch, tmp_path):
     for key in tuple(os.environ):
         if key.startswith(("ALPACA_", "APCA_", "SENTINEL_")) and key not in {
             "SENTINEL_REPO_ROOT", "SENTINEL_IN_IMAGE",
@@ -25,5 +25,10 @@ def isolated_environment(monkeypatch):
     # equivalent fake connection identity.
     from sentinel import backup_runtime_authority
     backup_runtime_authority._PROOF_CACHE.clear()
+    if os.name == 'posix':
+        from fsync_adapter import install
+        # Some host utilities implement `sync FILE` as global sync(). Keep
+        # qualification on genuine fsync of only the named private object.
+        monkeypatch.setenv('PATH', install(tmp_path / 'native-fsync', os.environ['PATH']))
     yield
     backup_runtime_authority._PROOF_CACHE.clear()

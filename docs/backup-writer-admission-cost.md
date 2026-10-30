@@ -28,10 +28,6 @@ different ages; completion anchoring makes that existing distinction explicit
 and permits up to another 300 seconds before the next required full scrub.
 This does not change the 300-second interval, byte/object ceilings, two content
 passes, failure invalidation, transport gates or any caller deadline.
-The interval is explicitly the age of the last completed proof, not a claim
-that every individual byte was read within the last 300 seconds. A long proof
-already spans its two passes before admission can succeed; this change avoids
-immediately repeating that just-completed proof.
 
 The proof key also names the operating-system process. Forked children must
 perform their own full scrub even when they inherit an unchanged Python cache
