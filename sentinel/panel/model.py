@@ -350,6 +350,7 @@ class Row:
 
     def can_show_trading_run(self, now: datetime) -> bool:
         return (self.trading_run is not None and not self.is_future(now)
+                and (self.key != 'completed_trading_run' or self.trading_run.state == 'SUCCEEDED')
                 and not self.is_stale(now)
                 and self.trading_run.intent.effective_session ==
                     now.astimezone(ZoneInfo('America/New_York')).date()

@@ -96,7 +96,7 @@ def test_retained_response_labels_original_facts_without_reclocking():
 
 
 @pytest.mark.parametrize('key,unavailable,withheld',[
-    ('paper_plan','No current saved plan available.','data-security-id="PANW"'),
+    ('paper_plan','Saved trading plan unavailable.','data-security-id="PANW"'),
     ('alpaca_account','Account totals unavailable.','$9,635.82'),
     ('book','Canonical slots unavailable.','data-slot-id="0"')])
 @pytest.mark.parametrize('negative',['fail','unknown','expired','future'])
@@ -109,6 +109,8 @@ def test_overview_values_do_not_escape_the_original_row_gate(key,unavailable,wit
     else:
         panel = _with_row(panel,key,as_of=NOW+timedelta(seconds=6))
     html = overview.overview_html(panel)
+    if key == 'paper_plan' and negative == 'expired':
+        unavailable = 'Next trading plan pending.'
     assert unavailable in html and withheld not in html
 
 
@@ -136,7 +138,7 @@ def test_missing_evidence_does_not_invent_twenty_empty_slots_or_zero_balances():
 
 def test_plan_is_unavailable_at_the_original_execution_boundary():
     html = overview.overview_html(replace(example_panel(),now=EXECUTE))
-    assert 'No current saved plan available.' in html and 'data-security-id="PANW"' not in html
+    assert 'Next trading plan pending.' in html and 'data-security-id="PANW"' not in html
 
 
 @pytest.mark.parametrize('state,filled,copy',[

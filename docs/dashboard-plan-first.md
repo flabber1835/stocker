@@ -103,3 +103,39 @@ by the remaining original budget. Do not cache a successful frontier, retain an
 old PASS, renew evidence times, retry integrity/time-out failures, or change feed
 publication locks. Persistent contention remains an unreadable/red source fact.
 Qualify both temporary and exhausted contention and unchanged negative verdicts.
+
+## Completed run after an intraday software update
+
+Decision: 2026-10-30, before implementation. The owner requested a local
+presentation patch. Activation can change control generation and supersede the
+saved plan after today's run has already succeeded. Keep the current-generation
+trading-run reader and future-only PlanPreview eligibility unchanged. Their
+absence must not imply that the completed original plan was lost.
+
+Only when the current-run reader returns no row without an error, read a
+separate `completed_trading_run` display record. Require exactly one older-
+generation SUCCEEDED cycle for today's New York session, a real non-future
+completion after its execution time, no current failure code, a retained clean
+reconciliation, and the same currently owned deployment, broker, account and
+takeover epoch. A superseded original plan is eligible only for this historical
+display. Recheck its immutable plan fingerprint, original sizing/account
+authority and bounded recorded commands through the existing projections.
+Foreign, ambiguous, unfinished or malformed evidence remains unavailable;
+current-run errors and negative operational facts cannot be replaced by history.
+
+Reuse the typed TradingRun payload under the separate row key in HTML and JSON.
+Prefer the strict current run when present. Clearly label the fallback as a
+recorded completed run, retain its original clocks, order outcomes and session
+expiry, and say that the next plan is pending. It grants no execution authority,
+does not claim fills from SUCCEEDED, and does not complete post-close financial
+verification. Missing or failed historical evidence cannot manufacture success.
+
+Qualify the real generation-change/supersession query and rendered fallback,
+account/takeover/session/completion/ambiguity refusals, exact original intent,
+current-error precedence, original expiry, and unchanged future eligibility.
+Execute guard-removal falsifiers. Apply only the qualified HTTP presentation
+image using the existing narrow local presentation contract in
+[current dashboard evidence](current-dashboard-evidence.md). Preserve the signed
+financial runtime, verifier subject, five other application roles, PostgreSQL,
+control generation, authority, history and backup ownership. No installation,
+financial activation, plan replay or backup/restore operation is introduced.

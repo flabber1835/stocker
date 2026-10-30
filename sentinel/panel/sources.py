@@ -480,9 +480,47 @@ def _current_trading_run(conn):
         return None
     if len(rows) != 1:
         raise ValueError('multiple current-date trading runs')
+    return _trading_run_row(conn, rows[0])
+
+
+def _completed_trading_run(conn):
+    """One account-bound completed record, never current execution authority."""
+    with conn.cursor() as cur:
+        cur.execute("""SELECT c.cycle_id,c.state,c.execute_at,c.updated_at,c.completed_at,
+            p.plan_id,c.plan_fingerprint,p.created_at,p.decision_session,p.effective_session,
+            p.target_basket,p.broker,p.broker_account_id,
+            ((c.effective_session+1)::timestamp AT TIME ZONE 'America/New_York')
+            FROM sentinel_automation_cycles c
+            JOIN sentinel_automation_control a ON a.id=1 AND c.control_generation<a.generation
+              AND c.deployment_id=a.deployment_id AND c.broker=a.broker
+              AND c.broker_account_id=a.broker_account_id AND c.takeover_epoch=a.takeover_epoch
+            JOIN sentinel_account_binding b ON b.id=1 AND b.ownership_state='SENTINEL_OWNED'
+              AND b.deployment_id=c.deployment_id AND b.broker=c.broker
+              AND b.broker_account_id=c.broker_account_id AND b.takeover_epoch=c.takeover_epoch
+            JOIN sentinel_execution_plans p ON p.plan_id=c.plan_id
+              AND p.deployment_id=c.deployment_id AND p.broker=c.broker
+              AND p.broker_account_id=c.broker_account_id AND p.takeover_epoch=c.takeover_epoch
+              AND p.decision_session=c.decision_session AND p.effective_session=c.effective_session
+            WHERE NOT c.historical_state_only AND c.state='SUCCEEDED'
+              AND c.failure_code IS NULL AND c.last_clean_reconciliation_id IS NOT NULL
+              AND c.completed_at>=c.execute_at AND c.completed_at<=clock_timestamp()
+              AND c.effective_session=(clock_timestamp() AT TIME ZONE 'America/New_York')::date
+            ORDER BY c.created_at DESC LIMIT 2""")
+        rows = cur.fetchall()
+    if not rows:
+        return None
+    if len(rows) != 1:
+        raise ValueError('multiple completed current-date trading runs')
+    return _trading_run_row(conn, rows[0], completed_history=True)
+
+
+def _trading_run_row(conn, row, *, completed_history=False):
+    """Share original intent/command validation across the two display scopes."""
     plan = dict(zip(('cycle_id','state','execute_at','updated_at','completed_at','plan_id',
         'plan_fingerprint','created_at','decision_session','effective_session','target_basket',
-        'broker','broker_account_id','valid_until'), rows[0], strict=True))
+        'broker','broker_account_id','valid_until'), row, strict=True))
+    if completed_history and (plan['state'] != 'SUCCEEDED' or plan['completed_at'] is None):
+        raise ValueError('historical trading run is not completed')
     from sentinel.execution import journal
     stored = journal.load_plan(conn, plan['plan_id'])
     if (stored is None or stored.fingerprint() != plan['plan_fingerprint']
@@ -521,8 +559,12 @@ def _current_trading_run(conn):
         item.state in {'UNKNOWN','CANCEL_PENDING'} for item in run.orders)
     status = model.FAIL if failed else model.WARN if run.state in {
         'EXECUTING','RECONCILING','RETRY_WAIT'} else model.OK
-    return model.Row('trading_run', 'Today’s paper trading', run.state, status,
-        detail='Saved original intent and durable command progress; post-close verification is separate.',
+    return model.Row('completed_trading_run' if completed_history else 'trading_run',
+        'Today’s recorded completed run' if completed_history else 'Today’s paper trading',
+        run.state, status,
+        detail=('Recorded completed run from before the current software activation; '
+                if completed_history else '')
+               +'Saved original intent and durable command progress; post-close verification is separate.',
         as_of=max([run.updated_at]+[item.observed_at for item in run.orders]),
         valid_until=plan['valid_until']-timedelta(microseconds=1), trading_run=run)
 
@@ -2745,7 +2787,8 @@ def _trial_rows(database_url: str, *, now: datetime
 def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     reviewed_shadow = os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'shadow', 'dual'}
     rows, errors = _runtime_projection(database_url, include_book=not reviewed_shadow)
-    return ([row for row in rows if row.key in {'broker','paper_plan','trading_run'}] if reviewed_shadow else rows), errors
+    return ([row for row in rows if row.key in {
+        'broker','paper_plan','trading_run','completed_trading_run'}] if reviewed_shadow else rows), errors
 
 
 def _runtime_projection(database_url: str, *, include_book=True,
@@ -2813,9 +2856,13 @@ def _runtime_projection(database_url: str, *, include_book=True,
             conn, _latest_automation_cycle,
             STATEMENT_TIMEOUT_MS, default=None)
         trading_row, trading_error = (None, None)
+        completed_row, completed_error = (None, None)
         if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'dual','paper'}:
             trading_row, trading_error = _read(
                 conn, _current_trading_run, STATEMENT_TIMEOUT_MS, default=None)
+            if trading_row is None and trading_error is None:
+                completed_row, completed_error = _read(
+                    conn, _completed_trading_run, STATEMENT_TIMEOUT_MS, default=None)
 
         state_view = None
         if state_error is None and state_snapshot is not None:
@@ -2959,6 +3006,10 @@ def _runtime_projection(database_url: str, *, include_book=True,
             errors.append('current trading run: '+trading_error)
             trading_row = model.Row('trading_run','Today’s paper trading','UNAVAILABLE',
                                     model.UNKNOWN, detail=trading_error)
+        if completed_error:
+            errors.append('recorded completed trading run: '+completed_error)
+            completed_row = model.Row('completed_trading_run','Today’s recorded completed run',
+                'UNAVAILABLE',model.UNKNOWN,detail=completed_error)
         if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual','paper'}:
             return [exposure, book, terminals, broker], errors
         from sentinel import paper_plan_preview
@@ -2987,7 +3038,9 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 errors.append('previous paper order outcomes: '+outcome_error)
             else:
                 plan_row = replace(plan_row, order_outcomes=outcomes)
-        return [exposure, book, terminals, broker, plan_row, *([trading_row] if trading_row else [])], errors
+        return [exposure, book, terminals, broker, plan_row,
+                *([trading_row] if trading_row else []),
+                *([completed_row] if completed_row else [])], errors
     except Exception as exc:                                 # noqa: BLE001
         detail = _short(exc)
         return ([

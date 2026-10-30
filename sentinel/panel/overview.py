@@ -11,7 +11,7 @@ from decimal import Decimal
 from html import escape
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.model import OK, Panel, PaperOrderOutcome, ShadowSlot
+from sentinel.panel.model import FAIL, OK, UNKNOWN, Panel, PaperOrderOutcome, ShadowSlot
 from sentinel.panel.presentation import describe
 
 
@@ -107,9 +107,13 @@ def _plan_html(panel: Panel) -> str:
         current = _run_html(panel)
         if current:
             return current
+        unavailable = any(item is not None and item.effective_status(panel.now) in {FAIL, UNKNOWN}
+                          for item in (row, panel.row('trading_run'),
+                                       panel.row('completed_trading_run')))
+        message = 'Saved trading plan unavailable.' if unavailable else 'Next trading plan pending.'
         return ('<section class="overview-card next-plan" aria-labelledby="next-plan-title">'
                 '<div class="overview-heading"><h2 id="next-plan-title">Next trading plan</h2></div>'
-                '<p class="overview-unavailable">No current saved plan available.</p>'
+                '<p class="overview-unavailable">'+_esc(message)+'</p>'
                 '<p class="overview-note">Open System details for the recorded preparation and execution status.</p>'
                 '</section>')
     actions = [leg for leg in plan.legs if leg.action != 'HOLD']
@@ -144,6 +148,9 @@ def _plan_html(panel: Panel) -> str:
 
 def _run_html(panel: Panel) -> str:
     row = panel.row('trading_run')
+    historical = row is None
+    if historical:
+        row = panel.row('completed_trading_run')
     if row is None or not row.can_show_trading_run(panel.now):
         return ''
     run = row.trading_run
@@ -189,13 +196,23 @@ def _run_html(panel: Panel) -> str:
             +'</strong></div><p class="run-progress">'+_esc(progress)+'</p>'
             +('<details class="overview-inline-details" data-detail-key="run-'+_esc(leg.security_id)
               +'"><summary>Order details</summary><div class="detail-body">'+detail+'</div></details>' if orders else '')+'</li>')
+    recorded_note = ''
+    if historical:
+        future = panel.row('paper_plan')
+        next_note = ('' if future is not None and future.can_show_paper_plan(panel.now)
+                     else ' The next trading plan is unavailable.' if future is not None
+                         and future.effective_status(panel.now) in {FAIL, UNKNOWN}
+                     else ' The next trading plan is pending.')
+        recorded_note = '<p class="overview-note">Recorded completed run.'+next_note+'</p>'
     return ('<section class="overview-card current-trades" aria-labelledby="current-trades-title">'
         '<div class="overview-heading"><h2 id="current-trades-title">'+_esc(heading)+'</h2>'
         '<span class="overview-tag">PAPER</span></div><div class="plan-schedule"><strong>'
         +_esc(run.intent.effective_session.strftime('%A, %b %d'))+'</strong><span>'+_esc(stage)
         +'</span></div><ul class="plan-legs">'+(''.join(rows) or '<li>No share changes in this plan.</li>')
         +'</ul><p class="overview-note">Original saved plan; progress comes from recorded orders. '
-        'Post-close account verification is separate.</p>'+_stamp(row.as_of,label='Progress recorded:')+'</section>')
+        'Post-close account verification is separate.</p>'
+        +recorded_note
+        +_stamp(row.as_of,label='Progress recorded:')+'</section>')
 
 
 def _account_html(panel: Panel) -> str:
