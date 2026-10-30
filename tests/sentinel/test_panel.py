@@ -1544,7 +1544,7 @@ class TestReviewedDualAuthority:
         assert "SHADOW VERIFIED THROUGH 2026-08-20" in html
         assert ('data-key="shadow_verification" data-status="ok"' in html)
         assert "PAPER NOT VERIFIED · MISMATCH · BLOCKED" in html
-        assert 'src="/static/caesars-palace-512.png" alt="Caesar&#x27;s Palace"' in html
+        assert "src=\"/static/caesars-palace-512.png\" alt=\"Caesar's Palace\"" in html
 
     def test_ordinary_paper_pending_is_amber_and_never_strategy_performance(self):
         panel = _panel(

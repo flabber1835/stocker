@@ -232,8 +232,8 @@ def test_existing_brand_graphic_replaces_duplicate_header_text_but_keeps_accessi
     assert not header.headings
     visible=' '.join(header.visible)
     assert "CAESAR'S PALACE" not in visible and 'Sentinel · PAPER' not in visible
-    assert '<title>Caesar&#x27;s Palace</title>' in html
-    assert 'apple-mobile-web-app-title" content="Caesar&#x27;s Palace"' in html
+    assert "<title>Caesar's Palace</title>" in html
+    assert "apple-mobile-web-app-title\" content=\"Caesar's Palace\"" in html
     assert 'href="/static/caesars-palace-180.png"' in html
     assert '/static/caesars-palace-192.png' in SERVICE_WORKER  # Push icon is unchanged.
 
