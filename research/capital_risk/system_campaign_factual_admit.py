@@ -48,7 +48,7 @@ class AuthenticatedStream:
 
 
 def archive_bound(spec,limit):
-    need(type(limit) is int and limit in (256*1024**2,512*1024**2),
+    need(type(limit) is int and limit in (256*1024**2,512*1024**2,1024**3),
          'FACTUAL_DECLARED_ARCHIVE_LIMIT')
     need(type(spec['zip_bytes']) is int and 0<spec['zip_bytes']<limit,'FACTUAL_ENCRYPTED_DOWNLOAD_BOUND')
 

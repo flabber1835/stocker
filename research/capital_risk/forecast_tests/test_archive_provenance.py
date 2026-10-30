@@ -8,8 +8,10 @@ from system_campaign_ancestor import preserve
 
 def test_explicit_archive_capacity_and_actual_limit_guard_removal():
     archive_bound({'zip_bytes':300*1024**2},512*1024**2)
+    archive_bound({'zip_bytes':600*1024**2},1024**3)
     with pytest.raises(ValueError,match='DOWNLOAD_BOUND'):archive_bound({'zip_bytes':300*1024**2},256*1024**2)
-    with pytest.raises(ValueError,match='DECLARED_ARCHIVE_LIMIT'):archive_bound({'zip_bytes':1},1024**3)
+    with pytest.raises(ValueError,match='DOWNLOAD_BOUND'):archive_bound({'zip_bytes':600*1024**2},512*1024**2)
+    with pytest.raises(ValueError,match='DECLARED_ARCHIVE_LIMIT'):archive_bound({'zip_bytes':1},2*1024**3)
     node=next(n for n in ast.parse(Path(archive_bound.__code__.co_filename).read_bytes()).body
         if isinstance(n,ast.FunctionDef) and n.name=='archive_bound')
     node.body=[n for n in node.body if not any(isinstance(x,ast.Constant)
@@ -17,7 +19,7 @@ def test_explicit_archive_capacity_and_actual_limit_guard_removal():
     scope=dict(archive_bound.__globals__)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
         '<removed-archive-cap>','exec'),scope)
-    scope['archive_bound']({'zip_bytes':1},1024**3)
+    scope['archive_bound']({'zip_bytes':1},2*1024**3)
 
 
 def test_exact_ancestor_bytes_and_actual_copy_guard_removal(tmp_path,monkeypatch):
