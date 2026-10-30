@@ -5,6 +5,7 @@ import hashlib
 import inspect
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Any, Mapping, Protocol
 
@@ -345,6 +346,86 @@ def _append_event(
         (alert_id, attempt, action, holder_id, error))
 
 
+def _backup_renewal_warning(row) -> dict[str, Any] | None:
+    """Only the latest authentic, current-cluster failed renewal is a fact."""
+    if row is None:
+        return None
+    proof, observed, authentic, system, activated, now, successor, successor_at, successor_auth = row
+    fields = {"schema", "attempt", "started_at", "deadline", "system_identifier",
+              "image", "predecessor_base", "base_backup", "phase"}
+    if (not isinstance(proof, dict) or set(proof) != fields or authentic is not True
+            or proof.get("schema") != "sentinel.backup-maintenance-progress/1"
+            or proof.get("phase") != "FAILED" or proof.get("system_identifier") != system
+            or not all(isinstance(value, datetime) and value.utcoffset() is not None
+                       for value in (observed, activated, now))
+            or not activated <= observed <= now):
+        return None
+    patterns = {
+        "system_identifier": r"[1-9][0-9]{0,19}", "attempt": r"[0-9a-f]{32}",
+        "image": r"(?:[A-Za-z0-9][A-Za-z0-9._/:-]*@)?sha256:[0-9a-f]{64}",
+        "predecessor_base": r"base-[0-9]{8}T[0-9]{6}Z",
+        "base_backup": r"base-[0-9]{8}T[0-9]{6}Z",
+    }
+    if (any(not isinstance(proof[key], str) or re.fullmatch(pattern, proof[key]) is None
+            for key, pattern in patterns.items())
+            or any(type(proof[key]) is not int for key in ("started_at", "deadline"))
+            or not 0 <= proof["started_at"] <= observed.timestamp()
+            or not 0 < proof["deadline"] - proof["started_at"] <= 3600):
+        return None
+    if (successor_auth is True and isinstance(successor, dict)
+            and isinstance(successor_at, datetime) and successor_at.utcoffset() is not None
+            and observed <= successor_at <= now
+            and successor.get("schema") == "sentinel.verified-base/1"
+            and successor.get("physical_verified") is True
+            and successor.get("system_identifier") == system
+            and set(successor) == {"schema", "physical_verified", "metadata_sha256", "base_backup",
+                                  "marker", "marker_lsn", "marker_wal", "system_identifier",
+                                  "xid8_before", "xid8_after"}
+            and all(isinstance(successor.get(key), str) and re.fullmatch(pattern, successor[key])
+                    for key, pattern in {
+                        "metadata_sha256": r"[0-9a-f]{64}",
+                        "marker": r"sentinel-backup-[0-9]{8}T[0-9]{6}Z-[1-9][0-9]*",
+                        "marker_lsn": r"[0-9A-F]+/[0-9A-F]{1,8}", "marker_wal": r"[0-9A-F]{24}",
+                        "xid8_before": r"[0-9]{1,20}", "xid8_after": r"[0-9]{1,20}",
+                    }.items())
+            and int(successor["xid8_before"]) <= int(successor["xid8_after"])
+            and isinstance(successor.get("base_backup"), str)
+            and re.fullmatch(patterns["base_backup"], successor["base_backup"])
+            and successor["base_backup"] > proof["base_backup"]):
+        return None
+    key = "backup-renewal-failed:" + system + ":" + proof["predecessor_base"]
+    return {"idempotency_key": key, "event_type": "BACKUP_RENEWAL_FAILED", "severity": "WARN",
+            "payload": {"system_identifier": system, "predecessor_base": proof["predecessor_base"],
+                        "base_backup": proof["base_backup"], "attempt": proof["attempt"],
+                        "observed_at": observed.isoformat(),
+                        "reason": "Automatic backup renewal failed for " + proof["base_backup"]
+                        + "; inspect the backup maintenance journal for the exact refusal."}}
+
+
+def _reconstruct_backup_renewal_warning(cur) -> None:
+    # Select the latest record before validating it: corrupt or foreign evidence
+    # never makes an older failure current. Both lookups use the kind/time index.
+    cur.execute("SELECT m.proof,m.observed_at,m.authentic,c.system_identifier::text,"
+        " p.web_push_activated_at,clock_timestamp(),b.proof,b.observed_at,b.authentic"
+        " FROM (SELECT CASE WHEN octet_length(proof::text)<=8192 THEN proof END AS proof,"
+        " observed_at,evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex') AS authentic"
+        " FROM sentinel_backup_evidence WHERE kind='MAINTENANCE_PROGRESS'"
+        " ORDER BY observed_at DESC,seq DESC LIMIT 1) m"
+        " CROSS JOIN pg_control_system() c CROSS JOIN sentinel_notification_policy p"
+        " LEFT JOIN LATERAL (SELECT CASE WHEN octet_length(proof::text)<=8192 THEN proof END AS proof,"
+        " observed_at,evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex') AS authentic"
+        " FROM sentinel_backup_evidence WHERE kind='BASE_BACKUP'"
+        " ORDER BY observed_at DESC,seq DESC LIMIT 1) b ON TRUE WHERE p.id=1")
+    warning = _backup_renewal_warning(cur.fetchone())
+    if warning is not None:
+        cur.execute("INSERT INTO sentinel_alert_outbox "
+            "(alert_id,idempotency_key,schema_version,event_type,severity,payload,state,max_attempts,next_attempt_at) "
+            "VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp()) "
+            "ON CONFLICT (idempotency_key) DO NOTHING",
+            (_alert_id(warning["idempotency_key"]), warning["idempotency_key"],
+             warning["event_type"], warning["severity"], _json(warning["payload"])))
+
+
 def _reconstruct_missing_transition_alerts(conn) -> None:
     """Materialize alert deficits from committed immutable cycle events.
 
@@ -354,6 +435,7 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
     and failure fingerprint. The migration boundary prevents historical replay.
     """
     with conn.cursor() as cur:
+        _reconstruct_backup_renewal_warning(cur)
         cur.execute(
             "SELECT e.seq,e.cycle_id,e.to_state,e.control_generation,"
             " e.fence_token,e.detail"

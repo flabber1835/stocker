@@ -17,6 +17,171 @@ from sentinel.feed import store as feed_store
 from tests.support.postgres import _EphemeralPostgres
 
 
+def _renewal_row(**changes):
+    from datetime import datetime, timedelta, timezone
+    now = datetime(2026, 10, 30, 8, tzinfo=timezone.utc)
+    proof = dict(schema="sentinel.backup-maintenance-progress/1", attempt="a" * 32,
+                 started_at=int(now.timestamp()) - 60, deadline=int(now.timestamp()) + 3540,
+                 system_identifier="7691913275518591014", image="sha256:" + "d" * 64,
+                 predecessor_base="base-20261029T072734Z", base_backup="base-20261029T072734Z",
+                 phase="FAILED")
+    proof.update(changes)
+    return [proof, now, True, "7691913275518591014", now - timedelta(days=1),
+            now + timedelta(seconds=1), None, None, False]
+
+
+def test_backup_renewal_warning_deduplicates_the_base_not_five_minute_retry():
+    first = outbox._backup_renewal_warning(_renewal_row())
+    retry = outbox._backup_renewal_warning(_renewal_row(attempt="b" * 32))
+    assert first["idempotency_key"] == retry["idempotency_key"]
+    assert first["event_type"] == "BACKUP_RENEWAL_FAILED" and first["severity"] == "WARN"
+    assert "journal" in first["payload"]["reason"]
+    assert first["payload"]["attempt"] != retry["payload"]["attempt"]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("schema", "future-schema"), ("attempt", "not-an-attempt"),
+    ("phase", "BASE_BACKUP"), ("phase", "COMPLETE"),
+    ("system_identifier", "7777777777777777777"), ("system_identifier", None),
+    ("image", "mutable:latest"), ("predecessor_base", "../foreign"),
+    ("base_backup", False), ("started_at", True), ("started_at", "1"),
+    ("deadline", False), ("deadline", 0), ("deadline", 2**63),
+])
+def test_backup_warning_rejects_untyped_or_foreign_progress(field, value):
+    assert outbox._backup_renewal_warning(_renewal_row(**{field: value})) is None
+
+
+@pytest.mark.parametrize("fault", ["digest", "before-policy", "future", "extra-field", "missing-field",
+                                   "no-policy", "naive-time", "not-a-document"])
+def test_backup_warning_requires_authentic_current_policy_observation(fault):
+    from datetime import timedelta
+    row = _renewal_row()
+    if fault == "digest": row[2] = False
+    elif fault == "before-policy": row[4] = row[1] + timedelta(seconds=1)
+    elif fault == "future": row[5] = row[1] - timedelta(seconds=1)
+    elif fault == "extra-field": row[0]["unreviewed"] = True
+    elif fault == "missing-field": row[0].pop("attempt")
+    elif fault == "no-policy": row[4] = None
+    elif fault == "naive-time": row[1] = row[1].replace(tzinfo=None)
+    else: row[0] = []
+    assert outbox._backup_renewal_warning(row) is None
+
+
+def _verified_successor(system):
+    return dict(schema="sentinel.verified-base/1", physical_verified=True,
+                metadata_sha256="c" * 64, base_backup="base-20261030T080000Z",
+                marker="sentinel-backup-20261030T080000Z-123", marker_lsn="0/1000000",
+                marker_wal="000000010000000000000001", system_identifier=system,
+                xid8_before="100", xid8_after="101")
+
+
+@pytest.mark.parametrize("fault", [None, "digest", "foreign", "unverified", "untyped", "older",
+                                   "incomplete", "bad-marker", "regressed-xid"])
+def test_only_actual_later_verified_successor_suppresses_old_failure(fault):
+    from datetime import timedelta
+    row = _renewal_row()
+    row[6], row[7], row[8] = _verified_successor(row[3]), row[1], True
+    if fault == "digest": row[8] = False
+    elif fault == "foreign": row[6]["system_identifier"] = "7777777777777777777"
+    elif fault == "unverified": row[6]["physical_verified"] = False
+    elif fault == "untyped": row[6]["physical_verified"] = 1
+    elif fault == "older": row[7] = row[1] - timedelta(seconds=1)
+    elif fault == "incomplete": row[6].pop("metadata_sha256")
+    elif fault == "bad-marker": row[6]["marker"] = "unknown"
+    elif fault == "regressed-xid": row[6]["xid8_after"] = "99"
+    assert (outbox._backup_renewal_warning(row) is None) is (fault is None)
+
+
+def test_backup_warning_foreign_system_guard_falsifier():
+    import inspect
+    source = inspect.getsource(outbox._backup_renewal_warning)
+    guard = 'proof.get("system_identifier") != system'
+    assert guard in source
+    namespace = dict(vars(outbox))
+    exec(compile(source.replace(guard, "False"), "removed-current-system-guard", "exec"), namespace)
+    mutant = namespace["_backup_renewal_warning"]
+    foreign = _renewal_row(system_identifier="7777777777777777777")
+    assert outbox._backup_renewal_warning(foreign) is None
+    with pytest.raises(AssertionError):
+        assert mutant(foreign) is None
+
+
+def _insert_backup_notice_progress(conn, *, attempt="a" * 32, phases=("BASE_BACKUP", "FAILED"),
+                                   authentic=True, observed=None, **changes):
+    from psycopg.types.json import Jsonb
+    now, system = conn.execute("SELECT clock_timestamp(),system_identifier::text "
+                               "FROM pg_control_system()").fetchone()
+    observed = now if observed is None else observed
+    proof = _renewal_row()[0]
+    proof.update(system_identifier=system, attempt=attempt,
+                 started_at=int(observed.timestamp()) - 60, deadline=int(observed.timestamp()) + 3540)
+    proof.update(changes)
+    for phase in phases:
+        proof["phase"] = phase
+        conn.execute("WITH v AS (SELECT %s::jsonb AS proof) INSERT INTO sentinel_backup_evidence "
+            "(kind,evidence_sha256,proof,observed_at) SELECT 'MAINTENANCE_PROGRESS',"
+            "CASE WHEN %s THEN encode(sha256(convert_to(proof::text,'UTF8')),'hex') ELSE repeat('0',64) END,"
+            "proof,%s FROM v", (Jsonb(proof), authentic, observed))
+    conn.commit()
+    return proof
+
+
+def test_real_backup_renewal_failure_reconstructed_once_across_retries_and_restart(conn):
+    first = _insert_backup_notice_progress(conn)
+    outbox._reconstruct_missing_transition_alerts(conn)
+    conn.commit()
+    _insert_backup_notice_progress(conn, attempt="b" * 32)
+    for _ in range(2):
+        outbox._reconstruct_missing_transition_alerts(conn)
+        conn.commit()
+    rows = conn.execute("SELECT event_type,severity,payload FROM sentinel_alert_outbox").fetchall()
+    assert len(rows) == 1 and rows[0][:2] == ("BACKUP_RENEWAL_FAILED", "WARN")
+    assert rows[0][2]["attempt"] == first["attempt"]
+    assert conn.execute("SELECT count(*) FROM sentinel_commands").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("phases", [("BASE_BACKUP",), ("BASE_BACKUP", "VERIFY_CHAIN", "COMPLETE")])
+def test_real_newer_maintenance_progress_never_reconstructs_old_failed_renewal(conn, phases):
+    _insert_backup_notice_progress(conn)
+    _insert_backup_notice_progress(conn, attempt="b" * 32, phases=phases)
+    outbox._reconstruct_missing_transition_alerts(conn)
+    conn.commit()
+    assert conn.execute("SELECT count(*) FROM sentinel_alert_outbox").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("fault", ["digest", "foreign", "historical", "future", "untyped", "oversized"])
+def test_real_bad_backup_notice_evidence_cannot_block_unrelated_critical_delivery(conn, fault):
+    from datetime import timedelta
+    kwargs = {}
+    if fault == "digest": kwargs["authentic"] = False
+    elif fault == "foreign": kwargs["system_identifier"] = "7777777777777777777"
+    elif fault in {"historical", "future"}:
+        now = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+        kwargs["observed"] = now + timedelta(hours=-1 if fault == "historical" else 1)
+    elif fault == "untyped": kwargs["started_at"] = True
+    else: kwargs["unreviewed"] = "x" * 9000
+    _insert_backup_notice_progress(conn, **kwargs)
+    critical = outbox.enqueue(conn, idempotency_key="unrelated-critical", event_type="CRITICAL_INCIDENT",
+                              severity="CRITICAL", payload={"reason": "independent current incident"})
+    claimed = outbox.claim_next(conn, holder_id="independent-dispatcher")
+    assert claimed.alert_id == critical.alert_id
+    assert conn.execute("SELECT count(*) FROM sentinel_alert_outbox "
+                        "WHERE event_type='BACKUP_RENEWAL_FAILED'").fetchone()[0] == 0
+
+
+def test_real_verified_successor_suppresses_obsolete_failed_renewal(conn):
+    from psycopg.types.json import Jsonb
+    failed = _insert_backup_notice_progress(conn)
+    successor = _verified_successor(failed["system_identifier"])
+    conn.execute("WITH v AS (SELECT %s::jsonb AS proof) INSERT INTO sentinel_backup_evidence "
+        "(kind,evidence_sha256,proof) SELECT 'BASE_BACKUP',"
+        "encode(sha256(convert_to(proof::text,'UTF8')),'hex'),proof FROM v", (Jsonb(successor),))
+    conn.commit()
+    outbox._reconstruct_missing_transition_alerts(conn)
+    conn.commit()
+    assert conn.execute("SELECT count(*) FROM sentinel_alert_outbox").fetchone()[0] == 0
+
+
 @pytest.fixture(scope="module")
 def pg():
     try:

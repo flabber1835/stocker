@@ -495,15 +495,77 @@ def test_daily_preopen_slot_and_installation_result_reuse(boundary):
     assert not coordinator.renewal_due(selected,observation)
 
 
-def test_due_backup_is_deferred_without_allocation_during_market(boundary,monkeypatch):
-    boundary.old=True
+@pytest.mark.parametrize('renewal_due', [False, True])
+def test_market_deferral_publishes_current_chain_without_allocation_or_deletion(
+        boundary, monkeypatch, renewal_due):
     stamp=int(datetime(2026,10,15,13,31,tzinfo=timezone.utc).timestamp())
     original=coordinator.observe_primary
     monkeypatch.setattr(coordinator,'observe_primary',lambda runner:{**original(runner),'now':stamp})
+    selected = boundary.selected()
+    selected['timestamp'] = stamp - (90000 if renewal_due else 0)
+    monkeypatch.setattr(boundary, 'selected', lambda: dict(selected))
     result=coordinator.tick('/media',boundary)
-    assert result['maintenance_deferred'] is True
+    assert result.get('maintenance_deferred') is True
+    assert result.get('renewal_due') is renewal_due
+    assert result.get('runtime_chain_current') is True
     assert not any('scripts/sentinel-base-backup.sh' in c or 'scripts/sentinel-restore-drill.sh' in c
                    or 'retain' in c for c in boundary.calls)
+    assert not any(c[:3] in (['docker', 'volume', 'ls'], ['docker', 'network', 'ls'])
+                   for c in boundary.calls)
+    assert sum('scripts/sentinel-backup-status.sh' in c for c in boundary.calls) == 1
+    chains = [proof for proof in boundary.published if proof.get('wal_integrity')]
+    assert len(chains) == 1
+    assert chains[0]['base_backup'] == boundary.name
+    assert chains[0]['integrity_read_passes'] == 1
+
+
+@pytest.mark.parametrize('fault', ['status', 'base-proof', 'interval', 'write', 'readback'])
+def test_market_deferral_never_excuses_a_failed_chain_or_evidence(
+        boundary, monkeypatch, capsys, fault):
+    stamp=int(datetime(2026,10,15,13,31,tzinfo=timezone.utc).timestamp())
+    original=coordinator.observe_primary
+    monkeypatch.setattr(coordinator,'observe_primary',lambda runner:{**original(runner),'now':stamp})
+    if fault == 'base-proof':
+        boundary.base_verified = False
+    def runner(command, **kwargs):
+        if fault == 'status' and 'scripts/sentinel-backup-status.sh' in command:
+            raise coordinator.Refused('unverified chain')
+        if "INSERT INTO sentinel_backup_evidence" in ' '.join(command):
+            if fault == 'write':
+                raise coordinator.Refused('evidence write failed')
+            if fault == 'readback':
+                return '{}'
+        result = boundary(command, **kwargs)
+        if fault == 'interval' and 'scripts/sentinel-backup-status.sh' in command:
+            return result.replace('segments=3', 'segments=2')
+        return result
+    with pytest.raises(coordinator.Refused):
+        coordinator.tick('/media', runner)
+    assert not any('retain' in c or 'scripts/sentinel-base-backup.sh' in c
+                   or 'scripts/sentinel-restore-drill.sh' in c for c in boundary.calls)
+    output = capsys.readouterr().out
+    assert 'maintenance_ready' not in output and 'maintenance_deferred' not in output
+
+
+def test_removed_market_chain_publication_is_detected_by_executed_acceptance(
+        boundary, monkeypatch):
+    monkeypatch.setattr(coordinator, 'publish_runtime_chain', lambda *args: None)
+    with pytest.raises(AssertionError):
+        test_market_deferral_publishes_current_chain_without_allocation_or_deletion(
+            boundary, monkeypatch, True)
+
+
+def test_removed_market_deferral_is_detected_by_executed_acceptance(boundary, monkeypatch):
+    import inspect
+    source = inspect.getsource(coordinator._tick)
+    assert 'if deferred:' in source
+    broken = source.replace('if deferred:', 'if False:', 1)
+    namespace = {}
+    exec(compile(broken, 'market-deferral-falsifier', 'exec'), coordinator.__dict__, namespace)
+    monkeypatch.setattr(coordinator, '_tick', namespace['_tick'])
+    with pytest.raises(AssertionError):
+        test_market_deferral_publishes_current_chain_without_allocation_or_deletion(
+            boundary, monkeypatch, True)
 
 
 def test_timeline_advance_renews_and_regression_refuses(boundary):

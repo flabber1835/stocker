@@ -91,8 +91,9 @@ def verified_scratch(monkeypatch, state):
         SCRATCH, UUID, ENGINE_ROOT, [2, 203], str(state.backup), DOCKER, "engine-123456789",
     )
 
-    def configured(backup_root, docker_root, *, env=None):
+    def configured(backup_root, docker_root, *, env=None, recovery_volume=""):
         assert (str(backup_root), docker_root) == (str(state.backup), DOCKER)
+        assert recovery_volume == "", "ordinary capacity checks cannot select legacy recovery"
         if env is None:
             state.events.append("configured")
             return initial
