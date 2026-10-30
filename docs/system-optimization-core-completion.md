@@ -428,3 +428,48 @@ streams. Their prior full110-row source certificate/tail remain byte-exact
 inside retained lineage and the opaque current ancestor. Seed only committed
 rows, preserve any current tails, and resume only from the current same own
 Feb28 checkpoint. PAPER and trial parameters remain untouched.
+
+
+### Batch the three unconsumed primary-confirmed spring2020 cash completions
+
+Run41097856043 actually qualified Sprint against the selected source and advanced
+to April15. Its March31/565-close checkpoint and full committed accounting,
+111-row/187-comparison interval certificate and57+9 common basis are independently
+admitted. The April16 refusal is incomplete Cypress cash consideration. Preserve
+all10 later uncommitted sessions and exact tails; April15 is not the selected
+checkpoint. Keep the committed Sprint compiler/catalog and all older references
+byte-exact.
+
+Resume only this own March31 checkpoint with one ordinary factual overlay for
+three still-unconsumed completions: CY23.85USD before open April16 (SEC8K791915/
+000110465920047540 and NasdaqECA2020-64); MLNX125USD before open April27, preserving
+April24 trading (SEC1356104/000135610420000035 and OCC46898 official MIAX copy);
+WBC136.50USD before open May29, preserving May28 trading (SEC1390844/
+000119312520155112 and OCC47060). These are mandatory ordinary common-share terms,
+not an inference from aggregate deal values. Keep the inherited gross pre-tax
+stock replay; individualized MLNX withholding and option settlement fees/timing
+are not newly modeled. No parameter, financial source, price, policy or book-state
+change is authorized by these facts.
+
+Pin each exact incomplete native projection and complete frozen identity witness.
+Host hydration must re-read the actual frozen actions and rows, refuse conflicts
+or metadata upgrades, and require all three source/delivery dates unconsumed.
+Ordinary canonical repair loading binds the new descriptor to this own inner
+predecessor. Qualify actual suppression/addition packets (including CY same-date
+replacement), native incomplete guards, canonical notional cash consideration,
+original immutability and selected-variant Packet source/shape before advance.
+Wrong predecessor and consumed-date falsifiers remain mandatory.
+
+Retain all19 prior ordinary factual groups including Sprint and the immutable
+nine-reference interval model. Strictly recompute and compare the old57+9 basis,
+then report the new60+9 basis only after actual adoption and independent review.
+Keep original source515 and all source/profile identities. Current evidence is
+self-contained and fully reviewed; no failed-branch support recovery is needed.
+Preserve exact gzip, every old journal prefix, recovered tails, full certificate
+and original own origin/opaque ancestors. All canonical restores, independent
+accounting/factors/chains/months and certificate gates remain mandatory. This is
+continuation of the selected Core test, not a new financial trial. PAPER untouched.
+
+EE1 and LM remain prospective research only. Their later actual closing/trading
+times and EE1's separate stub dividend require separate input reconciliation;
+do not include incomplete assumptions in this three-event overlay.

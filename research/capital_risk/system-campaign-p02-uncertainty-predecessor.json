@@ -1,32 +1,32 @@
 {
   "arm": "P02",
-  "artifact_id": 12995143024,
-  "zip_bytes": 567167806,
-  "zip_sha256": "2bf0e2801ca01434e5ab5e97cd4598512acc6f58a1da45cb2ccfd93d9faaaa23",
+  "artifact_id": 12998730046,
+  "zip_bytes": 608739998,
+  "zip_sha256": "bc0130bd0485e70282c5e300e9a70e9f67b456da7d9162a1eae0f9a438d0370e",
   "receipt_name": "p02-uncertainty.json",
-  "receipt_sha256": "09261771295bd5b69896be8d31ed47ef0e0567008a6c070057120881712ec5f6",
+  "receipt_sha256": "a29f1b8349792601f14d3a1bfa7b033057d752fcd28596c1a1a553ce9dc1118c",
   "receipt_schema": "research.system-p02-uncertainty-suffix-receipt/1",
-  "run_id": 41094977331,
-  "head": "b4935bf673b582b03c703db6b06a5a7f879a1b7a",
-  "request_sha256": "e9c33e1c203f6dc6eb89e02990c5258f4dcadf3f5496b56b7a76c5eba4744739",
+  "run_id": 41097856043,
+  "head": "a0b313794d0a02f6483be6c18697a44bdae590c4",
+  "request_sha256": "99a06ac49c2617accae4624b0e4611c3a399dca8fa4fe2f4737a47b52de3d099",
   "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
   "encrypted_output": {
     "name": "p02-uncertainty.tar.crseal",
-    "bytes": 567164492,
-    "sha256": "ca78f9a4d0a1707576d41bc9c86b38e8124b4656caa76a31a3ecadf066ec4186",
-    "manifest_sha256": "16abd3332bb8f3d58d7dac7d0ec1113e0785b0912a5878d0562966eee07e2458",
+    "bytes": 608736685,
+    "sha256": "d9ceecb46f1d639398faeb1579d13a0d890e88cfc9c73eb278bb36a7acae16f4",
+    "manifest_sha256": "3d93a0778cbc31bc591ec195fb1f94fa650cb959cf481c2771f5b596e20d49c2",
     "compression": "TAR_GZIP_V1"
   },
   "stage": "campaign-factual-suffix",
   "selected_checkpoint": "book/checkpoint.json.gz",
   "selected_file": {
-    "bytes": 834923,
-    "sha256": "ad0a8dcb46dabbf0a396e36291f0a423e81041d848d6b952fed8966d4050e6ae"
+    "bytes": 873726,
+    "sha256": "a6fe8a39b6c435327936b806a1507b46ff26d9b6545e7b208814a58562c8df04"
   },
-  "outer_sha256": "04dbed001c745fa04aaa5a28320911a6a7ac3eb1cbfc2b418a42dadfaa5fcb0a",
-  "inner_sha256": "12ae4a079c24de6d02e102095670629fcd507940f76e0b2d4eb4e05ca27c9c79",
-  "state_sha256": "3bb8d49e2367d624d6bcac8ab2c10cbcfcf8b870e0b94456279d9d7457e1f9c0",
-  "input_sha256": "16474baeabb11b1e434e3f00e5daa8407742a70272c655cfc2cf72767d782ca5",
+  "outer_sha256": "f1eaa54dea40bb4276f8af3aeba07c82f3c00ef8a7de42a6c5c8e8737aa51f4f",
+  "inner_sha256": "6f3642b1049a0d2b502f4370b8a517f25287586f3da64ca6ad75e9ef0d443c18",
+  "state_sha256": "a90c2e6a272e40ca71d9a9cb62e1c3d251af8394e1e0372d47a1fe1948e32424",
+  "input_sha256": "87111df059a2c063d6e173bc283f7c343e363e869937e461a6d489591cc4496f",
   "base": {
     "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
     "bundle_sha256": "aa6fc9eb1e20eca625ddcdae006c865a1929ea7531620e067bb47864e9d47999",
@@ -269,12 +269,12 @@
     },
     "start": "2018-01-02"
   },
-  "selected_session": "2020-02-28",
+  "selected_session": "2020-03-31",
   "journals": {
     "daily": {
-      "bytes": 18387434,
-      "last_record_sha256": "ad25fbd7a2ad5f7c22f32da6823c518abff40d9fde7c99457fe252f05ed5779b",
-      "prefix_sha256": "71b8336d9acd58e32700b1cdf5bb71c119c5798ad7aee7f806ccec418cef7f5c"
+      "bytes": 19104156,
+      "last_record_sha256": "10614404fac3c90ea0a297c74d6ea2cfdfae725e1eb7c6e6638fee853bc7b35b",
+      "prefix_sha256": "e96087d4e2b4bd39f62f64f4605b64e01c97de46344fee51750ffa258968fee0"
     },
     "formation": {
       "bytes": 4074394,
@@ -282,14 +282,14 @@
       "prefix_sha256": "565a37f7d692f7f2b06d288beb3044e56dbd0d8b09a8cc5a12fc8fd62c7782a8"
     },
     "monthly": {
-      "bytes": 94658,
-      "last_record_sha256": "cbd317567c15891d7ccf8e00d2fbf3bff5b11909978d07b63f458a298afc8e19",
-      "prefix_sha256": "4d95ba087894a39ded0dc50cf81a5dae886f8d9507cd22cc6af6939eb01203d2"
+      "bytes": 98345,
+      "last_record_sha256": "b6131af5b6cc83382aedf8e9a05578aa0c60423d35be74bf80a9aebcf2b06c50",
+      "prefix_sha256": "2dfecd67edf862e5d799cbecaafb5c1deb76c1e2e2b9bb15532407b2cfc8cd43"
     },
     "watch": {
-      "bytes": 48113,
-      "last_record_sha256": "cedc87883b4d9ab34a58c42922c399e071da05a164b11e7c3238c130bcb2bca4",
-      "prefix_sha256": "7abde8124be861cb6683a74ded67604c43cda43d61322f6ec5e00851289824d6"
+      "bytes": 56734,
+      "last_record_sha256": "1fab0937d136e6bb1274f0361b12624c18d5c9ec7573cd4401a99785c36a3e79",
+      "prefix_sha256": "9764cb858daf7bb1154ead3492796b610cbc669e73c35aba9486440b84dd2545"
     }
   },
   "repairs": [
@@ -394,58 +394,30 @@
       "predecessor_checkpoint_sha256": "b679dbbefdeacaefad22e423efeebe8b85ac651a73ce851c6f5fa5eba3af3e0a",
       "resume_session": "2019-12-31",
       "sha256": "00d53df9577fe72e3dacaa52aac24a85491358ec6d33c523f39254d0cbcd4b10"
+    },
+    {
+      "filename": "510b8d642fd007a7bd77d66bd2d14e4776f1de4c2facf97fa61a765c58e96114.json",
+      "predecessor_checkpoint_sha256": "12ae4a079c24de6d02e102095670629fcd507940f76e0b2d4eb4e05ca27c9c79",
+      "resume_session": "2020-02-28",
+      "sha256": "510b8d642fd007a7bd77d66bd2d14e4776f1de4c2facf97fa61a765c58e96114"
     }
   ],
   "source_binding_sha256": "d426b8258e5c16b401cd22718a290abe2a89f73c42a8ee2a14950f90c6c4a289",
-  "review_sha256": "2434d3acf8a846c41ae87148e714ee5e82ededfee254a274c35854a6ac60efed",
+  "review_sha256": "93727174c83ead87b87e918dbd34ab740969f1b8ae30085812d14123c2faad8f",
   "inspections": {
     "economic-worker-inspect.json": {
-      "sha256": "ae3cad8785a8d36115cedb75be8dcb572d85368cc67b0f2eb71e8489020e38cd",
-      "name": "/capital-system-factual-p02-worker-41094977331-1",
-      "id": "ca2bb68bea51e703c7b9088b2d128753c236a3d96dea9c2e68ea1fd128673aea",
+      "sha256": "cb1701c29522b88dbe70e4d8185f6cf525df7eacc6128dceb720484647c855fd",
+      "name": "/capital-system-factual-p02-worker-41097856043-1",
+      "id": "4a1049e51a16753e75c126cf832d90238ee3f18816dc83eb87e176374f64a105",
       "exit_code": 1
     },
     "independent-review-stop/worker-inspect.json": {
-      "sha256": "5a99b686ea25eb1c850e34eea2a9d78d18db3a6153da54b623b4bf4257809baa",
-      "name": "/capital-system-factual-p02-review-41094977331-1",
-      "id": "b57819d8a1eac9c98569849f56153e009abcc6f8b6899ca38106bcefcb6b711f",
-      "exit_code": 1
+      "sha256": "6dadd17624c5e77cdc7d7045f0dbff9112344652d93949c11e258863958fc6f9",
+      "name": "/capital-system-factual-p02-review-41097856043-1",
+      "id": "b93b870d16e6f888f699ab6e46145214830ca13613ecb1126d28f2e4a9a374de",
+      "exit_code": 0
     }
   },
   "uncertainty_input_descriptor_sha256": "a41ff4867c1bd48284f0573eff648946f943727310d5879f681de449498e7809",
-  "selected_measured_closes": 543,
-  "unadvanced_qualification_failure": true,
-  "unadvanced_failure_kind": "SPRINT_VARIANT_PACKET_SOURCE",
-  "unadvanced_receipt_status": "STOPPED_P02_UNCERTAINTY_PREFIX_PRESERVED",
-  "unadvanced_original_selected_file": {
-    "bytes": 834923,
-    "sha256": "ad0a8dcb46dabbf0a396e36291f0a423e81041d848d6b952fed8966d4050e6ae"
-  },
-  "unadvanced_original_journals": {
-    "daily": {
-      "bytes": 19075782,
-      "sha256": "af3ae43ec7d506ecaf535a1ffcf799f44a41261dd21fd45532180859b7a5dd74"
-    },
-    "formation": {
-      "bytes": 4074394,
-      "sha256": "565a37f7d692f7f2b06d288beb3044e56dbd0d8b09a8cc5a12fc8fd62c7782a8"
-    },
-    "monthly": {
-      "bytes": 94658,
-      "sha256": "4d95ba087894a39ded0dc50cf81a5dae886f8d9507cd22cc6af6939eb01203d2"
-    },
-    "watch": {
-      "bytes": 55589,
-      "sha256": "b0a70d3ddfaf199723ceb07adc1cc6e0d2a14f624c4967a27fc6d13b43e4baeb"
-    }
-  },
-  "unadvanced_complete_ancestor_zip_sha256": "b13822b0be2f781901f3f83692357ed96843cf2aad241ff189fb97d0963a4859",
-  "unadvanced_worker_log_sha256": "76f17439595e5e6724073455b4d830bfcbba8c7f4a2e8595ea6501e0dca7238d",
-  "unadvanced_reviewer_log_sha256": "8a8da6b84f81639ba455c1b7f7a15ed49328a8b5819108d56352fc0fbfb2277a",
-  "unadvanced_prefix_reviews": {
-    "old-branch-canonical-review.json": "2434d3acf8a846c41ae87148e714ee5e82ededfee254a274c35854a6ac60efed",
-    "independent-review-stop/core-review.json": "2434d3acf8a846c41ae87148e714ee5e82ededfee254a274c35854a6ac60efed"
-  },
-  "unadvanced_certificate_review_sha256": "8f231eda43afa9c3ad557ea68799043603188defea14004a84c3c7b06683d38b",
-  "unadvanced_input_overlay_sha256": "ef381e7f416086eeefa8468dfd782f838e9c5bf074e3372abb52454effaf40b5"
+  "selected_measured_closes": 565
 }
