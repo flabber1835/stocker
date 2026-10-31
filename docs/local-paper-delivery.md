@@ -1,5 +1,16 @@
 # Resumable local PAPER delivery
 
+The 2026-10-30 owner-authorized notification/dashboard repair uses an explicit
+operational qualification manifest (`sentinel.local-paper-qualification/2`,
+scope `SENTINEL_AND_CHANGED_TRACKED_V1`). Hash every tracked Sentinel packaging
+input, the local-delivery host package/entry point, and every changed tracked
+path. Verify the clean feature commit and predecessor ancestry before and after
+qualification/build. The exact allowed-delta check still rejects unapproved
+changes outside operational roots. Unchanged protected backtest/data trees are
+not opened or copied merely to qualify an operational patch. Runtime packaging
+must remain complete; omitting a Sentinel file, changed path or host-delivery
+input refuses. The version-1 complete-tree contract remains unchanged.
+
 This records the earlier application-only software delivery path. The owner
 restored backed-up CI/PR releases on 2026-10-24; use
 [the full release transition](paper-backed-release-20261024.md) for that work.

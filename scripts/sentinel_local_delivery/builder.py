@@ -173,7 +173,10 @@ def build(*, source, deployment, predecessor_receipt, qualification, qualificati
                 stderr=subprocess.STDOUT,timeout=300)
         require(completed.returncode == 0, 'SOURCE_ONLY_BUILD_FAILED_INSPECT_LOG')
         clean_candidate(source,commit,old['commit'])
-        require(source_files(source) == report['source_files'], 'SOURCE_CHANGED_DURING_BUILD')
+        current_files = (source_files(source,scope=report['source_scope'],
+            predecessor_commit=old['commit']) if 'source_scope' in report else source_files(source))
+        require(current_files == report['source_files'],
+                'SOURCE_CHANGED_DURING_BUILD')
         require(_inspect(host,foundation_tag)['Id'] == old['image'], 'FOUNDATION_TAG_CHANGED_DURING_BUILD')
         image = _inspect(host,tag)
         _foundation_preserved(foundation,image,commit)

@@ -82,7 +82,7 @@ def test_published_operational_phase_count_is_omitted_but_other_counts_remain(
     monkeypatch.setattr(sources, '_operational_acquisition', lambda *_: [run])
     monkeypatch.setattr(store, 'run_status', lambda *a, **kw: [run])
     snapshot = SimpleNamespace(ready=True, checks_passed=14, checks_total=14, computed_at=NOW)
-    monkeypatch.setattr(readers, 'status_snapshot', lambda *_: ('2026-10-22', snapshot))
+    monkeypatch.setattr(readers, 'status_snapshot', lambda *_, **kw: ('2026-10-22', snapshot))
     monkeypatch.setattr(calendar, 'freshness', lambda *_: SimpleNamespace(sessions_behind=0, ahead=False))
     rows, errors = sources._feed_rows('postgresql://fixture@isolated.invalid/fixture')
     row = next(row for row in rows if row.key == 'ingest')

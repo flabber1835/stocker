@@ -22,12 +22,12 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.presentation import describe, is_closing_data_preparation
+from sentinel.panel.presentation import describe, dashboard_health
 from sentinel.panel.overview import overview_html
 from sentinel.panel.styles import CSS
 
 from sentinel.panel.model import (
-    FAIL, OK, OPERATIONAL_INFORMATIONAL_ROW_KEYS, PENDING, TRIAL_ROW_KEYS,
+    FAIL, OK, PENDING, TRIAL_ROW_KEYS,
     UNKNOWN, WARN, Panel, Row)
 
 #: Refresh cadence. Long enough not to hammer the database from a phone left on
@@ -407,22 +407,27 @@ def _local_paper_guide(panel: Panel) -> str:
 def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
            refresh_pending: bool = False) -> str:
     now = panel.now
+    health = dashboard_health(panel)
     document_age = PRESENTATION_MAX_AGE_SECONDS
     worker = panel.row('shadow_worker')
     if worker is not None and worker.effective_status(now) == OK and worker.valid_until is not None:
         document_age = min(document_age, max(0, (worker.valid_until-now).total_seconds()))
-        refresh_seconds = min(refresh_seconds, max(1, int(document_age)-15))
+    if health['valid_until'] is not None:
+        health_until = datetime.fromisoformat(health['valid_until'])
+        document_age = min(document_age, max(0, (health_until-now).total_seconds()))
+    if document_age < PRESENTATION_MAX_AGE_SECONDS:
+        refresh_seconds = min(refresh_seconds, max(5, int(document_age/2)))
     overall = panel.overall
     operational = panel.operational
-    if operational == OK:
+    if health['status'] == OK:
         headline_status = OK
-        operational_headline = "OPERATIONAL GREEN — HEALTHY AND CURRENT"
-    elif operational in {WARN, PENDING}:
+        operational_headline = "SYSTEM HEALTH GREEN — NORMAL CURRENT OPERATION; PLAN READINESS IS SEPARATE"
+    elif health['status'] == WARN:
         headline_status = WARN
-        operational_headline = "OPERATIONAL AMBER — NO ACTION REQUIRED YET"
+        operational_headline = "SYSTEM HEALTH AMBER — DEGRADED OR NEEDS REVIEW"
     else:
         headline_status = FAIL
-        operational_headline = "OPERATIONAL RED — OPERATOR ACTION REQUIRED"
+        operational_headline = "SYSTEM HEALTH RED — FAILED OR UNREADABLE CHECK"
     errs = "".join(
         f'<div class="err">source unreadable — {_esc(e)}</div>'
         for e in panel.source_errors)
@@ -447,7 +452,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
             trial_status = FAIL
             trial_headline = shadow.value
         page_name = "Caesar's Palace"
-        page_heading = "CAESAR'S PALACE"
         footer_authority = (
             "Strategy results come from the checked simulated portfolio. Alpaca paper holdings are shown separately.")
     else:
@@ -475,12 +479,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
                 for row in panel.rows
             ]
         page_name = "Caesar's Palace"
-        page_heading = "CAESAR'S PALACE"
         footer_authority = (
             "Paper account results are shown as checked or unverified.")
     stale_headline = "OPERATIONAL RED — STATUS NOT CURRENT"
     if refresh_pending:
-        headline_status = FAIL if operational in {FAIL, UNKNOWN} else WARN
+        headline_status = FAIL if health['status'] == FAIL else WARN
         operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
     rows = "".join(_row_html(r, now, refresh_pending=refresh_pending) for r in rendered_rows)
     overview = overview_html(panel, refresh_pending=refresh_pending)
@@ -497,29 +500,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
                    if reasons else '')
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
-    compact_headline = ({OK: 'System ready', WARN: 'System waiting', FAIL: 'Needs attention'}
-                        .get(headline_status, 'Status unavailable'))
+    compact_headline = health['label']
     if refresh_pending:
         compact_headline = 'Refreshing status · last known values'
-    elif headline_status == WARN:
-        broker = panel.row('broker')
-        if (broker is not None and broker.effective_status(now)==WARN
-                and broker.recovery is not None and broker.recovery.phase=='BROKER_FILL_SNAPSHOT'):
-            compact_headline = 'Reconciling fills'
-        elif not panel.source_errors and all(
-                row.effective_status(now) not in {FAIL, UNKNOWN} for row in panel.rows):
-            warnings = [row for row in panel.rows
-                        if row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
-                        and row.effective_status(now) == WARN]
-            source_wait = any(is_closing_data_preparation(row, WARN)
-                              and row.recovery.phase in {
-                                  'SOURCE_FRONTIER', 'POST_CLOSE_SOURCE_WAIT', 'SOURCE_PUBLICATION',
-                                  'SHADOW_ATTESTATION'}
-                              for row in warnings)
-            if source_wait and all(is_closing_data_preparation(row, WARN) for row in warnings):
-                compact_headline = ('Preparing strategy verification'
-                    if any(row.recovery.phase == 'SHADOW_ATTESTATION' for row in warnings)
-                    else 'Preparing closing data')
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -539,9 +522,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
-  <div class="brand"><img src="/static/caesars-palace-192.png" alt="">
-    <h1>{_esc(page_heading)}</h1></div>
-  <p class="brand-subtitle">Sentinel · PAPER</p>
+  <div class="brand"><img src="/static/caesars-palace-512.png" alt="{_esc(page_name)}"></div>
   <span id="operational-state" class="state {headline_status}" title="{_esc(operational_headline)}">{_esc(compact_headline)}</span>
   {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
@@ -554,7 +535,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   <p><strong>Your strategy, at a glance.</strong> Wealth Core records the unscaled stock-selection book. The controller’s simulated strategy value combines its Core allocation, Treasury-bill sleeve and transaction costs. The Alpaca paper account has its own recorded holdings and value.</p>
   <p>Alpaca supplies daily prices, corporate actions and listed-asset information. OpenFIGI classifies eligible equity instruments. Formation simulates earlier sessions to build the model book; daily updates carry it forward. A simulated portfolio check does not mean paper orders have been placed.</p>
   {_local_paper_guide(panel)}
-  <p>Green means the check passed. Amber means waiting or review needed. Red means a failed or unreadable check. Open technical details for the precise reason.</p>
+  <p>The main health colour is green for healthy normal work or scheduled waiting, amber while status is being refreshed or for degraded operation or review, and red for a failed or unreadable check. Plan readiness is shown separately. Detailed check colours retain their own evidence verdicts; green health does not certify portfolio values or grant trading permission.</p>
+  <p>A historical paper audit discrepancy remains recorded here when current autonomous scheduling is healthy. Green health does not resolve that old discrepancy or promise unrestricted holdings or filled orders; native execution keeps its fresh safeguards.</p>
 </div></details>
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
   <div class="label">Notifications</div>
@@ -570,7 +552,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   as of {_esc(stamp)} · refreshes every {refresh_seconds}s<br>
   This page shows status; it cannot place trades.<br>
   {_esc(footer_authority)}<br>
-  <details class="technical" data-detail-key="technical-status"><summary>Technical status</summary>Current operational checks: {_esc(operational)} · all displayed checks, including notifications and unverified results: {_esc(overall)}. The attention list above identifies each failing check; this aggregate alone does not diagnose a stopped worker.</details>
+  <details class="technical" data-detail-key="technical-status"><summary>Technical status</summary>Dashboard system health: {_esc(health['status'])} · strict operational readiness: {_esc(operational)} · all recorded check verdicts: {_esc(overall)}. Health, plan readiness and detailed checks are separate facts; each keeps its original evidence time. The attention list above identifies each failing check; an aggregate alone does not diagnose a stopped worker.</details>
 </footer>
 </div>
 <script>
@@ -580,17 +562,27 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var invalidated = false;
   var badge = document.getElementById("operational-state");
   var heartbeat = document.getElementById("dashboard-heartbeat");
+  var preparation = document.getElementById("preparation-stage");
+  var planReadiness = document.getElementById("plan-readiness");
   var generated = Date.parse(document.body.dataset.generatedAt);
   var budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
   var maximumBudget = {PRESENTATION_MAX_AGE_SECONDS * 1000};
   var hasBeenVisible = document.visibilityState === "visible";
+  var pageAway = !hasBeenVisible;
   var wentToBackground = false;
   var wentOffline = !navigator.onLine;
   var refreshing = false;
+  var refreshDeferred = false;
   var refreshDelayed = document.body.dataset.refreshPending === "true";
   var knownFailure = badge.className === "state fail" || badge.className === "state unknown";
+  var hardFailure = knownFailure;
   var retryTimer = null;
+  var ordinaryStarted = null;
+  var ordinaryEligible = false;
+  var ordinaryTimer = null;
+  var ordinaryDue = Date.now() + {refresh_seconds * 1000};
   var resumeStarted = null;
+  var resumeExhausted = false;
   var resumeTimer = null;
   var ageTimer;
   var refreshTimer;
@@ -599,17 +591,31 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   async function refreshDocument(){{
     if (refreshing || retryTimer !== null || !navigator.onLine){{ return; }}
+    if (document.visibilityState !== "visible" || pageAway){{
+      refreshDeferred = true;
+      return;
+    }}
+    if (ordinaryStarted === null && resumeStarted === null && !hardFailure && Date.now() < ordinaryDue){{ return; }}
+    refreshDeferred = false;
+    if (ordinaryStarted === null){{
+      ordinaryStarted = Date.now();
+      ordinaryEligible = originalCurrent() && !invalidated && !hardFailure;
+      ordinaryTimer = setTimeout(function(){{
+        if (resumeStarted === null && (!originalCurrent() || Date.now() >= generated+budget)){{ invalidate(false); }}
+      }}, 15000);
+    }}
     refreshing = true;
     var controller = new AbortController();
     var deadline = setTimeout(function(){{ controller.abort(); }}, 15000);
     var transportDelay = true;
     try {{
       var response = await fetch(location.href, {{cache:"no-store", signal:controller.signal}});
-      transportDelay = response.status === 503 || response.headers.get("X-Sentinel-Panel-Status") === "LAST_KNOWN";
       if (!response.ok || response.headers.get("X-Sentinel-Panel-Status") !== "CURRENT"){{
+        transportDelay = response.status === 503 || response.headers.get("X-Sentinel-Panel-Status") === "LAST_KNOWN";
         throw new Error("Current dashboard is not ready");
       }}
       var html = await response.text();
+      transportDelay = false;
       var next = new DOMParser().parseFromString(html, "text/html");
       var nextAge = Date.now() - Date.parse(next.body.dataset.generatedAt);
       var nextBudget = Number(next.body.dataset.maxAgeSeconds) * 1000;
@@ -619,9 +625,12 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
           nextAge > nextBudget){{
         throw new Error("Dashboard response is incomplete");
       }}
+      // Keep the foreground lifecycle and original clocks while the tab is hidden.
+      if (document.visibilityState !== "visible" || pageAway){{ return; }}
       clearInterval(ageTimer);
       clearTimeout(refreshTimer);
       clearTimeout(resumeTimer);
+      clearTimeout(ordinaryTimer);
       clearTimeout(deadline);
       var scroll = window.scrollY;
       var expanded = Array.from(document.querySelectorAll('details[data-detail-key][open]'))
@@ -640,12 +649,12 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }});
       window.scrollTo(0, scroll);
     }} catch (_error) {{
-      if (transportDelay && !invalidated && resumeCurrent()){{
+      if (transportDelay && !invalidated && continuityCurrent()){{
         showResume();
       }} else if (transportDelay && !invalidated && originalCurrent()){{
         pendingRefresh();
       }} else {{
-        invalidate(false);
+        invalidate(false, !transportDelay);
         heartbeat.textContent = "Refreshing status · showing last known values";
       }}
       retryTimer = setTimeout(function(){{ retryTimer = null; refreshDocument(); }}, 5000);
@@ -656,10 +665,16 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function originalCurrent(){{
     var age = Date.now() - generated;
-    return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age <= budget;
+    return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age <= budget && !clockReversed();
+  }}
+  function clockReversed(){{
+    return (ordinaryStarted !== null && Date.now() < ordinaryStarted) ||
+      (resumeStarted !== null && Date.now() < resumeStarted);
   }}
   function pendingRefresh(){{
+    withdrawPreparation();
     refreshDelayed = true;
+    document.documentElement.classList.add("refreshing-status");
     if (!knownFailure){{
       badge.className = "state warn";
       badge.textContent = "STATUS REFRESHING — ORIGINAL CHECK TIMES RETAINED";
@@ -669,10 +684,20 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function resumeCurrent(){{
     var elapsed = Date.now() - resumeStarted;
-    return resumeStarted !== null && elapsed >= 0 && elapsed < 15000;
+    var current = resumeStarted !== null && elapsed >= 0 && elapsed < 15000;
+    if (resumeStarted !== null && !current){{ resumeExhausted = true; }}
+    return !resumeExhausted && current;
+  }}
+  function continuityCurrent(){{
+    var elapsed = Date.now() - ordinaryStarted;
+    return !hardFailure && !knownFailure && navigator.onLine &&
+      (refreshing || retryTimer !== null) &&
+      (resumeStarted !== null ? resumeCurrent() :
+        ordinaryEligible && ordinaryStarted !== null && elapsed >= 0 && elapsed < 15000);
   }}
   function showResume(){{
-    if (invalidated || knownFailure){{ return; }}
+    if (invalidated || knownFailure || hardFailure){{ return; }}
+    withdrawPreparation();
     refreshDelayed = true;
     document.documentElement.classList.add("refreshing-status");
     badge.className = "state warn";
@@ -682,21 +707,29 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function resumeDocument(){{
     var age = Date.now() - generated;
-    if (invalidated || knownFailure || !navigator.onLine ||
-        !Number.isFinite(age) || !validBudget(budget) || age < -5000){{
-      invalidate(true);
+    if (hardFailure || knownFailure || !navigator.onLine ||
+        !Number.isFinite(age) || !validBudget(budget) || age < -5000 || clockReversed()){{
+      invalidate(true, true);
       return;
     }}
     if (resumeStarted === null){{
-      resumeStarted = Date.now();
-      resumeTimer = setTimeout(function(){{ invalidate(false); }}, 15000);
+      var anchor = !wentToBackground && ordinaryEligible ? ordinaryStarted : Date.now();
+      if (Date.now() - anchor < 0 || Date.now() - anchor >= 15000){{ invalidate(true); return; }}
+      resumeStarted = anchor;
+      resumeTimer = setTimeout(function(){{ resumeExhausted = true; invalidate(false); }}, Math.max(0, 15000-(Date.now()-resumeStarted)));
     }}
     if (!resumeCurrent()){{ invalidate(true); return; }}
+    if (invalidated){{
+      invalidated = false;
+      document.documentElement.classList.remove("not-current");
+    }}
     showResume();
     refreshDocument();
   }}
-  function invalidate(andReload){{
+  function invalidate(andReload, hard){{
+    hardFailure = hardFailure || hard === true || clockReversed();
     if (!invalidated){{
+      withdrawPreparation();
       invalidated = true;
       document.documentElement.classList.remove("refreshing-status");
       document.documentElement.classList.add("not-current");
@@ -706,30 +739,59 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     }}
     if (andReload){{ refreshDocument(); }}
   }}
+  function withdrawPreparation(){{
+    if (preparation){{ preparation.textContent = "Last known preparation stage · refresh required"; }}
+    if (planReadiness){{ planReadiness.textContent = "Plan readiness not current · refreshing status"; }}
+  }}
   function checkAge(){{
     var age = Date.now() - generated;
-    if (!Number.isFinite(age) || !validBudget(budget) || age < -5000){{
-      invalidate(true);
+    if (!Number.isFinite(age) || !validBudget(budget) || age < -5000 || clockReversed()){{
+      invalidate(true, true);
+    }} else if (document.visibilityState !== "visible" || pageAway){{
+      return;
     }} else if (wentToBackground){{
       if (document.visibilityState === "visible"){{ resumeDocument(); }}
     }} else if (resumeStarted !== null){{
       if (!resumeCurrent()){{ invalidate(true); }}
     }} else if (age > budget){{
-      invalidate(true);
+      if (!invalidated && continuityCurrent()){{ showResume(); }}
+      else {{ invalidate(true); }}
     }} else if (!invalidated && !refreshDelayed){{
       heartbeat.textContent = "DASHBOARD HEARTBEAT · UPDATED " +
         Math.max(0, Math.floor(age / 1000)) + "s AGO";
     }}
   }}
   window.addEventListener("pageshow", function(event){{
-    if (event.persisted){{ resumeDocument(); }} else {{ checkAge(); }}
+    if (document.visibilityState !== "visible"){{ return; }}
+    pageAway = false;
+    if (event.persisted){{ wentToBackground = true; }}
+    if (event.persisted || wentToBackground || !originalCurrent()){{ resumeDocument(); }}
+    else {{ checkAge(); }}
+    hasBeenVisible = true;
+  }});
+  window.addEventListener("pagehide", function(){{
+    wentToBackground = true;
+    pageAway = true;
+    if (Number.isFinite(generated)){{ showResume(); }}
+  }});
+  window.addEventListener("focus", function(){{
+    if (document.visibilityState === "visible"){{
+      pageAway = false;
+      if (wentToBackground || resumeStarted !== null ||
+          (!originalCurrent() && ordinaryEligible && ordinaryStarted !== null)){{ resumeDocument(); }}
+      else if (!originalCurrent()){{ checkAge(); }}
+      else if (refreshDeferred){{ refreshDocument(); }}
+      hasBeenVisible = true;
+    }}
   }});
   document.addEventListener("visibilitychange", function(){{
+    pageAway = document.visibilityState !== "visible";
     if (document.visibilityState === "hidden" && hasBeenVisible){{
       wentToBackground = true;
       if (Number.isFinite(generated)){{ showResume(); }}
     }} else if (document.visibilityState === "visible"){{
-      if (wentToBackground){{ resumeDocument(); }}
+      if (wentToBackground || !originalCurrent()){{ resumeDocument(); }}
+      else if (refreshDeferred){{ refreshDocument(); }}
       hasBeenVisible = true;
     }}
   }});
@@ -738,9 +800,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }});
   window.addEventListener("offline", function(){{
     wentOffline = true;
-    invalidate(false);
+    invalidate(false, true);
   }});
-  if (wentOffline){{ invalidate(false); }}
+  if (wentOffline){{ invalidate(false, true); }}
   ageTimer = setInterval(checkAge, 1000);
   refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, {refresh_seconds * 1000});
   if (document.body.dataset.refreshPending === "true"){{

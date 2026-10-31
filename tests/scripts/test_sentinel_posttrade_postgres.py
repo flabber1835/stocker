@@ -87,3 +87,74 @@ def test_removing_mvcc_fields_has_a_real_postgres_falsifier(conn):
     query=checkpoint_query().replace('x.xmin::text,x.ctid::text','NULL,NULL')
     with pytest.raises(AssertionError,match='MVCC witness'):
         assert_checkpoint_update_detected(conn,query)
+
+
+def successor_tables(conn):
+    """Minimal real tables for the exact native candidate/join/clock predicate."""
+    conn.execute("""CREATE TEMP TABLE sentinel_automation_control AS SELECT 1::int AS id,
+        99::bigint AS generation,'current-config'::text AS config_sha256,
+        'owned-deployment'::text AS deployment_id,'alpaca'::text AS broker,
+        'PAPER-Z'::text AS broker_account_id,7::bigint AS takeover_epoch,
+        'CONTROLLER'::text AS rollout_mode,12::bigint AS rollout_version,
+        'new-certificate'::text AS certificate_sha256""")
+    conn.execute("""CREATE TEMP TABLE sentinel_automation_cycles AS SELECT
+        'SUCCEEDED'::text AS state,(clock_timestamp() AT TIME ZONE 'America/New_York')::date AS effective_session,
+        (clock_timestamp() AT TIME ZONE 'America/New_York')::date-1 AS decision_session,
+        NULL::text AS failure_code,NULL::text AS failure_detail,
+        clock_timestamp()-interval '5 minutes' AS execute_at,
+        clock_timestamp()-interval '1 minute' AS completed_at,
+        clock_timestamp()+interval '1 hour' AS execution_close_at,false AS historical_state_only,
+        98::bigint AS control_generation,'old-config'::text AS config_sha256,
+        'owned-deployment'::text AS deployment_id,'alpaca'::text AS broker,
+        'PAPER-Z'::text AS broker_account_id,7::bigint AS takeover_epoch,
+        'completed-plan'::text AS plan_id,'CONTROLLER'::text AS rollout_mode,
+        11::bigint AS rollout_version,'old-certificate'::text AS certificate_sha256""")
+    conn.execute("""CREATE TEMP TABLE sentinel_execution_plans AS SELECT
+        'completed-plan'::text AS plan_id,'successor-plan'::text AS superseded_by,
+        'owned-deployment'::text AS deployment_id,'alpaca'::text AS broker,
+        'PAPER-Z'::text AS broker_account_id,7::bigint AS takeover_epoch,
+        (clock_timestamp() AT TIME ZONE 'America/New_York')::date-1 AS decision_session,
+        (clock_timestamp() AT TIME ZONE 'America/New_York')::date AS effective_session,
+        '{"fictional-security":"7"}'::jsonb AS target_basket,.55::numeric AS target_exposure,
+        'CONTROLLER'::text AS rollout_mode,11::bigint AS rollout_version,
+        'old-certificate'::text AS rollout_certificate_sha256""")
+    conn.execute("""INSERT INTO sentinel_execution_plans SELECT 'successor-plan',NULL,
+        deployment_id,broker,broker_account_id,takeover_epoch,decision_session,effective_session,
+        target_basket,target_exposure,rollout_mode,12,'new-certificate'
+        FROM sentinel_execution_plans""")
+    conn.execute('CREATE TEMP TABLE sentinel_corpus_publications(version bigint)')
+    conn.execute('INSERT INTO sentinel_corpus_publications VALUES (1)')
+
+
+def successor_predicate(conn,statement=None):
+    statement=statement or checks.snapshot_sql('POST_TRADE_SUCCESSOR')
+    prefix=statement.split('SELECT json_build_object(',1)[0]
+    predicate=statement.split("'ready',",1)[1].split("'reconciliation',",1)[0].strip().rstrip(',')
+    tail=statement[statement.rindex(' FROM sentinel_automation_control c CROSS JOIN candidates s'):]
+    rows=conn.execute(prefix+'SELECT '+predicate+tail).fetchall()
+    return len(rows)==1 and rows[0][0] is True
+
+
+@pytest.mark.parametrize('change',[
+    "UPDATE sentinel_automation_cycles SET control_generation=99",
+    "UPDATE sentinel_automation_cycles SET completed_at=NULL",
+    "UPDATE sentinel_automation_cycles SET execution_close_at=clock_timestamp()+interval '14 minutes'",
+    "UPDATE sentinel_automation_cycles SET failure_detail='unresolved'",
+    "UPDATE sentinel_execution_plans SET target_basket='{}' WHERE plan_id='successor-plan'",
+    "UPDATE sentinel_execution_plans SET rollout_certificate_sha256='foreign' WHERE plan_id='successor-plan'",
+    "UPDATE sentinel_execution_plans SET superseded_by='foreign' WHERE plan_id='completed-plan'",
+    "UPDATE sentinel_execution_plans SET broker_account_id='foreign' WHERE plan_id='completed-plan'",
+])
+def test_successor_uses_real_original_current_join_and_database_clock(conn,change):
+    successor_tables(conn)
+    assert successor_predicate(conn) is True
+    conn.execute(change)
+    assert successor_predicate(conn) is False
+
+
+def test_successor_generation_filter_has_an_executed_postgres_falsifier(conn):
+    successor_tables(conn)
+    conn.execute('UPDATE sentinel_automation_cycles SET control_generation=99')
+    assert successor_predicate(conn) is False
+    mutant=checks.snapshot_sql('POST_TRADE_SUCCESSOR').replace('s.control_generation<c.generation','TRUE')
+    assert successor_predicate(conn,mutant) is True

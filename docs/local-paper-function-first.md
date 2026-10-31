@@ -79,7 +79,27 @@ The future plan's informational mirror stamp is created at the execution
 boundary, so its absence before the open is expected. In local PAPER mode only,
 an absent current stamp may use that same scheduled-readiness proof after the
 global mirror integrity check passes and the bound account is confirmed. Do not
-write a stamp from the panel or convert any mismatch into readiness.
+write a stamp from the panel or convert a current-plan mismatch into readiness.
+
+Decision, 2026-10-30, before implementation: authenticated historical mirror
+mismatches alone do not establish that a different future plan is blocked.
+When the exact current plan's mirror status is pending, or that plan is
+explicitly unstamped before execution, the global mirror coverage is current
+and authenticated, the historical mismatch count is positive,
+and the existing exact native scheduled-readiness proof passes, display the
+current plan as scheduled with a distinct historical warning. This combined
+state remains amber and PAPER-not-verified; it does not receive the ordinary
+SCHEDULED state's green-readiness exception. Its validity ends at the original
+schedule boundary. Retain all historical mismatch evidence unchanged. A
+current-plan mismatch, integrity refusal, absent scheduled proof, or expired
+proof remains red. No panel read creates a stamp, changes a transport gate,
+acknowledges an incident, or certifies historical PAPER performance.
+
+The separate human-health interpretation may treat this historical-only audit
+record as informational after the complete current proofs in
+`dashboard-plan-first.md` pass. Its raw financial WARN and machine amber remain
+unchanged; green human health does not certify the old discrepancy or clear a
+current restriction, unknown outcome, stale proof or scheduling failure.
 
 Deploy presentation-only updates while a future WAITING_OPEN plan is quiescent
 by stopping all application workers, confirming no in-flight commands, and

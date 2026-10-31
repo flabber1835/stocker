@@ -88,6 +88,20 @@ financial roles, change control generation, issue authority, replay a plan or ru
 backup/restore work. A failed panel startup or read check restores only the prior
 panel image; it grants no financial recovery permission.
 
+Decision, 2026-10-30, before implementation: the unchanged installed foundation
+for a presentation-only component may also be a verified backed local
+application image whose immutable completed handoff, exact build and qualified
+source evidence lead back to the signed release. Require that complete ancestry
+and the actual installed foundation image identity; a local tag or an
+uncompleted operation is insufficient. Record the component's separate source,
+file hashes, qualification and resulting image without presenting it as a new
+signed financial release. Preserve the foundation's runtime identity and baked
+source revision, verifier subjects, private environment, current native Compose
+graph and image selectors. Replace only the HTTP panel, verify all financial
+container identities remain unchanged, and restore only the immediately prior
+panel image on failure. This admits no financial service roll, new GO,
+activation, PostgreSQL transition, backup/restore work or account mutation.
+
 Reviewed dual mode must project its actual immutable shadow state and current
 paper intent. A missing legacy catchup cursor does not prove that this book is
 absent. The projection must use existing canonical readers and their lineage
@@ -115,6 +129,12 @@ remain amber and cannot claim order transport or a completed daily cycle. No
 notification acknowledgement, financial reset or runtime workaround is part of
 this repair. The exact new software must pass protected certification and the
 supported book-preserving upgrade before it is installed.
+
+The later human-health policy in `dashboard-plan-first.md` separates healthy
+autonomous scheduling from those unchanged raw financial verdicts. An eligible
+historical-only audit record may remain amber in System details while complete
+current evidence makes the health header green; it is not an unacknowledged
+current incident, a resolved historical discrepancy or trading permission.
 
 ## Stable refresh and explicit checking states
 

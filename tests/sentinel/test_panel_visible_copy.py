@@ -158,9 +158,11 @@ def test_preparation_headline_requires_it_to_explain_every_operational_warning()
         recovery=RecoveryEvidence(phase='SOURCE_FRONTIER', automatic=True,
             deadline=NOW+timedelta(minutes=1)))
     def headline(rows, **kwargs):
+        rows = [model.Row('shadow_worker', 'Worker', 'RUNNING', model.OK,
+            as_of=NOW, required_current=True, valid_until=NOW+timedelta(minutes=1)), *rows]
         page = render(model.Panel(rows=rows, now=NOW, **kwargs))
         return page.split('id="operational-state"', 1)[1].split('</span>', 1)[0]
-    assert '>Preparing closing data' in headline([row])
+    assert '>Healthy · Waiting for closing data' in headline([row])
     for other in (
             model.Row('other', 'Other', 'FAILED', model.FAIL),
             model.Row('other', 'Other', 'UNAVAILABLE', model.UNKNOWN),
@@ -170,9 +172,9 @@ def test_preparation_headline_requires_it_to_explain_every_operational_warning()
                 as_of=NOW, required_current=True, recovery=RecoveryEvidence(
                     phase='AUTOMATION_REFRESH_AVAILABILITY', automatic=True,
                     deadline=NOW+timedelta(minutes=1)))):
-        assert '>Preparing closing data' not in headline([row, other])
-    assert '>Preparing closing data' not in headline([row], source_errors=['unreadable'])
-    assert '>Preparing closing data' not in headline([replace(row,
+        assert '>Healthy' not in headline([row, other])
+    assert '>Healthy' not in headline([row], source_errors=['unreadable'])
+    assert '>Healthy' not in headline([replace(row,
         valid_until=NOW-timedelta(seconds=1), recovery=replace(row.recovery,
             deadline=NOW-timedelta(seconds=1)))])
     refreshing = render(model.Panel(rows=[row], now=NOW), refresh_pending=True)
@@ -199,6 +201,54 @@ def test_current_styles_keep_narrow_screen_values_and_accessibility_without_deco
     assert 'summary:focus-visible,a:focus-visible' in CSS
     assert 'repeat(2,minmax(0,1fr))' in CSS
     assert all(name not in CSS for name in ('casino-stage', 'casino-accent', 'hostess', '@keyframes'))
+
+
+@pytest.mark.parametrize('shadow',[False,True])
+def test_existing_brand_graphic_replaces_duplicate_header_text_but_keeps_accessible_name(shadow):
+    from html.parser import HTMLParser
+    from sentinel.panel.pwa import SERVICE_WORKER
+
+    class Header(HTMLParser):
+        active=False
+
+        def __init__(self):
+            super().__init__()
+            self.images=[];self.headings=[];self.visible=[]
+
+        def handle_starttag(self,tag,attrs):
+            if tag=='header':self.active=True
+            if self.active and tag=='img':self.images.append(dict(attrs))
+            if self.active and tag=='h1':self.headings.append(tag)
+
+        def handle_endtag(self,tag):
+            if tag=='header':self.active=False
+
+        def handle_data(self,data):
+            if self.active:self.visible.append(data)
+
+    rows=([model.shadow_verification_row(verdict='SHADOW_GO',verification='VERIFIED',
+                                        session='2026-10-22')] if shadow else [])
+    html=render(model.Panel(now=NOW,rows=rows))
+    header=Header();header.feed(html)
+    assert header.images==[{'src':'/static/caesars-palace-512.png','alt':"Caesar's Palace"}]
+    assert not header.headings
+    visible=' '.join(header.visible)
+    assert "CAESAR'S PALACE" not in visible and 'Sentinel · PAPER' not in visible
+    assert "<title>Caesar's Palace</title>" in html
+    assert "apple-mobile-web-app-title\" content=\"Caesar's Palace\"" in html
+    assert 'href="/static/caesars-palace-180.png"' in html
+    assert '/static/caesars-palace-192.png' in SERVICE_WORKER  # Push icon is unchanged.
+
+
+def test_brand_graphic_uses_available_width_and_preserves_its_intrinsic_aspect_ratio():
+    import re
+    declaration=re.search(r'\.brand img\{([^}]+)\}',CSS).group(1)
+    properties=dict(item.split(':',1) for item in declaration.split(';') if item)
+    assert properties['display']=='block'
+    assert properties['width']=='100%' and properties['max-width']=='100%'
+    assert properties['height']=='auto'
+    assert '.brand{display:block}' in CSS
+    assert 'width:42px' not in declaration and 'height:42px' not in declaration
 
 
 def test_availability_retry_copy_keeps_original_deadline_and_expiry_severity():

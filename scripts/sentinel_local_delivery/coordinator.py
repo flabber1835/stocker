@@ -27,6 +27,15 @@ class Delivery:
         for service in names:
             item = self.host.container(service)
             require(item['Image']==image, 'APPLICATION_IMAGE_CHANGED')
+            if (role=='predecessor' and handoff_mode(self.host.request)=='POST_TRADE_SUCCESSOR'
+                    and service=='sentinel-automation' and running is True and healthy):
+                expected=self.journal.read()['artifacts'].get('predecessor_automation')
+                if expected is not None:
+                    require(item['Id']==expected['container'] and item['Image']==expected['image'],
+                        'POST_TRADE_SUCCESSOR_PREDECESSOR_CHANGED')
+                evidence.require_successor_worker_restart(self.host,item)
+                result[service]=item
+                continue
             if (role=='predecessor' and handoff_mode(self.host.request)=='BLOCKED_UNSENT'
                     and service=='sentinel-automation'):
                 require(item['State']['Running'] is False,'BLOCKED_UNSENT_WRITER_NOT_STOPPED')
@@ -121,7 +130,7 @@ class Delivery:
             require(values['SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256']==identity['source']
                 and values['SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256']==identity['shadow_config'],
                 'PREDECESSOR_SOURCE_CHANGED')
-            self._apps('predecessor',running=True,healthy=True)
+            applications=self._apps('predecessor',running=True,healthy=True)
             if handoff_mode(self.host.request)=='BLOCKED_UNSENT':
                 evidence.idle(self.host,old['image'])
             state, pg = evidence.snapshot(self.host), self.host.postgres()
@@ -134,13 +143,17 @@ class Delivery:
             require(evidence.snapshot(self.host)==state and self.host.postgres()==pg,
                     'STATE_CHANGED_DURING_PREFLIGHT')
             native = evidence.native_positions(self.host,values)
-            if handoff_mode(self.host.request)=='POST_TRADE':
+            if handoff_mode(self.host.request) in {'POST_TRADE','POST_TRADE_SUCCESSOR'}:
                 require(native==new_proof.get('settled_native_positions'),
                         'POST_TRADE_NATIVE_RECONCILIATION_CHANGED')
+            extra={}
+            if handoff_mode(self.host.request)=='POST_TRADE_SUCCESSOR':
+                worker=applications['sentinel-automation']
+                extra['predecessor_automation']=dict(container=worker['Id'],image=worker['Image'])
             return self.journal.advance(stage,'PREFLIGHT_PASS',preserved=state,postgres=pg,
                 canonical_proof=new_proof,preflight_at=utcnow().isoformat(),native_positions=native,
                 predecessor_runtime={key:values[key] for key in RUNTIME_KEYS},
-                configuration_sha256=digest(values),notification_history=evidence.notification_history(self.host))
+                configuration_sha256=digest(values),notification_history=evidence.notification_history(self.host),**extra)
         current,old,candidate = self._values(artifacts)
         if stage=='PREFLIGHT_PASS':
             require(current==old, 'PREMATURE_RUNTIME_INSTALLATION')
@@ -266,7 +279,10 @@ class Delivery:
                                     leader=leader,panel=panel,notification_appends=appends,
                                     verified_postgres=postgres,
                                     **({'operational_ready':False,'installation_scope':'FENCED_BLOCKED_UNSENT_SOFTWARE_ONLY'}
-                                       if repair else {}))
+                                       if repair else
+                                      {'operational_ready':False,
+                                       'installation_scope':'POST_TRADE_SUCCESSOR_COMPATIBLE_APPLICATION_REPAIR'}
+                                       if handoff_mode(self.host.request)=='POST_TRADE_SUCCESSOR' else {}))
 
     def advance(self):
         with self.host.owned():

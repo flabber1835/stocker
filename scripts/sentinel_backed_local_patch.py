@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 from sentinel_local_delivery import builder, checks, cli
 from sentinel_local_delivery.coordinator import Delivery
-from sentinel_local_delivery.host import Host, SERVICES
+from sentinel_local_delivery.host import Host, SERVICES, RUNTIME_KEYS
 from sentinel_local_delivery.model import DeliveryRefused, Journal, read_json, require, digest
 from sentinel_local_delivery.qualification import sha256_file
 from sentinel_lock_ownership import owns_exclusive_flock
@@ -176,6 +176,7 @@ def predecessor_witness(path, *, inspect_image=None, trail=(), allow_started=Fal
 class BackedHost(Host):
     supports_post_trade = True
     supports_blocked_unsent = True
+    supports_post_trade_successor = True
     def __init__(self, request, operation_dir, *, predecessor_receipt=None, allow_started=False):
         super().__init__(request,operation_dir)
         built = self.operation_dir/'build.json'
@@ -199,6 +200,58 @@ class BackedHost(Host):
         # This field selects the same bytes; no certificate supplies the value.
         values.update(SENTINEL_RUNTIME_IMAGE_REF=actual,SENTINEL_LOCAL_PAPER_IMAGE=actual)
         return values
+
+    def install_values(self, previous, candidate):
+        """Canonical ACTIVE roots do not own archive-off installer metadata."""
+        metadata = self.deployment/'local-delivery.json'
+        if metadata.exists() or metadata.is_symlink():
+            require(isinstance(read_json(metadata),dict), 'BACKED_ARCHIVE_METADATA_MALFORMED')
+            return super().install_values(previous,candidate)
+        require(getattr(self,'_values_install_owned',False) is True, 'BACKED_INSTALL_OWNER_REQUIRED')
+        require((self.deployment/'.git').exists() and not (self.deployment/'.git').is_symlink(),
+            'BACKED_CANONICAL_DEPLOYMENT_REQUIRED')
+        require(not (self.deployment/'.env').is_symlink(), 'BACKED_ENVIRONMENT_PATH_UNSAFE')
+        built=read_json(self.operation_dir/'build.json')
+        anchor=built['predecessor_receipt']
+        require(Path(anchor['path'])==self.predecessor_receipt
+            and sha256_file(self.predecessor_receipt)==anchor['sha256'], 'BACKED_PREDECESSOR_ANCHOR_CHANGED')
+        require(Journal(self.operation_dir).request==self.request
+            and built['foundation']==self.request['predecessor']
+            and built['commit']==self.request['candidate']['commit']
+            and built['image']==self.request['candidate']['image']
+            and built['source_identity']==self.request['candidate']['source_identity']
+            and Path(built['source']).resolve()==self.source
+            and Path(built['deployment']).resolve()==self.deployment,
+            'BACKED_INSTALL_BUILD_CHANGED')
+        witness=predecessor_witness(self.predecessor_receipt,
+            inspect_image=lambda ref:builder._inspect(self,ref),
+            allow_started=self.allow_started_predecessor)
+        require(witness['git_commit']==self.request['predecessor']['commit']
+            and witness['runtime_image']==self.request['predecessor']['image'],
+            'BACKED_INSTALL_ACTIVE_ANCHOR_CHANGED')
+        require(self.load_values()==previous, 'ENVIRONMENT_CHANGED_BEFORE_INSTALL')
+        require(candidate==self.candidate_values(previous)
+            and all(previous.get(k)==candidate.get(k) for k in set(previous)|set(candidate)
+                    if k not in RUNTIME_KEYS), 'NON_RUNTIME_CONFIGURATION_CHANGED')
+        # The preceding failed host may already have atomically selected these
+        # exact bytes before discovering that archive-only metadata was absent.
+        if previous==candidate:
+            directory=os.open(self.deployment,os.O_RDONLY)
+            try:os.fsync(directory)
+            finally:os.close(directory)
+            return
+        raw=''.join(k+'='+json.dumps(v,ensure_ascii=False)+'\n' for k,v in sorted(candidate.items()))
+        require(self.literal.parse_bytes(raw.encode())==candidate, 'LITERAL_ENV_ROUNDTRIP_FAILED')
+        fd,temporary=tempfile.mkstemp(prefix='.env.local-delivery-',dir=self.deployment)
+        try:
+            with os.fdopen(fd,'w',encoding='utf-8') as stream:
+                stream.write(raw);stream.flush();os.fsync(stream.fileno())
+            Path(temporary).replace(self.deployment/'.env')
+            directory=os.open(self.deployment,os.O_RDONLY)
+            try:os.fsync(directory)
+            finally:os.close(directory)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
     def compose_paths(self, values):
         require(values['SENTINEL_GIT_COMMIT'] in {
@@ -346,18 +399,22 @@ class BackedHost(Host):
     def owned(self):
         values=self.load_values()
         authority=Path(values['SENTINEL_AUTHORITY_ARTIFACTS_DIR'])
+        go_roots=tuple(dict.fromkeys((self.deployment,*self.predecessor_roots)))
         paths=[authority/'activation-coordinator.lock',authority/'autonomous-deploy.lock',
             *(root/'artifacts/sentinel/go-validation/go-validation.lock'
-              for root in self.predecessor_roots)]
+              for root in go_roots)]
         with ExitStack() as stack:
-            for path in paths:
+            for path in dict.fromkeys(paths):
                 require(path.is_absolute() and not path.is_symlink(), 'BACKED_OWNER_LOCK_PATH')
                 path.parent.mkdir(parents=True,exist_ok=True)
                 handle=stack.enter_context(path.open('a+'))
                 try:fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
                 except BlockingIOError as exc:raise DeliveryRefused('ANOTHER_CANONICAL_OWNER_IS_ACTIVE') from exc
                 require(owns_exclusive_flock(handle.fileno()), 'BACKED_OWNER_NOT_PROVEN')
-            with super().owned():yield
+            with super().owned():
+                self._values_install_owned=True
+                try:yield
+                finally:self._values_install_owned=False
 
 
 def require_started_state(host, record, values, pg, image):
