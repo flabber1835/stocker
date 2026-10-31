@@ -157,3 +157,36 @@ iPhone, begin a short screen recording before leaving the Home Screen, tap the
 installed app, wait for two refreshes, and record a genuine background/return
 sequence. Device video is separate evidence and must not be replaced with a
 simulated visibility event.
+
+## Initial observed evidence, 2026-10-31
+
+These are diagnostic results, not a declaration that the dashboard is fixed.
+Production application code and configuration were not changed for these runs.
+
+* Recorder integrity: two actual browser cases passed, retaining a 100 ms amber
+  mutation and observation across `document.open`/`document.write`.
+* Direct Edge baseline at test source `125e839a`: complete, first meaningful
+  content 2.592 s, post-response content 87 ms, two real refreshes stayed green.
+  This did not reproduce the reported ten-second cold launch.
+* Direct desktop WebKit baseline at `125e839a`: first content 2.770 s, then no
+  further captured progress after the service-worker script request. The finite
+  capture ended INCOMPLETE; this does not establish a service-worker cause or a
+  physical-iPhone result.
+* Controlled Edge profile at `0572abe5`: COMPLETE capture, acceptance FAIL. All
+  three upstream documents were HTTP 200/CURRENT with original green health;
+  all entity hashes/verdicts matched the browser records. Refreshes took 6.410 s
+  and 6.414 s; first meaningful content took 2.588 s. Browser state was green at
+  2.661 s, amber at 13.681 s, green at 14.112 s, red at 19.115 s, and green at
+  25.570 s. The first amber interval was about 0.43 s. The second document's
+  original proof had less than the five-second ordinary polling floor remaining
+  on arrival, so it expired before the next ordinary read. This is preserved
+  evidence of the current freshness/health coupling, not permission to extend
+  proof or hide stale data.
+
+The controlled report SHA256 is
+`67241b3aef83e85aa63946a65299f8e53773f29bda93f29ff0af52e9cafe8302`;
+its raw Playwright JSON SHA256 is
+`1e80c1842b18712af985c2ed53c5e8400f36e39d904e5c82db8478ff5761525e`.
+The direct report remains separately retained and is not relabelled as the
+controlled run. The three initial evidence directories together used 1,648,883
+bytes. The physical Home Screen gate is still NOT_RUN pending device evidence.
