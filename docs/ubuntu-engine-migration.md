@@ -115,3 +115,12 @@ maintenance and application roles. WSL must itself be started by Windows; an
 enabled Linux service alone is not proof of no-login or power-outage recovery.
 Preserve existing Sentinel startup tasks where valid, and report any remaining
 reboot/no-login qualification gap explicitly.
+
+Use one current-user Windows logon task to hold a foreground Ubuntu WSL
+request (`wsl.exe -d Ubuntu -u bron --exec /usr/bin/sleep infinity`). Native
+systemd owns Engine and the application/backup services; the task owns only
+distribution lifetime. Give the task no execution-time limit, prevent duplicate
+instances, and restart its failed foreground request. Do not change global WSL
+idle policy or store a Windows password. This provides startup after that user
+logs in. It is not proof of recovery before login after a cold boot, and the
+UUID-bound external mount remains a separate mandatory startup condition.
