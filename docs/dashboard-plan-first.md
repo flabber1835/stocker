@@ -75,6 +75,43 @@ hide a known failure, override offline state or restart its original 15-second
 deadline. Preserve the minimum five-second polling cadence and the independent
 negative-authority expiry timer.
 
+Decision, 2026-10-31, before implementation: current proof lifetime and HTTP
+availability are separate clocks. A measured five-second polling delay plus a
+six-second request can exceed an original nine-second leader-bound document.
+Withdraw green, live preparation and current financial styling at that original
+proof boundary. While the already-owned refresh or its bounded transport retry
+is still within fifteen seconds of the document's first visible request, show
+explicitly last-known amber instead of reporting an operational failure. Anchor
+that transport deadline once; retries, focus and visibility events cannot renew
+it. An independent deadline must withdraw this allowance even if a network
+promise never settles. No pre-expiry owned refresh means no ordinary allowance.
+Preserve the five-second polling floor, every server observation clock and all
+financial/execution gates. Only a complete fresh server document earns green.
+
+Distinguish an availability-expired view from a known negative result. A first
+foreground resume after a hidden transport failure can use the existing finite
+resume window; repeated lifecycle events cannot extend it. An unconfirmed focus
+event borrows an existing ordinary request's deadline rather than buying another
+window. Without a remembered return or an already owned request/resume clock,
+focus only withdraws expired display authority and keeps the ordinary read due.
+A recorded page hide or visibility transition establishes foreground
+return. Handle pagehide, visible focus and non-persisted pageshow consistently;
+a fresh initial page needs no extra request. Known server failures, offline
+state, malformed evidence and invalid clocks remain red immediately. A response
+body transport error is availability failure until HTML validation begins.
+Expired resume remains red until a fresh server answer; clearing availability
+styling must not clear a hard negative or revive an exhausted resume.
+Latch an observed resume deadline so a later wall-clock rollback cannot revive
+it. A clock earlier than an already started request or resume is invalid clock
+evidence and remains a hard negative, including on a later lifecycle event.
+The negative age timer may withdraw a very short proof before ordinary polling
+is due, but it cannot bring that ordinary request forward. Preserve the first
+scheduled five-second-or-longer read even for subsecond remaining proof. An
+explicit foreground resume retains its existing immediate single-read exception.
+Retain the recorded page-hidden state until an actual visible lifecycle event,
+so a delayed age callback cannot begin a resume while iOS still reports the old
+visibility value. A trusted persisted pageshow also establishes a return.
+
 Completed publication metadata remains a dated data fact, not proof that a plan
 is still being prepared. If an admitted future saved plan exists, describe the
 publication without a pending-plan claim. Stop using a completed publication as

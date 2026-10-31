@@ -535,7 +535,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   <p><strong>Your strategy, at a glance.</strong> Wealth Core records the unscaled stock-selection book. The controller’s simulated strategy value combines its Core allocation, Treasury-bill sleeve and transaction costs. The Alpaca paper account has its own recorded holdings and value.</p>
   <p>Alpaca supplies daily prices, corporate actions and listed-asset information. OpenFIGI classifies eligible equity instruments. Formation simulates earlier sessions to build the model book; daily updates carry it forward. A simulated portfolio check does not mean paper orders have been placed.</p>
   {_local_paper_guide(panel)}
-  <p>The main health colour is green for healthy normal work or scheduled waiting, amber for degraded operation or review, and red for a failed or unreadable check. Plan readiness is shown separately. Detailed check colours retain their own evidence verdicts; green health does not certify portfolio values or grant trading permission.</p>
+  <p>The main health colour is green for healthy normal work or scheduled waiting, amber while status is being refreshed or for degraded operation or review, and red for a failed or unreadable check. Plan readiness is shown separately. Detailed check colours retain their own evidence verdicts; green health does not certify portfolio values or grant trading permission.</p>
   <p>A historical paper audit discrepancy remains recorded here when current autonomous scheduling is healthy. Green health does not resolve that old discrepancy or promise unrestricted holdings or filled orders; native execution keeps its fresh safeguards.</p>
 </div></details>
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
@@ -568,14 +568,21 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
   var maximumBudget = {PRESENTATION_MAX_AGE_SECONDS * 1000};
   var hasBeenVisible = document.visibilityState === "visible";
+  var pageAway = !hasBeenVisible;
   var wentToBackground = false;
   var wentOffline = !navigator.onLine;
   var refreshing = false;
   var refreshDeferred = false;
   var refreshDelayed = document.body.dataset.refreshPending === "true";
   var knownFailure = badge.className === "state fail" || badge.className === "state unknown";
+  var hardFailure = knownFailure;
   var retryTimer = null;
+  var ordinaryStarted = null;
+  var ordinaryEligible = false;
+  var ordinaryTimer = null;
+  var ordinaryDue = Date.now() + {refresh_seconds * 1000};
   var resumeStarted = null;
+  var resumeExhausted = false;
   var resumeTimer = null;
   var ageTimer;
   var refreshTimer;
@@ -584,22 +591,31 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   async function refreshDocument(){{
     if (refreshing || retryTimer !== null || !navigator.onLine){{ return; }}
-    if (document.visibilityState !== "visible"){{
+    if (document.visibilityState !== "visible" || pageAway){{
       refreshDeferred = true;
       return;
     }}
+    if (ordinaryStarted === null && resumeStarted === null && !hardFailure && Date.now() < ordinaryDue){{ return; }}
     refreshDeferred = false;
+    if (ordinaryStarted === null){{
+      ordinaryStarted = Date.now();
+      ordinaryEligible = originalCurrent() && !invalidated && !hardFailure;
+      ordinaryTimer = setTimeout(function(){{
+        if (resumeStarted === null && (!originalCurrent() || Date.now() >= generated+budget)){{ invalidate(false); }}
+      }}, 15000);
+    }}
     refreshing = true;
     var controller = new AbortController();
     var deadline = setTimeout(function(){{ controller.abort(); }}, 15000);
     var transportDelay = true;
     try {{
       var response = await fetch(location.href, {{cache:"no-store", signal:controller.signal}});
-      transportDelay = response.status === 503 || response.headers.get("X-Sentinel-Panel-Status") === "LAST_KNOWN";
       if (!response.ok || response.headers.get("X-Sentinel-Panel-Status") !== "CURRENT"){{
+        transportDelay = response.status === 503 || response.headers.get("X-Sentinel-Panel-Status") === "LAST_KNOWN";
         throw new Error("Current dashboard is not ready");
       }}
       var html = await response.text();
+      transportDelay = false;
       var next = new DOMParser().parseFromString(html, "text/html");
       var nextAge = Date.now() - Date.parse(next.body.dataset.generatedAt);
       var nextBudget = Number(next.body.dataset.maxAgeSeconds) * 1000;
@@ -610,10 +626,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         throw new Error("Dashboard response is incomplete");
       }}
       // Keep the foreground lifecycle and original clocks while the tab is hidden.
-      if (document.visibilityState !== "visible"){{ return; }}
+      if (document.visibilityState !== "visible" || pageAway){{ return; }}
       clearInterval(ageTimer);
       clearTimeout(refreshTimer);
       clearTimeout(resumeTimer);
+      clearTimeout(ordinaryTimer);
       clearTimeout(deadline);
       var scroll = window.scrollY;
       var expanded = Array.from(document.querySelectorAll('details[data-detail-key][open]'))
@@ -632,12 +649,12 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }});
       window.scrollTo(0, scroll);
     }} catch (_error) {{
-      if (transportDelay && !invalidated && resumeCurrent()){{
+      if (transportDelay && !invalidated && continuityCurrent()){{
         showResume();
       }} else if (transportDelay && !invalidated && originalCurrent()){{
         pendingRefresh();
       }} else {{
-        invalidate(false);
+        invalidate(false, !transportDelay);
         heartbeat.textContent = "Refreshing status · showing last known values";
       }}
       retryTimer = setTimeout(function(){{ retryTimer = null; refreshDocument(); }}, 5000);
@@ -648,11 +665,16 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function originalCurrent(){{
     var age = Date.now() - generated;
-    return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age <= budget;
+    return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age <= budget && !clockReversed();
+  }}
+  function clockReversed(){{
+    return (ordinaryStarted !== null && Date.now() < ordinaryStarted) ||
+      (resumeStarted !== null && Date.now() < resumeStarted);
   }}
   function pendingRefresh(){{
     withdrawPreparation();
     refreshDelayed = true;
+    document.documentElement.classList.add("refreshing-status");
     if (!knownFailure){{
       badge.className = "state warn";
       badge.textContent = "STATUS REFRESHING — ORIGINAL CHECK TIMES RETAINED";
@@ -662,10 +684,19 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function resumeCurrent(){{
     var elapsed = Date.now() - resumeStarted;
-    return resumeStarted !== null && elapsed >= 0 && elapsed < 15000;
+    var current = resumeStarted !== null && elapsed >= 0 && elapsed < 15000;
+    if (resumeStarted !== null && !current){{ resumeExhausted = true; }}
+    return !resumeExhausted && current;
+  }}
+  function continuityCurrent(){{
+    var elapsed = Date.now() - ordinaryStarted;
+    return !hardFailure && !knownFailure && navigator.onLine &&
+      (refreshing || retryTimer !== null) &&
+      (resumeStarted !== null ? resumeCurrent() :
+        ordinaryEligible && ordinaryStarted !== null && elapsed >= 0 && elapsed < 15000);
   }}
   function showResume(){{
-    if (invalidated || knownFailure){{ return; }}
+    if (invalidated || knownFailure || hardFailure){{ return; }}
     withdrawPreparation();
     refreshDelayed = true;
     document.documentElement.classList.add("refreshing-status");
@@ -676,20 +707,27 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function resumeDocument(){{
     var age = Date.now() - generated;
-    if (invalidated || knownFailure || !navigator.onLine ||
-        !Number.isFinite(age) || !validBudget(budget) || age < -5000){{
-      invalidate(true);
+    if (hardFailure || knownFailure || !navigator.onLine ||
+        !Number.isFinite(age) || !validBudget(budget) || age < -5000 || clockReversed()){{
+      invalidate(true, true);
       return;
     }}
     if (resumeStarted === null){{
-      resumeStarted = Date.now();
-      resumeTimer = setTimeout(function(){{ invalidate(false); }}, 15000);
+      var anchor = !wentToBackground && ordinaryEligible ? ordinaryStarted : Date.now();
+      if (Date.now() - anchor < 0 || Date.now() - anchor >= 15000){{ invalidate(true); return; }}
+      resumeStarted = anchor;
+      resumeTimer = setTimeout(function(){{ resumeExhausted = true; invalidate(false); }}, Math.max(0, 15000-(Date.now()-resumeStarted)));
     }}
     if (!resumeCurrent()){{ invalidate(true); return; }}
+    if (invalidated){{
+      invalidated = false;
+      document.documentElement.classList.remove("not-current");
+    }}
     showResume();
     refreshDocument();
   }}
-  function invalidate(andReload){{
+  function invalidate(andReload, hard){{
+    hardFailure = hardFailure || hard === true || clockReversed();
     if (!invalidated){{
       withdrawPreparation();
       invalidated = true;
@@ -707,25 +745,47 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function checkAge(){{
     var age = Date.now() - generated;
-    if (!Number.isFinite(age) || !validBudget(budget) || age < -5000){{
-      invalidate(true);
-    }} else if (document.visibilityState !== "visible"){{
+    if (!Number.isFinite(age) || !validBudget(budget) || age < -5000 || clockReversed()){{
+      invalidate(true, true);
+    }} else if (document.visibilityState !== "visible" || pageAway){{
       return;
     }} else if (wentToBackground){{
       if (document.visibilityState === "visible"){{ resumeDocument(); }}
     }} else if (resumeStarted !== null){{
       if (!resumeCurrent()){{ invalidate(true); }}
     }} else if (age > budget){{
-      invalidate(true);
+      if (!invalidated && continuityCurrent()){{ showResume(); }}
+      else {{ invalidate(true); }}
     }} else if (!invalidated && !refreshDelayed){{
       heartbeat.textContent = "DASHBOARD HEARTBEAT · UPDATED " +
         Math.max(0, Math.floor(age / 1000)) + "s AGO";
     }}
   }}
   window.addEventListener("pageshow", function(event){{
-    if (event.persisted){{ resumeDocument(); }} else {{ checkAge(); }}
+    if (document.visibilityState !== "visible"){{ return; }}
+    pageAway = false;
+    if (event.persisted){{ wentToBackground = true; }}
+    if (event.persisted || wentToBackground || !originalCurrent()){{ resumeDocument(); }}
+    else {{ checkAge(); }}
+    hasBeenVisible = true;
+  }});
+  window.addEventListener("pagehide", function(){{
+    wentToBackground = true;
+    pageAway = true;
+    if (Number.isFinite(generated)){{ showResume(); }}
+  }});
+  window.addEventListener("focus", function(){{
+    if (document.visibilityState === "visible"){{
+      pageAway = false;
+      if (wentToBackground || resumeStarted !== null ||
+          (!originalCurrent() && ordinaryEligible && ordinaryStarted !== null)){{ resumeDocument(); }}
+      else if (!originalCurrent()){{ checkAge(); }}
+      else if (refreshDeferred){{ refreshDocument(); }}
+      hasBeenVisible = true;
+    }}
   }});
   document.addEventListener("visibilitychange", function(){{
+    pageAway = document.visibilityState !== "visible";
     if (document.visibilityState === "hidden" && hasBeenVisible){{
       wentToBackground = true;
       if (Number.isFinite(generated)){{ showResume(); }}
@@ -740,9 +800,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }});
   window.addEventListener("offline", function(){{
     wentOffline = true;
-    invalidate(false);
+    invalidate(false, true);
   }});
-  if (wentOffline){{ invalidate(false); }}
+  if (wentOffline){{ invalidate(false, true); }}
   ageTimer = setInterval(checkAge, 1000);
   refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, {refresh_seconds * 1000});
   if (document.body.dataset.refreshPending === "true"){{

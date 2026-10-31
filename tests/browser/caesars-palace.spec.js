@@ -37,6 +37,192 @@ test.describe('App resume presentation', () => {
   // Hold the foreground HTML read deterministically. Worker delivery and
   // offline navigation are qualified separately by the PWA tests below.
   test.use({serviceWorkers:'block'});
+
+  async function shortProofDisplay(page) {
+    // Change only the client presentation, exactly as the resume fixture below:
+    // CI's real financial rows remain unconfigured/negative. Nine seconds is
+    // the observed presentation budget, not a fabricated financial receipt.
+    const response = await page.request.get('/');
+    const source = await response.text();
+    const duePattern = /var ordinaryDue = Date\.now\(\) \+ \d+;/g;
+    const refreshPattern = /refreshTimer = setTimeout\(function\(\)\{ checkAge\(\); refreshDocument\(\); \}, \d+\);/g;
+    expect([...source.matchAll(duePattern)]).toHaveLength(1);
+    expect([...source.matchAll(refreshPattern)]).toHaveLength(1);
+    const base = new Date('2026-10-30T23:00:00Z');
+    const requests = [];
+    let closing = false;
+    await page.clock.install({time:base});
+    await page.clock.pauseAt(new Date(base.getTime() + 60000));
+    const initialNow = await page.evaluate(() => Date.now());
+
+    function documentAt(now, positive) {
+      let body = source.replace(/data-generated-at="[^"]+"/,
+        `data-generated-at="${new Date(now).toISOString()}"`)
+        .replace(/data-max-age-seconds="[^"]+"/, 'data-max-age-seconds="9"')
+        .replace(/data-refresh-pending="[^"]+"/, 'data-refresh-pending="false"')
+        .replace(duePattern, 'var ordinaryDue = Date.now() + 5000;')
+        .replace(refreshPattern,
+          'refreshTimer = setTimeout(function(){ checkAge(); refreshDocument(); }, 5000);');
+      if (positive) body = body.replace(
+        /(<span id="operational-state" class=")state [^"]+("[^>]*>)[\s\S]*?(<\/span>)/,
+        '$1state ok$2CLIENT PRESENTATION FIXTURE$3');
+      expect(body).toContain('data-max-age-seconds="9"');
+      expect(body).toContain('var ordinaryDue = Date.now() + 5000;');
+      expect(body).toContain('refreshDocument(); }, 5000);');
+      return body;
+    }
+
+    await page.route('**/', async route => {
+      if (closing) {
+        await route.abort('aborted').catch(() => undefined);
+        return;
+      }
+      if (route.request().isNavigationRequest()) {
+        await route.fulfill({status:200, headers:{'Content-Type':'text/html',
+          'Cache-Control':'no-store', 'X-Sentinel-Panel-Status':'CURRENT'},
+          body:documentAt(initialNow, true)});
+        return;
+      }
+      let decide, complete;
+      const choice = new Promise(resolve => { decide = resolve; });
+      const done = new Promise(resolve => { complete = resolve; });
+      const request = {decide, done, allowAbort:false};
+      requests.push(request);
+      try {
+        const kind = await choice;
+        if (kind === 'abort') {
+          await route.abort('aborted');
+        } else {
+          const now = await page.evaluate(() => Date.now());
+          await route.fulfill({status:200, headers:{'Content-Type':'text/html',
+            'Cache-Control':'no-store', 'X-Sentinel-Panel-Status':'CURRENT'},
+            body:documentAt(now, kind !== 'negative')});
+        }
+      } catch (error) {
+        if (!request.allowAbort) throw error;
+      } finally { complete(); }
+    });
+    await page.goto('/', {waitUntil:'domcontentloaded'});
+    await expect(page.locator('#operational-state')).toHaveClass('state ok');
+    return {
+      requests,
+      async release(index, kind = 'positive') {
+        requests[index].decide(kind);
+        await requests[index].done;
+      },
+      async close() {
+        closing = true;
+        for (const request of requests) {
+          request.allowAbort = true;
+          request.decide('abort');
+        }
+        await Promise.all(requests.map(request => request.done));
+      }
+    };
+  }
+
+  test('short original proof stays last-known amber during two healthy foreground refreshes', async ({page}) => {
+    const fixture = await shortProofDisplay(page);
+    try {
+      for (let cycle = 0; cycle < 2; cycle++) {
+        const original = await page.locator('body').getAttribute('data-generated-at');
+        await page.evaluate(() => {
+          window.__pendingHeadlineStates = [];
+          const badge = document.getElementById('operational-state');
+          new MutationObserver(() => window.__pendingHeadlineStates.push(badge.className))
+            .observe(badge, {attributes:true, attributeFilter:['class']});
+        });
+        await page.clock.runFor(5000);
+        await expect.poll(() => fixture.requests.length).toBe(cycle + 1);
+        await page.clock.runFor(5001); // First one-second age check after the 9s proof expires.
+        await expect(page.locator('#operational-state')).toHaveClass('state warn');
+        await expect(page.locator('#operational-state')).toContainText('LAST KNOWN');
+        expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
+        await page.clock.runFor(1399); // Five seconds idle plus 6.4 seconds fetching.
+        await expect(page.locator('#operational-state')).toHaveClass('state warn');
+        expect(await page.evaluate(() => window.__pendingHeadlineStates)).not.toContain('state fail');
+        await fixture.release(cycle);
+        await expect(page.locator('#operational-state')).toHaveText('CLIENT PRESENTATION FIXTURE');
+        expect(await page.locator('body').getAttribute('data-generated-at')).not.toBe(original);
+      }
+    } finally { await fixture.close(); }
+  });
+
+  test('ordinary refresh expiry is anchored to the first request despite lifecycle wakeups', async ({page}) => {
+    const fixture = await shortProofDisplay(page);
+    try {
+      const original = await page.locator('body').getAttribute('data-generated-at');
+      await page.clock.runFor(5000);
+      await expect.poll(() => fixture.requests.length).toBe(1);
+      fixture.requests[0].allowAbort = true;
+      await page.clock.runFor(5001);
+      await expect(page.locator('#operational-state')).toHaveClass('state warn');
+      await page.evaluate(() => {
+        window.dispatchEvent(new Event('focus'));
+        window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:false}));
+      });
+      await page.clock.runFor(9998);
+      await expect(page.locator('#operational-state')).toHaveClass('state warn');
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true})));
+      await page.clock.runFor(2);
+      await expect(page.locator('#operational-state')).toHaveClass('state fail');
+      await expect(page.locator('#operational-state')).toContainText('STATUS NOT CURRENT');
+      expect(fixture.requests).toHaveLength(1);
+      expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
+    } finally { await fixture.close(); }
+  });
+
+  test('a fresh backend failure cannot borrow the foreground refresh allowance', async ({page}) => {
+    const fixture = await shortProofDisplay(page);
+    try {
+      await page.clock.runFor(5000);
+      await expect.poll(() => fixture.requests.length).toBe(1);
+      await page.clock.runFor(6400);
+      await expect(page.locator('#operational-state')).toHaveClass('state warn');
+      await fixture.release(0, 'negative');
+      await expect(page.locator('#operational-state')).toHaveClass('state fail');
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+      await expect(page.locator('#operational-state')).toHaveClass('state fail');
+    } finally { await fixture.close(); }
+  });
+
+  test('an iOS background timeout permits one finite foreground read without renewing clocks', async ({page}) => {
+    const fixture = await shortProofDisplay(page);
+    try {
+      const original = await page.locator('body').getAttribute('data-generated-at');
+      await page.clock.runFor(5000);
+      await expect.poll(() => fixture.requests.length).toBe(1);
+      fixture.requests[0].allowAbort = true;
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', {configurable:true, get:()=> 'hidden'});
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}));
+      });
+      await page.clock.runFor(120000);
+      await fixture.release(0, 'abort');
+      expect(fixture.requests).toHaveLength(1);
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', {configurable:true, get:()=> 'visible'});
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+        window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:false}));
+      });
+      await expect.poll(() => fixture.requests.length).toBe(2);
+      fixture.requests[1].allowAbort = true;
+      await expect(page.locator('#operational-state')).toHaveClass('state warn');
+      expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
+      await page.clock.runFor(14999);
+      await page.evaluate(() => {
+        window.dispatchEvent(new Event('focus'));
+        window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}));
+      });
+      expect(fixture.requests).toHaveLength(2);
+      await page.clock.runFor(2);
+      await expect(page.locator('#operational-state')).toHaveClass('state fail');
+      expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
+    } finally { await fixture.close(); }
+  });
+
   for (const expires of [false, true]) {
     test(`a saved positive view is amber during reconnect${expires ? ' and red on timeout' : ''}`, async ({ page }) => {
       // CI's unconfigured server is deliberately red. Only this client-display
