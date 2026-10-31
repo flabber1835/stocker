@@ -582,6 +582,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var ordinaryTimer = null;
   var ordinaryDue = Date.now() + {refresh_seconds * 1000};
   var resumeStarted = null;
+  var resumeExhausted = false;
   var resumeTimer = null;
   var ageTimer;
   var refreshTimer;
@@ -664,7 +665,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function originalCurrent(){{
     var age = Date.now() - generated;
-    return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age <= budget;
+    return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age <= budget && !clockReversed();
+  }}
+  function clockReversed(){{
+    return (ordinaryStarted !== null && Date.now() < ordinaryStarted) ||
+      (resumeStarted !== null && Date.now() < resumeStarted);
   }}
   function pendingRefresh(){{
     withdrawPreparation();
@@ -679,7 +684,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function resumeCurrent(){{
     var elapsed = Date.now() - resumeStarted;
-    return resumeStarted !== null && elapsed >= 0 && elapsed < 15000;
+    var current = resumeStarted !== null && elapsed >= 0 && elapsed < 15000;
+    if (resumeStarted !== null && !current){{ resumeExhausted = true; }}
+    return !resumeExhausted && current;
   }}
   function continuityCurrent(){{
     var elapsed = Date.now() - ordinaryStarted;
@@ -701,7 +708,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   function resumeDocument(){{
     var age = Date.now() - generated;
     if (hardFailure || knownFailure || !navigator.onLine ||
-        !Number.isFinite(age) || !validBudget(budget) || age < -5000){{
+        !Number.isFinite(age) || !validBudget(budget) || age < -5000 || clockReversed()){{
       invalidate(true, true);
       return;
     }}
@@ -709,7 +716,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       var anchor = !wentToBackground && ordinaryEligible ? ordinaryStarted : Date.now();
       if (Date.now() - anchor < 0 || Date.now() - anchor >= 15000){{ invalidate(true); return; }}
       resumeStarted = anchor;
-      resumeTimer = setTimeout(function(){{ invalidate(false); }}, Math.max(0, 15000-(Date.now()-resumeStarted)));
+      resumeTimer = setTimeout(function(){{ resumeExhausted = true; invalidate(false); }}, Math.max(0, 15000-(Date.now()-resumeStarted)));
     }}
     if (!resumeCurrent()){{ invalidate(true); return; }}
     if (invalidated){{
@@ -720,7 +727,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     refreshDocument();
   }}
   function invalidate(andReload, hard){{
-    hardFailure = hardFailure || hard === true;
+    hardFailure = hardFailure || hard === true || clockReversed();
     if (!invalidated){{
       withdrawPreparation();
       invalidated = true;
@@ -738,7 +745,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function checkAge(){{
     var age = Date.now() - generated;
-    if (!Number.isFinite(age) || !validBudget(budget) || age < -5000){{
+    if (!Number.isFinite(age) || !validBudget(budget) || age < -5000 || clockReversed()){{
       invalidate(true, true);
     }} else if (document.visibilityState !== "visible" || pageAway){{
       return;

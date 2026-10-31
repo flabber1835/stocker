@@ -101,6 +101,9 @@ state, malformed evidence and invalid clocks remain red immediately. A response
 body transport error is availability failure until HTML validation begins.
 Expired resume remains red until a fresh server answer; clearing availability
 styling must not clear a hard negative or revive an exhausted resume.
+Latch an observed resume deadline so a later wall-clock rollback cannot revive
+it. A clock earlier than an already started request or resume is invalid clock
+evidence and remains a hard negative, including on a later lifecycle event.
 The negative age timer may withdraw a very short proof before ordinary polling
 is due, but it cannot bring that ordinary request forward. Preserve the first
 scheduled five-second-or-longer read even for subsecond remaining proof. An

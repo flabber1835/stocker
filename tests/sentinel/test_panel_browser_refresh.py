@@ -42,6 +42,13 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
     elif mutation == 'resume-renewal':
         script = script.replace('if (resumeStarted === null)', 'if (true)').replace(
             'resumeStarted = anchor;', 'clearTimeout(resumeTimer); resumeStarted = anchor;')
+    elif mutation == 'resume-exhaustion':
+        guard = 'return !resumeExhausted && current;'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'return current;')
+    elif mutation == 'episode-clock':
+        assert script.count(' || clockReversed()') == 3
+        script = script.replace(' || clockReversed()', '').replace(' && !clockReversed()', '')
     elif mutation == 'preparation-withdrawal':
         script = script.replace('withdrawPreparation();', '')
     elif mutation == 'hidden-start':
@@ -62,9 +69,9 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         replacement = 'if (wentToBackground)' if mutation == 'hidden-first-visible' else 'if (true)'
         script = script.replace(guard, '} else if (document.visibilityState === "visible"){\n      '+replacement)
     elif mutation == 'hidden-deferred':
-        guard = 'else if (refreshDeferred){ refreshDocument(); }'
+        guard = 'if (wentToBackground || !originalCurrent()){ resumeDocument(); }\n      else if (refreshDeferred){ refreshDocument(); }'
         assert script.count(guard) == 1
-        script = script.replace(guard, '')
+        script = script.replace(guard, 'if (wentToBackground || !originalCurrent()){ resumeDocument(); }')
     elif mutation == 'ordinary-continuity':
         guard = 'if (!invalidated && continuityCurrent()){ showResume(); }'
         assert script.count(guard) == 1
@@ -208,6 +215,8 @@ def test_app_resume_is_bounded_last_known_presentation(wake):
     ('resume-red','resume-success','without inventing red'),
     ('resume-deadline','resume-expiry','foreground deadline'),
     ('resume-renewal','resume-expiry','foreground deadline'),
+    ('resume-exhaustion','resume-expiry','expired resume remains red'),
+    ('episode-clock','fresh-age','Expected values to be strictly equal'),
 ])
 def test_broken_app_resume_guards_are_detected(mutation,wake,expected):
     result=run_refresh('busy',wake=wake,mutation=mutation)

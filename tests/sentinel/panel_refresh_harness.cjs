@@ -222,8 +222,11 @@ function failRead(read) {
         const returned=start+(config.order==='before-timeout'?14000:20000);
         await advanceTo(returned);
         show(config.visibility!==false);lastKnown();
+        const resumeViews=observations.length;
         const resumeEnd=returned+15000;
         await advanceTo(resumeEnd-1);lastKnown();
+        assert(observations.slice(resumeViews).every(view=>view.state!=='state fail'),
+          'owned refresh keeps expired proof last known throughout its first resume');
         show(config.visibility!==false);
         await advanceTo(resumeEnd+1);
         assert.equal(badge.className,'state fail','foreground events cannot renew the first resume deadline');
@@ -310,14 +313,15 @@ function failRead(read) {
   if (input.wake === 'proof-expiry') {
     assert.equal(badge.className,'state ok');
     const original=document.body.dataset.generatedAt;
+    const poll=Number(input.script.match(/refreshTimer = setTimeout[^\n]+, (\d+)\);/)[1]);
     now=stamp+(Math.floor(Number(input.budget))+1)*1000;
     fireDelay(1000);
     assert.equal(badge.className,'state fail','original proof expiry withdraws green');
     assert.equal(planReadiness.textContent,'Plan readiness not current · refreshing status');
     assert.equal(document.body.dataset.generatedAt,original,'proof expiry cannot renew the observation');
-    if (Number(input.budget)<5) {
+    if (now<stamp+poll) {
       assert.equal(reads.length,0,'short-proof expiry cannot cause a one-second poll');
-      now=stamp+5000;fireDelay(5000);await settled();
+      now=stamp+poll;fireDelay(poll);await settled();
     }
     assert.equal(reads.length,1);
     listeners.pageshow({persisted:true});
