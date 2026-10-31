@@ -48,6 +48,7 @@ def test_zero_cash_is_present_but_missing_conversion_leg_refuses():
     assert complete_native_term({"kind": "CASH_MERGER", "cash_per_share": "0"})
     assert not complete_native_term({"kind": "MIXED_MERGER", "cash_per_share": "3", "exchange_ratio": ".2"})
     assert not complete_native_term({"kind": "CASH_MERGER", "cash_per_share": "30", "disposition": "INCOMPLETE"})
+    assert complete_native_term({"kind": "CASH_PLUS_STOCK", "cash_per_share": "3", "exchange_ratio": ".2", "delivered_security_id": "123"})
 
 
 def test_unit_group_uses_word_boundary_not_united_company_name():

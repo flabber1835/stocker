@@ -259,7 +259,7 @@ def category(event):
         return "BANKRUPTCY_OR_LIQUIDATION_NOT_AUTOMATIC_ZERO"
     if re.search(r"\bunits?\b", text):
         return "UNIT_OR_COMPOSITE_INSTRUMENT"
-    if event["native"].get("kind") in ("CONVERSION", "MIXED_MERGER"):
+    if event["native"].get("kind") in ("CONVERSION", "CASH_PLUS_STOCK", "MIXED_MERGER"):
         return "STOCK_OR_MIXED_CONSIDERATION"
     if "delisted" in text and "acquisitionby" not in text:
         return "LISTING_EXIT_WITHOUT_PROVEN_CONSIDERATION"
@@ -287,6 +287,7 @@ def complete_native_term(row):
         return False
     required = {"CASH_MERGER": ("cash_per_share",),
                 "CONVERSION": ("delivered_security_id", "exchange_ratio"),
+                "CASH_PLUS_STOCK": ("delivered_security_id", "exchange_ratio", "cash_per_share"),
                 "MIXED_MERGER": ("delivered_security_id", "exchange_ratio", "cash_per_share")}
     return row.get("kind") in required and all(row.get(k) not in (None, "") for k in required[row["kind"]])
 
