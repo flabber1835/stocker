@@ -571,6 +571,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var wentToBackground = false;
   var wentOffline = !navigator.onLine;
   var refreshing = false;
+  var refreshDeferred = false;
   var refreshDelayed = document.body.dataset.refreshPending === "true";
   var knownFailure = badge.className === "state fail" || badge.className === "state unknown";
   var retryTimer = null;
@@ -583,6 +584,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   async function refreshDocument(){{
     if (refreshing || retryTimer !== null || !navigator.onLine){{ return; }}
+    if (document.visibilityState !== "visible"){{
+      refreshDeferred = true;
+      return;
+    }}
+    refreshDeferred = false;
     refreshing = true;
     var controller = new AbortController();
     var deadline = setTimeout(function(){{ controller.abort(); }}, 15000);
@@ -603,6 +609,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
           nextAge > nextBudget){{
         throw new Error("Dashboard response is incomplete");
       }}
+      // Keep the foreground lifecycle and original clocks while the tab is hidden.
+      if (document.visibilityState !== "visible"){{ return; }}
       clearInterval(ageTimer);
       clearTimeout(refreshTimer);
       clearTimeout(resumeTimer);
@@ -701,6 +709,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     var age = Date.now() - generated;
     if (!Number.isFinite(age) || !validBudget(budget) || age < -5000){{
       invalidate(true);
+    }} else if (document.visibilityState !== "visible"){{
+      return;
     }} else if (wentToBackground){{
       if (document.visibilityState === "visible"){{ resumeDocument(); }}
     }} else if (resumeStarted !== null){{
@@ -720,7 +730,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       wentToBackground = true;
       if (Number.isFinite(generated)){{ showResume(); }}
     }} else if (document.visibilityState === "visible"){{
-      if (wentToBackground){{ resumeDocument(); }}
+      if (wentToBackground || !originalCurrent()){{ resumeDocument(); }}
+      else if (refreshDeferred){{ refreshDocument(); }}
       hasBeenVisible = true;
     }}
   }});

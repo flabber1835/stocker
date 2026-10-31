@@ -60,6 +60,21 @@ uses its own lease boundary. A short proof may withdraw the display before a
 refresh succeeds, but must not force a one-second HTTP polling loop; use a
 bounded refresh cadence with the existing negative-only expiry timer.
 
+Decision, 2026-10-30, before implementation: browser refreshes must not replace
+the document while its tab is hidden. A background replacement loses the prior
+foreground lifecycle and can turn a normal app return into an immediate stale
+red. Do not start a hidden refresh or install a response completed after the tab
+became hidden; retain the original document, observation clocks and controller.
+On foreground return, use the existing single-read, finite last-known resume.
+An initially hidden document that first becomes visible after its original
+expiry also enters that resume; a fresh initially hidden document needs no extra
+read before its ordinary refresh is due. If that ordinary timer elapsed while
+hidden, perform that deferred read on first visibility rather than waiting for
+proof expiry. Resume may withdraw green into amber only, never renew a financial proof,
+hide a known failure, override offline state or restart its original 15-second
+deadline. Preserve the minimum five-second polling cadence and the independent
+negative-authority expiry timer.
+
 Completed publication metadata remains a dated data fact, not proof that a plan
 is still being prepared. If an admitted future saved plan exists, describe the
 publication without a pending-plan claim. Stop using a completed publication as

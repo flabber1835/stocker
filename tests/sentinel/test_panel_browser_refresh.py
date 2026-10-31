@@ -45,6 +45,27 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
             'resumeStarted = Date.now();', 'clearTimeout(resumeTimer); resumeStarted = Date.now();')
     elif mutation == 'preparation-withdrawal':
         script = script.replace('withdrawPreparation();', '')
+    elif mutation == 'hidden-start':
+        guard = 'if (document.visibilityState !== "visible"){\n      refreshDeferred = true;\n      return;\n    }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, '')
+    elif mutation == 'hidden-install':
+        guard = 'if (document.visibilityState !== "visible"){ return; }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, '')
+    elif mutation == 'hidden-age':
+        guard = '} else if (document.visibilityState !== "visible"){\n      return;'
+        assert script.count(guard) == 1
+        script = script.replace(guard, '')
+    elif mutation in {'hidden-first-visible', 'hidden-first-fresh'}:
+        guard = 'if (wentToBackground || !originalCurrent())'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (wentToBackground)' if mutation == 'hidden-first-visible'
+                                else 'if (true)')
+    elif mutation == 'hidden-deferred':
+        guard = 'else if (refreshDeferred){ refreshDocument(); }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, '')
     return subprocess.run([node, str(Path(__file__).with_name('panel_refresh_harness.cjs'))],
         input=json.dumps({'script':script,'generated':generated.isoformat(),'failure':failure,
                           'wake':wake,'budget':budget}),
@@ -137,6 +158,28 @@ def test_app_resume_is_bounded_last_known_presentation(wake):
 ])
 def test_broken_app_resume_guards_are_detected(mutation,wake,expected):
     result=run_refresh('busy',wake=wake,mutation=mutation)
+    assert result.returncode != 0
+    assert expected in result.stderr
+
+
+@pytest.mark.parametrize('wake', ['hidden-timer', 'hidden-response', 'hidden-initial-fresh',
+    'hidden-initial-due', 'hidden-initial-expired', 'hidden-initial-known-failure'])
+def test_hidden_refresh_preserves_the_original_foreground_lifecycle(wake):
+    result = run_refresh('busy', wake=wake)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'PASS\n'
+
+
+@pytest.mark.parametrize('mutation,wake,expected', [
+    ('hidden-start', 'hidden-timer', 'hidden timer cannot start'),
+    ('hidden-install', 'hidden-response', 'completed while hidden cannot replace'),
+    ('hidden-age', 'hidden-initial-expired', 'hidden expiry waits'),
+    ('hidden-first-visible', 'hidden-initial-expired', 'foreground starts exactly one'),
+    ('hidden-first-fresh', 'hidden-initial-fresh', 'fresh first-visible document needs no extra'),
+    ('hidden-deferred', 'hidden-initial-due', 'foreground starts exactly one'),
+])
+def test_hidden_lifecycle_guard_removal_is_detected(mutation,wake,expected):
+    result = run_refresh('busy', wake=wake, mutation=mutation)
     assert result.returncode != 0
     assert expected in result.stderr
 

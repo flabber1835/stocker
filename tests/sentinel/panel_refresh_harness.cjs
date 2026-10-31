@@ -11,7 +11,7 @@ const timers = new Map();
 const listeners = {};
 const reads = [];
 const writes = [];
-const badge = { className: ['known-failure','resume-known-failure'].includes(input.wake) ? 'state fail' : 'state ok', textContent: 'current' };
+const badge = { className: ['known-failure','resume-known-failure','hidden-initial-known-failure'].includes(input.wake) ? 'state fail' : 'state ok', textContent: 'current' };
 const heartbeat = { textContent: 'current' };
 const preparation = { textContent: 'Downloading closing data' };
 const planReadiness = { textContent: 'Next trading plan: not ready yet.' };
@@ -26,7 +26,7 @@ const document = {
       maxAgeSeconds: input.budget,
       refreshPending: ['initial-pending','resume-initial-pending'].includes(input.wake) ? 'true' : 'false' } },
   documentElement: { classList: { add: value => classes.add(value), remove: value => classes.delete(value) } },
-  visibilityState: input.wake === 'initial-hidden' ? 'hidden' : 'visible',
+  visibilityState: input.wake === 'initial-hidden' || input.wake.startsWith('hidden-initial-') ? 'hidden' : 'visible',
   getElementById: id => ({'operational-state': badge, 'preparation-stage': preparation,
     'plan-readiness': planReadiness})[id] ?? heartbeat,
   addEventListener: (name, fn) => { listeners[name] = fn; },
@@ -78,6 +78,63 @@ function failRead(read) {
   vm.runInNewContext(input.script, context, {
     filename: 'sentinel-panel-refresh://' + sourceHash
   });
+  if (input.wake.startsWith('hidden-')) {
+    const original = document.body.dataset.generatedAt;
+    if (input.wake === 'hidden-timer') {
+      document.visibilityState = 'hidden'; listeners.visibilitychange();
+      now = stamp + 30000; fireDelay(30000); await settled();
+      assert.equal(reads.length, 0, 'hidden timer cannot start a refresh');
+    } else if (input.wake === 'hidden-response') {
+      now = stamp + 30000; fireDelay(30000); await settled();
+      assert.equal(reads.length, 1);
+      document.visibilityState = 'hidden'; listeners.visibilitychange();
+      now = stamp + 120000;
+      reads[0].resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
+      await settled();
+      assert.equal(writes.length, 0, 'response completed while hidden cannot replace the lifecycle');
+      assert.equal(reads.length, 1);
+    } else if (input.wake === 'hidden-initial-due') {
+      now = stamp + 30000; fireDelay(30000); fireDelay(1000); await settled();
+      assert.equal(reads.length, 0, 'initially hidden ordinary read is deferred');
+      assert.equal(badge.className, 'state ok');
+    } else {
+      now = stamp + (input.wake === 'hidden-initial-fresh' ? 1000 : 120000);
+      fireDelay(1000); await settled();
+      assert.equal(reads.length, 0, 'hidden age checks cannot start traffic');
+      if (input.wake !== 'hidden-initial-known-failure') {
+        assert.notEqual(badge.className, 'state fail', 'hidden expiry waits for bounded foreground resume');
+      }
+    }
+    const previousReads = reads.length;
+    document.visibilityState = 'visible'; listeners.visibilitychange();
+    if (input.wake === 'hidden-initial-fresh') {
+      assert.equal(reads.length, 0, 'fresh first-visible document needs no extra read');
+      assert.equal(badge.className, 'state ok');
+      process.stdout.write('PASS\n'); return;
+    }
+    assert.equal(reads.length, previousReads + 1, 'foreground starts exactly one current read');
+    assert.equal(badge.className, input.wake === 'hidden-initial-known-failure' ? 'state fail' :
+      input.wake === 'hidden-initial-due' ? 'state ok' : 'state warn',
+      'foreground resume cannot invent red or hide a known negative');
+    assert.equal(document.body.dataset.generatedAt, original, 'foreground resume cannot renew original clocks');
+    listeners.pageshow({persisted:true});
+    assert.equal(reads.length, previousReads + 1, 'foreground wakeups cannot overlap the pending read');
+    if (input.wake === 'hidden-initial-expired') {
+      now += 14999;
+      document.visibilityState = 'hidden'; listeners.visibilitychange();
+      document.visibilityState = 'visible'; listeners.visibilitychange();
+      listeners.pageshow({persisted:true}); fireDelay(1000);
+      assert.equal(badge.className, 'state warn');
+      now += 2; fireDelay(1000);
+      assert.equal(badge.className, 'state fail', 'first-visible resume keeps its original 15-second deadline');
+      assert.equal(reads.length, previousReads + 1);
+    }
+    reads.at(-1).resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
+    await settled();
+    assert.deepEqual(writes, ['open','fresh','close']);
+    assert.equal(timers.size, 0, 'successful foreground replacement cancels original timers');
+    process.stdout.write('PASS\n'); return;
+  }
   if (input.wake === 'proof-expiry') {
     assert.equal(badge.className,'state ok');
     const original=document.body.dataset.generatedAt;
