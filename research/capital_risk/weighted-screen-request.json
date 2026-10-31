@@ -1,0 +1,14 @@
+{
+  "schema": "research.capital-weighted-request/1",
+  "request_id": "weighted-exposure-suffix-001",
+  "stage": "weighted-suffix",
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "contract_sha256": "da55232c2530ddfc312e25ad81536d9deb9d9f972eaef7250a1272e6c96dd0a2",
+  "policy_sha256": "6800eb9819a36acaef0f016f131b80a04607cc93fa5d0e985b7a4a7add85a7e8",
+  "features_sha256": "bb34bb6c869e3f07de6ec893b2dc4fe760d4cd040b317d9769768a3db9950e14",
+  "screen_sha256": "de3d4a1e0037e4c82e71c4333e959a60773a7fab81ee38a288a41117b756e646",
+  "adapter_sha256": "c32c6a72696a9d559610afc27406b9eae428037c6b5a49446b6fb8d379e9fd33",
+  "resume_sha256": "a38b2b7e7ac92ce2814fbe6d34b3ac26ef017e5834d34ea97bdcdbe6226a7ff5",
+  "predecessor_sha256": "f4a5ede07e14061e0691dd42407497e66336d751cc7d6afae57e5956010d7a5f",
+  "dispatch_authorization": "EXACT_ADDITIONAL_R_CONTINUATION_APPROVED"
+}

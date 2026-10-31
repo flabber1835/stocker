@@ -1,0 +1,29 @@
+{
+  "schema": "research.full-system-recovery-request/1",
+  "study": "full-system-search-20261029",
+  "predecessors_sha256": "2b78fc4ee22a89bac1b93c400ec0704fba94b1ee150938518bdc37ef3f68089a",
+  "protocol_sha256": "69481f000f8d9e94ad717f77f9ca6f7af80a4c3a194c550e714ce5d8032d78e5",
+  "sources": {
+    "full_system_recovery_job.py": "0f1edf26799ef4f9a5ae02b7c2dde6bbe39cf09494e03b969a61ff00c131ca7b",
+    "full_system_recovery.py": "48b82f5b51b2315b8119ae6811b006eea5a02ede77fe69c75b06553fccf2f7ab",
+    "full_system_core.py": "91abaf38b2b03f5027e6fe52191dde378b7c4d7403ff4656729b9f797d60be05",
+    "full_system_source.py": "2514fb09a283a7f10ae3f6a1d05484f82edf8616d8d946f7b7b9774b8ac77701",
+    "full_system_trials_job.py": "dadbe81ce8ea0dc4602dd6c6d0fa10bb48a7ce46e042248d12c64850bf06540c",
+    "full_system_benchmark.py": "218b43bc86215984c45cdb6c7b8e52dd7a9c78d3906ee75d6695df1d142e89b5",
+    "build_core_variants.py": "b19c857029bb4bd1c5bc5ee76da5e46510fc96386357b0c9954764d25b564a50",
+    "core_manifest.py": "ad5e1df4638a394e19855c1982b2b7b8491c459e2087134a81a181de6b328962",
+    "core_accounting_snapshot.py": "7c82674318f7ad939c4f696e11c79b5cdde46704e539281443a18a667fde0e49",
+    "core-source-basis.json": "3503405ee042a365ac1ebc9069345d169a734767586ab17b8227486025e453a0",
+    "core_window_review.py": "5c12824d81212d5e143857aacf737a236720b57b722c30f3849312d804ee02d7",
+    "alpaca_fit_job.py": "830666425aca027bd7a58a17926ec7a14e6dd59b4e10f5ab17d8c03503527dec",
+    "alpaca_fit_stage.py": "8339b44a2d3ed9bef5004d97f7ffd75ebad934697bcf7d085f2ffb9e4986023c",
+    "probe.py": "1008ed254c63c60269bbb6063b61c7c85e44943fabfd12d320d4327c9448a9a9",
+    "runtime_identity.py": "1939a33115e639675d9262ef92c362ec5b3b9f7bad1b9352b4bd61fd9df534e7",
+    "seal.py": "9671e34e6895e594d20e6e1800c4899092c2da32ac33af7fecc93e26371bcc95",
+    "stage.py": "2ab2596762e059c6178361b45295739a14973992701ca95ee0e77d34b534f163"
+  },
+  "hard_deadline_utc": "2026-10-29T17:57:00Z",
+  "same_scientific_parameters": true,
+  "source_conversion": false,
+  "production_contacted": false
+}

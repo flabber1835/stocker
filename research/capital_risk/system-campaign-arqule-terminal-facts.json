@@ -1,0 +1,38 @@
+{
+  "schema": "research.system-campaign-arqule-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "ARQL",
+      "security_id": "37487278358102709",
+      "native_session": "2020-01-15",
+      "native_term_sha256": "f3ed4f220db858a202c05a3efc4b1e16a55ee6be33ff580a23fb2a28129a8e1c",
+      "added": {
+        "session": "2020-01-16",
+        "security_id": "37487278358102709",
+        "kind": "CASH_MERGER",
+        "cash_per_share": 20.0,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "reference": "https://www.sec.gov/Archives/edgar/data/1019695/000110465920004500/tm203495d1_8k.htm | Completed mandatory DGCL251(h) merger on January16,2020 converts eligible remaining common shares into20USD cash each. NasdaqECA2020-6 confirms January16beforeopen and January15lasttrading. Preserve January15trading and all frozen identity/classification/source conventions. No voluntary-tender assumption or aggregate-deal-value inference.",
+        "entitlement_aggregation": "HOLDER"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1019695/000110465920004500/tm203495d1_8k.htm",
+      "exchange_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2020-6",
+      "description": "Completed mandatory DGCL251(h) merger on January16,2020 converts eligible remaining common shares into20USD cash each. NasdaqECA2020-6 confirms January16beforeopen and January15lasttrading. Preserve January15trading and all frozen identity/classification/source conventions. No voluntary-tender assumption or aggregate-deal-value inference."
+    }
+  ],
+  "identity_witness": {
+    "session": "2020-01-14",
+    "security_id": "37487278358102709",
+    "ticker": "ARQL",
+    "issuer_id": "SEC_CIK:1019695",
+    "listing_first_session": "1997-12-31",
+    "security_type_eligible": "1",
+    "source_observation_sha256": "ee7ff42e89bb8de39b2e3262da62dd7277514d5a20bc03945fbd93784730143e"
+  },
+  "canonical_financial_source_changed": false,
+  "production_contacted": false
+}

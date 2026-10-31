@@ -1,0 +1,54 @@
+name: System campaign Spring terminal facts exact suffixes
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/system-campaign-spring-request.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: system-optimization-002-spring-suffixes
+  cancel-in-progress: false
+jobs:
+  suffix:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 285
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        arm: [P02, P03, P07]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: research/capital_risk
+          fetch-depth: 1
+      - name: Install locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+      - name: Authenticate existing frozen inputs and offline runtime
+        timeout-minutes: 8
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
+      - name: Admit own immutable branch and run only factual corrected suffix
+        timeout-minutes: 270
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_spring_job.py --request research/capital_risk/system-campaign-spring-request.json --staging artifacts/capital-risk/full-core-staging.json --arm ${{ matrix.arm }} --output artifacts/capital-risk/campaign-factual-${{ matrix.arm }}.json'
+      - name: Preserve encrypted proven stopped evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: system-campaign-factual-${{ matrix.arm }}-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/full-core-staging.json
+            artifacts/capital-risk/campaign-factual-${{ matrix.arm }}.json
+            artifacts/capital-risk/campaign-factual-*.tar.crseal
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

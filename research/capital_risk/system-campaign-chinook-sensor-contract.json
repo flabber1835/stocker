@@ -1,0 +1,99 @@
+{
+  "cash_consideration_range": [
+    40.0,
+    44.0
+  ],
+  "contingent_right_market_price_observed": false,
+  "event_source_quote_present": false,
+  "inherited_sources": {
+    "system-campaign-abiomed-sensor-contract.json": "ee8240eee65955f2e389ffcc2c4833ffe0732982430a83a2a4ac6da268c651f4",
+    "system-campaign-completion-scope-contract.json": "226fe18dbe33a48867531900fe5bd083d2b284c266a4e753b2e7156968bfe533",
+    "system_campaign_abiomed_basis.py": "ada371aa34294f6a8319ee117ff23fe62970040031e8f8e0e66d1cb3809a449b",
+    "system_campaign_abiomed_facts.py": "fd5d31a831ae729de1ab895110bc27b10fe9ae092893894cdb54d5c30ec091c8",
+    "system_campaign_abiomed_gate.py": "5ccc9d3b45e884f245b8f27d4c5d29df3497f219356c93418feab76832b30424",
+    "system_campaign_abiomed_input.py": "2bf837427006de7a52fe797bc9679706e37121bca61943af360582e188472bf7",
+    "system_campaign_abiomed_review.py": "03f44f8d08d052f4cd6e2861e65a7d87b3ddd86720d9da39c6e9ac5b1a77fd8a",
+    "system_campaign_abiomed_sensor.py": "6195af587b8dc40a33afb6ba78002c530586e86b3d13d5f53715808f959a821f",
+    "system_campaign_completion_basis.py": "ae2a6daeb28412a4950b5ee45a27ed6964a9efc294d08a46a001831ec51b3298",
+    "system_campaign_completion_facts.py": "11136ed919d3686e243e575e1e3b483dad0d6060b559a57408d938dfb7779ae8",
+    "system_campaign_completion_gate.py": "19b23a53ef5fdd7977d5a6cae87ef43d11c7c79e4a7766960c8993ce39b25f27",
+    "system_campaign_completion_review.py": "a5c866e30ac5164307f34914ca030bd60c60431d448c453753adeba7b6a69782",
+    "system_campaign_completion_scope.py": "db84b8f0a070faa1fbe5510fbdd4358ab18c1436914c39b1a0d14eea7f66c060",
+    "system_campaign_mixed_preflight.py": "e0b11bd6dca526d998f1480f0efd95d0f4e2a6b4c54154b1719b85018301febf",
+    "system_campaign_ordinary_registry.py": "e526264ca859afa5455eaf4eeabdf80fc9eea7cfd0f981969b5f884da93fab15",
+    "system_campaign_spring2023_preflight.py": "ea93928a92e3a4ab46de1e86b6c60fbddf7b881943975d115f9083a81b518d08",
+    "system_campaign_spring2023_review.py": "e8489cac432ed3868334b885ece14fb0be2a9aec29b810323226c2fb4d5c7c40",
+    "system_campaign_spring2023_sensor.py": "88734e7ebac86d7df8f420c7cbbd04a9b8eab1b66964f333ace33b231715dead",
+    "system_campaign_uncertainty_archive.py": "a0d82bf28260ffe47b814ad0ff90cbec4185c695e0b2d69a603ab490582543b7",
+    "system_campaign_uncertainty_basis.py": "33a022d90449028350cd66af7208a6089612a19f66c9ecf55b14eec5b6b2c02c",
+    "system_campaign_uncertainty_context.py": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610",
+    "system_campaign_uncertainty_facts.py": "f5b06342b66383c88a9343c1ac47c18ec586ee54c76286f80e0056364c7dfde4",
+    "system_campaign_uncertainty_gate.py": "79df745916e7603f803cf37022ba4e4a27340995b4ac98fdb344e7e7e46e1bf3",
+    "system_campaign_uncertainty_input.py": "85572869e11ac0447618c3f6b80ae7d9160746444453959d76852175bc0fc5f3",
+    "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213",
+    "system_campaign_uncertainty_review.py": "bfa8c59074f4189c35eb04359e4e846d6a2311df72f8b9180357eb7d7cd24c7f",
+    "system_campaign_uncertainty_support.py": "6f0298e8cde015ccc3807927e820422bb2075d69abd39f7645a20ffaa835ac4f",
+    "system_campaign_zogenix_basis.py": "54c33ba88d951d7360d11e67a9e254693361e588b70c4e39704b2fc66e8fd3fa",
+    "system_campaign_zogenix_facts.py": "1cc8906a8bc7d01b160186d091415d252b9fff45116fa466b46d947a24e90056",
+    "system_campaign_zogenix_input.py": "da4b5af6b5a4e9a6c5cd3ffd236b127a509f984f8743a0b51be49381fc2be812",
+    "system_campaign_zogenix_review.py": "650f31c3d1f5d9bcfa854c069425170be7fa8ba28c70f7aeee47b488c8046af0",
+    "system_campaign_zogenix_sensor.py": "df3de6905a23b06254044a8a0f08833d6f3a68290706114a873d8440eedb560e"
+  },
+  "last_trading_session": "2023-08-10",
+  "later_payment_information_used": false,
+  "mandatory_remaining_common_share_entitlement": true,
+  "native": {
+    "cash_in_lieu_price_per_delivered_share": null,
+    "cash_per_share": null,
+    "delivered_issuer_id": null,
+    "delivered_security_id": null,
+    "delivered_ticker": null,
+    "entitlement_aggregation": "HOLDER",
+    "exchange_ratio": null,
+    "kind": "CASH_MERGER",
+    "reference": "actions/acquisitionby deal_value_musd=2900.2",
+    "security_id": "47247117758471252",
+    "session": "2023-08-10"
+  },
+  "native_session": "2023-08-10",
+  "native_term_sha256": "8779121eb314297caa8a05ab20d8b3c5c990fe0849d21026d37e50dee95d4060",
+  "preopen_completion_confirmed": true,
+  "primary_sources": {
+    "exchange_clock": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-447",
+    "issuer_confirmation": "https://www.novartis.com/news/media-releases/novartis-completes-acquisition-chinook-therapeutics",
+    "mandatory_common_and_cap": "https://www.novartis.com/news/media-releases/novartis-completes-acquisition-chinook-therapeutics",
+    "options_corroboration_not_common_right_valuation": "https://infomemo.theocc.com/infomemos?number=53016"
+  },
+  "production_contacted": false,
+  "provider_archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+  "provider_row_sha256": [
+    "2fa23492fcc5b55f8d02729196925e001254107de1dbe989b6a5972a1edc2688",
+    "a6ec5ce945df7fd4cef063b39a38f8a38dda52b03915a5deb913acd4f1df2ae4",
+    "9b744b7a5966ff4b5d5d3b2bae9878e5a714deb2db9c7d09f0aadcc248f7b10b"
+  ],
+  "provider_rows_sha256": "25f7701c4574c21fccf36ed7e7719fff6b3a1a9e06d95f5c2788aba06167b30f",
+  "schema": "research.chinook-sensor-contract/1",
+  "security_id": "47247117758471252",
+  "session": "2023-08-11",
+  "source_witnesses": [
+    {
+      "issuer_id": "SEC_CIK:1435049",
+      "listing_first_session": "2015-04-15",
+      "security_id": "47247117758471252",
+      "security_type_eligible": "1",
+      "session": "2023-08-09",
+      "source_observation_sha256": "f325a5bfb40a95a3bf7d35b7ceb7b7acf331ad30c2a3762b25aad7462d8e8063",
+      "ticker": "KDNY"
+    },
+    {
+      "issuer_id": "SEC_CIK:1435049",
+      "listing_first_session": "2015-04-15",
+      "security_id": "47247117758471252",
+      "security_type_eligible": "1",
+      "session": "2023-08-10",
+      "source_observation_sha256": "a0f99283fa96a7ad638f996384e278c8dd4f756265a4588300577a2c427c1b47",
+      "ticker": "KDNY"
+    }
+  ],
+  "tender_participation_assumed": false
+}

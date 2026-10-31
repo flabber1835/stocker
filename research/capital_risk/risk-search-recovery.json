@@ -1,0 +1,57 @@
+{
+  "schema": "research.bounded-risk-review-recovery/1",
+  "run_id": 40735253211,
+  "head": "a96b667fa27e62181ec0df3abf84a2eb7a4e2388",
+  "first_mismatch_sha256": "df4f679317aabcbde1b7978fab7c467e8adbabf38db72552cbd8bc682bffa1ee",
+  "profiles": {
+    "ORACLE_H0": {
+      "receipt": {
+        "schema": "research.bounded-risk-profile-receipt/1",
+        "profile_id": "ORACLE_H0",
+        "status": "PROFILE_REFUSED",
+        "run_id": "40735253211",
+        "source_commit": "a96b667fa27e62181ec0df3abf84a2eb7a4e2388",
+        "request_sha256": "6f4236869de019b5440d748000f4fa893d4b35b47a6d003203a2c4975704bac6",
+        "known_financial_stopped": true,
+        "production_contacted": false,
+        "encrypted_output": {
+          "name": "ORACLE_H0.tar.crseal",
+          "bytes": 392509476,
+          "sha256": "36d41cf9f441fe33f6cb850f8eda23d705dee0ed7f744052816e4ee14c917747"
+        }
+      },
+      "actual_stop": {
+        "name": "capital-risk-h0p2-40735253211-1",
+        "id": "d56e6fad7f93cbdfa4d9b0026be1ffea33bdc03f8298a824d6edaad31dbebbc0",
+        "stopped": true,
+        "exit_code": 0,
+        "oom": false
+      }
+    },
+    "ORACLE_P2": {
+      "receipt": {
+        "schema": "research.bounded-risk-profile-receipt/1",
+        "profile_id": "ORACLE_P2",
+        "status": "PROFILE_REFUSED",
+        "run_id": "40735253211",
+        "source_commit": "a96b667fa27e62181ec0df3abf84a2eb7a4e2388",
+        "request_sha256": "6f4236869de019b5440d748000f4fa893d4b35b47a6d003203a2c4975704bac6",
+        "known_financial_stopped": true,
+        "production_contacted": false,
+        "encrypted_output": {
+          "name": "ORACLE_P2.tar.crseal",
+          "bytes": 400844836,
+          "sha256": "4022d89f138ab2e510d791967be729a6e9889310cc106778d00792be0de14231"
+        }
+      },
+      "actual_stop": {
+        "name": "capital-risk-h0p2-40735253211-2",
+        "id": "43d572d094cba1286d7e4f91d77b905870a8b2bef5b7d636524357b6c7ddccc9",
+        "stopped": true,
+        "exit_code": 0,
+        "oom": false
+      }
+    }
+  },
+  "financial_replay_permitted": false
+}

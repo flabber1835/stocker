@@ -1,0 +1,248 @@
+"""Hosted canonical baseline and retained-prefix timing gate. Never a GO book."""
+from __future__ import annotations
+import argparse
+from dataclasses import asdict
+from datetime import datetime,timezone
+import gzip
+import hashlib
+import json
+import os
+from pathlib import Path
+import time
+
+from alpaca_fit_inputs import Inputs,hosted,need
+
+
+def encoded(value):return json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode()+b'\n'
+
+
+def save(path,value):
+    need(not path.exists(),'OUTPUT_COLLISION')
+    with path.open('xb') as f:f.write(encoded(value));f.flush();os.fsync(f.fileno())
+
+
+class Journal:
+    def __init__(self,path):self.path=path;self.hash=hashlib.sha256();self.count=0;self.length=0;self.chain='0'*64
+    def append(self,value):
+        value={'previous_chain_sha256':self.chain,**value};raw=encoded(value)
+        with self.path.open('ab') as f:f.write(raw);f.flush();os.fsync(f.fileno())
+        self.chain=hashlib.sha256(raw).hexdigest();self.hash.update(raw);self.count+=1;self.length+=len(raw)
+    def commitment(self):return {'file':self.path.name,'bytes':self.length,'sha256':self.hash.hexdigest(),'records':self.count,'chain_sha256':self.chain}
+
+
+def source_check(root,expected):
+    for name,spec in expected.items():
+        path=(root/name).resolve();need(root.resolve() in path.parents and path.is_file(),'SOURCE_PATH')
+        need(path.stat().st_size==spec['bytes'] and hashlib.sha256(path.read_bytes()).hexdigest()==spec['sha256'],'SOURCE_BINDING:'+name)
+    return hashlib.sha256(encoded(expected)).hexdigest()
+
+
+def run(args):
+    hosted();started=time.monotonic();out=Path(args.output);out.mkdir(parents=True,exist_ok=False)
+    request=json.loads(Path(args.request).read_bytes());protocol=json.loads(Path(args.protocol).read_bytes())
+    need(hashlib.sha256(Path(args.protocol).read_bytes()).hexdigest()==request['protocol_sha256'],'WORKER_PROTOCOL')
+    need(request['stage']=='INPUT_AND_CANONICAL_BASELINE','WORKER_SCOPE')
+    continuing=bool(request.get('continuation'))
+    need(continuing==bool(args.resume_prefix),'EXACT_PREFIX_MODE_REQUIRED')
+    binding=source_check(Path('/src'),request['source_files']);save(out/'source-bindings.json',request['source_files'])
+    from sentinel.strategy import production_strategy
+    from sentinel.core.formation import Formation,FormationPlan
+    from sentinel.core.session import SessionState
+    from sentinel.core.kernel import advance_session
+    from sentinel.controller.machine import Observation
+    from sentinel.controller import owned_impairment
+    from sentinel.feed import calendar
+    from sentinel.feed.rolling_contract import digest
+    import sentinel.core.kernel as kernel
+    need(Path(kernel.__file__).resolve()==Path('/src/sentinel/core/kernel.py'),'EMBEDDED_OR_FOREIGN_KERNEL')
+    controller,identity=production_strategy()
+    from alpaca_fit_policy import profiles,leaf
+    registered,baseline_profile=profiles(protocol)
+    leaf_source=Path('/src/sentinel/controller/owned_impairment.py')
+    leaf_sha=hashlib.sha256(leaf_source.read_bytes()).hexdigest()
+    leaves={profile.id:leaf(leaf_source,profile,leaf_sha) for profile in registered}
+    leaf_states={key:module.fresh() for key,module in leaves.items()}
+    save(out/'controller-profiles.json',{key:module.research_identity for key,module in leaves.items()})
+    save(out/'controller-component-qualification-reference.json',request['reused_component_qualification'])
+    journal=Journal(out/'canonical.jsonl');qualifications=[];retained=[];book=None;state=None;times=[]
+    status='BASELINE_INCOMPLETE';failure=None;current_phase='INPUT_AUTHENTICATION';last=None
+    origin_binding=binding;formation_count=0;completed_before=0;batch_limit=None;storage_equivalence=None
+    pending_transition=None
+    def checkpoint(tag,formation):
+        value={'schema':'research.alpaca-fit-baseline-checkpoint/2' if continuing else 'research.alpaca-fit-baseline-checkpoint/1',
+            'source_sha256':binding,'origin_source_sha256':origin_binding,
+            'protocol_sha256':request['protocol_sha256'],'dataset_sha256':request['dataset_sha256'],
+            'input_interpretation_sha256':data.capture_sha,
+            'formation':formation,'canonical':book.checkpoint() if formation else state.to_dict(),
+            'journal':journal.commitment(),'session':state.last_processed_session,'controller_states':leaf_states}
+        raw=encoded(value);path=out/(tag+'.json.gz')
+        with path.open('xb') as f:f.write(gzip.compress(raw,compresslevel=1,mtime=0));f.flush();os.fsync(f.fileno())
+        restored=json.loads(gzip.decompress(path.read_bytes()))
+        canonical=Formation.resume(restored['canonical'],plan=plan).state if formation else SessionState.from_dict(restored['canonical'])
+        need(canonical.state_hash==state.state_hash and canonical.to_dict()==state.to_dict(),'CHECKPOINT_CANONICAL_ROUNDTRIP')
+        need(set(restored['controller_states'])==set(leaves),'CONTROLLER_CHECKPOINT_COVERAGE')
+        for key,module in leaves.items():
+            module.validate({'strategy':module.STRATEGY_ID},restored['controller_states'][key],expected_session=state.last_processed_session)
+            need(restored['controller_states'][key]==leaf_states[key],'CONTROLLER_CHECKPOINT_ROUNDTRIP')
+        with journal.path.open('rb') as f:prefix=f.read(value['journal']['bytes'])
+        need(len(prefix)==value['journal']['bytes'] and hashlib.sha256(prefix).hexdigest()==value['journal']['sha256'],'JOURNAL_PREFIX')
+        retained.append({'file':path.name,'bytes':path.stat().st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+            'state_sha256':state.state_hash,'session':state.last_processed_session,'canonical_roundtrip':True,'journal':value['journal']})
+        save(out/(tag+'-receipt.json'),retained[-1])
+    try:
+        repair=request.get('sparse_input_repair');repair_path=None
+        role=request.get('source_role_repair');role_path=None
+        if role:
+            role_path=Path('/src')/role['path']
+            need(role_path.stat().st_size==role['bytes'] and hashlib.sha256(role_path.read_bytes()).hexdigest()==role['sha256'],'ROLE_REPAIR_DESCRIPTOR')
+            from alpaca_fit_identity_repair import predecessor
+            role_proof=predecessor(args.resume_prefix,json.loads(role_path.read_bytes()),request['continuation'])
+        if repair:
+            repair_path=Path('/src')/repair['path']
+            need(repair_path.stat().st_size==repair['bytes'] and hashlib.sha256(repair_path.read_bytes()).hexdigest()==repair['sha256'],
+                 'SPARSE_REPAIR_DESCRIPTOR')
+            from alpaca_fit_identity_repair import predecessor
+            proof=predecessor(args.resume_prefix,json.loads(repair_path.read_bytes()),request['continuation'])
+            save(out/'factual-predecessor-admission.json',proof)
+        data=Inputs(Path(args.inputs),Path(args.bil_inputs),protocol,request['dataset_sha256'],Path(args.prefix_inputs),
+            factual_repair=repair_path,admission_context=request.get('admission_context'),role_repair=role_path)
+        if role:
+            save(out/'source-role-input-admission.json',{'facts':data.role_repair_receipt,'predecessor':role_proof,
+                'descriptor_file_sha256':role['sha256'],'input_interpretation_sha256':data.capture_sha})
+        if request.get('admission_context'):
+            save(out/'input-context-admission.json',{'policy':request['admission_context'],
+                'input_interpretation_sha256':data.capture_sha,'core_feature_sessions':300,
+                'maximum_extra_source_predecessors':1,'inferred_rows':0})
+        if repair:
+            save(out/'factual-input-admission.json',{'facts':data.factual_repair_receipt,
+                'descriptor_file_sha256':repair['sha256'],'input_interpretation_sha256':data.capture_sha,
+                'original_dataset_sha256':request['dataset_sha256'],'predecessor':proof})
+        save(out/'normalization.json',data.summary)
+        save(out/'action-input-issues.json',data.action_issues)
+        measured=calendar.sessions_in_range(protocol['measured_start'],protocol['data_end'])
+        if continuing:
+            from alpaca_fit_continuation import resume,equivalent_inputs
+            current_phase='EXACT_CANONICAL_RESTORE'
+            plan,book,state,formation_count,leaf_states,journal,retained,old_plan,origin_binding,completed_before=resume(
+                out,args.resume_prefix,request['continuation'],request['source_files'],identity,Journal,save)
+            last=state.last_processed_session
+            need(old_plan['measured_axis']==measured,'UNCHANGED_MEASURED_AXIS')
+            for key,module in leaves.items():module.validate({'strategy':module.STRATEGY_ID},leaf_states[key],expected_session=last)
+        else:
+            end=calendar.previous_sessions(protocol['measured_start'],2)[0]
+            plan=FormationPlan(end=end,capital=protocol['capital'],warmup_sessions=299,formation_sessions=126,
+                strategy=identity,source_sha256=binding,metadata_policy='CURRENT_INFORMATION_INITIALIZATION_V1')
+            need(plan.axis[-1]==end and all(d in data.index for d in plan.axis),'FORMATION_AXIS')
+            current_phase='CANONICAL_FEATURE_WARMUP';warm_start=time.monotonic()
+            window,admission=data.warmup(plan.axis[:299]);book=Formation(plan,window,data_version=1);state=book.state
+            del window
+            journal.append({'phase':'WARMUP_ORIGIN','session':None,'state_sha256':state.state_hash,
+                'warmup_identity':book.warmup_identity,'admission':admission,'source_sha256':binding})
+            checkpoint('warmup-origin',True);warm_seconds=time.monotonic()-warm_start
+            save(out/'warmup-timing.json',{'seconds':warm_seconds,'total_elapsed':time.monotonic()-started,'formation_transitions':0})
+        save(out/'plan.json',{'plan':plan.model_dump(by_alias=True),'measured_axis':measured,
+            'source_sha256':origin_binding,'execution_source_sha256':binding})
+        sequence=[(d,'FORMATION') for d in plan.axis[299:]]+[(d,'MEASURED') for d in measured]
+        if continuing:
+            current_phase='PACKED_INPUT_EQUIVALENCE';day,phase=sequence[completed_before]
+            comparison=equivalent_inputs(data,args.input_reference,state,day,1 if phase=='FORMATION' else 2+measured.index(day),phase=='FORMATION')
+            storage_equivalence=comparison;save(out/'packed-input-equivalence.json',comparison)
+            need(comparison['packed_seconds']<.75*comparison['reference_seconds'],'INPUT_SPEEDUP_NOT_ESTABLISHED')
+            estimate=request['continuation']
+            ordinary=estimate.get('prior_ordinary_estimate_seconds',estimate.get('prior_max_ordinary_seconds'))
+            fixed=estimate.get('prior_fixed_transition_seconds',max(1.,ordinary-comparison['reference_seconds']))
+            per_step=comparison['packed_seconds']+fixed
+            batch_limit=max(0,min(300,len(sequence)-completed_before,int((protocol['initial_worker_seconds']-(time.monotonic()-started)-300)/(1.5*per_step))))
+            need(batch_limit>0,'NO_BOUNDED_SUFFIX_BUDGET')
+            save(out/'suffix-budget.json',{'measured_input_seconds':comparison['packed_seconds'],'estimated_seconds_per_step':per_step,
+                'maximum_new_transitions':batch_limit,'worker_ceiling_seconds':protocol['initial_worker_seconds'],
+                'old_origin_not_repeated':True,'monthly_full_compiler_checks_reused':True})
+        last_month=last[:7] if last else None
+        for number in range(completed_before,len(sequence)):
+            day,phase=sequence[number]
+            current_phase=phase;before=state;before_hash=before.state_hash;t0=time.monotonic()
+            formation=phase=='FORMATION';version=1 if formation else 2+measured.index(day)
+            sample=False if continuing else number in (0,4,125,126) or day[:7]!=last_month
+            published,admission,qualification=data.published(before,day,version,formation=formation,qualify=sample)
+            if qualification:qualifications.append(qualification)
+            input_sha=digest(asdict(published));prior_events=len(before.ledger['events'])
+            pending_transition=(before,leaf_states.copy(),formation_count,
+                (book.state,book.chain,book.count) if book is not None else None)
+            if formation:book.advance(published);state=book.state;formation_count=book.count
+            else:state=advance_session(before,published,controller_config=controller,strategy_identity=identity)
+            need(before.state_hash==before_hash,'IMMUTABLE_PREDECESSOR')
+            observation=Observation(**state.last_evidence['observation'])
+            parent=state.last_decision['champion_target_core_exposure'];leaf_rows={}
+            for key,module in leaves.items():
+                leaf_states[key],evidence=module.step(observation=observation,base_target=parent,state=leaf_states[key])
+                leaf_rows[key]={'state':leaf_states[key],'evidence':evidence}
+            need(leaf_states[baseline_profile.id]==state.owned_impairment
+                 and leaf_rows[baseline_profile.id]['evidence']==state.last_decision['owned_impairment'],'BASELINE_LEAF_CANONICAL_PARITY')
+            events=state.ledger['events'][prior_events:]
+            ids={e['security_id'] for s in (before,state) for e in s.wealth_core.get('episodes',{}).values()}
+            # Prices are selected by immutable security ID, never display ticker.
+            quotes={sid:{'raw_open':str(data.row(sid,day)['open']),'raw_close':str(data.row(sid,day)['close'])}
+                for sid in ids if sid in data.assets and data.paired(sid,day)}
+            journal.append({'phase':phase,'session':day,'data_version':version,'prior_state_sha256':before_hash,
+                'state_sha256':state.state_hash,'input_sha256':input_sha,'snapshot_sha256':published.window_features['snapshot_sha256'],
+                'features_sha256':digest(published.window_features),'admission':admission,
+                'wealth_core':state.wealth_core,'pending':state.pending,'ledger_today':events,'prices':quotes,
+                'core_receivables':state.ledger['receivables'],'shadow_nav':state.last_evidence['observation']['shadow_nav'],
+                'decision':state.last_decision,'evidence':state.last_evidence,
+                'owned55_profiles':leaf_rows,'baseline_private_leaf_complete_equality':True,
+                'defensive_bar':asdict(published.defensive_bar),'defensive_previous_bar':asdict(published.defensive_previous_bar),
+                'spy_close_adjusted':published.spy_closeadj[-1],
+                'spy_open_adjusted':data.bench['SPY']['all'][day]['open']})
+            last=day;pending_transition=None
+            elapsed=time.monotonic()-t0
+            comparison=0 if qualification is None else qualification['canonical_comparison_seconds']
+            times.append({'total_seconds':elapsed,'comparison_seconds':comparison,'ordinary_seconds':elapsed-comparison});last=day
+            if number==4 and not continuing:
+                checkpoint('formation-prefix-005',True)
+                remaining_samples=len({d[:7] for d,_ in sequence[5:]})+2
+                projected=time.monotonic()-started+1.5*(max(t['ordinary_seconds'] for t in times[-3:])*(len(sequence)-5)
+                    +max(q['canonical_comparison_seconds'] for q in qualifications)*remaining_samples)+180
+                timing={'actual_transitions':5,'transition_seconds':times,'elapsed':time.monotonic()-started,
+                    'conservative_projected_total_seconds':projected,'ceiling_seconds':protocol['initial_worker_seconds'],
+                    'prefix_retained_no_restart':True,'full_run_admitted':projected<protocol['initial_worker_seconds']}
+                save(out/'timing-gate.json',timing)
+                if not timing['full_run_admitted']:raise ValueError('REFUSED_ALPACA_FIT_MEASURED_THROUGHPUT_BOUND')
+            if number==125 or number==len(sequence)-1 or day[:7]!=last_month:
+                checkpoint('checkpoint-'+day,formation)
+            last_month=day[:7]
+            if continuing and (number-completed_before+1>=batch_limit or time.monotonic()-started>protocol['initial_worker_seconds']-180):
+                if not any(r['session']==day for r in retained):checkpoint('suffix-batch-end-'+day,formation)
+                status='CANONICAL_BASELINE_TRACE_COMPLETE' if number==len(sequence)-1 else 'CANONICAL_BASELINE_PARTIAL_CLOSED'
+                break
+            if time.monotonic()-started>protocol['initial_worker_seconds']-180:
+                checkpoint('bounded-stop-'+day,formation);raise ValueError('REFUSED_ALPACA_FIT_PROCESSING_BOUND')
+        else:status='CANONICAL_BASELINE_TRACE_COMPLETE'
+    except Exception as exc:
+        if pending_transition is not None:
+            state,leaf_states,formation_count,book_prior=pending_transition
+            if book_prior is not None:book.state,book.chain,book.count=book_prior
+        failure={'type':type(exc).__name__,'message':str(exc),'phase':current_phase,'last_committed_session':last}
+        save(out/'failure.json',failure)
+        if state is not None and last is not None and not any(r['session']==last for r in retained):checkpoint('refused-prefix-'+last,last not in measured)
+    finally:
+        save(out/'transition-timing.json',{'new_transitions':len(times),'step_times':times,
+            'maximum_ordinary_seconds':max((t['ordinary_seconds'] for t in times),default=None)})
+        save(out/'feature-qualification.json',{'actual_boundary_samples':qualifications,
+            'all_equal':bool(qualifications) or storage_equivalence is not None,
+            'prior_canonical_feature_proof_reused':continuing,'packed_complete_input_preimage_equal':storage_equivalence is not None})
+        save(out/'retained-checkpoints.json',retained)
+        save(out/'baseline-status.json',{'schema':'research.alpaca-fit-baseline-status/1','status':status,'failure':failure,
+            'last_committed_session':last,'formation_count':formation_count if state is not None else None,
+            'measured_records':max(0,journal.count-1-formation_count),'new_transitions':max(0,journal.count-1-completed_before),
+            'journal':journal.commitment(),'elapsed_seconds':time.monotonic()-started,
+            'source_sha256':binding,'origin_source_sha256':origin_binding,
+            'utc':datetime.now(timezone.utc).isoformat(),'production_contacted':False,
+            'optimization_performance_admitted':False})
+    return 0 if status in ('CANONICAL_BASELINE_TRACE_COMPLETE','CANONICAL_BASELINE_PARTIAL_CLOSED') else 2
+
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser()
+    for name in ('request','protocol','inputs','prefix-inputs','bil-inputs','output'):p.add_argument('--'+name,required=True)
+    p.add_argument('--resume-prefix');p.add_argument('--input-reference')
+    raise SystemExit(run(p.parse_args()))

@@ -1,0 +1,1932 @@
+{
+  "active_unconsumed_events": 31,
+  "canonical_financial_source_changed": false,
+  "commitment_group": {
+    "catalog_file": "system-campaign-q4-2023-cash-calendar-terminal-facts.json",
+    "loader_file": "system_campaign_cash_calendar.py",
+    "overlay_file": "q4-2023-cash-calendar-overlay.json",
+    "private_file": "hydrated-q4-2023-cash-calendar-terminal-catalog.json",
+    "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-q4-2023-q1-2024/1/"
+  },
+  "excluded_consumed_events": [
+    {
+      "cross_candidate_equivalence_claimed": false,
+      "native_session": "2023-09-29",
+      "reason": "NATIVE_KEY_ALREADY_COMMITTED_NO_RETROACTIVE_PATCH_OR_SILENT_DEDUPLICATION",
+      "recognition_session": "2023-10-02",
+      "security_id": "967279471334535303",
+      "ticker": "CELL"
+    }
+  ],
+  "frozen_year_member_checks": [
+    {
+      "all_rows_read": 1834182,
+      "gzip_bytes": 86611556,
+      "gzip_sha256": "fa3f6c090a4c2d77495778341626f1408ef9d03f8bcba15dd40339f2e31b60fa",
+      "member": "observations-2023.csv.gz",
+      "seconds": 7.785073900013231,
+      "zip_crc32": 2961860886
+    },
+    {
+      "all_rows_read": 1647175,
+      "gzip_bytes": 78118364,
+      "gzip_sha256": "13016d332486bbdba3327835205e6c6da9d2e1363229836088ee6e2472d31e30",
+      "member": "observations-2024.csv.gz",
+      "seconds": 7.164436199993361,
+      "zip_crc32": 3071881209
+    }
+  ],
+  "full_provider_rows_verification_required": true,
+  "limitation": "Retained recognition and next-session dividend conventions; no broker settlement or issuer-accurate frozen dividend claim. No CVR, stock consideration or participation assumption.",
+  "loader_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+  "preparation_status": "FULL_FROZEN_SOURCES_VERIFIED_AWAITING_OWN_BOUNDARY_AND_HOSTED_CANONICAL_QUALIFICATION",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "same_day_quote_claims": [],
+  "schema": "research.factual-cash-calendar-catalog/1",
+  "source_research_events": 32,
+  "terms": [
+    {
+      "actual_completion_date": "2023-10-05",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 7.25,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53318 | Mandatory remaining common-share cash conversion completed before the 2023-10-05 market open; preserve 2023-10-04 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "130923305193858293",
+        "session": "2023-10-05"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-10-05 market open; preserve 2023-10-04 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1719489",
+        "listing_first_session": "2018-01-17",
+        "security_id": "130923305193858293",
+        "security_type_eligible": "1",
+        "session": "2023-10-04",
+        "source_observation_sha256": "e414074599ae1ff3eaf34c926709a7bc720b17ef404f6f7cddfc7d16ba6941f8",
+        "ticker": "KLR"
+      },
+      "last_trading_session": "2023-10-04",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-10-04",
+      "native_term_sha256": "9b6dcf1a6f93e6a563f4a0bc2312f856bfb08c2d9fc75a6e0b38916dcd78826a",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "7.25",
+        "completion_before_open": "2023-10-05",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1719489",
+        "native_session": "2023-10-04",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53318",
+        "security_id": "130923305193858293",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "KLR"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53318",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "96416be35b7e4ef0999ad92e54b1473f331ce6cd295ad3c3dc8f9d23d6116157",
+        "selected_row_sha256": [
+          "b2b3318230758e11b3de74dcc1d1bc8413cec89fcd4a7a19dccd9b05e1bab1f8",
+          "dafe95a2093ad94b777b08964cb12474a392ef2ebec00e66919b95949ffffa1b",
+          "2b2a66169cfac53e3b6fda612f843611340568437981355043c0b3c403eaec67",
+          "7575a075a3e1d56f3efc632f9df4ac6b6c2eb137955276aef358b5406be37735",
+          "bead7e434c2785e147480dc936b2c659af14f04051eef4a3a3330c199a7d0364"
+        ],
+        "session": "2023-10-04",
+        "ticker": "KLR"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "130923305193858293",
+      "ticker": "KLR",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53318"
+    },
+    {
+      "actual_completion_date": "2023-10-06",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 116.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53326 | Mandatory remaining common-share cash conversion completed before the 2023-10-06 market open; preserve 2023-10-05 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "383424504385495727",
+        "session": "2023-10-06"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-10-06 market open; preserve 2023-10-05 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1492426",
+        "listing_first_session": "2011-07-28",
+        "security_id": "383424504385495727",
+        "security_type_eligible": "1",
+        "session": "2023-10-05",
+        "source_observation_sha256": "df1ff955cdf408b3e220be860216b0b3f55c04f5935ab9a6d7feb1211c1ea2e6",
+        "ticker": "HZNP"
+      },
+      "last_trading_session": "2023-10-05",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-10-05",
+      "native_term_sha256": "975c5509c7016e4d4c9f414727ed6a3c40838484cf6da343b472385003b13114",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "116.50",
+        "completion_before_open": "2023-10-06",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1492426",
+        "native_session": "2023-10-05",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53326",
+        "security_id": "383424504385495727",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "HZNP"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53326",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "ddf52396b93918aa2f6907485944f08803f6dd6fbfffc868e9c7bcabadbbecfa",
+        "selected_row_sha256": [
+          "b4a55b5b0c56c99d113e99e44cdeb7e16071ba48956b27e3143ba1d5e2be7214",
+          "bc9bf1e9eba33b9d8629161d25d5cc0f4ce350a9d91d6accb4ccbadaa85e0d18",
+          "530a9ab1783e676fc940c10ef8385f45a57215214256cd3aeb51bb6f98b94848"
+        ],
+        "session": "2023-10-05",
+        "ticker": "HZNP"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "383424504385495727",
+      "ticker": "HZNP",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53326"
+    },
+    {
+      "actual_completion_date": "2023-10-11",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 60.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53346 | Mandatory remaining common-share cash conversion completed before the 2023-10-11 market open; preserve 2023-10-10 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "889446746390919934",
+        "session": "2023-10-11"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-10-11 market open; preserve 2023-10-10 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:935494",
+        "listing_first_session": "1997-12-31",
+        "security_id": "889446746390919934",
+        "security_type_eligible": "1",
+        "session": "2023-10-10",
+        "source_observation_sha256": "bf3387b2f053937bd9d1a3822814e039b9aa6145888b4c8c4b01fa3fd3662aec",
+        "ticker": "NATI"
+      },
+      "last_trading_session": "2023-10-10",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-10-10",
+      "native_term_sha256": "8ee5dd6fe1c436bc7a30d96e7ec20e929cdf8c242369af91464bacee3eb2f704",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "60.00",
+        "completion_before_open": "2023-10-11",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:935494",
+        "native_session": "2023-10-10",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53346",
+        "security_id": "889446746390919934",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "NATI"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53346",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "5ec8c428aa345cfc4656a6506dd19bb7a141a078ef01eaeba323ee100f43c425",
+        "selected_row_sha256": [
+          "22e7120171f11dabf0d3d2577d24972606476bdd1552f2b83adbf717eddd0a73",
+          "7c7a4be4ff2c852aa63d366c566bcf7e7a7c01cb4fe71bc2ae9db457f636114b",
+          "964a526bba460017cb55ef861ff8b319486c112b9f0f50a5e7d8f78c76780ada"
+        ],
+        "session": "2023-10-10",
+        "ticker": "NATI"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "889446746390919934",
+      "ticker": "NATI",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53346"
+    },
+    {
+      "actual_completion_date": "2023-10-16",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 10.2,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53377 | Mandatory remaining common-share cash conversion completed before the 2023-10-16 market open; preserve 2023-10-13 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "835478709412082111",
+        "session": "2023-10-16"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-10-16 market open; preserve 2023-10-13 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1844280",
+        "listing_first_session": "2021-09-23",
+        "security_id": "835478709412082111",
+        "security_type_eligible": "1",
+        "session": "2023-10-13",
+        "source_observation_sha256": "197425077499f2032432b6baf82154b8691b92c4668d9f0f290f3fbe561e70ae",
+        "ticker": "THRN"
+      },
+      "last_trading_session": "2023-10-13",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-10-13",
+      "native_term_sha256": "97b2cb4ce89bb219ecd3e7d67da606e0ac9fdd81d7f4be882ff9047e01e151e7",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "10.20",
+        "completion_before_open": "2023-10-16",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1844280",
+        "native_session": "2023-10-13",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53377",
+        "security_id": "835478709412082111",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "THRN"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53377",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "b8420c263d6963a143c24193db84599c17ca0d9a77a005fe407531e88d2459b0",
+        "selected_row_sha256": [
+          "53980a33d4f8647daa30c7d9fd81574ee6a5057d2116cb8ba19a42377d069c78",
+          "e9f41c0067a8accb7a7c611fdf0a0138a22eb432d6973ec1863e25e36ad10b06",
+          "1f0d88bf70df2ecd5f832358068d95e12d1a0165311931f191fb62bb62fd7f27"
+        ],
+        "session": "2023-10-13",
+        "ticker": "THRN"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "835478709412082111",
+      "ticker": "THRN",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53377"
+    },
+    {
+      "actual_completion_date": "2023-10-17",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 45.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53384 | Mandatory remaining common-share cash conversion completed before the 2023-10-17 market open; preserve 2023-10-16 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "717278895849758441",
+        "session": "2023-10-17"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-10-17 market open; preserve 2023-10-16 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1403431",
+        "listing_first_session": "2008-03-12",
+        "security_id": "717278895849758441",
+        "security_type_eligible": "1",
+        "session": "2023-10-16",
+        "source_observation_sha256": "4db6e88e9c4c714477f173f8f9f5a4b0564a705788bdfa8e2e6f19c073d6929f",
+        "ticker": "HCCI"
+      },
+      "last_trading_session": "2023-10-16",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-10-16",
+      "native_term_sha256": "f9db95537eff65526bf2f14a0db55bc4b56ec4af6e15b06ae5b6e1b6c0c558c3",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "45.50",
+        "completion_before_open": "2023-10-17",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1403431",
+        "native_session": "2023-10-16",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53384",
+        "security_id": "717278895849758441",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "HCCI"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53384",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "c3a8955a19f59d135b0504ac4b18130cde70a1ad4d144567961678410622d2cb",
+        "selected_row_sha256": [
+          "26339e542a738fdc84ae511510594f202b1698e64acd2c79fdbc9d9f31decabc",
+          "17067fe67df9096deff5118fa3ee0dc588af0e9b4126a5465ce76519aad20c2f",
+          "28d554cbcf494ba1512fa676856e8884a6d0c2cd402a030cc474eb760f5c81d6"
+        ],
+        "session": "2023-10-16",
+        "ticker": "HCCI"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "717278895849758441",
+      "ticker": "HCCI",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53384"
+    },
+    {
+      "actual_completion_date": "2023-10-18",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 2.08,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53390 | Mandatory remaining common-share cash conversion completed before the 2023-10-18 market open; preserve 2023-10-17 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "702386900757567766",
+        "session": "2023-10-18"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-10-18 market open; preserve 2023-10-17 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1046995",
+        "listing_first_session": "2000-01-21",
+        "security_id": "702386900757567766",
+        "security_type_eligible": "1",
+        "session": "2023-10-17",
+        "source_observation_sha256": "8094179f48a33a1eed85a3bebd24125efacc71da91a1c90b0c2d87b16adebad1",
+        "ticker": "EMAN"
+      },
+      "last_trading_session": "2023-10-17",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-10-17",
+      "native_term_sha256": "c9df437dd7980f250f9cffff09a21f55d02e0ed5a0267c704036b93411b82f6e",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "2.08",
+        "completion_before_open": "2023-10-18",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1046995",
+        "native_session": "2023-10-17",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53390",
+        "security_id": "702386900757567766",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "EMAN"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53390",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "1027a4f218471cc56cd7256a738e5ce279040928a446b02039119b7b876908a5",
+        "selected_row_sha256": [
+          "b8625caa0e7f8882b817dc8577367226def06dab52b8ea76edf464292b739566",
+          "988c3896fcb3fc372c0be7c44a44dc8073e2fe6e4804609efc46c1cf69aaa007",
+          "9d90843e4dca85f4854afa07a0f9992c2e769c38ad89ebf7a3699b036685344d"
+        ],
+        "session": "2023-10-17",
+        "ticker": "EMAN"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "702386900757567766",
+      "ticker": "EMAN",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53390"
+    },
+    {
+      "actual_completion_date": "2023-10-23",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 22.95,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53420 | Mandatory remaining common-share cash conversion completed before the 2023-10-23 market open; preserve 2023-10-20 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "499254345947670980",
+        "session": "2023-10-23"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-10-23 market open; preserve 2023-10-20 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1760717",
+        "listing_first_session": "2019-05-03",
+        "security_id": "499254345947670980",
+        "security_type_eligible": "1",
+        "session": "2023-10-20",
+        "source_observation_sha256": "a13cb75234474e90d903e340e5c27d3c2d3be0123166aa5cafe04047ba0db71f",
+        "ticker": "SCPL"
+      },
+      "last_trading_session": "2023-10-20",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-10-20",
+      "native_term_sha256": "3c90ae13a077222a34f759258b1b26282802a7a92e55993f8ed004716528d299",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "22.95",
+        "completion_before_open": "2023-10-23",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1760717",
+        "native_session": "2023-10-20",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53420",
+        "security_id": "499254345947670980",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "SCPL"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53420",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "1444d8d630cdc69aac502fdcc25142bb6b5d0bb051f07e54436061f86d228b20",
+        "selected_row_sha256": [
+          "fc8e8294e94f9e4a198e83d0865c1f2616e78536a012f0249e3833765c08cbcb",
+          "eaaaef2105e9896974359921533d49947e7bba8e527578a41f43dab9b9f1e6ab",
+          "0c200c8b4e4bbe035d7941d96697bfffadb5ea9b0a4f75870f3ac383f8e4a793"
+        ],
+        "session": "2023-10-20",
+        "ticker": "SCPL"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "499254345947670980",
+      "ticker": "SCPL",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53420"
+    },
+    {
+      "actual_completion_date": "2023-10-23",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 7.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53422 | Mandatory remaining common-share cash conversion completed on 2023-10-23; retain the existing next-session economic recognition on 2023-10-24 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+        "security_id": "343955049285071424",
+        "session": "2023-10-24"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed on 2023-10-23; retain the existing next-session economic recognition on 2023-10-24 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1095315",
+        "listing_first_session": "1999-12-02",
+        "security_id": "343955049285071424",
+        "security_type_eligible": "1",
+        "session": "2023-10-23",
+        "source_observation_sha256": "ad58686416c8cc0960f04f72ab26325db994b6f36ba7b49072532d9e5ccac74d",
+        "ticker": "PFSW"
+      },
+      "last_trading_session": "2023-10-23",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-10-23",
+      "native_term_sha256": "2281e27d40ce01b2d2de4ba1f5b0599697e3b56c18f519b7d93c2ee2c9eb098f",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2023-10-23",
+        "cash_per_ordinary_share": "7.50",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1095315",
+        "last_trading_session": "2023-10-23",
+        "native_session": "2023-10-23",
+        "preopen_claim": false,
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53422",
+        "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+        "retained_economic_recognition_session": "2023-10-24",
+        "security_id": "343955049285071424",
+        "status": "PRIMARY_MANDATORY_TERM_COMPLETION_AND_LAST_TRADING_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "PFSW",
+        "timing_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-609"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53422",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "687763e5a6bb516f55000f617344f20b0a1ae87a943ff00558ed09ce879ac22d",
+        "selected_row_sha256": [
+          "5eceac8f7c9d2c68c71694028d38410e4b561b47caba7ae02211f5919a7de7aa",
+          "78ed72757ba058b688ba7b7f229963072a1f4b9796cc2a09f53d8aff63eff86c",
+          "645711bdd64ecb811c474b9f623caf453f2896a7ad69b60b41ef29c64bf51931"
+        ],
+        "session": "2023-10-23",
+        "ticker": "PFSW"
+      },
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "security_id": "343955049285071424",
+      "ticker": "PFSW",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-609"
+    },
+    {
+      "actual_completion_date": "2023-10-30",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 8.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53453 | Mandatory remaining common-share cash conversion completed before the 2023-10-30 market open; preserve 2023-10-27 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "1134582194511063389",
+        "session": "2023-10-30"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-10-30 market open; preserve 2023-10-27 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1534992",
+        "listing_first_session": "2012-04-26",
+        "security_id": "1134582194511063389",
+        "security_type_eligible": "1",
+        "session": "2023-10-27",
+        "source_observation_sha256": "eb945a57d0eb4215efee458a1362888be167e53ed39bcffcd0e0e92f6add6d91",
+        "ticker": "FRGI"
+      },
+      "last_trading_session": "2023-10-27",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-10-27",
+      "native_term_sha256": "923dcea368530e78d8eb6e78459aac40310efe047b812e5ef99d6b9e2e7f31a7",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "8.50",
+        "completion_before_open": "2023-10-30",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1534992",
+        "native_session": "2023-10-27",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53453",
+        "security_id": "1134582194511063389",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "FRGI"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53453",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "223348aa1184e79e104709c0d02b9b97e8c654eb8f11e0fff49088006eca3f57",
+        "selected_row_sha256": [
+          "7d06516211611e832fb5a6cf366ed9aa9c3fd113cf918bf66f1e72ff85e7004b",
+          "20210fc756fbbf651bab09a4c267594a8352d15e31688be71fc7e1321f03f63e",
+          "f8f2e1fdd9ddbafdb91200fb4fc536f8ec14aaf29b4f5cb4df695f33b595b20f"
+        ],
+        "session": "2023-10-27",
+        "ticker": "FRGI"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "1134582194511063389",
+      "ticker": "FRGI",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53453"
+    },
+    {
+      "actual_completion_date": "2023-11-03",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 10.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53488 | Mandatory remaining common-share cash conversion completed before the 2023-11-03 market open; preserve 2023-11-02 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "565033869086694544",
+        "session": "2023-11-03"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-11-03 market open; preserve 2023-11-02 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1651561",
+        "listing_first_session": "2016-09-29",
+        "security_id": "565033869086694544",
+        "security_type_eligible": "1",
+        "session": "2023-11-02",
+        "source_observation_sha256": "764862c26d054b21aa2689c9f537724b9ab3a24e06e28cbeea8dd55f771471ab",
+        "ticker": "TRHC"
+      },
+      "last_trading_session": "2023-11-02",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-02",
+      "native_term_sha256": "1108ea9d0a40f5e0430bb4bec43b63684134c43d21741868c78e5c7e1d00f835",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "10.50",
+        "completion_before_open": "2023-11-03",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1651561",
+        "native_session": "2023-11-02",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53488",
+        "security_id": "565033869086694544",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "TRHC"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53488",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "c710adb951f8d4cca98d71075c7b3b49be3e9cafe1bc27a25361c433405d6233",
+        "selected_row_sha256": [
+          "d513080c97ad1baf63a5f816b25352abc3e0d8e23dcdf573735fc1843659cf50",
+          "65a9e504df936defb060aa5e9a843d31fdd61d86af900fe40d4ef5880890b1f1",
+          "684147d446cfe2f665217e645bb77e61bafc59858d14c717ef589eb56741c703"
+        ],
+        "session": "2023-11-02",
+        "ticker": "TRHC"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "565033869086694544",
+      "ticker": "TRHC",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53488"
+    },
+    {
+      "actual_completion_date": "2023-11-07",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 27.05,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53508 | Mandatory remaining common-share cash conversion completed before the 2023-11-07 market open; preserve 2023-11-06 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "203591011054715248",
+        "session": "2023-11-07"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-11-07 market open; preserve 2023-11-06 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:896841",
+        "listing_first_session": "1997-12-31",
+        "security_id": "203591011054715248",
+        "security_type_eligible": "1",
+        "session": "2023-11-06",
+        "source_observation_sha256": "d2b30fa69023e7cd4f6316fd02fa790a69f46ce12f57a882ea0a6a9a2fd9faff",
+        "ticker": "AVID"
+      },
+      "last_trading_session": "2023-11-06",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-06",
+      "native_term_sha256": "042e3c4ef6a4dde2ce9f6856f7e724c153d5ebe2845fe50d28bf0ae99dfcb0c7",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "27.05",
+        "completion_before_open": "2023-11-07",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:896841",
+        "native_session": "2023-11-06",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53508",
+        "security_id": "203591011054715248",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "AVID"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53508",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "990d3f20ca70a94b1bec48972c0d826458c0c79d82e92ac41279b4d2c60e8861",
+        "selected_row_sha256": [
+          "bf4bd9f1129179c95c996dc1995014f06beb0c955b5495987d16b2de6873aa60",
+          "c4d60e92b093664079b4b50932c0a9f8307186a907b2f68fec036f4ab5db4e2b",
+          "6066a6143a91f7bfb109784e7058422908761d68e35843aefaaa3456d9f5e8ee"
+        ],
+        "session": "2023-11-06",
+        "ticker": "AVID"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "203591011054715248",
+      "ticker": "AVID",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53508"
+    },
+    {
+      "actual_completion_date": "2023-11-08",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 19.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53519 | Mandatory remaining common-share cash conversion completed before the 2023-11-08 market open; preserve 2023-11-07 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "24026445320701582",
+        "session": "2023-11-08"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-11-08 market open; preserve 2023-11-07 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1270073",
+        "listing_first_session": "2012-10-11",
+        "security_id": "24026445320701582",
+        "security_type_eligible": "1",
+        "session": "2023-11-07",
+        "source_observation_sha256": "1576555cca57c2baffbd989f91b5d16d8cc68caaebc0232d34854983b0f40da5",
+        "ticker": "ICPT"
+      },
+      "last_trading_session": "2023-11-07",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-07",
+      "native_term_sha256": "785b1e7a91a20d2184844a21a4c088d32d15ef68991d1771e070f438748eeba1",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "19.00",
+        "completion_before_open": "2023-11-08",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1270073",
+        "native_session": "2023-11-07",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53519",
+        "security_id": "24026445320701582",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "ICPT"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53519",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "d7e77f9c85fa258e2074756c43b936e53f2d6898706e3599c21deabf52c61b85",
+        "selected_row_sha256": [
+          "f9631a87eace40bc2aeb4da8066d6ce3a71e83b4bb6c306032bf6299c58477ba",
+          "e88e2e709183de9200571e2601b97e68210968ed1f37d287d14907101c545960",
+          "160a918e97ced4b19cfbf12d19015c557bc7b61eedba2372ad738a1b451df385"
+        ],
+        "session": "2023-11-07",
+        "ticker": "ICPT"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "24026445320701582",
+      "ticker": "ICPT",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53519"
+    },
+    {
+      "actual_completion_date": "2023-11-09",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 23.95,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53531 | Mandatory remaining common-share cash conversion completed before the 2023-11-09 market open; preserve 2023-11-08 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "666950814132995667",
+        "session": "2023-11-09"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-11-09 market open; preserve 2023-11-08 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:708818",
+        "listing_first_session": "1997-12-31",
+        "security_id": "666950814132995667",
+        "security_type_eligible": "1",
+        "session": "2023-11-08",
+        "source_observation_sha256": "095c79b2b1abb95e92f2dff84bfc4552f927f380219d350e36fee68d9e836479",
+        "ticker": "NXGN"
+      },
+      "last_trading_session": "2023-11-08",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-08",
+      "native_term_sha256": "ed9cb4e73661df4a643697ed97054a00608f69de0d9285412a9572841a7c446f",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "23.95",
+        "completion_before_open": "2023-11-09",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:708818",
+        "native_session": "2023-11-08",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53531",
+        "security_id": "666950814132995667",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "NXGN"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53531",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "d66b88d7ea337d3e6ac903c96a339f204e12b6e5b09b5f4e582a87ec8b3f39d7",
+        "selected_row_sha256": [
+          "25a5d41974f797311563f86e38e66f997e7eb589b788f6ac486966ee3484a550",
+          "869c9f8bd32120f2d4e0c4d06cbb953077299d97b60d096fc70ff27a4869920d",
+          "54d00f0fee1b39b3dcf888d8f1d6abe7d239c26199264ece77f715aae3a77c43"
+        ],
+        "session": "2023-11-08",
+        "ticker": "NXGN"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "666950814132995667",
+      "ticker": "NXGN",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53531"
+    },
+    {
+      "actual_completion_date": "2023-11-13",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 13.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53546 | Mandatory remaining common-share cash conversion completed before the 2023-11-13 market open; preserve 2023-11-10 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "50945802619249724",
+        "session": "2023-11-13"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-11-13 market open; preserve 2023-11-10 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1701114",
+        "listing_first_session": "2017-06-29",
+        "security_id": "50945802619249724",
+        "security_type_eligible": "1",
+        "session": "2023-11-10",
+        "source_observation_sha256": "4893cdbe1cd6f56fe8c9589c7e2414704afb057ca7948f6f5bfede26209fb569",
+        "ticker": "APRN"
+      },
+      "last_trading_session": "2023-11-10",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-10",
+      "native_term_sha256": "a2d09a62db63201dd04a8c12ef4787e60a1c6076c599cd7d3a2ac6985871b707",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "13.00",
+        "completion_before_open": "2023-11-13",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1701114",
+        "native_session": "2023-11-10",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53546",
+        "security_id": "50945802619249724",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "APRN"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53546",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "77ab17f86254d71d91391ebbf2e020dfd53ed45adc2bdbbbc0f03f88da8b6ab8",
+        "selected_row_sha256": [
+          "3c9c20d8be0f548f4406b660588586c2253cde5e310466df2113e5a24824dc6e",
+          "75e393524b3592bda5c96960f10532ebca2b96242aa88b8c119232775c64bdbf",
+          "3a60f05da7fb33c3c05df05a8b24ae82967b41d32b4fa43922a29169922daf04"
+        ],
+        "session": "2023-11-10",
+        "ticker": "APRN"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "50945802619249724",
+      "ticker": "APRN",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53546"
+    },
+    {
+      "actual_completion_date": "2023-11-15",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 127.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53564 | Mandatory remaining common-share cash conversion completed before the 2023-11-15 market open; preserve 2023-11-14 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "296189780333092312",
+        "session": "2023-11-15"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-11-15 market open; preserve 2023-11-14 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:830524",
+        "listing_first_session": "1997-12-31",
+        "security_id": "296189780333092312",
+        "security_type_eligible": "1",
+        "session": "2023-11-14",
+        "source_observation_sha256": "2cb2f6a245d1fb36dc7fe7ff67c162a7da9f93f08505389af41c7ceefba0fa92",
+        "ticker": "CCF"
+      },
+      "last_trading_session": "2023-11-14",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-14",
+      "native_term_sha256": "33540560e81521cdf9e039726ce9e883376fbc76ad2450c12c873c820ba872e5",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "127.50",
+        "completion_before_open": "2023-11-15",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:830524",
+        "native_session": "2023-11-14",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53564",
+        "security_id": "296189780333092312",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "CCF"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53564",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "a7a444bc185fde00b52cd109b7ea41910b78ea21956d4fdf3af40567a3ee8321",
+        "selected_row_sha256": [
+          "e761bd818030086a8e98f801e131c5c608b8803629ea864a36417a3e8159a561",
+          "bd3c8b3a440cbf6274a59fea2fd806a04c330b303f73821ab316e4d25b9ca7d5",
+          "75316b9bb733f47cea0271b22677b553a4c50ea474724c736d3cece71c528845"
+        ],
+        "session": "2023-11-14",
+        "ticker": "CCF"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "296189780333092312",
+      "ticker": "CCF",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53564"
+    },
+    {
+      "actual_completion_date": "2023-11-16",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 30.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53575 | Mandatory remaining common-share cash conversion completed before the 2023-11-16 market open; preserve 2023-11-15 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "742455654792357520",
+        "session": "2023-11-16"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-11-16 market open; preserve 2023-11-15 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1091748",
+        "listing_first_session": "1997-12-31",
+        "security_id": "742455654792357520",
+        "security_type_eligible": "1",
+        "session": "2023-11-15",
+        "source_observation_sha256": "5c37ca3fd964974638bac6b65acd851943c6bea8e7126560cd1a2ebb579d7831",
+        "ticker": "ARGO"
+      },
+      "last_trading_session": "2023-11-15",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-15",
+      "native_term_sha256": "7e48b25b34915b0efa300614288abeb8d1d7216af5826ea0239f37fe8eaafb20",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "30.00",
+        "completion_before_open": "2023-11-16",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1091748",
+        "native_session": "2023-11-15",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53575",
+        "security_id": "742455654792357520",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "ARGO"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53575",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "0b1bc23567cd0c7b33c11e5acc5343de87b3306ad1deb5be61b9e5ccd7bff078",
+        "selected_row_sha256": [
+          "18b728879d540daa692aac28aa6e7f8e72a5dccff6b3a4b7f87b8b7645f62061",
+          "b4cd990c80b6906ee973bdbe346bc61a2560cfb39b617170d48460a694eb96fb",
+          "8d3c9cb4414c6408146f8d4606d79878abe893b9d4a949fbd06dde93403be242"
+        ],
+        "session": "2023-11-15",
+        "ticker": "ARGO"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "742455654792357520",
+      "ticker": "ARGO",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53575"
+    },
+    {
+      "actual_completion_date": "2023-11-17",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 12.7,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53587 | Mandatory remaining common-share cash conversion completed before the 2023-11-17 market open; preserve 2023-11-16 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "430094077611721082",
+        "session": "2023-11-17"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-11-17 market open; preserve 2023-11-16 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1403256",
+        "listing_first_session": "2007-11-14",
+        "security_id": "430094077611721082",
+        "security_type_eligible": "1",
+        "session": "2023-11-16",
+        "source_observation_sha256": "74733daf92871b5f2190393423e7c50e0bebc7efc822d5ed0bbe5b3bd6a6bcbc",
+        "ticker": "SCU"
+      },
+      "last_trading_session": "2023-11-16",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-16",
+      "native_term_sha256": "82351662c1b14efd3d8dbd1da67afb8bdd40a87e430a6888186036e119f864d3",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "12.70",
+        "completion_before_open": "2023-11-17",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1403256",
+        "native_session": "2023-11-16",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53587",
+        "security_id": "430094077611721082",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "SCU"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53587",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "9659b1dd71a671f718eb80b18c8a8a6d827cebd8be7d3af2a203893c76e1cac1",
+        "selected_row_sha256": [
+          "74350b0f4dbf92d2ac26bde14dda110ca2cbad48d6974fba23a994a403c9082c",
+          "b58dece4903f4a4034b81ffd2a0c8dc985a323e89822175de0f0ce59257340d2",
+          "45b09edff8e8a8593ac3002bcc19b85135acd8e6ac89c8d24dfd28261d6daa79"
+        ],
+        "session": "2023-11-16",
+        "ticker": "SCU"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "430094077611721082",
+      "ticker": "SCU",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53587"
+    },
+    {
+      "actual_completion_date": "2023-11-27",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 26.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53622 | Mandatory remaining common-share cash conversion completed on 2023-11-27; retain the existing next-session economic recognition on 2023-11-28 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+        "security_id": "208186199728699255",
+        "session": "2023-11-28"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed on 2023-11-27; retain the existing next-session economic recognition on 2023-11-28 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1068875",
+        "listing_first_session": "1998-12-15",
+        "security_id": "208186199728699255",
+        "security_type_eligible": "1",
+        "session": "2023-11-27",
+        "source_observation_sha256": "4f210223add883a76f5eb398259edd822bccb1aabbcb9d654dac02445cf73944",
+        "ticker": "AVTA"
+      },
+      "last_trading_session": "2023-11-27",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-27",
+      "native_term_sha256": "d918e87a2fecd07beb73b36b004f1fd702905fbbed9d2d0a2b881fc313c8c660",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2023-11-27",
+        "cash_per_ordinary_share": "26.00",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1068875",
+        "last_trading_session": "2023-11-27",
+        "native_session": "2023-11-27",
+        "preopen_claim": false,
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53622",
+        "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+        "retained_economic_recognition_session": "2023-11-28",
+        "security_id": "208186199728699255",
+        "status": "PRIMARY_MANDATORY_TERM_COMPLETION_AND_LAST_TRADING_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "AVTA",
+        "timing_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-675"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53622",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "490d92a7d699f82f6dbf809a3784a675966db5d7e05c36537eb114110d0f8f08",
+        "selected_row_sha256": [
+          "334805f4e4d19c7f24beaa6f577ca786d51b6fdabda12e91d406f330120595fe",
+          "1113581f08d25385ddc6341afb663f3d758dec945b9c9ca4fe1939c7822740c5",
+          "2c03d06ccc08cfc3b27977e59f26d11a2057de0a29ce22c169d79c00548b9342"
+        ],
+        "session": "2023-11-27",
+        "ticker": "AVTA"
+      },
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "security_id": "208186199728699255",
+      "ticker": "AVTA",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-675"
+    },
+    {
+      "actual_completion_date": "2023-11-28",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 10.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53623 | Mandatory remaining common-share cash conversion completed before the 2023-11-28 market open; preserve 2023-11-27 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "507062967556352769",
+        "session": "2023-11-28"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-11-28 market open; preserve 2023-11-27 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1063344",
+        "listing_first_session": "1999-01-21",
+        "security_id": "507062967556352769",
+        "security_type_eligible": "1",
+        "session": "2023-11-27",
+        "source_observation_sha256": "481b90ea34dbe66005fa9b564aa9f59842c71dc2bc3e59e6605f990aa3096173",
+        "ticker": "HT"
+      },
+      "last_trading_session": "2023-11-27",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-27",
+      "native_term_sha256": "238d86ca42a2db880685f2a7c8293ea58b41862bcff8e438c42fd7b4b35ba482",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "10.00",
+        "completion_before_open": "2023-11-28",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1063344",
+        "native_session": "2023-11-27",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53623",
+        "security_id": "507062967556352769",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "HT"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53623",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "5789d3f3996376a7dd851f236f856699791e06a31497db5f6a16405ee6f23417",
+        "selected_row_sha256": [
+          "c3e7dbf91772ed50a6392f848a93fff57035a9cc080800cdee5197558498bb57",
+          "06b793ed0cf75c036f24fdbe9140b38eee276fa892b1241e22626414ec5ae37e",
+          "35d8b3397dcf0ceb8c5b357d43862801cf993c8afffff723822b8c656b808c23",
+          "f14af173fe89c01ce8ef97927f4f2cc2d60e77366f94c434898b24abb79afdd1",
+          "bc1433e36234cb435ba47f0ea24f0be0ee2fee2fb9afb37856c750d5afd35687",
+          "0de0c2f0c826f8f79c44989866290d827a5b4b29945d773ddae911d0c5bd3d9b",
+          "f97c709bbcdc5e332ac56a6d5d952167e9437cc1e864d5b26166aa9fa6f6b9c5",
+          "a0ac2f30baaefb42db5f644890208fe5dbb8f824a4309109a0b4a2252dfc1529",
+          "dd74fcfa7fca0fa659b475896a8e2ddd10940213bdec2ca8147548a87c590e33"
+        ],
+        "session": "2023-11-27",
+        "ticker": "HT"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "507062967556352769",
+      "ticker": "HT",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53623"
+    },
+    {
+      "actual_completion_date": "2023-11-30",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 170.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53638 | Mandatory remaining common-share cash conversion completed before the 2023-11-30 market open; preserve 2023-11-29 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "383149493474077830",
+        "session": "2023-11-30"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-11-30 market open; preserve 2023-11-29 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1599489",
+        "listing_first_session": "2014-07-01",
+        "security_id": "383149493474077830",
+        "security_type_eligible": "1",
+        "session": "2023-11-29",
+        "source_observation_sha256": "065f93fd56745a9457d0630c28e01e0d26e17741394f0ace50458de6bc1e89e4",
+        "ticker": "VRTV"
+      },
+      "last_trading_session": "2023-11-29",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-29",
+      "native_term_sha256": "69ea34393e67ec4cdd0af7f85f5620871305daf50315fd66da35efb50734b847",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "170.00",
+        "completion_before_open": "2023-11-30",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1599489",
+        "native_session": "2023-11-29",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53638",
+        "security_id": "383149493474077830",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "VRTV"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53638",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "a0fcfdfdf3fe192de6ca68427c44a2acb1f5033551688075f0f38650b4196f99",
+        "selected_row_sha256": [
+          "2550e285dd9707bf76aef58735fd7ffec180b29f39b677b519f78de7836089da",
+          "38148856858eb8c26af5a6ecfa7e72a35d708c10d08f1ecdf357b283b7ef89b3",
+          "88ef15f4bb78f01ec2139af7be45f487190b5543fe26830036b3200001426b3b"
+        ],
+        "session": "2023-11-29",
+        "ticker": "VRTV"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "383149493474077830",
+      "ticker": "VRTV",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53638"
+    },
+    {
+      "actual_completion_date": "2023-11-30",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 15.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1282977/000114036123055598/ef20015611_8k.htm | Mandatory remaining common-share cash conversion completed on 2023-11-30; retain the existing next-session economic recognition on 2023-12-01 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+        "security_id": "922568749150320567",
+        "session": "2023-12-01"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed on 2023-11-30; retain the existing next-session economic recognition on 2023-12-01 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1282977",
+        "listing_first_session": "2004-05-06",
+        "security_id": "922568749150320567",
+        "security_type_eligible": "1",
+        "session": "2023-11-30",
+        "source_observation_sha256": "be6169d9494a11679dbcdb528e9f7aef0fc5195743e5a93cb27114d89665603e",
+        "ticker": "GHL"
+      },
+      "last_trading_session": "2023-11-30",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-11-30",
+      "native_term_sha256": "99ea1082f03eba7fcf76b43b7c3c36559c38d4a8d2374d4e557f8c2db3f9819b",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2023-11-30",
+        "cash_per_ordinary_share": "15.00",
+        "currency": "USD",
+        "date_clarification": "SEC actual completion November30; December1 issuer release is announcement, not a replacement completion date.",
+        "frozen_issuer_id": "SEC_CIK:1282977",
+        "last_trading_session": "2023-11-30",
+        "native_session": "2023-11-30",
+        "preopen_claim": false,
+        "primary_url": "https://www.sec.gov/Archives/edgar/data/1282977/000114036123055598/ef20015611_8k.htm",
+        "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+        "retained_economic_recognition_session": "2023-12-01",
+        "security_id": "922568749150320567",
+        "status": "PRIMARY_MANDATORY_TERM_COMPLETION_AND_NEXT_SESSION_RECOGNITION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "GHL",
+        "timing_url": "https://www.sec.gov/Archives/edgar/data/1282977/000114036123055598/ef20015611_8k.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1282977/000114036123055598/ef20015611_8k.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "0c7995f44e7834ef25defd6a4c53970b7c39eb5b1bbfa002e1e9920f29146af9",
+        "selected_row_sha256": [
+          "5509b182a473ec1f99dd611b07439f43b915c9bb2c52e9e7ff8ed9f1d9206fe3",
+          "c04fcd8419adab29a9fdab0016e5f33913cac46c192e4f2e8baf2eefe54c2f4c",
+          "d0c81e93b5f810ff9f87ff157f027fcefac8e68382d74a92199be5464ab4e50e"
+        ],
+        "session": "2023-11-30",
+        "ticker": "GHL"
+      },
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "security_id": "922568749150320567",
+      "ticker": "GHL",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1282977/000114036123055598/ef20015611_8k.htm"
+    },
+    {
+      "actual_completion_date": "2023-12-07",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 1.9,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53698 | Mandatory remaining common-share cash conversion completed on 2023-12-07; retain the existing next-session economic recognition on 2023-12-08 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+        "security_id": "62222139879558786",
+        "session": "2023-12-08"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed on 2023-12-07; retain the existing next-session economic recognition on 2023-12-08 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1054721",
+        "listing_first_session": "1999-10-21",
+        "security_id": "62222139879558786",
+        "security_type_eligible": "1",
+        "session": "2023-12-07",
+        "source_observation_sha256": "62b9d597482e356e209debb3a842185fcf825cdf8bd143dca5ebfcf7705b9273",
+        "ticker": "BSQR"
+      },
+      "last_trading_session": "2023-12-07",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-12-07",
+      "native_term_sha256": "b3838bb28dceabc1c76ac26ac27b90f5db5ac843dbef547b7253c4fa5687ca08",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2023-12-07",
+        "cash_per_ordinary_share": "1.90",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1054721",
+        "last_trading_session": "2023-12-07",
+        "native_session": "2023-12-07",
+        "preopen_claim": false,
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53698",
+        "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+        "retained_economic_recognition_session": "2023-12-08",
+        "security_id": "62222139879558786",
+        "status": "PRIMARY_MANDATORY_TERM_COMPLETION_AND_LAST_TRADING_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "BSQR",
+        "timing_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-694"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53698",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "d86dbfa67259a832c3984c7993d9da1218cccf5bb3610856a902527fd2cc7c73",
+        "selected_row_sha256": [
+          "c7dba67bca02d5c21d92d4823b465d48c5cb264bf7e7f2ce7f67017008f36391",
+          "7e0a6bb511c6947072d44d31fe4e7044a709f28c4d62baec077ef1b022a4df62",
+          "63b492a9466bc2396e1a71328385f6022c28c233ffe5bae3a03c21d60e4a3871",
+          "e0a64e47b4c9beef02ec620ef62f9b8c78506e16370ac0ac59cb2c5b552507a5",
+          "5298fae1a7051bc943052f264ecfc5758b36a79385f40910e772eddeae158976"
+        ],
+        "session": "2023-12-07",
+        "ticker": "BSQR"
+      },
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "security_id": "62222139879558786",
+      "ticker": "BSQR",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-694"
+    },
+    {
+      "actual_completion_date": "2023-12-13",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 10.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53743 | Mandatory remaining common-share cash conversion completed before the 2023-12-13 market open; preserve 2023-12-12 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "300142723740074716",
+        "session": "2023-12-13"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-12-13 market open; preserve 2023-12-12 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:23111",
+        "listing_first_session": "1997-12-31",
+        "security_id": "300142723740074716",
+        "security_type_eligible": "1",
+        "session": "2023-12-12",
+        "source_observation_sha256": "69f525153a527e81800a0a0faedc779de419e1090d03cf04a9feeab1694261de",
+        "ticker": "CTG"
+      },
+      "last_trading_session": "2023-12-12",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-12-12",
+      "native_term_sha256": "4292e34ae26b19e99252bb4c628b69df54db0e23b8b6de5bda8e43f4c3e8bff5",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "10.50",
+        "completion_before_open": "2023-12-13",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:23111",
+        "native_session": "2023-12-12",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53743",
+        "security_id": "300142723740074716",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "CTG"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53743",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "4c1e6879159ae482fbfaaf15bcec8247c0c5dce93bb827ec27bc4affe7a2728e",
+        "selected_row_sha256": [
+          "15aec2c51db9f0f1156a358784ab6ac00d341e4a1d8e04b17f87fad29d2fa370",
+          "e9d70f40ab0783bc4fc7fc367f18387ce0304a95c298024062edbd1cbcac31ff",
+          "3572e77436f691a82f2bb3e266ca28ed495ab56a51dd2c909cac3048bce67f4f"
+        ],
+        "session": "2023-12-12",
+        "ticker": "CTG"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "300142723740074716",
+      "ticker": "CTG",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53743"
+    },
+    {
+      "actual_completion_date": "2023-12-15",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 7.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53784 | Mandatory remaining common-share cash conversion completed on 2023-12-15; retain the existing next-session economic recognition on 2023-12-18 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+        "security_id": "1141467240476407851",
+        "session": "2023-12-18"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed on 2023-12-15; retain the existing next-session economic recognition on 2023-12-18 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1057083",
+        "listing_first_session": "1999-08-10",
+        "security_id": "1141467240476407851",
+        "security_type_eligible": "1",
+        "session": "2023-12-15",
+        "source_observation_sha256": "0037a0f300e8e2aa27a1e20f22223ea2ff6a352689dd07fe9208898397b7f25d",
+        "ticker": "PCTI"
+      },
+      "last_trading_session": "2023-12-15",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-12-15",
+      "native_term_sha256": "8db22cc6a930d1cd5fc7b4da11e0ef32e57ccad1db59e297acbee83878f1429f",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2023-12-15",
+        "cash_per_ordinary_share": "7.00",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1057083",
+        "issuer_url": "https://www.sec.gov/Archives/edgar/data/1057083/000119312523296769/d94897d8k.htm",
+        "last_trading_session": "2023-12-15",
+        "native_session": "2023-12-15",
+        "preopen_claim": false,
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53784",
+        "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+        "retained_economic_recognition_session": "2023-12-18",
+        "security_id": "1141467240476407851",
+        "status": "PRIMARY_MANDATORY_TERM_COMPLETION_AND_LAST_TRADING_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "PCTI",
+        "timing_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-730"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53784",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "876df78b03b52b6cc488974d98784abcc5f2ba632b68cf744b49d0298b197172",
+        "selected_row_sha256": [
+          "e20730ef21051295bcbf89374e1f000d76fa6c2ef89831f4c176aebe9ca2be53",
+          "e5a2a572d20d1786abb6092030d785f1811c0fe30d97ad77d42e70d26b10e4c9",
+          "ff92167a219d4f17719a1ee79bec3a21c9674ee68eea5d72b614f9444cf60c95"
+        ],
+        "session": "2023-12-15",
+        "ticker": "PCTI"
+      },
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "security_id": "1141467240476407851",
+      "ticker": "PCTI",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-730"
+    },
+    {
+      "actual_completion_date": "2023-12-21",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 27.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/355379/000110465923128023/tm2333302d1_8k.htm | Mandatory remaining common-share cash conversion completed before the 2023-12-21 market open; preserve 2023-12-20 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "1032365920179969095",
+        "session": "2023-12-21"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-12-21 market open; preserve 2023-12-20 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:355379",
+        "listing_first_session": "2015-09-02",
+        "security_id": "1032365920179969095",
+        "security_type_eligible": "1",
+        "session": "2023-12-20",
+        "source_observation_sha256": "9a60128bdcb90109fe2b6d8334c08c54a220d08166e0dbd211176763c7fe2782",
+        "ticker": "MDWT"
+      },
+      "last_trading_session": "2023-12-20",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-12-20",
+      "native_term_sha256": "504add145eb0a287d9566d16d84545a21da7c5678e2880e9be12f35ccfb87e9a",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "27.00",
+        "completion_before_open": "2023-12-21",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:355379",
+        "frozen_ticker_reuse_warning_preserved": true,
+        "native_session": "2023-12-20",
+        "primary_url": "https://www.sec.gov/Archives/edgar/data/355379/000110465923128023/tm2333302d1_8k.htm",
+        "security_id": "1032365920179969095",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "MDWT",
+        "timing_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-726"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/355379/000110465923128023/tm2333302d1_8k.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "91ac9a31312b2bc0197d44c8223ba10adf90065fb76fe1769567ccf5b2f2bdd7",
+        "selected_row_sha256": [
+          "13b503af814abe12eca26df7773e04ef3499e5c2cca065c9ef267fab26c911f4",
+          "4de1c86295441a85d1696b3fd3fc7cdc28665ad2d05dfae924b84071fa412701",
+          "2701ccf46aa892c3d589f48f9850e7ad079d50396ae261bc7b18855a9047b98e"
+        ],
+        "session": "2023-12-20",
+        "ticker": "MDWT"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "1032365920179969095",
+      "ticker": "MDWT",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-726"
+    },
+    {
+      "actual_completion_date": "2023-12-21",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 16.26,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1616741/000114036123058857/ef20016766_8k.htm | Mandatory remaining common-share cash conversion completed on 2023-12-21; retain the existing next-session economic recognition on 2023-12-22 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+        "security_id": "809685213630446666",
+        "session": "2023-12-22"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed on 2023-12-21; retain the existing next-session economic recognition on 2023-12-22 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1616741",
+        "listing_first_session": "2015-02-02",
+        "security_id": "809685213630446666",
+        "security_type_eligible": "1",
+        "session": "2023-12-21",
+        "source_observation_sha256": "666ac5c696bbe557953fdea808a83f5765f68f0fe3627f2f21a85fbb2778ea62",
+        "ticker": "PATI"
+      },
+      "last_trading_session": "2023-12-21",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-12-21",
+      "native_term_sha256": "6d7e1fca086a7b78aa9c2d7e03a1dc2962624b11581e4e576c50fcbd48fb274e",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2023-12-21",
+        "cash_per_ordinary_share": "16.26",
+        "currency": "USD",
+        "exchange_notice": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-751",
+        "exchange_table_still_anticipated_but_actual_SEC_completion_and_next_suspension_proved": true,
+        "frozen_issuer_id": "SEC_CIK:1616741",
+        "last_trading_session": "2023-12-21",
+        "native_session": "2023-12-21",
+        "preopen_claim": false,
+        "primary_url": "https://www.sec.gov/Archives/edgar/data/1616741/000114036123058857/ef20016766_8k.htm",
+        "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+        "retained_economic_recognition_session": "2023-12-22",
+        "security_id": "809685213630446666",
+        "status": "PRIMARY_MANDATORY_TERM_COMPLETION_AND_NEXT_SESSION_RECOGNITION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "PATI",
+        "timing_url": "https://www.sec.gov/Archives/edgar/data/1616741/000114036123058857/ef20016766_8k.htm"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1616741/000114036123058857/ef20016766_8k.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "b91f748ec3c39b2834770e1ba296e68d9af2b1d8c8828a2999c6b9facd924b27",
+        "selected_row_sha256": [
+          "34f58b36114a74845bb83d12861a77e8ce4b57c5f2e6d63458475959cd0e7160",
+          "4cde25727f34b0ded0b8b0ed38ddb3d44937eb3d5bb6a1a180a279ffb469948b",
+          "0a1fc51d54b493fac700a844c5a63727f71c361da5221da8bcf306b3c7e884fa"
+        ],
+        "session": "2023-12-21",
+        "ticker": "PATI"
+      },
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "security_id": "809685213630446666",
+      "ticker": "PATI",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1616741/000114036123058857/ef20016766_8k.htm"
+    },
+    {
+      "actual_completion_date": "2023-12-22",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 3.74,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53833 | Mandatory remaining common-share cash conversion completed on 2023-12-22; retain the existing next-session economic recognition on 2023-12-26 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+        "security_id": "321856714299697497",
+        "session": "2023-12-26"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed on 2023-12-22; retain the existing next-session economic recognition on 2023-12-26 after the confirmed last trading day. No preopen completion or broker settlement clock is asserted.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1723648",
+        "listing_first_session": "2019-03-08",
+        "security_id": "321856714299697497",
+        "security_type_eligible": "1",
+        "session": "2023-12-22",
+        "source_observation_sha256": "b71998a4b358a559098cd68c4eeebed325393b73c5070f18796146498403f7fb",
+        "ticker": "LVOX"
+      },
+      "last_trading_session": "2023-12-22",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-12-22",
+      "native_term_sha256": "9252c8e3835e4cac30dc95fcce05def1c1d4f73312b749f8830040fd562a94be",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2023-12-22",
+        "cash_per_ordinary_share": "3.74",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1723648",
+        "last_trading_session": "2023-12-22",
+        "native_session": "2023-12-22",
+        "preopen_claim": false,
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53833",
+        "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+        "retained_economic_recognition_session": "2023-12-26",
+        "security_id": "321856714299697497",
+        "status": "PRIMARY_MANDATORY_TERM_COMPLETION_AND_LAST_TRADING_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "LVOX",
+        "timing_url": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-758"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53833",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "533ff6a20ddba51a105ef812273498444ac8fc74f60ebcd14563403c01bf15ca",
+        "selected_row_sha256": [
+          "e6b6d0439c2ca2196d5c8c178e6a7df33cf999d5902d69a7e804a251e19f8065",
+          "e0924e6de694243975cdea27982db26bd0cf6ac10342872b4f450fdab1265659",
+          "41e5dcf8598291fac98a21d55027547a112fca62037d1f7d9c4b6fd15efb68c0",
+          "9f1007f982298605e9a66774593943c079748e70d7a689f6e413bb68c9c8885b",
+          "101d7dbecc72d9c71c2ec19f74744a64ec598438a33c87cd3e4c568180650477"
+        ],
+        "session": "2023-12-22",
+        "ticker": "LVOX"
+      },
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "security_id": "321856714299697497",
+      "ticker": "LVOX",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2023-758"
+    },
+    {
+      "actual_completion_date": "2023-12-27",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 12.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53854 | Mandatory remaining common-share cash conversion completed before the 2023-12-27 market open; preserve 2023-12-26 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "148089382008743586",
+        "session": "2023-12-27"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2023-12-27 market open; preserve 2023-12-26 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1811764",
+        "listing_first_session": "2020-07-08",
+        "security_id": "148089382008743586",
+        "security_type_eligible": "1",
+        "session": "2023-12-26",
+        "source_observation_sha256": "a0f7f5e463a6afbbc51521dffdc33921326aa48c16223e2bb1a3449b056d30a3",
+        "ticker": "PNT"
+      },
+      "last_trading_session": "2023-12-26",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-12-26",
+      "native_term_sha256": "2bef242fbc33ad035d6a7d00c35d9d060383d0d6545dd1acb682e4b5527229ce",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "12.50",
+        "completion_before_open": "2023-12-27",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1811764",
+        "native_session": "2023-12-26",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53854",
+        "security_id": "148089382008743586",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "PNT"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53854",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "080efed78d92375a168a1cb132c2cafd7c385d6cf7b65edb41d71441668bfe0e",
+        "selected_row_sha256": [
+          "e8c11e95b9921ffe7e0cc814f5e53ab29ce547de3319713f8e435d43bb692948",
+          "84b57b0ecd6f58b86a7856fb88313bf5da66f726e85aa4d166a69148f3d018dd",
+          "57993f045e00ee13231eb4feeb2af52204048d82e2202caa8f2cb797753c37d5"
+        ],
+        "session": "2023-12-26",
+        "ticker": "PNT"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "148089382008743586",
+      "ticker": "PNT",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53854"
+    },
+    {
+      "actual_completion_date": "2024-01-05",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 7.6,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53903 | Mandatory remaining common-share cash conversion completed before the 2024-01-05 market open; preserve 2024-01-04 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "889536937307159083",
+        "session": "2024-01-05"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2024-01-05 market open; preserve 2024-01-04 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:897429",
+        "listing_first_session": "1997-12-31",
+        "security_id": "889536937307159083",
+        "security_type_eligible": "1",
+        "session": "2024-01-04",
+        "source_observation_sha256": "a36203e24f6c0163fca3573c819bbe9c78412a29a5868a7cb654506a48b29d3a",
+        "ticker": "CHS"
+      },
+      "last_trading_session": "2024-01-04",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-01-04",
+      "native_term_sha256": "1229c375c50234e641330553576ed882cdcadaf456414e3458f7cbffcf830c5f",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "7.60",
+        "completion_before_open": "2024-01-05",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:897429",
+        "native_session": "2024-01-04",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53903",
+        "security_id": "889536937307159083",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "CHS"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53903",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "c3539349d577a1fab62925858352be7bd84e00082cffb94701e77d3bc5eb3c8a",
+        "selected_row_sha256": [
+          "21e914340a1b120233fde00bef334520dcc71188b68118988bfd94ea818f851c",
+          "b0a4b55700c40f7e4871f37dd0016957fbd8ea52b8d89741862178bc40141bf1",
+          "e635fdb03f344bb11eb0c9ded996a80de143c1e34a6b030f9f33ec0d052baad1"
+        ],
+        "session": "2024-01-04",
+        "ticker": "CHS"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "889536937307159083",
+      "ticker": "CHS",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53903"
+    },
+    {
+      "actual_completion_date": "2024-01-17",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 75.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=53956 | Mandatory remaining common-share cash conversion completed before the 2024-01-17 market open; preserve 2024-01-16 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "156282255624886742",
+        "session": "2024-01-17"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2024-01-17 market open; preserve 2024-01-16 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:315858",
+        "listing_first_session": "2002-03-04",
+        "security_id": "156282255624886742",
+        "security_type_eligible": "1",
+        "session": "2024-01-16",
+        "source_observation_sha256": "2f80d7f871974c155543feff4b372be493cfaf2722551ca30e0d096de0775590",
+        "ticker": "BVH"
+      },
+      "last_trading_session": "2024-01-16",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-01-16",
+      "native_term_sha256": "a60952df8ed1087a87e58cd1a5a96dc2db90909a91ef321a0ad9ac3a34b51470",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "75.00",
+        "completion_before_open": "2024-01-17",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:315858",
+        "native_session": "2024-01-16",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=53956",
+        "security_id": "156282255624886742",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "BVH"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=53956",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "1f9ee90c76a103ab58a35393616e43ecf1c1fdae04b0ca5e955c03408b22a425",
+        "selected_row_sha256": [
+          "c553cecc1ba9c1c34e491c75f05014f603070ca645f9c9fb35695fe9db5c18f1",
+          "7183d5bc18e171dacb7f75a5bc03959dd476d94b0ed0b244fd6ae9ef06a2c0fa",
+          "e3dc20b3b4dc6e1fec268e1613277634ffafb09e6efd8f6785d0f8c5299d19cc"
+        ],
+        "session": "2024-01-16",
+        "ticker": "BVH"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "156282255624886742",
+      "ticker": "BVH",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=53956"
+    },
+    {
+      "actual_completion_date": "2024-01-26",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 23.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://infomemo.theocc.com/infomemos?number=54007 | Mandatory remaining common-share cash conversion completed before the 2024-01-26 market open; preserve 2024-01-25 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+        "security_id": "569372934016384054",
+        "session": "2024-01-26"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2024-01-26 market open; preserve 2024-01-25 trading and every frozen quote. Pure cash only, without tender participation or provider identity upgrade.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1863105",
+        "listing_first_session": "2021-09-23",
+        "security_id": "569372934016384054",
+        "security_type_eligible": "1",
+        "session": "2024-01-25",
+        "source_observation_sha256": "c34a139dc1624343faee04be094b1b7ca7163ccc7aa9b694ed05e224c1c58d50",
+        "ticker": "ESMT"
+      },
+      "last_trading_session": "2024-01-25",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-01-25",
+      "native_term_sha256": "b26f3e70f27e9e8104335899a2485ac05555c1678f5c7cf29f93eb82b9a152c0",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "cash_per_ordinary_share": "23.00",
+        "completion_before_open": "2024-01-26",
+        "currency": "USD",
+        "frozen_issuer_id": "SEC_CIK:1863105",
+        "native_session": "2024-01-25",
+        "primary_url": "https://infomemo.theocc.com/infomemos?number=54007",
+        "security_id": "569372934016384054",
+        "status": "PRIMARY_MANDATORY_TERM_AND_PREOPEN_COMPLETION_SUPPORTED_NOT_BOUND_OR_ADOPTED",
+        "ticker": "ESMT"
+      },
+      "primary_source": "https://infomemo.theocc.com/infomemos?number=54007",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "a07dda860cea8264bd29491c6d4e6ec1a36b5c306d453d6becfd7111250906df",
+        "selected_row_sha256": [
+          "a48337c0e7dd9eebd2faceddd244ae6056ea80f33bb92afb28eb8b8f53e18e70",
+          "1d278fca714053ed47428856ca2b9347ab1ae9a5380a80b03f309ac3c4c51548",
+          "78cf3b476d1f6a1f25eb011fa1bb7b0790bf2b2b6ec2d47bf09348add5108e7a"
+        ],
+        "session": "2024-01-25",
+        "ticker": "ESMT"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "569372934016384054",
+      "ticker": "ESMT",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=54007"
+    }
+  ]
+}

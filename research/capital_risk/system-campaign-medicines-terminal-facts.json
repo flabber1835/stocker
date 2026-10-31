@@ -1,0 +1,38 @@
+{
+  "schema": "research.system-campaign-medicines-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "MDCO",
+      "security_id": "1000604417782241778",
+      "native_session": "2020-01-03",
+      "native_term_sha256": "ca502fd6aa774d0e1c671f4d1996c82335eedd337d69e97c72fe78806f6ee4ff",
+      "added": {
+        "session": "2020-01-06",
+        "security_id": "1000604417782241778",
+        "kind": "CASH_MERGER",
+        "cash_per_share": 85.0,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "reference": "https://www.sec.gov/Archives/edgar/data/1113481/000110465920001367/tm201193-1_8k.htm | Completed mandatory DGCL251(h) merger on January6,2020 gives85USD cash per eligible remaining common share. NasdaqECA2019-296 confirms before-market-open completion and January3 last trading. Tender acceptance January4 is not the remaining-share merger date. Preserve all frozen identity/classification/source conventions.",
+        "entitlement_aggregation": "HOLDER"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1113481/000110465920001367/tm201193-1_8k.htm",
+      "exchange_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2019-296",
+      "description": "Completed mandatory DGCL251(h) merger on January6,2020 gives85USD cash per eligible remaining common share. NasdaqECA2019-296 confirms before-market-open completion and January3 last trading. Tender acceptance January4 is not the remaining-share merger date. Preserve all frozen identity/classification/source conventions."
+    }
+  ],
+  "identity_witness": {
+    "session": "2020-01-02",
+    "security_id": "1000604417782241778",
+    "ticker": "MDCO",
+    "issuer_id": "SEC_CIK:1113481",
+    "listing_first_session": "2000-08-08",
+    "security_type_eligible": "1",
+    "source_observation_sha256": "8947be1f2fa3a307eaac1f0bf8e41fcac93457f986cdda6cf0b996db719141e6"
+  },
+  "canonical_financial_source_changed": false,
+  "production_contacted": false
+}
