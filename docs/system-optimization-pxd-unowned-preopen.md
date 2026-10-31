@@ -125,3 +125,70 @@ archive also contains XOM's matching `acquisitionof` row. Bind all three in thei
 actual archive order, with the archive's exact length/hash. Preserve that failed
 qualification and the initial binding. Do not relax the complete-provider-row
 check or change frozen source rows to make the old binding pass.
+
+## Financial continuation from the independently admitted April checkpoint
+
+The full original 172-member financial artifact has now been retained and
+independently reviewed. Its exact April 30, 2024 checkpoint has 1,592 measured
+closes and 36 inputs. The separate corrected hosted review and the PXD
+zero-session qualification also passed independent review. The financial
+continuation must start from that original checkpoint, never the disposable
+37-input qualification checkpoint or the unsent May 1 diagnostic state.
+
+Use a distinct composite financial predecessor declaration. Preserve the
+original failed financial artifact and its actual nonzero reviewer outcome,
+the separate successful corrected review, the complete client financial
+admission, and the zero-session qualification as separate authorities. Do not
+turn a review-only declaration into a normal financial declaration or report
+an original reviewer as successful. Authenticate each original encrypted
+artifact with its own exact receipt and inventory before composition.
+
+The hosted job may create a disjoint predecessor view. Its financial book,
+source binding, journal bytes, repairs and data witnesses must be identical to
+the original artifact. Only the five review aliases already used by the
+independent client admission may come from the corrected-review artifact:
+`core-review.json`, `completion-position-guard-review.json`,
+`uncertainty-certificate-review.json`,
+`common-factual-and-uncertainty-basis.json`, and the retained close-lineage
+review. Record every alias's source artifact, member hash and length. Keep the
+original extracted output unchanged. The composite content reference has its
+own schema and path; it must not overwrite the earlier parent reference.
+
+Reuse the source-bound original financial orchestration and canonical
+`backtest.main`. Change only the explicit predecessor boundary, certificate
+seed length, PXD input/compiler/gate bindings and output names. Retain all
+earlier codecs, the original outcome-proof boundary, execution acceleration,
+accounting and correlation observation. Materialize the retained Hostess
+descriptor by schema before entering its guard, and materialize the new PXD
+descriptor separately. Both guards must remain active for every applicable
+transition. Archive every original pre-event, month-end and predecessor
+checkpoint with exact-byte collision checks before financial replay.
+
+An original pre-event checkpoint can include a journal prefix beyond the
+selected committed checkpoint. Preserve that gzip under a separate uncommitted
+ancestor-checkpoint archive, with its original source path and commitments.
+Do not insert it into the new active book: its unsent rows are recovered and
+replayed under the new input identity. Verify the archived checkpoint against
+the original read-only journal bytes and canonical state, while verifying
+committed historical checkpoints against the successor's preserved prefixes.
+This retains the evidence without selecting or relabelling an unsent state.
+
+The Q4 cash-entitlement review still uses its original September 29, 2023
+boundary. Resolve that immutable public declaration and the actual retained
+gzip checkpoint explicitly. The latest parent's `spec.json` now describes a
+later predecessor and must not silently replace that entitlement boundary.
+
+The independent stopped-book reviewer must review all historical financial
+accounting and journal commitments, the unchanged complete outcome proof,
+actual cash entitlements, the retained Hostess scope and the new PXD scope.
+Compare the complete seven-model predecessor basis with the eight-model
+successor basis and require exactly the declared factual/scope addition.
+Recognize all eight actual descriptors when reviewing an older scope; never
+remove the eighth descriptor to make an older parser accept the checkpoint.
+
+Preserve stopped partial or refused runs and every recovered tail. Unknown
+writer outcomes still forbid snapshots. A successful CI job or component
+qualification is not a full-period economic result. The original July 31,
+2026 endpoint, frozen parameters, source/input history and PAPER boundary are
+unchanged. No controller search, parameter sweep or production promotion is
+selected by this continuation.

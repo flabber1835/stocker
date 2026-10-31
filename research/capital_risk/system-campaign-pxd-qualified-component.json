@@ -1,0 +1,31 @@
+{
+  "arm": "P02",
+  "artifact_id": 13052423956,
+  "common_basis_sha256": "d93e7de444a1bfd3237084cf9ec5fcdfe6b5aee4fd542b0e22c20dfe5482e50e",
+  "encrypted_output": {
+    "bytes": 1108162,
+    "compression": "TAR_GZIP_V1",
+    "manifest_sha256": "5780fb35df0d11c6da73cb35deda2273de08ea6f2937320d91acb77453557e15",
+    "name": "p02-pxd-qualification.tar.crseal",
+    "sha256": "47f3ece0915bebbbe1643e33fefca55b6e113464f08153875ed1ed2cec269bbc"
+  },
+  "financial_predecessor_authorized": false,
+  "head": "836f51c1d6ba796ee367d24d6fbbbbc5fa778f92",
+  "independent_review_sha256": "e8062a779420cedd8acae67f2fac9d6877b575d29cf8f0f7d7b16f6ae6246193",
+  "inventory_members": 15,
+  "manifest_metadata_sha256": "52f94a46d9b6ec36e35b9aeb063adaafe4ca81609d75851adbeedd7fad69c5c1",
+  "original_checkpoint_sha256": "1f42c8345ac1df9cb1cbddff84cb2624a6fb9087ee5d3d663f528fd13ca341f0",
+  "production_contacted": false,
+  "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+  "qualification_checkpoint_sha256": "a7f540e5834352f03074013537473ebfda69abb02e68ac1b065f1d0ba025102b",
+  "qualified_overlay_sha256": "2abe74a092d8a66a9ffd31e689668817852528f8c75877b4b5d80bf6730e1220",
+  "receipt_name": "p02-pxd-qualification.json",
+  "receipt_schema": "research.system-p02-pxd-qualification-receipt/1",
+  "receipt_sha256": "2b205372c8b3818fc2eea62459e0ece7a3437bdeeea7a521490bc7c018cd6c7d",
+  "request_sha256": "db951ded01890b4e14d800c78da39748d8128db1bf1d32a5affefe0cc37a1815",
+  "run_id": 41228433478,
+  "schema": "research.p02-pxd-qualified-component-reference/1",
+  "stage": "campaign-factual-suffix",
+  "zip_bytes": 1110873,
+  "zip_sha256": "5c2c8ece2349d69d92757f406b47668a0d3d9305fa7397bc6735f80652cc4193"
+}
