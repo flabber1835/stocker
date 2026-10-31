@@ -28,6 +28,13 @@
       "overlay_file": "stock-calendar-overlay.json",
       "private_file": "hydrated-stock-calendar-terminal-catalog.json",
       "reference_stem": "research:system-optimization-002/ordinary-catalog/stock-calendar/1/"
+    },
+    {
+      "catalog_file": "system-campaign-october-cash-calendar-terminal-facts.json",
+      "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "october-cash-calendar-overlay.json",
+      "private_file": "hydrated-october-cash-calendar-terminal-catalog.json",
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-october/1/"
     }
   ]
 }

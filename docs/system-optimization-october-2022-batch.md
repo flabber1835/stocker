@@ -44,6 +44,71 @@ merger. Do not invent an October 11 quote, reuse a stale anchor as a fresh quote
 or weaken the canonical prior-session price-basis guard. Similar AERI/CLR gaps
 are retained as unresolved until the applicable clock/convention is supported.
 
+### Selected guarded completion-day scope
+
+For GBT and NLSN, use a separately committed, guarded completion-day input rather
+than declaring either filing an explicit morning-settlement statement. Their
+closing filings establish fixed USD68.50 and USD28 common-share consideration on
+October 5 and October 11, respectively, and were publicly accepted before the
+following trading open. The controller's decision funds that following open.
+The input is a closed-session terminal-consideration observation available before
+that execution, not an invented market quote or proof of cash available that
+morning. Its disclosure cutoff and exact public timestamps are part of the model
+basis. This is an explicit research timing scope, not production certification.
+
+Admit this scope only while the affected security is absent from every Wealth
+Core episode and pending intent, before AND after every actual transition from
+the native date onward. A holding or order must refuse; never remove it or skip
+a trade. The October 3 retained unsent row contains no intents, but that does not
+prove the future guard. Preserve the October 4 and October 10 source rows, move
+only their incomplete native terms to the documented completion dates, and supply
+the exact documented cash consideration. The canonical prior-session price-basis
+guard stays intact: both completion dates directly follow their last frozen
+quote. Do not use this scope for a missing intervening price basis, a contingent
+right, foreign currency, unknown consideration or an owned terminal.
+
+Keep the existing pre-open CashCalendar loader unchanged for its 17 compatible
+prepared cases. Build both components into one own-predecessor ordinary repair;
+also suppress COWN's stale February 28 entry only after proving its exact March 1
+complete base term remains unchanged. Retain every provisional component. The
+new conditional component is explicitly typed and source-bound; its guard
+implementation and per-event disclosure evidence are committed alongside the
+numeric input. Common model semantics must record the conditional scope in
+addition to the two retained interval models, with no price estimate selected.
+
+Before any financial advance, qualify the ACTUAL merged repair with all 27 old
+inputs, exact native and next-session packets, both full price-basis witnesses,
+wrong-predecessor/consumed-session falsifiers, and owned/pending guard falsifiers.
+The actual runtime wrapper must observe both sides of the canonical transition.
+The combined file has a distinct guarded schema containing the exact canonical
+ordinary repair body. The unwrapped ordinary loader must reject this file. Its
+hosted codec admits only the independently assembled expected body, then delegates
+terminal application to the unchanged canonical repair implementation. The outer
+file hash, including the conditional scope and its evidence, is the actual input
+commitment. Do not strip its descriptor or substitute an ordinary checkpoint to
+compute the common basis; validate the full real input and explicitly compose
+its numerical semantics and timing scope.
+
+Each successful observation is hash-linked to the actual input, before/after
+states and complete financial row, and committed through the watch journal.
+There is no second external guard stream: the existing historical watch-prefix
+and tail proofs preserve this evidence. Independent stopped-evidence review
+reconstructs both position projections from consecutive accounting snapshots and
+checks actual intents separately. The pending queue and intent list have distinct
+schemas, and intents include only newly signalled orders; never equate the two
+or drop carried orders. The reviewer checks absence itself and matches every commitment. Missing,
+duplicate, reordered or unbound guard evidence is refusal. Subsequent
+continuations must install the same typed codec and guards.
+
+The common-basis adapter first authenticates the full actual checkpoint input
+commitment and the new envelope. A source-hash-bound semantic visitor then
+classifies the old ordinary inputs and the two previously qualified interval
+models. It omits only the validated new schema from that old visitor; it appends
+the exact new suppression/addition pairs, verified compiler commitments and
+explicit timing/position scope in the resulting common basis. A duplicate or
+conflicting numerical event refuses. No canonical checkpoint or input descriptor
+is removed or rewritten, and no old financial/recovery equation is changed.
+
 ## Cases that cannot be treated as simple cash
 
 ABIOMED's common-share consideration is USD380 plus a contingent right capped at

@@ -1,0 +1,149 @@
+{
+  "canonical_financial_source_changed": false,
+  "inherited_sources": {
+    "system_campaign_cash_calendar.py": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+    "system_campaign_uncertainty_basis.py": "33a022d90449028350cd66af7208a6089612a19f66c9ecf55b14eec5b6b2c02c",
+    "system_campaign_zogenix_basis.py": "54c33ba88d951d7360d11e67a9e254693361e588b70c4e39704b2fc66e8fd3fa"
+  },
+  "ordinary_catalog": "system-campaign-october-cash-calendar-terminal-facts.json",
+  "ordinary_catalog_sha256": "225b294cefd80c19b47090c24b246ac63456f6829dfe7816b41dfcdcfef2ad53",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "schema": "research.guarded-completion-contract/1",
+  "scope": "UNOWNED_UNORDERED_CONSIDERATION_KNOWN_BEFORE_FOLLOWING_OPEN",
+  "scoped_events": [
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 68.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1629137/000095015722001085/form8-k.htm | Fixed mandatory common-share consideration on documented completion; unowned and unordered observation known before following-open execution. No morning cash-settlement claim.",
+        "security_id": "827416728546053456",
+        "session": "2022-10-05"
+      },
+      "description": "Fixed mandatory common-share consideration on documented completion; unowned and unordered observation known before following-open execution. No morning cash-settlement claim.",
+      "event_source_quote_present": false,
+      "filing_accepted_utc": "2022-10-05T20:06:32+00:00",
+      "following_open_new_york": "2022-10-06T09:30:00-04:00",
+      "mandatory_remaining_common_share_entitlement": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=4620.6",
+        "security_id": "827416728546053456",
+        "session": "2022-10-04"
+      },
+      "native_session": "2022-10-04",
+      "native_term_sha256": "24ecdb67869b11470699c0bf1a02ca59f46d671bd9008d196f4a80cd05c46500",
+      "preopen_completion_claimed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1629137/000095015722001085/form8-k.htm",
+      "security_id": "827416728546053456",
+      "session": "2022-10-05",
+      "source_witness": {
+        "issuer_id": "SEC_CIK:1629137",
+        "listing_first_session": "2015-08-12",
+        "security_id": "827416728546053456",
+        "security_type_eligible": "1",
+        "session": "2022-10-04",
+        "source_observation_sha256": "f221e2472d3889694132110e269e8401246bb12c632d858629f83c76114276a1",
+        "ticker": "GBT"
+      },
+      "ticker": "GBT"
+    },
+    {
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 28.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1492633/000119312522260583/d407513d8k.htm | Fixed mandatory common-share consideration on documented completion; unowned and unordered observation known before following-open execution. No morning cash-settlement claim.",
+        "security_id": "1039169780857559862",
+        "session": "2022-10-11"
+      },
+      "description": "Fixed mandatory common-share consideration on documented completion; unowned and unordered observation known before following-open execution. No morning cash-settlement claim.",
+      "event_source_quote_present": false,
+      "filing_accepted_utc": "2022-10-11T20:02:09+00:00",
+      "following_open_new_york": "2022-10-12T09:30:00-04:00",
+      "mandatory_remaining_common_share_entitlement": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=10064.6",
+        "security_id": "1039169780857559862",
+        "session": "2022-10-10"
+      },
+      "native_session": "2022-10-10",
+      "native_term_sha256": "dbdc1da646581559bc676308eebc01d6d4114e4437a66268df0db80b6bdb310d",
+      "preopen_completion_claimed": false,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1492633/000119312522260583/d407513d8k.htm",
+      "security_id": "1039169780857559862",
+      "session": "2022-10-11",
+      "source_witness": {
+        "issuer_id": "SEC_CIK:1492633",
+        "listing_first_session": "2011-01-27",
+        "security_id": "1039169780857559862",
+        "security_type_eligible": "1",
+        "session": "2022-10-10",
+        "source_observation_sha256": "2cf5316fd70562cb555a69d55321ef7462793ce0afae6ab8b7844afe7fba4eac",
+        "ticker": "NLSN"
+      },
+      "ticker": "NLSN"
+    }
+  ],
+  "suppression_only": {
+    "native": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "actions/acquisitionby deal_value_musd=1101.2",
+      "security_id": "936400114104709882",
+      "session": "2023-02-28"
+    },
+    "native_term_sha256": "ab99ce4359b7e7162494ccb47eff08d26a995a04c9b7d2afcf4ce3df7d60b467",
+    "preserved_complete": {
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": 39.0,
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "entitlement_aggregation": "HOLDER",
+      "exchange_ratio": null,
+      "kind": "CASH_MERGER",
+      "reference": "Cowen completed its merger with TD Bank Group on 2023-03-01; each common share was converted into the right to receive $39.00 cash. Same-session historical economic recognition, not broker cash finality.",
+      "security_id": "936400114104709882",
+      "session": "2023-03-01"
+    },
+    "preserved_complete_sha256": "f418a9c9d71dbd400b12efbc60965d9e67079ceea412a6810f2a04e015b08e01",
+    "primary_sources": [
+      "https://www.sec.gov/Archives/edgar/data/1466538/000095015723000197/form8-k.htm",
+      "https://www.sec.gov/Archives/edgar/data/1466538/000114036122036813/ny20005205x2_defm14a.htm"
+    ],
+    "ticker": "COWN"
+  }
+}
