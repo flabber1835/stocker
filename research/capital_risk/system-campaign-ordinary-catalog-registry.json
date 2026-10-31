@@ -41,6 +41,13 @@
       "overlay_file": "spring2023-cash-calendar-overlay.json",
       "private_file": "hydrated-spring2023-cash-calendar-terminal-catalog.json",
       "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-spring2023/1/"
+    },
+    {
+      "catalog_file": "system-campaign-h2-2023-cash-calendar-terminal-facts.json",
+      "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "h2-2023-cash-calendar-overlay.json",
+      "private_file": "hydrated-h2-2023-cash-calendar-terminal-catalog.json",
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-h2-2023/1/"
     }
   ],
   "schema": "research.ordinary-catalog-registry/1"
