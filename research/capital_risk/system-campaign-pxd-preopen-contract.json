@@ -328,6 +328,7 @@
   },
   "new_owned_settlement_model": false,
   "primary_evidence": {
+    "physical_provider_preimages_sha256": "0ea55dd80b4fae97299c19eab69dc11506a2e4c9ec7ebf68b47fec724b3d18d4",
     "raw_evidence": {
       "raw-primary-search-001.json": "6acdd5ad57cda1a9c075443fa310a71142f698e52ef2b992e19cf1187cf1cee8",
       "raw-primary-web-001.json": "582c7a398fd151b8a1fe71441ef5fe2f83fd7e287147fbc0fc0e479f8b99250c"
@@ -338,8 +339,12 @@
   "production_contacted": false,
   "provider_metadata_upgraded": false,
   "provider_rows_proof": {
-    "rows_sha256": "2b35cd153d4b776ccd9f9cde27e4c121a7f0766f8166166b7a1c402e786a8a60",
+    "physical_archive_bytes": 9855560,
+    "physical_archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+    "physical_rows_selected": 3,
+    "rows_sha256": "dd9d5cd49257935447fe6d7c04813f0daaae945883a9ea40a9c96e1dd52956df",
     "selected_row_sha256": [
+      "a6cae922064006bb424584c32c47267d8092f3f73b5ad41aba45fbeed93065b7",
       "575d0e0a3383efbba58851b3b637cdaa1bbac53dcd47cf2014d20af50ad4eb19",
       "fd5487bebc3f141f1571ada86839646eda196af97d8e1faec5594e5d3835496f"
     ]

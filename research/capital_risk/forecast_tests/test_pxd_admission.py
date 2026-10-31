@@ -56,6 +56,25 @@ def test_native_hash_guard_removal_falsifier():
     assert namespace['validate_contract'](doc)==doc
 
 
+def test_source_only_provider_summary_cannot_omit_physical_counterparty_row():
+    doc=document();provider=doc['provider_rows_proof']
+    assert provider['physical_rows_selected']==3
+    provider['selected_row_sha256']=provider['selected_row_sha256'][1:]
+    provider['physical_rows_selected']=2
+    with pytest.raises(ValueError,match='COMPLETE_PHYSICAL_SOURCE_AND_COUNTERPARTY_EVIDENCE'):
+        facts.validate_contract(doc)
+    node,=[n for n in ast.parse(Path(facts.__file__).read_bytes()).body
+           if isinstance(n,ast.FunctionDef) and n.name=='validate_contract']
+    removed=[n for n in node.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call)
+        and any(isinstance(a,ast.Constant) and a.value=='PXD_FACTS_COMPLETE_PHYSICAL_SOURCE_AND_COUNTERPARTY_EVIDENCE'
+            for a in n.value.args)]
+    assert len(removed)==1;node.body=[n for n in node.body if n not in removed]
+    namespace=dict(vars(facts))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
+        '<actual-counterparty-completeness-guard-removed>','exec'),namespace)
+    assert namespace['validate_contract'](doc)==doc
+
+
 def descriptors(tmp_path,pxd=True):
     four=basis.previous.previous.previous.original_preflight
     schemas=four.MODELS|{basis.previous.previous.previous.SCHEMA,basis.previous.previous.SCHEMA,

@@ -53,6 +53,12 @@ def validate_contract(value):
     need(event['primary_source']=='https://www.sec.gov/Archives/edgar/data/1038357/000119312524130052/d803313d8k.htm'
          and event['primary_sections']==dict(before_market_open_delisting='Item3.01',ordinary_entitlement='Item2.01'),
          'PXD_FACTS_EXACT_RETAINED_PRIMARY_SECTIONS')
+    provider=value['provider_rows_proof']
+    need(provider['rows_sha256']=='dd9d5cd49257935447fe6d7c04813f0daaae945883a9ea40a9c96e1dd52956df'
+         and provider['physical_archive_sha256']=='db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02'
+         and provider['physical_archive_bytes']==9855560 and provider['physical_rows_selected']==3
+         and len(provider['selected_row_sha256'])==len(set(provider['selected_row_sha256']))==3,
+         'PXD_FACTS_COMPLETE_PHYSICAL_SOURCE_AND_COUNTERPARTY_EVIDENCE')
     return value
 
 

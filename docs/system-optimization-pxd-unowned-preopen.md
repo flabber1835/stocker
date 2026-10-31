@@ -105,3 +105,10 @@ actual successful reviewer inspection and no-financial flags. It never routes
 that artifact through a financial predecessor classifier. Keep original crypto
 source bytes and all extraction guards intact; refuse a changed source or AST
 boundary. The failed financial artifact retains its separate exact admission.
+
+The first hosted PXD compiler refused an incomplete provider-preimage binding.
+The retained schedule summary contained two PXD-side rows; the physical alias
+archive also contains XOM's matching `acquisitionof` row. Bind all three in their
+actual archive order, with the archive's exact length/hash. Preserve that failed
+qualification and the initial binding. Do not relax the complete-provider-row
+check or change frozen source rows to make the old binding pass.
