@@ -44,6 +44,10 @@ test.describe('App resume presentation', () => {
     // the observed presentation budget, not a fabricated financial receipt.
     const response = await page.request.get('/');
     const source = await response.text();
+    const duePattern = /var ordinaryDue = Date\.now\(\) \+ \d+;/g;
+    const refreshPattern = /refreshTimer = setTimeout\(function\(\)\{ checkAge\(\); refreshDocument\(\); \}, \d+\);/g;
+    expect([...source.matchAll(duePattern)]).toHaveLength(1);
+    expect([...source.matchAll(refreshPattern)]).toHaveLength(1);
     const base = new Date('2026-10-30T23:00:00Z');
     const requests = [];
     let closing = false;
@@ -56,12 +60,14 @@ test.describe('App resume presentation', () => {
         `data-generated-at="${new Date(now).toISOString()}"`)
         .replace(/data-max-age-seconds="[^"]+"/, 'data-max-age-seconds="9"')
         .replace(/data-refresh-pending="[^"]+"/, 'data-refresh-pending="false"')
-        .replace(/refreshTimer = setTimeout\(function\(\)\{ checkAge\(\); refreshDocument\(\); \}, \d+\);/,
+        .replace(duePattern, 'var ordinaryDue = Date.now() + 5000;')
+        .replace(refreshPattern,
           'refreshTimer = setTimeout(function(){ checkAge(); refreshDocument(); }, 5000);');
       if (positive) body = body.replace(
         /(<span id="operational-state" class=")state [^"]+("[^>]*>)[\s\S]*?(<\/span>)/,
         '$1state ok$2CLIENT PRESENTATION FIXTURE$3');
       expect(body).toContain('data-max-age-seconds="9"');
+      expect(body).toContain('var ordinaryDue = Date.now() + 5000;');
       expect(body).toContain('refreshDocument(); }, 5000);');
       return body;
     }
