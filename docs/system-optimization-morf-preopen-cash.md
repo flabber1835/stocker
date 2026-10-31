@@ -73,3 +73,26 @@ controller interval/complete-branch proof, all retained repairs and monthly metr
 Full performance still requires 2,156 closes/103 months through July 31, 2026,
 followed by the full twelve-candidate comparison. Preserve unfavorable results and
 all provider/execution limitations; no production or unseen-OOS claim.
+
+## Qualification-harness correction
+
+Run 41244715485 stopped inside the disposable veto-removal falsifier because its
+expected-error comparison omitted the standard `REFUSED_FULL_SYSTEM_` prefix.
+The intended failure occurred, but the harness rejected its correctly prefixed
+message. Preserve that run and its unqualified gate result.
+
+Its complete 154-member artifact and all 309 actual source blobs were independently
+authenticated. The full checkpoint/state, all 38 descriptors and payloads, source
+binding and all seven financial files including complete raw journal tails are
+byte-identical to the original admitted own38 parent. Hosted equivalence review
+also passed. The original financial driver call was never reached; no MORF
+overlay or new financial session was adopted. The existing July financial
+authority therefore remains valid without rollback or a source/state conversion.
+
+Correct only the harness comparison and add a pure test that executes the actual
+producer error and handler, including rejection of an unrelated error. Bind the
+preserved failed run and full-byte-equivalence review in the new exact request.
+The corrected push is an explicit qualification/continuation of that same financial
+prefix, not a fresh origin or an Actions rerun. Keep all 515 financial-source
+identities and all 297 admitted research sources unchanged. Financial advance
+still requires the corrected actual canonical gate to finish successfully.

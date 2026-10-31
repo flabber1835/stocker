@@ -198,3 +198,31 @@ def test_fresh_minimal_metadata_process_has_no_financial_imports():
                          capture_output=True,text=True,timeout=60)
     assert value.returncode==0,value.stderr
     assert value.stdout.strip()=='MORF_METADATA_AND_EXACT_REQUEST_QUALIFIED'
+
+
+def test_actual_veto_falsifier_handler_accepts_real_prefixed_error_only():
+    source=ast.parse((HERE/'system_campaign_morf_cash_gate.py').read_bytes())
+    veto,=[n for n in source.body if isinstance(n,ast.FunctionDef) and n.name=='require_veto']
+    ns=dict(need=need);exec(compile(ast.Module(body=[veto],type_ignores=[]),'<pure-actual-veto-requirement>','exec'),ns)
+    bad=SimpleNamespace(decision=SimpleNamespace(operations=[],admission_rejections=[]))
+    with pytest.raises(ValueError) as actual:ns['require_veto'](bad,'SYNTHETIC')
+    assert str(actual.value)=='REFUSED_FULL_SYSTEM_MORF_CANONICAL_ACTUAL_TERMINAL_DAY_ADMISSION_VETO'
+    qualifier,=[n for n in source.body if isinstance(n,ast.FunctionDef) and n.name=='qualify_quote']
+    handler,=[n for n in ast.walk(qualifier) if isinstance(n,ast.ExceptHandler)
+        and any(isinstance(v,ast.Constant) and v.value=='MORF_GATE_REMOVED_VETO_ACTUAL_FALSIFIER_REASON' for v in ast.walk(n))]
+    body_code=compile(ast.Module(body=handler.body,type_ignores=[]),'<actual-hosted-falsifier-error-handler>','exec')
+    exec(body_code,dict(ns,error=actual.value))
+    with pytest.raises(ValueError,match='MORF_GATE_REMOVED_VETO_ACTUAL_FALSIFIER_REASON'):
+        exec(body_code,dict(ns,error=ValueError('UNEXPECTED_ERROR')))
+
+
+def test_harness_recovery_bound_to_same_unchanged_prefix_and_actual_guard_removal(monkeypatch):
+    changed=deepcopy(job.GATE_RECOVERY);changed['selected_outer_sha256']='0'*64
+    monkeypatch.setattr(job,'GATE_RECOVERY',changed)
+    with pytest.raises(ValueError,match='MORF_HARNESS_RECOVERY_EXACT_UNADVANCED_OWN38'):job.expected_request()
+    fn,=[n for n in ast.parse(Path(job.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='expected_request']
+    hits=[i for i,n in enumerate(fn.body) if isinstance(n,ast.Expr)
+          and any(isinstance(v,ast.Constant) and v.value=='MORF_HARNESS_RECOVERY_EXACT_UNADVANCED_OWN38' for v in ast.walk(n))]
+    assert len(hits)==1;fn.body[hits[0]]=ast.Pass();ns=dict(vars(job))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<actual-harness-parent-guard-removed>','exec'),ns)
+    assert ns['expected_request']()['morf_gate_harness_recovery']['selected_outer_sha256']=='0'*64

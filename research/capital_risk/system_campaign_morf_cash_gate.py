@@ -117,7 +117,7 @@ def qualify_quote(out,cp,facts,loaded,old_objects,request):
     try:
         altered=step(fixture(),[complete])
         try:require_veto(altered,sid)
-        except ValueError as error:need(str(error)=='MORF_CANONICAL_ACTUAL_TERMINAL_DAY_ADMISSION_VETO',
+        except ValueError as error:need(str(error)=='REFUSED_FULL_SYSTEM_MORF_CANONICAL_ACTUAL_TERMINAL_DAY_ADMISSION_VETO',
                                       'MORF_GATE_REMOVED_VETO_ACTUAL_FALSIFIER_REASON')
         else:raise ValueError('MORF_GATE_ACTUAL_VETO_REMOVAL_DID_NOT_BREAK_CASE')
     finally:adapter.decide=original_decide

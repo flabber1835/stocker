@@ -13,6 +13,19 @@ from system_campaign_morf_cash_parent import scope,reference,admit,preserve,PATH
 
 HERE=Path(__file__).resolve().parent
 REQUEST='system-campaign-p02-morf-cash-request.json'
+GATE_RECOVERY=dict(
+    schema='research.unadvanced-qualification-harness-recovery/1',
+    failed_run_id=41244715485,failed_head='a6b78338a44fc7dbbc8ee67716c799dece967bb8',
+    failed_artifact_id=13058837660,failed_artifact_sha256='5dbad31bb652cf41f55297ec413e99b43ef3a0c955fb94104b1be0a426b9a2e9',
+    failed_request_sha256='621de3999ada943e82a7a112512b32620c9f0d1e46ebf26f48ad5faf76401548',
+    failed_gate_source_sha256='b4e4543b369d9a32a6662df72ef01e92a3ed125fd0312a67344f5a13101641f1',
+    unchanged_prefix_review_sha256='ce3516a7d7a167e65490bf7afe0efd17e4679a9bb90e533e49c7098c3c4f1443',
+    preserved_failure_log_sha256='cafe14934888c5c442cfc3b5127176058e770670fbe97c576fb75ddc65380a4e',
+    selected_outer_sha256='7bf2e6ef8a4679b4948b0de948cd0bec58917c49b69516f3073b904219817340',
+    actual_new_financial_rows=0,all154_members_authenticated=True,all309_failed_source_blobs_verified=True,
+    entire_financial_state_and_seven_files_including_tails_identical=True,
+    morf_overlay_adopted=False,financial_source_conversion=False,new_origin=False,
+    correction='Exact standard refusal prefix in the deliberate veto-removal expected-error comparison only')
 SOURCES=tuple((*prior.SOURCES,'system-campaign-p02-unconsumed2024-cash-request.json',SPEC,
     'system-campaign-morf-preopen-cash-terminal-facts.json','system-campaign-morf-cash-registry-extension.json',
     'system_campaign_morf_cash_context.py','system_campaign_morf_cash_facts.py','system_campaign_morf_cash_parent.py',
@@ -38,6 +51,11 @@ JOB_SITES={
 
 def expected_request():
     spec=json.loads((HERE/SPEC).read_bytes());scope(spec);value=prior.expected_request()
+    need(GATE_RECOVERY['selected_outer_sha256']==spec['outer_sha256']
+         and GATE_RECOVERY['actual_new_financial_rows']==0
+         and GATE_RECOVERY['entire_financial_state_and_seven_files_including_tails_identical'] is True
+         and all(GATE_RECOVERY[k] is False for k in ('morf_overlay_adopted','financial_source_conversion','new_origin')),
+         'MORF_HARNESS_RECOVERY_EXACT_UNADVANCED_OWN38')
     value.update(predecessor_file=SPEC,predecessor_sha256=sha256_file(HERE/SPEC),
         execution_mode='RETAINED_EIGHT_MODEL_MORF_PREOPEN_CASH_SUFFIX',
         predecessor_common_basis_sha256=spec['admitted_common_basis_sha256'],
@@ -46,6 +64,7 @@ def expected_request():
         morf_cash_catalog_sha256=sha256_file(HERE/'system-campaign-morf-preopen-cash-terminal-facts.json'),
         morf_cash_registry_extension_sha256=sha256_file(HERE/'system-campaign-morf-cash-registry-extension.json'),
         morf_quote_gate_sha256=sha256_file(HERE/'system_campaign_morf_cash_gate.py'),
+        morf_gate_harness_recovery=GATE_RECOVERY,
         diagnostic_driver_sha256=sha256_file(HERE/'system_campaign_morf_cash_diagnostics.py'),
         metadata_import_probe_sha256=sha256_file(HERE/'system_campaign_morf_cash_import_probe.py'),
         sources={name:sha256_file(HERE/name) for name in SOURCES})
