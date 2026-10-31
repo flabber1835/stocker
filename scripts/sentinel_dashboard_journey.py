@@ -24,6 +24,7 @@ PROJECTS = ('webkit-iphone', 'chromium-pwa')
 MAX_BYTES = 20 * 1024 * 1024
 INPUTS = (
     'tests/browser/support/dashboard-journey-capture.cjs',
+    'tests/browser/support/dashboard-journey-transport.cjs',
     'tests/browser/dashboard-journey.spec.js',
     'tests/browser/dashboard-journey.config.js',
     'tests/browser/package.json', 'tests/browser/package-lock.json',
@@ -175,12 +176,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', required=True)
     parser.add_argument('--phase', choices=('integrity', 'capture'), default='capture')
+    parser.add_argument('--profile', choices=('direct', 'slow-refresh'), default='direct')
     parser.add_argument('--dependency-cache', type=Path, required=True,
                         help='Existing node_modules containing Playwright; never downloaded')
     parser.add_argument('--project', choices=PROJECTS, action='append')
     parser.add_argument('--channel', default='msedge' if os.name == 'nt' else 'chromium')
     args = parser.parse_args()
     target = validate_url(args.url)
+    if args.phase == 'integrity' and args.profile != 'direct':
+        raise ValueError('Transport profiles apply only to the real capture phase')
     source = Path(__file__).resolve().parent.parent
     cache = args.dependency_cache.resolve(strict=True)
     node = shutil.which('node')
@@ -209,13 +213,15 @@ def main():
         'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'HOMEDRIVE', 'HOMEPATH', 'HOME', 'LANG'}}
     environment.update(NODE_PATH=str(cache), SENTINEL_JOURNEY_BASE_URL=target,
                        SENTINEL_BROWSER_CHANNEL=args.channel, NO_COLOR='1', CI='1')
+    if args.profile == 'slow-refresh':
+        environment['SENTINEL_JOURNEY_REFRESH_FLOOR_MS'] = '6400'
     command = [node, str(cli), 'test', '--config', str(source / 'tests/browser/dashboard-journey.config.js'),
                '--grep', 'Recorder integrity' if args.phase == 'integrity' else 'Unmodified dashboard journey',
                '--workers', '1', '--retries', '0', '--reporter', 'json', '--output', str(root / 'artifacts')]
     for project in projects:
         command.extend(('--project', project))
     write_new(root / 'owner.json', dict(schema='sentinel.dashboard-journey-run/1',
-              source_head=head, source_files=before, phase=args.phase, target_origin=target,
+              source_head=head, source_files=before, phase=args.phase, profile=args.profile, target_origin=target,
               projects=projects, command=command, maximum_bytes=MAX_BYTES,
               physical_home_screen='NOT_RUN'))
     started = time.monotonic()
@@ -289,7 +295,7 @@ def main():
         verdict = assess_run(process.returncode, reports, projects,
                              timed_out=timed_out or budget_exceeded or changed or not raw_matches)
     result = dict(schema='sentinel.dashboard-journey-run/1', source_head=head,
-                  phase=args.phase, source_files=before, source_files_unchanged=not changed,
+                  phase=args.phase, profile=args.profile, source_files=before, source_files_unchanged=not changed,
                   exit_code=process.returncode, timed_out=timed_out,
                   budget_exceeded=budget_exceeded, duration_ms=round((time.monotonic()-started)*1000),
                   raw_playwright_matches=raw_matches,

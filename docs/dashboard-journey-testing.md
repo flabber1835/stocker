@@ -80,6 +80,22 @@ Controlled latency/failure cases belong in a dedicated test environment or
 client-only transport profile, with unchanged response bytes and clocks; never
 inject faults into production services or fabricate financial PASS evidence.
 
+Decision, 2026-10-31, before the latency-profile implementation: when a direct
+baseline does not reproduce intermittent refresh flicker, use a separate
+explicit client-only slow-refresh profile. An owned loopback proxy forwards
+passive GETs to the exact HTTPS origin. It holds only completed non-navigation
+root HTML responses until that request has taken at least 6.4 seconds in total,
+matching the previously observed response duration, then sends their unchanged
+entity bytes. Already slower upstream responses receive no extra delay. It preserves original
+freshness/header verdicts and document timestamps, records upstream entity
+digests, and binds those digests to the browser-captured responses. Compression
+and transfer-length headers describe the proxy transport, not new evidence.
+No new financial fixture or rewritten green headline is permitted. This is a
+controlled transport reproducer, not a claim that the same delay occurred in a
+direct run or on the physical iPhone. Run it explicitly and keep its origin,
+latency and result separate from direct evidence. Close the owned proxy and
+upstream requests at the end; no permanent listener is installed.
+
 ## Physical Home Screen gate
 
 A separate actual-iPhone session must start recording before tapping the Home
@@ -95,6 +111,14 @@ on the current release, implement one correction through the PR workflow, and
 rerun the same acceptance without altering thresholds or evidence timestamps.
 No production correction is part of this initial capture task.
 
+For subsequent dashboard behavior changes, the acceptance evidence is a release
+gate: do not describe the installed iPhone experience as fixed from the old
+virtual-clock suite alone. A failing controlled journey, incomplete direct
+capture or unrun physical gate remains open work. The opt-in command prevents
+an unconfigured CI server or a developer without private-origin access from
+silently manufacturing a healthy dashboard fixture. Delivering this diagnostic
+test code does not itself clear that product gate.
+
 ## Running the bounded capture
 
 Use existing Node, Playwright dependencies matching `tests/browser/package.json`,
@@ -106,6 +130,9 @@ python scripts/sentinel_dashboard_journey.py --phase integrity \
   --url https://YOUR-PRIVATE-DASHBOARD/ --dependency-cache /existing/node_modules
 python scripts/sentinel_dashboard_journey.py --phase capture \
   --url https://YOUR-PRIVATE-DASHBOARD/ --dependency-cache /existing/node_modules
+python scripts/sentinel_dashboard_journey.py --phase capture --profile slow-refresh \
+  --project chromium-pwa --url https://YOUR-PRIVATE-DASHBOARD/ \
+  --dependency-cache /existing/node_modules
 ```
 
 On Windows the default Chromium channel is installed Edge; on other platforms

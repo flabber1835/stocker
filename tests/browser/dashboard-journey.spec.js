@@ -2,24 +2,37 @@
 const {test,expect}=require('@playwright/test');
 const fs=require('node:fs/promises');
 const http=require('node:http');
-const {startCapture,finishCapture}=require('./support/dashboard-journey-capture.cjs');
+const {startCapture,finishCapture,assessCapture}=require('./support/dashboard-journey-capture.cjs');
+const {startJourneyTransport,bindTransport}=require('./support/dashboard-journey-transport.cjs');
 
 test.describe('Unmodified dashboard journey', () => {
   test('records cold navigation and two actual HTML refreshes',async ({page},testInfo) => {
     await fs.mkdir(testInfo.outputDir,{recursive:true});
-    const capture=await startCapture(page,{url:process.env.SENTINEL_JOURNEY_BASE_URL,
-      outputDir:testInfo.outputDir,project:testInfo.project.name,maxDurationMs:110000,maxEvents:300});
-    let report;
+    const upstreamUrl=process.env.SENTINEL_JOURNEY_BASE_URL;
+    const floor=process.env.SENTINEL_JOURNEY_REFRESH_FLOOR_MS;
+    if (floor!==undefined && !/^\d+$/.test(floor)) throw new Error('Invalid refresh-floor profile');
+    const transport=floor===undefined ? null : await startJourneyTransport({upstreamUrl,refreshFloorMs:Number(floor)});
+    let capture,report;
     try {
-      await page.goto(process.env.SENTINEL_JOURNEY_BASE_URL,{waitUntil:'domcontentloaded',timeout:105000});
-      await capture.waitForCompletion();
-    } catch (_) { capture.recordFailure('NAVIGATION_OR_RECORDER_ERROR'); }
-    finally {
-      report=await finishCapture(capture);
-      const filename=testInfo.outputPath('journey.json');
-      await fs.writeFile(filename,JSON.stringify(report,null,2)+'\n');
-      await testInfo.attach('dashboard-journey',{path:filename,contentType:'application/json'});
+      const url=transport ? transport.url : upstreamUrl;
+      capture=await startCapture(page,{url,outputDir:testInfo.outputDir,project:testInfo.project.name,maxDurationMs:110000,maxEvents:300});
+      try {
+        await page.goto(url,{waitUntil:'domcontentloaded',timeout:105000});
+        await capture.waitForCompletion();
+      } catch (_) { capture.recordFailure('NAVIGATION_OR_RECORDER_ERROR'); }
+      finally {report=await finishCapture(capture);}
+    } finally {if (transport) await transport.close();}
+    report.upstream_origin=new URL(upstreamUrl).origin;
+    report.browser={engine:testInfo.project.use.browserName,version:page.context().browser().version(),
+      service_workers:'allow',viewport:testInfo.project.use.viewport || {width:393,height:852}};
+    report.transport_profile=transport ? {...transport.profile,binding:bindTransport(report,transport.profile)} : {name:'direct',refresh_floor_ms:0};
+    if (transport && !report.transport_profile.binding.matched) {
+      report.capture.complete=false;report.capture.status='INCOMPLETE';report.capture.reasons.push('TRANSPORT_ENTITY_MISMATCH');
+      report.acceptance=assessCapture(report);
     }
+    const filename=testInfo.outputPath('journey.json');
+    await fs.writeFile(filename,JSON.stringify(report,null,2)+'\n');
+    await testInfo.attach('dashboard-journey',{path:filename,contentType:'application/json'});
     expect(report.capture.status,JSON.stringify(report.capture)).toBe('COMPLETE');
     expect(report.acceptance.status,JSON.stringify(report.acceptance)).toBe('PASS');
   });

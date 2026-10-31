@@ -146,7 +146,7 @@ function assessCapture(report) {
   for (const response of responses) {
     const doc = response.document;
     if (response.http_status!==200 || response.panel_status!=='CURRENT' || !doc ||
-        !doc.generated_at || !Number.isFinite(doc.max_age_seconds) || doc.max_age_seconds<=0) {
+        !Number.isFinite(Date.parse(doc.generated_at)) || !Number.isFinite(doc.max_age_seconds) || doc.max_age_seconds<=0) {
       add('NON_CURRENT_SERVER_DOCUMENT','An original response did not contain complete CURRENT evidence.',{request_id:response.request_id});
     }
     if (doc && doc.headline_class!=='state ok') add('BACKEND_NOT_HEALTHY','Original server health was not green.',{request_id:response.request_id,warning_ids:doc.warning_ids});

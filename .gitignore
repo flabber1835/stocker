@@ -57,3 +57,6 @@ tests/browser/test-results/
 
 # Ad-hoc RSS sampling during a Wealth Core rehearsal (scripts/wc-progress.sh companion)
 wc-rss.log
+# Private, bounded dashboard journey evidence; screenshots are not source.
+.codex-tmp/dashboard-journey-*/
+.codex-tmp/dashboard-journey-test-ownership.json
