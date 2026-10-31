@@ -182,6 +182,8 @@ def handoff_filters(mode):
             "AND s.completed_at IS NOT NULL AND s.execute_at<=s.completed_at "
             "AND s.completed_at<=clock_timestamp() "
             "AND s.execution_close_at>clock_timestamp()+interval '15 minutes'")
+    elif mode=='POST_TRADE_SUCCESSOR':
+        return handoff_filters('POST_TRADE')
     elif mode=='BLOCKED_UNSENT':
         candidate = "s.state='BLOCKED' AND s.plan_id IS NULL"
         ready = ("s.state='BLOCKED' AND s.plan_id IS NULL AND s.completed_at IS NOT NULL "
@@ -198,6 +200,8 @@ def handoff_filters(mode):
 
 
 def snapshot_sql(mode='PRE_OPEN'):
+    if mode=='POST_TRADE_SUCCESSOR':
+        return successor_snapshot_sql()
     candidate,ready = handoff_filters(mode)
     settled = ''
     if mode=='POST_TRADE':
@@ -237,6 +241,53 @@ def snapshot_sql(mode='PRE_OPEN'):
      WHERE x.cycle_id=s.cycle_id AND (x.from_state IN ('EXECUTING','RECONCILING')
        OR x.to_state IN ('EXECUTING','RECONCILING')))),
  'inflight',"""))
+    return statement
+
+
+def successor_snapshot_sql():
+    """Keep completed history distinct from the sole current successor plan."""
+    statement=snapshot_sql('POST_TRADE')
+    statement=statement.replace(
+        's.control_generation=c.generation AND s.config_sha256=c.config_sha256',
+        's.control_generation<c.generation')
+    statement=statement.replace(
+        'JOIN sentinel_execution_plans p ON p.plan_id=s.plan_id',
+        '''JOIN sentinel_execution_plans original ON original.plan_id=s.plan_id
+ JOIN sentinel_execution_plans p ON p.plan_id=original.superseded_by''')
+    statement=statement.replace("'inflight',", """'successor',json_build_object(
+   'original_plan',to_jsonb(original),
+   'current_plan',to_jsonb(p),
+   'current_authority_md5',(SELECT md5(state::text) FROM sentinel_processed_sessions
+     WHERE cursor_name='dual-plan-sizing-authority:v1:'||p.plan_id),
+   'current_projection_md5',(SELECT md5(state::text) FROM sentinel_processed_sessions
+     WHERE cursor_name='plan-target-projection:v2:'||p.plan_id),
+   'current_opening_md5',(SELECT md5(state::text) FROM sentinel_processed_sessions
+     WHERE cursor_name='plan-opening-intents:v1:'||p.plan_id),
+   'current_cycles',(SELECT count(*) FROM sentinel_automation_cycles x
+     WHERE x.control_generation=c.generation AND x.deployment_id=c.deployment_id
+       AND x.broker=c.broker AND x.broker_account_id=c.broker_account_id
+       AND x.takeover_epoch=c.takeover_epoch),
+   'current_plans',(SELECT count(*) FROM sentinel_execution_plans x
+     WHERE x.superseded_by IS NULL AND x.deployment_id=c.deployment_id
+       AND x.broker=c.broker AND x.broker_account_id=c.broker_account_id
+       AND x.takeover_epoch=c.takeover_epoch)),
+ 'retained_incidents',(SELECT coalesce(jsonb_object_agg(x.alert_id,
+   jsonb_build_object('event_type',x.event_type,'severity',x.severity,'payload',x.payload,
+     'ack_state',x.ack_state,'created_at',x.created_at)),'{}'::jsonb)
+   FROM sentinel_alert_outbox x WHERE x.severity='CRITICAL' AND x.ack_state='UNACKNOWLEDGED'),
+ 'inflight',""")
+    statement=statement.replace('AND p.superseded_by IS NULL,', '''AND p.superseded_by IS NULL
+   AND original.deployment_id=s.deployment_id AND original.broker=s.broker
+   AND original.broker_account_id=s.broker_account_id AND original.takeover_epoch=s.takeover_epoch
+   AND original.decision_session=s.decision_session AND original.effective_session=s.effective_session
+   AND original.rollout_mode=s.rollout_mode AND original.rollout_version=s.rollout_version
+   AND original.rollout_certificate_sha256 IS NOT DISTINCT FROM s.certificate_sha256
+   AND p.deployment_id=c.deployment_id AND p.broker=c.broker
+   AND p.broker_account_id=c.broker_account_id AND p.takeover_epoch=c.takeover_epoch
+   AND p.decision_session=original.decision_session AND p.effective_session=original.effective_session
+   AND p.target_basket=original.target_basket AND p.target_exposure=original.target_exposure
+   AND p.rollout_mode=c.rollout_mode AND p.rollout_version=c.rollout_version
+   AND p.rollout_certificate_sha256 IS NOT DISTINCT FROM c.certificate_sha256,''')
     return statement
 
 
@@ -383,6 +434,59 @@ while True:
         time.sleep(min(.5,remaining))
 print(json.dumps(output,sort_keys=True))
 '''
+
+_SUCCESSOR_HISTORY = r'''        from datetime import datetime,timedelta,timezone
+        from zoneinfo import ZoneInfo
+        from sentinel.automation import store as automation_store
+        from sentinel.paper_plan_preview import project_original_intent
+        control=automation_store.load_control(conn)
+        cycle=automation_store.load_cycle(conn,expected['cycle_id'])
+        assert control.enabled and not control.kill_switch_engaged
+        assert cycle is not None and cycle.state.value=='SUCCEEDED' and not cycle.historical_state_only
+        assert cycle.failure_code is None and cycle.failure_detail is None
+        assert cycle.control_generation<control.generation
+        now=datetime.now(timezone.utc)
+        assert cycle.effective_session==now.astimezone(ZoneInfo('America/New_York')).date()
+        assert cycle.execute_at<=cycle.completed_at<=now
+        assert cycle.execution_close_at>now+timedelta(minutes=15)
+        original=journal.load_plan(conn,expected['original_plan']['plan_id'])
+        assert original is not None and original.plan_id==cycle.plan_id
+        assert original.fingerprint()==cycle.plan_fingerprint==expected['original_plan_fingerprint']
+        assert original.superseded_by==plan.plan_id and original.plan_id!=plan.plan_id
+        assert original.decision_session==plan.decision_session==cycle.decision_session
+        assert original.effective_session==plan.effective_session==cycle.effective_session
+        assert original.target_basket==plan.target_basket and original.target_exposure==plan.target_exposure
+        for key in ('deployment_id','broker','broker_account_id','takeover_epoch'):
+            assert getattr(original,key)==getattr(plan,key)==getattr(cycle,key)==getattr(bound,key)
+        assert original.rollout_certificate_sha256==cycle.certificate_sha256
+        assert original.rollout_mode==cycle.rollout_mode and original.rollout_version==cycle.rollout_version
+        assert plan.rollout_certificate_sha256==control.certificate_sha256
+        assert plan.rollout_mode==control.rollout_mode and plan.rollout_version==control.rollout_version
+        latest=journal.latest_plan(conn)
+        assert latest is not None and latest.plan_id==plan.plan_id
+        original_saved=authority.load_authority(conn,plan_id=original.plan_id)
+        assert original_saved is not None and original_saved['plan_fingerprint']==original.fingerprint()
+        historical=original.to_dict()
+        historical.update(cycle_id=cycle.cycle_id,plan_fingerprint=original.fingerprint(),
+            broker=original.broker,broker_account_id=original.broker_account_id,
+            deployment_id=original.deployment_id,takeover_epoch=original.takeover_epoch,
+            execute_at=cycle.execute_at,
+            created_at=datetime.fromisoformat(expected['original_plan']['created_at']))
+        original_intent=project_original_intent(historical,original_saved)
+        assert original_intent.plan_id==original.plan_id
+        historical_completion=dict(cycle_id=cycle.cycle_id,plan_id=original.plan_id,
+            plan_fingerprint=original.fingerprint(),authority=original_saved['authority_sha256'],
+            sizing_sha256=hashlib.sha256(json.dumps(original_saved,sort_keys=True,
+                separators=(',',':'),ensure_ascii=True,allow_nan=False).encode()).hexdigest())
+'''
+
+SUCCESSOR_CANONICAL = (CANONICAL
+    .replace('        settled_native_positions=None\n',
+        _SUCCESSOR_HISTORY+'        settled_native_positions=None\n')
+    .replace("expected.get('handoff_mode')=='POST_TRADE'",
+        "expected.get('handoff_mode') in {'POST_TRADE','POST_TRADE_SUCCESSOR'}")
+    .replace('        conn.rollback()\n    return output',
+        "        output['historical_completion']=historical_completion\n        conn.rollback()\n    return output"))
 
 _BLOCKED_PANEL_BODY = r'''assert not page['source_errors']
 assert rows['automation']['value']=='ENABLED · KILLED' and rows['automation']['status']=='fail'
@@ -569,7 +673,50 @@ assert isinstance(plan,dict) and plan.get('plan_id')==expected['plan']
 assert str(plan.get('decision_session'))==expected['decision']
 assert str(plan.get('effective_session'))==expected['effective']
 assert rows['automation_cycle']['value']==('SUCCEEDED' if post_trade else 'WAITING_OPEN')
-assert page['color'] in (('green','amber') if post_trade else ('green',)) and not page['source_errors']
+history_warning=None
+if not post_trade and page['color']=='amber':
+ def utc_clock(value):
+  assert isinstance(value,str)
+  bound=datetime.fromisoformat(value[:-1]+'+00:00' if value.endswith('Z') else value)
+  assert bound.utcoffset()==timedelta(0)
+  return bound
+ assert len(rows)==len(page['rows'])
+ assert page['operational']=='warn' and page['overall']=='warn' and not page['source_errors']
+ history=rows['paper_reconciliation']
+ assert history.get('paper_alignment')=='SCHEDULED_WITH_HISTORY'
+ assert history['status']=='warn' and history['color']=='amber'
+ assert history.get('required_current') is True and history.get('recovery') is None
+ assert history.get('stale') is False and history.get('future') is False
+ execute_at=utc_clock(plan['execute_at'])
+ boundary=utc_clock(history['valid_until'])
+ assert now<boundary==execute_at-timedelta(microseconds=1)
+ assert plan.get('cycle_id') and rows['paper_plan']['status']=='ok'
+ for key in ('paper_plan','automation','automation_leader','authority','shadow_verification','feed'):
+  fact=rows[key]
+  assert fact['status']=='ok' and fact['color']=='green'
+  assert fact.get('stale') is False and fact.get('future') is False
+ assert rows['automation']['value']=='ENABLED · KILL RELEASED'
+ leader=rows['automation_leader']
+ assert leader.get('required_current') is True
+ assert now-timedelta(seconds=30)<=utc_clock(leader['as_of'])<=now+timedelta(seconds=5)
+ assert now<utc_clock(leader['valid_until'])
+ assert rows['shadow_verification']['value']=='SHADOW VERIFIED THROUGH '+expected['decision']
+ allowed={'paper_reconciliation','automation_cycle','automation_step_open'}
+ for fact in page['rows']:
+  assert fact['status'] in {'ok','warn','pending'}
+  assert fact['color']=={'ok':'green','warn':'amber','pending':'amber'}[fact['status']]
+  assert not (fact.get('required_current') is True and fact['status']=='pending')
+  if fact['status']=='warn':
+   assert fact['key'] in allowed
+   if fact['key']!='paper_reconciliation':
+    assert fact['value']=='WAITING_OPEN' and fact.get('required_current') is True
+    assert fact.get('stale') is False and fact.get('future') is False
+    recovery=fact['recovery']
+    assert recovery['phase']==('AUTOMATION_WAITING_OPEN' if fact['key']=='automation_cycle' else 'AUTOMATION_OPEN')
+    assert recovery.get('automatic') is True and recovery.get('operator_required') is False
+    assert recovery.get('active') is True and now<utc_clock(recovery['deadline'])
+ history_warning={key:history[key] for key in ('key','paper_alignment','status','color','value','valid_until')}
+assert (page['color'] in (('green','amber') if post_trade else ('green',)) or history_warning is not None) and not page['source_errors']
 assert not any(row.get('color')=='red' for row in page['rows'])
 assert rows['alert_dispatcher']['status']=='ok'
 assert rows['automation_alerts']['status']=='ok'
@@ -581,8 +728,47 @@ output=dict(as_of=page['as_of'],color=page['color'],source_errors=page['source_e
  sender={key:rows['alert_dispatcher'][key] for key in ('status','value','detail')},
  alerts={key:rows['automation_alerts'][key] for key in ('status','value','detail')},
  attention=[dict(key=row['key'],status=row['status'],value=row['value'])
-  for row in page['rows'] if row.get('color')=='red'])
+  for row in page['rows'] if row.get('color')=='red'],
+ **({'retained_history_warning':history_warning,'operational_ready':False,
+     'installation_scope':'PRE_OPEN_COMPATIBLE_APPLICATION_REPAIR_WITH_HISTORY_WARNING'}
+    if history_warning is not None else {}))
 print(json.dumps(output,sort_keys=True))
 '''
 
 BLOCKED_PANEL = PANEL[:PANEL.index("post_trade=expected.get('handoff_mode')")] + _BLOCKED_PANEL_BODY
+
+_SUCCESSOR_PANEL_BODY = r'''assert not page['source_errors']
+recorded=rows.get('completed_trading_run',{}).get('trading_run')
+assert isinstance(recorded,dict) and recorded.get('state')=='SUCCEEDED'
+intent=recorded.get('intent')
+assert isinstance(intent,dict) and intent.get('cycle_id')==expected['cycle_id']
+assert intent.get('plan_id')==expected['original_plan'] and intent.get('plan_id')!=expected['plan']
+assert intent.get('decision_session')==expected['decision'] and intent.get('effective_session')==expected['effective']
+assert rows['completed_trading_run']['status']=='ok'
+assert rows['automation']['status']=='ok' and rows['automation_leader']['status']=='ok'
+assert rows['automation_cycle']['value']=='WAITING FOR NEXT DECISION'
+assert rows['alert_dispatcher']['status']=='ok'
+assert rows['feed']['status']=='ok' and rows['feed']['value']==expected['decision']+' · 0 sessions behind'
+from sentinel.feed import store
+import os
+conn=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=5000)
+try:
+ conn.execute('BEGIN TRANSACTION READ ONLY')
+ actual=conn.execute("SELECT coalesce(jsonb_object_agg(x.alert_id,jsonb_build_object("
+   "'event_type',x.event_type,'severity',x.severity,'payload',x.payload,"
+   "'ack_state',x.ack_state,'created_at',x.created_at)),'{}'::jsonb) "
+   "FROM sentinel_alert_outbox x WHERE x.severity='CRITICAL' AND x.ack_state='UNACKNOWLEDGED'").fetchone()[0]
+ assert actual==expected['retained_incidents']
+finally:
+ conn.rollback();conn.close()
+for row in page['rows']:
+ if row.get('color')=='red':
+  assert row['key']=='automation_alerts' and row['status']=='fail'
+assert rows['automation_alerts']['status']=='fail' and page['color']=='red'
+print(json.dumps(dict(as_of=page['as_of'],color=page['color'],operational_ready=False,
+ current_plan=expected['plan'],completed_cycle=expected['cycle_id'],
+ completed_plan=intent['plan_id'],sender=rows['alert_dispatcher']['status'],
+ retained_incidents=sorted(actual),source_errors=page['source_errors']),sort_keys=True))
+'''
+
+SUCCESSOR_PANEL = PANEL[:PANEL.index("post_trade=expected.get('handoff_mode')")] + _SUCCESSOR_PANEL_BODY

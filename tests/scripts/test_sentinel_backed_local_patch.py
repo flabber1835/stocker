@@ -277,6 +277,199 @@ def test_post_trade_preserves_a_completed_reconciled_plan():
     assert host.calls==[fixture.checks.snapshot_sql('POST_TRADE')]
 
 
+def successor_host():
+    host=settled_host();host.supports_post_trade_successor=True
+    host.request['handoff_mode']='POST_TRADE_SUCCESSOR'
+    state=host.state;control=state['control'];cycle=state['cycle']
+    cycle.update(control_generation=98,plan_id='completed-plan',cycle_id='b'*64,
+        historical_state_only=False,certificate_sha256='old-certificate',config_sha256='old-config',
+        plan_fingerprint='original-fingerprint',execute_at='2031-04-22T13:31:00Z')
+    shared={key:control[key] for key in fixture.evidence._BINDING_KEYS}
+    shared.update(decision_session=cycle['decision_session'],effective_session=cycle['effective_session'],
+        target_basket={'fictional-security':'7'},target_exposure='0.55',
+        rollout_mode=control['rollout_mode'],rollout_version=control['rollout_version'])
+    original=dict(shared,plan_id='completed-plan',superseded_by='current-plan',
+        rollout_certificate_sha256='old-certificate',created_at='2031-04-22T12:00:00Z')
+    active=dict(shared,plan_id='current-plan',superseded_by=None,
+        rollout_certificate_sha256=control['certificate_sha256'])
+    state['plan']={'plan_id':'current-plan'}
+    state['successor']=dict(original_plan=original,current_plan=active,current_cycles=0,current_plans=1,
+        current_authority_md5='current-authority',current_projection_md5=None,current_opening_md5=None)
+    state['retained_incidents']={'a'*64:dict(event_type='AUTOMATION_OPERATIONAL_RED',severity='CRITICAL',
+        ack_state='UNACKNOWLEDGED',payload=dict(reason='WAITING_FOR_LEADER',
+            control_generation=control['generation'],broker_outcome_unresolved=0))}
+    return host
+
+
+def test_post_trade_successor_keeps_completed_and_current_authority_distinct():
+    host=successor_host()
+    assert fixture.evidence.snapshot(host)==host.state
+    statement=host.calls[0]
+    assert 's.control_generation<c.generation' in statement
+    assert 'p.plan_id=original.superseded_by' in statement
+    assert 'p.target_basket=original.target_basket' in statement
+    assert "'current_cycles'" in statement and "'retained_incidents'" in statement
+    assert "interval '15 minutes'" in statement
+    for mode in ('PRE_OPEN','POST_TRADE'):
+        assert 's.control_generation=c.generation AND s.config_sha256=c.config_sha256' in fixture.checks.snapshot_sql(mode)
+        assert "'successor'" not in fixture.checks.snapshot_sql(mode)
+
+
+@pytest.mark.parametrize('path,value',[
+    (('successor','current_cycles'),1),(('successor','current_plans'),2),
+    (('successor','current_authority_md5'),None),
+    (('successor','current_cycles'),False),(('cycle','control_generation'),99),
+    (('cycle','historical_state_only'),True),(('cycle','state'),'FAILED'),
+    (('cycle','failure_detail'),'incident'),(('cycle','plan_id'),'foreign'),
+    (('successor','original_plan','superseded_by'),'foreign'),
+    (('successor','current_plan','superseded_by'),'other'),
+    (('successor','current_plan','broker_account_id'),'foreign'),
+    (('successor','current_plan','effective_session'),'2031-04-23'),
+    (('successor','current_plan','target_basket'),{'fictional-security':'8'}),
+    (('successor','current_plan','rollout_certificate_sha256'),'foreign'),
+    (('successor','original_plan','rollout_certificate_sha256'),'foreign'),
+    (('retained_incidents',),{}),(('reconciliation',),None),
+    (('retained_incidents','a'*64,'payload','broker_outcome_unresolved'),False),
+    (('inflight',),1),(('jobs_active',),1),(('control','kill_switch_engaged'),True),
+])
+def test_post_trade_successor_refuses_changed_completed_current_or_idle_subject(path,value):
+    host=successor_host();target=host.state
+    for key in path[:-1]:target=target[key]
+    target[path[-1]]=value
+    with pytest.raises(fixture.model.DeliveryRefused):fixture.evidence.snapshot(host)
+
+
+def test_post_trade_successor_scope_guard_has_an_executed_falsifier(monkeypatch):
+    original=fixture.evidence.require
+    monkeypatch.setattr(fixture.evidence,'require',lambda ok,reason:
+        None if reason=='POST_TRADE_SUCCESSOR_CURRENT_SCOPE_CHANGED' else original(ok,reason))
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_post_trade_successor_refuses_changed_completed_current_or_idle_subject(
+            ('successor','current_cycles'),1)
+
+
+@pytest.mark.parametrize('mode,supported,exception',[
+    ('POST_TRADE_SUCCESSOR',True,'ImmutableAlertChanged'),
+    ('POST_TRADE_SUCCESSOR',True,'ConnectionTimeout'),
+    ('POST_TRADE',True,'ImmutableAlertChanged'),
+    ('POST_TRADE_SUCCESSOR',False,'ImmutableAlertChanged')])
+def test_only_exact_owned_successor_restart_is_an_admissible_predecessor(mode,supported,exception):
+    from types import SimpleNamespace
+    host=successor_host();host.request['handoff_mode']=mode
+    host.supports_post_trade_successor=supported
+    host.request['predecessor']['image']='old-image'
+    item=dict(Id='owned-worker',Image='old-image',
+        State=dict(Running=True,Restarting=True,OOMKilled=False))
+    log=('2031-04-22T14:00:00Z Traceback (most recent call last):\n'
+         '2031-04-22T14:00:00Z   File "/app/sentinel/automation_runtime.py", line 99, in notify\n'
+         '2031-04-22T14:00:00Z   File "/app/sentinel/automation/outbox.py", line 99, in enqueue\n'
+         '2031-04-22T14:00:00Z sentinel.automation.model.'+exception+
+         ': alert idempotency key was reused with different content')
+    host.run=lambda *a,**k:SimpleNamespace(stdout=b'',stderr=log.encode())
+    if mode=='POST_TRADE_SUCCESSOR' and supported and exception=='ImmutableAlertChanged':
+        assert fixture.evidence.require_successor_worker_restart(host,item)['container']=='owned-worker'
+    else:
+        with pytest.raises(fixture.model.DeliveryRefused):
+            fixture.evidence.require_successor_worker_restart(host,item)
+
+
+@pytest.mark.parametrize('fault',['message','notify_frame','outbox_frame'])
+def test_successor_rejects_same_exception_from_another_message_or_call_path(fault):
+    from types import SimpleNamespace
+    host=successor_host();host.request['predecessor']['image']='old-image'
+    item=dict(Id='owned-worker',Image='old-image',
+        State=dict(Running=True,Restarting=True,OOMKilled=False))
+    message='alert idempotency key was reused with different content' if fault!='message' else 'different integrity failure'
+    lines=['Traceback (most recent call last):']
+    if fault!='notify_frame':lines.append('  File "/app/sentinel/automation_runtime.py", line 99, in notify')
+    if fault!='outbox_frame':lines.append('  File "/app/sentinel/automation/outbox.py", line 99, in enqueue')
+    lines.append('sentinel.automation.model.ImmutableAlertChanged: '+message)
+    host.run=lambda *a,**k:SimpleNamespace(stdout=b'',stderr='\n'.join(lines).encode())
+    with pytest.raises(fixture.model.DeliveryRefused,match='INCIDENT_NOT_EXACT'):
+        fixture.evidence.require_successor_worker_restart(host,item)
+
+
+def test_successor_probe_validates_old_intent_and_current_canonical_plan_separately():
+    code=fixture.checks.SUCCESSOR_CANONICAL
+    compile(code,'successor-canonical','exec')
+    assert code.count('rolling_runtime.status(')==1 and code.count('authority.rederive_plan(')==1
+    assert 'project_original_intent(historical,original_saved)' in code
+    assert 'original.superseded_by==plan.plan_id' in code
+    assert 'cycle.control_generation<control.generation' in code
+    assert 'cycle.execution_close_at>now+timedelta(minutes=15)' in code
+    assert 'journal.latest_plan(conn)' in code
+    compile(fixture.checks.SUCCESSOR_PANEL,'successor-panel','exec')
+    assert "row['key']=='automation_alerts'" in fixture.checks.SUCCESSOR_PANEL
+    assert "assert actual==expected['retained_incidents']" in fixture.checks.SUCCESSOR_PANEL
+    assert 'operational_ready=False' in fixture.checks.SUCCESSOR_PANEL
+
+
+def execute_successor_historical_preflight(monkeypatch,program=None):
+    """Compose the actual historical body, real ExecutionPlan and real projector."""
+    from datetime import datetime,timedelta,timezone
+    from decimal import Decimal
+    from types import SimpleNamespace
+    from zoneinfo import ZoneInfo
+    from sentinel.automation import store as automation_store
+    from sentinel.execution import journal
+    from sentinel.execution.plan import ExecutionPlan
+    from sentinel import dual_plan_authority as authority
+    now=datetime.now(timezone.utc)
+    day=now.astimezone(ZoneInfo('America/New_York')).date()
+    binding=dict(deployment_id='owned',broker='alpaca',broker_account_id='PAPER-Z',takeover_epoch=7)
+    common=dict(decision_session=day-timedelta(days=1),effective_session=day,
+        target_exposure=Decimal('.55'),target_basket={'fictional-security':Decimal('7')},
+        rollout_mode='CONTROLLER',**binding)
+    original=ExecutionPlan(plan_id='completed-plan',rollout_version=11,
+        rollout_certificate_sha256='a'*64,superseded_by='current-plan',**common)
+    current=ExecutionPlan(plan_id='current-plan',rollout_version=12,
+        rollout_certificate_sha256='b'*64,**common)
+    assert 'broker_account_id' not in original.to_dict()
+    cycle=SimpleNamespace(cycle_id='b'*64,plan_id=original.plan_id,
+        plan_fingerprint=original.fingerprint(),state=SimpleNamespace(value='SUCCEEDED'),
+        historical_state_only=False,failure_code=None,failure_detail=None,control_generation=98,
+        decision_session=original.decision_session,effective_session=day,
+        execute_at=now-timedelta(hours=1),completed_at=now-timedelta(minutes=30),
+        execution_close_at=now+timedelta(hours=1),certificate_sha256='a'*64,
+        rollout_mode='CONTROLLER',rollout_version=11,**binding)
+    control=SimpleNamespace(enabled=True,kill_switch_engaged=False,generation=99,
+        rollout_mode='CONTROLLER',rollout_version=12,certificate_sha256='b'*64)
+    saved=dict(plan_id=original.plan_id,plan_fingerprint=original.fingerprint(),authority_sha256='c'*64,
+        tickers={'fictional-security':'TEST'},broker_observation=dict(completeness='COMPLETE',
+            account_identity=dict(broker='alpaca',account_id='PAPER-Z'),
+            observed_at=(now-timedelta(hours=2)).isoformat(),
+            positions=[dict(instrument=dict(security_id='fictional-security'),quantity='7')]))
+    monkeypatch.setattr(automation_store,'load_control',lambda _:control)
+    monkeypatch.setattr(automation_store,'load_cycle',lambda *_:cycle)
+    monkeypatch.setattr(journal,'load_plan',lambda *a:original)
+    monkeypatch.setattr(journal,'latest_plan',lambda _:current)
+    monkeypatch.setattr(authority,'load_authority',lambda *a,**k:saved)
+    namespace=dict(conn=object(),plan=current,bound=SimpleNamespace(**binding),journal=journal,
+        authority=authority,json=json,hashlib=__import__('hashlib'),expected=dict(
+            cycle_id=cycle.cycle_id,original_plan=dict(plan_id=original.plan_id,
+                created_at=(now-timedelta(minutes=90)).isoformat()),
+            original_plan_fingerprint=original.fingerprint()))
+    exec(compile(textwrap.dedent(program or fixture.checks._SUCCESSOR_HISTORY),
+        'complete-successor-historical-preflight','exec'),namespace)
+    return namespace
+
+
+def test_successor_historical_preflight_composes_real_plan_shape_and_account_bound_intent(monkeypatch):
+    result=execute_successor_historical_preflight(monkeypatch)
+    intent=result['original_intent']
+    assert intent.plan_id=='completed-plan' and intent.legs[0].action=='HOLD'
+    assert result['historical_completion']['plan_id']=='completed-plan'
+    assert result['historical']['broker_account_id']=='PAPER-Z'
+
+
+def test_original_nested_deployment_shape_has_an_executed_flat_account_falsifier(monkeypatch):
+    program=fixture.checks._SUCCESSOR_HISTORY
+    needle='broker=original.broker,broker_account_id=original.broker_account_id,'
+    assert program.count(needle)==1
+    with pytest.raises(KeyError,match='broker_account_id'):
+        execute_successor_historical_preflight(monkeypatch,program.replace(needle,''))
+
+
 @pytest.mark.parametrize('fault',['adapter','policy','state','completed','reconciliation','wrong_observation','failure'])
 def test_post_trade_refuses_unsettled_or_unsupported_handoffs(fault):
     host=settled_host()
@@ -296,3 +489,74 @@ def test_reconciliation_guard_removal_has_a_falsifier(monkeypatch):
         None if reason=='POST_TRADE_POSITIVE_RECONCILIATION_REQUIRED' else original(value,reason))
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
         test_post_trade_refuses_unsettled_or_unsupported_handoffs('wrong_observation')
+
+
+def ownership_host(tmp_path,*,duplicate=False):
+    deployment=tmp_path/'actual-deployment';deployment.mkdir(parents=True)
+    retained=tmp_path/'shared-receipt-root';retained.mkdir()
+    authority=tmp_path/'shared-authority';authority.mkdir()
+    host=object.__new__(patch.BackedHost)
+    host.deployment=deployment
+    host.predecessor_roots=(retained,deployment,retained,deployment) if duplicate else (retained,)
+    host.load_values=lambda:{'SENTINEL_AUTHORITY_ARTIFACTS_DIR':str(authority)}
+    return host,retained,authority
+
+
+def go_lock_path(root):
+    return root/'artifacts/sentinel/go-validation/go-validation.lock'
+
+
+@pytest.mark.parametrize('held_root',['deployment','retained'])
+def test_backed_handoff_refuses_actual_or_retained_go_owner_before_yield(tmp_path,held_root):
+    import fcntl
+    host,retained,authority=ownership_host(tmp_path)
+    selected=go_lock_path(host.deployment if held_root=='deployment' else retained)
+    selected.parent.mkdir(parents=True)
+    yielded=False
+    with selected.open('a+') as owner:
+        fcntl.flock(owner,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        with pytest.raises(patch.DeliveryRefused,match='ANOTHER_CANONICAL_OWNER_IS_ACTIVE'):
+            with host.owned():yielded=True
+    assert yielded is False
+    # Refusal also releases earlier authority locks, without yielding ownership.
+    for name in ('activation-coordinator.lock','autonomous-deploy.lock'):
+        with (authority/name).open('a+') as probe:
+            fcntl.flock(probe,fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+
+def test_backed_handoff_holds_actual_and_retained_go_paths_and_deduplicates_roots(tmp_path):
+    import fcntl
+    host,retained,authority=ownership_host(tmp_path,duplicate=True)
+    with host.owned():
+        paths=[go_lock_path(host.deployment),go_lock_path(retained),
+            authority/'activation-coordinator.lock',authority/'autonomous-deploy.lock',
+            host.deployment/'.local-delivery.lock']
+        for path in paths:
+            with path.open('a+') as competitor:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(competitor,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    for path in paths:
+        with path.open('a+') as available:
+            fcntl.flock(available,fcntl.LOCK_EX|fcntl.LOCK_NB)
+
+
+def test_omitting_actual_deployment_go_lock_has_a_real_flock_falsifier(tmp_path,monkeypatch):
+    import ast
+    tree=ast.parse(textwrap.dedent(inspect.getsource(patch.BackedHost.owned)))
+    subjects=[node for node in ast.walk(tree) if isinstance(node,ast.Tuple) and node.elts
+        and isinstance(node.elts[0],ast.Attribute) and node.elts[0].attr=='deployment'
+        and isinstance(node.elts[0].value,ast.Name) and node.elts[0].value.id=='self'
+        and len(node.elts)==2 and isinstance(node.elts[1],ast.Starred)]
+    assert len(subjects)==1
+    subjects[0].elts=subjects[0].elts[1:]
+    supers=[node for node in ast.walk(tree) if isinstance(node,ast.Call)
+        and isinstance(node.func,ast.Name) and node.func.id=='super'
+        and not node.args and not node.keywords]
+    assert len(supers)==1
+    supers[0].args=[ast.Name(id='BackedHost',ctx=ast.Load()),ast.Name(id='self',ctx=ast.Load())]
+    namespace={}
+    exec(compile(ast.fix_missing_locations(tree),'missing-actual-deployment-go-lock','exec'),
+        vars(patch),namespace)
+    monkeypatch.setattr(patch.BackedHost,'owned',namespace['owned'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_backed_handoff_refuses_actual_or_retained_go_owner_before_yield(tmp_path,'deployment')

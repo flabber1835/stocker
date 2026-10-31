@@ -3,23 +3,25 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
 import pytest
 
 from sentinel.panel.model import Panel
-from sentinel.panel.render import PRESENTATION_MAX_AGE_SECONDS, PUSH_SCRIPT, render
+from sentinel.panel.render import PUSH_SCRIPT, render
 
 
-def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None):
+def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, panel=None, case=None):
     node = shutil.which('node')
     if node is None:
         if os.environ.get('SENTINEL_IN_IMAGE') == '1':
             pytest.fail('Node is required in the CI lens; browser qualification cannot skip')
         pytest.skip('Node is required only for this browser-controller execution test')
-    generated = datetime(2026, 10, 6, 4, tzinfo=timezone.utc)
-    html = render(Panel(rows=[], now=generated))
+    generated = panel.now if panel is not None else datetime(2026, 10, 6, 4, tzinfo=timezone.utc)
+    html = render(panel if panel is not None else Panel(rows=[], now=generated))
+    budget = re.search(r'data-max-age-seconds="([^"]+)"',html).group(1)
     script = '// Negative authority only.' + html.split('// Negative authority only.', 1)[1].split('</script>', 1)[0]
     if remove_guard:
         script = script.replace('refreshing || retryTimer !== null || ', '')
@@ -27,7 +29,7 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None):
         script = script.replace('checkAge(); refreshDocument(); }, 30000',
                                 'invalidate(true); }, 30000')
     elif mutation == 'failed-withdrawal':
-        script = script.replace('invalidate(false);\n        heartbeat.textContent', 'heartbeat.textContent')
+        script = script.replace('invalidate(false, !transportDelay);\n        heartbeat.textContent', 'heartbeat.textContent')
     elif mutation == 'age-withdrawal':
         script = script.replace('age > budget', 'false')
     elif mutation == 'known-negative':
@@ -36,14 +38,97 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None):
         script = script.replace('showResume();\n    refreshDocument();', 'invalidate(true);')
     elif mutation == 'resume-deadline':
         script = script.replace('elapsed < 15000', 'elapsed < 150000').replace(
-            'resumeTimer = setTimeout(function(){ invalidate(false); }, 15000)',
-            'resumeTimer = setTimeout(function(){ invalidate(false); }, 150000)')
+            '15000-(Date.now()-resumeStarted)', '150000-(Date.now()-resumeStarted)')
     elif mutation == 'resume-renewal':
         script = script.replace('if (resumeStarted === null)', 'if (true)').replace(
-            'resumeStarted = Date.now();', 'clearTimeout(resumeTimer); resumeStarted = Date.now();')
+            'resumeStarted = anchor;', 'clearTimeout(resumeTimer); resumeStarted = anchor;')
+    elif mutation == 'resume-exhaustion':
+        guard = 'return !resumeExhausted && current;'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'return current;')
+    elif mutation == 'episode-clock':
+        assert script.count(' || clockReversed()') == 3
+        script = script.replace(' || clockReversed()', '').replace(' && !clockReversed()', '')
+    elif mutation == 'preparation-withdrawal':
+        script = script.replace('withdrawPreparation();', '')
+    elif mutation == 'hidden-start':
+        guard = 'if (document.visibilityState !== "visible" || pageAway){\n      refreshDeferred = true;\n      return;\n    }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, '')
+    elif mutation == 'hidden-install':
+        guard = 'if (document.visibilityState !== "visible" || pageAway){ return; }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, '')
+    elif mutation == 'hidden-age':
+        guard = '} else if (document.visibilityState !== "visible" || pageAway){\n      return;'
+        assert script.count(guard) == 1
+        script = script.replace(guard, '')
+    elif mutation in {'hidden-first-visible', 'hidden-first-fresh'}:
+        guard = '} else if (document.visibilityState === "visible"){\n      if (wentToBackground || !originalCurrent())'
+        assert script.count(guard) == 1
+        replacement = 'if (wentToBackground)' if mutation == 'hidden-first-visible' else 'if (true)'
+        script = script.replace(guard, '} else if (document.visibilityState === "visible"){\n      '+replacement)
+    elif mutation == 'hidden-deferred':
+        guard = 'if (wentToBackground || !originalCurrent()){ resumeDocument(); }\n      else if (refreshDeferred){ refreshDocument(); }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (wentToBackground || !originalCurrent()){ resumeDocument(); }')
+    elif mutation == 'ordinary-continuity':
+        guard = 'if (!invalidated && continuityCurrent()){ showResume(); }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (false){ showResume(); }')
+    elif mutation == 'ordinary-floor':
+        guard = 'if (ordinaryStarted === null && resumeStarted === null && !hardFailure && Date.now() < ordinaryDue){ return; }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, '')
+    elif mutation == 'ordinary-deadline':
+        guard = 'if (resumeStarted === null && (!originalCurrent() || Date.now() >= generated+budget)){ invalidate(false); }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, '')
+    elif mutation == 'ordinary-renewal':
+        guard = 'if (ordinaryStarted === null){'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (true){')
+    elif mutation == 'ordinary-resume-interaction':
+        guard = 'if (resumeStarted === null && (!originalCurrent() || Date.now() >= generated+budget)){ invalidate(false); }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (!originalCurrent()){ invalidate(false); }')
+    elif mutation == 'focus-renewal':
+        guard = 'var anchor = !wentToBackground && ordinaryEligible ? ordinaryStarted : Date.now();'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'var anchor = Date.now();')
+    elif mutation == 'unowned-focus':
+        guard = 'if (wentToBackground || resumeStarted !== null ||\n          (!originalCurrent() && ordinaryEligible && ordinaryStarted !== null))'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (wentToBackground || !originalCurrent())')
+    elif mutation == 'body-transport':
+        guard = 'var html = await response.text();\n      transportDelay = false;'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'transportDelay = false;\n      var html = await response.text();')
+    elif mutation == 'resume-availability':
+        guard = 'if (hardFailure || knownFailure || !navigator.onLine ||'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (invalidated || hardFailure || knownFailure || !navigator.onLine ||')
+    elif mutation == 'hard-negative-resume':
+        guard = 'if (hardFailure || knownFailure || !navigator.onLine ||'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (knownFailure || !navigator.onLine ||')
+    elif mutation == 'pagehide':
+        guard = 'window.addEventListener("pagehide", function(){\n    wentToBackground = true;'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'window.addEventListener("pagehide", function(){')
+    elif mutation == 'focus':
+        guard = 'window.addEventListener("focus", function(){'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'window.addEventListener("unused-focus", function(){')
+    elif mutation == 'page-away':
+        script = script.replace(' || pageAway', '')
+    elif mutation == 'pageshow-expired':
+        guard = 'if (event.persisted || wentToBackground || !originalCurrent())'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (event.persisted)')
     return subprocess.run([node, str(Path(__file__).with_name('panel_refresh_harness.cjs'))],
         input=json.dumps({'script':script,'generated':generated.isoformat(),'failure':failure,
-                          'wake':wake,'budget':str(PRESENTATION_MAX_AGE_SECONDS)}),
+                          'wake':wake,'budget':budget,'case':case}),
         text=True,capture_output=True,timeout=10)
 
 
@@ -130,9 +215,134 @@ def test_app_resume_is_bounded_last_known_presentation(wake):
     ('resume-red','resume-success','without inventing red'),
     ('resume-deadline','resume-expiry','foreground deadline'),
     ('resume-renewal','resume-expiry','foreground deadline'),
+    ('resume-exhaustion','resume-expiry','expired resume remains red'),
+    ('episode-clock','fresh-age','Expected values to be strictly equal'),
 ])
 def test_broken_app_resume_guards_are_detected(mutation,wake,expected):
     result=run_refresh('busy',wake=wake,mutation=mutation)
+    assert result.returncode != 0
+    assert expected in result.stderr
+
+
+@pytest.mark.parametrize('wake', ['hidden-timer', 'hidden-response', 'hidden-initial-fresh',
+    'hidden-initial-due', 'hidden-initial-expired', 'hidden-initial-known-failure'])
+def test_hidden_refresh_preserves_the_original_foreground_lifecycle(wake):
+    result = run_refresh('busy', wake=wake)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'PASS\n'
+
+
+@pytest.mark.parametrize('mutation,wake,expected', [
+    ('hidden-start', 'hidden-timer', 'hidden timer cannot start'),
+    ('hidden-install', 'hidden-response', 'completed while hidden cannot replace'),
+    ('hidden-age', 'hidden-initial-expired', 'hidden expiry waits'),
+    ('hidden-first-visible', 'hidden-initial-expired', 'foreground starts exactly one'),
+    ('hidden-first-fresh', 'hidden-initial-fresh', 'fresh first-visible document needs no extra'),
+    ('hidden-deferred', 'hidden-initial-due', 'foreground starts exactly one'),
+])
+def test_hidden_lifecycle_guard_removal_is_detected(mutation,wake,expected):
+    result = run_refresh('busy', wake=wake, mutation=mutation)
+    assert result.returncode != 0
+    assert expected in result.stderr
+
+
+@pytest.mark.parametrize('wake', ['ordinary-expiry','resume-success','offline'])
+def test_live_preparation_copy_cannot_survive_its_original_document_authority(wake):
+    result = run_refresh('busy',wake=wake)
+    assert result.returncode == 0, result.stderr
+    broken = run_refresh('busy',wake=wake,mutation='preparation-withdrawal')
+    assert broken.returncode != 0 and 'withdraw live preparation copy' in broken.stderr
+
+
+def test_historical_audit_human_green_withdraws_at_the_actual_schedule_proof_boundary():
+    from datetime import timedelta
+    from tests.sentinel.test_panel_historical_mirror_schedule import healthy_history_panel,LIVE_OPEN
+    page = healthy_history_panel(now=LIVE_OPEN-timedelta(seconds=8))
+    result = run_refresh('busy',wake='proof-expiry',panel=page)
+    assert result.returncode==0,result.stderr
+    broken = run_refresh('busy',wake='proof-expiry',mutation='age-withdrawal',panel=page)
+    assert broken.returncode!=0 and 'original proof expiry withdraws green' in broken.stderr
+
+
+@pytest.mark.parametrize('at_open',[False,True])
+def test_periodic_paper_check_green_withdraws_at_its_original_owned_work_deadline(at_open):
+    from datetime import timedelta
+    from tests.sentinel.test_panel_historical_mirror_schedule import checking_schedule_panel,LIVE_OPEN
+    page = (checking_schedule_panel(now=LIVE_OPEN-timedelta(seconds=8),check_seconds=120)
+            if at_open else checking_schedule_panel(check_seconds=4))
+    result = run_refresh('busy',wake='proof-expiry',panel=page)
+    assert result.returncode==0,result.stderr
+    broken = run_refresh('busy',wake='proof-expiry',mutation='age-withdrawal',panel=page)
+    assert broken.returncode!=0 and 'original proof expiry withdraws green' in broken.stderr
+
+
+def transport_panel(seconds=9):
+    from datetime import timedelta
+    from sentinel.panel.model import Row, OK
+    at = datetime(2026, 10, 6, 4, tzinfo=timezone.utc)
+    worker = Row('shadow_worker', 'Strategy worker', 'RUNNING', OK,
+                 as_of=at, required_current=True, valid_until=at+timedelta(seconds=seconds))
+    return Panel(rows=[worker], now=at)
+
+
+@pytest.mark.parametrize('ttl', [.5, 4, 8, 12, 45])
+@pytest.mark.parametrize('latency_ms', [0, 2000, 6000, 14900, 15000, 20000])
+def test_original_proof_and_owned_transport_use_independent_due_time_clocks(ttl, latency_ms):
+    result = run_refresh('fresh', wake='transport-matrix', panel=transport_panel(ttl),
+                         case={'latencyMs':latency_ms})
+    assert result.returncode == 0, result.stderr
+
+
+def test_observed_nine_second_proof_and_six_second_response_do_not_flash_red():
+    result = run_refresh('fresh', wake='transport-matrix', panel=transport_panel(),
+                         case={'latencyMs':6400,'cycles':4,'requireAmber':True})
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('wake,case', [
+    ('transport-deadline', {'ignoreAbort':True}),
+    ('transport-focus', {'ignoreAbort':True}),
+    ('transport-retry', {}),
+    ('transport-body', {}),
+    ('transport-expired-initial', {}),
+    ('transport-unowned-focus', {'ttl':.5}),
+    ('transport-hidden', {'order':'before-timeout'}),
+    ('transport-hidden', {'order':'after-timeout'}),
+    ('transport-hidden', {'order':'after-timeout','kind':'busy'}),
+    ('transport-hidden', {'order':'after-timeout','visibility':False,'event':'focus'}),
+    ('transport-hidden', {'order':'after-timeout','visibility':False,'event':'pageshow'}),
+])
+def test_transport_and_ios_lifecycle_share_only_their_original_bounded_windows(wake, case):
+    result = run_refresh('busy', wake=wake, panel=transport_panel(case.get('ttl',9)), case=case)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('kind', ['malformed','future','offline','clock'])
+def test_foreground_resume_cannot_soften_a_hard_negative(kind):
+    result = run_refresh('busy', wake='transport-negative', panel=transport_panel(),
+                         case={'kind':kind})
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('mutation,wake,case,expected', [
+    ('ordinary-continuity','transport-matrix',{'latencyMs':6400},'healthy in-flight refresh cannot flash red'),
+    ('ordinary-floor','transport-matrix',{'latencyMs':0,'ttl':.5},'proof expiry cannot advance'),
+    ('ordinary-deadline','transport-deadline',{'ignoreAbort':True},'ordinary transport deadline is absolute'),
+    ('ordinary-renewal','transport-retry',{},'owned refresh keeps expired proof'),
+    ('ordinary-resume-interaction','transport-hidden',{'order':'before-timeout'},'owned refresh keeps expired proof'),
+    ('body-transport','transport-body',{},'owned refresh keeps expired proof'),
+    ('resume-availability','transport-hidden',{'order':'after-timeout'},'owned refresh keeps expired proof'),
+    ('hard-negative-resume','transport-negative',{'kind':'malformed'},'hard-negative last-known styling'),
+    ('pagehide','transport-hidden',{'order':'after-timeout','visibility':False,'event':'focus'},'owned refresh keeps expired proof'),
+    ('focus','transport-hidden',{'order':'after-timeout','visibility':False,'event':'focus'},'owned refresh keeps expired proof'),
+    ('page-away','transport-hidden',{'order':'after-timeout','visibility':False,'event':'focus'},'owned refresh keeps expired proof'),
+    ('pageshow-expired','transport-expired-initial',{},'expired initial pageshow starts one'),
+    ('focus-renewal','transport-focus',{'ignoreAbort':True},'ordinary transport deadline is absolute'),
+    ('unowned-focus','transport-unowned-focus',{'ttl':.5},'unowned focus cannot buy a resume'),
+])
+def test_removed_transport_and_lifecycle_guards_are_detected(mutation, wake, case, expected):
+    result = run_refresh('busy', wake=wake, mutation=mutation,
+                         panel=transport_panel(case.get('ttl',9)), case=case)
     assert result.returncode != 0
     assert expected in result.stderr
 

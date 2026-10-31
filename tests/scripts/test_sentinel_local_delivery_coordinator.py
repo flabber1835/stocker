@@ -170,6 +170,60 @@ def test_complete_actual_coordinator_reuses_preflight_and_preserves_history(oper
     assert delivery.advance()==receipt and host.canonical_count==2
 
 
+def successor_operation(operation,monkeypatch):
+    host,journal,_=operation
+    host.request.update(schema=model.SUCCESSOR_SCHEMA,handoff_mode='POST_TRADE_SUCCESSOR')
+    (journal.folder/'request.json').write_text(json.dumps(host.request))
+    journal=model.Journal(journal.folder)
+    host.supports_post_trade_successor=True
+    host.items['sentinel-automation'].update(Id='exact-owned-worker')
+    host.items['sentinel-automation']['State'].update(Restarting=True,Health={'Status':'unhealthy'})
+    monkeypatch.setattr(coordinator.evidence,'require_successor_worker_restart',lambda h,item:
+        model.require(item['Id']=='exact-owned-worker','EXACT_WORKER_REQUIRED'))
+    def canonical(h,*args):
+        h.canonical_count+=1
+        return {'book':'same','proof':'same','settled_native_positions':deepcopy(h.native)}
+    monkeypatch.setattr(coordinator.evidence,'canonical_check',canonical)
+    monkeypatch.setattr(coordinator.evidence,'panel',lambda *args:{'color':'red','operational_ready':False,
+        'retained_incidents':['original-incident'],'completed_plan':'recorded-old-plan'})
+    delivery=coordinator.Delivery(host,journal,monotonic=lambda:host.clock,sleep=host.sleep)
+    return host,journal,delivery
+
+
+def test_successor_repair_preserves_control_and_history_without_claiming_alert_recovery(operation,monkeypatch):
+    host,journal,delivery=successor_operation(operation,monkeypatch)
+    before=deepcopy(host.state)
+    receipt=delivery.advance()
+    assert receipt['stage']=='VERIFIED' and host.state==before
+    assert receipt['artifacts']['operational_ready'] is False
+    assert receipt['artifacts']['panel']['color']=='red'
+    assert receipt['artifacts']['predecessor_automation']['container']=='exact-owned-worker'
+    assert host.notifications=={'old':'immutable-payload'}
+    assert host.heartbeat>0 and host.canonical_count==2
+    assert not any('authorize' in str(call) or 'kill-switch' in str(call)
+        or 'backup' in str(call) or 'restore' in str(call) for call in host.calls)
+
+
+def test_successor_repair_rejects_another_worker_before_stop(operation,monkeypatch):
+    host,journal,delivery=successor_operation(operation,monkeypatch)
+    delivery.step()
+    assert journal.read()['stage']=='PREFLIGHT_PASS'
+    host.items['sentinel-automation']['Id']='replacement-worker'
+    with pytest.raises(model.DeliveryRefused,match='PREDECESSOR_CHANGED'):
+        delivery.step()
+    assert journal.read()['stage']=='PREFLIGHT_PASS'
+    assert not any(isinstance(call,tuple) and call[0]=='stop' for call in host.calls)
+
+
+def test_successor_mode_requires_its_new_explicit_request_schema(tmp_path):
+    value=request(tmp_path);value['handoff_mode']='POST_TRADE_SUCCESSOR'
+    with pytest.raises(model.DeliveryRefused,match='HANDOFF_MODE'):model.validate_request(value)
+    value['schema']=model.SUCCESSOR_SCHEMA
+    assert model.validate_request(value)['handoff_mode']=='POST_TRADE_SUCCESSOR'
+    value['handoff_mode']='PRE_OPEN'
+    with pytest.raises(model.DeliveryRefused,match='HANDOFF_MODE'):model.validate_request(value)
+
+
 @pytest.mark.parametrize('retained',[False,True])
 def test_retained_predecessor_avoids_broken_old_reader_but_keeps_new_and_started_checks(operation,monkeypatch,retained):
     host,journal,delivery=operation

@@ -132,11 +132,13 @@ def test_observer_refuses_malformed_holdings(field, value):
 
 def test_operational_acquisition_reads_current_jobs_without_legacy_fallback():
     class Connection:
-        def execute(self, query):
+        def execute(self, query, params=None):
             assert 'sentinel_operational_snapshot_jobs' in query and 'feed_ingest_runs' not in query
             return self
         def fetchone(self):
-            return ('PUBLISHED', 'PUBLISHED', NOW, 345, 7)
+            return ('PUBLISHED', 'PUBLISHED', NOW, 345, 7, 'published-job')
+        def fetchall(self):
+            return []
     result = sources._operational_acquisition(Connection())[0]
     assert result['status'] == 'success' and 'publication 7' in result['current_chunk']
     assert result['rows_written'] == 345

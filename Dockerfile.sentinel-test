@@ -31,6 +31,9 @@ COPY tests/ /work/tests/
 COPY data/sharadar/ /work/data/sharadar/
 COPY tools/ /work/tools/
 COPY sentinel/requirements.lock /work/sentinel/requirements.lock
+# The host phase controller loads this stdlib-only companion by file path.
+# No package initializer is copied: Sentinel imports still resolve to /app.
+COPY sentinel/source_diagnostic.py /work/sentinel/source_diagnostic.py
 # Audit-only reporters used by economic falsifiers; never runtime code.
 COPY audit/economic_399/postgres_pressure/report.py /work/audit/economic_399/postgres_pressure/report.py
 COPY audit/economic_399/local_closeout/economic_oracle.py /work/audit/economic_399/local_closeout/economic_oracle.py
@@ -110,7 +113,8 @@ RUN python -c "from pathlib import Path; \
     from scripts import sentinel_forward_run as forward_run; \
     from scripts import sentinel_go_feed_progress as feed_progress; \
     assert sentinel.__file__.startswith('/app/'), sentinel.__file__; \
-    assert {p.relative_to('/work/sentinel').as_posix() for p in Path('/work/sentinel').rglob('*') if p.is_file()} == {'requirements.lock'}, 'only lock metadata may exist below /work/sentinel'; \
+    assert {p.relative_to('/work/sentinel').as_posix() for p in Path('/work/sentinel').rglob('*') if p.is_file()} == {'requirements.lock', 'source_diagnostic.py'}, 'unexpected host companion or package below /work/sentinel'; \
+    assert Path('/work/sentinel/source_diagnostic.py').read_bytes() == Path('/app/sentinel/source_diagnostic.py').read_bytes(), 'host diagnostic companion differs from runtime'; \
     assert not Path('/work/stock_strategy_shared').exists(), 'shared runtime must remain installed'; \
     assert '/work' not in wc.__file__, wc.__file__; \
     assert str(forward_run.DEFAULT_PRODUCTION).startswith('/app/'), forward_run.DEFAULT_PRODUCTION; \

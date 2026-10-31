@@ -480,9 +480,47 @@ def _current_trading_run(conn):
         return None
     if len(rows) != 1:
         raise ValueError('multiple current-date trading runs')
+    return _trading_run_row(conn, rows[0])
+
+
+def _completed_trading_run(conn):
+    """One account-bound completed record, never current execution authority."""
+    with conn.cursor() as cur:
+        cur.execute("""SELECT c.cycle_id,c.state,c.execute_at,c.updated_at,c.completed_at,
+            p.plan_id,c.plan_fingerprint,p.created_at,p.decision_session,p.effective_session,
+            p.target_basket,p.broker,p.broker_account_id,
+            ((c.effective_session+1)::timestamp AT TIME ZONE 'America/New_York')
+            FROM sentinel_automation_cycles c
+            JOIN sentinel_automation_control a ON a.id=1 AND c.control_generation<a.generation
+              AND c.deployment_id=a.deployment_id AND c.broker=a.broker
+              AND c.broker_account_id=a.broker_account_id AND c.takeover_epoch=a.takeover_epoch
+            JOIN sentinel_account_binding b ON b.id=1 AND b.ownership_state='SENTINEL_OWNED'
+              AND b.deployment_id=c.deployment_id AND b.broker=c.broker
+              AND b.broker_account_id=c.broker_account_id AND b.takeover_epoch=c.takeover_epoch
+            JOIN sentinel_execution_plans p ON p.plan_id=c.plan_id
+              AND p.deployment_id=c.deployment_id AND p.broker=c.broker
+              AND p.broker_account_id=c.broker_account_id AND p.takeover_epoch=c.takeover_epoch
+              AND p.decision_session=c.decision_session AND p.effective_session=c.effective_session
+            WHERE NOT c.historical_state_only AND c.state='SUCCEEDED'
+              AND c.failure_code IS NULL AND c.last_clean_reconciliation_id IS NOT NULL
+              AND c.completed_at>=c.execute_at AND c.completed_at<=clock_timestamp()
+              AND c.effective_session=(clock_timestamp() AT TIME ZONE 'America/New_York')::date
+            ORDER BY c.created_at DESC LIMIT 2""")
+        rows = cur.fetchall()
+    if not rows:
+        return None
+    if len(rows) != 1:
+        raise ValueError('multiple completed current-date trading runs')
+    return _trading_run_row(conn, rows[0], completed_history=True)
+
+
+def _trading_run_row(conn, row, *, completed_history=False):
+    """Share original intent/command validation across the two display scopes."""
     plan = dict(zip(('cycle_id','state','execute_at','updated_at','completed_at','plan_id',
         'plan_fingerprint','created_at','decision_session','effective_session','target_basket',
-        'broker','broker_account_id','valid_until'), rows[0], strict=True))
+        'broker','broker_account_id','valid_until'), row, strict=True))
+    if completed_history and (plan['state'] != 'SUCCEEDED' or plan['completed_at'] is None):
+        raise ValueError('historical trading run is not completed')
     from sentinel.execution import journal
     stored = journal.load_plan(conn, plan['plan_id'])
     if (stored is None or stored.fingerprint() != plan['plan_fingerprint']
@@ -521,8 +559,12 @@ def _current_trading_run(conn):
         item.state in {'UNKNOWN','CANCEL_PENDING'} for item in run.orders)
     status = model.FAIL if failed else model.WARN if run.state in {
         'EXECUTING','RECONCILING','RETRY_WAIT'} else model.OK
-    return model.Row('trading_run', 'Today’s paper trading', run.state, status,
-        detail='Saved original intent and durable command progress; post-close verification is separate.',
+    return model.Row('completed_trading_run' if completed_history else 'trading_run',
+        'Today’s recorded completed run' if completed_history else 'Today’s paper trading',
+        run.state, status,
+        detail=('Recorded completed run from before the current software activation; '
+                if completed_history else '')
+               +'Saved original intent and durable command progress; post-close verification is separate.',
         as_of=max([run.updated_at]+[item.observed_at for item in run.orders]),
         valid_until=plan['valid_until']-timedelta(microseconds=1), trading_run=run)
 
@@ -688,7 +730,7 @@ def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
             raise CorpusLockUnavailable('panel source pin retry deadline expired') from last_error
         _set_statement_timeout(conn, max(1, int(remaining * 1000)))
         try:
-            return readers.status_snapshot(conn)
+            return readers.status_snapshot(conn, include_publication=True)
         except CorpusLockUnavailable as exc:
             last_error = exc
             conn.rollback()
@@ -734,7 +776,11 @@ def _feed_rows(database_url: str, *, post_close_wait=None,
         # A rolling page load verifies receipts, not the full price window.
         feed, front_err = _read(conn, _feed_status_snapshot,
                                STATEMENT_TIMEOUT_MS, default=(None, None))
-        frontier, snap = feed
+        if len(feed) == 3:
+            frontier, snap, publication_version = feed
+        else:
+            frontier, snap = feed
+            publication_version = None
         if snap is None:
             # NEVER False. Nothing has computed a verdict — "we have not asked"
             # is not "the corpus failed a clause", and `model.feed_row` already
@@ -785,6 +831,9 @@ def _feed_rows(database_url: str, *, post_close_wait=None,
                              f"OPERATIONAL SNAPSHOT · {run['current_chunk']}"),
                              detail=(run['current_chunk'] if run.get('status') == 'success'
                                      else ingest.detail))
+            if run.get('preparation') is not None:
+                ingest = replace(ingest,
+                    preparation=model.PreparationWork.model_validate(run['preparation']))
         rows = [
             # A frontier that TIMED OUT is not an unreadable database — the
             # connection is open and the ingest row right below was just read
@@ -802,7 +851,7 @@ def _feed_rows(database_url: str, *, post_close_wait=None,
                            error=(f"frontier {front_err}" if front_err else None),
                            ingest_running=(run.get("status") == "running"),
                            ingest_updated_at=_utc(run.get("updated_at")),
-                           frontier_ahead=ahead),
+                           frontier_ahead=ahead, publication_version=publication_version),
             ingest,
         ]
         if (post_close_wait is not None and not run_err and not front_err
@@ -1981,23 +2030,104 @@ def _latest_verified_chain(history: list[dict]) -> list[dict]:
             if row.get("verdict") == "VERIFIED"]
 
 
-def _operational_acquisition(conn):
+_PREPARATION_SQL = """WITH current_publication AS (
+    SELECT version,previous_version FROM sentinel_corpus_publications
+    ORDER BY version DESC LIMIT 1)
+    SELECT to_jsonb(j),clock_timestamp(),p.version,p.previous_version,
+        (b.job_id IS NOT NULL),
+        EXISTS (SELECT 1 FROM sentinel_snapshot_workers w
+            WHERE w.owner=j.owner AND w.job_id=j.job_id),
+        (SELECT count(*) FROM sentinel_snapshot_job_components c WHERE c.job_id=j.job_id)
+    FROM sentinel_snapshot_jobs j
+    JOIN sentinel_operational_snapshot_jobs o USING(job_id)
+    LEFT JOIN current_publication p ON TRUE
+    LEFT JOIN sentinel_operational_snapshots b ON b.publication_version=p.version
+        AND b.job_id=j.job_id AND b.candidate_id=j.candidate_id
+        AND j.publication_version=p.version
+    WHERE j.request #>> '{window,sessions,-1}'=%s
+        AND j.request->>'cursor' IS NULL
+        AND j.state IN ('ACQUIRING','WAIT_SOURCE','STAGING','VALIDATING',
+                        'READY','RETRY_WAIT','PUBLISHED')
+        AND ((j.state<>'PUBLISHED' AND j.request->>'expected_publication_version'
+                IS NOT DISTINCT FROM p.version::text)
+            OR (j.state='PUBLISHED' AND b.job_id IS NOT NULL))
+    ORDER BY j.created_at DESC,j.job_id DESC LIMIT 2"""
+
+
+def _preparation_work(record, *, target):
+    """Validate cheap producer metadata, never corpus or execution admission."""
+    from sentinel.feed import calendar, operational_snapshot, rolling_go_inputs, rolling_jobs
+    from sentinel.feed.rolling_contract import digest
+
+    job, sampled, current_version, prior_version, published_binding, registered, components = record
+    def clock(value):
+        if value is None:
+            return None
+        parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+        if not isinstance(parsed, datetime) or parsed.utcoffset() is None:
+            raise ValueError('operational preparation clock is not timezone aware')
+        return parsed
+    sampled = clock(sampled)
+    created = clock(job['created_at'])
+    request = rolling_jobs.PreparationRequest.model_validate(job['request'])
+    expected_scope = digest({'schema': operational_snapshot.SCHEMA,
+        'dependencies': digest({'scope': rolling_go_inputs.SCHEMA})})
+    if (request.request_sha256 != job['request_sha256']
+            or request.cursor is not None
+            or request.dependencies_sha256 != expected_scope
+            or str(request.window.end) != target
+            or calendar.latest_closed_session(sampled) != target
+            or created < calendar.session_window(target)[1]):
+        raise ValueError('operational preparation request is not current closing-data work')
+    if job['state'] == 'PUBLISHED':
+        if (published_binding is not True or type(current_version) is not int
+                or job['publication_version'] != current_version
+                or request.expected_publication_version != prior_version):
+            raise ValueError('published preparation lacks the current job/candidate binding')
+    elif request.expected_publication_version != current_version:
+        raise ValueError('operational preparation publication CAS changed')
+    # No strategy-source/dependency hashing here: this is a progress fact, not
+    # the independent feed readiness or signed financial subject proof.
+    return model.PreparationWork(job_id=str(job['job_id']),
+        decision_session=date.fromisoformat(target),
+        effective_session=date.fromisoformat(calendar.next_session(target)),
+        state=job['state'], rows_done=job['rows_done'], components_done=components,
+        created_at=created, updated_at=clock(job['updated_at']),
+        last_progress_at=clock(job['last_progress_at']), observed_at=sampled,
+        deadline=clock(job['deadline']), lease_until=clock(job.get('lease_until')),
+        owner_registered=registered, fence=job['fence'],
+        next_retry=clock(job.get('next_retry'))).model_dump()
+
+
+def _operational_acquisition(conn, *, now=None):
     """Current source jobs, never the empty legacy ingest ledger."""
     record = conn.execute(
-        "SELECT j.state,j.reason,j.updated_at,j.rows_done,j.publication_version "
+        "SELECT j.state,j.reason,j.updated_at,j.rows_done,j.publication_version,j.job_id "
         "FROM sentinel_snapshot_jobs j JOIN sentinel_operational_snapshot_jobs o USING(job_id) "
         "ORDER BY j.created_at DESC,j.job_id DESC LIMIT 1").fetchone()
     if record is None:
         return []
-    state, reason, updated, count, version = record
+    state, reason, updated, count, version, latest_job_id = record
     if state == 'PUBLISHED' and version is None:
         raise ValueError('published acquisition lacks publication identity')
     status = ('success' if state == 'PUBLISHED' else 'failed' if state in {
         'REFUSED', 'ABORTED'} else 'running')
-    return [dict(kind='OPERATIONAL SNAPSHOT', status=status, updated_at=updated,
+    run = dict(kind='OPERATIONAL SNAPSHOT', status=status, updated_at=updated,
                  rows_written=count, chunks_done=0, chunks_total=0,
                  current_chunk=f'{state} · publication {version}' if version is not None else state,
-                 error_message=reason if status == 'failed' else None)]
+                 error_message=reason if status == 'failed' else None)
+    from sentinel.feed import calendar
+    target = calendar.latest_closed_session(now or datetime.now(timezone.utc))
+    candidates = conn.execute(_PREPARATION_SQL, (target,)).fetchall()
+    if len(candidates) == 1:
+        try:
+            if str(candidates[0][0]['job_id']) == str(latest_job_id):
+                run['preparation'] = _preparation_work(candidates[0], target=target)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            # Optional progress cannot hide or reinterpret the existing job
+            # status. Missing/foreign/malformed metadata simply earns no badge.
+            pass
+    return [run]
 
 
 def _informational_mirror_count(conn) -> int:
@@ -2068,6 +2198,28 @@ def _scheduled_preopen_mirror(conn, cycle, active_publication, frontier, *, now=
         state="SCHEDULED", cycle_state="WAITING_OPEN", scheduled_until=execute_at,
         detail=("current admitted plan is scheduled for " + execute_at.isoformat()
                 + "; orders have not completed and post-close mirror evidence remains pending"))
+
+
+def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror):
+    """Keep authenticated all-history warnings distinct from exact future readiness."""
+    from sentinel import informational_paper_mirror
+    historical = mirror.get('status') == informational_paper_mirror.MISMATCH
+    count = mirror.get('historical_mismatch_count')
+    if historical and (type(count) is not int or count <= 0):
+        return model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
+            detail='historical mirror mismatch has no valid authenticated count')
+    scheduled = _scheduled_preopen_mirror(conn, cycle, active_publication, frontier)
+    if historical:
+        if scheduled is None:
+            return model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
+                detail='historical mirror warning remains recorded; current scheduled readiness is unproved')
+        return model.paper_reconciliation_row(
+            state='SCHEDULED_WITH_HISTORY', cycle_state=cycle.get('state'),
+            scheduled_until=scheduled.valid_until+timedelta(microseconds=1),
+            detail=(f'{count} historical informational mirror mismatch(es) '
+                'remain recorded for earlier transported plans; this is not a '
+                'mismatch of the current scheduled plan. '+scheduled.detail))
+    return scheduled
 
 
 @dataclass(frozen=True)
@@ -2220,8 +2372,8 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                 detail=("the completed PAPER cycle has no exact durable clean "
                         "reconciliation"))
         if pending and plan_state == informational_paper_mirror.PENDING:
-            scheduled = _scheduled_preopen_mirror(
-                conn, cycle, active_publication, frontier)
+            scheduled = _scheduled_paper_mirror(
+                conn, cycle, active_publication, frontier, mirror)
             if scheduled is not None:
                 return scheduled
         return model.paper_reconciliation_row(
@@ -2240,12 +2392,8 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
     except informational_paper_mirror.InformationalPaperMirrorUnstamped as exc:
         from sentinel import local_paper
         if cycle_state == "WAITING_OPEN" and local_paper.require_bound_account(conn):
-            if mirror.get("status") == informational_paper_mirror.MISMATCH:
-                return model.paper_reconciliation_row(
-                    state="MISMATCH", cycle_state=cycle_state,
-                    detail="historical mirror share-unit mismatch remains recorded")
-            scheduled = _scheduled_preopen_mirror(
-                conn, cycle, active_publication, frontier)
+            scheduled = _scheduled_paper_mirror(
+                conn, cycle, active_publication, frontier, mirror)
             if scheduled is not None:
                 return scheduled
         return model.paper_reconciliation_row(
@@ -2745,7 +2893,8 @@ def _trial_rows(database_url: str, *, now: datetime
 def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
     reviewed_shadow = os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'shadow', 'dual'}
     rows, errors = _runtime_projection(database_url, include_book=not reviewed_shadow)
-    return ([row for row in rows if row.key in {'broker','paper_plan','trading_run'}] if reviewed_shadow else rows), errors
+    return ([row for row in rows if row.key in {
+        'broker','paper_plan','trading_run','completed_trading_run'}] if reviewed_shadow else rows), errors
 
 
 def _runtime_projection(database_url: str, *, include_book=True,
@@ -2813,9 +2962,13 @@ def _runtime_projection(database_url: str, *, include_book=True,
             conn, _latest_automation_cycle,
             STATEMENT_TIMEOUT_MS, default=None)
         trading_row, trading_error = (None, None)
+        completed_row, completed_error = (None, None)
         if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') in {'dual','paper'}:
             trading_row, trading_error = _read(
                 conn, _current_trading_run, STATEMENT_TIMEOUT_MS, default=None)
+            if trading_row is None and trading_error is None:
+                completed_row, completed_error = _read(
+                    conn, _completed_trading_run, STATEMENT_TIMEOUT_MS, default=None)
 
         state_view = None
         if state_error is None and state_snapshot is not None:
@@ -2959,6 +3112,10 @@ def _runtime_projection(database_url: str, *, include_book=True,
             errors.append('current trading run: '+trading_error)
             trading_row = model.Row('trading_run','Today’s paper trading','UNAVAILABLE',
                                     model.UNKNOWN, detail=trading_error)
+        if completed_error:
+            errors.append('recorded completed trading run: '+completed_error)
+            completed_row = model.Row('completed_trading_run','Today’s recorded completed run',
+                'UNAVAILABLE',model.UNKNOWN,detail=completed_error)
         if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual','paper'}:
             return [exposure, book, terminals, broker], errors
         from sentinel import paper_plan_preview
@@ -2987,7 +3144,9 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 errors.append('previous paper order outcomes: '+outcome_error)
             else:
                 plan_row = replace(plan_row, order_outcomes=outcomes)
-        return [exposure, book, terminals, broker, plan_row, *([trading_row] if trading_row else [])], errors
+        return [exposure, book, terminals, broker, plan_row,
+                *([trading_row] if trading_row else []),
+                *([completed_row] if completed_row else [])], errors
     except Exception as exc:                                 # noqa: BLE001
         detail = _short(exc)
         return ([

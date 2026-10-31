@@ -31,6 +31,42 @@ matching verdict says current-publication verification is pending; it must never
 instruct an operator to run a legacy repair command or claim the inputs failed.
 Slot visibility continues to require the ordinary current financial proof.
 
+### Bounded post-publication display handoff
+
+Decision: 2026-10-30, before implementation. After the real October 30 data
+publication committed, its readiness snapshot was correctly still absent while
+the signed publisher was checking strategy. The feed's unsupported pending
+warning became red despite the existing finite attestation proof. Represent
+that interval as pending only when the exact current publication and target
+session captured under the canonical source pin match the independently
+authenticated SHADOW_ATTESTATION proof and a fresh owned shadow worker.
+
+The canonical read-only status reader may optionally return the publication
+identity it already owns; retain its existing two-value default and perform no
+second assessment or corpus scan. Preserve that identity as structured display
+evidence. Only a genuinely missing measurement is eligible: never relabel a
+measured negative verdict, unreadable source, unknown lag or mismatched/stale
+publication. Bind the pending display to the minimum original producer/worker
+deadline, preserve original observation times and withdraw it on lost proof or
+expiry. No check is marked passed and readiness remains unearned; execution and
+installation still require their existing affirmative measured evidence.
+
+The human health banner may describe this proven, on-time verification as
+healthy work while its separate plan/readiness display remains pending. A
+PUBLISHED source job, a generic RUNNING string, or an old signed result alone
+does not earn that classification. The actual publisher continues to save the
+real readiness snapshot with its final attestation transaction.
+
+Existing authenticated verification receipts predate the structured publication
+fields. A read-only compatibility adapter may recover the session/publication
+only from the exact existing SHADOW_ATTESTATION row encoding, with matching
+dated value and fixed producer-description prefix, after the ordinary receipt
+authentication and live-worker/deadline checks. Unknown encodings refuse the
+pending display. This does not interpret arbitrary logs or error text, create a
+new proof, or move observation clocks. New producers emit the structured fields
+directly; an HTTP update must not start another financial observer merely to
+upgrade a cached receipt's display shape.
+
 ## Immutable trial attempts and one daily financial projection
 
 New v3 verification records use

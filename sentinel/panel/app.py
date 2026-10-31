@@ -29,6 +29,7 @@ from sentinel import shadow_segments
 from sentinel.operational_status import color
 from sentinel.panel import last_known, model, singleflight
 from sentinel.panel.pwa import MANIFEST, SERVICE_WORKER
+from sentinel.panel.presentation import dashboard_health
 from sentinel.panel.render import REFRESH_SECONDS, render
 from sentinel.panel.push_enrollment import router as push_enrollment_router
 from sentinel.panel.sources import build_panel
@@ -272,6 +273,7 @@ def panel_json() -> JSONResponse:
             "overall": p.overall,
             "operational": p.operational,
             "color": color(p.operational),
+            "dashboard_health": dashboard_health(p),
             "as_of": p.now.isoformat(),
             "source_errors": p.source_errors,
             "rows": [
@@ -291,6 +293,12 @@ def panel_json() -> JSONResponse:
                                     for item in r.visible_order_outcomes(p.now)],
                  "trading_run": (r.trading_run.model_dump(mode='json')
                                  if r.can_show_trading_run(p.now) else None),
+                 "preparation": (r.preparation.model_dump(mode='json')
+                                 if r.can_show_preparation(p.now) else None),
+                 "source_publication_version": r.source_publication_version,
+                 "source_session": r.source_session,
+                 "feed_readiness": r.feed_readiness,
+                 "paper_alignment": r.paper_alignment,
                  "valid_until": (
                      r.valid_until.isoformat() if r.valid_until else None),
                  "recovery": (

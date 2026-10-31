@@ -10,7 +10,7 @@ import sys
 from . import builder
 from .coordinator import Delivery
 from .host import Host
-from .model import (DeliveryRefused, Journal, SCHEMA, handoff_mode, read_json, require,
+from .model import (DeliveryRefused, Journal, SCHEMA, SUCCESSOR_SCHEMA, handoff_mode, read_json, require,
                     utcnow, validate_request, write_new)
 from .qualification import sha256_file, validate_report
 
@@ -40,7 +40,8 @@ def prepare(*, operation_dir, build_record, build_sha256, operation_id, host_typ
         built['commit'],old['commit'])
     require(sorted(built['changed_files']) == built['allowed_delta'], 'BUILD_DELTA_CHANGED')
     builder._changed(built['source'],old['commit'],built['commit'],built['allowed_delta'])
-    request = validate_request(dict(schema=SCHEMA,operation_id=operation_id,handoff_mode=handoff_mode,
+    request = validate_request(dict(schema=SUCCESSOR_SCHEMA if handoff_mode=='POST_TRADE_SUCCESSOR' else SCHEMA,
+        operation_id=operation_id,handoff_mode=handoff_mode,
         source=built['source'],deployment=built['deployment'],predecessor=old,
         candidate=dict(commit=built['commit'],image=built['image'],source_identity=built['source_identity']),
         qualification=dict(report_path=qualified['report_path'],report_sha256=qualified['report_sha256'],
@@ -74,11 +75,11 @@ def parser(*, backed=False):
         build.add_argument('--'+name,required=True)
     if backed:
         build.add_argument('--allow-started-predecessor',action='store_true')
-        build.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT'),default='PRE_OPEN')
+        build.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT','POST_TRADE_SUCCESSOR'),default='PRE_OPEN')
     new = commands.add_parser('prepare',help='Create an immutable operation from its completed build')
     for name in ('operation-dir','build-record','build-sha256','operation-id'):
         new.add_argument('--'+name,required=True)
-    new.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT'),default='PRE_OPEN')
+    new.add_argument('--handoff-mode',choices=('PRE_OPEN','POST_TRADE','BLOCKED_UNSENT','POST_TRADE_SUCCESSOR'),default='PRE_OPEN')
     view = commands.add_parser('status',help='Inspect the digest-linked receipt without host operations')
     view.add_argument('--operation-dir',required=True)
     for command in ('advance','resume'):

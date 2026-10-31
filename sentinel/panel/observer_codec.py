@@ -1,6 +1,6 @@
 """Pure bounded wire format shared by independent financial observers."""
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import pickle
 
@@ -51,11 +51,15 @@ def row_from_observation(value):
         row['shadow_book'] = model.ShadowBook.model_validate(row['shadow_book'])
     if type(row.get('required_current', False)) is not bool:
         raise ValueError('observer current flag is malformed')
-    if row.get('paper_alignment') not in {None, 'SCHEDULED', 'PRIOR_CYCLE_FAILED'} or (
+    if row.get('paper_alignment') not in {None, 'SCHEDULED', 'SCHEDULED_WITH_HISTORY', 'PRIOR_CYCLE_FAILED'} or (
             row.get('paper_alignment') is not None
             and (row.get('key') != 'paper_reconciliation'
                  or row.get('status') != (model.OK if row['paper_alignment']=='SCHEDULED' else model.WARN)
                  or row.get('valid_until') is None
+                 or (row['paper_alignment']=='SCHEDULED_WITH_HISTORY'
+                     and (row.get('required_current') is not True or row.get('recovery') is not None
+                          or not isinstance(row.get('valid_until'), datetime)
+                          or row['valid_until'].utcoffset() != timedelta(0)))
                  or (row['paper_alignment']=='PRIOR_CYCLE_FAILED'
                      and (row.get('required_current',False) or row.get('recovery') is not None)))):
         raise ValueError('observer alignment fact is malformed')

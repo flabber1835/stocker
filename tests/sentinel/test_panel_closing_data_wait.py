@@ -100,14 +100,14 @@ def test_typed_cycle_and_proof_backed_authority_support_only_current_source_head
     assert projected.recovery.deadline == summary.recovery.deadline
     page = model.Panel(rows=[*financial, worker, *automation, *steps], now=NOW)
     assert page.operational == model.WARN
-    assert '>Preparing closing data</span>' in render(page)
+    assert '>Healthy · Waiting for closing data</span>' in render(page)
     assert 'Previous PASS is not current execution authority' in render(page)
-    assert '>Preparing closing data</span>' not in render(replace(page, now=PUBLISHER_DEADLINE))
+    assert '>Healthy' not in render(replace(page, now=PUBLISHER_DEADLINE))
     # A cycle marker alone cannot explain the independent source/portfolio state.
-    assert '>Preparing closing data</span>' not in render(model.Panel(rows=automation, now=NOW))
+    assert '>Healthy' not in render(model.Panel(rows=automation, now=NOW))
     generic = replace(summary, recovery=replace(summary.recovery,
         phase='AUTOMATION_REFRESH_AVAILABILITY'))
-    assert '>Preparing closing data</span>' not in render(replace(page,
+    assert '>Healthy' not in render(replace(page,
         rows=[generic if row.key == 'automation_cycle' else row for row in page.rows]))
 
 

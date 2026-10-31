@@ -75,13 +75,15 @@ def bound_readiness(pub, report):
     return bound
 
 
-def status_snapshot(conn):
+def status_snapshot(conn, *, include_publication=False):
     """Cheap publication-bound status; never rescan the window in a page load."""
     if current(conn) is None:
-        return store.latest_visible_session(conn), legacy_readiness.latest_snapshot(conn)
+        result = store.latest_visible_session(conn), legacy_readiness.latest_snapshot(conn)
+        return (*result, None) if include_publication else result
     with pinned(conn, commit=False) as pub:
         snapshot = legacy_readiness.latest_snapshot(conn)
-        return frontier(conn, pub), snapshot if snapshot_matches(pub, snapshot) else None
+        result = frontier(conn, pub), snapshot if snapshot_matches(pub, snapshot) else None
+        return (*result, pub.version) if include_publication else result
 
 
 def snapshot_matches(pub, snapshot):
