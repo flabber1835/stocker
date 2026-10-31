@@ -69,6 +69,25 @@ database archive or an additional base backup merely to migrate storage.
 Reconcile source and target file inventories and digests while both are offline.
 No source data is deleted to fund an unverified transfer.
 
+Staging must also preserve historical production source required by retained-state
+admission. If a required revision is missing, reuse the trusted production Git
+store through additive, same-filesystem object-file hardlinks. Preserve its
+genuine shallow boundary for that revision; never invent a history cutoff or
+copy/fetch unrelated payloads. Prove inode identity, zero missing objects within
+the original boundary, and Git connectivity before creating a scoped archival
+ref under `refs/sentinel/retained-production-source/`. Compare the unchanged
+canonical retained-source exporter before and after. This preserves the complete
+required Git graph without duplicating its existing object payload. Preserve
+HEAD, branches, tags, authority and financial state.
+
+The historical source repository already marks `90a96054...` as a genuine
+shallow boundary. Preserve that exact existing boundary alongside the staged
+checkout's boundary using an atomic Git shallow-file lock. Do not copy promisor
+configuration or markers: independently require zero missing objects within the
+original boundary and a successful connectivity-only check before archiving the
+revision. This carries existing history limits forward rather than inventing a
+new cutoff or downloading unrelated historical payloads.
+
 ## Host portability and restore scratch
 
 On WSL with a native Ubuntu Engine, physical capacity discovery must depend on
@@ -132,6 +151,11 @@ task no execution-time limit, prevent duplicate instances, and restart a failed
 foreground request. Do not change global WSL idle policy or store a Windows
 password. This provides startup after that user logs in. It is not proof of
 recovery before login after a cold boot.
+
+Place its content-addressed public startup script under
+`%USERPROFILE%\.sentinel\Ubuntu`, outside application-virtualized AppData.
+Verify visibility and execution through the actual Task Scheduler token; a
+successful launch from the configuring application alone is insufficient.
 
 Reuse the existing `sentinel-paper-backup-maintenance.service` after a successful
 new installation: preserve its private unit/drop-ins and enabled state, then
