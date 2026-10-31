@@ -113,6 +113,34 @@ both guarded completion dates, including when the name is unowned. These retain
 the actual selected witness set and immediately preceding raw/signal anchor for
 independent terminal-observation review; no checkpoint is constructed or relabelled.
 
+## Selected hosted suffix and proof reuse
+
+Use one financial worker from the independently reviewed September 30, 2022
+checkpoint (1,196 closes), replaying October 3 and later sessions. Carry the
+original ALDR and ZGNX models, their exact 742 committed certificate rows and
+entire 743-row file, including its unsent tail. Authenticate the parent's actual
+742-row independent review and retained event-checkpoint bytes. Reuse that
+completed two-event proof; do not reinterpret the parent as a February checkpoint
+or rerun the original event investigation. Independently recompute every NEW
+point return factor, persisted interval continuation, actual canonical recovery
+comparison, decision and discrete state. The old rolling interval arithmetic and
+source hashes remain unchanged.
+
+For each reached guarded completion date, independently restore the actual
+canonical pre-event checkpoint, verify its selected set and prior closes against
+the certificate material, check the native-session raw/signal anchor, and invoke
+the canonical terminal-notional function using the documented fixed consideration.
+Match its result to the actual point observation. Combine this check with the
+full before/after position-and-order guard review and independent accounting.
+No owned settlement conclusion follows from these unowned observations.
+
+Reuse the existing qualified encrypted transfer, worker-stop fencing and export
+mechanisms. The new request must bind its own exact September predecessor,
+all staged driver bytes, old review hashes, unsent tails, batch contracts and
+resource limits. The workflow remains one P02 writer, on the research branch,
+with an independent stopped-evidence reviewer. A failed qualification preserves
+the actual stopped prefix and diagnostics; it does not authorize a fresh origin.
+
 ## Cases that cannot be treated as simple cash
 
 ABIOMED's common-share consideration is USD380 plus a contingent right capped at

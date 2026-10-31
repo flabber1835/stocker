@@ -18,7 +18,8 @@ CATALOG = 'system-campaign-october-cash-calendar-terminal-facts.json'
 PRIVATE = 'hydrated-completion-scope-events.json'
 OVERLAY = 'october-guarded-completion-input.json'
 IMPLEMENTATIONS = ('system_campaign_completion_scope.py', 'system_campaign_completion_facts.py',
-                   'system_campaign_completion_basis.py', 'system_campaign_completion_gate.py')
+                   'system_campaign_completion_basis.py', 'system_campaign_completion_gate.py',
+                   'system_campaign_completion_review.py')
 
 
 def contract():
