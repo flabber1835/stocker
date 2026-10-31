@@ -43,7 +43,8 @@ class PauseAfterAdoption:
     def __init__(self,checkpoint,path,overlay_sha256,earliest):
         self.original=deepcopy(checkpoint);self.path=Path(path).resolve()
         self.overlay_sha256,self.earliest=overlay_sha256,earliest
-        self.adoptions=0;self.advance_attempts=0;self.event=None;self.saved=None;self.handler=None
+        self.adoptions=0;self.adoption_writes=0;self.advance_attempts=0
+        self.event=None;self.saved=None;self.handler=None
 
     def advance(self,*args,**kwargs):
         self.advance_attempts+=1
@@ -54,6 +55,11 @@ class PauseAfterAdoption:
         if saved['repairs']==self.original['repairs']:
             need(self.adoptions==0 and saved==self.original,'PXD_ZERO_STARTUP_UNCHANGED_PRE_ADOPTION_CHECKPOINT')
             return self.original_write(path,saved)
+        if self.adoptions:
+            need(self.adoptions==1 and self.adoption_writes==1 and saved==self.saved,
+                 'PXD_ZERO_STARTUP_ONLY_ONE_IDENTICAL_FINAL_PAUSE_FLUSH')
+            self.original_write(path,saved);self.adoption_writes+=1
+            return
         need(self.adoptions==0,'PXD_ZERO_STARTUP_EXACTLY_ONE_INPUT_ADOPTION')
         event=adoption(saved,self.original,self.overlay_sha256,self.earliest)
         handler=signal.getsignal(signal.SIGTERM)
@@ -67,7 +73,8 @@ class PauseAfterAdoption:
         self.original_write(path,saved)
         handler(signal.SIGTERM,None)  # Deliberate function call; no OS signal is sent.
         need(stop==[signal.SIGTERM],'PXD_ZERO_STARTUP_ACTUAL_CANONICAL_PAUSE_REQUESTED')
-        self.adoptions+=1;self.event=event;self.saved=deepcopy(saved);self.handler=handler
+        self.adoptions+=1;self.adoption_writes+=1
+        self.event=event;self.saved=deepcopy(saved);self.handler=handler
 
     def __enter__(self):
         hosted()
@@ -87,11 +94,11 @@ class PauseAfterAdoption:
         for sig,handler in self.original_handlers.items():signal.signal(sig,handler)
 
     def proof(self):
-        need(self.adoptions==1 and self.advance_attempts==0 and self.saved is not None,
+        need(self.adoptions==1 and self.adoption_writes==2 and self.advance_attempts==0 and self.saved is not None,
              'PXD_ZERO_STARTUP_EXACT_ADOPTION_WITH_NO_ADVANCE')
         return dict(status='CANONICAL_INPUT_STARTUP_PAUSED_WITH_ZERO_FINANCIAL_SESSIONS',
             canonical_backtest_startup_invoked=True,financial_sessions_advanced=0,
-            attempted_financial_transitions=0,input_adoptions=1,
+            attempted_financial_transitions=0,input_adoptions=1,canonical_adoption_checkpoint_writes=2,
             original_checkpoint_sha256=self.original['sha256'],
             qualification_checkpoint_sha256=self.saved['sha256'],
             checkpoint_session=self.saved['source_cursor'],completed=self.saved['completed'],

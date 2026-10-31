@@ -2,7 +2,7 @@
 import ast
 from copy import deepcopy
 from pathlib import Path
-from types import SimpleNamespace
+from types import SimpleNamespace,MethodType
 
 import pytest
 import system_campaign_pxd_pause as pause
@@ -81,8 +81,10 @@ def test_pause_calls_only_registered_function_and_blocks_runtime_advance(tmp_pat
     monkeypatch.setattr(pause.signal,'getsignal',lambda sig:handler)
     value.write(path,before);assert stop==[]
     value.write(path,after);assert stop==[pause.signal.SIGTERM]
-    assert len(writes)==2 and value.proof()['financial_sessions_advanced']==0
-    with pytest.raises(ValueError,match='EXACTLY_ONE_INPUT_ADOPTION'):value.write(path,after)
+    value.write(path,deepcopy(after));assert stop==[pause.signal.SIGTERM]
+    assert len(writes)==3 and value.proof()['financial_sessions_advanced']==0
+    assert value.proof()['canonical_adoption_checkpoint_writes']==2
+    with pytest.raises(ValueError,match='ONLY_ONE_IDENTICAL_FINAL_PAUSE_FLUSH'):value.write(path,after)
     with pytest.raises(ValueError,match='UNCHANGED_PRE_ADOPTION_CHECKPOINT'):value.write(path,before)
     with pytest.raises(ValueError,match='CANNOT_ADVANCE'):value.advance(object(),object())
     with pytest.raises(ValueError,match='EXACT_ADOPTION_WITH_NO_ADVANCE'):value.proof()
@@ -97,6 +99,36 @@ def test_foreign_handler_or_output_refuses_before_write(tmp_path,monkeypatch):
     with pytest.raises(ValueError,match='ONLY_ACTUAL_PRIVATE_CANONICAL_STOP_HANDLER'):value.write(path,after)
     with pytest.raises(ValueError,match='ONLY_DISPOSABLE_CURRENT_CHECKPOINT'):value.write(tmp_path/'other.gz',after)
     assert writes==[]
+
+
+def test_changed_final_flush_refuses_before_write(tmp_path,monkeypatch):
+    before,after,_=pair();path=tmp_path/'checkpoint.json.gz'
+    value=pause.PauseAfterAdoption(before,path,OVERLAY,'2024-05-02')
+    function,(handler,stop)=private_functions();writes=[]
+    value.backtest=SimpleNamespace(run_backtest=function)
+    value.original_write=lambda p,v:writes.append(deepcopy(v))
+    monkeypatch.setattr(pause.signal,'getsignal',lambda sig:handler)
+    value.write(path,after)
+    changed=deepcopy(after);changed['economics']['nav']='124';outer(changed)
+    with pytest.raises(ValueError,match='ONLY_ONE_IDENTICAL_FINAL_PAUSE_FLUSH'):value.write(path,changed)
+    assert len(writes)==1 and value.adoption_writes==1 and stop==[pause.signal.SIGTERM]
+    cls,=[n for n in ast.parse(Path(pause.__file__).read_bytes()).body
+          if isinstance(n,ast.ClassDef) and n.name=='PauseAfterAdoption']
+    node,=[n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name=='write']
+    class Remove(ast.NodeTransformer):
+        count=0
+        def visit_Expr(self,n):
+            if isinstance(n.value,ast.Call) and any(isinstance(a,ast.Constant)
+                and a.value=='PXD_ZERO_STARTUP_ONLY_ONE_IDENTICAL_FINAL_PAUSE_FLUSH' for a in n.value.args):
+                self.count+=1;return ast.Pass()
+            return self.generic_visit(n)
+    change=Remove();node=change.visit(node);assert change.count==1
+    namespace=dict(vars(pause))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
+        '<actual-identical-final-flush-guard-removed>','exec'),namespace)
+    value.write=MethodType(namespace['write'],value)
+    value.write(path,changed)
+    assert len(writes)==2 and writes[-1]==changed
 
 
 def test_actual_financial_equality_guard_removal_falsifier():

@@ -35,7 +35,7 @@ ALLOWED={'request.json','source-bindings.json','qualification-summary.json','zer
     'prefix-and-tail-proof.json','common-factual-and-uncertainty-basis.json',
     'hydrated-pxd-preopen-fact.json','pxd-unowned-preopen-input.json','pxd-canonical-qualification.json',
     'pxd-collision-preflight.json','qualification-checkpoint.json.gz','phase-timing.json',
-    'worker-inspect.json','worker.log','driver-failure.txt'}
+    'startup-attempt.json','worker-inspect.json','worker.log','driver-failure.txt'}
 
 
 def expected_request():

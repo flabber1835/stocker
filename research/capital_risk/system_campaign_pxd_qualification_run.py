@@ -81,6 +81,17 @@ def prefixes_and_tails(before,after,checkpoint,adopted,event):
     return dict(status='ZERO_SESSION_ALL_PREFIXES_AND_RECOVERED_TAILS_VERIFIED',checks=checks)
 
 
+def preserve_startup_attempt(candidate,proof,pause,code):
+    checkpoint_path=candidate/'book/checkpoint.json.gz'
+    if checkpoint_path.is_file():shutil.copyfile(checkpoint_path,proof/'qualification-checkpoint.json.gz')
+    save(proof/'startup-attempt.json',dict(canonical_backtest_startup_invoked=True,
+        canonical_return_code=code,input_adoptions=pause.adoptions,
+        canonical_adoption_checkpoint_writes=pause.adoption_writes,
+        attempted_financial_transitions=pause.advance_attempts,
+        financial_admission=False,financial_resume_from_this_copy_authorized=False,
+        production_contacted=False))
+
+
 def main(request_path):
     hosted()
     from research.pooled_vacancy_funding import backtest,journal,runtime
@@ -106,6 +117,8 @@ def main(request_path):
                  ==dict(sha256=old_hash,value=old_value),
                  'PXD_QUALIFICATION_ALL_SEVEN_PRIOR_MODELS_MATCH_CORRECTED_REVIEW')
             _,parsed,path=timing.call('new_source_and_own_input_compiler',build,checkpoint,candidate,candidate)
+            for name in (PRIVATE,OVERLAY,'pxd-collision-preflight.json'):
+                shutil.copyfile(candidate/name,proof/name)
             codec=InputCodec(expected_repair(candidate,checkpoint['run']['checkpoint_sha256']),evidence(candidate))
             with codec:
                 loaded=backtest.load_repair(path,resume_session=checkpoint['source_cursor'],
@@ -114,13 +127,18 @@ def main(request_path):
                 old_financial_request=json.loads((old/'request.json').read_bytes())
                 timing.call('actual_packets_and_unheld_operation',qualify,candidate,checkpoint,loaded,
                             contexts['objects'],old_financial_request)
+                shutil.copyfile(candidate/'pxd-canonical-qualification.json',proof/'pxd-canonical-qualification.json')
                 args=arguments(candidate/'book',True)
                 args[args.index('--policy')+1]=checkpoint['base']['policy']
                 pause=PauseAfterAdoption(checkpoint,candidate/'book/checkpoint.json.gz',loaded.sha256,
                                          loaded.earliest_affected_session)
-                with pause:
-                    code=timing.call('canonical_zero_session_resume_startup',backtest.main,
-                                    args+['--repair-overlay',str(path)])
+                code=None
+                try:
+                    with pause:
+                        code=timing.call('canonical_zero_session_resume_startup',backtest.main,
+                                        args+['--repair-overlay',str(path)])
+                finally:
+                    preserve_startup_attempt(candidate,proof,pause,code)
                 need(code==0,'PXD_QUALIFICATION_CANONICAL_STARTUP_PAUSE_SUCCEEDED')
                 zero=pause.proof();current=journal.read_checkpoint(candidate/'book/checkpoint.json.gz')
                 need(current==pause.saved and current['sha256']==zero['qualification_checkpoint_sha256'],
@@ -142,9 +160,6 @@ def main(request_path):
                 save(proof/'zero-session-startup-proof.json',zero)
                 save(proof/'prefix-and-tail-proof.json',tails)
                 save(proof/'common-factual-and-uncertainty-basis.json',dict(sha256=new_hash,value=new_value))
-                for name in (PRIVATE,OVERLAY,'pxd-canonical-qualification.json','pxd-collision-preflight.json'):
-                    shutil.copyfile(candidate/name,proof/name)
-                shutil.copyfile(candidate/'book/checkpoint.json.gz',proof/'qualification-checkpoint.json.gz')
                 save(proof/'qualification-summary.json',dict(status='PXD_ZERO_SESSION_STARTUP_CANONICALLY_QUALIFIED',
                     source_checkpoint_sha256=OUTER,qualification_checkpoint_sha256=current['sha256'],
                     source_session='2024-04-30',completed=1592,typed_inputs=8,

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 import system_campaign_pxd_qualification_job as job
@@ -78,6 +79,21 @@ def test_export_does_not_include_disposable_book_or_unbounded_data(tmp_path):
     exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
         '<actual-proof-only-export-guard-removed>','exec'),namespace)
     namespace['export_bound'](tmp_path,100)
+
+
+@pytest.mark.parametrize('code',[2,None])
+def test_unsuccessful_startup_preserves_exact_diagnostic_checkpoint_before_review(tmp_path,code):
+    candidate,proof=tmp_path/'candidate',tmp_path/'proof'
+    (candidate/'book').mkdir(parents=True);proof.mkdir()
+    raw=b'inert checkpoint bytes; not a canonical financial fixture'
+    (candidate/'book/checkpoint.json.gz').write_bytes(raw)
+    pause=SimpleNamespace(adoptions=1,adoption_writes=1,advance_attempts=0)
+    entry.preserve_startup_attempt(candidate,proof,pause,code)
+    assert (proof/'qualification-checkpoint.json.gz').read_bytes()==raw
+    result=json.loads((proof/'startup-attempt.json').read_bytes())
+    assert result['canonical_return_code']==code and result['input_adoptions']==1
+    assert result['financial_admission'] is False and result['financial_resume_from_this_copy_authorized'] is False
+    job.export_bound(proof,1024**2)
 
 
 def journals(tmp_path):

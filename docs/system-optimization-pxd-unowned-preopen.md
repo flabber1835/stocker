@@ -90,6 +90,19 @@ controller state, counts, account/statistics fields, all old descriptors,
 prefixes and recovered tails, plus the exact canonical input-successor chain.
 Restore all hooks and handlers on exit, including failures.
 
+The frozen hosted source compiler also flushes the unchanged checkpoint at its
+PAUSED boundary. Count unique input adoption separately from checkpoint writes:
+permit one identical final flush after adoption, with no second callback or
+boundary event. Refuse any changed checkpoint, rollback, extra flush or attempted
+financial transition. This accommodates the existing canonical pause path;
+the financial source and its behavior are unchanged.
+
+Preserve compact compiler and packet-gate outputs as soon as those milestones
+pass. After any canonical startup return or exception, preserve its available
+qualification checkpoint and an explicitly unadmitted attempt record before
+subsequent review assertions. Export those files only after actual stop proof.
+An unqualified checkpoint is diagnostic evidence and never a financial resume.
+
 The receipt must explicitly disclose that canonical backtest startup was
 invoked, zero financial sessions advanced, and neither financial replay nor
 resume from the qualification copy is authorized. Do not describe this as
