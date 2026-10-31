@@ -69,3 +69,81 @@ accounting, restoration, source, input, prefix and recovered-tail checks.
 Advance only the exact own suffix after admission and qualification. Preserve
 every prior failure and uncertain result. This does not authorize a restart,
 policy change, controller optimization, fabricated value or production change.
+
+## Explicit refinement input and retained history
+
+The refinement is a sixth typed input schema, separate from the five admitted
+market-event models. It binds the original parent gzip file, outer and inner
+checkpoint identities, complete input commitment and next frozen session.
+Its packet operation is identity only. Its fixed proof mode and branch budgets
+are public semantics, and its code and qualification commitments are retained
+as source evidence. It cannot add or remove a quote, terminal term or holding.
+
+The outer checkpoint, gzip hash, parent input hash, inner predecessor and first
+affected session are lineage fields. Verify them against the actual original
+parent and descriptor before excluding only those exact fields from the common
+proof-model semantics. The scheduling date does not choose a different trading
+rule; the proof accepts only the unchanged complete controller result. All
+proof-mode, budget and source-evidence fields remain in the common semantics.
+
+New certificate rows carry the explicit complete-outcome proof. Their journal
+commitments retain the existing chain algorithm and all old rows byte for
+byte. An independently recomputed summary reports both comparison invariance
+and complete-outcome invariance truthfully. A future suffix can admit either
+an original strict certificate or a qualified refinement certificate, with
+the exact typed proof model, implementation hash, full committed seed, complete
+parent proof, event archives and positions checked in either case. A pre-event
+creation test must not reject a legitimate retained post-event continuation.
+
+Every original parser receives the complete checkpoint. Recognizing the sixth
+schema in ordinary or semantic visitors follows full validation of all six
+typed models. Never project away a descriptor to make an older parser pass.
+
+## Witness frame and dependency condition
+
+The complete-result comparison holds the supplied valid controller frame
+fixed while exploring every Boolean outcome of the two bounded return inputs.
+It does not assert that the uncertain witness NAV history has one numerical
+value. Existing interval propagation continues to carry that uncertainty.
+
+The frozen recovery binding copies and validates the full frame, but constructs
+its Candidate A snapshot only from recovery flags, counters, prior allocations
+and audit counts. Candidate A receives the bounded returns as separate scalar
+inputs. Recovery does not derive another return or a trading choice from the
+copied witness history, selected names, marks or peer history. Qualification
+must bind this dependency claim to the actual frozen source and verify that
+these frame fields are copied unchanged. A controlled alternative positive
+witness frame must preserve the same decision and recovery state; this test
+does not establish a different historical valuation.
+
+Each new certificate retains the commitment of the complete actual controller
+input frame and the input itself, alongside the branch proof and original
+rolling interval state. The input is captured at the actual recovery call;
+its state identity and scalar observations are bound by the certificate's
+existing financial-row and watch commitments. The stopped-book reviewer
+reconstructs the exact proof call from these inputs, checks the recovery
+projection against the preceding committed state, and checks the observed
+returns against the financial row and independently reconstructed intervals.
+It must verify frame copying and compare complete results using that frame,
+rather than treat a fresh placeholder frame as the complete historical state.
+The logical-state projection remains an additional induction check, not a
+replacement for this complete-input proof.
+
+## Hosted integration sequence
+
+Reuse the admitted Chinook worker and reviewer fences, frozen source builder,
+full predecessor admission, exact suffix recovery and encrypted export channel.
+The new entry point first restores the own 32-input predecessor, preserves its
+entire certificate and journal tails, and loads all original input contexts.
+The sixth codec must be identity on actual frozen packets. A hosted component
+check exercises the new capture adapter, its complete-input commitment, the
+source-bound frame condition and wrong-predecessor/consumed-date refusals before
+the financial entry point runs. It advances zero financial sessions.
+
+The original four-event value, witness, position, journal and runtime methods
+remain inherited and source bound. The new adapter overrides recovery proof
+capture and parent admission only. The independent reviewer retains the old
+interval algebra and financial joins, adapts the explicitly enumerated proof
+and summary sites, and restores every actual retained checkpoint through the
+canonical path. A failing integration gate preserves the exact stopped
+evidence and cannot reach the financial entry point.
