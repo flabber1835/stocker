@@ -1,6 +1,7 @@
 """Pure callable proof fixtures; these do not execute a canonical controller."""
 from copy import deepcopy
 import math
+import numpy as np
 
 import pytest
 
@@ -117,3 +118,25 @@ def test_complete_result_equality_preserves_types_and_float_bits():
     assert not proof.same_result({'count': 1}, {'count': True})
     assert not proof.same_result({'value': -0.0}, {'value': 0.0})
     assert not proof.same_result(([1],), [[1]])
+
+
+def test_actual_numpy_finiteness_primitive_is_proved_for_the_whole_interval():
+    def finite(*, state, recent_r20, **other):
+        assert np.isfinite(recent_r20)
+        return state, {'target': 1.0 if recent_r20 < 0 else 0.55}
+
+    _, evidence = proof.certified_recovery(finite, inputs(), bounds())
+    check, = evidence['leaves'][0]['finiteness']
+    assert check == dict(field='recent_r20', interval=[-0.1, -0.07],
+                         operation='numpy.isfinite', all_values_finite=True)
+
+
+@pytest.mark.parametrize('operation', [lambda x: np.add(x, 1.0),
+    lambda x: np.less_equal(x, -0.085), lambda x: np.isfinite(x, where=True)])
+def test_numpy_cannot_bypass_interval_comparisons_or_the_declared_primitive(operation):
+    def unsafe(*, state, recent_r20, **other):
+        operation(recent_r20)
+        return state, {'target': 1.0}
+
+    with pytest.raises(ValueError, match='UNSUPPORTED_NUMPY_BOUND_OPERATION'):
+        proof.certified_recovery(unsafe, inputs(), bounds())

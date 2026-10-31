@@ -3,6 +3,7 @@ from copy import deepcopy
 import hashlib
 import json
 import math
+import numpy as np
 
 from system_campaign_uncertainty_math import require
 
@@ -38,6 +39,7 @@ class Trace:
         self.choices = choices
         self.consumed = 0
         self.comparisons = []
+        self.finiteness = []
 
     def compare(self, scalar, threshold, relation):
         require(type(threshold) in (float, int) and math.isfinite(threshold),
@@ -70,6 +72,18 @@ class BoundedScalar(float):
     def __ge__(self, other): return self.trace.compare(self, other, 'ge')
     def __lt__(self, other): return self.trace.compare(self, other, 'lt')
     def __le__(self, other): return self.trace.compare(self, other, 'le')
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        require(ufunc is np.isfinite and method == '__call__'
+                and len(inputs) == 1 and inputs[0] is self and not kwargs,
+                'OUTCOME_UNSUPPORTED_NUMPY_BOUND_OPERATION')
+        # This property holds for every member of the finite closed interval;
+        # no representative is converted to bypass later comparisons.
+        require(math.isfinite(self.interval.lo) and math.isfinite(self.interval.hi),
+                'OUTCOME_FINITE_WHOLE_INTERVAL')
+        self.trace.finiteness.append(dict(field=self.field, interval=self.interval.pair(),
+            operation='numpy.isfinite', all_values_finite=True))
+        return np.bool_(True)
 
     def unsupported(self, *args):
         require(False, 'OUTCOME_UNSUPPORTED_BOUNDED_SCALAR_OPERATION')
@@ -136,6 +150,7 @@ def certified_recovery(function, kwargs, bounds, *, max_leaves=64, max_nodes=127
         no_scalar_escape(result)
         require(same_result(ordinary, result), 'OUTCOME_COMPLETE_CANONICAL_RECOVERY_DIFFERS')
         leaves.append(dict(choices=list(choices), comparisons=trace.comparisons,
+                           finiteness=trace.finiteness,
                            complete_result_sha256=commitment(result)))
         require(len(leaves) <= max_leaves, 'OUTCOME_COMPLETE_LEAF_LIMIT')
     require(leaves and not pending, 'OUTCOME_ALL_LEAVES_COMPLETED')
