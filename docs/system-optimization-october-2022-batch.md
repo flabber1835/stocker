@@ -168,6 +168,41 @@ February 28 record precedes the existing complete USD39 March 1 term. This needs
 its own source-bound suppression/admission, not another USD39 event. The same
 research findings can be reused later, but each arm still uses its own predecessor.
 
+## Mixed retained-input collision preflight correction
+
+The first actual October attempt stopped in source hydration: the ordinary
+collision visitor recognized the old ALDR schema but rejected the already
+committed ZGNX schema. Preserve that refusal and the derivative missing-new-
+payload reviewer failure. The financial entry point was not reached; verify the
+actual stopped checkpoint and complete journal bytes before choosing a successor.
+
+Keep the strict ordinary visitor unchanged. For this batch, first authenticate
+the full real checkpoint input commitment and strictly validate both retained
+typed models using their original parsers and exact evidence. Require every new
+catalog security to differ from both modeled securities. Only then use a
+source-hash-bound semantic visitor that recognizes the validated ZGNX schema in
+addition to the original ALDR recognition. Unknown schemas, altered bytes,
+duplicate models, overlapping modeled securities and ordinary key conflicts
+must still refuse. Pass the actual complete checkpoint to the visitor; do not
+remove descriptors or invent a projected financial checkpoint. Scope the adapter
+to the new cash hydration call and restore the original module binding afterward.
+
+Full authentication of the failed attempt proved its checkpoint, identity, source
+binding and all four complete journals (including unsent tails) byte-identical to
+the last admitted September parent. No financial entry or new input adoption
+occurred. The financial authority therefore remains that same actual checkpoint;
+the correction continues its exact suffix. This is not selection of an earlier
+state after progress. Preserve the failed worker and reviewer exits as failures.
+
+The recovery request binds the authenticated failure-equivalence record. Before
+any market advance, compare every listed complete input member against the
+admitted read-only source again and retain this admission with the new output.
+The record includes the failed run/cipher/manifest identities and actual failed
+stops. All 108 failed output members are preserved through exact captured bytes,
+the retained parent archive, or deterministic metadata recovery accepted only
+when its bytes match the authenticated original member SHA256. Keep that lossless
+index and the failed attempt separate; do not relabel its reviewer as successful.
+
 ## Required continuation evidence
 
 Admit only actual source-bound corrections after hosted canonical load, wrong-

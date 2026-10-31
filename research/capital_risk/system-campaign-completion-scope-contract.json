@@ -1,6 +1,7 @@
 {
   "canonical_financial_source_changed": false,
   "inherited_sources": {
+    "system_campaign_action_preflight.py": "0145e6ce84048faf80f49ae20095f29eaf8dc479be4dfd932ec648326d5cf68c",
     "system_campaign_cash_calendar.py": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
     "system_campaign_uncertainty_basis.py": "33a022d90449028350cd66af7208a6089612a19f66c9ecf55b14eec5b6b2c02c",
     "system_campaign_zogenix_basis.py": "54c33ba88d951d7360d11e67a9e254693361e588b70c4e39704b2fc66e8fd3fa"

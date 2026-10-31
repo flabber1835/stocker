@@ -34,6 +34,7 @@ from system_campaign_completion_scope import InputCodec as CompletionCodec
 from system_campaign_completion_gate import qualify
 from system_campaign_completion_review import preserve_parent_event, review as review_certificate
 from system_campaign_completion_basis import basis
+from system_campaign_mixed_preflight import verify_unchanged_attempt
 
 
 HERE = Path(__file__).resolve().parent
@@ -56,6 +57,9 @@ def run(out, old, spec, request, timing):
     from research.pooled_vacancy_funding import backtest, journal
     need(spec['arm'] == 'P02' and spec['run_id'] == 41151496224 and spec['selected_session'] == '2022-09-30'
          and request['execution_mode'] == 'GUARDED_COMPLETION_BATCH_EXACT_SUFFIX', 'OCTOBER_EXACT_OWN_ADMITTED_PREFIX')
+    if 'prior_unadvanced_equivalence_sha256' in request:
+        save(out / 'unadvanced-attempt-equivalence-admission.json',
+             verify_unchanged_attempt(old, spec, request))
     cp = timing.call('old_prefix_preflight', preflight, spec, old, out, before='2022-10-04')
     need(cp['completed'] == 1196 and len(cp['repairs']) == 27
          and cp['base']['sources'][PACKET_SOURCE_PATH] == request['qualified_packet_source_sha256'],
@@ -116,6 +120,11 @@ def review(out, root, old, spec, timing):
     from system_campaign_factual_run import review as review_financial
     cp = journal.read_checkpoint(root / 'book/checkpoint.json.gz')
     previous = journal.read_checkpoint(old / spec['selected_checkpoint'])
+    request = json.loads((root / 'request.json').read_bytes())
+    if 'prior_unadvanced_equivalence_sha256' in request:
+        checked = verify_unchanged_attempt(old, spec, request)
+        need(json.loads((root / 'unadvanced-attempt-equivalence-admission.json').read_bytes()) == checked,
+             'OCTOBER_INDEPENDENT_UNADVANCED_SOURCE_EQUIVALENCE')
     boundary = journal.read_checkpoint(root / 'book/predecessor-checkpoints' / (OUTER + '.json.gz'))
     amendment = FutureProjection(root, boundary)
     native = retained_zogenix(root, out)

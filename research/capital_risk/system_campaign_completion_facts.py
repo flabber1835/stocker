@@ -10,6 +10,7 @@ from full_system_benchmark import need, save
 from system_campaign_cash_calendar import CashCalendar, build as build_cash
 from system_campaign_completion_scope import SCHEMA, SCOPE, NATIVES, COMPLETIONS, digest, parse
 from system_campaign_facts import sha
+from system_campaign_mixed_preflight import MixedCalendarPreflight
 
 
 HERE = Path(__file__).resolve().parent
@@ -19,7 +20,7 @@ PRIVATE = 'hydrated-completion-scope-events.json'
 OVERLAY = 'october-guarded-completion-input.json'
 IMPLEMENTATIONS = ('system_campaign_completion_scope.py', 'system_campaign_completion_facts.py',
                    'system_campaign_completion_basis.py', 'system_campaign_completion_gate.py',
-                   'system_campaign_completion_review.py')
+                   'system_campaign_completion_review.py', 'system_campaign_mixed_preflight.py')
 
 
 def contract():
@@ -147,7 +148,8 @@ def hydrate(root, out):
 
 def build(cp, old, out):
     hosted()
-    cash, _, _ = build_cash(cp, old, out, HERE / CATALOG)
+    with MixedCalendarPreflight(cp, old):
+        cash, _, _ = build_cash(cp, old, out, HERE / CATALOG)
     hydrate(old, out)
     predecessor = cp['run']['checkpoint_sha256']
     body = expected_repair(out, predecessor)
