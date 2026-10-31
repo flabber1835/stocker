@@ -116,11 +116,27 @@ enabled Linux service alone is not proof of no-login or power-outage recovery.
 Preserve existing Sentinel startup tasks where valid, and report any remaining
 reboot/no-login qualification gap explicitly.
 
-Use one current-user Windows logon task to hold a foreground Ubuntu WSL
-request (`wsl.exe -d Ubuntu -u bron --exec /usr/bin/sleep infinity`). Native
-systemd owns Engine and the application/backup services; the task owns only
-distribution lifetime. Give the task no execution-time limit, prevent duplicate
-instances, and restart its failed foreground request. Do not change global WSL
-idle policy or store a Windows password. This provides startup after that user
-logs in. It is not proof of recovery before login after a cold boot, and the
-UUID-bound external mount remains a separate mandatory startup condition.
+Use one current-user Windows logon task to retain a foreground Ubuntu WSL
+request and supervise attachment of the existing shared backup USB device.
+Before each one-shot attachment, match the Seagate instance
+`USB\VID_0BC2&PID_231A\MSFT30NA85AJZ4` and persisted sharing GUID
+`25b7e905-42ad-4df9-b558-418de3cd62de`; derive its current bus ID rather than
+following an arbitrary replacement at a fixed port. Never bind, force, detach
+or select another device. The supervisor waits while the device is absent and
+does not write a log on every observation. A UUID-and-ext4-scoped udev add rule
+requests `docker.service` after the backup device arrives. Docker still requires
+the actual mount and its identity guard before starting.
+
+Native systemd owns Engine and application/backup services. Give the Windows
+task no execution-time limit, prevent duplicate instances, and restart a failed
+foreground request. Do not change global WSL idle policy or store a Windows
+password. This provides startup after that user logs in. It is not proof of
+recovery before login after a cold boot.
+
+Reuse the existing `sentinel-paper-backup-maintenance.service` after a successful
+new installation: preserve its private unit/drop-ins and enabled state, then
+select the new checkout and the canonical maintenance loop through a sanitized
+environment. Its native supervisor and media locks remain the sole ownership
+authority. Require a real read-only Windows capacity observation from that same
+systemd environment before starting it; never persist a captured WSL interop
+socket or substitute invented free-space data.
