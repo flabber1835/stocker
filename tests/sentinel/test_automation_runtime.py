@@ -2431,3 +2431,66 @@ def test_removed_durable_grant_config_binding_is_detected(monkeypatch):
     monkeypatch.setattr(paper_validation, "_validate_automation_grant", namespace["_validate_automation_grant"])
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_automation_grant_config_sha_matches_durable_control(monkeypatch, "foreign")
+
+
+def completed_predecessor_wait(cfg, *, generation=86, fence=118):
+    """The exact normal post-activation result, with no execution permission."""
+    prior=cycle(cfg,generation=82,state=CycleState.SUCCEEDED)
+    permit=context(cfg).permit.model_copy(update={
+        'control_generation':generation,'fence_token':fence})
+    return TickResult(action=TickAction.WAITING,cycle=prior,permit=permit,
+        reason=('this decision-session obligation was terminalized by a '
+                'generation boundary; no replacement old plan is created'))
+
+
+@async_test
+async def test_completed_predecessor_wait_is_quiet_across_poll_fence_and_generation(monkeypatch):
+    cfg=config();runtime=production(cfg);conn=FakeConnection()
+    monkeypatch.setattr(automation_runtime.outbox,'enqueue',
+        lambda *_a,**_kw:pytest.fail('normal completed-predecessor wait created an alert'))
+    monkeypatch.setattr(automation_runtime.outbox,'enqueue_cycle_transition_alert',
+        lambda *_a,**_kw:pytest.fail('completed history became a recovery incident'))
+    for generation,fence in ((86,118),(86,118),(86,119),(87,120)):
+        assert await runtime.notify(conn,completed_predecessor_wait(
+            cfg,generation=generation,fence=fence)) is None
+    assert conn.statements==[] and conn.commits==conn.rollbacks==0
+
+
+@pytest.mark.parametrize('fault',[
+    'blocked_state','missed_state','superseded_state','retry_state','executing_state',
+    'blocked_action','executed_action','no_permit','same_generation','future_generation',
+    'different_reason','no_cycle','exception',
+])
+@async_test
+async def test_quiet_predecessor_guard_preserves_other_notifications(monkeypatch,fault):
+    cfg=config();runtime=production(cfg);conn=FakeConnection()
+    result=completed_predecessor_wait(cfg)
+    alerts=[];events=[]
+    monkeypatch.setattr(automation_runtime.outbox,'enqueue',
+        lambda _conn,**kwargs:alerts.append(kwargs) or kwargs)
+    monkeypatch.setattr(automation_runtime.outbox,'enqueue_cycle_transition_alert',
+        lambda _conn,**kwargs:events.append(kwargs) or kwargs)
+    if fault.endswith('_state'):
+        state={'blocked_state':CycleState.BLOCKED,'missed_state':CycleState.MISSED_STATE_ONLY,
+               'superseded_state':CycleState.SUPERSEDED,'retry_state':CycleState.RETRY_WAIT,
+               'executing_state':CycleState.EXECUTING}[fault]
+        result=result.model_copy(update={'cycle':result.cycle.model_copy(update={'state':state})})
+    elif fault in {'blocked_action','executed_action'}:
+        result=result.model_copy(update={'action':TickAction.BLOCKED
+                                        if fault=='blocked_action' else TickAction.EXECUTED})
+    elif fault=='no_permit':result=result.model_copy(update={'permit':None})
+    elif fault=='same_generation':
+        result=result.model_copy(update={'cycle':result.cycle.model_copy(update={'control_generation':86})})
+    elif fault=='future_generation':
+        result=result.model_copy(update={'cycle':result.cycle.model_copy(update={'control_generation':87})})
+    elif fault=='different_reason':result=result.model_copy(update={'reason':'unexpected wait requires review'})
+    elif fault=='no_cycle':result=result.model_copy(update={'cycle':None})
+    else:result=RuntimeError('unexpected tick failure')
+    await runtime.notify(conn,result)
+    assert len(alerts)+len(events)==1
+    if fault in {'blocked_state','missed_state','superseded_state','retry_state'}:
+        assert len(events)==1
+    else:
+        assert len(alerts)==1
+    if fault in {'blocked_action','exception'}:
+        assert alerts[0]['severity']=='CRITICAL'

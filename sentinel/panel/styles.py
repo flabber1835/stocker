@@ -20,11 +20,8 @@ body{margin:0;color:var(--ink);font:15px/1.45 ui-sans-serif,-apple-system,BlinkM
  max(24px,env(safe-area-inset-bottom)) max(14px,env(safe-area-inset-left));min-height:100vh}
 .wrap{position:relative;z-index:1;max-width:760px;margin:0 auto}
 header{display:block;padding:6px 0 0;margin:0 0 18px}
-.brand{display:flex;align-items:center;gap:12px}
-.brand img{width:42px;height:42px;border-radius:11px;border:1px solid #a98750;flex:0 0 auto}
-h1{font-family:Georgia,serif;font-size:clamp(16px,4.9vw,25px);font-weight:650;margin:0;
- letter-spacing:.11em;color:#eacb8e;line-height:1.2}
-.brand-subtitle{font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);margin-top:5px}
+.brand{display:block}
+.brand img{display:block;width:100%;max-width:100%;height:auto;border-radius:11px;border:1px solid #a98750}
 .state{display:block;border:1px solid currentColor;border-radius:12px;font-size:12px;font-weight:650;
  letter-spacing:.045em;padding:12px 14px;margin-top:19px;line-height:1.4;overflow-wrap:anywhere}
 .state.ok{background:var(--okbg);color:var(--ok)}.state.warn{background:var(--warnbg);color:var(--warn)}

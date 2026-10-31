@@ -56,7 +56,7 @@ def test_required_current_facts_are_only_styled_as_retained_without_mutating_ver
     assert all(row.effective_status(NOW) == model.OK for row in panel.rows if row.key in KEYS)
     fresh = render.render(panel)
     assert 'data-refresh-pending="false"' in fresh
-    assert 'OPERATIONAL GREEN' in fresh and 'Checks needing attention' not in fresh
+    assert 'SYSTEM HEALTH GREEN' in fresh and 'Checks needing attention' not in fresh
 
 
 @pytest.mark.parametrize('condition', ['fail', 'unknown', 'expired', 'future', 'pending-required'])

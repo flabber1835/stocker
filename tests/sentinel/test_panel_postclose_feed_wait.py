@@ -178,7 +178,7 @@ def test_real_build_json_html_and_health_share_queued_ingest_wait(monkeypatch):
     assert health['red_rows']==[] and health['source_errors']==[]
     html=render(page)
     assert 'WAITING FOR 2026-10-26 CLOSING DATA' in html
-    assert '>Preparing closing data</span>' in html
+    assert '>Healthy · Waiting for closing data</span>' in html
     assert page.row('feed').value=='WAITING FOR 2026-10-26 CLOSING DATA'
     page=replace(page,now=DEADLINE)
     assert page.row('feed').effective_status(DEADLINE)==model.FAIL

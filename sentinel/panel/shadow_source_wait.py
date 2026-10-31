@@ -1,8 +1,9 @@
 """Historical display evidence for one typed missing source frontier; no GO."""
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import os
 from pathlib import Path
+import re
 from typing import TYPE_CHECKING
 
 from sentinel.feed import calendar
@@ -18,6 +19,60 @@ class SourceWait:
     decision_session: str
     attested_at: datetime
     deadline: datetime
+
+
+_LEGACY_ATTESTATION = re.compile(
+    r'Closing data for (?P<decision>[0-9]{4}-[0-9]{2}-[0-9]{2}) is published as version '
+    r'(?P<publication>[1-9][0-9]{0,18}); its strategy attestation is still pending\. '
+    r'Last verified strategy session: (?P<previous>[0-9]{4}-[0-9]{2}-[0-9]{2}) '
+    r'\(publication (?P<prior>[1-9][0-9]{0,18})\)\. '
+    r'Current portfolio verification, values and holdings are unavailable\. '
+    r'Original publisher deadline (?P<publisher>[0-9:T+.-]+); '
+    r'original worker deadline (?P<worker>[0-9:T+.-]+)\.')
+
+
+def attestation_source(row, *, now):
+    """Read display identity from an already-authenticated native pending row.
+
+    Old signed producers lack the new optional fields. Their exact fixed
+    encoding is accepted only with the same original finite proof clocks; this
+    never interprets an exception/log or earns a readiness measurement.
+    """
+    from sentinel.panel import model
+    if (row.key != 'shadow_verification' or row.status != model.WARN
+            or not row.required_current or row.as_of is None
+            or row.recovery is None or row.recovery.phase != 'SHADOW_ATTESTATION'
+            or not row.recovery.active(now) or row.valid_until is None
+            or row.valid_until != row.recovery.deadline or not now < row.valid_until
+            or row.is_future(now) or row.is_stale(now) or row.feed_readiness is not None):
+        return None
+    publication, session = row.source_publication_version, row.source_session
+    if publication is not None or session is not None:
+        return ((publication, session) if type(publication) is int and publication > 0
+            and session == calendar.latest_closed_session(now) else None)
+    matched = _LEGACY_ATTESTATION.fullmatch(row.detail)
+    if matched is None:
+        return None
+    try:
+        values = matched.groupdict()
+        session, publication = values['decision'], int(values['publication'])
+        publisher = datetime.fromisoformat(values['publisher'])
+        worker = datetime.fromisoformat(values['worker'])
+        opened = calendar.session_window(calendar.next_session(session))[0]
+        if (row.value != f'WAITING FOR {session} STRATEGY ATTESTATION'
+                or session != calendar.latest_closed_session(now)
+                or date.fromisoformat(session).isoformat() != session
+                or calendar.next_session(values['previous']) != session
+                or int(values['prior']) >= publication
+                or publisher.utcoffset() != timedelta(0) or worker.utcoffset() != timedelta(0)
+                or publisher.isoformat() != values['publisher']
+                or worker.isoformat() != values['worker']
+                or not calendar.session_window(session)[1] <= row.as_of <= now
+                or row.valid_until != min(publisher, worker, opened)-timedelta(microseconds=1)):
+            return None
+        return publication, session
+    except (TypeError, ValueError, RuntimeError, OverflowError):
+        return None
 
 
 def preparation_rows(proof, *, include_paper):
@@ -42,6 +97,8 @@ def preparation_rows(proof, *, include_paper):
     return [model.Row(key, label,
         f'WAITING FOR {proof.decision_session} STRATEGY ATTESTATION', model.WARN, detail,
         as_of=proof.observed_at, required_current=True, valid_until=proof.deadline,
+        source_publication_version=proof.publication_version,
+        source_session=proof.decision_session,
         recovery=model.RecoveryEvidence(phase='SHADOW_ATTESTATION', automatic=True,
                                         deadline=proof.deadline))
         for key, label in labels.items()]

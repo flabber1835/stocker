@@ -737,6 +737,7 @@ class TestRuntimeRowsAreDurableFacts:
         # These runtime-source fixtures predate current-session execution data.
         # The composed trading-run tests supply their own exact current run.
         monkeypatch.setattr(sources, '_current_trading_run', lambda _conn: None)
+        monkeypatch.setattr(sources, '_completed_trading_run', lambda _conn: None)
         return sources, conn
 
     def test_current_plan_book_and_observation_replace_the_old_placeholders(
@@ -1540,11 +1541,11 @@ class TestReviewedDualAuthority:
 
         html = render(panel)
 
-        assert "OPERATIONAL RED — OPERATOR ACTION REQUIRED" in html
+        assert "SYSTEM HEALTH RED — FAILED OR UNREADABLE CHECK" in html
         assert "SHADOW VERIFIED THROUGH 2026-08-20" in html
         assert ('data-key="shadow_verification" data-status="ok"' in html)
         assert "PAPER NOT VERIFIED · MISMATCH · BLOCKED" in html
-        assert "CAESAR'S PALACE" in html
+        assert "src=\"/static/caesars-palace-512.png\" alt=\"Caesar's Palace\"" in html
 
     def test_ordinary_paper_pending_is_amber_and_never_strategy_performance(self):
         panel = _panel(
@@ -1556,7 +1557,7 @@ class TestReviewedDualAuthority:
 
         html = render(panel)
 
-        assert "OPERATIONAL AMBER — NO ACTION REQUIRED YET" in html
+        assert "SYSTEM HEALTH AMBER — DEGRADED OR NEEDS REVIEW" in html
         assert "PAPER NOT VERIFIED · PENDING" in html
         assert "TRIAL VERIFIED" not in html
 
@@ -1568,7 +1569,7 @@ class TestReviewedDualAuthority:
             model.paper_reconciliation_row(state="NOT_STARTED"))
 
         assert panel.overall == model.WARN
-        assert "OPERATIONAL AMBER" in render(panel)
+        assert "SYSTEM HEALTH AMBER" in render(panel)
 
     def test_dual_source_uses_current_shadow_and_clean_mirror(
             self, monkeypatch):

@@ -29,7 +29,7 @@ So:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 from typing import TYPE_CHECKING, Literal, Mapping, Optional
@@ -49,6 +49,61 @@ def _bounded_display_decimal(value):
     if value is not None and (value.as_tuple().exponent < -30 or value.adjusted() > 18):
         raise ValueError('display number exceeds finite formatting bounds')
     return value
+
+
+class PreparationWork(BaseModel):
+    """Dated producer progress; it never admits market data or a trading plan."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    job_id: str = Field(min_length=1, max_length=100)
+    decision_session: date
+    effective_session: date
+    state: Literal['ACQUIRING', 'WAIT_SOURCE', 'STAGING', 'VALIDATING',
+                   'READY', 'RETRY_WAIT', 'PUBLISHED']
+    rows_done: int = Field(ge=0, le=2**63-1, strict=True)
+    components_done: int = Field(ge=0, le=2**31-1, strict=True)
+    created_at: datetime
+    updated_at: datetime
+    last_progress_at: datetime
+    observed_at: datetime
+    deadline: datetime
+    lease_until: datetime | None = None
+    owner_registered: bool = Field(strict=True)
+    fence: int = Field(ge=0, strict=True)
+    next_retry: datetime | None = None
+
+    @model_validator(mode='after')
+    def coherent_progress(self):
+        clocks = (self.created_at, self.updated_at, self.last_progress_at,
+                  self.observed_at, self.deadline, self.lease_until, self.next_retry)
+        if any(value is not None and value.utcoffset() is None for value in clocks):
+            raise ValueError('preparation progress has an unzoned clock')
+        if (not self.created_at <= self.updated_at <= self.observed_at + timedelta(seconds=5)
+                or not self.created_at <= self.last_progress_at <= self.updated_at
+                or not self.created_at < self.deadline
+                or self.effective_session <= self.decision_session
+                or (self.lease_until is not None
+                    and not self.created_at <= self.lease_until <= self.deadline)):
+            raise ValueError('preparation progress clocks or sessions disagree')
+        return self
+
+    def visible_at(self, now: datetime) -> bool:
+        return (now.utcoffset() is not None
+                and self.observed_at-timedelta(seconds=5) <= now
+                <= self.observed_at+timedelta(seconds=45)
+                and (self.state == 'PUBLISHED' or now < self.deadline))
+
+    @property
+    def active_until(self) -> datetime | None:
+        if (self.state not in {'ACQUIRING', 'STAGING', 'VALIDATING', 'READY'}
+                or not self.owner_registered or self.fence <= 0
+                or self.lease_until is None):
+            return None
+        return min(self.lease_until, self.deadline,
+                   self.observed_at+timedelta(seconds=45))
+
+    def active_at(self, now: datetime) -> bool:
+        bound = self.active_until
+        return self.visible_at(now) and bound is not None and now < bound
 
 
 class ShadowHolding(BaseModel):
@@ -309,6 +364,10 @@ class Row:
     trading_run: Optional[TradingRun] = None
     #: A typed display fact; copy changes cannot grant scheduled readiness.
     paper_alignment: Optional[str] = None
+    preparation: Optional[PreparationWork] = None
+    source_publication_version: Optional[int] = None
+    source_session: Optional[str] = None
+    feed_readiness: Optional[Literal['AWAITING_VERDICT']] = None
 
     def staleness(self, now: datetime) -> Optional[timedelta]:
         return None if self.as_of is None else now - self.as_of
@@ -326,6 +385,14 @@ class Row:
 
     def effective_status(self, now: datetime) -> str:
         """Apply the shared operator recoverability policy."""
+        if self.paper_alignment == 'SCHEDULED_WITH_HISTORY':
+            if (self.key != 'paper_reconciliation' or self.status != WARN
+                    or self.required_current is not True or self.recovery is not None
+                    or not isinstance(self.valid_until, datetime)
+                    or self.valid_until.utcoffset() != timedelta(0)
+                    or self.is_future(now) or self.is_stale(now)):
+                return FAIL
+            return WARN
         if self.paper_alignment == 'PRIOR_CYCLE_FAILED':
             if (self.key != 'paper_reconciliation' or self.status != WARN
                     or not isinstance(self.valid_until,datetime)
@@ -348,8 +415,15 @@ class Row:
                 and self.recovery.phase == 'SOURCE_FRONTIER'
                 and self.recovery.active(now)))
 
+    def can_show_preparation(self, now: datetime) -> bool:
+        return (self.key == 'ingest' and self.preparation is not None
+                and self.preparation.visible_at(now)
+                and self.effective_status(now) not in {FAIL, UNKNOWN}
+                and not self.is_stale(now) and not self.is_future(now))
+
     def can_show_trading_run(self, now: datetime) -> bool:
         return (self.trading_run is not None and not self.is_future(now)
+                and (self.key != 'completed_trading_run' or self.trading_run.state == 'SUCCEEDED')
                 and not self.is_stale(now)
                 and self.trading_run.intent.effective_session ==
                     now.astimezone(ZoneInfo('America/New_York')).date()
@@ -554,13 +628,15 @@ def paper_reconciliation_row(
             "PAPER NOT VERIFIED · MISMATCH · BLOCKED", FAIL,
             (detail or "a durable PAPER discrepancy blocks future mutations")
             + suffix)
-    if normalized == "SCHEDULED" and scheduled_until is not None:
+    if normalized in {"SCHEDULED", "SCHEDULED_WITH_HISTORY"} and scheduled_until is not None:
+        historical = normalized == 'SCHEDULED_WITH_HISTORY'
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",
-            "PAPER NOT VERIFIED · SCHEDULED · POST-CLOSE EVIDENCE PENDING", OK,
+            ("PAPER NOT VERIFIED · SCHEDULED · HISTORICAL MIRROR WARNING" if historical else
+             "PAPER NOT VERIFIED · SCHEDULED · POST-CLOSE EVIDENCE PENDING"), WARN if historical else OK,
             detail + suffix, required_current=True,
             valid_until=scheduled_until - timedelta(microseconds=1),
-            paper_alignment='SCHEDULED')
+            paper_alignment='SCHEDULED_WITH_HISTORY' if historical else 'SCHEDULED')
     if normalized == "CLEAN":
         return Row(
             "paper_reconciliation", "Alpaca PAPER mirror",
@@ -692,7 +768,8 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
              ingest_running: bool = False,
              checked_at: Optional[datetime] = None,
              ingest_updated_at: Optional[datetime] = None,
-             frontier_ahead: bool = False) -> Row:
+             frontier_ahead: bool = False,
+             publication_version: Optional[int] = None) -> Row:
     """The data contract, not a row count.
 
     §8 is explicit that "126 rows" is not the test, so this reports the contract
@@ -743,7 +820,13 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
                    "verdict is available for this publication; awaiting the "
                    "publisher's measured readiness handoff.", as_of, required_current=True,
                    valid_until=(checked_at + VERDICT_STALE_AFTER
-                                if checked_at else None))
+                                if checked_at else None),
+                   source_publication_version=publication_version,
+                   source_session=frontier,
+                   feed_readiness=('AWAITING_VERDICT' if sessions_behind == 0
+                       and checks_passed == checks_total == 0 and checked_at is None
+                       and type(publication_version) is int and publication_version > 0
+                       else None))
     verdict = ("contract READY" if ready else "contract NOT READY")
 
     # WHEN IT WAS MEASURED, always, and an explicit warning once it is old.

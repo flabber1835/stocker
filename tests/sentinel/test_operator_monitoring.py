@@ -394,13 +394,13 @@ def test_automation_steps_escalate_retry_and_require_clean_completion() -> None:
     ("row", "headline"),
     [
         (model.Row("healthy", "Healthy", "CURRENT", OK),
-         "OPERATIONAL GREEN — HEALTHY AND CURRENT"),
+         "SYSTEM HEALTH GREEN — NORMAL CURRENT OPERATION; PLAN READINESS IS SEPARATE"),
         (model.Row(
             "repair", "Repair", "RETRY 1/8", WARN,
             required_current=True, recovery=recovery()),
-         "OPERATIONAL AMBER — NO ACTION REQUIRED YET"),
+         "SYSTEM HEALTH AMBER — DEGRADED OR NEEDS REVIEW"),
         (model.Row("blocked", "Blocked", "ACTION REQUIRED", FAIL),
-         "OPERATIONAL RED — OPERATOR ACTION REQUIRED"),
+         "SYSTEM HEALTH RED — FAILED OR UNREADABLE CHECK"),
     ],
 )
 def test_headline_uses_the_same_recoverability_verdict(row, headline) -> None:
@@ -415,7 +415,7 @@ def test_withdrawn_shadow_verification_turns_operational_headline_red() -> None:
     panel = model.Panel(rows=[shadow], now=NOW)
 
     assert panel.operational == FAIL
-    assert "OPERATIONAL RED — OPERATOR ACTION REQUIRED" in render(panel)
+    assert "SYSTEM HEALTH RED — FAILED OR UNREADABLE CHECK" in render(panel)
 
 
 def test_operational_health_uses_exact_panel_status(monkeypatch) -> None:
@@ -449,7 +449,7 @@ def test_home_screen_heartbeat_and_service_worker_fail_closed() -> None:
     assert "DASHBOARD HEARTBEAT · UPDATED 0s AGO" in html
     assert "DASHBOARD HEARTBEAT LOST · STATUS STALE" in html
     assert 'window.addEventListener("offline"' in html
-    assert "if (wentOffline){ invalidate(false); }" in html
+    assert "if (wentOffline){ invalidate(false, true); }" in html
     assert "if (wentOffline){ invalidate(true); }" in html
     assert 'window.addEventListener("pageshow"' in html
     assert 'document.addEventListener("visibilitychange"' in html

@@ -7,7 +7,9 @@
   },
   "scripts": {
     "install-browsers": "playwright install --with-deps chromium webkit",
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:journey": "playwright test --config dashboard-journey.config.js",
+    "test:journey:unit": "node --test dashboard-journey-capture.test.cjs dashboard-journey-transport.test.cjs"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0"

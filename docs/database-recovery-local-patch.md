@@ -79,3 +79,114 @@ as a host-tool fix, bind the executing tool commit/hash in retained evidence, an
 keep the already qualified runtime commit/image and its completed full restore.
 Host tooling can advance independently of the installed runtime; do not relabel
 or rebuild identical runtime code merely to deliver an image-selector correction.
+
+## Completed-predecessor notification repair
+
+Decision: 2026-10-30, before implementation. The owner explicitly authorized
+fixing both the dashboard and the separately observed worker error locally.
+The normal generation-boundary wait carries an older SUCCEEDED cycle and the
+current leader permit. Its fallback notification key omits that permit's fence,
+although the immutable payload includes it. Lease reacquisition therefore
+reuses the key with different content and correctly trips ImmutableAlertChanged.
+
+Do not modify, delete or reuse the old alert payload, catch its integrity refusal,
+or make status polling create one new warning per lease. The exact normal
+WAITING result for an older-generation SUCCEEDED cycle, with a current permit
+and the existing terminal-generation-boundary reason, is quiet. Other states,
+actions, missing permits, unexpected reasons and current/future generations keep
+their existing notification and immutable-outbox behavior. Reproduce the old
+collision against a real private outbox and falsify removal of the quiet guard.
+
+An explicit `POST_TRADE_SUCCESSOR` backed local handoff may preserve this idle
+state without inventing a current-generation successful cycle. Require the
+same currently owned PAPER account/deployment/takeover, enabled and kill-released
+current control, no current-generation cycle, exactly one older SUCCEEDED cycle
+for today's exchange session, its real completion and positive authenticated
+clean reconciliation, and no failure or historical-state-only flag. Its original
+immutable plan must name the sole current unsuperseded successor via
+superseded_by; that successor must match current control/rollout/source and have
+the same dated decision, effective session and targets. Keep both plan IDs and
+their distinct authority scopes explicit in retained evidence.
+
+Re-derive the current successor plan under current signed authority, preserving
+the existing complete old/new canonical comparison, native PAPER account and
+zero-open-order GETs, history/notification proofs, source-idle requirement and
+absence of any in-flight/UNKNOWN command or other active financial cycle. Keep
+the original post-trade close-minus-fifteen-minute admission margin and all
+handoff/drain budgets. Preserve current generation, certificate, binding,
+PostgreSQL, book, source and completed execution history. Neither the old cycle
+nor its superseded plan becomes current execution authority or is replayed.
+
+The ordinary PRE_OPEN, POST_TRADE and exact BLOCKED_UNSENT paths retain their
+existing guards. Apply only the qualified compatible source layer through the
+canonical backed application handoff; reuse real current base/WAL evidence and
+do not add an image-specific full restore. The repaired worker must establish
+stable advancing leadership without new notification collisions before an
+actually resolved incident may be acknowledged. Preserve unrelated negative
+facts and report actual local commit/image provenance without a CI claim.
+
+This repair may observe the exactly identified predecessor automation service
+restarting from ImmutableAlertChanged while its container/image and control
+remain owned. In POST_TRADE_SUCCESSOR only, retain the exact known incident
+identity and original notification payload, require the other five applications
+healthy and all ordinary no-active-work/account/source guards, and stop the
+automation through the canonical handoff before replacement. This is no general
+unhealthy-service exception. The candidate must establish healthy services and
+stable advancing leadership with no repeated collision.
+
+Do not acknowledge the active incident to pass admission. The new mode's final
+software-verification receipt may retain only those exact predecessor incident
+alerts as visibly red, with their immutable identities/payloads unchanged and
+all unrelated current checks healthy or ordinarily pending. It must record the
+actual panel verdict, not claim a green dashboard. Notification-history checks
+remain strict throughout the handoff. After the verified operation releases
+ownership, acknowledge only incidents whose causes are then independently
+resolved through the supported CLI, and re-read local/public operational state.
+
+## Future scheduled plan with an informational history warning
+
+Decision: 2026-10-30, before implementation. The qualified local application
+repair may finish its PRE_OPEN software handoff with the exact typed
+`SCHEDULED_WITH_HISTORY` paper-alignment warning. The current independently
+admitted future WAITING_OPEN plan is intact; a discrepancy on an earlier
+transported informational plan remains visible. This is a bounded software
+receipt compatibility case, not green dashboard clearance or financial
+verification.
+
+Require the actual amber page and warning, its explicit paper-alignment flag,
+required-current status, no recovery override, and an original UTC validity
+boundary exactly one microsecond before the same saved plan's future execution.
+Require the current plan/session, verified source, enabled kill-released policy,
+fresh leader and current authority. The only warning rows permitted are that
+history row and the original bounded WAITING_OPEN cycle/open-step rows. Reject
+every failed/unreadable fact, source error, unrelated warning, ambiguous row,
+missing/malformed flag or expired/future evidence. Record the actual amber
+verdict and the retained warning identity, value and original boundary in the
+immutable software receipt; do not report operational readiness from it.
+
+Keep POST_TRADE behavior and all existing native financial, canonical old/new
+comparison, account/zero-order, source-idle, backup/WAL, plan, broker-outcome and
+history guards unchanged. This exception changes only the final PRE_OPEN
+software receipt's former unconditional green-page requirement. Qualify the
+executed final reader against the real typed source row, its negative/current
+mismatch variants, other warnings and original expiry, including removal of the
+typed-flag guard.
+
+## Canonical backed runtime metadata boundary
+
+Decision: 2026-10-30, before implementation. A canonical ACTIVE deployment has
+its immutable activation receipt and backed handoff build/journal, rather than
+the archive-off installer's `local-delivery.json`. Do not fabricate that legacy
+file. When it is truly absent, the backed host may install only the qualified
+candidate runtime environment after validating its exact build/request and
+authenticated ACTIVE predecessor chain under the existing complete native
+ownership locks. Missing ownership, changed anchors, symlinks or malformed
+existing metadata refuse before any environment write. A present ordinary
+archive metadata file retains the existing install/update behavior.
+
+Use the same literal round-trip and same-directory atomic environment replace,
+including file and directory fsync. Preserve every non-runtime value. An exact
+candidate environment is an idempotent replay after a lost host acknowledgement;
+other states refuse. Record this separately as qualified host-tool provenance,
+preserving the already-qualified application source, image, request, journal,
+financial controls and original finite handoff deadline.
