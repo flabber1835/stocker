@@ -1,9 +1,36 @@
 {
-  "schema": "research.abiomed-sensor-primary-contract/1",
-  "security_id": "1050970006012443443",
-  "native_session": "2022-12-21",
-  "session": "2022-12-22",
+  "cash_consideration_range": [
+    380.0,
+    415.0
+  ],
+  "contingent_right_market_price_observed": false,
+  "event_source_quote_present": false,
+  "inherited_sources": {
+    "system-campaign-completion-scope-contract.json": "226fe18dbe33a48867531900fe5bd083d2b284c266a4e753b2e7156968bfe533",
+    "system_campaign_completion_basis.py": "ae2a6daeb28412a4950b5ee45a27ed6964a9efc294d08a46a001831ec51b3298",
+    "system_campaign_completion_facts.py": "11136ed919d3686e243e575e1e3b483dad0d6060b559a57408d938dfb7779ae8",
+    "system_campaign_completion_gate.py": "19b23a53ef5fdd7977d5a6cae87ef43d11c7c79e4a7766960c8993ce39b25f27",
+    "system_campaign_completion_review.py": "a5c866e30ac5164307f34914ca030bd60c60431d448c453753adeba7b6a69782",
+    "system_campaign_completion_scope.py": "db84b8f0a070faa1fbe5510fbdd4358ab18c1436914c39b1a0d14eea7f66c060",
+    "system_campaign_mixed_preflight.py": "e0b11bd6dca526d998f1480f0efd95d0f4e2a6b4c54154b1719b85018301febf",
+    "system_campaign_uncertainty_archive.py": "a0d82bf28260ffe47b814ad0ff90cbec4185c695e0b2d69a603ab490582543b7",
+    "system_campaign_uncertainty_basis.py": "33a022d90449028350cd66af7208a6089612a19f66c9ecf55b14eec5b6b2c02c",
+    "system_campaign_uncertainty_context.py": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610",
+    "system_campaign_uncertainty_facts.py": "f5b06342b66383c88a9343c1ac47c18ec586ee54c76286f80e0056364c7dfde4",
+    "system_campaign_uncertainty_gate.py": "79df745916e7603f803cf37022ba4e4a27340995b4ac98fdb344e7e7e46e1bf3",
+    "system_campaign_uncertainty_input.py": "85572869e11ac0447618c3f6b80ae7d9160746444453959d76852175bc0fc5f3",
+    "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213",
+    "system_campaign_uncertainty_review.py": "bfa8c59074f4189c35eb04359e4e846d6a2311df72f8b9180357eb7d7cd24c7f",
+    "system_campaign_uncertainty_support.py": "6f0298e8cde015ccc3807927e820422bb2075d69abd39f7645a20ffaa835ac4f",
+    "system_campaign_zogenix_basis.py": "54c33ba88d951d7360d11e67a9e254693361e588b70c4e39704b2fc66e8fd3fa",
+    "system_campaign_zogenix_facts.py": "1cc8906a8bc7d01b160186d091415d252b9fff45116fa466b46d947a24e90056",
+    "system_campaign_zogenix_input.py": "da4b5af6b5a4e9a6c5cd3ffd236b127a509f984f8743a0b51be49381fc2be812",
+    "system_campaign_zogenix_review.py": "650f31c3d1f5d9bcfa854c069425170be7fa8ba28c70f7aeee47b488c8046af0",
+    "system_campaign_zogenix_sensor.py": "df3de6905a23b06254044a8a0f08833d6f3a68290706114a873d8440eedb560e"
+  },
   "last_trading_session": "2022-12-21",
+  "later_payment_information_used": false,
+  "mandatory_remaining_common_share_entitlement": true,
   "native": {
     "cash_in_lieu_price_per_delivered_share": null,
     "cash_per_share": null,
@@ -17,71 +44,45 @@
     "security_id": "1050970006012443443",
     "session": "2022-12-21"
   },
+  "native_session": "2022-12-21",
   "native_term_sha256": "815f61b085dee89b89956834f250763522bff5402fdcc3d36ebb36c85d0796e4",
-  "cash_consideration_range": [
-    380.0,
-    415.0
-  ],
-  "contingent_right_market_price_observed": false,
-  "source_witnesses": [
-    {
-      "session": "2022-12-20",
-      "security_id": "1050970006012443443",
-      "ticker": "ABMD",
-      "issuer_id": "SEC_CIK:815094",
-      "listing_first_session": "1997-12-31",
-      "security_type_eligible": "1",
-      "source_observation_sha256": "e2b7ddcc99397754a7c7d9d4a6f4c26d68fd01fe9a6a48147608e1416c5f0540"
-    },
-    {
-      "session": "2022-12-21",
-      "security_id": "1050970006012443443",
-      "ticker": "ABMD",
-      "issuer_id": "SEC_CIK:815094",
-      "listing_first_session": "1997-12-31",
-      "security_type_eligible": "1",
-      "source_observation_sha256": "da8764430c219afa4f75a3bdf4d15156b73cc4e9c1374d5a9f24ead433bf764d"
-    }
-  ],
-  "event_source_quote_present": false,
-  "provider_rows_sha256": "b710cf23ff11e792fd6bca489667dc8403a93b62860c9b013ecdad520cebe36b",
+  "preopen_completion_confirmed": true,
+  "primary_sources": {
+    "exchange_clock": "https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-460",
+    "issuer_confirmation": "https://www.jnj.com/media-center/press-releases/johnson-johnson-completes-acquisition-of-abiomed",
+    "mandatory_common_and_cap": "https://www.sec.gov/Archives/edgar/data/815094/000119312522311074/d353287d8k.htm",
+    "options_corroboration_not_common_right_valuation": "https://infomemo.theocc.com/infomemos?number=51642"
+  },
+  "production_contacted": false,
+  "provider_archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
   "provider_row_sha256": [
+    "5c1d09813e1cd7c3db078eeea30a0eb98a5a710bf3bf047bdbac5d9caa544a71",
     "8166c54214d7b8443fe23ea07dadb00a25136a8fd5576359aac55bfdf679ed52",
     "b77d838ef66dcd2ee7d48464a12cc980fa8d77d7c01553df716bc44026b0f6ab"
   ],
-  "provider_archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
-  "primary_sources": {
-    "mandatory_common_and_cap": "https://www.sec.gov/Archives/edgar/data/815094/000119312522311074/d353287d8k.htm",
-    "exchange_clock": "https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-460",
-    "options_corroboration_not_common_right_valuation": "https://infomemo.theocc.com/infomemos?number=51642",
-    "issuer_confirmation": "https://www.jnj.com/media-center/press-releases/johnson-johnson-completes-acquisition-of-abiomed"
-  },
-  "mandatory_remaining_common_share_entitlement": true,
-  "preopen_completion_confirmed": true,
-  "tender_participation_assumed": false,
-  "later_payment_information_used": false,
-  "production_contacted": false,
-  "inherited_sources": {
-    "system_campaign_uncertainty_context.py": "b9a51977d6456c5684564f74927d2a5585db2208156269c077b9d35eb8373610",
-    "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213",
-    "system_campaign_uncertainty_gate.py": "79df745916e7603f803cf37022ba4e4a27340995b4ac98fdb344e7e7e46e1bf3",
-    "system_campaign_uncertainty_review.py": "bfa8c59074f4189c35eb04359e4e846d6a2311df72f8b9180357eb7d7cd24c7f",
-    "system_campaign_uncertainty_input.py": "85572869e11ac0447618c3f6b80ae7d9160746444453959d76852175bc0fc5f3",
-    "system_campaign_uncertainty_basis.py": "33a022d90449028350cd66af7208a6089612a19f66c9ecf55b14eec5b6b2c02c",
-    "system_campaign_uncertainty_archive.py": "a0d82bf28260ffe47b814ad0ff90cbec4185c695e0b2d69a603ab490582543b7",
-    "system_campaign_uncertainty_facts.py": "f5b06342b66383c88a9343c1ac47c18ec586ee54c76286f80e0056364c7dfde4",
-    "system_campaign_uncertainty_support.py": "6f0298e8cde015ccc3807927e820422bb2075d69abd39f7645a20ffaa835ac4f",
-    "system_campaign_zogenix_input.py": "da4b5af6b5a4e9a6c5cd3ffd236b127a509f984f8743a0b51be49381fc2be812",
-    "system_campaign_zogenix_sensor.py": "df3de6905a23b06254044a8a0f08833d6f3a68290706114a873d8440eedb560e",
-    "system_campaign_zogenix_facts.py": "1cc8906a8bc7d01b160186d091415d252b9fff45116fa466b46d947a24e90056",
-    "system_campaign_zogenix_basis.py": "54c33ba88d951d7360d11e67a9e254693361e588b70c4e39704b2fc66e8fd3fa",
-    "system_campaign_zogenix_review.py": "650f31c3d1f5d9bcfa854c069425170be7fa8ba28c70f7aeee47b488c8046af0",
-    "system_campaign_completion_scope.py": "db84b8f0a070faa1fbe5510fbdd4358ab18c1436914c39b1a0d14eea7f66c060",
-    "system_campaign_completion_facts.py": "11136ed919d3686e243e575e1e3b483dad0d6060b559a57408d938dfb7779ae8",
-    "system_campaign_completion_basis.py": "ae2a6daeb28412a4950b5ee45a27ed6964a9efc294d08a46a001831ec51b3298",
-    "system_campaign_completion_gate.py": "19b23a53ef5fdd7977d5a6cae87ef43d11c7c79e4a7766960c8993ce39b25f27",
-    "system_campaign_completion_review.py": "a5c866e30ac5164307f34914ca030bd60c60431d448c453753adeba7b6a69782",
-    "system_campaign_mixed_preflight.py": "e0b11bd6dca526d998f1480f0efd95d0f4e2a6b4c54154b1719b85018301febf",
-    "system-campaign-completion-scope-contract.json": "226fe18dbe33a48867531900fe5bd083d2b284c266a4e753b2e7156968bfe533"
-  }
+  "provider_rows_sha256": "bf14710301807006c58ecd6ecdf0914204d36e1edb99c9ce6d2b688dd59445db",
+  "schema": "research.abiomed-sensor-primary-contract/1",
+  "security_id": "1050970006012443443",
+  "session": "2022-12-22",
+  "source_witnesses": [
+    {
+      "issuer_id": "SEC_CIK:815094",
+      "listing_first_session": "1997-12-31",
+      "security_id": "1050970006012443443",
+      "security_type_eligible": "1",
+      "session": "2022-12-20",
+      "source_observation_sha256": "e2b7ddcc99397754a7c7d9d4a6f4c26d68fd01fe9a6a48147608e1416c5f0540",
+      "ticker": "ABMD"
+    },
+    {
+      "issuer_id": "SEC_CIK:815094",
+      "listing_first_session": "1997-12-31",
+      "security_id": "1050970006012443443",
+      "security_type_eligible": "1",
+      "session": "2022-12-21",
+      "source_observation_sha256": "da8764430c219afa4f75a3bdf4d15156b73cc4e9c1374d5a9f24ead433bf764d",
+      "ticker": "ABMD"
+    }
+  ],
+  "tender_participation_assumed": false
 }

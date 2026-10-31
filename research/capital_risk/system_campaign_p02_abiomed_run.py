@@ -35,6 +35,7 @@ from system_campaign_abiomed_facts import hydrate, overlay, evidence as abiomed_
 from system_campaign_abiomed_review import review as review_certificate, preserve_parent
 from system_campaign_abiomed_basis import basis
 from system_campaign_abiomed_gate import qualify
+from system_campaign_abiomed_recovery import verify as verify_unchanged_attempt
 
 
 def run(out, old, spec, request, timing):
@@ -44,6 +45,9 @@ def run(out, old, spec, request, timing):
          and spec['selected_session'] == '2022-11-30'
          and request['execution_mode'] == 'THIRD_CERTIFIED_ABIOMED_SENSOR_SUFFIX',
          'ABIOMED_EXACT_OWN_NOVEMBER_PREFIX')
+    if 'abiomed_unadvanced_equivalence_sha256' in request:
+        save(out / 'abiomed-unadvanced-equivalence-admission.json',
+             verify_unchanged_attempt(old, spec, request))
     cp = timing.call('old_prefix_preflight', preflight, spec, old, out, before='2022-12-21')
     need(cp['completed'] == 1238 and len(cp['repairs']) == 28
          and cp['base']['sources'][PACKET_SOURCE_PATH] == request['qualified_packet_source_sha256'],
@@ -132,6 +136,11 @@ def review(out, root, old, spec, timing):
     from system_campaign_factual_run import review as review_financial
     cp = journal.read_checkpoint(root / 'book/checkpoint.json.gz')
     previous = journal.read_checkpoint(old / spec['selected_checkpoint'])
+    request = json.loads((root / 'request.json').read_bytes())
+    if 'abiomed_unadvanced_equivalence_sha256' in request:
+        need(json.loads((root / 'abiomed-unadvanced-equivalence-admission.json').read_bytes())
+             == verify_unchanged_attempt(old, spec, request),
+             'ABIOMED_INDEPENDENT_UNADVANCED_RECOVERY_ADMISSION')
     if cp['repairs'] == previous['repairs']:
         unadvanced_parent(out, root, old, spec, cp, previous)
         return

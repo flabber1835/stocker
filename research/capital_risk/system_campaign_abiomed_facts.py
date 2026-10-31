@@ -25,6 +25,27 @@ def evidence(root):
     return values
 
 
+def provider_rows(raw):
+    """Full original target AND inverse counterparty rows, in archive order."""
+    rows=[]
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        for name in z.namelist():
+            with z.open(name) as f:
+                for row in csv.DictReader(io.TextIOWrapper(f,encoding='utf8',newline='')):
+                    if row['date']==NATIVE and 'ABMD' in (row['ticker'],row['contraticker']):
+                        rows.append(row)
+    return rows
+
+
+def verify_provider_rows(raw,contract):
+    need(sha(raw)==contract['provider_archive_sha256'],'ABIOMED_FROZEN_PROVIDER_ARCHIVE')
+    rows=provider_rows(raw)
+    need(digest(rows)==contract['provider_rows_sha256']
+         and [digest(row) for row in rows]==contract['provider_row_sha256'],
+         'ABIOMED_ALL_ORIGINAL_PROVIDER_ROWS')
+    return rows
+
+
 def hydrate(old,out):
     hosted()
     from research.pooled_input_support import inputs
@@ -51,15 +72,8 @@ def hydrate(old,out):
             if key==(DAY,SID):event.append(row)
     need(set(found)==set(wanted) and not event and c['event_source_quote_present'] is False,
          'ABIOMED_FULL_WITNESSES_AND_EXACT_EVENT_QUOTE_ABSENCE')
-    raw=(old/'provider-source/SHARADAR_ACTIONS.zip').read_bytes();need(sha(raw)==c['provider_archive_sha256'],'ABIOMED_FROZEN_PROVIDER_ARCHIVE')
-    rows=[]
-    with zipfile.ZipFile(io.BytesIO(raw)) as z:
-        for name in z.namelist():
-            with z.open(name) as f:
-                for r in csv.DictReader(io.TextIOWrapper(f,encoding='utf8',newline='')):
-                    if r['date']==NATIVE and 'ABMD' in (r['ticker'],r['contraticker']):rows.append(r)
-    need(digest(rows)==c['provider_rows_sha256'] and [digest(r) for r in rows]==c['provider_row_sha256'],
-         'ABIOMED_ALL_ORIGINAL_PROVIDER_ROWS')
+    raw=(old/'provider-source/SHARADAR_ACTIONS.zip').read_bytes()
+    rows=verify_provider_rows(raw,c)
     save(out/PRIVATE,dict(schema='research.abiomed-sensor-private-event/1',contract=c,actual_native=asdict(native),
         source_witnesses=[found[k] for k in sorted(found)],provider_rows=rows,session=DAY,security_id=SID,
         source_quote_present=False,split_ratio='1',source_metadata_unchanged=True,right_market_price_observed=False))
