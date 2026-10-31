@@ -9,7 +9,6 @@ import shutil
 from full_system_core import hosted,arguments
 from full_system_benchmark import need,save
 from system_campaign_facts import sha,digest
-import system_campaign_p02_close_run as original
 from system_campaign_close_scope import SCHEMA as CLOSE,InputCodec as CloseCodec
 from system_campaign_close_facts import expected_repair as close_body,evidence as close_evidence
 from system_campaign_outcome_input import InputCodec as OutcomeCodec
@@ -29,6 +28,7 @@ OUTER='1f42c8345ac1df9cb1cbddff84cb2624a6fb9087ee5d3d663f528fd13ca341f0'
 @contextmanager
 def retained_contexts(root,checkpoint,scratch):
     hosted()
+    import system_campaign_p02_close_run as original
     from research.pooled_vacancy_funding import backtest,journal
     prior=original.prior
     v1,spin,alder,_=prior.retained(checkpoint,root,scratch)

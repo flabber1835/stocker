@@ -3,10 +3,39 @@ import ast
 from copy import deepcopy
 import json
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 import system_campaign_pxd_qualification_job as job
 import system_campaign_pxd_qualification_run as entry
+
+
+def test_fresh_transfer_import_cannot_use_locally_installed_numerical_packages():
+    code="""import json,sys
+from pathlib import Path
+sys.path.insert(0,str(Path('research/capital_risk').resolve()))
+import system_campaign_pxd_qualification_import_probe as probe
+assert 'numpy' not in sys.modules and 'pandas' not in sys.modules
+request=json.loads(Path('research/capital_risk/system-campaign-pxd-qualification-request.json').read_bytes())
+assert probe.qualify(request)['actual_financial_runtime_imports'] is False
+assert 'numpy' not in sys.modules and 'pandas' not in sys.modules
+"""
+    subprocess.run([sys.executable,'-B','-c',code],check=True,capture_output=True,timeout=30)
+
+
+def test_actual_transfer_dependency_guard_removal_falsifier():
+    import system_campaign_pxd_qualification_import_probe as probe
+    finder=probe.LockedTransferDependencies()
+    with pytest.raises(ImportError):finder.find_spec('numpy')
+    node,=[n for n in ast.parse(Path(probe.__file__).read_bytes()).body
+           if isinstance(n,ast.ClassDef) and n.name=='LockedTransferDependencies']
+    method,=[n for n in node.body if isinstance(n,ast.FunctionDef) and n.name=='find_spec']
+    method.body=[ast.Pass()]
+    namespace={}
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),
+        '<actual-transfer-dependency-guard-removed>','exec'),namespace)
+    assert namespace['LockedTransferDependencies']().find_spec('numpy') is None
 
 
 def test_exact_new_request_retains_every_old_source_and_disallows_financial_mode():

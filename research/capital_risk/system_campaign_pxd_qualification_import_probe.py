@@ -4,6 +4,17 @@ import json
 import os
 from pathlib import Path
 from types import FunctionType
+import sys
+
+
+class LockedTransferDependencies:
+    def find_spec(self,fullname,path=None,target=None):
+        if fullname.split('.',1)[0] in ('numpy','pandas'):
+            raise ImportError('HOST_METADATA_MUST_USE_ONLY_LOCKED_TRANSFER_DEPENDENCIES:'+fullname)
+        return None
+
+
+sys.meta_path.insert(0,LockedTransferDependencies())
 
 import system_campaign_close_import_probe as original
 from system_campaign_pxd_qualification_job import expected_request
