@@ -1,0 +1,13 @@
+{
+  "groups": [
+    {
+      "catalog_file": "system-campaign-lbph-preopen-cash-terminal-facts.json",
+      "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "lbph-preopen-cash-overlay.json",
+      "private_file": "hydrated-lbph-preopen-cash-catalog.json",
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-lbph-preopen/1/"
+    }
+  ],
+  "required_morf_extension_sha256": "cd95d11fe8fe999187501b1d9a663d428180b45be9a8385705a379cab4cbba80",
+  "schema": "research.ordinary-catalog-registry-extension/1"
+}
