@@ -39,9 +39,12 @@ def test_cash_catalog_claims_and_actual_source_closure_are_explicit():
     assert cat['same_day_quote_claims'][0]['session'] == '2023-04-27'
     assert cat['same_day_quote_claims'][0]['security_id'] == '858933953652218125'
     assert len(request['sources']) == 189
+    # The initial entrypoint belongs to retained attempt b1e51f2e and is verified
+    # by its full failure audit. The corrected entrypoint has a separate exact
+    # recovery request/contract; do not repin the historical request to it.
     for name in ['system_campaign_spring2023_preflight.py', 'system_campaign_spring2023_gate.py',
                  'system_campaign_spring2023_review.py', 'system_campaign_spring2023_basis.py',
-                 'system_campaign_p02_spring2023_run.py', 'system_campaign_p02_spring2023_job.py',
+                 'system_campaign_p02_spring2023_job.py',
                  'system_campaign_p02_spring2023_diagnostics.py']:
         assert hashlib.sha256((HERE / name).read_bytes()).hexdigest() == request['sources'][name]
 

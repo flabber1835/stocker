@@ -69,6 +69,33 @@ input's evidence reference before compiling this adapter. Preserve ABMD's actual
 event checkpoint in addition to the three earlier event archives. No global
 module or original source mutation is permitted.
 
+The first hosted attempt refused in the original ABMD constructor because that
+constructor admits only a seed preceding the new ABMD event. The March parent
+already contains that resolved event. Preserve this failed attempt. Recovery
+uses a separate post-event constructor: authenticate the actual parent review
+against its exact predecessor specification, require its checkpoint/session and
+row count to match, and compare the complete supplied seed to the exact committed
+prefix of the preserved parent certificate. Unsent April rows cannot become
+seed. Require the ABMD resolution and all prior invariant checks. Then call the
+unchanged original prior initializer and assign the same three ABMD context
+fields as the original constructor. Inherit every original numerical, witness,
+recovery, position and journal method without overriding it, and authenticate
+the inherited class's source against the adopted typed input. No old guard,
+source, seed date or historical row is edited. Authenticate the failed attempt
+and prove all seven full financial/state/source/journal files unchanged before
+selecting an exact recovery; no financial restart is allowed.
+
+The refused attempt is not selected as a complete financial predecessor: its
+constructor stopped before the live certificate stream and observation capture
+were created. After proving all seven financial files identical, retain the
+original fully admitted recovery 41174261514 as financial parent. A separately
+hashed unadvanced-failure receipt binds attempt 41178393607, its actual encrypted
+artifact, stopped worker/reviewer, exact original parent and complete file/tail
+hashes. Check that receipt and all seven actual parent files in both the worker
+and the reviewer before advancing. Keep the failed attempt's source and every
+exported byte. Use a distinct recovery workflow/request, never attempt 2 or a
+fresh book. The thirteen cash facts and all 29 existing inputs remain unchanged.
+
 The stopped-book financial reviewer still restores all historical and current
 checkpoints, verifies all journal prefixes, every daily accounting factor,
 shares/cash/claims/raw marks/fees, monthly reports, full chains and exact input

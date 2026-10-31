@@ -29,7 +29,7 @@ from system_campaign_future_amendment import FutureProjection, OUTER, PAYLOAD_NA
 from system_campaign_p02_calendar_run import retained_amendment
 from system_campaign_phase_timing import PhaseTiming
 from system_campaign_replay_timing import ReplayTiming
-from system_campaign_abiomed_sensor import SensorCertificate
+from system_campaign_spring2023_sensor import SensorCertificate
 from system_campaign_abiomed_input import InputCodec as AbiomedCodec
 from system_campaign_abiomed_facts import evidence as abiomed_evidence, PRIVATE, retained_completion
 from system_campaign_abiomed_basis import basis
@@ -38,6 +38,7 @@ from system_campaign_spring2023_review import preserve_parent, retained_abiomed,
 from system_campaign_spring2023_preflight import FourModelCalendarPreflight
 from system_campaign_spring2023_gate import qualify
 from system_campaign_cash_calendar import build as build_calendar
+from system_campaign_spring2023_recovery import verify as verify_unchanged_attempt
 
 CATALOG = 'system-campaign-spring2023-cash-calendar-terminal-facts.json'
 
@@ -49,6 +50,9 @@ def run(out, old, spec, request, timing):
          and spec['selected_session'] == '2023-03-31'
          and request['execution_mode'] == 'ORDINARY_CASH_WITH_FOUR_RETAINED_MODELS',
          'SPRING2023_EXACT_OWN_ADMITTED_MARCH_PREFIX')
+    if 'spring2023_unadvanced_equivalence_sha256' in request:
+        save(out / 'spring2023-unadvanced-equivalence-admission.json',
+             verify_unchanged_attempt(old, spec, request))
     cp = timing.call('old_prefix_preflight', preflight, spec, old, out, before='2023-04-27')
     need(cp['completed'] == 1321 and len(cp['repairs']) == 29
          and cp['base']['sources'][PACKET_SOURCE_PATH] == request['qualified_packet_source_sha256'],
@@ -67,7 +71,7 @@ def run(out, old, spec, request, timing):
         function(cp, old, out)
     znative = retained_zogenix(old, out)
     completion = timing.call('retained_completion_context', retained_completion, old, cp, out)
-    native, _ = timing.call('retained_abiomed_context', retained_abiomed, old, cp, out)
+    native, amodel = timing.call('retained_abiomed_context', retained_abiomed, old, cp, out)
     amendment = timing.call('original_amendment_boundary', retained_amendment, old, out)
     old_hash, _ = timing.call('retained_actual_common_basis', basis, out, cp, amendment=amendment)
     need(old_hash == request['predecessor_common_basis_sha256'], 'SPRING2023_EXACT_ADMITTED_PARENT_BASIS')
@@ -77,7 +81,11 @@ def run(out, old, spec, request, timing):
     certificate = SensorCertificate(out, codec, alder.native, request['canonical_controller_sources'],
         seed=seed, event_source=json.loads((out / 'hydrated-uncertainty-event.json').read_bytes()),
         zogenix_codec=zcodec, zogenix_native=znative, zogenix_source=json.loads((out / ZPRIVATE).read_bytes()),
-        abiomed_codec=acodec, abiomed_native=native, abiomed_source=json.loads((out / PRIVATE).read_bytes()))
+        abiomed_codec=acodec, abiomed_native=native, abiomed_source=json.loads((out / PRIVATE).read_bytes()),
+        parent_checkpoint=cp, parent_certificate_raw=(old / 'uncertainty-certificate.jsonl').read_bytes(),
+        parent_review_raw=(old / 'uncertainty-certificate-review.json').read_bytes(),
+        parent_spec=spec, abiomed_model=amodel)
+    save(out / 'spring2023-post-event-constructor-admission.json', certificate.continuation_admission)
     observer = SeededObservation(out / 'correlation-inputs.jsonl.gz', correlation_seed(old, cp))
     args = arguments(out / 'book', True)
     args[args.index('--policy') + 1] = cp['base']['policy']
@@ -116,6 +124,11 @@ def review(out, root, old, spec, timing):
     from system_campaign_spring2023_basis import require_exact_delta
     cp = journal.read_checkpoint(root / 'book/checkpoint.json.gz')
     previous = journal.read_checkpoint(old / spec['selected_checkpoint'])
+    request = json.loads((root / 'request.json').read_bytes())
+    if 'spring2023_unadvanced_equivalence_sha256' in request:
+        need(json.loads((root / 'spring2023-unadvanced-equivalence-admission.json').read_bytes())
+             == verify_unchanged_attempt(old, spec, request),
+             'SPRING2023_INDEPENDENT_UNADVANCED_RECOVERY_ADMISSION')
     if cp['repairs'] == previous['repairs']:
         unadvanced_parent(out, root, old, spec, cp, previous)
         return
@@ -124,6 +137,14 @@ def review(out, root, old, spec, timing):
     need(cp['base'] == previous['base'] and cp['repairs'][:-1] == previous['repairs']
          and cp['repairs'][-1]['sha256'] == sha((root / group['overlay_file']).read_bytes()),
          'SPRING2023_REVIEW_EXACT_ALL_29_RETAINED_INPUTS_AND_ONE_NEW_ORDINARY_OVERLAY')
+    from system_campaign_uncertainty_review import seed as committed_seed
+    from system_campaign_spring2023_sensor import require_committed_parent
+    constructor_admission = require_committed_parent(committed_seed(old, previous), previous,
+        (old / 'uncertainty-certificate.jsonl').read_bytes(),
+        (old / 'uncertainty-certificate-review.json').read_bytes(), spec)
+    need(json.loads((root / 'spring2023-post-event-constructor-admission.json').read_bytes())
+         == constructor_admission, 'SPRING2023_INDEPENDENT_EXACT_CONSTRUCTOR_ADMISSION')
+    save(out / 'spring2023-independent-constructor-admission.json', constructor_admission)
     boundary = journal.read_checkpoint(root / 'book/predecessor-checkpoints' / (OUTER + '.json.gz'))
     amendment = FutureProjection(root, boundary)
     znative = retained_zogenix(root, out)
