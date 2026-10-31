@@ -74,7 +74,7 @@ def main(args):
     need(len(key) == 32, 'OUTCOME_GATE_KEY')
     temp = Path(os.environ['RUNNER_TEMP'])
     need(shutil.disk_usage(temp).free >= request['initial_min_disk_bytes'], 'OUTCOME_GATE_DISK')
-    old = admit(spec, temp / 'outcome-gate-admitted-predecessor', key,
+    old = admit(spec, temp / 'campaign-factual-transfer-outcome-gate', key,
                 max_zip_bytes=request['source_archive_limit_bytes'])
     need(sha256_file(old / 'uncertainty-refusal.json') == request['actual_refusal_sha256'],
          'OUTCOME_GATE_ACTUAL_REFUSAL_BYTES')
