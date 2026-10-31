@@ -108,6 +108,10 @@ the exact new suppression/addition pairs, verified compiler commitments and
 explicit timing/position scope in the resulting common basis. A duplicate or
 conflicting numerical event refuses. No canonical checkpoint or input descriptor
 is removed or rewritten, and no old financial/recovery equation is changed.
+The storage-only relevant-event hook requests canonical pre-event checkpoints on
+both guarded completion dates, including when the name is unowned. These retain
+the actual selected witness set and immediately preceding raw/signal anchor for
+independent terminal-observation review; no checkpoint is constructed or relabelled.
 
 ## Cases that cannot be treated as simple cash
 

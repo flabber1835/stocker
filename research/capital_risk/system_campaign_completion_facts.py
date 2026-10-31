@@ -8,7 +8,7 @@ import zipfile
 from full_system_core import hosted
 from full_system_benchmark import need, save
 from system_campaign_cash_calendar import CashCalendar, build as build_cash
-from system_campaign_completion_scope import SCHEMA, SCOPE, NATIVES, digest, parse
+from system_campaign_completion_scope import SCHEMA, SCOPE, NATIVES, COMPLETIONS, digest, parse
 from system_campaign_facts import sha
 
 
@@ -28,7 +28,8 @@ def contract():
          and c['ordinary_catalog_sha256'] == sha((HERE / CATALOG).read_bytes())
          and not c['canonical_financial_source_changed'] and not c['provider_metadata_upgraded']
          and not c['production_contacted'], 'COMPLETION_EXACT_PUBLIC_CONTRACT')
-    need({e['security_id']: e['native_session'] for e in c['scoped_events']} == NATIVES,
+    need({e['security_id']: e['native_session'] for e in c['scoped_events']} == NATIVES
+         and {e['security_id']: e['session'] for e in c['scoped_events']} == COMPLETIONS,
          'COMPLETION_ONLY_TWO_DECLARED_SCOPED_NAMES')
     for event in c['scoped_events']:
         need(event['mandatory_remaining_common_share_entitlement'] is True

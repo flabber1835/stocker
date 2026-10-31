@@ -149,6 +149,18 @@ def test_new_name_activates_on_its_own_native_date():
     assert scope.active('2022-10-10') == sorted(scope.NATIVES)
 
 
+def test_completion_storage_hook_requests_actual_canonical_predecessor(tmp_path):
+    guard, _, _ = make_guard(tmp_path)
+    original = {'terminal': ['retained'], 'spinoff': []}
+    guard.original_relevant = lambda *args: original
+    assert guard.relevant(None, SimpleNamespace(day='2022-10-04')) is original
+    result = guard.relevant(None, SimpleNamespace(day='2022-10-05'))
+    assert result['terminal'] == original['terminal']
+    assert 'research_completion_scope' not in original
+    assert result['research_completion_scope']['security_ids'] == [SID]
+    assert result['research_completion_scope']['guarded_input_sha256'] == guard.codec.objects[0].sha256
+
+
 def test_carried_pending_orders_are_not_equated_to_new_intents(tmp_path):
     queue = [{'security_id': 'OTHER', 'sessions_waiting': 2, 'intended_dollars': 100.}]
     guard, run, _ = make_guard(tmp_path, before=state('before', pending=queue),

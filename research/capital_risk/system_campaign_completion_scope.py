@@ -22,6 +22,8 @@ WATCH = 'research.guarded-completion-observation-watch/1'
 SCOPE = 'UNOWNED_UNORDERED_CONSIDERATION_KNOWN_BEFORE_FOLLOWING_OPEN'
 NATIVES = {'827416728546053456': '2022-10-04',
            '1039169780857559862': '2022-10-10'}
+COMPLETIONS = {'827416728546053456': '2022-10-05',
+               '1039169780857559862': '2022-10-11'}
 
 
 def digest(value):
@@ -117,6 +119,16 @@ class TransitionGuard:
         self.last_session = None
         self.failure = None
 
+    def relevant(self, state, packet):
+        original = self.original_relevant(state, packet)
+        names = sorted(sid for sid, day in COMPLETIONS.items() if packet.day == day)
+        if not names:
+            return original
+        require(len(self.codec.objects) == 1, 'COMPLETION_SCOPE_EVENT_TYPED_INPUT_REQUIRED')
+        return {**(original or dict(terminal=[], spinoff=[])),
+                'research_completion_scope': dict(security_ids=names, scope=SCOPE,
+                    guarded_input_sha256=self.codec.objects[0].sha256)}
+
     def advance(self, run, published):
         names = active(published.session)
         if not names:
@@ -160,10 +172,12 @@ class TransitionGuard:
         return result
 
     def __enter__(self):
-        from research.pooled_vacancy_funding import journal, runtime
-        self.runtime, self.journal = runtime, journal
+        from research.pooled_vacancy_funding import backtest, journal, runtime
+        self.runtime, self.journal, self.backtest = runtime, journal, backtest
         self.original_advance, self.original_append = runtime.advance, journal.Journal.append
+        self.original_relevant = backtest.relevant
         runtime.advance = self.advance
+        backtest.relevant = self.relevant
         # A function is required here: assigning a bound method breaks Journal's
         # descriptor binding when composed with the existing interval certificate.
         def append(owner, name, record):
@@ -174,6 +188,7 @@ class TransitionGuard:
     def __exit__(self, *args):
         self.runtime.advance = self.original_advance
         self.journal.Journal.append = self.original_append
+        self.backtest.relevant = self.original_relevant
 
 
 class InputCodec:
