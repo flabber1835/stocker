@@ -177,9 +177,35 @@ def test_browser_document_cannot_outlive_original_worker_proof(state, monkeypatc
     status.publish(state/status.CRITICAL_NAME, A, now=NOW)
     worker = row(state, monkeypatch)
     healthy = render(model.Panel(rows=[worker], now=NOW))
-    assert 'data-max-age-seconds="45"' in healthy and '}, 30000)' in healthy
-    late = render(model.Panel(rows=[worker], now=NOW+timedelta(seconds=50)))
-    assert 'data-max-age-seconds="10.0"' in late and '}, 1000)' in late
+    assert 'data-max-age-seconds="45"' in healthy
+    assert 'refreshes every 30s' in healthy
+    for elapsed in (50, 56, 59.5):
+        late = render(model.Panel(rows=[worker], now=NOW+timedelta(seconds=elapsed)))
+        remaining = 60.0-elapsed
+        assert f'data-max-age-seconds="{remaining}"' in late
+        # Polling remains bounded even when the original proof expires sooner.
+        # The independent negative-authority timer withdraws that document.
+        assert 'refreshes every 5s' in late
+        assert 'refreshTimer = setTimeout(function(){ checkAge(); refreshDocument(); }, 5000);' in late
+        assert 'ageTimer = setInterval(checkAge, 1000);' in late
+    expired = model.Panel(rows=[worker], now=NOW+timedelta(seconds=61))
+    assert expired.operational == model.FAIL
+    assert worker.as_of == NOW and worker.valid_until == NOW+timedelta(seconds=60)
+
+
+@pytest.mark.parametrize('elapsed', [50, 56, 59.5])
+def test_browser_withdraws_original_worker_proof_independently_of_polling(state, monkeypatch, elapsed):
+    from tests.sentinel.test_panel_browser_refresh import run_refresh
+
+    status.publish(state/status.CRITICAL_NAME, A, now=NOW)
+    worker = row(state, monkeypatch)
+    page = model.Panel(rows=[worker], now=NOW+timedelta(seconds=elapsed))
+    result = run_refresh('busy', wake='proof-expiry', panel=page)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == 'PASS\n'
+    broken = run_refresh('busy', wake='proof-expiry', mutation='age-withdrawal', panel=page)
+    assert broken.returncode != 0
+    assert 'original proof expiry withdraws green' in broken.stderr
     assert worker.as_of == NOW and worker.valid_until == NOW+timedelta(seconds=60)
 
 
