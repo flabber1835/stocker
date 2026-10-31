@@ -58,3 +58,17 @@ metadata tests, then authenticate an actual hosted reference-based export.
 No financial restart, rule/input conversion, new formation, controller change
 or production action is authorized by this storage protocol. Continue only
 the exact independently admitted own financial suffix.
+
+## Hosted dependency boundary
+
+The first integrated WWE suffix stopped at module import before its main
+function: the transfer environment did not include Pydantic. It exported only
+the authenticated staging receipt; no financial worker or new origin started.
+Preserve that failed run and its exact log. Keep the original transfer lock and
+every adopted source byte unchanged. Add a separate hash-locked Pydantic
+dependency file for this workflow's metadata schema, using the locally
+qualified version and official PyPI wheel digests. Install both locks in the
+same transfer environment, then verify the exact request and import closure
+before staging inputs. This does not install into or alter the offline image.
+A new attempt may use the same admitted predecessor because the prior attempt
+never reached its financial launcher; it is not a financial restart.

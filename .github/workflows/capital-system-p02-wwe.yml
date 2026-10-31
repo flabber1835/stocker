@@ -24,6 +24,9 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/transfer-python"
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
+      - name: Qualify metadata imports and exact request before staging
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_wwe_import_probe.py --request research/capital_risk/system-campaign-p02-wwe-request.json'
       - name: Authenticate frozen inputs and offline runtime
         timeout-minutes: 8
         env:

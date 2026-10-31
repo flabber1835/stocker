@@ -25,7 +25,7 @@ def test_actual_request_selects_only_admitted_own_august_checkpoint():
 def test_all_223_already_adopted_driver_sources_are_byte_identical():
     old = job.inherited_request()
     current = job.expected_request()
-    assert len(old['sources']) == 223 and len(current['sources']) == 234
+    assert len(old['sources']) == 223 and len(current['sources']) == 236
     assert {name: current['sources'][name] for name in old['sources']} == old['sources']
     assert set(current['sources']) == set(job.SOURCES)
     assert current['qualified_packet_source_sha256'] == old['qualified_packet_source_sha256']

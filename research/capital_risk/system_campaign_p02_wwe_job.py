@@ -38,6 +38,8 @@ SOURCES=tuple(dict.fromkeys((*PRIOR,
     'system_campaign_p02_wwe_run.py',
     'system_campaign_p02_wwe_diagnostics.py',
     'system_campaign_p02_wwe_job.py',
+    'wwe-transfer-requirements.lock',
+    'system_campaign_wwe_import_probe.py',
 )))
 
 
@@ -57,6 +59,10 @@ def expected_request():
         execution_mode='RETAINED_SIX_MODEL_WWE_STOCK_SUFFIX',
         wwe_catalog_sha256=sha256_file(HERE/'system-campaign-wwe-tko-terminal-facts.json'),
         wwe_registry_extension_sha256=sha256_file(HERE/'system-campaign-wwe-registry-extension.json'),
+        metadata_dependencies_sha256=sha256_file(HERE/'wwe-transfer-requirements.lock'),
+        metadata_import_probe_sha256=sha256_file(HERE/'system_campaign_wwe_import_probe.py'),
+        preworker_failure_run_id=41199820226,
+        preworker_failure_log_sha256='536e0659dc8794afea7a0f7a2d8697e87f5d981bef4d3a03469f99dfcbe94778',
         parent_content_reference_sha256=digest(retained),
         actual_refusal_sha256='28ffff2be7890ba9677fbed7b970ff4f2f6910cb7ee81c37d8922354075f934d',
         parent_certificate_rows=spec['parent_certificate_rows'],
