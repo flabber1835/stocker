@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import inspect
+import hashlib
 import os
 from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
+import textwrap
 
 import pytest
 
@@ -29,7 +32,8 @@ def reviewed(*, lens=RUNTIME, auxiliary=()):
 
 
 def certificate():
-    return dict(source_commit=COMMIT, certified_image=REFERENCE, image_digest=RUNTIME,
+    return dict(source_commit=COMMIT, source_tree='f' * 40,
+                certified_image=REFERENCE, image_digest=RUNTIME,
                 software_certification='VERIFIED', required_ci_jobs='PASS')
 
 
@@ -57,6 +61,8 @@ class Commands:
             records = [self.record if value in {RUNTIME, REFERENCE}
                        else image(value, layers=self.lens_layers) for value in argv[3:]]
             output = json.dumps(records)
+        elif argv[:2] == ['docker', 'pull']:
+            output = ''
         elif argv[:2] == ['docker', 'run']:
             output = json.dumps({'identity_hash': SOURCE})
         else:
@@ -89,6 +95,132 @@ def test_installer_uses_the_supported_read_token(monkeypatch):
         'SENTINEL_GITHUB_READ_TOKEN': 'read-only-token', 'GITHUB_TOKEN': 'other'},
         invoke=Commands(), root=ROOT)
     assert selected == ['read-only-token']
+
+
+@pytest.fixture
+def verification_owner(monkeypatch, tmp_path):
+    state = {'commit': COMMIT, 'tree': 'f' * 40, 'dirty': ''}
+    monkeypatch.setattr(ci.verifier, 'current_identity',
+                        lambda root: {key: state[key] for key in ('commit', 'tree')})
+    monkeypatch.setattr(ci.verifier, '_git', lambda *args: state['dirty'])
+    for module in (ci.verifier, ci.verifier._promotion_policy()):
+        source = tmp_path / (module.__name__ + '.py')
+        source.write_text('authenticated verifier source')
+        monkeypatch.setattr(module, '__file__', str(source))
+    calls = []
+    def verify(**kwargs):
+        calls.append(kwargs)
+        return certificate()
+    monkeypatch.setattr(ci.verifier, 'verify_current', verify)
+    return ci.SoftwareVerification(), state, calls
+
+
+def test_one_owner_reuses_download_but_new_owner_verifies_again(verification_owner, tmp_path):
+    owner, _state, calls = verification_owner
+    for _boundary in range(3):
+        result = owner.verify(root=tmp_path, commit=COMMIT, env={})
+        result['certified_image'] = 'caller cannot replace authenticated evidence'
+    assert len(calls) == 1
+    assert owner.verify(root=tmp_path, commit=COMMIT, env={}) == certificate()
+    assert ci.SoftwareVerification().verify(root=tmp_path, commit=COMMIT, env={}) == certificate()
+    assert len(calls) == 2
+
+
+def test_actual_activation_software_boundaries_share_only_one_signed_download(
+        verification_owner, monkeypatch, tmp_path):
+    import sentinel_installation_phase as install
+    _owner, _state, calls = verification_owner
+    commands = Commands()
+    cfg = SimpleNamespace(runtime_repository=REFERENCE.split('@')[0],
+        account_id='PA-test', test_repository='unused', authority_dir=tmp_path)
+    deployment = bootstrap.BootstrapDeploy(
+        cfg, SimpleNamespace(env={}, run=commands), tmp_path)
+    deployment.commit = COMMIT
+    deployment.phase = lambda *_args: None
+    deployment.resolve_compose = lambda: None
+    # Coordinator's actual software phase, before its independent GO child.
+    install.InstallationDeploy.build_promote(deployment)
+    review = reviewed()
+    review.mode = 'shadow'
+    review.path = tmp_path / 'reviewed-bundle.zip'
+    review.path.write_bytes(b'exact reviewed producer bundle')
+    review.bundle_sha256 = hashlib.sha256(review.path.read_bytes()).hexdigest()
+    review.validation = {'subjects': [{'kind': 'configured_paper_account',
+        'digest': core._validation_subject_digest('configured_paper_account', 'PA-test')}]}
+    deployment.reviewed_validation = review
+    deployment.verify_reviewed_preflight()
+    deployment.build_promote()
+    assert len(calls) == 1
+    inspections = [cmd for cmd in commands.commands if cmd[:3] == ['docker', 'image', 'inspect']]
+    assert len(inspections) == 4  # Actual local images are still independently read.
+    review.path.write_bytes(b'changed financial proposal')
+    with pytest.raises(core.DeployRefused, match='identity changed'):
+        deployment.verify_reviewed_preflight()
+    review.path.write_bytes(b'exact reviewed producer bundle')
+    cfg.account_id = 'another-account'
+    with pytest.raises(core.DeployRefused, match='configured account'):
+        deployment.verify_reviewed_preflight()
+
+
+@pytest.mark.parametrize('change', ['checkout', 'commit', 'tree', 'dirty', 'verifier',
+                                   'policy', 'trust', 'process'])
+def test_reuse_refuses_changed_context(verification_owner, monkeypatch, tmp_path, change):
+    owner, state, calls = verification_owner
+    owner.verify(root=tmp_path, commit=COMMIT, env={})
+    root, commit = tmp_path, COMMIT
+    if change == 'checkout':
+        root = tmp_path / 'another-checkout'
+    elif change in {'commit', 'tree'}:
+        state[change] = '1' * 40
+        if change == 'commit':
+            commit = state['commit']
+    elif change == 'dirty':
+        state['dirty'] = ' M .github/workflows/sentinel-publish.yml'
+    elif change in {'verifier', 'policy'}:
+        module = ci.verifier if change == 'verifier' else ci.verifier._promotion_policy()
+        Path(module.__file__).write_text('changed authority policy')
+    elif change == 'trust':
+        monkeypatch.setattr(ci.verifier, 'EXPECTED_SUBJECT', 'untrusted/subject')
+    else:
+        monkeypatch.setattr(ci.os, 'getpid', lambda: -1)
+    with pytest.raises(ci.CertifiedInstallRefused, match='context|clean checkout'):
+        owner.verify(root=root, commit=commit, env={})
+    assert len(calls) == 1  # Never hide changed owner facts with another download.
+
+
+def test_verification_cannot_cache_identity_changed_during_download(
+        verification_owner, monkeypatch, tmp_path):
+    owner, state, _calls = verification_owner
+    def changed(**kwargs):
+        state['tree'] = '1' * 40
+        return certificate()
+    monkeypatch.setattr(ci.verifier, 'verify_current', changed)
+    with pytest.raises(ci.CertifiedInstallRefused, match='changed during'):
+        owner.verify(root=tmp_path, commit=COMMIT, env={})
+    assert owner._result is None
+
+
+def test_reuse_still_reinspects_actual_local_image(verification_owner, tmp_path):
+    owner, _state, calls = verification_owner
+    ci.verify_reviewed_runtime(reviewed(), env={}, invoke=Commands(), root=tmp_path,
+                               software_verification=owner)
+    with pytest.raises(ci.CertifiedInstallRefused, match='differs'):
+        ci.verify_reviewed_runtime(reviewed(), env={},
+            invoke=Commands(record=image(LENS)), root=tmp_path, software_verification=owner)
+    assert len(calls) == 1
+
+
+def test_changed_context_falsifier_kills_removed_guard(
+        verification_owner, monkeypatch, tmp_path):
+    source = textwrap.dedent(inspect.getsource(ci.SoftwareVerification.verify))
+    assert source.count('if context != self._context:') == 1
+    source = source.replace('if context != self._context:', 'if False:')
+    namespace = dict(vars(ci))
+    exec(compile(source, '<removed-software-context-guard>', 'exec'), namespace)
+    monkeypatch.setattr(ci.SoftwareVerification, 'verify', namespace['verify'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_reuse_refuses_changed_context(
+            verification_owner, monkeypatch, tmp_path, 'tree')
 
 
 def test_shadow_preflight_carries_reviewed_authority_without_broker_credentials():

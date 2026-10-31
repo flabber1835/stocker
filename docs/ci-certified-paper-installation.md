@@ -707,3 +707,7 @@ state for explicit recovery. No local test or staged receipt is trading authorit
 Qualify the former 4h52 boundary, actual-open equality, post-close/source-final
 lag, weekends/holidays, target changes, zero repeated acquisition on polling,
 wait-budget exhaustion, loss of fencing and expiry before kill release.
+
+[Activation software proof reuse](activation-software-proof-reuse.md) consolidates
+repeat signed-artifact downloads inside one exact activation owner and preserves
+independent financial, image, source and final readiness boundaries.

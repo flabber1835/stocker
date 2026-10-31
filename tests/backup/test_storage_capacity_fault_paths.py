@@ -175,3 +175,39 @@ def test_cli_entrypoint_rejects_malformed_restore_identity_before_external_comma
     output = capsys.readouterr()
     assert result.value.code == 4 and output.out == ''
     assert 'invalid restore base identity' in output.err
+
+
+@pytest.mark.parametrize('stage', ['validate_settings', 'configured', 'prove', 'recheck'])
+@pytest.mark.parametrize('error', [capacity.scratch_storage.Refused('scratch attempt identity changed'),
+                                  OSError('scratch mount unavailable')])
+def test_scratch_identity_refusal_is_distinct_from_full_disk(
+        tmp_path, monkeypatch, capsys, stage, error):
+    scratch = SimpleNamespace(root=tmp_path)
+    for name, result in [('validate_settings', None), ('configured', scratch),
+                         ('prove', None), ('recheck', None)]:
+        monkeypatch.setattr(capacity.scratch_storage, name, lambda *a, _result=result, **k: _result)
+    def refuse(*args, **kwargs):
+        raise error
+    monkeypatch.setattr(capacity.scratch_storage, stage, refuse)
+    monkeypatch.setattr(capacity, 'destinations', lambda *a, **k:
+        ('external', 'external', {'external': 100 * capacity.GIB}))
+    def runner(argv):
+        return '/var/lib/docker|Linux' if argv[:2] == ['docker', 'info'] else '4096'
+    original = capacity.check
+    monkeypatch.setattr(capacity, 'check', lambda *a: original(*a, runner=runner))
+    assert capacity.main(['base', '--backup-root', '/backup']) == 4
+    output = capsys.readouterr()
+    assert output.out == ''
+    assert output.err.startswith('SENTINEL_STORAGE_REASON=RESTORE_SCRATCH_IDENTITY_UNAVAILABLE\n')
+    assert str(error) in output.err
+
+
+def test_genuine_space_shortage_retains_existing_capacity_reason(monkeypatch, capsys):
+    def full_disk(*args):
+        capacity.require_capacity('external', 'external', {'external': capacity.GIB},
+                                  base_bytes=capacity.GIB, restore_bytes=capacity.GIB)
+    monkeypatch.setattr(capacity, 'check', full_disk)
+    assert capacity.main(['base', '--backup-root', '/backup']) == 4
+    output = capsys.readouterr()
+    assert output.err.startswith('SENTINEL_STORAGE_REASON=PHYSICAL_CAPACITY_UNAVAILABLE\n')
+    assert 'insufficient physical disk capacity' in output.err

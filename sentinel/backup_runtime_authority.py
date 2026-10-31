@@ -312,8 +312,12 @@ def _connection_scope(conn) -> str:
     info = getattr(conn, "info", None)
     dsn = getattr(info, "dsn", None)
     if dsn:
-        return hashlib.sha256(str(dsn).encode("utf-8")).hexdigest()
-    return f"{type(conn).__module__}.{type(conn).__qualname__}:{id(conn)}"
+        target = hashlib.sha256(str(dsn).encode("utf-8")).hexdigest()
+    else:
+        target = f"{type(conn).__module__}.{type(conn).__qualname__}:{id(conn)}"
+    # A fork copies module globals, not the authority to reuse the parent's
+    # content proof. This scope is also used to invalidate failed proofs.
+    return f"{os.getpid()}:{target}"
 
 
 def _sql_literal(value: str) -> str:
@@ -523,7 +527,10 @@ def _validate_archive_objects(
         raise BackupRuntimeUnavailable("runtime base selection changed during restore proof")
 
     _PROOF_CACHE[cache_key] = {
-        "full_scrub_at": now if full_scrub else cached['full_scrub_at'],
+        # A complete proof may itself take longer than the reuse interval.
+        # Start that interval only after both passes and stability checks;
+        # metadata-only checks never renew the last full proof.
+        "full_scrub_at": time.monotonic() if full_scrub else cached['full_scrub_at'],
         "objects": objects,
         "metadata": actual,
         "end": end,

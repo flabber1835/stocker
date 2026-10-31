@@ -10,7 +10,6 @@ import tempfile
 
 import sentinel_autonomous_deploy as core
 import sentinel_autonomous_deploy_bootstrap as bootstrap
-import sentinel_ci_certification_verify as certification
 import sentinel_env
 from sentinel_env_writer import EnvWriteRefused
 from sentinel_phase_records import publish_immutable
@@ -67,13 +66,12 @@ class InstallationDeploy(bootstrap.BootstrapDeploy):
     def build_promote(self):
         self.phase('installation: independently verify the exact signed CI runtime')
         self.resolve_compose()
+        from sentinel_autonomous_deploy_ci_runtime import CertifiedInstallRefused
         try:
-            proof = certification.verify_current(
-                root=core.ROOT, commit=self.commit,
-                client=certification.GitHubReadClient(token=self.env.get('SENTINEL_GITHUB_READ_TOKEN')
-                    or self.env.get('GITHUB_TOKEN') or self.env.get('GH_TOKEN')))
-        except certification.CertificationVerificationRefused as exc:
-            raise core.DeployRefused('%s: %s' % (exc.code, exc.detail)) from None
+            proof = self.software_verification().verify(
+                root=core.ROOT, commit=self.commit, env=self.env)
+        except CertifiedInstallRefused as exc:
+            raise core.DeployRefused(str(exc)) from None
         reference = str(proof.get('certified_image') or '')
         if (proof.get('source_commit') != self.commit
                 or proof.get('software_certification') != 'VERIFIED'

@@ -82,6 +82,27 @@ current-chain status and operational evidence publication. Deferral grants no
 new receipt or runtime authority. Restore workers are capped at half a CPU each.
 See [the approved policy and integrity interval](paper-system-rehearsal.md).
 
+During this window a due renewal defers allocation and retention only. The
+coordinator still performs the exact selected-base read-only chain check and
+publishes genuine current-chain evidence on success. A failed check remains a
+failure; neither deferral nor a live supervisor claims health. Storage identity
+refusals are reported distinctly from insufficient physical capacity. Version-1
+external scratch surviving a device renumbering uses the explicit guarded
+[restart recovery](external-restore-scratch.md#restart-safe-ownership-recovery-2026-10-30)
+before renewal; maintenance never edits or silently re-admits its owner record.
+
+The existing alert dispatcher reconstructs one `BACKUP_RENEWAL_FAILED` warning
+from the latest authenticated committed maintenance progress for the current
+physical PostgreSQL system. It accepts only a typed `FAILED` renewal observation
+from the current policy lifetime. The warning is deduplicated by system and
+predecessor base across retries and dispatcher restarts. Newer progress or a
+verified successor suppresses obsolete failure reconstruction; malformed or
+foreign evidence grants no alert authority and cannot block unrelated critical
+delivery. The warning identifies the base and directs the owner to the precise
+maintenance journal refusal. No new host alert writer, service, schema migration
+or acknowledgement is introduced. Renewal normally starts at 24 hours, so a
+failed attempt becomes visible before the 26-hour dashboard objective expires.
+
 A selected base with an exactly bound full semantic receipt for a different
 immutable runtime also requires renewal, as specified in
 [backup runtime transitions](backup-runtime-transition.md). Its old recovery

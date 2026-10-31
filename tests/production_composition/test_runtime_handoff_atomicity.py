@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import inspect
 import subprocess
 import sys
 
@@ -131,7 +132,7 @@ def test_panel_verification_precedes_handoff_evidence(monkeypatch, tmp_path):
         events.append("handoff")
         real_atomic(path, value)
 
-    monkeypatch.setattr(post, "recreate_panel", panel)
+    monkeypatch.setattr(post, "reconcile_panel", panel)
     monkeypatch.setattr(post, "atomic_json", write)
 
     assert post.main([]) == 0
@@ -151,7 +152,7 @@ def test_panel_or_docker_failure_cannot_publish_handoff(monkeypatch, tmp_path, m
     def refuse(_env, *, expected_image_id):
         raise post.Refused(message)
 
-    monkeypatch.setattr(post, "recreate_panel", refuse)
+    monkeypatch.setattr(post, "reconcile_panel", refuse)
 
     assert post.main([]) == 2
     assert not out.exists()
@@ -159,7 +160,7 @@ def test_panel_or_docker_failure_cannot_publish_handoff(monkeypatch, tmp_path, m
 
 def test_handoff_write_failure_reports_no_success_after_verified_panel(monkeypatch, tmp_path):
     out, events, _handoff = _post_common(monkeypatch, tmp_path)
-    monkeypatch.setattr(post, "recreate_panel", lambda *_a, **_k: events.append("panel"))
+    monkeypatch.setattr(post, "reconcile_panel", lambda *_a, **_k: events.append("panel"))
 
     def refuse(_path, _value):
         raise OSError("read-only file system")
@@ -171,7 +172,7 @@ def test_handoff_write_failure_reports_no_success_after_verified_panel(monkeypat
     assert not out.exists()
 
 
-def test_recreate_panel_refuses_wrong_promoted_image(monkeypatch):
+def test_reconcile_panel_refuses_wrong_promoted_image(monkeypatch):
     container = "a" * 12
     calls = []
 
@@ -193,10 +194,10 @@ def test_recreate_panel_refuses_wrong_promoted_image(monkeypatch):
 
     monkeypatch.setattr(post, "run", run)
     with pytest.raises(post.Refused, match="does not use the promoted runtime"):
-        post.recreate_panel({}, expected_image_id=LOCAL)
+        post.reconcile_panel({}, expected_image_id=LOCAL)
 
 
-def test_recreate_panel_refuses_ambiguous_multiple_containers(monkeypatch):
+def test_reconcile_panel_refuses_ambiguous_multiple_containers(monkeypatch):
     def run(argv, *, env=None):
         command = [str(x) for x in argv]
         if "up" in command:
@@ -208,27 +209,30 @@ def test_recreate_panel_refuses_ambiguous_multiple_containers(monkeypatch):
 
     monkeypatch.setattr(post, "run", run)
     with pytest.raises(post.Refused, match="not uniquely running"):
-        post.recreate_panel({}, expected_image_id=LOCAL)
+        post.reconcile_panel({}, expected_image_id=LOCAL)
 
 
-@pytest.mark.parametrize("health,running,restarting,passed", [
-    ("healthy", True, False, True), ("starting", True, False, False),
-    ("unhealthy", True, False, False), ("healthy", False, False, False),
-    ("healthy", True, True, False), (None, True, False, False),
+@pytest.mark.parametrize("health,running,restarting,image,passed", [
+    ("healthy", True, False, LOCAL, True), ("starting", True, False, LOCAL, False),
+    ("unhealthy", True, False, LOCAL, False), ("healthy", False, False, LOCAL, False),
+    ("healthy", True, True, LOCAL, False), (None, True, False, LOCAL, False),
+    ("healthy", True, False, "sha256:" + "d" * 64, False),
 ])
 def test_panel_wait_and_actual_health_precede_handoff(monkeypatch, tmp_path,
-        health, running, restarting, passed):
+        health, running, restarting, image, passed):
     out, _events, _handoff = _post_common(monkeypatch, tmp_path)
     calls = []
     def run(argv, **kwargs):
         calls.append(argv)
         if "up" in argv:
             assert "--wait" in argv and argv[argv.index("--wait-timeout") + 1] == "180"
+            assert "--no-deps" in argv
+            assert "--force-recreate" not in argv and "--no-recreate" not in argv
             return subprocess.CompletedProcess(argv, 0, "", "")
         if "ps" in argv:
             return subprocess.CompletedProcess(argv, 0, "a" * 64, "")
         if "{{.Image}}" in argv:
-            return subprocess.CompletedProcess(argv, 0, LOCAL, "")
+            return subprocess.CompletedProcess(argv, 0, image, "")
         if "{{json .State}}" in argv:
             state = dict(Status="running" if running else "exited", Running=running,
                          Restarting=restarting, Health={"Status": health} if health else None)
@@ -237,6 +241,19 @@ def test_panel_wait_and_actual_health_precede_handoff(monkeypatch, tmp_path,
     monkeypatch.setattr(post, "run", run)
     assert post.main([]) == (0 if passed else 2)
     assert out.exists() is passed
+
+
+def test_exact_panel_image_falsifier_prevents_unverified_handoff(monkeypatch, tmp_path):
+    source = inspect.getsource(post.reconcile_panel)
+    guard = "if observed != expected_image_id:"
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, "if False:"),
+                 "<removed-promoted-panel-image-guard>", "exec"), vars(post), namespace)
+    monkeypatch.setattr(post, "reconcile_panel", namespace["reconcile_panel"])
+    with pytest.raises(AssertionError):
+        test_panel_wait_and_actual_health_precede_handoff(
+            monkeypatch, tmp_path, "healthy", True, False, "sha256:" + "d" * 64, False)
 
 
 @pytest.mark.parametrize("code", [1, 124])

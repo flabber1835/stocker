@@ -316,6 +316,18 @@ for SPY or swapping equity/BIL domains must fail, while the existing exact input
 round-trip guard still refuses changed evidence. No package exemption, tokenizer
 relaxation, additional sensor or execution authority is introduced.
 
+**Recovery schema metadata (2026-10-29, PR #547).** The closed price-reader
+allowlist remains unchanged. The two static column-contract comprehensions in
+`sentinel/chain_progress_recovery.py::_source_digests` name the vendor column
+only to compare the unlogged scratch relation's catalog shape. Exempt only the
+literal token coordinates of those exact parsed declarations inside the named
+scratch branch. Do not exempt the file, its package, whole lines or other string
+tokens. Changed contracts, additional price names, dictionary/attribute reads and
+other modules remain prohibited. Test the CI split source/metadata layout and
+execute a broad-exemption mutant to prove a real read in this same module still
+fails. This grants no price interpretation or financial authority; the recovery
+source and source-byte proofs are unchanged.
+
 **2. Why total return is CORRECT here.** SPY in this rule is not a holding. It
 is a market-regime sensor, and the frozen specification defines both of its
 predicates on a total-return series (`standalone:176-178`). A dividend paid by

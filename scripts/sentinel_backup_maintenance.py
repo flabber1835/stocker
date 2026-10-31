@@ -355,15 +355,12 @@ def tick(root, runner=run):
 def _tick(root, runner, progress, started):
     image = runtime_image(runner)
     observation = observe_primary(runner)
-    reap_restore_resources(observation["now"], runner)
+    deferred = not heavy_work_allowed(observation)
+    if not deferred:
+        reap_restore_resources(observation["now"], runner)
     selected = worker("observe", image, root, observation, runner)
     renewed = renewal_due(selected, observation)
-    if renewed and not heavy_work_allowed(observation):
-        result = {'maintenance_deferred': True, 'reason': 'market and daily preparation window',
-                  'base': selected['name'], 'renewal_due': renewed}
-        print(json.dumps(result, sort_keys=True))
-        return result
-    if renewed:
+    if renewed and not deferred:
         first_second = observation['now'] - math.ceil(time.monotonic()-started)
         _progress(progress, runner, schema='sentinel.backup-maintenance-progress/1',
             attempt=uuid.uuid4().hex, started_at=first_second,
@@ -393,6 +390,11 @@ def _tick(root, runner, progress, started):
         if receipt is None:
             raise Refused('selected base has neither verified producer nor genuine restore evidence')
     publish_runtime_chain(status, selected, observation, root, runner)
+    if deferred:
+        result = {'maintenance_deferred': True, 'reason': 'market and daily preparation window',
+                  'base': selected['name'], 'renewal_due': renewed, 'runtime_chain_current': True}
+        print(json.dumps(result, sort_keys=True))
+        return result
     result = worker("retain", image, root, observation, runner, {
         "receipt": receipt, "image": receipt.get('runtime_image',image), "now": observation["now"],
         "segment_size": observation["segment_size"],

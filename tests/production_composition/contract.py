@@ -151,7 +151,7 @@ EDGES = (
     AuthorityEdge(
         "pointer_to_panel", "runtime selector", "running Sentinel panel",
         "exact promoted image", "scripts/sentinel_go_post_validate.py",
-        ("recreate_panel", "running_panel_image_id", "--force-recreate"),
+        ("reconcile_panel", "running_panel_image_id", '"--no-deps", "--wait"'),
         "docker", True,
     ),
     AuthorityEdge(

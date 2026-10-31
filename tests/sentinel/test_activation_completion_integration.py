@@ -41,6 +41,7 @@ from tests.sentinel.test_paper_activation import _state, _plan, _persist_state, 
 
 core = install.core
 CERT = 'c' * 64
+FINGERPRINT = 'f' * 64
 WORKER = r'''
 import json,sys,time
 from pathlib import Path
@@ -74,6 +75,15 @@ def transport_tripwire(monkeypatch):
         raise AssertionError('BROKER TRANSPORT MUST NEVER BE CALLED')
     monkeypatch.setattr(SimulatedBroker, 'submit', forbidden)
     monkeypatch.setattr(SimulatedBroker, 'cancel', forbidden)
+
+
+@pytest.fixture(autouse=True)
+def offline_activation_read_owner(monkeypatch):
+    import sentinel_activation_read as read_probe
+    @contextlib.contextmanager
+    def owned(command):
+        yield {'command': list(command)}
+    monkeypatch.setattr(read_probe, 'owned_command', owned)
 
 
 def book_fingerprint(c):
@@ -172,8 +182,12 @@ class Campaign:
             actor='offline-test', health_timeout=1, heartbeat_seconds=0, formation_timeout_seconds=1,
             data_wait_timeout_seconds=1, allow_empty_bind=False,
             runtime_repository='offline/sentinel', test_repository='offline/test')
+        publication = core.data_publication_subject_value({
+            'publication_fingerprint': FINGERPRINT, 'visible_frontier': DECISION.isoformat()})
         reviewed = SimpleNamespace(mode='dual', source_identity_sha256='a'*64,
-            shadow_configuration_sha256='b'*64, data_publication_sha256='d'*64, bundle_sha256='e'*64)
+            shadow_configuration_sha256='b'*64,
+            data_publication_sha256=core._validation_subject_digest('data_publication', publication),
+            bundle_sha256='e'*64)
         self.obj = install.InstallAnytimeDeploy(cfg, SimpleNamespace(env={},run=self.run), tmp, reviewed)
         self.obj.base_compose = ['OFFLINE-COMPOSE']
         self.obj.phase = lambda text: self.events.append('phase:'+text)
@@ -277,6 +291,13 @@ class Campaign:
             if self.failure == 'writer-reappeared': self.running['shadow']=True
             return self.result('verified_installation_backup: /offline/one-coordinated-milestone\n')
         if args[:1] != ['OFFLINE-COMPOSE']: raise AssertionError('unmapped external command '+repr(args))
+        if 'shadow-status' in args:
+            self.events.append('shadow-status')
+            payload=dict(session=('2026-08-12' if self.failure=='session-advanced' else DECISION.isoformat()),
+                mode='BROKER_FREE_SHADOW',broker_mutations_authorized=False,
+                shadow_verdict='SHADOW_GO',verification='VERIFIED')
+            if self.failure=='shadow-json': return self.result('{"session":NaN}')
+            return self.result(json.dumps(payload))
         if '-c' in args:
             self.events.append('reconciliation')
             if self.failure == 'reconciliation' or (self.failure=='resumed-reconciliation' and self.running['shadow']):
@@ -288,11 +309,6 @@ class Campaign:
             if self.failure == 'control-changed' and self.running['shadow']:
                 store.engage_kill(self.c,actor='offline',reason='injected intervening fence')
             return self.result('SENTINEL_DUAL_RECONCILIATION='+json.dumps(payload))
-        if 'shadow-status' in args:
-            self.events.append('shadow-status')
-            payload=dict(session=('2026-08-12' if self.failure=='session-advanced' else DECISION.isoformat()),shadow_verdict='SHADOW_GO',verification='VERIFIED')
-            if self.failure=='shadow-json': return self.result('{"session":NaN}')
-            return self.result(json.dumps(payload))
         if 'exec' in args and 'sentinel-execution-collector' in args and '--health' in args:
             assert self.collector_running is True
             self.events.append('collector-health')
@@ -379,6 +395,7 @@ def test_actual_completion_with_anytime_host_guard(conn, pg, tmp_path, monkeypat
     campaign.obj._operational_source_only = True
     campaign.obj._causal_timing = lambda: dict(
         target=target, frontier=target, target_source_final=True,
+        publication_fingerprint=FINGERPRINT,
         prospective=remaining > 0, remaining_ms=remaining)
     campaign.obj.assert_activation_timing = install.InstallAnytimeDeploy.assert_activation_timing.__get__(campaign.obj)
     try:
@@ -409,6 +426,7 @@ def test_restore_crossing_open_or_close_has_the_right_activation_boundary(
         opening, _ = calendar.session_window(calendar.next_session(target))
         remaining = int((opening.astimezone(timezone.utc)-clock[0]).total_seconds()*1000)
         return dict(target=target, frontier=DECISION.isoformat(), target_source_final=True,
+                    publication_fingerprint=FINGERPRINT,
                     prospective=remaining > 0, remaining_ms=remaining)
     campaign.obj._causal_timing = timing
     campaign.obj.assert_activation_timing = install.InstallAnytimeDeploy.assert_activation_timing.__get__(campaign.obj)

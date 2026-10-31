@@ -398,9 +398,76 @@ def test_dead_missing_or_future_owner_cannot_create_a_wait(heartbeat):
     assert projection.changed_subject_wait(owner_at(heartbeat),waiting_receipt(),scope='PAPER',now=NOW) is None
 
 
-@pytest.mark.parametrize('state,errors',[('MISMATCH',[]),('UNKNOWN',[]),('SCHEDULED',['failed fact'])])
+@pytest.mark.parametrize('state,errors',[('UNKNOWN',[]),('SCHEDULED',['failed fact'])])
 def test_prior_negative_result_is_never_hidden_by_changed_subject_wait(state,errors):
     assert projection.changed_subject_wait(owner_at(NOW),waiting_receipt(state=state,errors=errors),scope='PAPER',now=NOW) is None
+
+
+def test_changed_subject_retains_only_bounded_negative_paper_history():
+    receipt=waiting_receipt(state='MISMATCH')
+    original=deepcopy(receipt[3])
+    result=projection.changed_subject_wait(owner_at(NOW),receipt,scope='PAPER',now=NOW)
+    row=result[0][0]
+    assert row.status==model.FAIL and row.value=='LAST CHECK FAILED · RECHECKING'
+    assert row.detail.startswith('LAST KNOWN FAILURE · ')
+    assert 'waiting for the current bounded check' in row.detail
+    assert row.as_of==NOW and row.valid_until==receipt[2]
+    assert row.required_current and row.recovery is None and row.paper_alignment is None
+    assert row.paper_plan is row.paper_account is row.trading_run is row.shadow_book is None
+    assert row.order_outcomes==[] and not result[3] and receipt[3]==original
+    assert model.Panel(rows=[row],now=NOW,local_paper_mode=True).operational==model.FAIL
+
+
+@pytest.mark.parametrize('heartbeat',[None,NOW-timedelta(seconds=46),NOW+timedelta(seconds=6)])
+def test_failed_history_cannot_claim_rechecking_without_live_owner(heartbeat):
+    assert projection.changed_subject_wait(owner_at(heartbeat),waiting_receipt(state='MISMATCH'),
+        scope='PAPER',now=NOW) is None
+
+
+@pytest.mark.parametrize('fault',['tampered','expired','future'])
+def test_failed_history_cannot_bypass_original_authentication_or_clocks(fault):
+    receipt=waiting_receipt(state='MISMATCH')
+    if fault=='tampered':receipt[3]['rows'][0]['detail']='forged failure'
+    instant=NOW+timedelta(seconds=601) if fault=='expired' else NOW-timedelta(seconds=1) if fault=='future' else NOW
+    with pytest.raises(ValueError):
+        projection.changed_subject_wait(owner_at(instant),receipt,scope='PAPER',now=instant)
+
+
+def test_failed_history_discards_every_positive_payload(monkeypatch):
+    negative=model.paper_reconciliation_row(state='MISMATCH')
+    sentinel=object()
+    negative=replace(negative,paper_plan=sentinel,paper_account=sentinel,shadow_book=sentinel,
+        trading_run=sentinel,order_outcomes=[sentinel])
+    monkeypatch.setattr(projection,'decode',lambda *a,**k:([negative],{},[],[]))
+    row=projection.changed_subject_wait(owner_at(NOW),waiting_receipt(),scope='PAPER',now=NOW)[0][0]
+    assert row.paper_plan is row.paper_account is row.trading_run is row.shadow_book is None
+    assert row.order_outcomes==[] and row.status==model.FAIL
+
+
+def test_promoting_previous_failure_to_amber_is_killed(monkeypatch):
+    source=inspect.getsource(projection.changed_subject_wait)
+    needle='status=model.FAIL,'
+    assert source.count(needle)==1
+    namespace=dict(projection.__dict__)
+    exec(compile(source.replace(needle,'status=model.WARN,'),'removed sticky failure','exec'),namespace)
+    monkeypatch.setattr(projection,'changed_subject_wait',namespace['changed_subject_wait'])
+    with pytest.raises(AssertionError):
+        test_changed_subject_retains_only_bounded_negative_paper_history()
+
+
+def test_changed_failed_receipt_is_red_in_actual_json_and_html(monkeypatch):
+    from sentinel.panel import app,render
+    row=projection.changed_subject_wait(owner_at(NOW),waiting_receipt(state='MISMATCH'),
+        scope='PAPER',now=NOW)[0][0]
+    panel=model.Panel(rows=[row],now=NOW,local_paper_mode=True)
+    monkeypatch.setattr(app,'_read_panel',lambda:panel)
+    value=json.loads(app.panel_json().body)
+    assert value['operational']==model.FAIL and value['color']=='red'
+    assert value['source_errors']==[] and value['rows'][0]['status']==model.FAIL
+    assert value['rows'][0]['value']=='LAST CHECK FAILED · RECHECKING'
+    html=render.render(panel)
+    assert 'LAST CHECK FAILED' in html and 'RECHECKING' in html
+    assert 'ValueError' not in html
 
 
 @pytest.mark.parametrize('fault',['tampered','expired'])
@@ -422,14 +489,15 @@ def test_changed_subject_owner_guard_has_a_falsifier(monkeypatch):
         test_dead_missing_or_future_owner_cannot_create_a_wait(NOW-timedelta(seconds=46))
 
 
-def test_real_consumer_withdraws_changed_paper_green_without_failing_independent_shadow(conn):
+@pytest.mark.parametrize('state',['CLEAN','MISMATCH'])
+def test_real_consumer_handles_changed_paper_without_failing_independent_shadow(conn,state):
     import uuid
     install_projection(conn)
     instant=datetime.now(timezone.utc)
     owner=str(uuid.uuid4())
     conn.execute('INSERT INTO sentinel_operational_verification_owner VALUES (1,%s,%s)',
         (owner,instant+timedelta(seconds=610)))
-    for scope,rows in [('SHADOW',shadow()),('PAPER',[model.paper_reconciliation_row(state='CLEAN')])]:
+    for scope,rows in [('SHADOW',shadow()),('PAPER',[model.paper_reconciliation_row(state=state)])]:
         rows=[replace(row,as_of=instant) for row in rows]
         subject=projection.subject(conn,conn.info.dsn,scope)
         value,signature=projection.make(scope,subject,rows,[],observed_at=instant)
@@ -440,5 +508,300 @@ def test_real_consumer_withdraws_changed_paper_green_without_failing_independent
     rows,_,_,errors=projection.read(conn.info.dsn,now=instant)
     selected={row.key:row for row in rows}
     assert not errors and selected['shadow_verification'].status==model.OK
-    assert selected['paper_reconciliation'].status==model.WARN
-    assert selected['paper_reconciliation'].value=='CHECK IN PROGRESS'
+    expected=(model.WARN,'CHECK IN PROGRESS') if state=='CLEAN' else (model.FAIL,'LAST CHECK FAILED · RECHECKING')
+    assert (selected['paper_reconciliation'].status,selected['paper_reconciliation'].value)==expected
+    if state=='MISMATCH':
+        assert selected['paper_reconciliation'].as_of==instant
+        assert selected['paper_reconciliation'].valid_until==instant+timedelta(seconds=600)
+    subject=projection.subject(conn,conn.info.dsn,'PAPER')
+    conn.rollback()
+    value,signature=projection.make('PAPER',subject,
+        [replace(model.paper_reconciliation_row(state='CLEAN'),as_of=instant+timedelta(seconds=1))],[],
+        observed_at=instant+timedelta(seconds=1))
+    projection.publish(conn,owner_id=owner,value=value,signature=signature);conn.commit()
+    rows,_,_,errors=projection.read(conn.info.dsn,now=instant+timedelta(seconds=1))
+    assert not errors and {row.key:row for row in rows}['paper_reconciliation'].status==model.OK
+
+
+class ReceiptConnection:
+    def __init__(self, receipts, revisions=None):
+        self.receipts=receipts
+        self.revisions=revisions or {'SHADOW':('shadow-incarnation',3,'13'),
+                                     'PAPER':('paper-incarnation',7,'17')}
+        self.statements=[]
+        self.physical=('7691913275518591014','paper')
+
+    def execute(self, statement, params=None):
+        self.statements.append(statement)
+        if 'FROM pg_control_system()' in statement:
+            result=self.physical
+        elif f'FROM {projection.schema.REVISION}' in statement:
+            result=self.revisions.get(params[0])
+        elif f'FROM {projection.schema.RECEIPTS}' in statement:
+            result=self.receipts.get(params[0])
+        else:
+            result=None
+        return SimpleNamespace(fetchone=lambda:result)
+
+    def rollback(self):
+        self.statements.append('ROLLBACK')
+
+    def close(self):
+        self.statements.append('CLOSE')
+
+
+def snapshot_receipts(monkeypatch):
+    from sentinel import operational_ddl_epoch, operational_schema
+    calls=[]
+    def installation(*args,**kwargs):
+        calls.append('installation')
+        return {'installation_id':'authenticated-installation'}
+    def epoch(*args):
+        calls.append('epoch')
+        return ('original-ddl-incarnation',5)
+    monkeypatch.setattr(operational_schema,'installation',installation)
+    monkeypatch.setattr(operational_ddl_epoch,'current',epoch)
+    monkeypatch.setattr(projection.schema,'require_schema',lambda *_:True)
+    connection=ReceiptConnection({})
+    environment={name:projection.os.environ.get(name,'') for name in sorted(projection.SUBJECT_ENV)}
+    for scope,rows in [('SHADOW',shadow()),('PAPER',[model.paper_reconciliation_row(state='CLEAN')])]:
+        # The established pre-consolidation wire identity remains byte-for-byte.
+        current=projection._digest([projection.SCHEMA,'fixture',scope,
+            list(connection.revisions[scope]),['7691913275518591014','paper'],
+            'authenticated-installation',('original-ddl-incarnation',5),environment])
+        value,signature=projection.make(scope,current,rows,[],observed_at=NOW)
+        connection.receipts[scope]=(current,NOW,NOW+timedelta(seconds=600),value,signature)
+    return connection,calls
+
+
+def test_http_snapshot_reuses_common_subject_facts_without_changing_either_digest(monkeypatch):
+    from sentinel.feed import store
+    connection,calls=snapshot_receipts(monkeypatch)
+    monkeypatch.setattr(store,'connect',lambda *a,**kw:connection)
+    for iteration in range(2):
+        rows,_,_,errors=projection.read('fixture',now=NOW)
+        assert not errors and all(row.status==model.OK for row in rows)
+        assert calls==['installation','epoch']*(iteration+1)
+        assert sum('FROM pg_control_system()' in item for item in connection.statements)==iteration+1
+    assert connection.statements[0]=='BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY'
+
+
+def test_same_snapshot_fact_reuse_does_not_couple_independent_revision_failure(monkeypatch):
+    from sentinel.feed import store
+    connection,_=snapshot_receipts(monkeypatch)
+    del connection.revisions['PAPER']
+    monkeypatch.setattr(store,'connect',lambda *a,**kw:connection)
+    rows,_,_,errors=projection.read('fixture',now=NOW)
+    selected={row.key:row for row in rows}
+    assert selected['shadow_verification'].status==model.OK
+    assert selected['paper_reconciliation'].status==model.UNKNOWN and errors
+
+
+@pytest.mark.parametrize('changed',['epoch','runtime','installation','physical'])
+def test_new_snapshot_never_reuses_old_subject_facts(monkeypatch,changed):
+    from sentinel.feed import store
+    from sentinel import operational_ddl_epoch,operational_schema
+    connection,_=snapshot_receipts(monkeypatch)
+    monkeypatch.setattr(store,'connect',lambda *a,**kw:connection)
+    assert all(row.status==model.OK for row in projection.read('fixture',now=NOW)[0])
+    if changed=='epoch':
+        monkeypatch.setattr(operational_ddl_epoch,'current',lambda *_:('original-ddl-incarnation',6))
+    elif changed=='runtime':
+        monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST','sha256:'+'f'*64)
+    elif changed=='installation':
+        monkeypatch.setattr(operational_schema,'installation',lambda *a,**k:{'installation_id':'new-installation'})
+    else:
+        connection.physical=('replacement-physical-system','paper')
+    rows,_,_,errors=projection.read('fixture',now=NOW)
+    assert errors and all(row.status!=model.OK for row in rows)
+
+
+def test_common_subject_fact_failure_stays_unavailable_without_escaping_or_reusing_green(monkeypatch):
+    from sentinel.feed import store
+    connection,_=snapshot_receipts(monkeypatch)
+    monkeypatch.setattr(store,'connect',lambda *a,**kw:connection)
+    monkeypatch.setattr(projection,'_subject_facts',lambda *_:(_ for _ in ()).throw(ValueError('private detail')))
+    rows,_,_,errors=projection.read('fixture',now=NOW)
+    assert len(rows)==7 and all(row.status!=model.OK for row in rows)
+    assert len(errors)==2 and all('private detail' not in error for error in errors)
+    assert 'ROLLBACK' in connection.statements and 'CLOSE' in connection.statements
+
+
+def test_removing_snapshot_reuse_reintroduces_catalog_work_and_fails_its_falsifier(monkeypatch):
+    body=inspect.getsource(projection.read)
+    needle='_subject(conn, database_url, scope, facts=facts)'
+    assert body.count(needle)==1
+    namespace=dict(projection.__dict__)
+    exec(compile(body.replace(needle,'_subject(conn, database_url, scope)'),
+                 'removed snapshot reuse','exec'),namespace)
+    monkeypatch.setattr(projection,'read',namespace['read'])
+    with pytest.raises(AssertionError):
+        test_http_snapshot_reuses_common_subject_facts_without_changing_either_digest(monkeypatch)
+
+
+def test_restore_with_unreadable_common_facts_starts_no_replayed_answer(monkeypatch):
+    from sentinel.panel import verification_service
+    connection,_=snapshot_receipts(monkeypatch)
+    monkeypatch.setattr(projection,'_subject_facts',lambda *_:(_ for _ in ()).throw(ValueError('private detail')))
+    reader=SimpleNamespace(answer=None)
+    assert verification_service._restore_readers(connection,{'PAPER':reader},'fixture',now=NOW)=={}
+    assert reader.answer is None and connection.statements[-1]=='ROLLBACK'
+
+
+def resumed_reader(monkeypatch, *, instant=NOW, state='SCHEDULED', fault=None):
+    from sentinel.panel import authority_reader, observer_codec, verification_service
+    connection,_=snapshot_receipts(monkeypatch)
+    key=connection.receipts['PAPER'][0]
+    rows=[model.paper_reconciliation_row(state=state,scheduled_until=NOW+timedelta(seconds=100))]
+    if fault=='pending':
+        from sentinel.panel.verification_monitor import paper_unknown
+        rows=paper_unknown(True,'previous work is queued',checking_until=NOW+timedelta(seconds=600))[0]
+    value,signature=projection.make('PAPER',key,rows,[],observed_at=NOW)
+    row=[key,NOW,NOW+timedelta(seconds=600),value,signature]
+    if fault=='subject':row[0]='different-subject'
+    elif fault=='signature':row[4]='0'*64
+    elif fault=='timestamps':row[1]=NOW+timedelta(seconds=1)
+    elif fault=='early-expiry':
+        row[2]=NOW+timedelta(seconds=90)
+        row[3],row[4]=projection.make('PAPER',key,rows,[],observed_at=NOW,valid_until=row[2])
+    elif fault=='malformed':row[3]=None
+    connection.receipts={'PAPER':tuple(row)}
+    calls=[]
+    current=[key]
+    clock=[instant]
+    def run(*args,**kwargs):
+        calls.append(1)
+        return observer_codec.pack([model.paper_reconciliation_row(state='CLEAN')],[],observed_at=clock[0])
+    reader=authority_reader.Reader(runner=run,evidence_reader=lambda *_:current[0],
+        key_factory=lambda _d,_p,key:key,expected_keys=projection.PAPER_KEYS,
+        wall_clock=lambda:clock[0],clock=lambda:(clock[0]-NOW).total_seconds())
+    restored=verification_service._restore_readers(connection,{'PAPER':reader},'fixture',now=instant)
+    return SimpleNamespace(connection=connection,reader=reader,calls=calls,current=current,
+                           clock=clock,restored=restored)
+
+
+def test_verifier_restart_reuses_current_completed_proof_with_original_expiry(monkeypatch):
+    value=resumed_reader(monkeypatch,instant=NOW+timedelta(seconds=100))
+    result=value.reader.read('fixture')
+    assert result[0][0].status==model.OK and result[0][0].as_of==NOW
+    assert value.reader.pending is None and value.calls==[]
+    assert 'PAPER' in value.restored
+    assert value.restored['PAPER'][0]['valid_until']==(NOW+timedelta(seconds=600)).isoformat()
+    # Scope-specific execution deadlines are never renewed by process restart.
+    assert result[0][0].valid_until==NOW+timedelta(seconds=100)-timedelta(microseconds=1)
+    assert result[0][0].effective_status(NOW+timedelta(seconds=100))==model.FAIL
+
+
+def test_restored_negative_result_stays_failed_and_retries_ordinary_check(monkeypatch):
+    value=resumed_reader(monkeypatch,state='MISMATCH')
+    result=value.reader.read('fixture',allow_start=False)
+    assert result[0][0].status==model.FAIL and value.reader.failure is not None
+    value.reader.read('fixture')
+    if value.reader.pending is not None:value.reader.pending.join(2)
+    assert value.calls==[1]
+
+
+@pytest.mark.parametrize('fault,instant',[
+    ('subject',NOW),('signature',NOW),('timestamps',NOW),('early-expiry',NOW),
+    ('malformed',NOW),('pending',NOW),(None,NOW-timedelta(seconds=1)),
+    (None,NOW+timedelta(seconds=601)),
+])
+def test_restart_never_reuses_changed_tampered_pending_or_expired_proof(monkeypatch,fault,instant):
+    value=resumed_reader(monkeypatch,fault=fault,instant=instant)
+    assert value.restored=={} and value.reader.answer is None
+
+
+def test_subject_change_after_restore_withdraws_old_proof_before_first_read(monkeypatch):
+    value=resumed_reader(monkeypatch)
+    value.current[0]='changed-before-first-read'
+    result=value.reader.read('fixture',allow_start=False)
+    assert result[0][0].status!=model.OK and value.reader.completed is None
+
+
+def test_restored_proof_still_refreshes_at_original_threshold(monkeypatch):
+    value=resumed_reader(monkeypatch)
+    value.reader.read('fixture')
+    assert value.calls==[]
+    value.clock[0]=NOW+timedelta(seconds=300)
+    value.reader.read('fixture')
+    if value.reader.pending is not None:value.reader.pending.join(2)
+    assert value.calls==[1] and value.reader.check_reason=='PERIODIC_REFRESH'
+
+
+def test_successful_background_refresh_reports_its_reason_without_renewing_proof(monkeypatch):
+    from sentinel.panel import authority_reader
+    value=resumed_reader(monkeypatch)
+    value.reader.read('fixture')
+    class Queued:
+        def __init__(self, *args, **kwargs): pass
+        def start(self): pass
+    monkeypatch.setattr(authority_reader,'Thread',Queued)
+    value.clock[0]=NOW+timedelta(seconds=300)
+    rows,_,_,_=value.reader.read('fixture')
+    assert 'reason PERIODIC_REFRESH' in rows[0].detail
+    assert rows[0].as_of==NOW
+    assert value.reader.completed[2]==NOW and value.calls==[]
+
+
+def test_removing_restart_authentication_guard_has_a_falsifier(monkeypatch):
+    monkeypatch.setattr(projection.hmac,'compare_digest',lambda *args:True)
+    with pytest.raises(AssertionError):
+        test_restart_never_reuses_changed_tampered_pending_or_expired_proof(monkeypatch,'signature',NOW)
+
+
+def test_removing_first_read_subject_guard_has_a_falsifier(monkeypatch):
+    from sentinel.panel import authority_reader
+    import textwrap
+    body=textwrap.dedent(inspect.getsource(authority_reader.Reader.read))
+    needle='if completed_key == key:'
+    assert body.count(needle)==1
+    namespace={}
+    exec(compile(body.replace(needle,'if True:'),'removed restored subject binding','exec'),
+         authority_reader.__dict__,namespace)
+    monkeypatch.setattr(authority_reader.Reader,'read',namespace['read'])
+    with pytest.raises(AssertionError):
+        test_subject_change_after_restore_withdraws_old_proof_before_first_read(monkeypatch)
+
+
+def test_removing_restart_expiry_guard_has_a_falsifier(monkeypatch):
+    body=inspect.getsource(projection.decode)
+    needle='or not observed <= now <= expiry'
+    assert body.count(needle)==1
+    namespace=dict(projection.__dict__)
+    exec(compile(body.replace(needle,'or False'),'removed restored expiry','exec'),namespace)
+    monkeypatch.setattr(projection,'decode',namespace['decode'])
+    with pytest.raises(AssertionError):
+        test_restart_never_reuses_changed_tampered_pending_or_expired_proof(
+            monkeypatch,None,NOW+timedelta(seconds=601))
+
+
+def test_reader_reports_changed_expired_periodic_and_failure_work_reasons(monkeypatch):
+    from sentinel.panel import authority_reader,observer_codec
+    identity=['initial']
+    clock=[0]
+    fail=[False]
+    def run(*args,**kwargs):
+        if fail[0]:raise TimeoutError('private detail')
+        return observer_codec.pack([model.paper_reconciliation_row(state='CLEAN')],[],
+                                   observed_at=NOW+timedelta(seconds=clock[0]))
+    reader=authority_reader.Reader(runner=run,evidence_reader=lambda *_:identity[0],
+        key_factory=lambda _d,_p,key:key,expected_keys=projection.PAPER_KEYS,
+        wall_clock=lambda:NOW+timedelta(seconds=clock[0]),clock=lambda:clock[0])
+    def check(expected):
+        reader.read('fixture')
+        if reader.pending is not None:reader.pending.join(2)
+        assert reader.check_reason==expected
+        reader.read('fixture',allow_start=False)
+    check('NO_COMPLETED_PROOF')
+    identity[0]='changed';clock[0]=1
+    check('SUBJECT_CHANGED')
+    clock[0]=301
+    check('PERIODIC_REFRESH')
+    clock[0]=902
+    reader.read('fixture',allow_start=False)
+    assert reader.check_reason=='PROOF_EXPIRED'
+    check('PROOF_EXPIRED')
+    fail[0]=True;clock[0]=1202
+    check('PERIODIC_REFRESH')
+    clock[0]=1232
+    check('PRIOR_CHECK_FAILED')

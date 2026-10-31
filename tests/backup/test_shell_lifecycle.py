@@ -62,7 +62,9 @@ class ShellLab:
             path = bin_path / command
             path.write_text(adapter)
             path.chmod(0o755)
-        self.env = {"PATH": f"{bin_path}:{os.environ['PATH']}", "LANG": "C",
+        from fsync_adapter import install
+        native_path = install(root / "native-fsync", os.environ["PATH"])
+        self.env = {"PATH": f"{bin_path}:{native_path}", "LANG": "C",
                     "BACKUP_LAB_ROOT": str(root), "SENTINEL_HOST_PYTHON": sys.executable,
                     "PYTHONPATH": str(ROOT), "SENTINEL_BACKUP_DIR": str(self.media),
                     "SENTINEL_POSTGRES_PASSWORD": "synthetic-only",

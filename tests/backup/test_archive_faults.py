@@ -3,7 +3,6 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import signal
-import subprocess
 
 import pytest
 
@@ -137,8 +136,7 @@ def test_simultaneous_conflicting_writers_preserve_one_complete_winner(tmp_path)
     command[2] = str(other)
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(lab.run)
-        second = pool.submit(subprocess.run, command, env=lab.env,
-                             capture_output=True, text=True, timeout=10)
+        second = pool.submit(lab.run, command, env=lab.env)
         results = [first.result(), second.result()]
     assert sorted(r.returncode == 0 for r in results) == [False, True]
     winner = lab.target.read_bytes()

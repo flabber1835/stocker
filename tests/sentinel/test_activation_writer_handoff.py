@@ -1,4 +1,5 @@
 """Host sequencing, with real PostgreSQL/process acceptance in the companion suite."""
+from contextlib import contextmanager
 import importlib
 import json
 import os
@@ -14,6 +15,15 @@ core = importlib.import_module('sentinel_autonomous_deploy')
 driver = importlib.import_module('sentinel_autonomous_deploy_driver')
 bootstrap = importlib.import_module('sentinel_autonomous_deploy_bootstrap')
 install = importlib.import_module('sentinel_autonomous_deploy_install_entry')
+
+
+@pytest.fixture(autouse=True)
+def offline_activation_read_owner(monkeypatch):
+    import sentinel_activation_read as read_probe
+    @contextmanager
+    def owned(command):
+        yield {'command': list(command)}
+    monkeypatch.setattr(read_probe, 'owned_command', owned)
 
 
 CLASSES = [core.AutonomousDeploy, driver.AutonomousDeploy,
@@ -352,6 +362,7 @@ def test_verified_shadow_requires_a_decision_session(tmp_path):
     obj.cfg.formation_timeout_seconds = 30
     obj._wait_for_dual_shadow_session = core.AutonomousDeploy._wait_for_dual_shadow_session.__get__(obj)
     obj.runner.run = lambda *a, **k: SimpleNamespace(returncode=0, stdout=json.dumps({
+        'mode': 'BROKER_FREE_SHADOW', 'broker_mutations_authorized': False,
         'shadow_verdict': 'SHADOW_GO', 'verification': 'VERIFIED'}))
     with pytest.raises(core.DeployRefused, match='no decision session'):
         obj._wait_for_dual_shadow_session('2026-10-08')

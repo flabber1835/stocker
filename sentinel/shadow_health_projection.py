@@ -99,7 +99,7 @@ def _write(value, target):
 
 
 def publish(config, result, conn):
-    """Called under the canonical writer lock after full verification/retention."""
+    """Called under the canonical writer lock after full financial verification."""
     if not config.operational_source_only:
         return
     if result.get('shadow_verdict') != 'SHADOW_GO' or result.get('verification') != 'VERIFIED':
