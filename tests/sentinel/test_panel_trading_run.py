@@ -1,5 +1,6 @@
 """The composed opening screen, including the October 23 moving snapshot."""
 from copy import deepcopy
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime,timedelta,timezone
 from decimal import Decimal
@@ -446,15 +447,34 @@ def test_current_failure_prevents_the_historical_reader_from_running(monkeypatch
     assert bool(errors)==(current=='unreadable')
 
 
-@pytest.fixture
-def historical_run_db(monkeypatch):
-    """Temporary query-only fixtures on the explicitly supplied private test server."""
+@contextmanager
+def _historical_run_database():
+    """Use an explicit private test server or own the canonical temporary server."""
     import os
-    psycopg=pytest.importorskip('psycopg')
     dsn=os.environ.get('TEST_DATABASE_URL') or os.environ.get('SENTINEL_TEST_DATABASE_URL')
-    if not dsn:
-        pytest.skip('an explicitly configured private PostgreSQL is required')
-    conn=psycopg.connect(dsn)
+    if dsn:
+        yield dsn
+        return
+    from tests.support.postgres import _EphemeralPostgres
+    server=_EphemeralPostgres()
+    try:
+        server.start()
+        yield server.sync_dsn
+    finally:
+        server.stop()
+
+
+@pytest.fixture(scope='module')
+def historical_run_dsn():
+    with _historical_run_database() as dsn:
+        yield dsn
+
+
+@pytest.fixture
+def historical_run_db(monkeypatch,historical_run_dsn):
+    """Temporary query-only tables on the private server selected by the fixture."""
+    import psycopg
+    conn=psycopg.connect(historical_run_dsn)
     try:
         conn.execute('''CREATE TEMP TABLE sentinel_automation_control(
             id integer,generation bigint,deployment_id text,broker text,broker_account_id text,
@@ -497,6 +517,54 @@ def historical_run_db(monkeypatch):
         yield conn,calls
     finally:
         conn.rollback();conn.close()
+
+
+@pytest.mark.parametrize('failure',[None,'start','query'])
+def test_historical_query_fixture_owns_no_dsn_server_and_always_cleans_up(monkeypatch,failure):
+    from tests.support import postgres
+    monkeypatch.delenv('TEST_DATABASE_URL',raising=False)
+    monkeypatch.delenv('SENTINEL_TEST_DATABASE_URL',raising=False)
+    events=[]
+    class PrivateServer:
+        sync_dsn='postgresql://fixture@127.0.0.1:15432/private_query_test'
+        def start(self):
+            events.append('start')
+            if failure=='start':
+                raise RuntimeError('private startup refused')
+        def stop(self):
+            events.append('stop')
+    monkeypatch.setattr(postgres,'_EphemeralPostgres',PrivateServer)
+    def exercise():
+        with _historical_run_database() as dsn:
+            assert dsn==PrivateServer.sync_dsn
+            events.append('query')
+            if failure=='query':
+                raise RuntimeError('private query refused')
+    if failure:
+        with pytest.raises(RuntimeError,match='private .* refused'):
+            exercise()
+    else:
+        exercise()
+    assert events==(['start','stop'] if failure=='start' else ['start','query','stop'])
+
+
+@pytest.mark.parametrize('variables,expected',[
+    ({'TEST_DATABASE_URL':'postgresql://explicit/private_a'},'postgresql://explicit/private_a'),
+    ({'SENTINEL_TEST_DATABASE_URL':'postgresql://explicit/private_b'},'postgresql://explicit/private_b'),
+    ({'TEST_DATABASE_URL':'postgresql://explicit/private_a',
+      'SENTINEL_TEST_DATABASE_URL':'postgresql://explicit/private_b'},'postgresql://explicit/private_a'),
+])
+def test_historical_query_fixture_preserves_explicit_private_server(monkeypatch,variables,expected):
+    from tests.support import postgres
+    monkeypatch.delenv('TEST_DATABASE_URL',raising=False)
+    monkeypatch.delenv('SENTINEL_TEST_DATABASE_URL',raising=False)
+    for key,value in variables.items():
+        monkeypatch.setenv(key,value)
+    def forbidden():
+        pytest.fail('an explicit private DSN must not start another server')
+    monkeypatch.setattr(postgres,'_EphemeralPostgres',forbidden)
+    with _historical_run_database() as dsn:
+        assert dsn==expected
 
 
 def test_real_query_recovers_only_prior_generation_completed_today_history(historical_run_db):
