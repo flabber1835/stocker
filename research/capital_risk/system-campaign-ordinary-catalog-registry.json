@@ -1,12 +1,11 @@
 {
-  "schema": "research.ordinary-catalog-registry/1",
   "groups": [
     {
-      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar/1/",
       "catalog_file": "system-campaign-cash-calendar-terminal-facts.json",
       "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "cash-calendar-overlay.json",
       "private_file": "hydrated-cash-calendar-terminal-catalog.json",
-      "overlay_file": "cash-calendar-overlay.json"
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar/1/"
     },
     {
       "catalog_file": "system-campaign-december-cash-calendar-terminal-facts.json",
@@ -16,11 +15,11 @@
       "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-december/1/"
     },
     {
-      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-february/1/",
       "catalog_file": "system-campaign-february-cash-calendar-terminal-facts.json",
       "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "february-cash-calendar-overlay.json",
       "private_file": "hydrated-february-cash-calendar-terminal-catalog.json",
-      "overlay_file": "february-cash-calendar-overlay.json"
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-february/1/"
     },
     {
       "catalog_file": "system-campaign-stock-calendar-terminal-facts.json",
@@ -35,6 +34,14 @@
       "overlay_file": "october-cash-calendar-overlay.json",
       "private_file": "hydrated-october-cash-calendar-terminal-catalog.json",
       "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-october/1/"
+    },
+    {
+      "catalog_file": "system-campaign-spring2023-cash-calendar-terminal-facts.json",
+      "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "spring2023-cash-calendar-overlay.json",
+      "private_file": "hydrated-spring2023-cash-calendar-terminal-catalog.json",
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-spring2023/1/"
     }
-  ]
+  ],
+  "schema": "research.ordinary-catalog-registry/1"
 }
