@@ -72,3 +72,24 @@ same transfer environment, then verify the exact request and import closure
 before staging inputs. This does not install into or alter the offline image.
 A new attempt may use the same admitted predecessor because the prior attempt
 never reached its financial launcher; it is not a financial restart.
+
+## Local retention for longer suffixes
+
+After the September capture the client has 2,076,360,704 bytes free and keeps
+a 1,610,612,736-byte reserve. A complete current certificate row is 778,432
+bytes. Multiplying by the 710 remaining closes gives 552,686,720 plaintext
+bytes, exceeding the space above the reserve even before other evidence.
+This is a storage projection, not an economic or runtime estimate.
+
+For a new capture, losslessly GZIP the plaintext current certificate and
+retained original-certificate members using the existing compressed-sink
+encoding. Record their original uncompressed lengths and SHA256 values,
+and independently decompress and verify them after writing. Keep the one-GiB
+logical new-member limit and all existing ZIP/cipher/GCM/inventory checks.
+Guard physical writes and compressor flush headroom against the same reserve;
+do not require space for the entire plaintext member when it is compressed.
+The reader already supports exact-original-byte GZIP retention. Extend only
+the source-bound local storage selector and quota wrapper, with explicit
+roundtrip and guard-removal checks before using the new mode. Every current
+member remains retained. No historical file is removed or rewritten, and no
+financial source, checkpoint, archive content or shared service changes.
