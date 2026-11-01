@@ -1,0 +1,127 @@
+{
+  "conditional_models_require_own_qualification": true,
+  "p01_parameters_unchanged": true,
+  "p02_state_or_input_descriptor_adopted": false,
+  "production_contacted": false,
+  "schema": "research.p01-reused-fact-index/1",
+  "scope": "REFERENCE_ONLY_NO_AUTOMATIC_ADOPTION",
+  "source_head": "3988b093c9630b89f12aee7ac83a497754c5d04b",
+  "sources": [
+    {
+      "file": "system-campaign-2021-completions-terminal-facts.json",
+      "sha256": "de3dadebcbe04aebe5af60dfad8d419db120ef4629f27e3313aeb5b08b5ce0bb"
+    },
+    {
+      "file": "system-campaign-abiomed-sensor-contract.json",
+      "sha256": "ee8240eee65955f2e389ffcc2c4833ffe0732982430a83a2a4ac6da268c651f4"
+    },
+    {
+      "file": "system-campaign-arqule-terminal-facts.json",
+      "sha256": "a785c139eeea04306948fd7a62cca4d6d9b0dd9211dba30123dad4892a150aa4"
+    },
+    {
+      "file": "system-campaign-autumn2020-cash-terminal-facts.json",
+      "sha256": "bf6a1836439ce44e499a2ec9818ce3e780d45f9c350090b844bce419c579b6b7"
+    },
+    {
+      "file": "system-campaign-cash-calendar-terminal-facts.json",
+      "sha256": "d296a00cecaa3ad807543f36186131c0ac2f7bf22c8a08a7aa30590f627e23f6"
+    },
+    {
+      "file": "system-campaign-chinook-sensor-contract.json",
+      "sha256": "3d0950938cf7a065b19d363f4d4d08488099dc0e4aa27dd0f06c2b7bb489d9e8"
+    },
+    {
+      "file": "system-campaign-completion-scope-contract.json",
+      "sha256": "226fe18dbe33a48867531900fe5bd083d2b284c266a4e753b2e7156968bfe533"
+    },
+    {
+      "file": "system-campaign-december-cash-calendar-terminal-facts.json",
+      "sha256": "f7f5111041a7b22a6a9d0e2b627dc2b9e077fc0198ae0c3804061c2dcad3f6a6"
+    },
+    {
+      "file": "system-campaign-february-cash-calendar-terminal-facts.json",
+      "sha256": "effac7104f83c05558163bb76c410bac21fbca131e879d0f0bb6756366d3f6c3"
+    },
+    {
+      "file": "system-campaign-following-completions-terminal-facts.json",
+      "sha256": "bcedc899f0b34295c5e299ef6d0ce222bc666eec871997ceddd4f963fa5ba24d"
+    },
+    {
+      "file": "system-campaign-h2-2023-cash-calendar-terminal-facts.json",
+      "sha256": "8b461ae3218c30c3aad95721379544261814404d72e908920e1c81e9c0775086"
+    },
+    {
+      "file": "system-campaign-lbph-preopen-cash-terminal-facts.json",
+      "sha256": "98856d6e53e0b0e150daccb595054d02928234eace856e45336945f539a6f81c"
+    },
+    {
+      "file": "system-campaign-medicines-terminal-facts.json",
+      "sha256": "6331ed5c48e09492cc0c15db2dac69ae0b31ce761a00bd443af7015ced1179e2"
+    },
+    {
+      "file": "system-campaign-morf-preopen-cash-terminal-facts.json",
+      "sha256": "c6c2afe618e46465a9fbefe9002dbde3def1ce10210e569d0c0639ea45d63b16"
+    },
+    {
+      "file": "system-campaign-october-cash-calendar-terminal-facts.json",
+      "sha256": "225b294cefd80c19b47090c24b246ac63456f6829dfe7816b41dfcdcfef2ad53"
+    },
+    {
+      "file": "system-campaign-outcome-refinement-contract.json",
+      "sha256": "edaabf1385ffb0cda3c42029cfe9e8c6d53c517b5ed3b69cfd7fef667babd9d2"
+    },
+    {
+      "file": "system-campaign-pxd-preopen-contract.json",
+      "sha256": "f8581590cfae42562360ab2b7a35e84c3e3bdb4040b510e9a50e22138463832f"
+    },
+    {
+      "file": "system-campaign-q4-2023-cash-calendar-terminal-facts.json",
+      "sha256": "b38a8859d5573a3b804e2e614e0f7c38afd853fcef34c563d2810e705e8dad09"
+    },
+    {
+      "file": "system-campaign-remainder-terminal-facts.json",
+      "sha256": "69b2cebeda9b7efdc5cd1b29aafde97a5f205d3a8cf2fd58902f2ccce8b57fc2"
+    },
+    {
+      "file": "system-campaign-spring2020-cash-terminal-facts.json",
+      "sha256": "923a4ad70188bf808299d4bf0ec232871330da9009ad8c9aeb9f354a5f89c122"
+    },
+    {
+      "file": "system-campaign-spring2023-cash-calendar-terminal-facts.json",
+      "sha256": "7f831edf7c33633b9847d886f4f814fbada462607e57aeac6ffbaf00e7a440b1"
+    },
+    {
+      "file": "system-campaign-sprint-terminal-facts.json",
+      "sha256": "d30f52b302557445f8ed85e6314b7deb16e04f77009c5491c9de6287515116fe"
+    },
+    {
+      "file": "system-campaign-stock-calendar-terminal-facts.json",
+      "sha256": "47db40bdca2a776b1860540149c135a09b4c54ecdd7828f5fef9443c9483f137"
+    },
+    {
+      "file": "system-campaign-twnk-close-contract.json",
+      "sha256": "1a4f525f8c5fdaa049714d38ba1df583548e390b7e4111b4c63e33eed4d5069a"
+    },
+    {
+      "file": "system-campaign-uncertainty-contract.json",
+      "sha256": "cfb0ec0ba6007842618aa02214aefb5b86198efd7f75f38ea9db8c72b7683999"
+    },
+    {
+      "file": "system-campaign-unconsumed2024-cash-calendar-terminal-facts.json",
+      "sha256": "80991b29c310eb2b91152f909890697c44ae7bebceab3258ad309bb2c3dfad53"
+    },
+    {
+      "file": "system-campaign-winter2025-cash-terminal-facts.json",
+      "sha256": "fa3ff7a33a6eb57f938421a1d1fcd5f6c62764a884b480534eeaa398895af31f"
+    },
+    {
+      "file": "system-campaign-wwe-tko-terminal-facts.json",
+      "sha256": "385b8abbcfd0b26e411678cd65f2014309012778d0fbd173ed68635cfe1ff1bd"
+    },
+    {
+      "file": "system-campaign-zogenix-sensor-contract.json",
+      "sha256": "699149d418a932ca10f7c1f0848a5e9bb5f14083be431f7fde3a741c1d4313de"
+    }
+  ]
+}
