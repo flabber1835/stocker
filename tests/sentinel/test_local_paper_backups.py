@@ -20,8 +20,9 @@ def owner(monkeypatch):
     monkeypatch.setenv(local_paper.ACCOUNT_ENV, 'PATESTACCOUNT')
     monkeypatch.setenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
     monkeypatch.setenv(local_paper.BACKUP_POLICY_ENV, local_paper.BACKUP_POLICY)
-    monkeypatch.setattr(binding, 'require', lambda conn: SimpleNamespace(
-        broker='alpaca', broker_account_id='PATESTACCOUNT'))
+    monkeypatch.setattr(binding, 'require', lambda conn: binding.AccountBinding(
+        deployment_id='backed-panel-fixture', broker='alpaca',
+        broker_account_id='PATESTACCOUNT', takeover_epoch=1))
 
 
 class Connection:
@@ -29,6 +30,15 @@ class Connection:
         self.rows = iter(rows)
         self.statements = []
         self.closed = False
+        self.issuer_records = {}
+
+    def execute(self, statement, args=()):
+        from sentinel.execution.issuer_admission import SOURCE_PREFIX
+        assert statement == 'SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s'
+        assert len(args) == 1 and args[0].startswith(SOURCE_PREFIX)
+        self.statements.append(statement)
+        value = self.issuer_records.get(args[0])
+        return SimpleNamespace(fetchone=lambda: None if value is None else (value,))
 
     def cursor(self):
         owner = self
@@ -226,6 +236,63 @@ def test_panel_backup_read_guard_removal_is_observable(owner, monkeypatch):
     monkeypatch.setattr(sources, '_operator_evidence_rows', namespace['_operator_evidence_rows'])
     with pytest.raises(AssertionError):
         test_backed_panel_reads_real_evidence_and_cannot_hide_missing_proof(owner, monkeypatch, True)
+
+
+@pytest.mark.parametrize('condition', ['valid', 'expired', 'tampered', 'foreign_epoch', 'missing_catalog'])
+def test_panel_issuer_reference_reads_authenticated_current_facts_or_fails_closed(owner, monkeypatch, condition):
+    from sentinel.execution import issuer_admission, issuer_refresh
+    from sentinel.feed import issuer_reference, issuer_refresh as acquisition
+    from sentinel.feed.rolling_contract import digest
+    conn, _reads = operator_fixture(monkeypatch)
+    identity = binding.require(conn).identity
+    cache_binding = issuer_admission._binding(identity)
+    if condition == 'foreign_epoch':
+        cache_binding = cache_binding.model_copy(update={'takeover_epoch': 2})
+    observed = NOW-timedelta(days=31) if condition == 'expired' else NOW
+    source = issuer_reference.IssuerReferenceSnapshot.create(observed_at_utc=observed,
+        associations=[dict(cik='0000000001', ticker='AAA', exchange='NYSE')])
+    catalog = issuer_refresh.Anchors.create(binding=cache_binding, rows=source.associations,
+                                            quarantined_symbols=())
+    status = issuer_refresh.Current.create(binding=cache_binding, source_sha256=source.snapshot_digest,
+        anchors_sha256=catalog.sha256, attempted_at=NOW, next_attempt_at=NOW+timedelta(days=1),
+        last_success_at=NOW, reason='sec_source_observed')
+    def put(key, kind, value):
+        body = value.model_dump(mode='json')
+        conn.issuer_records[key] = dict(schema='sentinel.issuer-operational-record/1', kind=kind,
+            body=body, sha256=digest(dict(kind=kind, body=body)))
+    put(issuer_refresh._key('current', identity), 'refresh-current', status)
+    put(issuer_refresh._key('anchors', identity), 'refresh-anchors', catalog)
+    put(issuer_admission.SOURCE_PREFIX+source.snapshot_digest, 'source', source)
+    if condition == 'tampered':
+        conn.issuer_records[issuer_refresh._key('current', identity)]['body']['reason'] = 'forged'
+    if condition == 'missing_catalog':
+        del conn.issuer_records[issuer_refresh._key('anchors', identity)]
+    monkeypatch.setattr(acquisition, 'refresh', lambda *a, **kw: pytest.fail('panel fetched SEC'))
+    monkeypatch.setattr(issuer_reference, 'refresh_snapshot', lambda *a, **kw: pytest.fail('panel fetched list'))
+    rows, errors = sources._operator_evidence_rows('postgresql://fixture@isolated.invalid/test', now=NOW)
+    issuer_rows = [row for row in rows if row.key == 'issuer_reference']
+    assert len(issuer_rows) == 1 and conn.closed
+    row = issuer_rows[0]
+    if condition in {'valid', 'expired'}:
+        assert not errors
+        assert row.status == (model.OK if condition == 'valid' else model.FAIL)
+        assert row.valid_until == source.provenance.expires_at_utc
+        assert 'Individual BUY identity checks remain mandatory' in row.detail
+    else:
+        assert row.status == model.UNKNOWN and row.value == 'UNREADABLE'
+        assert any('operator issuer reference:' in error for error in errors)
+
+
+def test_panel_issuer_read_error_guard_removal_is_observable(owner, monkeypatch):
+    test_panel_issuer_reference_reads_authenticated_current_facts_or_fails_closed(owner, monkeypatch, 'tampered')
+    original = inspect.getsource(sources._operator_evidence_rows)
+    assert original.count('if issuer_error:') == 1
+    namespace = {}
+    exec(compile(original.replace('if issuer_error:', 'if False:'), '<removed-issuer-read-error>', 'exec'),
+         vars(sources), namespace)
+    monkeypatch.setattr(sources, '_operator_evidence_rows', namespace['_operator_evidence_rows'])
+    with pytest.raises(AssertionError):
+        test_panel_issuer_reference_reads_authenticated_current_facts_or_fails_closed(owner, monkeypatch, 'tampered')
 
 
 def test_backed_panel_guide_does_not_claim_suspended_or_successful_backup():
