@@ -19,6 +19,9 @@ function serverDocument(body) {
     refresh_pending:field('data-refresh-pending'), headline_class:badge?.[1] ?? null,
     headline_label:badge ? plain(badge[2]) : null,
     warning_ids:[...body.matchAll(/href="#status-([^"<>]+)"/g)].map(match => match[1]).slice(0, 80),
+    banner_required:/<img\b[^>]*(?:data-banner-src|src)="\/static\/caesars-palace-512\.png(?:[?][^"]*)?"/i.test(body),
+    banner_path:/<img\b[^>]*(?:data-banner-src|src)="\/static\/caesars-palace-512\.png(?:[?][^"]*)?"/i.test(body)
+      ? '/static/caesars-palace-512.png' : null,
     sha256:crypto.createHash('sha256').update(body).digest('hex')
   };
 }
@@ -35,6 +38,7 @@ function installRecorder({binding}) {
   let shownGeneration = null;
   let rootNumber = 0;
   let meaningfulScheduled = null;
+  let observedBanner = null;
   function visible(element) {
     if (!element) return false;
     const box = element.getBoundingClientRect();
@@ -45,6 +49,14 @@ function installRecorder({binding}) {
   function state() {
     const badge = document.getElementById('operational-state');
     const card = document.querySelector('.next-plan') || document.querySelector('#portfolio-overview .overview-card');
+    const image=document.querySelector('.brand img[data-banner-src]') || document.querySelector('.brand img');
+    let bannerPath=null;
+    if (image) {
+      try {
+        const value=new URL(image.currentSrc || image.getAttribute('src') || image.dataset.bannerSrc,location.href);
+        bannerPath=value.pathname==='/static/caesars-palace-512.png' ? value.pathname : 'UNEXPECTED_ASSET';
+      } catch (_) {bannerPath='UNAVAILABLE';}
+    }
     return {
       generated_at:document.body?.dataset.generatedAt || null,
       max_age_seconds:Number(document.body?.dataset.maxAgeSeconds),
@@ -54,7 +66,12 @@ function installRecorder({binding}) {
       meaningful_visible:visible(badge) && visible(card), root_number:rootNumber,
       visibility:document.visibilityState, online:navigator.onLine,
       refreshing:document.documentElement?.classList.contains('refreshing-status') || false,
-      not_current:document.documentElement?.classList.contains('not-current') || false
+      not_current:document.documentElement?.classList.contains('not-current') || false,
+      banner_present:!!image,banner_path:bannerPath,banner_complete:image ? image.complete : null,
+      banner_assigned:!!image?.getAttribute('src'),
+      banner_width:image?.naturalWidth || 0,banner_height:image?.naturalHeight || 0,
+      banner_displayed:!!image && image.complete && image.naturalWidth>0 && image.naturalHeight>0 && visible(image),
+      banner_fallback_visible:visible(document.querySelector('.brand-fallback'))
     };
   }
   function navigation() {
@@ -88,6 +105,17 @@ function installRecorder({binding}) {
       root = document.documentElement;
       if (root) { rootNumber += 1; send({type:'document-root', root_number:rootNumber}); attachLifecycle(); workers(); }
     }
+    const image=document.querySelector('.brand img[data-banner-src]') || document.querySelector('.brand img');
+    if (image && image!==observedBanner) {
+      observedBanner=image;
+      const imageGeneration=image.closest('body')?.dataset.generatedAt || null;
+      for (const name of ['load','error']) image.addEventListener(name,()=>{
+        send({type:'banner-resource-state',name,generated_at:image.closest('body')?.dataset.generatedAt || imageGeneration,
+          complete:image.complete,natural_width:image.naturalWidth,natural_height:image.naturalHeight,
+          path:'/static/caesars-palace-512.png',detached:!image.isConnected});
+        if (image===observedBanner && image.isConnected) snapshot();
+      });
+    }
     const next = state();
     const key = JSON.stringify(next);
     if (key !== signature) { signature = key; send({type:'visible-state', ...next}); }
@@ -116,7 +144,7 @@ function installRecorder({binding}) {
   });
   // Observe Document itself: document.open/write replaces its descendants.
   observer.observe(document, {subtree:true,childList:true,attributes:true,attributeOldValue:true,
-    attributeFilter:['class','data-generated-at','data-max-age-seconds']});
+    attributeFilter:['class','hidden','src','data-generated-at','data-max-age-seconds']});
   try {
     new PerformanceObserver(list => list.getEntries().forEach(item => send({type:'paint', name:item.name,
       start_ms:item.startTime, duration_ms:item.duration}))).observe({type:'paint',buffered:true});
@@ -150,6 +178,18 @@ function assessCapture(report) {
       add('NON_CURRENT_SERVER_DOCUMENT','An original response did not contain complete CURRENT evidence.',{request_id:response.request_id});
     }
     if (doc && doc.headline_class!=='state ok') add('BACKEND_NOT_HEALTHY','Original server health was not green.',{request_id:response.request_id,warning_ids:doc.warning_ids});
+    if (doc?.banner_required) {
+      const states=events.filter(item=>item.generated_at===doc.generated_at &&
+        ['visible-state','meaningful-content'].includes(item.type));
+      if (!states.some(item=>item.banner_present!==undefined)) {
+        add('MISSING_BANNER_EVIDENCE','The source document requires a banner but no image observation was retained.',
+          {request_id:response.request_id,path:doc.banner_path});
+      } else if (!states.some(item=>item.banner_displayed===true && item.banner_complete===true &&
+          item.banner_width===512 && item.banner_height===512 && item.banner_path===doc.banner_path)) {
+        add('BANNER_UNAVAILABLE','No positively decoded, displayed banner was observed for this document generation.',
+          {request_id:response.request_id,path:doc.banner_path});
+      }
+    }
   }
   const seen = new Set();
   if (report.capture?.reasons?.includes('OVERLAPPING_REFRESHES')) add('OVERLAPPING_REFRESHES','More than one foreground document refresh was active.');
@@ -193,7 +233,7 @@ async function startCapture(page, options) {
     responses:[],events:[],screenshots:[],physical_home_screen:{status:'NOT_RUN',reason:'Desktop browser capture is not physical iOS evidence'}};
   const nodeTime = () => performance.now()-started;
   let closed = false, done = false, resolveDone, screenshotCount=0;
-  const pending = new Set(), requests = new Map(), listeners=[];
+  const pending = new Set(), requests = new Map(), bannerRequests=new Map(), listeners=[];
   const completion = new Promise(resolve => { resolveDone=resolve; });
   const mark = code => { if (!report.capture.reasons.includes(code)) report.capture.reasons.push(code); };
   function finishWaiting() { if (!done) { done=true; resolveDone(); } }
@@ -204,7 +244,13 @@ async function startCapture(page, options) {
     if (event.type==='meaningful-content') takeScreenshot('content');
     if (event.type==='badge-transition' && event.headline_class==='state warn') takeScreenshot('amber');
     const docs = report.responses.filter(item => item.document);
-    if (docs.length>=3 && report.events.some(item => item.type==='meaningful-content' && item.generated_at===docs[2].document.generated_at)) finishWaiting();
+    if (docs.length>=3 && report.events.some(item => item.type==='meaningful-content' && item.generated_at===docs[2].document.generated_at)) {
+      const last=docs[2].document;
+      const bannerSettled=!last.banner_required || report.events.some(item=>item.generated_at===last.generated_at &&
+        ['visible-state','meaningful-content'].includes(item.type) &&
+        (item.banner_displayed || (item.banner_assigned && item.banner_complete===true && item.banner_width===0) || item.banner_fallback_visible));
+      if (bannerSettled) finishWaiting();
+    }
   }
   async function takeScreenshot(name) {
     if (!options.outputDir || screenshotCount>=2 || (name==='content' && screenshotCount>0)) return;
@@ -226,6 +272,11 @@ async function startCapture(page, options) {
     if (url.origin!==target.origin) return;
     add({type:'request',path:url.pathname,method:request.method(),resource_type:request.resourceType()});
     if (request.method()!=='GET') mark('UNEXPECTED_MUTATING_REQUEST');
+    if (url.pathname==='/static/caesars-palace-512.png') {
+      const resourceId=bannerRequests.size+1;
+      bannerRequests.set(request,resourceId);
+      add({type:'banner-request',resource_id:resourceId,path:url.pathname});
+    }
     if (!rootRequest(request)) return;
     const kind = request.isNavigationRequest() ? 'navigation' : 'refresh';
     if (kind==='refresh' && [...requests.values()].some(item => item.kind==='refresh' && item.completed_ms===undefined)) mark('OVERLAPPING_REFRESHES');
@@ -233,6 +284,9 @@ async function startCapture(page, options) {
     requests.set(request,item); report.responses.push(item);
   });
   listen('response', response => {
+    const resourceId=bannerRequests.get(response.request());
+    if (resourceId) add({type:'banner-response',resource_id:resourceId,
+      path:'/static/caesars-palace-512.png',http_status:response.status()});
     const item = requests.get(response.request());
     if (!item) return;
     item.response_received_ms=nodeTime(); item.http_status=response.status();
@@ -248,10 +302,15 @@ async function startCapture(page, options) {
     pending.add(task); task.finally(() => pending.delete(task));
   });
   listen('requestfinished', request => {
+    const resourceId=bannerRequests.get(request);
+    if (resourceId) add({type:'banner-request-finished',resource_id:resourceId,
+      path:'/static/caesars-palace-512.png',timing:request.timing()});
     const item=requests.get(request);
     if (item) { item.timing=request.timing(); item.finished_ms=nodeTime(); }
   });
   listen('requestfailed', request => {
+    const resourceId=bannerRequests.get(request);
+    if (resourceId) add({type:'banner-request-failed',resource_id:resourceId,path:'/static/caesars-palace-512.png'});
     const item=requests.get(request);
     if (item) { item.completed_ms=nodeTime(); item.transport_failed=true; add({type:'request-failed',request_id:item.request_id}); }
   });

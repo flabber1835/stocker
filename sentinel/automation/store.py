@@ -667,12 +667,13 @@ def _prospective_deadline(spec, config):
     return window.not_after if window is not None else spec.execution_open_at
 
 
-def _unsent_retirement(cycle, spec, *, debug=False):
+def _unsent_retirement(cycle, spec, *, debug=False, recovered_preflight=False):
     if cycle.state is not CycleState.SUPERSEDED or cycle.historical_state_only:
         return False
     if cycle.failure_code == "CONTROL_GENERATION_SUPERSEDED":
         return True
-    return (debug and cycle.failure_code == "DISCOVERED_AFTER_SESSION_OPEN"
+    return (((recovered_preflight and cycle.failure_code == "STALE_PREFLIGHT_RECOVERED")
+             or (debug and cycle.failure_code == "DISCOVERED_AFTER_SESSION_OPEN"))
             and cycle.effective_session == spec.effective_session
             and cycle.plan_id is None
             and cycle.diagnostic.get("preflight_recovery_complete") is True
@@ -720,16 +721,14 @@ def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None,
             integrity.validate_cycle_lineage(conn, cycle)
             if (cycle.control_generation >= spec.control_generation
                     or not _unsent_retirement(cycle, spec,
-                        debug=config is not None and config.debug_window_for(spec) is not None)):
+                        debug=config is not None and config.debug_window_for(spec) is not None,
+                        recovered_preflight=True)):
                 return None
         ids = sorted(cycle.cycle_id for cycle in prior)
         plans = [cycle.plan_id for cycle in prior if cycle.plan_id is not None]
+        if integrity.predecessors_reached_transport(conn, prior):
+            return None
         with conn.cursor() as cur:
-            cur.execute("SELECT EXISTS(SELECT 1 FROM sentinel_automation_cycle_events "
-                        "WHERE cycle_id=ANY(%s::text[]) AND (from_state IN ('EXECUTING','RECONCILING') "
-                        "OR to_state IN ('EXECUTING','RECONCILING')))", (ids,))
-            if cur.fetchone()[0]:
-                return None
             cur.execute("SELECT EXISTS(SELECT 1 FROM sentinel_commands c "
                         "LEFT JOIN sentinel_execution_plans p USING(plan_id) "
                         "WHERE c.plan_id=ANY(%s::text[]) OR (c.deployment_id=%s "
