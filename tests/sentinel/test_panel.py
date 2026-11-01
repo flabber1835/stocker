@@ -1529,6 +1529,32 @@ class TestReviewedDualAuthority:
         return SimpleNamespace(to_dict=lambda: state)
 
     def test_a_paper_mismatch_turns_the_header_red_without_erasing_shadow_go(self):
+        from html.parser import HTMLParser
+
+        class BrandImages(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.brand_depth = 0
+                self.noscript = False
+                self.images = []
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if tag == 'div' and (self.brand_depth or
+                        'brand' in attributes.get('class', '').split()):
+                    self.brand_depth += 1
+                if self.brand_depth:
+                    if tag == 'noscript':
+                        self.noscript = True
+                    if tag == 'img':
+                        self.images.append((self.noscript, attributes))
+
+            def handle_endtag(self, tag):
+                if tag == 'noscript':
+                    self.noscript = False
+                if tag == 'div' and self.brand_depth:
+                    self.brand_depth -= 1
+
         panel = _panel(
             model.shadow_verification_row(
                 verdict="SHADOW_GO", verification="VERIFIED",
@@ -1545,7 +1571,16 @@ class TestReviewedDualAuthority:
         assert "SHADOW VERIFIED THROUGH 2026-08-20" in html
         assert ('data-key="shadow_verification" data-status="ok"' in html)
         assert "PAPER NOT VERIFIED · MISMATCH · BLOCKED" in html
-        assert "src=\"/static/caesars-palace-512.png\" alt=\"Caesar's Palace\"" in html
+        brand = BrandImages()
+        brand.feed(html)
+        assert brand.images == [
+            (False, {'data-banner-src': '/static/caesars-palace-512.png',
+                     'width': '512', 'height': '512',
+                     'alt': "Caesar's Palace", 'hidden': None}),
+            (True, {'src': '/static/caesars-palace-512.png',
+                    'width': '512', 'height': '512',
+                    'alt': "Caesar's Palace"}),
+        ]
 
     def test_ordinary_paper_pending_is_amber_and_never_strategy_performance(self):
         panel = _panel(
