@@ -780,7 +780,7 @@
     "transition_registry.py": "339db86c1a5e1f8c7ecfc36f3860fb5c79ae0a732294ee24388dac3c682796cf",
     "transition_registry_specs.py": "db062fb9e10203c590834f485a6f16b7edacbd99ba23589854feef7bfed704a5",
     "trial.py": "08c04f2042d192cd1991b46ef300db6ca0dba36e1f5ee15a2838ac50ee98e75c",
-    "trial_attempts.py": "d776f6b58aeae93b391a9b2bcb80097fe0c5a80b12de1e8b60bda0558033b3cf",
+    "trial_attempts.py": "158bc3d669309e42a34ecc64f26615d3d291091a1d1a5884139d717043a2ebf7",
     "trial_close.py": "938d443d41dcb742b730c3db7bb67ce93b14f12663ee7e6816912a9cfe93ac44",
     "trial_evidence.py": "d3a135aee17bc0df951d49acd5dffedbd2c18dc36378bddcb0d694016716524c",
     "trial_fills.py": "5f3dde71b9fb2113325d4eda805dea0e7821356f105a100969319de26d36e867",
