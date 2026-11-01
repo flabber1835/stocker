@@ -106,3 +106,33 @@ new, primary-evidenced events across paths. Report discovery coverage and
 unresolved events, with no diagnostic performance ranking. Accurate replay
 requires each arm's own strict financial predecessor and separate financial
 admission; no diagnostic graft or production promotion is permitted.
+
+## C/V qualification correction after observed refusal
+
+The first P09/P10/P11 qualifiers actually stopped before any diagnostic launch.
+Their authenticated inventories, receipts, stopped inspections and exact errors
+are retained. The CORE missing-held-quote continuation case conflicts with the
+unchanged C current-mark guard and V causal-axis guard. It is not evidence of a
+failure on the ordinary input stream. The five CORE jobs and P01 are unaffected.
+
+A distinct three-arm recovery request preserves all 383 earlier driver bytes
+and the same strict financial predecessors. It is a corrected synthetic
+qualification followed by the first diagnostic origin for these arms, not a
+financial restart or a rerun of the continuing five-arm matrix.
+
+The corrected gate first reproduces the exact missing-held-input refusal and
+proves unchanged prior/runtime/publication, zero committed transitions and
+restored hooks. It then performs three canonical sessions using unchanged
+actual source packets and C/V rules. It does not inject new gaps into the
+volatility history of potential future entries. The unchanged discovery
+witness/carry implementation retains its existing CORE qualification. A separate
+canonical toy position proves that incomplete terminal terms carry without
+cash/share/slot changes and that supported cash settles exactly once. It also
+proves diagnostic checkpoints are rejected by strict financial admission.
+Legitimate canonical risk operations using actual prices remain allowed.
+
+No C/V guard is bypassed, no missing raw mark or volatility window is filled,
+and no trim or stop is skipped. If ordinary discovery later encounters one of
+these refusals, that partial path is preserved and reported. The recovery
+workflow has its own concurrency group and changes neither the five continuing
+jobs nor the completed P01 diagnostic evidence.
