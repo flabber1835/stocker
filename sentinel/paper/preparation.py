@@ -558,11 +558,14 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 except dual_plan_authority.DualPlanAuthorityRefused as exc:
                     raise PaperActivationRefused(
                         f"dual sizing authority refused restart: {exc}") from exc
+                actions = _action_lookup(conn, state, through_date)
                 rec = await reconciliation.reconcile(
                     broker=broker, conn=conn, binding=None,
                     deployment=binding.identity,
-                    actions=_action_lookup(conn, state, through_date),
+                    actions=actions,
                     informational_current_book=dual_mode)
+                rec.cash_correction_classifications = getattr(
+                    actions, "cash_correction_classifications", [])
                 observation = _clean_or_refuse(
                     rec, purpose="dual PAPER preparation restart")
                 account = await broker.account_snapshot()
@@ -612,11 +615,14 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         calendar.next_session(through_text)),
                     runtime_identity=identity, rollout=rollout,
                     require_effective_today=False)
+                actions = _action_lookup(conn, state, through_date)
                 rec = await reconciliation.reconcile(
                     broker=broker, conn=conn, binding=None,
                     deployment=binding.identity,
-                    actions=_action_lookup(conn, state, through_date),
+                    actions=actions,
                     informational_current_book=dual_mode)
+                rec.cash_correction_classifications = getattr(
+                    actions, "cash_correction_classifications", [])
                 observation = _clean_or_refuse(
                     rec, purpose="paper preparation restart")
                 account = await broker.account_snapshot()
@@ -684,6 +690,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity,
                 actions=actions, informational_current_book=dual_mode)
+            rec.cash_correction_classifications = getattr(
+                actions, "cash_correction_classifications", [])
             if due_existing_cycle:
                 current_commands = journal.load_commands(
                     conn, binding.identity)

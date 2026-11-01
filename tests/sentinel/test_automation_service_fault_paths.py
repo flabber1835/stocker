@@ -386,6 +386,73 @@ def scheduled_record(config, state, *, decision_session=date(2026, 10, 8)):
     return record, permit
 
 
+def restricted_preparation_result():
+    """Transport admission is deliberately not a clean execution result."""
+    return module.ExecuteResult(disposition='READY_TO_PREPARE',
+        transport_reconciliation_id='synthetic-restricted-transport',
+        failure_code='CORPORATE_ACTION_PENDING',
+        failure_detail='one security retains a structural restriction',
+        diagnostic={'restricted_securities': {'SEC-SCOPED': 'share terms pending'}})
+
+
+@pytest.mark.parametrize('prior_attempt,terminal', [(0, False), (1, True)])
+def test_corporate_preflight_result_remains_bounded_not_availability(
+        monkeypatch, prior_attempt, terminal):
+    from sentinel.automation_resilience import RecoveryAutomationService
+
+    service = RecoveryAutomationService(
+        config=AutomationConfig(preflight_recover_max_attempts=2),
+        holder_id='recovery-test', refresh=None, prepare=None,
+        recover=None, execute=None)
+    now = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+    cycle = module.CycleRecord.model_construct(
+        cycle_id='restricted-preflight', state=module.CycleState.DISCOVERED,
+        control_generation=1, diagnostic={'retry_phase': 'PREFLIGHT_RECOVER',
+            'phase_attempt_count': prior_attempt})
+    permit = module.LeaderPermit(holder_id='recovery-test', fence_token=1,
+        control_generation=1, acquired_at=now, expires_at=now+timedelta(seconds=30))
+
+    def transition(_conn, **fields):
+        return cycle.model_copy(update={'state': fields['to_state'],
+                                        **{k: v for k, v in fields.items()
+                                           if k not in {'to_state', 'cycle', 'permit'}}})
+
+    monkeypatch.setattr(service, '_recover_transition', transition)
+    result = service._handle_retry_result(object(), now=now, cycle=cycle,
+        permit=permit, phase='PREFLIGHT_RECOVER', failure_code='CORPORATE_ACTION_PENDING',
+        failure_detail='one permanent security remains restricted',
+        result_diagnostic={'restricted_securities': {'SEC-AAA': 'pending'}},
+        recovery_transition=True)
+    diagnostic = result.cycle.diagnostic
+    assert diagnostic['callback_failure'] == 'CORPORATE_ACTION_PENDING'
+    assert diagnostic['phase_attempt_count'] == prior_attempt+1
+    assert diagnostic['phase_max_attempts'] == 2
+    assert 'availability_retry_unbounded' not in diagnostic
+    assert diagnostic['restricted_securities'] == {'SEC-AAA': 'pending'}
+    assert result.action is (module.TickAction.BLOCKED if terminal
+                             else module.TickAction.RETRY_SCHEDULED)
+    assert (result.cycle.next_wake_at is None) is terminal
+
+
+@pytest.mark.parametrize('method,guard', [
+    ('_failure_diagnostic', 'isinstance(exc, CorporateActionPending)'),
+    ('_handle_retry_result', 'phase == "PREFLIGHT_RECOVER"'),
+])
+def test_removed_corporate_retry_classification_is_detected(monkeypatch, method, guard):
+    import inspect
+    import textwrap
+
+    body = textwrap.dedent(inspect.getsource(getattr(module.AutomationService, method)))
+    assert body.count(guard) == 1
+    namespace = dict(vars(module))
+    exec(compile(body.replace(guard, 'False', 1),
+        '<corporate-preflight-retry-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(module.AutomationService, method, namespace[method])
+    with pytest.raises(AssertionError):
+        test_corporate_preflight_result_remains_bounded_not_availability(
+            monkeypatch, 0, False)
+
+
 @pytest.mark.parametrize('phase,state', [
     ('REFRESH', module.CycleState.REFRESHING_DATA),
     ('PREFLIGHT_RECOVER', module.CycleState.DISCOVERED),
@@ -656,6 +723,7 @@ def test_early_clean_recovery_waits_for_execute_at_and_falsifies_old_guard(monke
     ('SUCCEEDED', 'RETRY_WAIT', False, False, 'RECOVERED', ['RECONCILING', 'SUCCEEDED']),
     ('RETRY', 'RETRY_WAIT', False, False, 'RETRY_SCHEDULED', ['RECONCILING', 'RETRY_WAIT']),
     ('BLOCKED', 'RECONCILING', False, False, 'BLOCKED', ['BLOCKED']),
+    ('READY_TO_PREPARE', 'RECONCILING', False, False, 'BLOCKED', ['BLOCKED']),
 ])
 def test_clean_recovery_never_executes_an_old_or_expired_plan(
         monkeypatch, raw_mapping, disposition, initial, expired, new_generation,
@@ -668,9 +736,10 @@ def test_clean_recovery_never_executes_an_old_or_expired_plan(
         'control_generation': 2 if new_generation else 1})
     original_identity = cycle.cycle_id
     calls, changes = [], []
-    observation = module.ExecuteResult(disposition=module.ExecuteDisposition[disposition],
-        last_clean_reconciliation_id='synthetic-clean-reconciliation',
-        failure_code='RECOVERY_DETAIL', diagnostic={'retained': 'read-only recovery'})
+    observation = (restricted_preparation_result() if disposition == 'READY_TO_PREPARE'
+        else module.ExecuteResult(disposition=module.ExecuteDisposition[disposition],
+            last_clean_reconciliation_id='synthetic-clean-reconciliation',
+            failure_code='RECOVERY_DETAIL', diagnostic={'retained': 'read-only recovery'}))
 
     async def recover(context):
         context.require_active()
@@ -712,6 +781,9 @@ def test_clean_recovery_never_executes_an_old_or_expired_plan(
         assert result.cycle.diagnostic['retry_phase'] == 'EXECUTE'
     if result.cycle.state.terminal:
         assert result.cycle.next_wake_at is None
+    if disposition == 'READY_TO_PREPARE':
+        assert result.cycle.last_clean_reconciliation_id is None
+        assert result.cycle.failure_code == 'NonRetryableCallbackRefused'
 
 
 @pytest.mark.parametrize('offset', [0, 1])
@@ -757,6 +829,7 @@ def test_prepare_cannot_label_current_or_future_sessions_as_historical(
     ('BLOCKED', 'BLOCKED', 'BLOCKED'),
     ('SUPERSEDED', 'BLOCKED', 'BLOCKED'),
     ('READY_TO_EXECUTE', 'BLOCKED', 'BLOCKED'),
+    ('READY_TO_PREPARE', 'BLOCKED', 'BLOCKED'),
 ])
 def test_executor_outcome_requires_its_own_conclusive_reconciliation(
         monkeypatch, raw_mapping, disposition, state, action):
@@ -764,9 +837,10 @@ def test_executor_outcome_requires_its_own_conclusive_reconciliation(
     config = AutomationConfig()
     cycle, permit = scheduled_record(config, module.CycleState.EXECUTING)
     events, transitions = [], []
-    observation = module.ExecuteResult(disposition=module.ExecuteDisposition[disposition],
-        last_clean_reconciliation_id='synthetic-execution-reconciliation',
-        failure_code='EXECUTION_DETAIL', diagnostic={'observed': disposition})
+    observation = (restricted_preparation_result() if disposition == 'READY_TO_PREPARE'
+        else module.ExecuteResult(disposition=module.ExecuteDisposition[disposition],
+            last_clean_reconciliation_id='synthetic-execution-reconciliation',
+            failure_code='EXECUTION_DETAIL', diagnostic={'observed': disposition}))
 
     async def execute(context):
         context.require_active()
@@ -797,6 +871,9 @@ def test_executor_outcome_requires_its_own_conclusive_reconciliation(
     assert (result.cycle.next_wake_at is None) is result.cycle.state.terminal
     if disposition == 'RETRY':
         assert result.cycle.diagnostic['retry_phase'] == 'EXECUTE'
+    if disposition == 'READY_TO_PREPARE':
+        assert result.cycle.last_clean_reconciliation_id is None
+        assert result.cycle.diagnostic['restricted_securities'] == observation.diagnostic['restricted_securities']
 
 
 @pytest.mark.parametrize('boundary', ['before_open', 'expired'])
@@ -833,21 +910,26 @@ def test_executor_time_boundary_refuses_or_recovers_without_new_transport(
 @pytest.mark.parametrize('initial', ['DISCOVERED', 'RETRY_WAIT', 'RECONCILING'])
 @pytest.mark.parametrize('clock', ['before_open', 'at_open', 'after_open'])
 @pytest.mark.parametrize('supersede', [False, True])
-@pytest.mark.parametrize('disposition', ['SUCCEEDED', 'SUPERSEDED', 'RETRY', 'BLOCKED'])
+@pytest.mark.parametrize('disposition', [
+    'SUCCEEDED', 'SUPERSEDED', 'RETRY', 'BLOCKED', 'READY_TO_PREPARE'])
 def test_preflight_recovery_must_finish_before_publication_and_never_executes(
         monkeypatch, initial, clock, supersede, disposition):
     config = AutomationConfig()
     cycle, permit = scheduled_record(config, module.CycleState[initial])
-    now = {'before_open': cycle.execution_open_at - timedelta(microseconds=1),
-           'at_open': cycle.execution_open_at,
-           'after_open': cycle.execution_open_at + timedelta(minutes=90)}[clock]
-    permit = permit.model_copy(update={'acquired_at': now,
-        'expires_at': now + timedelta(seconds=config.lease_seconds)})
-    if initial == 'RECONCILING':
-        cycle = cycle.model_copy(update={'diagnostic': {'retry_phase': 'PREFLIGHT_RECOVER'}})
-    observation = module.ExecuteResult(disposition=module.ExecuteDisposition[disposition],
-        last_clean_reconciliation_id='synthetic-preflight-reconciliation',
-        failure_code='PREFLIGHT_DETAIL', diagnostic={'observed': disposition})
+    started = cycle.execution_open_at - timedelta(minutes=2)
+    completed = {'before_open': cycle.execution_open_at - timedelta(microseconds=1),
+                 'at_open': cycle.execution_open_at,
+                 'after_open': cycle.execution_open_at + timedelta(minutes=90)}[clock]
+    permit = permit.model_copy(update={'acquired_at': started,
+        'expires_at': completed + timedelta(seconds=config.lease_seconds)})
+    if initial in {'RETRY_WAIT', 'RECONCILING'}:
+        cycle = cycle.model_copy(update={'diagnostic': {
+            'retry_phase': 'PREFLIGHT_RECOVER', 'phase_attempt_count': 2,
+            'callback_failure': 'TRANSIENT_INFRASTRUCTURE'}})
+    observation = (restricted_preparation_result() if disposition == 'READY_TO_PREPARE'
+        else module.ExecuteResult(disposition=module.ExecuteDisposition[disposition],
+            last_clean_reconciliation_id='synthetic-preflight-reconciliation',
+            failure_code='PREFLIGHT_DETAIL', diagnostic={'observed': disposition}))
     events, transitions = [], []
 
     async def recover(context):
@@ -875,31 +957,149 @@ def test_preflight_recovery_must_finish_before_publication_and_never_executes(
         return current
 
     monkeypatch.setattr(module.store, 'transition_cycle', transition)
-    result = asyncio.run(service._run_preflight_recover(connection, now=now,
-        cycle=cycle, permit=permit, supersede_on_success=supersede))
-    clean_cutover = (supersede or clock != 'before_open') and disposition in {
-        'SUCCEEDED', 'SUPERSEDED'}
-    expected = ('SUPERSEDED' if clean_cutover else 'REFRESHING_DATA' if disposition == 'SUCCEEDED'
+    result = asyncio.run(service._run_preflight_recover(connection, now=started,
+        cycle=cycle, permit=permit, supersede_on_success=supersede,
+        clock=lambda: completed))
+    completed_cutover = (supersede or clock != 'before_open') and disposition in {
+        'SUCCEEDED', 'SUPERSEDED', 'READY_TO_PREPARE'}
+    expected = ('SUPERSEDED' if completed_cutover else 'REFRESHING_DATA' if disposition in {
+                    'SUCCEEDED', 'READY_TO_PREPARE'}
                 else 'BLOCKED' if disposition == 'BLOCKED' else 'RETRY_WAIT')
     assert result.cycle.state is module.CycleState[expected]
     assert events == ['read-only recovery']
     assert transitions[-1] is module.CycleState[expected]
     assert result.cycle.last_clean_reconciliation_id == observation.last_clean_reconciliation_id
-    if clean_cutover:
+    if completed_cutover:
         assert result.action is module.TickAction.SUPERSEDED
         assert result.cycle.failure_code == ('STALE_PREFLIGHT_RECOVERED' if supersede
                                             else 'DISCOVERED_AFTER_SESSION_OPEN')
         assert result.cycle.diagnostic['preflight_recovery_complete'] is True
         assert result.cycle.next_wake_at is None
-    elif disposition == 'SUCCEEDED':
+    elif disposition in {'SUCCEEDED', 'READY_TO_PREPARE'}:
         assert result.action is module.TickAction.RECOVERED
         assert result.cycle.diagnostic['preflight_recovery_complete'] is True
+        assert result.cycle.failure_code is None
+        assert result.cycle.failure_detail is None
     elif disposition == 'BLOCKED':
         assert result.action is module.TickAction.BLOCKED
     else:
         assert result.action is module.TickAction.RETRY_SCHEDULED
         assert result.cycle.diagnostic['retry_phase'] == 'PREFLIGHT_RECOVER'
-        assert result.cycle.next_wake_at > now
+        assert result.cycle.next_wake_at > completed
+    if disposition == 'READY_TO_PREPARE':
+        assert result.cycle.plan_id is None
+        assert result.cycle.last_clean_reconciliation_id is None
+        assert result.cycle.diagnostic['transport_reconciliation_id'] == observation.transport_reconciliation_id
+        assert result.cycle.diagnostic['restricted_securities'] == observation.diagnostic['restricted_securities']
+        assert 'retry_phase' not in result.cycle.diagnostic
+        assert 'callback_failure' not in result.cycle.diagnostic
+        assert 'phase_attempt_count' not in result.cycle.diagnostic
+
+
+@pytest.mark.parametrize('initial', ['DISCOVERED', 'RETRY_WAIT', 'RECONCILING'])
+@pytest.mark.parametrize('bad_scope', ['plan', 'generation'])
+def test_restricted_preparation_readiness_refuses_nonpreflight_scope(
+        monkeypatch, initial, bad_scope):
+    config = AutomationConfig()
+    cycle, permit = scheduled_record(config, module.CycleState[initial])
+    cycle = cycle.model_copy(update={
+        'plan_id': 'existing-durable-plan' if bad_scope == 'plan' else None,
+        'state_fingerprint': 'unchanged-book',
+        'diagnostic': {'retry_phase': 'PREFLIGHT_RECOVER'} if initial != 'DISCOVERED' else {}})
+    if bad_scope == 'generation':
+        permit = permit.model_copy(update={'control_generation': 2})
+    current, events = cycle, []
+    connection = SimpleNamespace(rollback=lambda: None)
+
+    async def recover(context):
+        events.append('read-only recovery')
+        return restricted_preparation_result()
+
+    async def forbidden(context):
+        pytest.fail('invalid preparation readiness advanced source or transport')
+
+    def persist(kind, conn, *, cycle_id, permit, to_state=None, **fields):
+        nonlocal current
+        assert conn is connection and cycle_id == cycle.cycle_id
+        events.append((kind, to_state))
+        current = current.model_copy(update={'state': to_state or current.state, **fields})
+        return current
+
+    monkeypatch.setattr(module.store, 'require_leader', lambda _conn, actual: actual)
+    monkeypatch.setattr(module.store, 'transition_cycle',
+        lambda conn, **fields: persist('transition', conn, **fields))
+    monkeypatch.setattr(module.store, 'adopt_cycle',
+        lambda conn, **fields: persist('adopt', conn, **fields))
+    service = module.AutomationService(config=config, holder_id='scoped-preflight-lab',
+        refresh=forbidden, prepare=forbidden, recover=recover, execute=forbidden)
+    result = asyncio.run(service._run_preflight_recover(connection,
+        now=cycle.execution_open_at - timedelta(minutes=1), cycle=cycle, permit=permit,
+        supersede_on_success=True, clock=lambda: cycle.execution_open_at))
+    assert result.action is module.TickAction.BLOCKED, 'out-of-scope readiness was accepted'
+    assert result.cycle.state is module.CycleState.BLOCKED
+    assert result.cycle.failure_code == 'NonRetryableCallbackRefused'
+    assert 'current-generation planless preflight' in result.cycle.failure_detail
+    assert result.cycle.last_clean_reconciliation_id is None
+    assert result.cycle.state_fingerprint == 'unchanged-book'
+    assert result.cycle.plan_id == cycle.plan_id
+    assert result.cycle.control_generation == cycle.control_generation
+    assert result.cycle.next_wake_at is None
+    assert events.count('read-only recovery') == 1
+    transitions = [item[1] for item in events if isinstance(item, tuple)]
+    assert not set(transitions).intersection({
+        module.CycleState.REFRESHING_DATA, module.CycleState.PREPARING,
+        module.CycleState.EXECUTING, module.CycleState.SUCCEEDED})
+
+
+def test_removed_restricted_preflight_actual_open_cutover_is_detected(monkeypatch):
+    import inspect
+    import textwrap
+
+    source = textwrap.dedent(inspect.getsource(module.AutomationService._run_preflight_recover))
+    marker = 'and now >= cycle.execution_open_at'
+    assert source.count(marker) == 1
+    namespace = dict(vars(module))
+    exec(compile(source.replace(marker, 'and False', 1),
+        '<private-restricted-preflight-open-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(module.AutomationService, '_run_preflight_recover', namespace['_run_preflight_recover'])
+    with pytest.raises(AssertionError):
+        test_preflight_recovery_must_finish_before_publication_and_never_executes(
+            monkeypatch, 'DISCOVERED', 'at_open', False, 'READY_TO_PREPARE')
+
+
+def test_removed_restricted_preflight_completion_clock_is_detected(monkeypatch):
+    import inspect
+    import textwrap
+
+    source = textwrap.dedent(inspect.getsource(module.AutomationService._run_preflight_recover))
+    marker = 'now = self._completed_at(now, clock)'
+    assert source.count(marker) == 2
+    namespace = dict(vars(module))
+    exec(compile(source.replace(marker, 'now = now', 1),
+        '<private-restricted-preflight-completion-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(module.AutomationService, '_run_preflight_recover', namespace['_run_preflight_recover'])
+    with pytest.raises(AssertionError):
+        test_preflight_recovery_must_finish_before_publication_and_never_executes(
+            monkeypatch, 'DISCOVERED', 'at_open', False, 'READY_TO_PREPARE')
+
+
+@pytest.mark.parametrize('bad_scope,marker', [
+    ('plan', 'cycle.plan_id is not None'),
+    ('generation', 'cycle.control_generation != permit.control_generation'),
+])
+def test_removed_restricted_preflight_scope_guard_is_detected(monkeypatch, bad_scope, marker):
+    import inspect
+    import textwrap
+
+    source = textwrap.dedent(inspect.getsource(module.AutomationService._run_preflight_recover))
+    assert source.count(marker) == 1
+    namespace = dict(vars(module))
+    exec(compile(source.replace(marker, 'False', 1),
+        '<private-restricted-preflight-scope-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(module.AutomationService, '_run_preflight_recover', namespace['_run_preflight_recover'])
+    with pytest.raises(AssertionError, match='out-of-scope readiness was accepted'):
+        test_restricted_preparation_readiness_refuses_nonpreflight_scope(
+            monkeypatch, 'DISCOVERED', bad_scope)
 
 
 def test_inherited_process_object_cannot_signal_or_join_foreign_parent(monkeypatch):

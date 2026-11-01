@@ -21,6 +21,7 @@ from typing import Any, Mapping
 from sentinel.automation import store
 from sentinel.automation.model import (
     CallbackDeadlineExceeded,
+    CorporateActionPending,
     CycleState,
     TickAction,
     TickResult,
@@ -54,6 +55,8 @@ class RecoveryAutomationService(AutomationService):
             now: datetime) -> tuple[bool, Mapping[str, Any]]:
         terminal, diagnostic = super()._failure_diagnostic(
             cycle=cycle, phase=phase, exc=exc, now=now)
+        if isinstance(exc, CorporateActionPending):
+            return terminal, diagnostic
         transient = isinstance(exc, TransientInfrastructureFailure)
         bounded_restart = (
             isinstance(exc, CallbackDeadlineExceeded)

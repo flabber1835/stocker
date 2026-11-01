@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import automation_runtime as module
+from sentinel.execution.reconcile import ReconciliationResult
 from sentinel.execution.states import RuntimeState
 
 
@@ -55,10 +56,14 @@ def test_operational_callback_pins_factory_gateway_and_postcondition(monkeypatch
     monkeypatch.setattr(module.journal,'in_flight_commands',lambda *a:[])
     plan = SimpleNamespace(plan_id='plan',data_version=1,publication_fingerprint='a'*64,
         fingerprint=lambda:'b'*64)
+    reconciliation = ReconciliationResult(runtime_state=RuntimeState.RUNNING)
     async def prepare(**kwargs):
         assert active, 'paper preparation escaped callback publication pin'
-        return SimpleNamespace(plan=plan,state_fingerprint='c'*64,sessions_replayed=0,
-            warmup_sessions=0,superseded_plans=0)
+        return module.paper.PreparationResult(
+            plan=plan,state_fingerprint='c'*64,sessions_replayed=0,
+            warmup_sessions=0,publication_version=1,
+            frontier=cycle.decision_session.isoformat(),
+            reconciliation=reconciliation)
     async def recover(**kwargs):
         assert active, 'paper recovery escaped callback publication pin'
         return SimpleNamespace(runtime_state=RuntimeState.BROKER_DEGRADED,observation=None,to_dict=lambda:{})
@@ -70,7 +75,10 @@ def test_operational_callback_pins_factory_gateway_and_postcondition(monkeypatch
         with pytest.raises(RuntimeError,match='fixture factory failure'):
             asyncio.run(call)
     else:
-        asyncio.run(call)
+        result = asyncio.run(call)
+        if operation == 'prepare':
+            assert result.diagnostic['preparation_reconciliation'] == reconciliation.to_dict()
+            assert result.diagnostic['cash_correction_classifications'] == []
     assert not active and closed == [True]
 
 

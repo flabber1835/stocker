@@ -43,6 +43,10 @@ class SourceDataPending(TransientInfrastructureFailure):
     """A source join or coverage proof is waiting for a coherent observation."""
 
 
+class CorporateActionPending(TransientInfrastructureFailure):
+    """A scoped reconciliation wait uses its bounded preflight policy."""
+
+
 class ClosingDataPending(SourceDataPending):
     """Only the current closing frontier is awaiting its dedicated publisher."""
 
@@ -513,6 +517,7 @@ class RefreshResult(_FrozenModel):
 
 class ExecuteDisposition(str, Enum):
     SUCCEEDED = "SUCCEEDED"
+    READY_TO_PREPARE = "READY_TO_PREPARE"
     READY_TO_EXECUTE = "READY_TO_EXECUTE"
     RECONCILE = "RECONCILE"
     RETRY = "RETRY"
@@ -615,6 +620,15 @@ class ExecuteResult(_FrozenModel):
 
     @model_validator(mode="after")
     def _conclusive_result_has_reconciliation(self) -> "ExecuteResult":
+        if self.disposition is ExecuteDisposition.READY_TO_PREPARE:
+            restrictions = self.diagnostic.get("restricted_securities")
+            if (not self.transport_reconciliation_id
+                    or self.last_clean_reconciliation_id is not None
+                    or not isinstance(restrictions, Mapping)
+                    or not restrictions):
+                raise ValueError(
+                    "READY_TO_PREPARE requires restricted transport evidence "
+                    "without a clean reconciliation identity")
         if (
             self.disposition in {
                 ExecuteDisposition.SUCCEEDED,
@@ -706,6 +720,6 @@ __all__ = [
     "HumanInterventionRequired", "NonRetryableCallbackRefused",
     "PermanentOperationalRefusal", "PrepareResult", "RefreshResult",
     "SessionSchedule", "SoftwareDefect", "SupervisorIntegrityFailure",
-    "TransientInfrastructureFailure",
+    "TransientInfrastructureFailure", "CorporateActionPending",
     "StaleLeaderRefused", "TickAction", "TickResult",
 ]

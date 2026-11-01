@@ -65,6 +65,39 @@ def ingest(conn, world):
     return state
 
 
+@pytest.mark.parametrize('cash_before_data', [False, True])
+def test_dividend_cash_and_late_source_can_arrive_in_either_order(
+        conn, pg, world, cash_before_data):
+    import json
+    from pathlib import Path
+    from tests.sentinel.test_cash_correction_recovery import classify
+
+    source = json.loads((Path(__file__).with_name('fixtures') /
+        'dell_cash_addition_20261020.json').read_text())
+    if cash_before_data:
+        # Simulate a real native credit, including an unexpected credit in the
+        # paper profile. Source interpretation must never manufacture this event.
+        world.cash_event('DIV', '1.26', adversarial=True)
+    first = ingest(conn, world)
+    assert first.balance_total == (D('1.26') if cash_before_data else D(0))
+    proof = classify(source)
+    assert proof is not None and proof.proof.broker_payment_claimed is False
+    assert conn.execute('SELECT COUNT(*) FROM sentinel_cash_flows').fetchone()[0] == int(cash_before_data)
+    if not cash_before_data:
+        world.cash_event('DIV', '1.26', adversarial=True)
+    world.advance(60)
+    credited = ingest(conn, world)
+    assert credited.balance_total == D('1.26')
+    world.advance(60)
+    with store.connect(pg.sync_dsn) as restarted:
+        assert classify(source).proof == proof.proof
+        replayed = ingest(restarted, world)
+        assert replayed.balance_total == D('1.26')
+        assert restarted.execute('SELECT SUM(amount),COUNT(*) FROM sentinel_cash_flows').fetchone() == (D('1.26'), 1)
+    assert all(method == 'GET' for method, _ in world.counts)
+    world.assert_conservation()
+
+
 @pytest.mark.parametrize('precision', [6, 28])
 def test_native_cash_accumulation_matches_sql_and_survives_restart(conn, pg, world, precision):
     from decimal import localcontext

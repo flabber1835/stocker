@@ -14,7 +14,8 @@
       "module": "cash"
     },
     "_action_lookup": {
-      "generated_ast_sha256": "66e250c84a175a5f8d1d776649043da467d27aedbcc5261259b25c087ca6f926",
+      "cash_correction_design": "docs/autonomous-history-correction-recovery.md",
+      "generated_ast_sha256": "cb7e00fa7041b4eb0189cdd1b03298c4f9c074e029141ab3a0324a2047266c74",
       "historical_ast_sha256": "f86c38ca7ff85cd507f0614652192bbe8324f011392c43568367951627c677ce",
       "module": "targets"
     },
@@ -319,7 +320,8 @@
       "module": "validation"
     },
     "_target_action_lookup": {
-      "generated_ast_sha256": "368814c028efb4e3bf003ccec216954c03152256de170a82c4e00d10f20a04b7",
+      "cash_correction_design": "docs/autonomous-history-correction-recovery.md",
+      "generated_ast_sha256": "6460e4908680365d7cef5f5e3585248312645feb83013e91600d210d41d66c86",
       "historical_ast_sha256": "44a7037e763ec5c83bfb9e2cd9baeb1cb3c8663e4e54cac9bc4ae1ee698218b1",
       "module": "targets"
     },
@@ -401,6 +403,7 @@
     },
     "prepare_paper_plan": {
       "acceptance": "docs/unattended-operation-qualification.md",
+      "cash_correction_design": "docs/autonomous-history-correction-recovery.md",
       "composition_acceptance": [
         "tests/sentinel/test_paper_composition_gateway.py",
         "tests/sentinel/test_recovery_capability_boundary.py",
@@ -409,7 +412,7 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "10479acd3882efbdc250821252aff6a3c761879a306f213d73e8cefc0a937adf",
+      "generated_ast_sha256": "fb91e3a7997bd8e0f2e553b5e3eff6044cc50b64c5af3b8c8205cda5e8f4a494",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "initial_paper_recovery_acceptance": [
         "tests/sentinel/test_initial_paper_recovery.py",
@@ -450,6 +453,7 @@
     },
     "recover_automated_paper_cycle": {
       "acceptance": "docs/unattended-operation-qualification.md",
+      "cash_correction_design": "docs/autonomous-history-correction-recovery.md",
       "composition_acceptance": [
         "tests/sentinel/test_paper_composition_gateway.py",
         "tests/sentinel/test_recovery_capability_boundary.py",
@@ -459,7 +463,7 @@
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
       "forward_cash_design": "docs/late-cash-distributions.md",
-      "generated_ast_sha256": "813c96de4c901d45b5de651f91f1da5d5ba78d092564aa4c438e9a20353c6c8e",
+      "generated_ast_sha256": "1765a76cd540ac5d9d8569a7ac175e9604fb828087cc51f24ddc7d41830342f9",
       "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
       "module": "recovery",
       "protected_cohort_acceptance": [
