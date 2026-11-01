@@ -184,6 +184,23 @@ def test_unflagged_generic_zero_retry_keeps_existing_bounded_semantics():
         assert result.recovery.attempt == 0 and result.recovery.maximum_attempts == 8
 
 
+def test_corporate_preflight_uses_bounded_restriction_retry_without_source_allowance():
+    cycle, summary, _, exposure = projections(CycleRows(attempt=1,
+        phase="PREFLIGHT_RECOVER", category="CORPORATE_ACTION_PENDING",
+        diagnostic={"availability_retry_unbounded": None, "failure_domain": None,
+            "exception_type": "sentinel.automation.model.CorporateActionPending"},
+        row={"failure_code": "CORPORATE_ACTION_PENDING",
+             "failure_detail": "affected security awaits broker/source reconciliation"}))
+    projected = retry_status.project_cycle_recovery(cycle)
+    assert projected.availability is None and not projected.availability_refused
+    assert projected.evidence.maximum_attempts == 8
+    assert projected.evidence.attempt == 1
+    assert projected.evidence.active(NOW)
+    assert sources._cycle_recovery(cycle, phases=("REFRESH", "PREPARE")) is None
+    assert summary.effective_status(NOW) != model.OK
+    assert exposure.effective_status(NOW) != model.OK
+
+
 def test_classification_guard_has_a_falsifier():
     cycle = sources._latest_automation_cycle(CycleRows(
         diagnostic={'availability_retry_unbounded': 'true'}))

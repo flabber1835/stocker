@@ -95,6 +95,24 @@ def test_transport_evidence_never_claims_clean_success():
                       transport_reconciliation_id="12")
 
 
+@pytest.mark.parametrize("invalid", [
+    {"transport_reconciliation_id": None},
+    {"transport_reconciliation_id": ""},
+    {"last_clean_reconciliation_id": "clean-is-not-restricted"},
+    {"last_clean_reconciliation_id": ""},
+    {"diagnostic": {}},
+    {"diagnostic": {"restricted_securities": {}}},
+    {"diagnostic": {"restricted_securities": ["SEC-AAA"]}},
+])
+def test_preparation_readiness_requires_restricted_transport_not_clean(invalid):
+    evidence = dict(disposition=ExecuteDisposition.READY_TO_PREPARE,
+                    transport_reconciliation_id="12",
+                    diagnostic={"restricted_securities": {"SEC-AAA": "pending"}})
+    assert ExecuteResult(**evidence).last_clean_reconciliation_id is None
+    with pytest.raises(ValueError, match="requires restricted transport evidence"):
+        ExecuteResult(**{**evidence, **invalid})
+
+
 def test_deployed_automation_refuses_legacy_publication_before_source_fallback(
         monkeypatch):
     class Connection:
@@ -1115,6 +1133,81 @@ async def test_scoped_recovery_retries_and_expires_without_operator_latch(monkey
     cleared = await runtime.recover(ctx)
     assert cleared.disposition is ExecuteDisposition.SUCCEEDED
     assert cleared.last_clean_reconciliation_id == "12"
+
+
+async def _restricted_preflight_result(monkeypatch, *, state=CycleState.DISCOVERED,
+                                      failure=None):
+    cfg = config()
+    ctx = context(cfg, state=state, generation=2 if failure == "old_generation" else 3)
+    if state in {CycleState.RETRY_WAIT, CycleState.RECONCILING}:
+        ctx = ctx.model_copy(update={"cycle": ctx.cycle.model_copy(update={
+            "diagnostic": {"retry_phase": "PREFLIGHT_RECOVER"}})})
+    runtime, broker = production(cfg), SimulatedBroker()
+    install_runtime_seams(monkeypatch, runtime, FakeConnection(), ctx, broker)
+    monkeypatch.setattr(automation_runtime, "_now_utc", lambda: NOW)
+    pending = (() if failure != "in_flight" else
+               (command("previous", state=CommandState.UNKNOWN),))
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_a: pending)
+
+    async def recover(**_kwargs):
+        observed = await broker.observe()
+        if failure == "incomplete":
+            observed = replace(observed, completeness=Completeness.PARTIAL)
+        result = replace(reconciliation(observed, observation_id=(
+            None if failure == "missing_id" else 12)),
+            restricted_securities={INSTRUMENT.security_id: "split pending"})
+        if failure == "foreign":
+            result = replace(result, runtime_state=RuntimeState.FOREIGN_ACTIVITY,
+                             foreign_positions=(INSTRUMENT.security_id,))
+        result.cash_correction_classifications = [{"evidence_sha256": "f" * 64}]
+        return result
+
+    monkeypatch.setattr(paper, "recover_automated_paper_cycle", recover)
+    return await runtime.recover(ctx), broker
+
+
+@async_test
+@pytest.mark.parametrize("state", [CycleState.DISCOVERED, CycleState.RETRY_WAIT,
+                                  CycleState.RECONCILING])
+async def test_scoped_planless_preflight_can_prepare_without_clean_success(monkeypatch, state):
+    result, broker = await _restricted_preflight_result(monkeypatch, state=state)
+    assert result.disposition is ExecuteDisposition.READY_TO_PREPARE
+    assert result.last_clean_reconciliation_id is None
+    assert result.transport_reconciliation_id == "12"
+    assert result.diagnostic["restricted_securities"] == {INSTRUMENT.security_id: "split pending"}
+    assert result.diagnostic["cash_correction_classifications"] == [{"evidence_sha256": "f" * 64}]
+    assert not any(call.startswith("submit:") for call in broker.calls)
+
+
+@async_test
+@pytest.mark.parametrize("failure,expected", [
+    ("in_flight", ExecuteDisposition.RECONCILE),
+    ("incomplete", ExecuteDisposition.RECONCILE),
+    ("missing_id", ExecuteDisposition.BLOCKED),
+    ("foreign", ExecuteDisposition.BLOCKED),
+    ("old_generation", ExecuteDisposition.SUPERSEDED),
+    ("not_preflight", ExecuteDisposition.RECONCILE),
+])
+async def test_preparation_continuation_preserves_recovery_guards(monkeypatch, failure, expected):
+    result, _broker = await _restricted_preflight_result(
+        monkeypatch, state=(CycleState.EXECUTING if failure == "not_preflight"
+                            else CycleState.DISCOVERED), failure=failure)
+    assert result.disposition is expected
+    assert result.last_clean_reconciliation_id is None
+
+
+def test_preparation_continuation_scope_guard_has_a_falsifier(monkeypatch):
+    import inspect
+    import textwrap
+    source = textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation.recover))
+    original = "if preflight and cycle.plan_id is None:"
+    assert source.count(original) == 1
+    namespace = dict(vars(automation_runtime))
+    exec(compile(source.replace(original, "if True:", 1), "unscoped-preparation", "exec"), namespace)
+    monkeypatch.setattr(automation_runtime.ProductionAutomation, "recover", namespace["recover"])
+    with pytest.raises(AssertionError):
+        test_preparation_continuation_preserves_recovery_guards(
+            monkeypatch, "not_preflight", ExecuteDisposition.RECONCILE)
 
 
 @async_test

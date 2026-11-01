@@ -1192,6 +1192,9 @@ class ProductionAutomation:
                     "dual_plan_shadow_reconciliation": dual_reconciliation,
                     "broker_capability_graph":
                         resolved_capability_graph(broker),
+                    "preparation_reconciliation": result.reconciliation.to_dict(),
+                    "cash_correction_classifications": getattr(
+                        result.reconciliation, "cash_correction_classifications", []),
                 })
         except BaseException as exc:                          # noqa: BLE001
             mapped = classify_dependency_failure(exc)
@@ -1264,6 +1267,11 @@ class ProductionAutomation:
                     raise mapped from exc
                 raise NonRetryableCallbackRefused(
                     f"automation recovery refused: {exc}") from exc
+            result_diagnostic = {
+                **result.to_dict(),
+                "cash_correction_classifications": getattr(
+                    result, "cash_correction_classifications", []),
+            }
             deployment = DeploymentIdentity(
                 deployment_id=cycle.deployment_id, broker=cycle.broker,
                 broker_account_id=cycle.broker_account_id,
@@ -1277,7 +1285,7 @@ class ProductionAutomation:
                     failure_code="RECOVERY_REOBSERVATION_REQUIRED",
                     failure_detail=(
                         "broker recovery needs a fresh COMPLETE observation"),
-                    diagnostic={**result.to_dict(),
+                    diagnostic={**result_diagnostic,
                                 "in_flight_commands": [
                                     command.client_key
                                     for command in in_flight]})
@@ -1289,7 +1297,7 @@ class ProductionAutomation:
                     failure_detail=(
                         "broker recovery could not obtain a current broker "
                         "observation"),
-                    diagnostic={**result.to_dict(),
+                    diagnostic={**result_diagnostic,
                                 "in_flight_commands": [
                                     command.client_key
                                     for command in in_flight]})
@@ -1301,7 +1309,7 @@ class ProductionAutomation:
                     failure_detail=(
                         "recovery observation is complete but not a clean "
                         "RUNNING reconciliation"),
-                    diagnostic=result.to_dict())
+                    diagnostic=result_diagnostic)
             if in_flight:
                 from sentinel.execution.protected_funding import ProtectedCohortContinuation
                 cohort = getattr(result, "protected_cohort", None)
@@ -1340,7 +1348,7 @@ class ProductionAutomation:
                                 transport_reconciliation_id=str(result.observation_id),
                                 failure_code="PROTECTED_COHORT_READY",
                                 failure_detail="existing funded protected cohort has proven unsent share delta",
-                                diagnostic={**result.to_dict(),
+                                diagnostic={**result_diagnostic,
                                     "protected_cohort": cohort.model_dump(mode="json"),
                                     **({"protected_day_wait": wait.model_dump(mode="json", by_alias=True)}
                                        if wait is not None else {}),
@@ -1351,7 +1359,7 @@ class ProductionAutomation:
                                 disposition=ExecuteDisposition.RECONCILE,
                                 failure_code="PROTECTED_DAY_ORDERS_WORKING",
                                 failure_detail="positively matched protected DAY orders await native settlement",
-                                diagnostic={**result.to_dict(),
+                                diagnostic={**result_diagnostic,
                                     "protected_day_wait": wait.model_dump(mode="json", by_alias=True),
                                     "unsent_actionable_deltas": [{"security_id": delta.security_id,
                                         "remaining": str(delta.remaining)} for delta in actionable],
@@ -1362,7 +1370,7 @@ class ProductionAutomation:
                     failure_detail=(
                         "fresh recovery still observes durable Sentinel "
                         "commands that can fill"),
-                    diagnostic={**result.to_dict(),
+                    diagnostic={**result_diagnostic,
                                 "in_flight_commands": [
                                     command.client_key
                                     for command in in_flight]})
@@ -1376,14 +1384,14 @@ class ProductionAutomation:
                     disposition=ExecuteDisposition.SUPERSEDED, **evidence,
                     failure_code='POST_PLAN_CASH_ACTIVITY_RECONCILED',
                     failure_detail='native cash activity changed; await the next ordinary decision',
-                    diagnostic=result.to_dict())
+                    diagnostic=result_diagnostic)
             if (self._dual_run_enabled and
                     str(cycle.decision_session) < str(feed_inputs.frontier(conn))):
                 return ExecuteResult(
                     disposition=ExecuteDisposition.SUPERSEDED, **evidence,
                     failure_code="HISTORICAL_OBLIGATIONS_RECOVERED",
                     failure_detail="old commands settled after the shadow advanced",
-                    diagnostic=result.to_dict())
+                    diagnostic=result_diagnostic)
             # An adopted old-generation transport cycle may be terminalized
             # once its journal is clean. Its plan is stale economics and must
             # never be loaded, compared as current intent, or executed. A
@@ -1402,7 +1410,7 @@ class ProductionAutomation:
                             failure_detail=(
                                 "current-generation recovery cycle does not "
                                 "name the durable current plan"),
-                            diagnostic=result.to_dict())
+                            diagnostic=result_diagnostic)
                     try:
                         from sentinel.execution import opening_sizing
                         if opening_sizing.requires_initial_projection(
@@ -1416,7 +1424,7 @@ class ProductionAutomation:
                                               else "OPENING_SIZING_REQUIRED"),
                                 failure_detail=("unsent opening plan execution window closed"
                                                 if closed else "unsent plan requires opening sizing"),
-                                diagnostic=result.to_dict())
+                                diagnostic=result_diagnostic)
                         actionable = self._actionable_current_plan_deltas(
                             conn, plan=plan,
                             effective_session=cycle.effective_session,
@@ -1444,7 +1452,7 @@ class ProductionAutomation:
                                     "delta after a rejected/cancelled command; "
                                     "automation will not mint retry revisions"),
                                 diagnostic={
-                                    **result.to_dict(),
+                                    **result_diagnostic,
                                     "terminal_commands": [
                                         command.client_key
                                         for command in terminal_refusals],
@@ -1458,7 +1466,7 @@ class ProductionAutomation:
                                     "recovery found remaining current-plan "
                                     "delta after the execution close; the plan "
                                     "will never be late-submitted"),
-                                diagnostic=result.to_dict())
+                                diagnostic=result_diagnostic)
                         return ExecuteResult(
                             disposition=ExecuteDisposition.READY_TO_EXECUTE,
                             **evidence,
@@ -1468,7 +1476,7 @@ class ProductionAutomation:
                                 "plan still has actionable share delta inside "
                                 "its certified window"),
                             diagnostic={
-                                **result.to_dict(),
+                                **result_diagnostic,
                                 "actionable_deltas": [
                                     {"security_id": delta.security_id,
                                      "remaining": str(delta.remaining)}
@@ -1482,8 +1490,17 @@ class ProductionAutomation:
                     failure_detail=(
                         "the adopted old-generation transport is resolved; its "
                         "stale plan economics were not loaded or executed"),
-                    diagnostic=result.to_dict())
+                    diagnostic=result_diagnostic)
             if result.restricted_securities:
+                if preflight and cycle.plan_id is None:
+                    return ExecuteResult(
+                        disposition=ExecuteDisposition.READY_TO_PREPARE,
+                        **evidence,
+                        failure_code="CORPORATE_ACTION_PENDING",
+                        failure_detail=(
+                            "complete transport observation permits preparation; "
+                            "affected securities remain restricted"),
+                        diagnostic=result_diagnostic)
                 closed = _now_utc() >= cycle.execution_close_at
                 return ExecuteResult(
                     disposition=(ExecuteDisposition.SUPERSEDED if closed
@@ -1491,11 +1508,11 @@ class ProductionAutomation:
                     **evidence,
                     failure_code="CORPORATE_ACTION_PENDING",
                     failure_detail="affected securities await current broker/source reconciliation",
-                    diagnostic=result.to_dict())
+                    diagnostic=result_diagnostic)
             return ExecuteResult(
                 disposition=ExecuteDisposition.SUCCEEDED,
                 **evidence,
-                diagnostic=result.to_dict())
+                diagnostic=result_diagnostic)
         except BaseException as exc:                          # noqa: BLE001
             mapped = classify_dependency_failure(exc)
             if mapped is None or mapped is exc:

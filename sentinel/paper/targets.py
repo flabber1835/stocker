@@ -89,7 +89,9 @@ def _action_lookup(conn, state: SessionState | None, through: date):
         row = cur.fetchone()
     if row and row[0] is not None:
         start = min(start, row[0])
-    return corpus_action_lookup(conn, start=start, end=through)
+    from sentinel.execution.cash_corrections import action_view
+    actions = corpus_action_lookup(conn, start=start, end=through)
+    return action_view(conn, actions, start=start, end=through)
 
 def _target_action_lookup(conn, plan: ExecutionPlan, through: date):
     """Share-count changes strictly after this immutable decision.
@@ -102,8 +104,9 @@ def _target_action_lookup(conn, plan: ExecutionPlan, through: date):
     """
     from sentinel.execution.feed_actions import action_lookup as corpus_action_lookup
 
-    return corpus_action_lookup(
-        conn, start=plan.decision_session, end=through)
+    from sentinel.execution.cash_corrections import action_view
+    actions = corpus_action_lookup(conn, start=plan.decision_session, end=through)
+    return action_view(conn, actions, start=plan.decision_session, end=through)
 
 def _target_action_multipliers(plan: ExecutionPlan, actions) -> dict[str, Decimal]:
     """Supported share changes in the exact target-validity window.
