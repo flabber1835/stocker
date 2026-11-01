@@ -105,3 +105,36 @@ authenticator stays unchanged; no cryptographic or stop fence is relaxed.
 Both the scoped packet qualifier and unchanged actual P01 private source must
 still pass the hosted gate before discovery. This is provenance reconciliation,
 not a financial source successor or an earlier-checkpoint replay.
+
+## Export qualification and unrecoverable diagnostic attempt
+
+Run41324670311/head83768 reached the known-stop export branch, but the P01
+wrapper changed only the export stage and left the original exporter's P02 arm
+guard. It refused before publishing the encrypted evidence or final receipt.
+The1122-byte artifact contains staging only. Preserve the complete log, exact
+ZIP and failed request. No exported worker inspections or diagnostic checkpoint
+exist: actual cursor and worker outcomes cannot be independently admitted. The
+P01 strict financial parent is unconsumed; the lost diagnostic fork is never
+represented as an exact suffix or successful replay.
+
+A distinct recovery discovery may start again from that same strict financial
+parent. This repeats unavailable diagnostic work, explicitly; it does not roll
+back, restart or alter financial replay. Necessary P01 recovery and its unchanged
+encrypted artifact flow are already expressly authorized by the owner.
+
+Bind exactly the original export function's stage, arm and scope-label literal
+sites to P01, preserving its encryption, inventory, size and symlink guards.
+Before fetching the large parent or launching a worker, exercise that actual
+adapter on a fixed synthetic marker, authenticate/decrypt the complete ciphertext
+and inspect its manifest and marker. No financial or market state participates.
+Publish only this nonfinancial probe's metadata. An actual failed probe refuses
+before expensive work. Local tests must reproduce the old P01 refusal, pass the
+new real encrypted roundtrip and reject another arm or changed export source.
+
+Write an atomic, fsynced public metadata receipt before worker launch and after
+every observed stop, then always update it after export. Its explicit field
+allowlist excludes financial state, holdings, prices, decisions and key material.
+An encryption/export error must retain truthful stop metadata and an explicit
+export-refused status; it never authorizes a plaintext fallback. UNKNOWN still
+permits no mutable snapshot. The new immutable request preserves both failed
+requests and changes no P01 financial source, input, parameter or strict prefix.

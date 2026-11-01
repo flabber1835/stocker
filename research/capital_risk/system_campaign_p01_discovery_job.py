@@ -20,13 +20,14 @@ from system_campaign_discovery_context import TAINT
 from system_campaign_p01_discovery_parent import SPEC,SPEC_SHA,PATH,PROVENANCE,PROVENANCE_SHA,scope,reference,admit,verify_original_drivers
 from system_campaign_pxd_financial_body import function
 import system_campaign_p02_continue_job as inspector_source
-import system_campaign_evidence_export as export_source
+from system_campaign_p01_discovery_export import qualify_export,write_public_receipt,finish_export
 import system_campaign_p02_remainder_job as prior
 
 HERE=Path(__file__).resolve().parent
-REQUEST='system-campaign-p01-discovery-request-002.json'
+REQUEST='system-campaign-p01-discovery-request-003.json'
 SOURCES=tuple(dict.fromkeys((*prior.SOURCES,prior.REQUEST,SPEC,
-    'system-campaign-p01-discovery-request.json',PROVENANCE,
+    'system-campaign-p01-discovery-request.json','system-campaign-p01-discovery-request-002.json',PROVENANCE,
+    'system_campaign_p01_discovery_export.py',
     'system-campaign-p01-known-facts.json','system_campaign_p01_discovery_parent.py',
     'system_campaign_p01_discovery_inputs.py','system_campaign_p01_discovery_replay.py',
     'system_campaign_p01_discovery_run.py','system_campaign_p01_discovery_job.py',
@@ -45,6 +46,9 @@ def expected_request():
         checkpoint_cadence='MONTH_END_AND_NORMAL_SIGNAL_STOP',
         original_driver_provenance_sha256=PROVENANCE_SHA,
         retained_preworker_attempt_request_sha256='56ef067207ec69eb488638af549ae84c09341ce0c32bcd4551c2fb2e7b7fae01',
+        retained_export_failure_request_sha256='d5e2163461d87307021b7cec04b49b05dd465503620a2a1260d8a863b47983a6',
+        recovery_scope='NEW_DIAGNOSTIC_FORK_STRICT_FINANCIAL_PARENT_UNCONSUMED_PRIOR_DIAGNOSTIC_EXPORT_UNAVAILABLE',
+        actual_export_roundtrip_before_parent_or_worker=True,atomic_public_stop_receipts=True,
         owner_candidate_priority='P01',concurrent_candidate_limit=1,target_end='2026-07-31',
         expected_remaining_sessions=1737,qualify_wait_seconds=900,discovery_wait_seconds=18000,
         initial_min_disk_bytes=12*1024**3,source_archive_limit_bytes=512*1024**2,
@@ -63,13 +67,6 @@ def inspect(name,identity=None):
     return value
 
 
-def sealed(root,target,key,request):
-    return function('system_campaign_evidence_export.py','seal',{
-        'campaign-factual-suffix':'campaign-disposable-discovery'},vars(export_source))(
-        root,target,key,request,'P01',stage='campaign-disposable-discovery',
-        protocol_sha256=json.loads(request.read_bytes())['protocol_sha256'])
-
-
 def main(args):
     check_context(os.environ)
     need(os.environ.get('GITHUB_RUN_ATTEMPT')=='1','DISCOVERY_NO_BLIND_WORKFLOW_RERUN')
@@ -84,9 +81,14 @@ def main(args):
          and stage['authenticated_before_parsing'] and stage['offline_image_source_verified']
          and stage['runtime_index_config_layer_chain_verified'] and not stage['replay_started'],
          'DISCOVERY_ORIGINAL_AUTHENTICATED_INPUT_AND_RUNTIME_STAGING')
+    temp=Path(os.environ['RUNNER_TEMP'])
+    probe=qualify_export(temp/'p01-discovery-export-qualification',args.request)
+    args.output.parent.mkdir(parents=True,exist_ok=True)
+    probe_path=args.output.parent/'p01-export-qualification.json'
+    probe_path.write_text(json.dumps(probe,sort_keys=True,indent=2)+'\n')
     key=base64.b64decode(os.environ.pop(SECRET,''),validate=True)
     need(len(key)==32,'DISCOVERY_SEPARATE_KEY')
-    temp=Path(os.environ['RUNNER_TEMP']);frozen=temp/'capital-risk-stage-001/inputs'
+    frozen=temp/'capital-risk-stage-001/inputs'
     need(shutil.disk_usage(temp).free>=request['initial_min_disk_bytes'],'DISCOVERY_INITIAL_DISK_BUDGET')
     old=admit(spec,temp/'campaign-factual-transfer-p01-discovery-strict-parent',key)
     source=temp/'p01-discovery-frozen-source'
@@ -119,7 +121,8 @@ def main(args):
         protocol_sha256=request['protocol_sha256'],strict_parent_outer_sha256=spec['outer_sha256'],
         strict_parent_run_id=spec['run_id'],status='NOT_STARTED',actual_discovery_started=False,
         known_fact_index_sha256=request['known_fact_index_sha256'],
-        checkpoint_cadence=request['checkpoint_cadence'])
+        checkpoint_cadence=request['checkpoint_cadence'],export_qualification_sha256=sha256_file(probe_path))
+    write_public_receipt(args.output,receipt)
 
     def cmd(name,mode,target):
         value=command(name,source,frozen,target,mode)
@@ -135,6 +138,8 @@ def main(args):
         receipt['qualification_worker']=stopped_run(cmd(name,'qualify',qualify),name,qualify,
             deadline=request['qualify_wait_seconds'],inspector=inspect)
         known=True
+        receipt['status']='QUALIFICATION_STOPPED_PENDING_GATE_INSPECTION'
+        write_public_receipt(args.output,receipt)
         shutil.copytree(qualify,out/'qualification')
         stop=receipt['qualification_worker']
         need(stop['exit_code']==0 and not stop['oom_killed'],'DISCOVERY_ACTUAL_QUALIFIER_STOPPED_SUCCESSFULLY')
@@ -147,9 +152,13 @@ def main(args):
         name='capital-system-discovery-p01-worker-'+os.environ['GITHUB_RUN_ID']+'-1'
         known=False;receipt['discovery_launch_attempted']=True
         receipt['actual_discovery_started']=None
+        receipt['status']='DISCOVERY_LAUNCH_ATTEMPTED'
+        write_public_receipt(args.output,receipt)
         receipt['worker']=stopped_run(cmd(name,'discovery',out),name,out,
             deadline=request['discovery_wait_seconds'],inspector=inspect)
         known=True
+        receipt['status']='DISCOVERY_STOPPED_PENDING_OUTPUT_INSPECTION'
+        write_public_receipt(args.output,receipt)
         result=json.loads((out/'discovery-outcome.json').read_bytes())
         receipt['actual_discovery_started']=result['transitions']>0
         receipt['status']='COMPLETE_DISCOVERY_PENDING_INDEPENDENT_REVIEW' if (
@@ -163,11 +172,8 @@ def main(args):
         receipt['status']='DISCOVERY_REFUSED_KNOWN_STOP' if known else 'DISCOVERY_REFUSED_BEFORE_STOP_PROOF'
         if known:
             (out/'driver-failure.txt').write_text(traceback.format_exc())
-    args.output.parent.mkdir(parents=True,exist_ok=True)
-    if known:
-        receipt['encrypted_output']=sealed(out,args.output.parent/'p01-discovery.tar.crseal',key,args.request)
+    finish_export(receipt,out,args.output,key,args.request,known=known)
     key=None
-    args.output.write_text(json.dumps(receipt,sort_keys=True,indent=2)+'\n')
     print(json.dumps(receipt),flush=True)
     raise SystemExit(0 if receipt['status']=='COMPLETE_DISCOVERY_PENDING_INDEPENDENT_REVIEW' else 2)
 

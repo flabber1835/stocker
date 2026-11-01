@@ -2,7 +2,7 @@ name: P01 disposable trading remainder discovery
 on:
   push:
     branches: [codex/capital-risk-research]
-    paths: ['research/capital_risk/system-campaign-p01-discovery-request-002.json']
+    paths: ['research/capital_risk/system-campaign-p01-discovery-request-003.json']
 permissions:
   contents: read
   actions: read
@@ -26,7 +26,7 @@ jobs:
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
       - name: Verify metadata and exact prior source closure
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_p01_discovery_import_probe.py --request research/capital_risk/system-campaign-p01-discovery-request-002.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_p01_discovery_import_probe.py --request research/capital_risk/system-campaign-p01-discovery-request-003.json'
       - name: Authenticate frozen inputs and offline runtime
         timeout-minutes: 8
         env:
@@ -37,7 +37,7 @@ jobs:
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_p01_discovery_job.py --request research/capital_risk/system-campaign-p01-discovery-request-002.json --staging artifacts/capital-risk/full-core-staging.json --output artifacts/capital-risk/p01-discovery.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_p01_discovery_job.py --request research/capital_risk/system-campaign-p01-discovery-request-003.json --staging artifacts/capital-risk/full-core-staging.json --output artifacts/capital-risk/p01-discovery.json'
       - name: Preserve encrypted proven stopped diagnostic evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -45,6 +45,7 @@ jobs:
           name: system-p01-discovery-${{ github.sha }}
           path: |
             artifacts/capital-risk/full-core-staging.json
+            artifacts/capital-risk/p01-export-qualification.json
             artifacts/capital-risk/p01-discovery.json
             artifacts/capital-risk/p01-discovery.tar.crseal
           compression-level: 0
