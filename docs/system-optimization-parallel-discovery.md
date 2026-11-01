@@ -163,3 +163,13 @@ is kept as the failure preimage; a pure transport test demonstrates the lost
 history without running a local strategy. No interpretation comes from those
 pure checks alone. Unsupported normal transitions still refuse and preserve
 their exact artifacts.
+
+The first retention-corrected hosted gate reached a successful canonical
+transition, then its new observation recorder attempted to serialize the
+`PublishedSession` dataclass with the plain dictionary digest. Both exact
+failures are retained. A separate recorder successor uses the already applied
+discovery material digest for that one publication field. Canonical runtime
+checkpoint hashing and all financial behavior remain unchanged. The actual
+old recorder error must be reproduced by a dataclass transport stub, and the
+corrected recorder must reject unequal FAST/REFERENCE publication or runtime
+paths before another first-origin V traversal is admitted.
