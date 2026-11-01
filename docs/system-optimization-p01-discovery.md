@@ -138,3 +138,59 @@ An encryption/export error must retain truthful stop metadata and an explicit
 export-refused status; it never authorizes a plaintext fallback. UNKNOWN still
 permits no mutable snapshot. The new immutable request preserves both failed
 requests and changes no P01 financial source, input, parameter or strict prefix.
+
+## Exact diagnostic suffix and retained historical anchors
+
+Recovery003 delivered authenticated stopped evidence. Its original canonical
+qualifier passed. The diagnostic worker then refused in input preparation when
+an unresolved carried position's actual signal-basis anchor expired from the
+300-session research buffer. The retained prefix, event chain, ledger additions,
+checkpoint and every journal commitment were independently reviewed; current
+tails are zero. Continue this exact diagnostic checkpoint. Do not restart the
+traversal or adopt its state into financial replay.
+
+The diagnostic suffix may retain an actual frozen historical anchor outside the
+current window. It must re-read that exact security/session quote from the same
+frozen repaired input stream and match its raw-close basis to the checkpoint's
+retained anchor. A missing, revised, future-dated or mismatched quote refuses.
+The published session still contains exactly300 current-window dates and only
+actual current-session bars/signals. The old anchor enters only the existing
+auxiliary signal-basis-anchor field. It is never a current bar, price, open,
+execution, settlement, renewed valid mark or financial valuation assumption.
+Canonical basis reconciliation remains unchanged. Empty in-window histories
+remain empty and preserve the retained anchor through the canonical installer.
+
+Use a source-bound, diagnostic-only adapter for the single outside-window guard
+branch. Normal preparation, feature calculation, protected-security selection,
+Core/controller transitions and existing diagnostic carry conventions remain
+unchanged. Cache actual in-window anchors before they expire; seed initial
+outside-window anchors by reading old input packets without advancing Core.
+Record/fsync every outside-window anchor use in a separate chained stream,
+committed by new diagnostic checkpoints. Do not copy a number out of state and
+pretend that it was observed in the frozen tape.
+
+Restore the exact diagnostic runtime through the canonical runtime restore and
+roundtrip, retaining the original strict financial parent as a distinct lineage
+reference. Copy each old journal/event stream and recover only its committed
+prefix, preserving all original bytes and any tails. Continue cumulative event
+sequence, event hash, transition chain and transition count. Preserve the old
+checkpoint gzip separately; write a distinct new diagnostic checkpoint with
+explicit suffix lineage and anchor-stream commitments. No state edit, schema
+relabel, source conversion, financial origin or policy change is allowed.
+
+Reuse the already authenticated unchanged original three-case gate and strict
+prefix review. The suffix worker must reproduce the actual original preparation
+refusal, qualify the frozen-anchor recovery and its mismatch falsifiers, then
+run the next actual canonical diagnostic session. Before further traversal,
+save a checkpoint and proof that its old position/shares/mark date/anchor were
+preserved, no current bar or settlement was fabricated, the predecessor was
+unchanged and all journals/events extend their exact old prefixes. This direct
+canonical integration adds value; repeating the completed historical audit does
+not. Any failed new check preserves the old admitted checkpoint and refuses.
+
+One dedicated hosted suffix worker is sufficient. Keep the proven P01 export
+roundtrip and durable public receipt implementation unchanged, and authenticate
+both original strict-parent and diagnostic-predecessor artifacts under distinct
+read-only mounts. Financial source and all367 previously published source bytes
+stay unchanged. The accurate pass still starts from its original strict financial
+parent after all factual work, not from this approximate diagnostic suffix.
