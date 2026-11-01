@@ -295,6 +295,8 @@ async def recover_automated_paper_cycle(
             broker=broker, conn=conn, binding=None,
             deployment=binding.identity, actions=actions,
             informational_current_book=dual_mode)
+        result.cash_correction_classifications = getattr(
+            actions, "cash_correction_classifications", [])
 
         if plan is not None:
             current_commands = journal.load_commands(conn, binding.identity)

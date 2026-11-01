@@ -10,6 +10,7 @@ class SnapshotCashInputs:
     def __init__(self, conn, pub):
         self.conn, self.pub = conn, pub
         self.refs = feed_inputs.references(conn, pub)
+        self._retained_cache = {}
 
     def days(self, first, through):
         from sentinel.feed import action_history
@@ -22,8 +23,15 @@ class SnapshotCashInputs:
         if covered is not None:
             self.retained = action_history.records(self.conn, version=self.pub.version,
                 start=first - timedelta(days=1), end=through)
+            from sentinel.execution.cash_corrections import load
+            corrections = load(self.conn, self.pub,
+                start=first - timedelta(days=1), end=through,
+                covered=covered, records=self.retained)
+            self._retained_cache.update({day: corrections.material(day, item)
+                                         for day, item in self.retained.items()})
             return sorted(day for day, item in self.retained.items()
-                          if any(p['action'].lower() in DIVIDEND_ACTIONS for p in item['sources']))
+                          if any(p['action'].lower() in DIVIDEND_ACTIONS
+                                 for p in self._retained_cache[day]['sources']))
         if str(first) < str(self.refs.manifest.window.start) or str(through) > self.pub.window_end:
             raise feed_inputs.ExecutionInputsRefused("ROLLING_DIVIDEND_HISTORY_UNAVAILABLE")
         return sorted({calendar.session_on_or_after(p["date"]) for _, p, _ in self.refs.actions
@@ -102,5 +110,15 @@ class SnapshotCashInputs:
         from datetime import date, timedelta
         from sentinel.feed import action_history
         day = date.fromisoformat(str(wanted))
-        return action_history.records(self.conn, version=self.pub.version,
-                                      start=day - timedelta(days=1), end=day).get(str(wanted))
+        key = day.isoformat()
+        if key not in self._retained_cache:
+            records = action_history.records(self.conn, version=self.pub.version,
+                start=day - timedelta(days=1), end=day)
+            original = records.get(key)
+            if original is not None:
+                from sentinel.execution.cash_corrections import load
+                corrections = load(self.conn, self.pub,
+                    start=day - timedelta(days=1), end=day, records=records)
+                original = corrections.material(day, original)
+            self._retained_cache[key] = original
+        return self._retained_cache[key]

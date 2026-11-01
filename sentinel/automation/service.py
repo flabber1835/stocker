@@ -34,6 +34,7 @@ from sentinel.automation.model import (
     AutomationRefused,
     CallbackDeadlineExceeded,
     ClosingDataPending,
+    CorporateActionPending,
     CycleContext,
     CycleRecord,
     CycleSpec,
@@ -567,6 +568,8 @@ class AutomationService:
             category = "PERMANENT_OPERATIONAL_REFUSAL"
         elif isinstance(exc, PermanentOperationalRefusal):
             category = "PERMANENT_OPERATIONAL_REFUSAL"
+        elif isinstance(exc, CorporateActionPending):
+            category = "CORPORATE_ACTION_PENDING"
         elif source_wait:
             category = "SOURCE_DATA_PENDING"
         elif explicitly_transient:
@@ -660,7 +663,10 @@ class AutomationService:
             recovery_transition: bool = False) -> TickResult:
         """Apply the same phase budget to an explicit retry result value."""
         detail = failure_detail or failure_code or f"{phase} remains incomplete"
-        exc = TransientInfrastructureFailure(detail)
+        exc = (CorporateActionPending(detail)
+               if phase == "PREFLIGHT_RECOVER"
+               and failure_code == "CORPORATE_ACTION_PENDING"
+               else TransientInfrastructureFailure(detail))
         terminal, failure_diagnostic = self._failure_diagnostic(
             cycle=cycle, phase=phase, exc=exc, now=now)
         retry_at = (
@@ -1387,6 +1393,12 @@ class AutomationService:
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
+            if (result.disposition is ExecuteDisposition.READY_TO_PREPARE
+                    and (cycle.plan_id is not None
+                         or cycle.control_generation != permit.control_generation)):
+                raise NonRetryableCallbackRefused(
+                    "restricted preparation readiness requires current-generation "
+                    "planless preflight")
         except StaleLeaderRefused:
             raise
         except SupervisorIntegrityFailure:
@@ -1406,6 +1418,7 @@ class AutomationService:
         if ((supersede_on_success or cutover_after_open)
                 and result.disposition in {
                     ExecuteDisposition.SUCCEEDED,
+                    ExecuteDisposition.READY_TO_PREPARE,
                     ExecuteDisposition.SUPERSEDED,
                 }):
             cycle = self._recover_transition(
@@ -1417,18 +1430,21 @@ class AutomationService:
                 failure_code=("DISCOVERED_AFTER_SESSION_OPEN" if cutover_after_open
                               else "STALE_PREFLIGHT_RECOVERED"),
                 failure_detail=(
-                    "the shared journal is clean, but this preflight cycle "
+                    "the shared journal permits transport, but this preflight cycle "
                     "never prepared or executed a plan before its session "
                     "open or a newer decision-session obligation became due"),
                 diagnostic={
                     **dict(result.diagnostic),
+                    "transport_reconciliation_id": result.transport_reconciliation_id,
                     "preflight_recovery_complete": True,
                     "stale_preflight_superseded": True,
                 })
             return TickResult(
                 action=TickAction.SUPERSEDED, cycle=cycle, permit=permit,
                 reason=cycle.failure_detail)
-        if result.disposition is ExecuteDisposition.SUCCEEDED:
+        if result.disposition in {
+                ExecuteDisposition.SUCCEEDED,
+                ExecuteDisposition.READY_TO_PREPARE}:
             cycle = store.transition_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
                 to_state=CycleState.REFRESHING_DATA,
@@ -1437,11 +1453,12 @@ class AutomationService:
                     result.last_clean_reconciliation_id,
                 diagnostic={
                     **dict(result.diagnostic),
+                    "transport_reconciliation_id": result.transport_reconciliation_id,
                     "preflight_recovery_complete": True,
                 })
             return TickResult(
                 action=TickAction.RECOVERED, cycle=cycle, permit=permit,
-                reason="journal is clean before publication")
+                reason="journal permits preparation before publication")
         if cycle.state is CycleState.RETRY_WAIT:
             if cycle.control_generation == permit.control_generation:
                 cycle = store.transition_cycle(
@@ -1486,6 +1503,9 @@ class AutomationService:
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))
             permit = store.require_leader(conn, permit)
+            if result.disposition is ExecuteDisposition.READY_TO_PREPARE:
+                raise NonRetryableCallbackRefused(
+                    "preparation readiness cannot complete plan recovery")
         except StaleLeaderRefused:
             raise
         except SupervisorIntegrityFailure:

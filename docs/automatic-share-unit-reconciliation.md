@@ -28,6 +28,11 @@ we do not manufacture it from repeated empty API responses.
 
 ## Restrictions and recovery
 
+[Retained cash-correction recovery](autonomous-history-correction-recovery.md)
+defines the narrow authenticated late-cash-addition view and transport-ready
+fresh-cycle preparation. It preserves structural restrictions and separate
+broker-cash/performance authority.
+
 Known unsupported/non-scalar actions restrict their intersecting permanent
 security identities. A known scalar action for which the broker still reports
 the unchanged command-derived quantity is an unresolved corporate-action

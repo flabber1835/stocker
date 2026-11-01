@@ -1301,6 +1301,33 @@ def test_preparation_is_read_only_at_the_broker(conn, monkeypatch):
     assert "get_positions" in broker.calls
 
 
+def test_preparation_and_restart_keep_scoped_restrictions_without_clean_claim(
+        conn, monkeypatch):
+    _bind(conn)
+    pinned = _publish(conn)
+    _persist_state(conn, _state(session=PRIOR, data_version=pinned.version))
+    _ready(monkeypatch)
+    monkeypatch.setattr(paper_preparation, "advance_and_persist", _advance_stub)
+    broker = _broker()
+    original = execution_reconciliation.reconcile
+
+    async def restricted(**kwargs):
+        result = await original(**kwargs)
+        result.restricted_securities = {AAA.security_id: "source/broker action pending"}
+        return result
+
+    monkeypatch.setattr(execution_reconciliation, "reconcile", restricted)
+    prepared = _prepare(conn, broker)
+    restarted = _prepare(conn, broker)
+    assert restarted.plan == prepared.plan == journal.latest_plan(conn)
+    for result in (prepared, restarted):
+        assert result.reconciliation.transport_ready
+        assert not result.reconciliation.clean
+        assert result.reconciliation.restricted_securities == {
+            AAA.security_id: "source/broker action pending"}
+    assert _mutations(broker) == []
+
+
 def test_preparation_snapshots_cash_after_reconciling_a_boundary_fill(
         conn, monkeypatch):
     bound = _bind(conn)
