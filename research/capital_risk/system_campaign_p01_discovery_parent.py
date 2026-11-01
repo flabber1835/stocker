@@ -1,4 +1,5 @@
 """Exact independently admitted P01 own419 parent; never P02 state."""
+import ast
 import json
 from pathlib import Path
 from full_system_benchmark import need
@@ -8,6 +9,44 @@ import system_campaign_factual_admit as crypto
 SPEC='system-campaign-p01-discovery-predecessor.json'
 SPEC_SHA='9da42e06f7c0b44f85fad5a922340519f6e8db06b679433cf79d9ba12f640ff7'
 PATH='lineage/p01-strict-parent-reference.json'
+PROVENANCE='system-campaign-p01-original-driver-provenance.json'
+PROVENANCE_SHA='5095b00a6bb3bdb9c2643287c34b165a2b7a482e5417d6049768400a1732c467'
+SUCCESSORS=frozenset(('system_campaign_factual_admit.py','system_campaign_factual_run.py',
+    'system_campaign_basis.py','system_campaign_distribution_run.py'))
+
+
+def verify_original_drivers(raw,driver=None):
+    """Read SHA-bound original code as evidence; never import or execute it."""
+    driver=Path(__file__).parent if driver is None else Path(driver)
+    encoded=(driver/PROVENANCE).read_bytes()
+    need(sha(encoded)==PROVENANCE_SHA,'P01_EXACT_ORIGINAL_DRIVER_PROVENANCE')
+    proof=json.loads(encoded);request=json.loads(raw)
+    need(proof['schema']=='research.p01-original-driver-provenance/1'
+         and proof['arm']=='P01' and proof['original_head']=='74d6359d740080a94b27fcd298fc3210973fa648'
+         and proof['evidence_only_never_executed'] is True
+         and sha(raw)==proof['original_request_sha256']
+         and request['sources']==proof['original_sources'] and len(request['sources'])==78
+         and set(proof['successors'])==SUCCESSORS,'P01_EXACT_ORIGINAL78_AND_FOUR_SUCCESSORS')
+    for name,original_hash in request['sources'].items():
+        current=(driver/name).read_bytes()
+        if name not in SUCCESSORS:
+            need(sha(current)==original_hash,'P01_ORIGINAL74_UNCHANGED')
+            continue
+        entry=proof['successors'][name];original=entry['original_source_text'].encode('utf-8')
+        need(sha(original)==entry['original_sha256']==original_hash
+             and sha(current)==entry['current_sha256'],'P01_EXACT_RETAINED_ORIGINAL_AND_CURRENT_SUCCESSOR')
+        old_defs={n.name:ast.dump(n,include_attributes=False) for n in ast.parse(original).body
+                  if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef))}
+        new_defs={n.name:ast.dump(n,include_attributes=False) for n in ast.parse(current).body
+                  if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef))}
+        changed=sorted(n for n in old_defs.keys()|new_defs.keys() if old_defs.get(n)!=new_defs.get(n))
+        need(changed==entry['changed_top_level_definitions'],'P01_EXACT_ORCHESTRATION_DEFINITION_CHANGES')
+        for protected in entry['protected_unchanged_definitions']:
+            need(protected in old_defs and old_defs[protected]==new_defs.get(protected),
+                 'P01_CRYPTO_AND_PACKET_QUALIFIER_UNCHANGED')
+    return dict(status='ORIGINAL78_PROVENANCE_VERIFIED',unchanged_current_files=74,
+        explicitly_retained_original_successors=4,original_code_executed=False,
+        provenance_sha256=PROVENANCE_SHA)
 
 def scope(spec):
     need(sha((json.dumps(spec,sort_keys=True,indent=2)+'\n').encode())==SPEC_SHA,
@@ -43,7 +82,5 @@ def admit(spec,root,key):
     need(sha(Path(crypto.__file__).read_bytes())=='63660cd6b2567099db9cb3d1cd9a8b05a16d54ceb1aa50a3f3acfa6d91bd6bd4',
          'P01_DISCOVERY_UNCHANGED_COMPLETE_AUTHENTICATOR')
     value=crypto.admit(spec,root,key,max_zip_bytes=512*1024**2)
-    request=json.loads((value/'request.json').read_bytes())
-    need(len(request['sources'])==78 and all(sha((Path(__file__).parent/n).read_bytes())==h
-         for n,h in request['sources'].items()),'P01_DISCOVERY_ALL78_ORIGINAL_DRIVER_BYTES_UNCHANGED')
+    verify_original_drivers((value/'request.json').read_bytes())
     return value

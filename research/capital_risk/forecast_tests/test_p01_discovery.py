@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 import sys
+import shutil
 import pytest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -16,6 +17,65 @@ import system_campaign_p01_discovery_inputs as inputs
 HERE=Path(parent.__file__).parent
 
 def spec():return json.loads((HERE/parent.SPEC).read_bytes())
+
+def original_driver_fixture(tmp_path):
+    proof=json.loads((HERE/parent.PROVENANCE).read_bytes())
+    raw=(HERE/'system-campaign-distribution-request.json').read_bytes()
+    assert hashlib.sha256(raw).hexdigest()==proof['original_request_sha256']
+    for name in (*proof['original_sources'],parent.PROVENANCE):
+        shutil.copyfile(HERE/name,tmp_path/name)
+    return raw,proof
+
+def test_original78_and_explicit_four_successor_provenance(tmp_path):
+    raw,proof=original_driver_fixture(tmp_path)
+    result=parent.verify_original_drivers(raw,tmp_path)
+    assert result['unchanged_current_files']==74 and result['explicitly_retained_original_successors']==4
+    assert result['original_code_executed'] is False
+
+def test_unrelated_current_source_change_refuses(tmp_path):
+    raw,proof=original_driver_fixture(tmp_path)
+    name=next(n for n in proof['original_sources'] if n not in parent.SUCCESSORS)
+    (tmp_path/name).write_bytes((tmp_path/name).read_bytes()+b'\n')
+    with pytest.raises(ValueError,match='P01_ORIGINAL74_UNCHANGED'):parent.verify_original_drivers(raw,tmp_path)
+
+def test_changed_exact_current_successor_refuses(tmp_path):
+    raw,proof=original_driver_fixture(tmp_path);name='system_campaign_factual_run.py'
+    (tmp_path/name).write_bytes((tmp_path/name).read_bytes()+b'\n')
+    with pytest.raises(ValueError,match='P01_EXACT_RETAINED_ORIGINAL_AND_CURRENT_SUCCESSOR'):
+        parent.verify_original_drivers(raw,tmp_path)
+
+def changed_preimage(tmp_path,monkeypatch):
+    raw,proof=original_driver_fixture(tmp_path);name='system_campaign_factual_run.py'
+    proof['successors'][name]['original_source_text']+='\n'
+    value=(json.dumps(proof,sort_keys=True,indent=2)+'\n').encode()
+    (tmp_path/parent.PROVENANCE).write_bytes(value)
+    # Isolate the preimage guard after the independent provenance-hash guard.
+    monkeypatch.setattr(parent,'PROVENANCE_SHA',hashlib.sha256(value).hexdigest())
+    return raw
+
+def test_changed_original_preimage_refuses(tmp_path,monkeypatch):
+    raw=changed_preimage(tmp_path,monkeypatch)
+    with pytest.raises(ValueError,match='P01_EXACT_RETAINED_ORIGINAL_AND_CURRENT_SUCCESSOR'):
+        parent.verify_original_drivers(raw,tmp_path)
+
+def test_actual_original_preimage_guard_removal_admits_mutation(tmp_path,monkeypatch):
+    raw=changed_preimage(tmp_path,monkeypatch)
+    fn,=[n for n in ast.parse(Path(parent.__file__).read_bytes()).body
+          if isinstance(n,ast.FunctionDef) and n.name=='verify_original_drivers']
+    class Remove(ast.NodeTransformer):
+        def visit_Expr(self,node):
+            if any(isinstance(x,ast.Constant) and x.value=='P01_EXACT_RETAINED_ORIGINAL_AND_CURRENT_SUCCESSOR'
+                   for x in ast.walk(node)):return None
+            return self.generic_visit(node)
+    fn=Remove().visit(fn);namespace=dict(vars(parent))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),
+        '<actual-provenance-preimage-guard-removed>','exec'),namespace)
+    assert namespace['verify_original_drivers'](raw,tmp_path)['status']=='ORIGINAL78_PROVENANCE_VERIFIED'
+
+def test_provenance_bytes_and_old_attempt_request_are_immutable():
+    assert hashlib.sha256((HERE/parent.PROVENANCE).read_bytes()).hexdigest()==parent.PROVENANCE_SHA
+    assert hashlib.sha256((HERE/'system-campaign-p01-discovery-request.json').read_bytes()).hexdigest()==(
+        '56ef067207ec69eb488638af549ae84c09341ce0c32bcd4551c2fb2e7b7fae01')
 
 def test_exact_p01_own419_and_not_reported_tail():
     value=spec();assert parent.scope(value)==value

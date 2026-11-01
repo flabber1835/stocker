@@ -17,15 +17,16 @@ from seal import sha256_file
 from system_campaign_variants import build
 from system_campaign_facts import digest
 from system_campaign_discovery_context import TAINT
-from system_campaign_p01_discovery_parent import SPEC,SPEC_SHA,PATH,scope,reference,admit
+from system_campaign_p01_discovery_parent import SPEC,SPEC_SHA,PATH,PROVENANCE,PROVENANCE_SHA,scope,reference,admit,verify_original_drivers
 from system_campaign_pxd_financial_body import function
 import system_campaign_p02_continue_job as inspector_source
 import system_campaign_evidence_export as export_source
 import system_campaign_p02_remainder_job as prior
 
 HERE=Path(__file__).resolve().parent
-REQUEST='system-campaign-p01-discovery-request.json'
+REQUEST='system-campaign-p01-discovery-request-002.json'
 SOURCES=tuple(dict.fromkeys((*prior.SOURCES,prior.REQUEST,SPEC,
+    'system-campaign-p01-discovery-request.json',PROVENANCE,
     'system-campaign-p01-known-facts.json','system_campaign_p01_discovery_parent.py',
     'system_campaign_p01_discovery_inputs.py','system_campaign_p01_discovery_replay.py',
     'system_campaign_p01_discovery_run.py','system_campaign_p01_discovery_job.py',
@@ -42,6 +43,8 @@ def expected_request():
         canonical_financial_source_changed=False,new_origin=False,new_overlay=False,production_contacted=False,
         known_fact_index_sha256=sha256_file(HERE/'system-campaign-p01-known-facts.json'),
         checkpoint_cadence='MONTH_END_AND_NORMAL_SIGNAL_STOP',
+        original_driver_provenance_sha256=PROVENANCE_SHA,
+        retained_preworker_attempt_request_sha256='56ef067207ec69eb488638af549ae84c09341ce0c32bcd4551c2fb2e7b7fae01',
         owner_candidate_priority='P01',concurrent_candidate_limit=1,target_end='2026-07-31',
         expected_remaining_sessions=1737,qualify_wait_seconds=900,discovery_wait_seconds=18000,
         initial_min_disk_bytes=12*1024**3,source_archive_limit_bytes=512*1024**2,
@@ -103,6 +106,9 @@ def main(args):
         shutil.copyfile(HERE/SPEC,target/'spec.json')
         shutil.copyfile(args.request,target/'request.json')
         shutil.copyfile(old/'source-bindings.json',target/'source-bindings.json')
+        shutil.copyfile(HERE/PROVENANCE,target/'original-driver-provenance.json')
+        (target/'original-driver-admission.json').write_text(json.dumps(
+            verify_original_drivers((old/'request.json').read_bytes()),sort_keys=True,indent=2)+'\n')
     shutil.copyfile(HERE/'system-campaign-p01-known-facts.json',out/'known-fact-index.json')
     ref=reference(spec);(out/'lineage').mkdir()
     (out/PATH).write_text(json.dumps(ref,sort_keys=True,indent=2)+'\n')

@@ -81,3 +81,27 @@ terms and qualify the accurate P01 continuation. Preserve unresolved facts and a
 negative results. Do not round, invent a payout/CVR value, skip an unsupported
 trade, tune a parameter or claim out-of-sample evidence. The owner authorized this
 P01 sequence; routine necessary engineering does not require another confirmation.
+
+## Original-driver provenance correction
+
+The first P01 discovery launch, run41323098843/head488417c, passed staging but
+refused before creating a variant or worker. The parent artifact authenticated;
+the new wrapper then incorrectly required all 78 historical orchestration files
+to equal current orchestration files. Seventy-four match. Four have already
+published transfer/review engineering successors: `system_campaign_factual_admit`,
+`system_campaign_factual_run`, `system_campaign_basis` and
+`system_campaign_distribution_run`. The complete 515-file financial source and
+P01 settings are unchanged. No diagnostic or financial session advanced.
+
+Preserve that request, failure log and staging-only export. A distinct request
+may supply an explicit provenance document containing the original source bytes
+of exactly those four files, extracted from their original commit and matched to
+the authenticated old request hashes. The document separately binds each current
+successor hash and all 78 original source commitments. Verify every original
+preimage, every current counterpart and the exact four-file allowlist; no arbitrary
+source mismatch is accepted. These public source-code preimages are evidence,
+never executable financial source or checkpoint material. The existing current
+authenticator stays unchanged; no cryptographic or stop fence is relaxed.
+Both the scoped packet qualifier and unchanged actual P01 private source must
+still pass the hosted gate before discovery. This is provenance reconciliation,
+not a financial source successor or an earlier-checkpoint replay.
