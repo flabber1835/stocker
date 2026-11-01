@@ -120,6 +120,42 @@ source hash fences and full runtime seal. Different imports, arguments,
 keywords, placement, duplicate blocks or unrelated expressions still refuse;
 qualify these cases and an executed removed-proof falsifier before admission.
 
+### Retained computational-environment comparison
+
+The first native PR556 activation exposed a missing composition edge. The
+authenticated old Wealth Core package hash is
+`8395c6af9c82c0c54e339d199edc3becdb80b4179d639319ef0b1570a7753b71`;
+the reviewed 28-file package has actual hash
+`a744170c805095ab1f1f19a1b7fb89984edc33648f123cfa390d23f5163ea96a`.
+Only the already qualified `feed.py` allocation refactor differs. Its existing
+closed performance witness reconstructs exactly the authenticated old hash.
+The previous retained-admission fixture gave old and new package hashes the
+same synthetic value and therefore missed the native environment comparison.
+
+Keep `identity.environment_identity`, `current_context`, process bindings and
+published runtime attestations actual. Only the retained historical proof may
+project the complete current Wealth Core package through the existing exact
+performance witness. This edge requires the existing backed-PAPER source scope
+and exact authenticated original manifest. Fresh actual package bytes must
+match both the current context and supplied runtime attestation; the complete
+qualified package commitment must equal the authenticated predecessor hash.
+Bind the supplied raw package hash to the current context before choosing the
+historical projection branch, so substituting the old literal cannot skip it.
+Unknown neighboring edits, missing or extra modules, altered witness bytes,
+other origins and unsupported operating modes remain refusals.
+
+Restore only the Wealth Core hash in the proof's private environment copy,
+alongside the existing Sentinel historical projection, then retain the original
+complete predecessor environment-hash comparison. Never rewrite an old book,
+checkpoint, admission, authority record or source hash to make it fit. This
+adds no broker or deployment authority and changes no strategy behavior.
+
+Qualification must exercise the real unequal old/new complete package hashes,
+raw-attestation/context mismatch, unknown package neighbors/member changes,
+wrong historical hash, unchanged raw identity after proof, and executed
+guard-removal falsifiers. Existing retained-origin, account, mode, source-seal
+and computational-environment refusals remain adjacent acceptance gates.
+
 ## Additional simplification findings
 
 Remove the repeated final architecture/deployment documentation blocks, keeping
