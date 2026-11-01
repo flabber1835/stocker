@@ -244,6 +244,33 @@ verified scheduler time and PostgreSQL's current time must precede the new
 execution open, as must the activation's durable cutover. These checks are
 repeated inside creation; a preliminary service read is not authority.
 
+Decision: 2026-11-01. A planless older-generation preflight can also retire as
+`SUPERSEDED/STALE_PREFLIGHT_RECOVERED` after its ordinary read-only recovery
+proves transport ready. This retirement may precede a fresh obligation for the
+same still-future effective session. The terminal native completion flags and
+transport observation must be retained in its immutable event history. The
+selected observation is reauthenticated using the canonical observation payload
+and account provenance, must be COMPLETE/RUNNING, and its recorded reconciliation
+must have no unresolved or foreign activity. Scoped security restrictions may
+remain; this is permission to prepare, never a claim of clean execution.
+
+`RECONCILING` is shared by preflight observation and post-send recovery. The
+predecessor proof therefore reconstructs its carried diagnostic and plan fields
+at every event. Only a planless `PREFLIGHT_RECOVER` edge is read-only preflight;
+any `EXECUTING` edge, historical plan/fingerprint on the recovered preflight, or
+unexplained/ordinary recovery edge still refuses. Creation and replacement-genesis
+validation use the same proof. It accepts already-recorded native histories
+without rewriting their rows, events or failure codes. Both clocks, the original
+open deadline, current authority/account, all-predecessor and no-command guards
+remain mandatory. Old-generation readiness never advances or executes the old
+cycle: the new obligation repeats ordinary current-authority preflight,
+publication and preparation and records its own plan.
+The existing explicitly windowed owner-PAPER continuation retains its separate
+eligibility contract; it does not inherit this exception through a shared default.
+Predecessor reconstruction memoizes only exact cycle snapshots within one
+top-level validation. Repeated upgrades therefore do not recursively revalidate
+the same predecessor exponentially, and each later read authenticates it again.
+
 The fresh cycle records its predecessor ids in genesis, runs ordinary read-only
 preflight reconciliation, refresh and preparation under the new authority, and
 uses the usual execute window, quote/cash checks and command identities. It
