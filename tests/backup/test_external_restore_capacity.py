@@ -77,7 +77,7 @@ def observe_wsl(monkeypatch, *, backup=BACKUP, host_free, external_free):
     monkeypatch.setattr(Path, "exists", exists)
     monkeypatch.setattr(Path, "stat", stat)
     monkeypatch.setattr(capacity.shutil, "disk_usage", disk_usage)
-    monkeypatch.setattr(capacity, "windows_storage", lambda runner: {
+    monkeypatch.setattr(capacity, "windows_storage", lambda runner, **kwargs: {
         "distro_path": r"C:\Users\operator\Ubuntu",
         "docker_path": r"C:\Docker\docker_data.vhdx",
         "free": {"C:": state.host_free},

@@ -42,7 +42,7 @@ def test_wsl_uses_windows_capacity_even_when_virtual_disk_has_terabytes(monkeypa
     real_exists = Path.exists
     monkeypatch.setattr(Path, "exists", lambda p: False if str(p) == "/.dockerenv" else real_exists(p))
     monkeypatch.setattr(Path, "stat", lambda p, **_: SimpleNamespace(st_dev=1))
-    monkeypatch.setattr(capacity, "windows_storage", lambda _: {
+    monkeypatch.setattr(capacity, "windows_storage", lambda _, **kwargs: {
         "distro_path": "C:\\Users\\operator\\Ubuntu", "docker_path": "C:\\Docker\\docker_data.vhdx",
         "free": {"C:": capacity.GIB}})
     monkeypatch.setattr(capacity.shutil, "disk_usage", lambda _: pytest.fail("virtual capacity was queried"))
@@ -60,7 +60,7 @@ def test_wsl_external_target_is_checked_on_its_actual_disk(monkeypatch, backup_p
     monkeypatch.setattr(Path, "exists", lambda p: False if str(p) == "/.dockerenv" else real_exists(p))
     monkeypatch.setattr(Path, "stat", lambda p, **_: SimpleNamespace(st_dev=1 if str(p) == "/" else 2))
     monkeypatch.setattr(capacity.shutil, "disk_usage", lambda _: SimpleNamespace(free=500 * capacity.GIB))
-    monkeypatch.setattr(capacity, "windows_storage", lambda _: {
+    monkeypatch.setattr(capacity, "windows_storage", lambda _, **kwargs: {
         "distro_path": "C:\\Ubuntu", "docker_path": "C:\\Docker\\docker_data.vhdx",
         "free": {"C:": capacity.GIB, "D:": 500 * capacity.GIB}})
     backup, restore, free = capacity.destinations(backup_path, "/var/lib/docker", "Docker Desktop")
@@ -84,6 +84,41 @@ def test_windows_observer_resolves_paths_and_reports_only_disk_metadata(monkeypa
         return json.dumps({"distro_path": "D:\\Ubuntu", "docker_path": "E:\\Docker\\docker_data.vhdx",
                            "free": {"D:": 40 * capacity.GIB, "E:": 80 * capacity.GIB}})
     assert capacity.windows_storage(runner)["free"]["D:"] == 40 * capacity.GIB
+
+
+def test_native_wsl_observer_never_requires_desktop_settings_or_disk(monkeypatch):
+    monkeypatch.setenv("WSL_DISTRO_NAME", "Ubuntu")
+    def runner(argv):
+        script = base64.b64decode(argv[-1]).decode("utf-16le")
+        # Neither Desktop file exists in this host contract. Reading either is
+        # already a failure; virtual free space is not a replacement proof.
+        assert "settings-store.json" not in script
+        assert "docker_data.vhdx" not in script
+        assert "$dockerPath = $null" in script
+        assert "Test-Path -LiteralPath $distroPath" in script
+        return json.dumps({"distro_path": r"C:\Ubuntu", "docker_path": None,
+                           "free": {"C:": 40 * capacity.GIB}})
+    record = capacity.windows_storage(runner, docker_desktop=False)
+    assert record == {"distro_path": r"C:\Ubuntu", "docker_path": None,
+                      "free": {"C:": 40 * capacity.GIB}}
+
+
+def test_desktop_observer_keeps_its_missing_disk_refusal(monkeypatch):
+    monkeypatch.setenv("WSL_DISTRO_NAME", "Ubuntu")
+    def missing_desktop(argv):
+        script = base64.b64decode(argv[-1]).decode("utf-16le")
+        assert "settings-store.json" in script and "docker_data.vhdx" in script
+        assert "if (!(Test-Path -LiteralPath $dockerPath))" in script
+        raise capacity.Refused("capacity observation failed: powershell.exe")
+    with pytest.raises(capacity.Refused, match="capacity observation failed"):
+        capacity.windows_storage(missing_desktop, docker_desktop=True)
+
+
+@pytest.mark.parametrize("selection", [None, 0, 1, "false"])
+def test_observer_cannot_coerce_unknown_engine_selection(selection):
+    with pytest.raises(capacity.Refused, match="host selection is invalid"):
+        capacity.windows_storage(lambda _: pytest.fail("invalid observer launched"),
+                                 docker_desktop=selection)
 
 
 @pytest.mark.parametrize("name", ["Ubuntu';bad", "../Ubuntu"])
