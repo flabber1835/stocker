@@ -66,6 +66,62 @@ def test_actual_download_destination_guard_accepts_caller_and_rejects_old_name()
         scope['hosted_destination']('/other/campaign-factual-transfer-p02-discovery-strict-parent')
 
 
+def test_fixture_fault_precedes_feature_materialization():
+    source=ast.parse((HERE/'system_campaign_discovery_gate.py').read_bytes())
+    fn,=[v for v in source.body if isinstance(v,ast.FunctionDef) and v.name=='qualify']
+    text=ast.unparse(fn)
+    assert text.index('packet = replace(packet,') < text.index('buffer.append(packet)')
+    assert text.index('buffer.append(packet)') < text.index('publication = buffer.prepare(')
+    assert 'bars=tuple(b for b in publication.bars' not in text
+    assert 'DISCOVERY_GATE_ACTUAL_MISSING_SIGNAL_OBSERVATION_OMITTED' in text
+
+
+def test_actual_provenance_copy_fragment_requires_and_gets_archive_directory(tmp_path):
+    """Metadata I/O fragments only; canonical restore is never called locally."""
+    loader=ast.parse((HERE/'system_campaign_discovery_inputs.py').read_bytes())
+    fn,=[v for v in loader.body if isinstance(v,ast.FunctionDef) and v.name=='retained_inputs']
+    setup,=[v for v in fn.body if isinstance(v,ast.Expr)
+            and isinstance(v.value,ast.Call) and ast.unparse(v.value.func)=="(output / 'book/predecessor-checkpoints').mkdir"]
+    legacy=ast.parse((HERE/'system_campaign_p02_calendar_run.py').read_bytes())
+    method,=[v for v in legacy.body if isinstance(v,ast.FunctionDef) and v.name=='retained_amendment']
+    start=next(i for i,v in enumerate(method.body) if isinstance(v,ast.Assign)
+               and isinstance(v.targets[0],ast.Name) and v.targets[0].id=='archive')
+    fragment=compile(ast.Module(body=method.body[start:start+2],type_ignores=[]),
+                     '<actual-retained-provenance-byte-copy-only>','exec')
+    old=tmp_path/'old';out=tmp_path/'out';out.mkdir()
+    old_archive=old/'book/predecessor-checkpoints';old_archive.mkdir(parents=True)
+    raw=b'EXPLICIT_METADATA_ONLY_ORIGINAL_GZIP_BYTE_FIXTURE'
+    (old_archive/'origin.json.gz').write_bytes(raw)
+    def need(value,reason):
+        assert value,reason
+    namespace=dict(old=old,out=out,OUTER='origin',need=need)
+    with pytest.raises(FileNotFoundError):exec(fragment,namespace)
+    exec(compile(ast.Module(body=[setup],type_ignores=[]),'<actual-diagnostic-directory-setup>','exec'),dict(output=out))
+    exec(fragment,namespace)
+    assert (out/'book/predecessor-checkpoints/origin.json.gz').read_bytes()==raw
+    assert (old_archive/'origin.json.gz').read_bytes()==raw
+
+
+def test_actual_window_feature_key_guard_rejects_old_incoherent_fixture():
+    # Frozen guard predicate only; no canonical module is imported or executed.
+    root=Path('C:/Users/mbron/.codex/visualizations/2026/10/25/01a1737f-f4e0-7cf1-990e-82ae645d665b/zero-share-2008-20261026/source-fixed')
+    if not root.exists():
+        root=Path('/variant')
+    if not (root/'sentinel/core/window_material.py').is_file():
+        pytest.skip('Frozen canonical source is checked by hosted qualification.')
+    source=ast.parse((root/'sentinel/core/window_material.py').read_bytes())
+    fn,=[v for v in source.body if isinstance(v,ast.FunctionDef) and v.name=='install']
+    guard,=[v for v in ast.walk(fn) if isinstance(v,ast.If)
+            and any(isinstance(c,ast.Constant) and c.value=='CURRENT_WINDOW_FEATURE_KEYS_CHANGED' for c in ast.walk(ast.Module(body=v.body,type_ignores=[])))]
+    code=compile(ast.Expression(body=guard.test),'<actual-window-key-guard-metadata-predicate>','eval')
+    bars={'Q':SimpleNamespace(security_id='Q')}
+    publication=SimpleNamespace(bars=list(bars.values()))
+    material=SimpleNamespace(signals=[SimpleNamespace(security_id=sid) for sid in ('Q','ABSENT')])
+    assert eval(code,dict(bars=bars,published=publication,material=material))
+    material.signals=[SimpleNamespace(security_id='Q')]
+    assert not eval(code,dict(bars=bars,published=publication,material=material))
+
+
 def inspection():
     return dict(Name='/capital-system-discovery-p02-worker-123-1',Image=job.EXECUTION_IMAGE,Id='exact-id',
         HostConfig=dict(NetworkMode='none',Memory=8*1024**3,MemorySwap=8*1024**3,

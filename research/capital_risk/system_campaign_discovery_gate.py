@@ -2,6 +2,7 @@
 from copy import deepcopy
 from dataclasses import replace
 import hashlib
+import json
 from pathlib import Path
 
 from full_system_core import hosted
@@ -35,15 +36,16 @@ def qualify(root,parent,output,*,selected_file):
             DiscoveryContext(output,source_sha256=digest(parent['base']['sources'])) as context:
         for i,day in enumerate(wanted[:3]):
             packet=repaired(next(packets));need(packet.day==day,'DISCOVERY_GATE_SOURCE_AXIS')
-            buffer.append(packet);buffer.current=packet
-            publication=buffer.prepare(run.state,run.state.data_version+1,formation=False)
             # Explicit synthetic fault. Never a provider correction or overlay.
             extra=tuple(TerminalTerms(session=day,security_id=sid,kind=TerminalKind.CASH_MERGER,
                 cash_per_share=None,reference='research:discovery-synthetic-missing-terms/'+sid)
                 for sid in sorted(affected)) if i<2 else ()
+            packet=replace(packet,
+                bars=tuple(b for b in packet.bars if i>=2 or b.security_id not in affected),
+                terminal=tuple(t for t in packet.terminal if t.security_id not in affected)+extra)
+            buffer.append(packet);buffer.current=packet
+            publication=buffer.prepare(run.state,run.state.data_version+1,formation=False)
             publication=replace(publication,
-                bars=tuple(b for b in publication.bars if i>=2 or b.security_id not in affected),
-                terminal_events=tuple(t for t in publication.terminal_events if t.security_id not in affected)+extra,
                 cash_distributions=None,spinoff_distributions=())
             prior=run
             run=runtime.advance(run,publication)
@@ -92,6 +94,13 @@ def qualify(root,parent,output,*,selected_file):
              'DISCOVERY_GATE_SUPPORTED_CASH_ONCE_ONLY')
         context.current=None
         event_commitment=context.commitment()
+        events=[json.loads(line)['event'] for line in (output/'discovery-events.jsonl').read_bytes().splitlines()]
+        need(any(v['kind']=='UNOBSERVABLE_WITNESS_RETURN_OMITTED'
+                 and v['security_id']==chosen_leader for v in events),
+             'DISCOVERY_GATE_ACTUAL_MISSING_SIGNAL_OBSERVATION_OMITTED')
+        need(any(v['kind']=='DIAGNOSTIC_SIZING_CARRY'
+                 and v['security_id']==chosen_hold for v in events),
+             'DISCOVERY_GATE_ACTUAL_ABSENT_HOLDING_VALUATION_CARRIED')
     need(runtime.advance is old_runtime_advance,'DISCOVERY_GATE_ORIGINAL_ADVANCE_HOOK_RESTORED')
     need((root/selected_file).read_bytes()==before,'DISCOVERY_GATE_STRICT_PARENT_GZIP_IMMUTABLE')
     save(output/'discovery-canonical-qualification.json',dict(

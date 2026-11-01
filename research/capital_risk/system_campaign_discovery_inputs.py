@@ -16,6 +16,7 @@ def retained_inputs(root, checkpoint, output):
     from system_campaign_outcome_facts import retained as outcome, evidence as outcome_evidence
     from system_campaign_outcome_input import InputCodec as OutcomeCodec
     root,output=Path(root),Path(output)
+    (output/'book/predecessor-checkpoints').mkdir(parents=True,exist_ok=True)
     prior=q4.prior
     with CashRegistry(), retained.retained_scopes(root,checkpoint,output), ExitStack() as stack:
         v1,spin,alder,_=prior.retained(checkpoint,root,output)
