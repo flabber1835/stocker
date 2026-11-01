@@ -371,14 +371,36 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     current = identity._imported_package_root('sentinel')
     actual = _source_files(current)
     if (source_closure(actual) != context['runtime']['sentinel_source_sha256']
-            or env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']):
+            or env['wealth_core_source']['hash'] != context['runtime']['wealth_core_source_sha256']):
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
-    historical = structural_refactor_source_basis.historical_view(actual)
     backed = None
+    if env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']:
+        # Attestations remain actual. Only this closed historical comparison
+        # may restore the reviewed allocation refactor's prior package hash.
+        backed = _backed_owner_scope(old, context, actual=actual)
+        if backed is None or not backed.matches_manifest(manifest.revision, manifest.files):
+            raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
+        from sentinel import performance_source_basis
+        try:
+            wealth_root = identity._imported_package_root('stock_strategy_shared.wealth_core')
+            actual_wealth = identity.source_hash(wealth_root)
+            historical_wealth = performance_source_basis.wealth_core_source_hash(wealth_root)
+        except (OSError, ValueError, TypeError) as exc:
+            raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED') from exc
+        if (not actual_wealth['hash'] or actual_wealth['files'] <= 0
+                or actual_wealth['files'] != env['wealth_core_source'].get('files')
+                or actual_wealth['files'] != historical_wealth['files']
+                or actual_wealth['hash'] != env['wealth_core_source']['hash']
+                or actual_wealth['hash'] != context['runtime']['wealth_core_source_sha256']
+                or historical_wealth['hash'] != old['wealth_core_source_sha256']):
+            raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
+        env['wealth_core_source']['hash'] = old['wealth_core_source_sha256']
+    historical = structural_refactor_source_basis.historical_view(actual)
     if not transitions.closure_allowed(manifest.files, historical, ADDITIONS):
         # Supported historical edges retain their complete original verifier.
         # Only this supplementary edge requires the backed owner PAPER proof.
-        backed = _backed_owner_scope(old, context, actual=actual)
+        if backed is None:
+            backed = _backed_owner_scope(old, context, actual=actual)
         if backed is None or not backed.matches_manifest(manifest.revision, manifest.files):
             raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
     administrative = transitions.administrative(ADMINISTRATIVE, ADDITIONS)
