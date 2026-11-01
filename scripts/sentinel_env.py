@@ -59,6 +59,16 @@ def operational_values(values: Mapping[str, str]) -> Dict[str, str]:
             if not key.startswith(("SHARADAR_", "NDL_"))}
 
 
+def _sec_contact(env: Mapping[str, str]) -> None:
+    value = env.get('SENTINEL_SEC_CONTACT_EMAIL', '')
+    if not value:
+        return
+    pattern = r"[A-Za-z0-9][A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{0,63}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+"
+    if (len(value) > 254 or re.fullmatch(pattern, value, flags=re.ASCII) is None
+            or '..' in value.split('@')[0] or value.split('@')[0].endswith('.')):
+        _fail('INVALID_SEC_CONTACT_EMAIL', key='SENTINEL_SEC_CONTACT_EMAIL')
+
+
 def _restore_scratch_values(env: Mapping[str, str]) -> None:
     # Literal shape only. Actual UUID/USB/mount and Docker-volume identity are
     # proved by the host storage admission before a base or restore is copied.
@@ -648,6 +658,7 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
     """No I/O: prove local prerequisites before any external operation."""
     if profile not in {"compose", "bootstrap", "install", "go", "bringup", "maintenance"}:
         _fail("INVALID_PROFILE")
+    _sec_contact(env)
     target = target if target is not None else env.get("SENTINEL_GO_TARGET", TARGETS[1])
     if profile != "maintenance" and target not in TARGETS:
         _fail("INVALID_TARGET", key="SENTINEL_GO_TARGET")
