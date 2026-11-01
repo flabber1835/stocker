@@ -763,8 +763,15 @@ _COMMAND_COLUMNS = ("client_key, plan_id, security_id, revision, deployment_id,"
 
 def load_commands(conn, deployment: DeploymentIdentity, *,
                   plan_id: Optional[str] = None,
-                  states: Optional[Iterable[CommandState]] = None
+                  states: Optional[Iterable[CommandState]] = None,
+                  security_id: Optional[str] = None,
+                  client_keys: Optional[Iterable[str]] = None,
                   ) -> tuple:
+    """Load the requested scope, checking every returned row's stored identity.
+
+    Omitted filters retain the complete history. An empty key iterable selects
+    no commands; it never falls back to an unrestricted history read.
+    """
     sql = f"SELECT {_COMMAND_COLUMNS} FROM sentinel_commands WHERE TRUE"
     params: list = []
     if plan_id is not None:
@@ -773,6 +780,12 @@ def load_commands(conn, deployment: DeploymentIdentity, *,
     if states is not None:
         sql += " AND state = ANY(%s)"
         params.append([s.value for s in states])
+    if security_id is not None:
+        sql += " AND security_id = %s"
+        params.append(security_id)
+    if client_keys is not None:
+        sql += " AND client_key = ANY(%s)"
+        params.append(list(client_keys))
     sql += " ORDER BY client_key"
     with conn.cursor() as cur:
         cur.execute(sql, params)

@@ -157,6 +157,18 @@ return economic_sources(_DATA_SEMANTICS_MODULES, schema=DATA_SEMANTICS_IDENTITY_
                 != [_dump(node) for node in original]):
         return False
     recipe.body[offset:] = original
+
+    runtime = _definition(current, 'runtime_strategy_identity')
+    performance_source = ast.parse('''from sentinel.performance_source_basis import wealth_core_source_hash
+source = wealth_core_source_hash(package_root)
+''').body
+    windows = [index for index in range(len(runtime.body) - len(performance_source) + 1)
+               if [_dump(node) for node in runtime.body[index:index + len(performance_source)]]
+               == [_dump(node) for node in performance_source]]
+    if len(windows) != 1:
+        return False
+    runtime.body[windows[0]:windows[0] + len(performance_source)] = ast.parse(
+        'source = identity.source_hash(package_root)').body
     return _dump(current) == _dump(old)
 
 

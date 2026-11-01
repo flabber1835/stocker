@@ -413,6 +413,11 @@ def read_bars(conn, candidate_id: str, *, start=None, end=None):
     """Read one explicit sealed generation, independent of later candidates."""
     require_payload(conn, candidate_id)
     manifest(conn, candidate_id)
+    yield from _bar_rows(conn, candidate_id, start=start, end=end)
+
+
+def _bar_rows(conn, candidate_id, *, start=None, end=None):
+    """Typed traversal after the caller has admitted this candidate's payload."""
     for row in _rows(conn, candidate_id, table="sentinel_snapshot_bars",
                      columns=BAR_COLUMNS, order='session,security_id COLLATE "C"', start=start, end=end):
         yield CanonicalBar.model_validate(row)
@@ -421,6 +426,11 @@ def read_bars(conn, candidate_id: str, *, start=None, end=None):
 def read_benchmarks(conn, candidate_id: str):
     require_payload(conn, candidate_id)
     manifest(conn, candidate_id)
+    yield from _benchmark_rows(conn, candidate_id)
+
+
+def _benchmark_rows(conn, candidate_id):
+    """Typed traversal under the same admitted candidate and retirement pin."""
     for row in _rows(conn, candidate_id, table="sentinel_snapshot_benchmarks",
                      columns=BENCHMARK_COLUMNS, order="session"):
         yield CanonicalBenchmark.model_validate(row)
@@ -449,6 +459,7 @@ def _verify_content_uncached(conn, candidate_id: str) -> VerifiedSnapshot:
     from sentinel.feed import readiness_scope
     scope = readiness_scope.capture(conn)  # Check the original pin before any reader can reacquire it.
     value = manifest(conn, candidate_id)
+    require_payload(conn, candidate_id)
     encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"),
                                ensure_ascii=True, allow_nan=False)
     bars_hash, keys_hash, benchmarks_hash = (
@@ -460,14 +471,14 @@ def _verify_content_uncached(conn, candidate_id: str) -> VerifiedSnapshot:
                  and binding.get('candidate_id') == candidate_id
                  and binding.get('snapshot_id') == value.snapshot_id else None)
     benchmarks = []
-    for row in read_bars(conn, candidate_id):
+    for row in _bar_rows(conn, candidate_id):
         count += 1
         sessions.add(row.session)
         _fold(bars_hash, row.model_dump(mode="json"), encoder)
         _fold(keys_hash, (row.session.isoformat(), row.security_id), encoder)
         if readiness is not None:
             readiness.observe(row)
-    for row in read_benchmarks(conn, candidate_id):
+    for row in _benchmark_rows(conn, candidate_id):
         benchmark_sessions.append(row.session)
         _fold(benchmarks_hash, row.model_dump(mode="json"), encoder)
         if readiness is not None and len(benchmarks) < len(value.window.sessions):

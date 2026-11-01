@@ -245,6 +245,7 @@ def test_mechanical_decision_edge_accepts_only_the_reviewed_complete_ast(handove
          b'retained_targets: Mapping[str, Decimal] | None = {},'),
         (b'targets=retained_targets,', b'targets=None,'),
         (b'identity(schema=DATA_SEMANTICS_IDENTITY_SCHEMA)', b'identity(schema="unreviewed")'),
+        (b'wealth_core_source_hash(package_root)', b'wealth_core_source_hash(None)'),
     ]
     for old_bytes, new_bytes in changes:
         assert current.count(old_bytes) == 1
@@ -273,6 +274,10 @@ def test_isolated_mechanical_ast_reversal_keeps_every_other_statement(handover):
         b'    sized = held_targets.apply(sized, targets=retained_targets,\n'
         b'        canonical_target=target, marks=current_marks)\n')
     basket = b'    basket = desired_basket(sized)\n'
+    performance_import = (b'    from sentinel.performance_source_basis import '
+                          b'wealth_core_source_hash\n')
+    performance_call = b'    source = wealth_core_source_hash(package_root)\n'
+    performance = performance_import + performance_call
     changes = [
         (held_member, b''),
         (held_member, held_member * 2),
@@ -291,6 +296,19 @@ def test_isolated_mechanical_ast_reversal_keeps_every_other_statement(handover):
         (basket, b'    basket = {}\n'),
         (b'def data_semantics_source_identity() -> dict[str, object]:',
          b'def data_semantics_source_identity(argument=None) -> dict[str, object]:'),
+        (performance_import, b''),
+        (performance, performance * 2),
+        (performance_import, performance_import.replace(
+            b'performance_source_basis', b'unreviewed_source_basis')),
+        (performance_import, performance_import.replace(
+            b'wealth_core_source_hash', b'wealth_core_source_hash as unchecked')),
+        (performance_call, b'    source = identity.source_hash(package_root)\n'),
+        (performance_call, performance_call.replace(b'package_root', b'None')),
+        (performance_call, performance_call.replace(
+            b'package_root)', b'package_root, _contribution=None)')),
+        (performance_call, performance_call * 2),
+        (performance, performance_call + performance_import),
+        (performance, performance + b'    source = {}\n'),
     ]
     for needle, replacement in changes:
         assert current.count(needle) == 1, needle

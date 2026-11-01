@@ -227,14 +227,14 @@ def advance(conn, *, through, observation_id, starting_cash):
         inputs.require_schemas(conn)
         context = initial._context(observation_id, starting_cash)
         with journal.writer_lock(conn):
-            with snapshots.pinned(conn, commit=False) as (pub, _binding):
+            with snapshots.pinned(conn, commit=False) as (pub, binding):
                 if through != pub.window_end:
                     raise Refused("ROLLING_RUNTIME_TARGET_CHANGED")
                 inputs.validate_status(conn, pub)
                 if origin.read(conn) is None:
                     candidate = initial.initialize(conn, observation_id=observation_id, starting_cash=starting_cash)
                 else:
-                    checkpoint, _, candidate, attested, _ = _closure(conn, context)
+                    checkpoint, observer, candidate, attested, _ = _closure(conn, context)
                     if checkpoint.session == through:
                         _current(conn, checkpoint, pub)
                         if attested is not None:
@@ -245,7 +245,10 @@ def advance(conn, *, through, observation_id, starting_cash):
                             raise Refused("ROLLING_CANDIDATE_MUST_BE_ATTESTED_FIRST")
                         if calendar.next_session(checkpoint.session) != through:
                             raise Refused("ROLLING_RUNTIME_SESSION_GAP")
-                        candidate = daily.advance(conn, observation_id=observation_id, starting_cash=starting_cash)
+                        initial._timing(conn, through)
+                        candidate = daily.commit_next(
+                            conn, checkpoint=checkpoint, observer=observer, prior=candidate,
+                            pub=pub, binding=binding, context=context)
                 # Every path reaching here has a durable checkpoint. This clock
                 # sample happens strictly after that commit or restart read.
                 completed = initial._timing(conn, through)

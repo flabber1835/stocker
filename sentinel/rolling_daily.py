@@ -49,9 +49,8 @@ def commit_next(conn, *, checkpoint, observer, prior, pub, binding, context,
     observer._accepted_strategies = (prior.state.strategy_identity, target_strategy)
     observer.strategy_identity = target_strategy
     context['strategy'] = target_strategy
-    previous_row = observer._history()[0][-1]
-    result = observer.observe(shadow.FullyPublishedSession(published, pub.to_dict()))
-    row = observer._history()[0][-1]
+    observed = observer._observe_with_records(shadow.FullyPublishedSession(published, pub.to_dict()))
+    result, row = observed.result, observed.record
     initial_checkpoint = origin.read(conn)
     updated = checkpoint_type(
         observation_id=context["observation_id"], session=result.session, starting_cash=context["starting_cash"],
@@ -64,7 +63,7 @@ def commit_next(conn, *, checkpoint, observer, prior, pub, binding, context,
         history_anchor={"session": row["session"], "record_sha256": row["record_sha256"],
             "previous_record_sha256": row["previous_record_sha256"],
             "prior_state_sha256": row["prior_state_sha256"], "prior_data_version": prior.state.data_version,
-            "prior_strategy_economics": previous_row["strategy_economics"]})
+            "prior_strategy_economics": observed.previous_strategy_economics})
     checkpoints.archive_input(conn, updated)
     checkpoints.write(conn, updated, previous=checkpoint)
     timing(conn, result.session)

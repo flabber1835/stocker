@@ -247,7 +247,8 @@ def runtime_strategy_identity(
 
     package_file = getattr(wealth_core_package, "__file__", None)
     package_root = Path(package_file).resolve().parent if package_file else None
-    source = identity.source_hash(package_root)
+    from sentinel.performance_source_basis import wealth_core_source_hash
+    source = wealth_core_source_hash(package_root)
     source_digest = source.get("hash")
     if not source_digest or not source.get("files"):
         raise RuntimeError(

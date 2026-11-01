@@ -287,12 +287,15 @@ def _pin_drift(pinned: dict[str, str], have: dict[str, Optional[str]]) -> dict[s
             for k, v in pinned.items() if have.get(k) != v}
 
 
-def source_hash(root: Optional[Path]) -> dict:
+def source_hash(root: Optional[Path], *, _contribution=None) -> dict:
     """A deterministic digest of a Python package tree.
 
     Sorted relative POSIX paths, each hashed with its content, so the digest
     does not depend on filesystem order, absolute location, or the caches and
     bytecode that a test run leaves behind.
+
+    Only the sealed strategy compatibility reader supplies the private
+    contribution hook. Runtime/environment callers hash actual source bytes.
     """
     if root is None or not root.exists():
         return {"root": None if root is None else root.name,
@@ -311,7 +314,9 @@ def source_hash(root: Optional[Path]) -> dict:
             relative = "/".join(parts[prefix_length:])
         else:
             relative = p.relative_to(root).as_posix()
-        h.update(relative.encode() + b"\0" + _sha(p.read_bytes()).encode() + b"\n")
+        raw = p.read_bytes()
+        digest = _sha(raw) if _contribution is None else _contribution(relative, raw)
+        h.update(relative.encode() + b"\0" + digest.encode() + b"\n")
     return {"root": root.name, "path": str(root), "files": len(files),
             "hash": h.hexdigest()}
 
