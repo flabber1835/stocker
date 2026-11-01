@@ -170,6 +170,57 @@ def test_manifest_and_content_verification_do_not_decode_text_again(conn, window
     assert store.verify_content(conn, candidate) == expected
 
 
+def test_complete_scan_admits_manifest_and_evidence_once(conn, window, monkeypatch):
+    candidate = populated(conn, window)
+    expected = seal(conn, candidate, window)
+    manifests, evidence = [], []
+    manifest, verify_evidence = store.manifest, store.verify_evidence
+
+    def admitted(connection, candidate_id):
+        manifests.append(candidate_id)
+        return manifest(connection, candidate_id)
+
+    def verified(connection, evidence_id):
+        evidence.append(evidence_id)
+        return verify_evidence(connection, evidence_id)
+
+    monkeypatch.setattr(store, 'manifest', admitted)
+    monkeypatch.setattr(store, 'verify_evidence', verified)
+    assert store.verify_content(conn, candidate) == expected
+    assert manifests == [candidate]
+    assert evidence == [expected.reference_sha256, expected.source_evidence_sha256]
+    # Standalone reads still own their separate admission, without borrowing a
+    # previous operation's verification result.
+    assert len(list(store.read_bars(conn, candidate))) == len(window.sessions)
+    assert len(list(store.read_benchmarks(conn, candidate))) == len(window.sessions)
+    assert manifests == [candidate] * 3
+
+
+def test_complete_scan_refuses_retired_payload_even_when_rows_remain(conn, window, monkeypatch):
+    candidate = populated(conn, window)
+    seal(conn, candidate, window)
+    # Retirement can precede bounded bulk cleanup. An intact old row hash never
+    # permits an explicit read of an already retired payload.
+    monkeypatch.setattr(store, 'retired', lambda *_: True)
+    with pytest.raises(store.SnapshotStorageRefused, match='SNAPSHOT_PAYLOAD_RETIRED'):
+        store.verify_content(conn, candidate)
+
+
+def test_removed_complete_scan_retirement_guard_is_detected(conn, window, monkeypatch):
+    import inspect
+    import textwrap
+
+    source = textwrap.dedent(inspect.getsource(store._verify_content_uncached))
+    guard = '    require_payload(conn, candidate_id)\n'
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, ''), 'snapshot-retirement-falsifier', 'exec'),
+         store.__dict__, namespace)
+    monkeypatch.setattr(store, '_verify_content_uncached', namespace['_verify_content_uncached'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_complete_scan_refuses_retired_payload_even_when_rows_remain(conn, window, monkeypatch)
+
+
 @pytest.mark.parametrize('fault', ['checksum', 'both', 'missing', 'retired'])
 def test_stored_byte_verifier_rejects_corrupt_or_unavailable_evidence(conn, fault):
     # Model restored corrupt storage; normal writer/SQL constraints reject it

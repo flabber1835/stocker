@@ -7,6 +7,7 @@ from stock_strategy_shared.wealth_core.feed import (
     Feed,
     FeedError,
     SecurityMeta,
+    SecuritySeries,
     VendorBar,
 )
 from stock_strategy_shared.wealth_core.run import run_sessions
@@ -84,3 +85,59 @@ def test_run_refuses_duplicate_terminal_application_before_state_mutation():
             starting_cash=1_000.0, state=state,
             terminal_events=[event, event])
     assert state.to_dict() == before
+
+
+@pytest.mark.parametrize('median5', [False, True])
+def test_signal_window_compatibility_view_is_lazy_and_preserves_missing_close(median5):
+    feed = Feed(meta())
+    if median5:
+        from stock_strategy_shared.wealth_core.median5 import fresh
+        feed.median5_state = fresh()
+    feed.advance('2024-01-02', [VendorBar(
+        '2024-01-02', 'S1', 'T1', 10.0, 10.0, 1_000_000.0,
+        signal_close=10.0)])
+    normalized = feed.advance('2024-01-03', [VendorBar(
+        '2024-01-03', 'S1', 'T1', None, None, 0.0)])
+
+    assert 'signal_windows' not in vars(normalized)
+    assert normalized.security_bars[0].closes == [10.0, None]
+    windows = normalized.signal_windows
+    assert windows == {'S1': [10.0]}
+    assert normalized.signal_windows is windows
+    windows['S1'].append(99.0)
+    assert normalized.security_bars[0].closes == [10.0, None]
+    assert feed.series['S1'].signal_closes == [10.0, None]
+
+
+def test_current_window_feed_does_not_scan_compatibility_history_until_requested():
+    from stock_strategy_shared.wealth_core.engine import SecurityBar
+    from stock_strategy_shared.wealth_core.median5 import fresh
+
+    scans = []
+
+    class History(list):
+        def __iter__(self):
+            scans.append(True)
+            return super().__iter__()
+
+    feed = Feed(meta())
+    feed.median5_state = fresh()
+    feed.snapshot_security_bars = {'S1': SecurityBar(
+        'S1', 'T1', 'P:1', History([7.0, None, 10.0]), raw_close=10.0)}
+    normalized = feed.advance('2024-01-02', [VendorBar(
+        '2024-01-02', 'S1', 'T1', 10.0, 10.0, 1_000_000.0,
+        signal_close=10.0)])
+
+    assert scans == []
+    assert normalized.signal_windows == {'S1': [7.0, 10.0]}
+    assert scans == [True]
+    assert normalized.signal_windows == {'S1': [7.0, 10.0]}
+    assert scans == [True]
+
+
+def test_signal_window_remains_an_independent_trailing_list():
+    series = SecuritySeries('S1', 'T1', 'P:1', signal_closes=[3.0, None, 4.0])
+    window = series.signal_window(2)
+    assert window == [None, 4.0]
+    window[-1] = 99.0
+    assert series.signal_closes == [3.0, None, 4.0]

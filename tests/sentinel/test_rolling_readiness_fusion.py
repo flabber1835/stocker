@@ -67,7 +67,7 @@ def old_summary(conn, context):
 def test_actual_resolver_first_path_supplies_completed_facts_without_second_stream(
         conn, published, monkeypatch):
     events = []
-    read = rolling_store.read_bars
+    read = rolling_store._bar_rows
     references = adapter.SnapshotReferences
 
     def observed(*args, **kwargs):
@@ -79,7 +79,7 @@ def test_actual_resolver_first_path_supplies_completed_facts_without_second_stre
         events.append('references')
         return references(*args, **kwargs)
 
-    monkeypatch.setattr(rolling_store, 'read_bars', observed)
+    monkeypatch.setattr(rolling_store, '_bar_rows', observed)
     monkeypatch.setattr(adapter, 'SnapshotReferences', refs)
     with feed_inputs.pinned(conn, commit=False) as pub:
         paper.build_security_resolver(conn, calendar.next_session(pub.window_end))
@@ -231,7 +231,7 @@ def test_pair_bound_discards_optimization_and_keeps_original_reader(conn, publis
 
 @pytest.mark.parametrize('failure', ['last-bar', 'last-benchmark'])
 def test_interrupted_full_stream_installs_no_facts(conn, published, monkeypatch, failure):
-    name = 'read_bars' if failure == 'last-bar' else 'read_benchmarks'
+    name = '_bar_rows' if failure == 'last-bar' else '_benchmark_rows'
     original = getattr(rolling_store, name)
     def interrupted(*args, **kwargs):
         yield from original(*args, **kwargs)

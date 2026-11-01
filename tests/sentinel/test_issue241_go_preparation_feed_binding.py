@@ -112,7 +112,12 @@ def test_verified_orchestration_arms_only_after_kernel_lock(monkeypatch):
 
 
 def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding(
-        verified_lifecycle):
+        verified_lifecycle, monkeypatch, tmp_path):
+    # CI keeps inspected repository metadata separately from runnable scripts.
+    # The feed gate must receive the operational checkout, even when ROOT names
+    # the inspection mirror. Keep the expected path independent of the caller.
+    operational_root = tmp_path / "operational-checkout"
+    monkeypatch.setattr(entry.go, "ROOT", operational_root)
     runner = Runner()
     summary = entry.probe_prevalidation_preparation(
         runner, env=_env(), runtime_ref=DIGEST, commit=COMMIT)
@@ -123,7 +128,7 @@ def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding(
                   and call[0][1] == "scripts/sentinel_feed_gate.py"]
     assert len(bind_calls) == 1
     bind_argv, bind_env = bind_calls[0]
-    assert bind_argv[-4:] == ["--repo", str(ROOT), "--image", DIGEST]
+    assert bind_argv[-4:] == ["--repo", str(operational_root), "--image", DIGEST]
     assert bind_env["SENTINEL_GIT_COMMIT"] == COMMIT
     assert bind_env["SENTINEL_RUNTIME_IMAGE_DIGEST"] == DIGEST
 

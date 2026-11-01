@@ -118,6 +118,41 @@ def conn(pg):
 
 
 class TestCommandJournal:
+    def test_command_read_filters_are_conjunctive_and_empty_safe(self, conn):
+        selected = cmd(state=S.CANCELLED)
+        other_plan = cmd(plan="plan-2", state=S.CANCELLED)
+        other_security = cmd(instrument=BBB, state=S.CANCELLED)
+        for command in (selected, other_plan, other_security):
+            journal.save_command(conn, command)
+
+        loaded = journal.load_commands(
+            conn, DEPLOY, plan_id="plan-1", security_id=AAA.security_id,
+            states=(S.CANCELLED,),
+            client_keys=(command.client_key for command in (
+                selected, other_plan, other_security)))
+
+        assert [command.client_key for command in loaded] == [selected.client_key]
+        assert journal.load_commands(conn, DEPLOY, client_keys=()) == ()
+        assert journal.load_commands(
+            conn, DEPLOY, client_keys=(selected.client_key,),
+            states=(S.UNKNOWN,)) == ()
+        assert [command.client_key for command in journal.load_commands(
+            conn, DEPLOY)] == sorted(command.client_key for command in (
+                selected, other_plan, other_security))
+
+    def test_filtered_command_reads_still_check_stored_namespace(self, conn):
+        selected = cmd(state=S.CANCELLED)
+        journal.save_command(conn, selected)
+        successor = replace(DEPLOY, takeover_epoch=2)
+        assert journal.load_commands(
+            conn, successor, client_keys=(selected.client_key,))[0].identity \
+            == selected.identity
+        foreign = replace(successor, broker_account_id="OTHER")
+        with pytest.raises(journal.StoredKeyMismatch, match="not current"):
+            journal.load_commands(
+                conn, foreign, security_id=AAA.security_id,
+                client_keys=(selected.client_key,))
+
     def test_a_command_round_trips_with_its_derived_key_intact(self, conn):
         journal.save_command(conn, cmd())
         loaded = journal.load_commands(conn, DEPLOY)

@@ -813,6 +813,15 @@ class ShadowObservationResult:
         }
 
 
+@dataclass(frozen=True)
+class _ObservedSession:
+    """Verified records owned by one synchronous observation operation."""
+
+    result: ShadowObservationResult
+    previous_strategy_economics: Mapping[str, Any]
+    record: Mapping[str, Any]
+
+
 def _compact_json_decoder(*, number_type=float):
     """Standard JSON values with bounded, cursor-local immutable scalar reuse."""
     @lru_cache(maxsize=4096)
@@ -1853,6 +1862,12 @@ class ShadowObserver:
     def observe(
             self, published: FullyPublishedSession | None
             ) -> ShadowObservationResult:
+        return self._observe_with_records(published).result
+
+    def _observe_with_records(
+            self, published: FullyPublishedSession | None
+            ) -> _ObservedSession:
+        """Return the records this operation verified, without another read."""
         rows, prior = self._history()
         expected = (self.first_session if not rows
                     else _next_session(rows[-1]["session"]))
@@ -1877,10 +1892,11 @@ class ShadowObserver:
                     != economic_input_identity):
                 raise ShadowObservationRefused(
                     f"published input for {session} was rewritten")
-            return self._result(
+            result = self._result(
                 session=session, state=prior,
                 strategy_economics=latest["strategy_economics"],
                 record_sha256=latest["record_sha256"], appended=False)
+            return _ObservedSession(result, latest["strategy_economics"], latest)
         if session != expected:
             raise ShadowObservationRefused(
                 f"shadow session gap: expected {expected}, got {session}")
@@ -1962,10 +1978,11 @@ class ShadowObserver:
                 or retained_state.state_hash != advanced.state_hash):
             raise ShadowObservationRefused(
                 f"shadow observation append was not retained exactly at {expected}")
-        return self._result(
+        result = self._result(
             session=expected, state=retained_state,
             strategy_economics=retained[-1]["strategy_economics"],
             record_sha256=record["record_sha256"], appended=True)
+        return _ObservedSession(result, prior_strategy_economics, retained[-1])
 
     def verify_history(self, *, consume_seed=False) -> ShadowObservationResult:
         rows, state = self._history(consume_seed=True) if consume_seed else self._history()

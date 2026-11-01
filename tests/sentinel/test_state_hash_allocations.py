@@ -140,3 +140,36 @@ def test_private_canonical_view_preserves_trimming_and_public_ownership(length):
     exported = owned.to_dict()
     exported['feed']['series']['1']['signal_closes'][-1] = 99.0
     assert owned.feed['series']['1']['signal_closes'][-1] == 44.0
+
+
+@pytest.mark.parametrize('length', [260, 300])
+def test_public_serialization_detaches_nested_feed_values_and_signal_anchor(length):
+    state = wide_state(size=1, length=length)
+    series = state.feed['series']['0']
+    # Serialization has historically accepted nested JSON here. Preserve its
+    # ownership contract even when the values cannot become numerical inputs.
+    series['volumes'][-1] = {'nested': [12.5]}
+    series['signal_basis_anchor'] = [series['sessions'][-1], 2.5, 1.25]
+    expected = state.to_dict()
+    expected_hash = independent_hash(expected)
+    exported = state.to_dict()
+
+    assert exported == expected
+    assert state.state_hash == expected_hash
+    exported_series = exported['feed']['series']['0']
+    for name in session_module._SERIES_FIELDS:
+        assert exported_series[name] is not series[name]
+    exported_series['volumes'][-1]['nested'].append(99.0)
+    exported_series['signal_basis_anchor'][-1] = 77.0
+
+    assert series['volumes'][-1] == {'nested': [12.5]}
+    assert series['signal_basis_anchor'][-1] == 1.25
+    assert state.to_dict() == expected
+    assert state.state_hash == expected_hash
+
+
+def test_public_serialization_still_rejects_nested_nonfinite_feed_values():
+    state = wide_state(size=1)
+    state.feed['series']['0']['volumes'][-1] = {'nested': [float('nan')]}
+    with pytest.raises(ValueError):
+        state.to_dict()

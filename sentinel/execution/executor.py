@@ -806,8 +806,8 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
 
         commands = {
             command.client_key: command
-            for command in journal.load_commands(conn, deployment)
-            if command.client_key in required
+            for command in journal.load_commands(
+                conn, deployment, client_keys=sorted(required))
         }
         missing = sorted(required - set(commands))
         if missing:
@@ -861,11 +861,8 @@ def _command_for_delta(*, conn, deployment: DeploymentIdentity, plan_id: str,
     Its replacement still receives a new revision so both durable promises stay
     auditable and a restart can reproduce the same choice.
     """
-    previous = [
-        command for command in journal.load_commands(
-            conn, deployment, plan_id=plan_id)
-        if command.security_id == delta.security_id
-    ]
+    previous = journal.load_commands(
+        conn, deployment, plan_id=plan_id, security_id=delta.security_id)
     revision = 0
     if previous:
         latest = max(previous, key=lambda command: command.identity.revision)

@@ -106,8 +106,10 @@ class IdentityResolver:
 
     def __init__(self, listings: Iterable[Listing]) -> None:
         self._by_ticker: dict[str, list[Listing]] = {}
+        self._by_security: dict[str, list[Listing]] = {}
         for l in listings:
             self._by_ticker.setdefault(l.ticker.upper(), []).append(l)
+            self._by_security.setdefault(l.permaticker, []).append(l)
         for lst in self._by_ticker.values():
             # Sorted so the ambiguity check below is a neighbour comparison
             # rather than a scan, and so resolution is deterministic.
@@ -119,9 +121,8 @@ class IdentityResolver:
 
     def ticker_for_security(self, security_id: str, session: str) -> Optional[str]:
         """Unique session-effective label whose forward mapping agrees."""
-        symbols = {ticker for ticker, listings in self._by_ticker.items()
-                   if any(item.permaticker == security_id and item.covers(session)
-                          for item in listings)}
+        symbols = {item.ticker.upper() for item in self._by_security.get(security_id, ())
+                   if item.covers(session)}
         if len(symbols) != 1:
             return None
         symbol = next(iter(symbols))

@@ -43,6 +43,7 @@ from __future__ import annotations
 import math
 from bisect import bisect_right
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Iterable, Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.eligibility import (
@@ -371,7 +372,7 @@ class SecuritySeries:
         happens — a window that extends past t is a look-ahead the engine has no
         way to detect.
         """
-        return list(self.signal_closes[-length:])
+        return self.signal_closes[-length:]
 
 
 def _positive(x) -> bool:
@@ -477,8 +478,13 @@ class NormalisedSession:
     session: str
     bars: list[DailyBar]
     security_bars: list[SecurityBar]
-    signal_windows: dict[str, list[float]]
     eligibility: dict[str, EligibilityResult]
+
+    @cached_property
+    def signal_windows(self) -> dict[str, list[float]]:
+        """Filtered compatibility view; strategy inputs keep positional gaps."""
+        return {bar.security_id: [close for close in bar.closes if close is not None]
+                for bar in self.security_bars}
 
 
 class Feed:
@@ -667,8 +673,6 @@ class Feed:
             return NormalisedSession(
                 session, [to_daily_bar(b, self.series[b.security_id]) for b in visible],
                 security_bars,
-                {b.security_id: [c for c in b.closes if c is not None]
-                 for b in security_bars},
                 {b.security_id: EligibilityResult(
                     b.security_id, b.ticker, b.issuer_id, b.eligible,
                     EligibilityReason.ELIGIBLE if b.eligible
@@ -686,14 +690,11 @@ class Feed:
         results = leadership_population(elig_inputs, self.cfg)
 
         daily = [to_daily_bar(b, self.series[b.security_id]) for b in visible]
-        windows: dict[str, list[float]] = {}
         sec_bars: list[SecurityBar] = []
         for b in visible:
             s = self.series[b.security_id]
             r = results[b.security_id]
             signal_window = s.signal_window()
-            w = [c for c in signal_window if c is not None]
-            windows[b.security_id] = w
             sec_bars.append(SecurityBar(
                 security_id=b.security_id, ticker=b.ticker,
                 issuer_id=s.issuer_id,
@@ -708,7 +709,7 @@ class Feed:
                 eligibility_reason=r.reason.value))
 
         return NormalisedSession(session=session, bars=daily,
-                                 security_bars=sec_bars, signal_windows=windows,
+                                 security_bars=sec_bars,
                                  eligibility=results)
 
 
