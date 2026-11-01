@@ -628,7 +628,7 @@ test.describe("Caesar's Palace PWA and push path", () => {
     ]);
     expect(response.status()).toBe(503);
     expect(response.headers()["cache-control"]).toBe("no-store");
-    await expect(page.locator("body")).toContainText("OPERATIONAL RED â€” OFFLINE");
+    await expect(page.locator("body")).toContainText("OPERATIONAL RED — OFFLINE");
     await context.setOffline(false);
   });
 
@@ -811,7 +811,7 @@ test.describe("Caesar's Palace PWA and push path", () => {
     );
     const pushed = {
       alert_id: "alert-red-1",
-      title: "Caesar's Palace â€” action required",
+      title: "Caesar's Palace — action required",
       body: "automation retry budget exhausted",
       tag: "alert-red-1",
       url: "/"
@@ -875,7 +875,7 @@ test.describe("Caesar's Palace PWA and push path", () => {
       handlers.push({
         data: { json: () => ({
           alert_id: "alert-click-1",
-          title: "Caesar's Palace â€” action required",
+          title: "Caesar's Palace — action required",
           body: "automation retry budget exhausted",
           tag: "alert-click-1",
           url: "/"
