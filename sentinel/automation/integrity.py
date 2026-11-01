@@ -116,7 +116,83 @@ def _event_datetime(value: Any) -> Any:
         return value
 
 
-def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
+def _recovered_preflight_observation(conn, cycle: CycleRecord) -> bool:
+    """Authenticate the retained native recovery proof, without broker contact."""
+    diagnostic = cycle.diagnostic
+    sequence = diagnostic.get("transport_reconciliation_id")
+    if (not isinstance(sequence, str) or not sequence.isdecimal()
+            or int(sequence) < 1
+            or type(diagnostic.get("observation_id")) is not int
+            or diagnostic.get("observation_id") != int(sequence)
+            or str(diagnostic["observation_id"]) != sequence
+            or diagnostic.get("runtime_state") != "RUNNING"
+            or any(diagnostic.get(key) != [] for key in (
+                "unresolved", "foreign_orders", "foreign_positions"))):
+        return False
+    from sentinel.execution.journal import load_observation_payload
+    payload = load_observation_payload(conn, int(sequence))
+    if (payload["completeness"] != "COMPLETE"
+            or payload["broker"] != cycle.broker
+            or payload["account_id"] != cycle.broker_account_id):
+        return False
+    with conn.cursor() as cur:
+        cur.execute("SELECT runtime_state FROM sentinel_observations WHERE seq=%s",
+                    (int(sequence),))
+        return cur.fetchone() == ("RUNNING",)
+
+
+def predecessors_reached_transport(conn, cycles: list[CycleRecord]) -> bool:
+    """Classify validated event histories, not the overloaded state name alone.
+
+    Callers validate complete predecessor lineage first. A RECONCILING edge is
+    harmless only when its carried snapshot proves planless preflight. Legacy
+    adoption events preserve diagnostics but omit some other mutable fields.
+    """
+    for cycle in cycles:
+        preflight = cycle.failure_code == "STALE_PREFLIGHT_RECOVERED"
+        if preflight and not _recovered_preflight_observation(conn, cycle):
+            return True
+        with conn.cursor() as cur:
+            cur.execute("SELECT from_state,to_state,control_generation,detail "
+                        "FROM sentinel_automation_cycle_events "
+                        "WHERE cycle_id=%s ORDER BY seq", (cycle.cycle_id,))
+            events = cur.fetchall()
+        diagnostic, plan_id, plan_fingerprint = {}, None, None
+        if preflight:
+            source, target, generation, raw_final = events[-1]
+            final = _as_detail(raw_final)
+            if (source not in {"RETRY_WAIT", "RECONCILING"}
+                    or target != "SUPERSEDED" or generation <= cycle.control_generation
+                    or final.get("adoption") is not True
+                    or final.get("identity_matches_current_authority") is not True
+                    or final.get("diagnostic") != cycle.diagnostic):
+                return True
+        for source, target, _generation, raw_detail in events:
+            detail = _as_detail(raw_detail)
+            if source == "EXECUTING" or target == "EXECUTING":
+                return True
+            if source == "RECONCILING" and (
+                    not preflight or plan_id is not None or plan_fingerprint is not None
+                    or diagnostic.get("retry_phase") != "PREFLIGHT_RECOVER"):
+                return True
+            if preflight and target == "SUPERSEDED" and (
+                    diagnostic.get("retry_phase") != "PREFLIGHT_RECOVER"):
+                return True
+            diagnostic = detail.get("diagnostic", diagnostic)
+            plan_id = detail.get("plan_id", plan_id)
+            plan_fingerprint = detail.get("plan_fingerprint", plan_fingerprint)
+            if preflight and (plan_id is not None or plan_fingerprint is not None):
+                return True
+            if diagnostic.get("retry_phase") in {"EXECUTE", "RECOVER"}:
+                return True
+            if target == "RECONCILING" and (
+                    not preflight or plan_id is not None or plan_fingerprint is not None
+                    or diagnostic.get("retry_phase") != "PREFLIGHT_RECOVER"):
+                return True
+    return False
+
+
+def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None) -> CycleRecord:
     """Require the materialized cycle to be explained by immutable events.
 
     Validation includes deterministic identity, genesis, legal/continuous edges,
@@ -124,6 +200,9 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
     mutable fields explicitly carried by transition events. Adoption events are
     the only allowed exception to ordinary same-generation edges.
     """
+    validated = {} if _validated is None else _validated
+    if validated.get(cycle.cycle_id) == cycle:
+        return cycle
     spec = CycleSpec(
         decision_session=cycle.decision_session,
         effective_session=cycle.effective_session,
@@ -247,22 +326,17 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
                         prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
                         local_paper_continuation.require(conn, spec=spec, cycles=prior, config=debug_config)
                     elif not recovered:
-                        if debug:
-                            from sentinel.automation import store
-                            prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
-                            for predecessor in prior:
-                                validate_cycle_lineage(conn, predecessor)
-                            eligible = all(store._unsent_retirement(cycle, spec, debug=True) for cycle in prior)
-                        else:
-                            eligible = all(row[1:] == ('SUPERSEDED', 'CONTROL_GENERATION_SUPERSEDED', False)
-                                           for row in rows)
+                        from sentinel.automation import store
+                        prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
+                        for predecessor in prior:
+                            validate_cycle_lineage(conn, predecessor, _validated=validated)
+                        eligible = all(store._unsent_retirement(
+                            cycle, spec, debug=debug, recovered_preflight=True) for cycle in prior)
                         if not eligible:
                             raise AutomationRefused('prospective cycle predecessor is not an unsent retirement')
-                    cur.execute(
-                        "SELECT EXISTS(SELECT 1 FROM sentinel_automation_cycle_events "
-                        "WHERE cycle_id=ANY(%s::text[]) AND (from_state IN ('EXECUTING','RECONCILING') "
-                        "OR to_state IN ('EXECUTING','RECONCILING')))", (known,))
-                    if cur.fetchone()[0] and not continuation:
+                    from sentinel.automation import store
+                    prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
+                    if not continuation and predecessors_reached_transport(conn, prior):
                         raise AutomationRefused('prospective cycle predecessor reached transport')
                 conn.rollback()
                 if known != predecessors:
@@ -343,6 +417,7 @@ def validate_cycle_lineage(conn, cycle: CycleRecord) -> CycleRecord:
             raise AutomationRefused(
                 f"automation cycle field {field} disagrees with event history")
 
+    validated[cycle.cycle_id] = cycle
     return cycle
 
 

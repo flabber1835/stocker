@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 from sentinel.panel.presentation import describe, dashboard_health
 from sentinel.panel.overview import overview_html
 from sentinel.panel.styles import CSS
+from sentinel.panel.banner import BANNER_SCRIPT
 
 from sentinel.panel.model import (
     FAIL, OK, PENDING, TRIAL_ROW_KEYS,
@@ -522,7 +523,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
-  <div class="brand"><img src="/static/caesars-palace-512.png" alt="{_esc(page_name)}"></div>
+  <div class="brand"><img data-banner-src="/static/caesars-palace-512.png" width="512" height="512" alt="{_esc(page_name)}" hidden><noscript><img src="/static/caesars-palace-512.png" width="512" height="512" alt="{_esc(page_name)}"></noscript><span class="brand-fallback" hidden>{_esc(page_name)}</span></div>
   <span id="operational-state" class="state {headline_status}" title="{_esc(operational_headline)}">{_esc(compact_headline)}</span>
   {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
@@ -811,6 +812,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 }})();
 </script>
 <script>{PUSH_SCRIPT}</script>
+<script>{BANNER_SCRIPT}</script>
 </body></html>"""
 
 

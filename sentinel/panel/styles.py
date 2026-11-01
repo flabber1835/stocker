@@ -22,6 +22,8 @@ body{margin:0;color:var(--ink);font:15px/1.45 ui-sans-serif,-apple-system,BlinkM
 header{display:block;padding:6px 0 0;margin:0 0 18px}
 .brand{display:block}
 .brand img{display:block;width:100%;max-width:100%;height:auto;border-radius:11px;border:1px solid #a98750}
+.brand-fallback{display:block;color:#e2c68c;font:1.2em/1.4 Georgia,serif;padding:10px 0}
+.brand img[hidden],.brand-fallback[hidden]{display:none}
 .state{display:block;border:1px solid currentColor;border-radius:12px;font-size:12px;font-weight:650;
  letter-spacing:.045em;padding:12px 14px;margin-top:19px;line-height:1.4;overflow-wrap:anywhere}
 .state.ok{background:var(--okbg);color:var(--ok)}.state.warn{background:var(--warnbg);color:var(--warn)}
