@@ -438,6 +438,8 @@ def prepare_plan_evidence(conn, *, binding, state, plan, projection, reconciliat
             or projection.through_session != plan.effective_session
             or any(getattr(plan, field) != getattr(owner, field) for field in Binding.model_fields)):
         raise IssuerAdmissionRefused('ISSUER_ADMISSION_PLAN_BINDING_CHANGED')
+    from sentinel.execution.issuer_refresh import current_snapshot
+    snapshot = current_snapshot(conn, binding=owner, fallback=snapshot, now=now)
     source = _store_source(conn, snapshot, plan.decision_session)
     value = PlanEvidence(binding=owner, enrollment_sha256=enrollment.sha256,
         canonical_state_sha256=state.state_hash, plan_id=plan.plan_id,
@@ -526,7 +528,8 @@ def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None
     if own and set(keys).issubset(baseline):
         return Decision(allowed=True, reason='GRANDFATHERED_EPISODE', security_id=security_id, episode_keys=keys)
     _refuse_legacy_records(conn)
-    source = _source(conn, value)
+    from sentinel.execution.issuer_refresh import eligibility
+    source = eligibility(conn, binding=value.binding, original=_source(conn, value), now=now)
     issuer = _resolve(source, value.instruments, security_id, now)
     reason, conflicts = None, set()
     if not own:

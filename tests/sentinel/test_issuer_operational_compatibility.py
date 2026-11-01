@@ -56,6 +56,28 @@ def test_issuer_storage_keeps_exact_predecessor_sources_catalog_and_contracts():
         for prefix in issuer_admission.PREFIXES)
 
 
+def test_native_sec_cache_updates_advance_only_paper_without_changing_retained_contracts(conn,monkeypatch):
+    from sentinel.execution import issuer_refresh
+    from tests.sentinel.test_issuer_refresh import EMAIL,NOW,Opener,setup
+    assert_predecessor_contracts()
+    installed=operational_schema.install_quiescent(conn)
+    marker=conn.execute('SELECT session,state,updated_at FROM sentinel_processed_sessions WHERE cursor_name=%s',
+                        (operational_schema.CURSOR,)).fetchone()
+    epoch=operational_ddl_epoch.current(conn)
+    revisions=dict(conn.execute('SELECT scope,revision FROM sentinel_operational_read_revisions').fetchall())
+    conn.rollback()
+    setup(conn,monkeypatch)
+    assert issuer_refresh.collect(conn,email=EMAIL,now=NOW,opener=Opener())['status']=='REFRESHED'
+    after=dict(conn.execute('SELECT scope,revision FROM sentinel_operational_read_revisions').fetchall())
+    assert after['PAPER']>revisions['PAPER'] and after['SHADOW']==revisions['SHADOW']
+    assert operational_ddl_epoch.current(conn)==epoch
+    assert conn.execute('SELECT session,state,updated_at FROM sentinel_processed_sessions WHERE cursor_name=%s',
+                        (operational_schema.CURSOR,)).fetchone()==marker
+    assert operational_schema.installation(conn)==installed
+    assert operational_schema.require_schema(conn)
+    assert_predecessor_contracts()
+
+
 def test_private_issuer_appends_advance_only_paper_without_schema_or_epoch_change(conn):
     from tests.sentinel.test_issuer_admission import (
         BINDING, NOW, instruments, prepare, reconciliation, state,

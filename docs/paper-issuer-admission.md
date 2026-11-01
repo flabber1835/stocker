@@ -50,7 +50,7 @@ their evidence version; refresh only missing, expired or changed identities.
 Capture current-information observation dates honestly, never apply them as
 historical point-in-time evidence or rewrite past strategy results.
 
-Direct SEC requests from this host are currently blocked. Official web-readable
+The original October27 direct SEC requests were blocked. Official web-readable
 SEC observations may seed a dated, source-attributed representation, preserving
 the exact captured observations and their digest. Its digest is explicitly that
 of the extracted representation, not an invented original HTTP response hash.
@@ -59,11 +59,97 @@ Provider failures cannot silently remove securities from the strategy universe
 or mark unknown issuer relationships as known. Future bounded refresh failure
 retains only still-valid evidence and otherwise blocks affected new entries.
 The initial bundled observation expires November 26, 2026 at 05:13:13 UTC.
-The bounded refresh helper is an offline acquisition tool; it is not a promise
-of unattended SEC access from this blocked host. Replacing the trusted snapshot
-requires retaining a genuinely new observation and its digest. Qualification
-reports the expiry and unresolved coverage explicitly. No expiry extension may
-be inferred from file generation, installation, a retry or a cache read.
+The original bounded helper was an offline acquisition tool. The November1
+autonomous-refresh decision below supplies its scheduled production owner;
+installation of that change still requires qualification, CI and signed delivery.
+Replacing a trusted snapshot requires a genuinely new observation and digest.
+No expiry extension may be inferred from installation, retry or cache reads.
+
+## Autonomous reference maintenance (owner decision November1, 2026)
+
+The owner authorizes a contact email in private literal configuration as
+`SENTINEL_SEC_CONTACT_EMAIL`. Keep the real address out of tracked examples,
+provider error messages, public status and qualification fixtures. This is the
+SEC's declared automated-client contact identity, not a login credential. An
+actual Ubuntu request with the authorized contact succeeded against both the
+official ticker/exchange file and the existing Petrobras disclosure on November1.
+
+Use the existing execution collector's independently bounded child runner for
+issuer-reference maintenance. Do not create another service/loop, download in
+BUY submission, or extend account/fill collection deadlines. Account and fill
+collection retain priority; an issuer child has its own15-second bound and at
+most two bounded official HTTP reads, with4-second request timeouts. Skip
+reference network work around the regular execution opening window. Persist
+the next eligible attempt so restart does not create a download storm. Ordinary
+successful checks are daily; failed provider reads retry after at least an hour.
+No redirect, alternate host, fake email, arbitrary URL or provider error-body
+logging is permitted. Require valid ASCII contact syntax before constructing a
+header. The existing2MiB response and30-day evidence limits remain unchanged.
+
+Keep maintenance state under an account-scoped child of the existing issuer
+`source:` operational namespace. It contains a typed, digest-checked bounded
+status record and a separate compact first-observed ticker/exchange-to-CIK anchor
+catalog. Reuse an identical catalog rather than writing it on every check. Keep
+anchors for disappeared symbols; a later changed CIK is not an unobserved new
+identity. Contradictory or ambiguous pairs are excluded from the new reference
+representation and explicitly reported as unresolved coverage. They cannot
+become trusted merely because another retry no longer has their old row.
+This changes neither the strategy universe nor existing holdings and does not
+automatically review or retarget an issuer claim.
+
+Serialize refresh owners using a separate native advisory lock. Acquire the
+existing execution writer lock only for short state selection/publication,
+never across HTTP. Refuse a changed account/epoch, malformed cache, time reversal
+or lost ownership; defer publication when execution owns its writer lock.
+No new table, cursor root, migration, schema counter or financial authority is
+introduced. Previously retained source versions, enrollment/grandfathering,
+plans and claims remain immutable. Successful HTTP observation publishes a new
+full source version only when relevant contents change or valid evidence is
+within seven days of expiry; unchanged checks update only small current status.
+Thus retries do not create unbounded receipt/log or duplicate catalog growth.
+
+Refresh the Petrobras ADR corroboration too, before its independent expiry.
+Fetch only the already trusted SEC disclosure for that exact operating CIK.
+Parse positive common/preferred ADS, two-share and non-convertibility facts;
+retain the fetched-body digest in the newly observed extracted representation.
+Missing/changed facts or a failed request never renew the prior corroboration.
+Still-valid evidence may continue; after expiry the affected identity refuses.
+Unsupported ADR relationships remain unresolved rather than inferred from a name.
+
+New plan evidence selects the current retained local reference. Retained plans
+keep their original source and economic/episode commitments. A fresh reference
+may continue the same positively established issuer for a retained plan after
+its older reference expires; require exact agreement with the pinned historical
+issuer as well as fresh current evidence. It cannot turn an originally unknown
+identity into a new issuer for that old plan, retarget a claim, or authorize a
+new duplicate class. Both admission and final submission use this local proof;
+ordinary grandfathered continuation, BIL and reductions retain their contracts.
+
+Expose current reference validity, last successful observation, bounded retry
+state and unresolved coverage through existing operational diagnostics. A valid
+cache with a scheduled retry is normal operation; an expired or contradictory
+identity never becomes green new-entry permission. No HTTP occurs on dashboard
+reads. Qualify real-source fetch/persistence, restart/backoff and concurrency,
+expiry/corroboration, missing/changed identities, all command/claim protections,
+literal configuration and removed-guard controls before canonical delivery.
+
+The worker may refresh the one already reviewed Petrobras disclosure alongside
+each daily list check. Reuse a successful, semantically unchanged full source
+until its list or ADR evidence is within seven days of expiry; status records
+the actual later check without extending the stored source's expiry. Bind the
+fetched disclosure-body SHA256 into its extracted representation and use the
+worker request's conservative prior UTC bound for its observation time. Parse
+visible HTML text only, excluding scripts/styles. Arbitrary disclosure URLs and
+new ADR relationships are not selected automatically.
+
+Retain a permanent negative anchor for a contradictory listing. Quarantine its
+exact symbol and documented dot/hyphen equivalent, including cross-exchange CIK
+conflicts. An unusable whole response keeps only still-valid prior evidence;
+observed contradictions remain blocked even if no usable positive row remains.
+The execution writer lock is a short native advisory transaction lock for
+operational source selection/publication. It grants no financial permission and
+does not use the recovery-only financial writer exception. A separate session
+refresh lock stays owned across HTTP while database transactions are closed.
 
 ## Enrollment and existing holdings
 
