@@ -49,8 +49,10 @@ def windows_drive(path):
     return drive.upper()
 
 
-def windows_storage(runner=run):
+def windows_storage(runner=run, *, docker_desktop=True):
     # PowerShell receives only a validated distribution name, never credentials.
+    if type(docker_desktop) is not bool:
+        raise Refused("Docker backing host selection is invalid")
     distro = os.environ.get("WSL_DISTRO_NAME", "")
     if not distro:
         # systemd jobs may omit the login environment. wslpath resolves the
@@ -60,14 +62,7 @@ def windows_storage(runner=run):
         distro = match[1] if match else ""
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", distro):
         raise Refused("WSL_DISTRO_NAME is required for host capacity admission")
-    script = r"""
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
-$distro = '__DISTRO__'
-$entries = @(Get-ChildItem HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss |
-    Get-ItemProperty | Where-Object { $_.DistributionName -eq $distro })
-if ($entries.Count -ne 1) { throw 'Distribution backing disk unresolved' }
-$distroPath = $entries[0].BasePath -replace '^\\\\\?\\', ''
+    desktop_storage = r"""
 $dockerPath = Join-Path $env:LOCALAPPDATA 'Docker\wsl\disk\docker_data.vhdx'
 $settings = Join-Path $env:APPDATA 'Docker\settings-store.json'
 if (Test-Path -LiteralPath $settings) {
@@ -76,15 +71,28 @@ if (Test-Path -LiteralPath $settings) {
         $dockerPath = Join-Path $config.DiskImageLocation 'docker_data.vhdx'
     }
 }
-if (!(Test-Path -LiteralPath $dockerPath) -or !(Test-Path -LiteralPath $distroPath)) {
+if (!(Test-Path -LiteralPath $dockerPath)) {
     throw 'Backing path unavailable'
 }
+""" if docker_desktop else "$dockerPath = $null\n"
+    script = r"""
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$distro = '__DISTRO__'
+$entries = @(Get-ChildItem HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss |
+    Get-ItemProperty | Where-Object { $_.DistributionName -eq $distro })
+if ($entries.Count -ne 1) { throw 'Distribution backing disk unresolved' }
+$distroPath = $entries[0].BasePath -replace '^\\\\\?\\', ''
+if (!(Test-Path -LiteralPath $distroPath)) {
+    throw 'Backing path unavailable'
+}
+__DESKTOP_STORAGE__
 $free = @{}
 Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object {
     $free[$_.DeviceID] = [long]$_.FreeSpace
 }
 @{ distro_path=$distroPath; docker_path=$dockerPath; free=$free } | ConvertTo-Json -Compress
-""".replace("__DISTRO__", distro)
+""".replace("__DISTRO__", distro).replace("__DESKTOP_STORAGE__", desktop_storage)
     encoded = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     executable = shutil.which("powershell.exe") or (
         "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
@@ -100,7 +108,8 @@ def destinations(backup_root, docker_root, operating_system, runner=run, *, rest
     """Return (allocation disk, restore disk, actual free bytes by disk)."""
     kernel = Path("/proc/sys/kernel/osrelease").read_text().lower()
     if "microsoft" in kernel and not Path("/.dockerenv").exists():
-        record = windows_storage(runner)
+        desktop = "docker desktop" in operating_system.lower()
+        record = windows_storage(runner, docker_desktop=desktop)
         match = re.match(r"^/mnt/([a-zA-Z])(?:/|$)", str(backup_root))
         free = dict(record["free"])
         if (match and restore_root is not None
@@ -118,7 +127,10 @@ def destinations(backup_root, docker_root, operating_system, runner=run, *, rest
             free[backup] = shutil.disk_usage(backup_root).free
         else:
             backup = windows_drive(record["distro_path"])
-        restore = windows_drive(record["docker_path"]) if "docker desktop" in operating_system.lower() else windows_drive(record["distro_path"])
+        if desktop:
+            restore = windows_drive(record["docker_path"])
+        else:
+            restore = windows_drive(record["distro_path"])
         if restore_root is not None:
             restore = "linux:" + str(Path(restore_root).stat().st_dev)
             free[restore] = shutil.disk_usage(restore_root).free

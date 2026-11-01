@@ -130,9 +130,11 @@ def test_wsl_native_daemon_uses_distro_drive_instead_of_docker_desktop_disk(monk
     monkeypatch.setattr(Path, 'exists', lambda p:
         False if str(p) == '/.dockerenv' else real_exists(p))
     monkeypatch.setattr(Path, 'stat', lambda p, **k: SimpleNamespace(st_dev=1))
-    monkeypatch.setattr(capacity, 'windows_storage', lambda runner:
-        {'distro_path': r'C:\Ubuntu', 'docker_path': r'D:\Docker\disk.vhdx',
-         'free': {'C:': 64 * capacity.GIB, 'D:': 128 * capacity.GIB}})
+    def native_observation(runner, *, docker_desktop=True):
+        assert docker_desktop is False
+        return {'distro_path': r'C:\Ubuntu', 'docker_path': None,
+                'free': {'C:': 64 * capacity.GIB}}
+    monkeypatch.setattr(capacity, 'windows_storage', native_observation)
     monkeypatch.setattr(capacity.shutil, 'disk_usage',
                         lambda _: pytest.fail('WSL virtual capacity was used'))
     allocation, restore, free = capacity.destinations('/home/operator/backup',
