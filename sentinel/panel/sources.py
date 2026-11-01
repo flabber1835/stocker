@@ -1653,7 +1653,28 @@ def _operator_evidence_rows(
                 ("runtime identity", identity_error)):
             if error:
                 errors.append(f"operator {label}: {error}")
-        return [account_row, backup_row, identity_row], errors
+        issuer_rows = []
+        if local:
+            from sentinel.execution import issuer_refresh
+            def issuer_fact(c):
+                owner = local_paper.bound_account(c)
+                return issuer_refresh.diagnostic(c, binding=owner.identity, now=now)
+            issuer, issuer_error = _read(conn, issuer_fact, STATEMENT_TIMEOUT_MS, default=None)
+            if issuer_error:
+                issuer_rows.append(model.Row('issuer_reference', 'SEC issuer reference', 'UNREADABLE',
+                    model.UNKNOWN, issuer_error, now, required_current=True))
+                errors.append('operator issuer reference: ' + issuer_error)
+            elif issuer is not None:
+                issuer_rows.append(model.Row('issuer_reference', 'SEC issuer reference',
+                    'VALID LOCAL REFERENCE' if issuer['valid'] else 'REFERENCE EXPIRED',
+                    model.OK if issuer['valid'] else model.FAIL,
+                    'Scope ' + issuer['coverage'] + '; quarantined symbols: ' + str(issuer['quarantined'])
+                    + '; source observed ' + issuer['source_observed_at'].isoformat()
+                    + '; last successful check ' + str(issuer['last_success_at'])
+                    + '; next attempt ' + issuer['next_attempt_at'].isoformat()
+                    + '; ' + issuer['reason'] + '. Individual BUY identity checks remain mandatory.',
+                    now, valid_until=issuer['expires_at'], required_current=True))
+        return [account_row, backup_row, identity_row, *issuer_rows], errors
     except Exception as exc:                                  # noqa: BLE001
         detail = _short(exc)
         return ([

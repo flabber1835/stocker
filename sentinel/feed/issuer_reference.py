@@ -330,6 +330,8 @@ class RefreshResult(Contract):
     snapshot: IssuerReferenceSnapshot | None
     reason: str
     retry_after_seconds: int = Field(default=3600, ge=60)
+    anchor_rows: tuple[IssuerAssociation, ...] = ()
+    quarantined_symbols: tuple[Symbol, ...] = ()
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -339,7 +341,8 @@ class _NoRedirect(HTTPRedirectHandler):
 
 def refresh_snapshot(snapshot: IssuerReferenceSnapshot, *, now: datetime | None = None,
                      opener=None, timeout: float = 15,
-                     user_agent: str = DEFAULT_USER_AGENT) -> RefreshResult:
+                     user_agent: str = DEFAULT_USER_AGENT,
+                     anchor_rows=None, quarantined_symbols=()) -> RefreshResult:
     """One bounded offline-refresh request; failure never renews cached evidence.
 
     The caller schedules this outside execution, persists successful evidence,
@@ -373,14 +376,23 @@ def refresh_snapshot(snapshot: IssuerReferenceSnapshot, *, now: datetime | None 
                     or type(row[0]) is not int or not 0 < row[0] < 10**10):
                 return unavailable("sec_response_row_invalid")
             rows.append(IssuerAssociation(cik=f"{row[0]:010d}", ticker=row[2], exchange=row[3]))
-        prior = {(row.ticker, row.exchange): row.cik for row in snapshot.associations}
-        if any(prior.get((row.ticker, row.exchange), row.cik) != row.cik for row in rows):
-            return unavailable("changed_cik_requires_identity_review")
+        anchors, blocked = (), ()
+        if anchor_rows is None:
+            prior = {(row.ticker, row.exchange): row.cik for row in snapshot.associations}
+            if any(prior.get((row.ticker, row.exchange), row.cik) != row.cik for row in rows):
+                return unavailable("changed_cik_requires_identity_review")
+        else:
+            from sentinel.feed.issuer_refresh import quarantine_observation
+            rows, anchors, blocked = quarantine_observation(rows, anchor_rows, quarantined_symbols)
+            if not rows:
+                return unavailable('sec_no_unambiguous_associations').model_copy(update={
+                    'anchor_rows': anchors, 'quarantined_symbols': blocked})
         refreshed = IssuerReferenceSnapshot.create(
             observed_at_utc=current, associations=rows, source_method="DIRECT_HTTP_BODY",
-            coverage="COMPLETE_SOURCE", corroborations=snapshot.corroborations,
+            coverage="PARTIAL" if blocked else "COMPLETE_SOURCE", corroborations=snapshot.corroborations,
             raw_http_sha256=hashlib.sha256(raw).hexdigest())
-        return RefreshResult(status="REFRESHED", snapshot=refreshed, reason="sec_source_observed")
+        return RefreshResult(status="REFRESHED", snapshot=refreshed, reason="sec_source_observed",
+                             anchor_rows=anchors, quarantined_symbols=blocked)
     except HTTPError as error:
         return unavailable("sec_http_" + str(error.code))
     except (URLError, TimeoutError, OSError):
