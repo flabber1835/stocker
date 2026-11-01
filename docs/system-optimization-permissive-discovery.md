@@ -31,6 +31,15 @@ account operation avoids manufacturing a price just to produce performance.
 There is no diagnostic CAGR, multiple, drawdown, monthly ranking or comparison.
 The output includes actual Core fills and orders, not merely source metadata.
 
+The fork uses new canonical journal streams in its own directory. A diagnostic
+daily row carries session/state/input identities so the retained input-scope
+guards can join and clear their pending transition evidence normally. Their
+historical watch-field name `financial_row_sha256` hashes this explicitly
+tainted diagnostic row; it does not grant financial authority. No old journal
+is recovered, truncated or rewritten to create this fork. Retain the original
+strict journals and tails in the authenticated parent. The diagnostic checkpoint
+binds its new streams and the exact committed event prefix separately.
+
 ## Exact diagnostic conventions
 
 1. Probe terminal application on detached copies of the Core state, ledger and
@@ -85,6 +94,25 @@ source/input/parent mounts, exact stopped-worker/export safeguards, serial
 candidate fences and approved encrypted seven-day artifacts with a separate
 key. No local financial execution, PAPER, broker/database, service, deployment
 or main change is authorized by this pass.
+
+The selected strict parent is the independently admitted April 30, 2025 P02
+checkpoint from run `41256802322`, artifact `13064935129`: 1,842 measured closes
+and 41 retained inputs. Its outer hash is
+`1f8b47018ffe4f2c09bd9d1c58e49fd2162559ae2c665a5c711f73072f08868c`;
+the client admission is
+`d0070f26e123b33b30f7add8a36ae07f072bd58e53c3b8295d3c78ae22fb62c0`.
+The May 15 diagnostic cursor is not a predecessor. Replay all 314 remaining
+sessions starting May 1, including the strict job's unsent tail.
+
+One push-triggered workflow first runs a stopped qualification worker with a
+900-second processing bound. Its three synthetic fault-injection transitions
+use detached publications, explicitly omit fixture cash/spinoff distributions,
+and change no provider facts. Only an actual successful qualification receipt
+admits the separate discovery worker. The latter has a 12,600-second processing
+bound inside the existing 285-minute workflow budget. Both use the established
+2-CPU/8-GiB/no-swap/offline fences and disjoint output roots. Unknown stop means
+no snapshot. The output manifest uses `campaign-disposable-discovery`, not the
+financial-suffix stage, and remains encrypted for seven days.
 
 A completed pass requires every remaining dated session through the frozen end
 and a reviewed event journal. A partial run or a source inventory is not a

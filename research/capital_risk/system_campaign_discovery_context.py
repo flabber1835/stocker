@@ -119,6 +119,7 @@ class DiscoveryContext:
         self.tainted = False
         self.metadata_for = None
         self.metadata = None
+        self.event_hash = hashlib.sha256()
 
     def patch(self, owner, name, replacement):
         original = getattr(owner, name)
@@ -174,10 +175,16 @@ class DiscoveryContext:
             input_sha256=self.current[0].input_sha256,
             context=material(dict(bypass=bypass, **context))).model_dump()
         self.chain = digest(dict(previous=self.chain, event=event))
-        self.stream.write(encoded(dict(event=event, chain_sha256=self.chain))+b'\n')
+        raw = encoded(dict(event=event, chain_sha256=self.chain))+b'\n'
+        self.stream.write(raw)
         self.stream.flush(); os.fsync(self.stream.fileno())
+        self.event_hash.update(raw)
         self.sequence += 1
         self.tainted |= bypass
+
+    def commitment(self):
+        return dict(bytes=self.stream.tell(), prefix_sha256=self.event_hash.hexdigest(),
+                    rows=self.sequence, chain_sha256=self.chain)
 
     def carry(self, terms, refusal):
         self.emit('TERMINAL_APPLICATION_BYPASSED', terms.security_id, bypass=True,

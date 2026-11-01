@@ -24,6 +24,7 @@ class Fence(importlib.abc.MetaPathFinder):
 
 sys.meta_path.insert(0, Fence())
 import system_campaign_discovery_context as d
+import system_campaign_discovery_replay as replay
 
 
 class Status(str, Enum):
@@ -244,6 +245,10 @@ def test_actual_transition_captures_fill_and_event_chain(tmp_path, monkeypatch):
         assert record['kind'] == 'CORE_TRANSITION_COMMITTED'
         assert record['context']['new_ledger_events'][0]['security_id'] == 'REAL_QUOTED_FILL'
         assert record['context']['account_performance_computed'] is False
+        raw = (tmp_path/'discovery-events.jsonl').read_bytes()
+        import hashlib
+        assert context.commitment() == dict(bytes=len(raw), prefix_sha256=hashlib.sha256(raw).hexdigest(),
+            rows=1, chain_sha256=context.chain)
     assert run.state.ledger['events'] == [] and run.state.state_hash == 'b'*64
 
 
@@ -279,3 +284,26 @@ def test_local_runtime_entry_is_fenced(tmp_path):
     with pytest.raises(ValueError, match='HOSTED_CORE_ONLY'):
         with d.DiscoveryContext(tmp_path, source_sha256='d'*64):
             pass
+
+
+@pytest.mark.parametrize('observed', [[], ['2025-05-02'], ['2025-05-01','2025-05-01'],
+                                      ['2025-05-02','2025-05-01']])
+def test_no_skipped_duplicate_or_reordered_discovery_sessions(observed):
+    with pytest.raises(ValueError, match='COMPLETE_ORDERED_SESSION_AXIS'):
+        replay.require_axis(observed,['2025-05-01','2025-05-02'])
+
+
+def test_discovery_runs_core_transition_without_account_performance_or_fresh_origin():
+    tree = ast.parse((HERE/'system_campaign_discovery_replay.py').read_bytes())
+    calls = [ast.unparse(v.func) for v in ast.walk(tree) if isinstance(v,ast.Call)]
+    assert 'runtime.advance' in calls and 'runtime.restore' in calls
+    assert not any(v.endswith(('advance_account','anchor_account','runtime.start','backtest.main')) for v in calls)
+    fn, = [v for v in tree.body if isinstance(v,ast.FunctionDef) and v.name == 'replay']
+    assert ast.unparse(fn.body[1]) == 'hosted()'  # After the function docstring.
+    assert "stream.append('daily', row)" in ast.unparse(fn)
+    assert 'authority=TAINT' in ast.unparse(fn)
+
+
+def test_discovery_loop_cannot_execute_financial_code_locally(tmp_path):
+    with pytest.raises(ValueError, match='HOSTED_CORE_ONLY'):
+        replay.replay(tmp_path,{},tmp_path,selected_file='not-read',strict_admission_sha256='a'*64)
