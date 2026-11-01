@@ -230,7 +230,14 @@ def test_existing_brand_graphic_replaces_duplicate_header_text_but_keeps_accessi
                                         session='2026-10-22')] if shadow else [])
     html=render(model.Panel(now=NOW,rows=rows))
     header=Header();header.feed(html)
-    assert header.images==[{'src':'/static/caesars-palace-512.png','alt':"Caesar's Palace"}]
+    assert header.images==[
+        {'data-banner-src':'/static/caesars-palace-512.png','width':'512',
+         'height':'512','alt':"Caesar's Palace",'hidden':None},
+        {'src':'/static/caesars-palace-512.png','width':'512',
+         'height':'512','alt':"Caesar's Palace"},
+    ]
+    assert '<noscript><img src="/static/caesars-palace-512.png"' in html
+    assert '<span class="brand-fallback" hidden>' in html
     assert not header.headings
     visible=' '.join(header.visible)
     assert "CAESAR'S PALACE" not in visible and 'Sentinel · PAPER' not in visible

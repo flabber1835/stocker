@@ -57,3 +57,66 @@ test('server document summary keeps original identity and warning IDs without ac
   assert.equal(doc.headline_label,'Needs & attention');assert.deepEqual(doc.warning_ids,['sender']);
   assert.equal(doc.sha256.length,64);assert.ok(!JSON.stringify(doc).includes('secret account amount'));
 });
+
+function withBanners(report=healthy()) {
+  for (const response of report.responses) Object.assign(response.document,{
+    banner_required:true,banner_path:'/static/caesars-palace-512.png'});
+  for (const event of report.events.filter(item=>item.type==='meaningful-content')) Object.assign(event,{
+    banner_present:true,banner_assigned:true,banner_complete:true,banner_width:512,banner_height:512,
+    banner_displayed:true,banner_path:'/static/caesars-palace-512.png'});
+  return report;
+}
+
+test('banner acceptance is additional to unchanged financial content timing',()=>{
+  const original=healthy(),report=withBanners();
+  assert.equal(assessCapture(report).status,'PASS');
+  assert.deepEqual(assessCapture(report).metrics,assessCapture(original).metrics);
+  assert.deepEqual(assessCapture(report).targets,assessCapture(original).targets);
+});
+
+test('blank completed image cannot pass even when all financial content is visible',()=>{
+  const report=withBanners();
+  const event=report.events.find(item=>item.generated_at===generation(1));
+  Object.assign(event,{banner_width:0,banner_height:0,banner_displayed:false});
+  assert.deepEqual(assessCapture(report).findings.map(item=>item.code),['BANNER_UNAVAILABLE']);
+  assert.equal(assessCapture(report).findings[0].request_id,2);
+});
+
+test('every banner document requires its own positive decoded and displayed evidence',()=>{
+  for (const change of [
+    event=>{delete event.banner_present;},
+    event=>{event.banner_complete=false;},
+    event=>{event.banner_displayed=false;},
+    event=>{event.banner_width=1;event.banner_height=1;},
+    event=>{event.banner_path='/static/other.png';}
+  ]) {
+    const report=withBanners();
+    change(report.events.find(item=>item.generated_at===generation(2)));
+    const codes=assessCapture(report).findings.map(item=>item.code);
+    assert.ok(codes.includes('MISSING_BANNER_EVIDENCE') || codes.includes('BANNER_UNAVAILABLE'));
+    assert.equal(assessCapture(report).status,'FAIL');
+  }
+});
+
+test('source detection keeps only the banner path and never its recovery query',()=>{
+  for (const attribute of ['src','data-banner-src']) {
+    const doc=serverDocument(`<body><div class="brand"><img ${attribute}="/static/caesars-palace-512.png?recovery=private-token"></div></body>`);
+    assert.equal(doc.banner_required,true);
+    assert.equal(doc.banner_path,'/static/caesars-palace-512.png');
+    assert.ok(!JSON.stringify(doc).includes('private-token'));
+  }
+  assert.equal(serverDocument('<body>Recorder-only fixture</body>').banner_required,false);
+});
+
+test('removing banner admission makes the blank-image oracle fail',()=>{
+  const fs=require('node:fs'),vm=require('node:vm');
+  const filename=require.resolve('./support/dashboard-journey-capture.cjs');
+  const source=fs.readFileSync(filename,'utf8'),guard='if (doc?.banner_required) {';
+  assert.equal(source.split(guard).length,2);
+  const context={module:{exports:{}},require};
+  vm.runInNewContext(source.replace(guard,'if (false) {'),context,{filename:'removed-banner-admission'});
+  const report=withBanners();
+  Object.assign(report.events.find(item=>item.generated_at===generation(1)),{
+    banner_width:0,banner_height:0,banner_displayed:false});
+  assert.throws(()=>assert.equal(context.module.exports.assessCapture(report).status,'FAIL'),assert.AssertionError);
+});

@@ -1,5 +1,191 @@
 const { test, expect } = require("@playwright/test");
 
+test.describe('Banner resource recovery', () => {
+  // Image-resource behavior is independent of push/navigation worker behavior.
+  // Use real PNG decoding and document replacement in each desktop engine;
+  // this does not claim an actual iOS Home Screen acceptance result.
+  test.use({serviceWorkers:'block'});
+
+  const assetPath='/static/caesars-palace-512.png';
+  const assetSha256='87d7efa50b7335de0f82614456c18baa81299c1fe7c62c7b8ab9670e46b0d31f';
+
+  async function bannerFixture(page,{failures=0,hold=false}={}) {
+    const http=require('node:http');
+    const crypto=require('node:crypto');
+    const documentResponse=await page.request.get('/');
+    expect(documentResponse.status()).toBe(200);
+    const html=await documentResponse.text();
+    const imageResponse=await page.request.get(assetPath);
+    expect(imageResponse.status()).toBe(200);
+    const png=await imageResponse.body();
+    expect(crypto.createHash('sha256').update(png).digest('hex')).toBe(assetSha256);
+    expect([png.readUInt32BE(16),png.readUInt32BE(20)]).toEqual([512,512]);
+    const requests=[],pending=new Set(),sockets=new Set(),timers=new Set();
+    let held=hold;
+    function image(response,body) {
+      if (response.destroyed) return;
+      response.writeHead(200,{'Content-Type':'image/png','Cache-Control':'no-store',
+        'Content-Length':body.length});
+      response.end(body);
+    }
+    const server=http.createServer((request,response)=>{
+      const url=new URL(request.url,'http://127.0.0.1');
+      if (url.pathname===assetPath) {
+        requests.push({path:url.pathname,query:url.search,url:request.url});
+        if (held) {
+          pending.add(response);
+          response.once('close',()=>pending.delete(response));
+          return;
+        }
+        if (requests.length<=failures) {
+          // Match the causal transport failure: promise the full image, send
+          // its first 1,024 real bytes, then interrupt that owned response.
+          response.writeHead(200,{'Content-Type':'image/png','Cache-Control':'no-store',
+            'Content-Length':png.length});
+          response.write(png.subarray(0,1024));
+          const timer=setTimeout(()=>{timers.delete(timer);response.destroy();},50);
+          timers.add(timer);
+          response.once('close',()=>{clearTimeout(timer);timers.delete(timer);});
+        } else image(response,png);
+      } else if (url.pathname==='/') {
+        response.writeHead(200,{'Content-Type':'text/html; charset=utf-8',
+          'Cache-Control':'no-store','X-Sentinel-Panel-Status':'CURRENT'});
+        // Retain every original financial field, verdict and evidence clock.
+        response.end(html);
+      } else {
+        response.writeHead(404,{'Content-Type':'text/plain','Cache-Control':'no-store'});
+        response.end('Not part of the owned banner fixture');
+      }
+    });
+    server.on('connection',socket=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));});
+    await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+    const url=`http://127.0.0.1:${server.address().port}/`;
+    return {html,url,requests,
+      async open(){await page.goto(url,{waitUntil:'domcontentloaded'});},
+      async replace(){await page.evaluate(body=>{document.open();document.write(body);document.close();},html);},
+      release(){held=false;for (const response of pending) image(response,png);pending.clear();},
+      async close(){
+        await page.goto('about:blank',{waitUntil:'commit',timeout:5000}).catch(()=>undefined);
+        for (const timer of timers) clearTimeout(timer);
+        timers.clear();
+        for (const response of pending) response.destroy();
+        const stopped=new Promise((resolve,reject)=>server.close(error=>error ? reject(error) : resolve()));
+        for (const socket of sockets) socket.destroy();
+        await stopped;
+      }
+    };
+  }
+
+  async function decodedBanner(page) {
+    await expect.poll(()=>page.locator('.brand img[data-banner-src]').evaluate(image=>({
+      complete:image.complete,width:image.naturalWidth,height:image.naturalHeight,
+      hidden:image.hidden
+    }))).toEqual({complete:true,width:512,height:512,hidden:false});
+    await expect(page.locator('.brand img[data-banner-src]')).toBeVisible();
+    await expect(page.locator('.brand-fallback')).toBeHidden();
+  }
+
+  async function paintedFrames(page) {
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  }
+
+  test('healthy existing PNG keeps its original resource identity',async ({page})=>{
+    const fixture=await bannerFixture(page);
+    try {
+      await fixture.open();await decodedBanner(page);
+      expect(fixture.requests).toHaveLength(1);
+      expect(fixture.requests[0].query).toBe('');
+      expect(await page.locator('.brand img[data-banner-src]').getAttribute('src')).toBe(assetPath);
+    } finally {await fixture.close();}
+  });
+
+  test('JavaScript-disabled page displays only the original noscript PNG',async ({browser,baseURL})=>{
+    const context=await browser.newContext({baseURL,javaScriptEnabled:false,
+      serviceWorkers:'block',viewport:{width:393,height:852}});
+    const page=await context.newPage();
+    let fixture;
+    try {
+      fixture=await bannerFixture(page);await fixture.open();
+      const original=page.locator('.brand noscript img');
+      await expect.poll(()=>original.evaluate(image=>({complete:image.complete,
+        width:image.naturalWidth,height:image.naturalHeight})))
+        .toEqual({complete:true,width:512,height:512});
+      await expect(original).toBeVisible();
+      await expect(page.locator('.brand img[data-banner-src]')).toBeHidden();
+      await expect(page.locator('.brand-fallback')).toBeHidden();
+      await expect(page.locator('.brand img:visible')).toHaveCount(1);
+      const box=await page.locator('.brand').boundingBox(),image=await original.boundingBox();
+      expect(box.height).toBeLessThanOrEqual(image.height+2);
+      expect(fixture.requests).toHaveLength(1);
+      expect(fixture.requests[0].url).toBe(assetPath);
+    } finally {
+      if (fixture) await fixture.close();
+      await context.close();
+    }
+  });
+
+  test('truncated HTTP200 resets only the failed resource identity once',async ({page},testInfo)=>{
+    const fixture=await bannerFixture(page,{failures:1});
+    try {
+      await fixture.open();await decodedBanner(page);
+      expect(fixture.requests).toHaveLength(2);
+      expect(fixture.requests[0].url).toBe(assetPath);
+      expect(fixture.requests[1].path).toBe(assetPath);
+      expect(fixture.requests[1].query).not.toBe('');
+      const current=await page.locator('.brand img[data-banner-src]').getAttribute('src');
+      expect(new URL(current,fixture.url).pathname+new URL(current,fixture.url).search).toBe(fixture.requests[1].url);
+      await testInfo.attach('recovered-real-png',{body:await page.locator('.brand').screenshot(),contentType:'image/png'});
+    } finally {await fixture.close();}
+  });
+
+  test('two failed identities show compact fallback without a replacement loop',async ({page})=>{
+    const fixture=await bannerFixture(page,{failures:Infinity});
+    try {
+      await fixture.open();
+      for (let replacement=0;replacement<3;replacement++) {
+        await expect(page.locator('.brand-fallback')).toBeVisible();
+        await expect(page.locator('.brand-fallback')).toContainText("Caesar's Palace");
+        await expect(page.locator('.brand img[data-banner-src]')).toBeHidden();
+        await paintedFrames(page);
+        expect((await page.locator('.brand').boundingBox()).height).toBeLessThan(100);
+        expect(fixture.requests).toHaveLength(2);
+        if (replacement<2) await fixture.replace();
+      }
+    } finally {await fixture.close();}
+  });
+
+  test('pending valid resource is not mistaken for a failed decoder',async ({page})=>{
+    const fixture=await bannerFixture(page,{hold:true});
+    try {
+      await fixture.open();
+      await expect.poll(()=>fixture.requests.length).toBeGreaterThan(0);
+      for (let replacement=0;replacement<2;replacement++) {
+        expect(await page.locator('.brand img[data-banner-src]').evaluate(image=>image.complete)).toBe(false);
+        await expect(page.locator('.brand-fallback')).toBeHidden();
+        await paintedFrames(page);
+        expect(fixture.requests.every(request=>request.query==='')).toBe(true);
+        await fixture.replace();
+      }
+      fixture.release();await decodedBanner(page);
+      expect(fixture.requests.every(request=>request.query==='')).toBe(true);
+    } finally {await fixture.close();}
+  });
+
+  test('recovered healthy resource survives ordinary document replacements',async ({page})=>{
+    const fixture=await bannerFixture(page,{failures:1});
+    try {
+      await fixture.open();await decodedBanner(page);
+      const recovered=await page.locator('.brand img[data-banner-src]').getAttribute('src');
+      expect(fixture.requests).toHaveLength(2);
+      for (let replacement=0;replacement<2;replacement++) {
+        await fixture.replace();await decodedBanner(page);await paintedFrames(page);
+        expect(await page.locator('.brand img[data-banner-src]').getAttribute('src')).toBe(recovered);
+        expect(fixture.requests).toHaveLength(2);
+      }
+    } finally {await fixture.close();}
+  });
+});
+
 async function openSystemDetails(page) {
   const details = page.locator("#system-details");
   await expect(details).not.toHaveAttribute("open", "");
@@ -442,7 +628,7 @@ test.describe("Caesar's Palace PWA and push path", () => {
     ]);
     expect(response.status()).toBe(503);
     expect(response.headers()["cache-control"]).toBe("no-store");
-    await expect(page.locator("body")).toContainText("OPERATIONAL RED — OFFLINE");
+    await expect(page.locator("body")).toContainText("OPERATIONAL RED â€” OFFLINE");
     await context.setOffline(false);
   });
 
@@ -625,7 +811,7 @@ test.describe("Caesar's Palace PWA and push path", () => {
     );
     const pushed = {
       alert_id: "alert-red-1",
-      title: "Caesar's Palace — action required",
+      title: "Caesar's Palace â€” action required",
       body: "automation retry budget exhausted",
       tag: "alert-red-1",
       url: "/"
@@ -689,7 +875,7 @@ test.describe("Caesar's Palace PWA and push path", () => {
       handlers.push({
         data: { json: () => ({
           alert_id: "alert-click-1",
-          title: "Caesar's Palace — action required",
+          title: "Caesar's Palace â€” action required",
           body: "automation retry budget exhausted",
           tag: "alert-click-1",
           url: "/"
