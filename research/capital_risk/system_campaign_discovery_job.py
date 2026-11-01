@@ -82,7 +82,7 @@ def main(args):
     need(len(key)==32,'DISCOVERY_SEPARATE_KEY')
     temp=Path(os.environ['RUNNER_TEMP']);frozen=temp/'capital-risk-stage-001/inputs'
     need(shutil.disk_usage(temp).free>=request['initial_min_disk_bytes'],'DISCOVERY_INITIAL_DISK_BUDGET')
-    old=admit(spec,temp/'p02-discovery-strict-parent',key)
+    old=admit(spec,temp/'campaign-factual-transfer-p02-discovery-strict-parent',key)
     source=temp/'p02-discovery-frozen-source'
     oldbinding=json.loads((old/'source-bindings.json').read_bytes())
     need(build(frozen/'source-fixed',source,oldbinding['parameters'])==oldbinding,

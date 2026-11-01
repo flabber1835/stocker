@@ -3,7 +3,7 @@ import ast
 from copy import deepcopy
 import importlib.abc
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 from types import SimpleNamespace
 
@@ -42,6 +42,28 @@ def test_unadmitted_diagnostic_cursor_is_not_a_parent():
     spec['selected_session']='2025-05-15'
     with pytest.raises(ValueError,match='EXACT_PUBLIC_STRICT_PARENT'):
         parent.scope(spec)
+
+
+def test_actual_download_destination_guard_accepts_caller_and_rejects_old_name():
+    """Exercise the retained guard, with only host metadata/I/O stubbed."""
+    source=ast.parse(Path(parent.crypto.__file__).read_bytes())
+    fn,=[v for v in source.body if isinstance(v,ast.FunctionDef) and v.name=='hosted_destination']
+    scope=dict(vars(parent.crypto),
+        Path=lambda value:SimpleNamespace(resolve=lambda:PurePosixPath(value)),
+        os=SimpleNamespace(name='posix',environ={'RUNNER_TEMP':'/home/runner/work/_temp'}),
+        check_context=lambda env:None,
+        shutil=SimpleNamespace(disk_usage=lambda path:SimpleNamespace(free=20*1024**3)))
+    exec(compile(ast.Module(body=[fn],type_ignores=[]),'<actual-hosted-destination-metadata-guard>','exec'),scope)
+    jobtree=ast.parse((HERE/'system_campaign_discovery_job.py').read_bytes())
+    call,=[v for v in ast.walk(jobtree) if isinstance(v,ast.Call)
+           and isinstance(v.func,ast.Name) and v.func.id=='admit']
+    name=ast.literal_eval(call.args[1].right)
+    root='/home/runner/work/_temp/'+name
+    assert scope['hosted_destination'](root)==PurePosixPath(root)
+    with pytest.raises(ValueError,match='HOSTED_FACTUAL_DESTINATION_CAPACITY'):
+        scope['hosted_destination']('/home/runner/work/_temp/p02-discovery-strict-parent')
+    with pytest.raises(ValueError,match='HOSTED_FACTUAL_DESTINATION_CAPACITY'):
+        scope['hosted_destination']('/other/campaign-factual-transfer-p02-discovery-strict-parent')
 
 
 def inspection():
