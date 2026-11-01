@@ -395,6 +395,64 @@ def restricted_preparation_result():
         diagnostic={'restricted_securities': {'SEC-SCOPED': 'share terms pending'}})
 
 
+@pytest.mark.parametrize('prior_attempt,terminal', [(0, False), (1, True)])
+def test_corporate_preflight_result_remains_bounded_not_availability(
+        monkeypatch, prior_attempt, terminal):
+    from sentinel.automation_resilience import RecoveryAutomationService
+
+    service = RecoveryAutomationService(
+        config=AutomationConfig(preflight_recover_max_attempts=2),
+        holder_id='recovery-test', refresh=None, prepare=None,
+        recover=None, execute=None)
+    now = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+    cycle = module.CycleRecord.model_construct(
+        cycle_id='restricted-preflight', state=module.CycleState.DISCOVERED,
+        control_generation=1, diagnostic={'retry_phase': 'PREFLIGHT_RECOVER',
+            'phase_attempt_count': prior_attempt})
+    permit = module.LeaderPermit(holder_id='recovery-test', fence_token=1,
+        control_generation=1, acquired_at=now, expires_at=now+timedelta(seconds=30))
+
+    def transition(_conn, **fields):
+        return cycle.model_copy(update={'state': fields['to_state'],
+                                        **{k: v for k, v in fields.items()
+                                           if k not in {'to_state', 'cycle', 'permit'}}})
+
+    monkeypatch.setattr(service, '_recover_transition', transition)
+    result = service._handle_retry_result(object(), now=now, cycle=cycle,
+        permit=permit, phase='PREFLIGHT_RECOVER', failure_code='CORPORATE_ACTION_PENDING',
+        failure_detail='one permanent security remains restricted',
+        result_diagnostic={'restricted_securities': {'SEC-AAA': 'pending'}},
+        recovery_transition=True)
+    diagnostic = result.cycle.diagnostic
+    assert diagnostic['callback_failure'] == 'CORPORATE_ACTION_PENDING'
+    assert diagnostic['phase_attempt_count'] == prior_attempt+1
+    assert diagnostic['phase_max_attempts'] == 2
+    assert 'availability_retry_unbounded' not in diagnostic
+    assert diagnostic['restricted_securities'] == {'SEC-AAA': 'pending'}
+    assert result.action is (module.TickAction.BLOCKED if terminal
+                             else module.TickAction.RETRY_SCHEDULED)
+    assert (result.cycle.next_wake_at is None) is terminal
+
+
+@pytest.mark.parametrize('method,guard', [
+    ('_failure_diagnostic', 'isinstance(exc, CorporateActionPending)'),
+    ('_handle_retry_result', 'phase == "PREFLIGHT_RECOVER"'),
+])
+def test_removed_corporate_retry_classification_is_detected(monkeypatch, method, guard):
+    import inspect
+    import textwrap
+
+    body = textwrap.dedent(inspect.getsource(getattr(module.AutomationService, method)))
+    assert body.count(guard) == 1
+    namespace = dict(vars(module))
+    exec(compile(body.replace(guard, 'False', 1),
+        '<corporate-preflight-retry-falsifier>', 'exec'), namespace)
+    monkeypatch.setattr(module.AutomationService, method, namespace[method])
+    with pytest.raises(AssertionError):
+        test_corporate_preflight_result_remains_bounded_not_availability(
+            monkeypatch, 0, False)
+
+
 @pytest.mark.parametrize('phase,state', [
     ('REFRESH', module.CycleState.REFRESHING_DATA),
     ('PREFLIGHT_RECOVER', module.CycleState.DISCOVERED),
