@@ -1,0 +1,20 @@
+{
+  "authority_effect": "NONE",
+  "base_revision": "c585b7ff1f5a443720b4ce7585bd4fac36c84118",
+  "module_sha256": "3e654ceb4962b202cc9ff0b5b809ed6b61653d4442a6e617c63cd9cb32bd4519",
+  "modules": {
+    "sentinel.core.session": {
+      "after": "7bffe82ed6370873e112ffeb97c5525d5067503863b6db3e06c7147c9542201b",
+      "before": "221a20b69eb3ad0dc877bec7789de608fe85dc6397891b8c9060bbd1f66717e8"
+    },
+    "sentinel.feed.universe": {
+      "after": "3b847d92c9169b3b1c9c32cb8bbfd50384288e404fbbbec21949697d89ec21e9",
+      "before": "48fd9b18b13433c51c0e9e7d9e981e42620e2792ef6b3bcbc3dd233261c1080c"
+    },
+    "stock_strategy_shared.wealth_core.feed": {
+      "after": "0192202798dda5a9216f403451125cc1bd0d64f816950abe8416bbca3ccb72ac",
+      "before": "afa9324811921271a139500764aee19b85dec96f9a499d392c12f25f97e6ee32"
+    }
+  },
+  "schema": "sentinel.performance-source-transition/1"
+}

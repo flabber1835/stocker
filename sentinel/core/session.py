@@ -472,7 +472,9 @@ class SessionState:
         raw["ldrc"] = ldrc
         protected = _path_dependent_security_ids(
             raw["wealth_core"], raw["pending"])
-        raw["feed"] = _bounded_feed_dict(raw["feed"], protected, _copy_arrays=_copy_feed)
+        # Public serialization deep-copies each bounded series below. Borrow
+        # retained arrays here so the same history is not copied twice.
+        raw["feed"] = _bounded_feed_dict(raw["feed"], protected, _copy_arrays=False)
         if _copy_feed:
             for security_id, series in raw["feed"]["series"].items():
                 raw["feed"]["series"][security_id] = deepcopy(series)

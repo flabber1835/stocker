@@ -28,13 +28,47 @@ def predecessor_sources():
 def unchanged_compiler_body(module, raw):
     old=ast.parse(predecessor_sources()[module]);new=ast.parse(raw)
     if module=='sentinel.feed.rolling_store':
+        dump=lambda nodes:ast.dump(ast.Module(body=nodes,type_ignores=[]),include_attributes=False)
+        # Inline only the two exact typed-loop extractions. Both standalone
+        # reader guards, every SQL/domain expression and the loop bodies must
+        # still be the independent predecessor's actual expressions.
+        for reader_name,helper_name,signature,call in (
+                ('read_bars','_bar_rows','conn, candidate_id, *, start=None, end=None',
+                 '_bar_rows(conn, candidate_id, start=start, end=end)'),
+                ('read_benchmarks','_benchmark_rows','conn, candidate_id',
+                 '_benchmark_rows(conn, candidate_id)')):
+            before=next(n for n in old.body if isinstance(n,ast.FunctionDef) and n.name==reader_name)
+            reader=next(n for n in new.body if isinstance(n,ast.FunctionDef) and n.name==reader_name)
+            helper=next(n for n in new.body if isinstance(n,ast.FunctionDef) and n.name==helper_name)
+            expected_args=ast.parse(f'def extracted({signature}): pass').body[0].args
+            assert ast.dump(helper.args)==ast.dump(expected_args)
+            assert len(helper.body)==2 and isinstance(helper.body[0],ast.Expr)
+            assert isinstance(helper.body[0].value,ast.Constant) and isinstance(helper.body[0].value.value,str)
+            assert dump(helper.body[1:])==dump(before.body[-1:])
+            assert ast.dump(reader.args)==ast.dump(before.args)
+            assert dump(reader.body)==dump(before.body[:-1]+ast.parse('yield from '+call).body)
+            reader.body=before.body
+            new.body.remove(helper)
+        scan=next(n for n in new.body if isinstance(n,ast.FunctionDef) and n.name=='_verify_content_uncached')
+        guard=ast.parse('require_payload(conn, candidate_id)').body[0]
+        guards=[index for index,node in enumerate(scan.body) if ast.dump(node)==ast.dump(guard)]
+        manifest_index=next(index for index,node in enumerate(scan.body)
+            if isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id=='value'
+                                                 for target in node.targets))
+        assert guards==[manifest_index+1]
+        del scan.body[guards[0]]
+        loops=[node for node in scan.body if isinstance(node,ast.For)]
+        assert len(loops)==2
+        for loop,helper_name,reader_name in zip(loops,('_bar_rows','_benchmark_rows'),
+                                              ('read_bars','read_benchmarks')):
+            assert ast.dump(loop.iter)==ast.dump(ast.parse(f'{helper_name}(conn, candidate_id)').body[0].value)
+            loop.iter.func.id=reader_name
         original=next(n for n in old.body if isinstance(n,ast.FunctionDef) and n.name=='_rows')
         stream=next(n for n in new.body if isinstance(n,ast.FunctionDef) and n.name=='_stream_rows')
         # The SQL, parameters, C collation, row projection and checkpoints in
         # the physical leaf are the exact old ordered stream, without its route.
         offset=next(i for i,n in enumerate(original.body) if isinstance(n,ast.With))
         current_offset=next(i for i,n in enumerate(stream.body) if isinstance(n,ast.With))
-        dump=lambda nodes:ast.dump(ast.Module(body=nodes,type_ignores=[]),include_attributes=False)
         assert dump(original.body[offset:])==dump(stream.body[current_offset:])
         for tree in (old,new):
             tree.body=[n for n in tree.body if not isinstance(n,ast.FunctionDef)
@@ -71,6 +105,11 @@ def test_every_nonphysical_compiler_expression_matches_independent_c84_source(mo
 
 @pytest.mark.parametrize('module,old,new',[
     ('sentinel.feed.rolling_store',b'hasher.update(encoded)',b'hasher.update(b"wrong")'),
+    ('sentinel.feed.rolling_store',b'yield CanonicalBar.model_validate(row)',b'yield row'),
+    ('sentinel.feed.rolling_store',b'value = manifest(conn, candidate_id)\n    require_payload(conn, candidate_id)',
+     b'value = manifest(conn, candidate_id)'),
+    ('sentinel.feed.rolling_store',b'require_payload(conn, candidate_id)\n    manifest(conn, candidate_id)',
+     b'pass\n    manifest(conn, candidate_id)'),
     ('sentinel.feed.action_history',b'session<%s',b'session<=%s')])
 def test_compiler_arithmetic_and_sql_edits_fail_mechanical_proof(module,old,new):
     raw=Path(importlib.import_module(module).__file__).read_bytes()

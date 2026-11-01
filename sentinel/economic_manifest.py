@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '817cce4f16614941aa750a7e8249d7dd259551ff97807108ce99b1b77141d482'
+MANIFEST_SHA256 = '8d79b1fd21465491d5208c3d415a4e360b98e6f6d82c3a2bb01024c57c04645b'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -175,6 +175,7 @@ def manifest():
 
 def identity(*, schema):
     from sentinel.physical_read_source_basis import contribution
+    from sentinel import performance_source_basis
     value = manifest()
     expected = {**value['pure_contracts'],**value['input_compilers']}
     actual = {}
@@ -183,7 +184,10 @@ def identity(*, schema):
         dependencies = local_imports(raw,module_name=name)
         if dependencies != value['dependencies'][name]:
             raise EconomicManifestRefused('ECONOMIC_DEPENDENCY_CHANGED:'+name)
-        actual[name] = contribution(name,raw) if name in value['input_compilers'] else _sha(raw)
+        if name in performance_source_basis.BASELINES:
+            actual[name] = performance_source_basis.contribution(name,raw)
+        else:
+            actual[name] = contribution(name,raw) if name in value['input_compilers'] else _sha(raw)
     implementation = _sha(_canonical(actual))
     data_semantics = (value['predecessor_data_semantics_sha256'] if actual == expected else implementation)
     return dict(schema=schema,files=[dict(module=name,sha256=sha) for name,sha in sorted(actual.items())],

@@ -1,17 +1,20 @@
 """Real PostgreSQL prospective upgrade obligations; no broker transport."""
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import psycopg
 import pytest
 
 from sentinel import schema
+from sentinel import binding
 from sentinel.automation import integrity, schedule, store
 from sentinel.automation.model import (
     AutomationRefused, CycleState,
     ProspectiveReplacementRefused, TickAction,
 )
 from sentinel.execution.journal import WRITER_LOCK_KEY, WriterLockUnavailable
+from sentinel.execution import journal
+from sentinel.execution.contract import BrokerAccountIdentity, BrokerObservation
 from tests.sentinel.test_automation_service import (
     pg, conn, config, enable, service_for,
 )
@@ -431,7 +434,7 @@ def test_removing_debug_negative_command_proof_breaks_its_falsifier(conn, monkey
     import inspect
     source = inspect.getsource(store.prospective_predecessors)
     needle = "            if cur.fetchone()[0]:\n                return None"
-    assert source.count(needle) == 2
+    assert source.count(needle) == 1
     start, end = source.rsplit(needle, 1)
     local = {}
     exec(compile(start+"            pass"+end, "<removed-debug-command-proof>", "exec"), vars(store), local)
@@ -443,10 +446,10 @@ def test_removing_debug_negative_command_proof_breaks_its_falsifier(conn, monkey
 def test_removing_debug_predecessor_reconstruction_breaks_its_falsifier(conn, monkeypatch):
     import inspect
     source = inspect.getsource(integrity.validate_cycle_lineage)
-    needle = "                                validate_cycle_lineage(conn, predecessor)"
+    needle = "                            validate_cycle_lineage(conn, predecessor, _validated=validated)"
     assert source.count(needle) == 1
     local = {}
-    exec(compile(source.replace(needle, "                                pass"), "<removed-debug-predecessor-proof>", "exec"), vars(integrity), local)
+    exec(compile(source.replace(needle, "                            pass"), "<removed-debug-predecessor-proof>", "exec"), vars(integrity), local)
     monkeypatch.setattr(integrity, "validate_cycle_lineage", local["validate_cycle_lineage"])
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_debug_successor_reconstructs_predecessor_terminal_events(conn)
@@ -476,3 +479,249 @@ def test_removing_debug_genesis_configuration_binding_breaks_its_falsifier(conn,
     monkeypatch.setattr(integrity, "validate_cycle_lineage", local["validate_cycle_lineage"])
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_debug_genesis_window_cannot_change_under_signed_configuration(conn)
+
+
+def recovered_planless_preflight(conn, *, repeats=2, transport_history=False):
+    """Compose the actual old-preflight retirement, including legacy event bytes."""
+    import asyncio
+    cfg = config().model_copy(update={'preflight_recover_max_attempts': 100})
+    enable(conn, cfg)
+    timing, now = future_friday(conn, cfg)
+    # Exercise the incident's actual Fri->Mon schedule while it is prospective;
+    # after that date the same permanent test moves to the next future Friday.
+    incident = schedule.for_decision_session(date(2026, 10, 30), cfg)
+    database_now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+    conn.rollback()
+    if database_now < incident.execution_open_at:
+        timing = incident
+        now = datetime(2026, 11, 1, 3, 32, tzinfo=timezone.utc)
+    pending_service = service_for(cfg, recover=lambda context: {
+        'disposition': 'RECONCILE', 'failure_code': 'CORPORATE_ACTION_PENDING',
+        'failure_detail': 'affected securities await complete source evidence'})
+    for _ in range(repeats):
+        pending = asyncio.run(pending_service.tick(conn, now=now))
+        assert pending.action is TickAction.RETRY_SCHEDULED
+        now = pending.cycle.next_wake_at + timedelta(seconds=1)
+    assert pending.cycle.plan_id is None
+    assert pending.cycle.decision_session == timing.decision_session
+    old_generation = pending.cycle.control_generation
+    if transport_history:
+        # Legal state edges are not proof that no transport occurred. Even if
+        # the row later returns to planless preflight, EXECUTING is disqualifying.
+        for state in (CycleState.EXECUTING, CycleState.RECONCILING, CycleState.RETRY_WAIT):
+            store.transition_cycle(conn, permit=pending.permit, cycle_id=pending.cycle.cycle_id,
+                                   to_state=state)
+    binding.bind(conn, deployment_id='sentinel-a', broker='alpaca-paper',
+                 broker_account_id='paper-account-1')
+    observed_at = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+    conn.rollback()
+    sequence = journal.record_observation(conn, BrokerObservation(
+        observed_at=observed_at, started_at=observed_at,
+        account_identity=BrokerAccountIdentity('alpaca-paper', 'paper-account-1')),
+        runtime_state='RUNNING')
+    proof = {'runtime_state': 'RUNNING', 'observation_id': sequence,
+             'unresolved': [], 'foreign_orders': [], 'foreign_positions': [],
+             'clean': False, 'restricted_securities': {'DELL': 'ACTION_PENDING'}}
+    store.engage_kill(conn, actor='test', reason='qualified software handover')
+    store.deactivate(conn, actor='test', reason='qualified software handover')
+    enable(conn, cfg)
+
+    def recovered(context):
+        old = context.cycle.control_generation == old_generation
+        return {'disposition': 'SUPERSEDED' if old else 'READY_TO_PREPARE',
+                'failure_code': 'OLD_GENERATION_RECOVERED' if old else None,
+                'transport_reconciliation_id': str(sequence),
+                'diagnostic': proof}
+
+    service = service_for(cfg, holder='worker-b', recover=recovered)
+    retired = asyncio.run(service.tick(conn, now=now))
+    assert retired.action is TickAction.SUPERSEDED
+    assert retired.cycle.failure_code == 'STALE_PREFLIGHT_RECOVERED'
+    assert retired.cycle.last_clean_reconciliation_id is None
+    spec = service._spec(store.load_control(conn), timing)
+    integrity.validate_cycle_lineage(conn, retired.cycle)
+    return service, retired.cycle, spec, retired.permit, now
+
+
+def test_native_preflight_upgrade_prepares_same_future_session_after_forty_reconciling_edges(conn):
+    import asyncio
+    service, old, spec, permit, now = recovered_planless_preflight(conn, repeats=21)
+    events = conn.execute('SELECT * FROM sentinel_automation_cycle_events WHERE cycle_id=%s ORDER BY seq',
+                          (old.cycle_id,)).fetchall()
+    edges = conn.execute("SELECT count(*) FROM sentinel_automation_cycle_events WHERE cycle_id=%s "
+                         "AND (from_state='RECONCILING' OR to_state='RECONCILING')",
+                         (old.cycle_id,)).fetchone()[0]
+    conn.rollback()
+    assert edges == 40
+    assert old.effective_session.weekday() == 0 and old.decision_session.weekday() == 4
+    for _ in range(5):
+        current = asyncio.run(service.tick(conn, now=now))
+        assert current.action is not TickAction.EXECUTED
+        if current.cycle.state is CycleState.WAITING_OPEN:
+            break
+    assert current.cycle.state is CycleState.WAITING_OPEN
+    assert current.cycle.cycle_id == spec.generation_cycle_id != old.cycle_id
+    assert current.cycle.control_generation == permit.control_generation
+    assert current.cycle.plan_id is not None
+    assert current.cycle.effective_session == old.effective_session
+    integrity.validate_cycle_lineage(conn, current.cycle)
+    repeated = asyncio.run(service.tick(conn, now=now))
+    assert repeated.action is TickAction.WAITING
+    assert repeated.cycle.cycle_id == current.cycle.cycle_id
+    assert store.load_cycle(conn, old.cycle_id) == old
+    assert conn.execute('SELECT * FROM sentinel_automation_cycle_events WHERE cycle_id=%s ORDER BY seq',
+                        (old.cycle_id,)).fetchall() == events
+    assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
+    conn.rollback()
+
+
+def _replace_terminal_diagnostic(conn, cycle, patch):
+    import json
+    conn.execute('UPDATE sentinel_automation_cycles SET diagnostic=diagnostic || %s::jsonb WHERE cycle_id=%s',
+                 (json.dumps(patch), cycle.cycle_id))
+    conn.execute("UPDATE sentinel_automation_cycle_events SET detail=jsonb_set(detail, '{diagnostic}', "
+                 "(detail->'diagnostic') || %s::jsonb) WHERE cycle_id=%s AND to_state='SUPERSEDED'",
+                 (json.dumps(patch), cycle.cycle_id))
+    conn.commit()
+
+
+@pytest.mark.parametrize('fault', [
+    'scheduler_open', 'database_open', 'cutover_open', 'effective_session',
+    'wrong_account', 'unknown_command', 'native_flags', 'missing_observation',
+    'unresolved', 'foreign_orders', 'foreign_positions', 'bool_observation',
+    'mismatched_observation', 'not_running', 'identity_unproved',
+    'ordinary_recovery', 'historical_plan', 'historical_plan_fingerprint',
+    'noncanonical_observation', 'never_preflight', 'executing_history',
+])
+def test_recovered_preflight_replacement_refuses_incomplete_or_unsafe_history(conn, fault):
+    _, old, spec, permit, now = recovered_planless_preflight(
+        conn, repeats=1 if fault == 'never_preflight' else 2,
+        transport_history=fault == 'executing_history')
+    if fault == 'scheduler_open':
+        now = spec.execution_open_at
+    elif fault == 'database_open':
+        wall = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+        delta = spec.execution_open_at - (wall-timedelta(seconds=1))
+        spec = spec.model_copy(update={key: getattr(spec, key)-delta for key in (
+            'decision_close_at', 'prepare_at', 'execution_open_at', 'execute_at', 'execution_close_at')})
+        now = spec.execution_open_at-timedelta(seconds=1)
+    elif fault == 'cutover_open':
+        conn.execute('UPDATE sentinel_automation_control SET enabled_at=%s WHERE id=1',
+                     (spec.execution_open_at,))
+        conn.commit()
+    elif fault == 'effective_session':
+        spec = spec.model_copy(update={'effective_session': spec.effective_session+timedelta(days=1)})
+    elif fault == 'wrong_account':
+        spec = spec.model_copy(update={'broker_account_id': 'foreign'})
+    elif fault == 'unknown_command':
+        conn.execute("INSERT INTO sentinel_commands(client_key,plan_id,security_id,deployment_id,broker,"
+                     "broker_account_id,takeover_epoch,symbol,side,quantity,state) VALUES "
+                     "('unknown','unrelated-plan','sec','sentinel-a','alpaca-paper','paper-account-1',1,'TEST','BUY',1,'UNKNOWN')")
+        conn.commit()
+    elif fault in {'native_flags', 'unresolved', 'foreign_orders', 'foreign_positions',
+                   'bool_observation', 'mismatched_observation', 'missing_observation',
+                   'noncanonical_observation'}:
+        patch = ({'preflight_recovery_complete': False} if fault == 'native_flags' else
+                 {fault: ['not-resolved']} if fault in {'unresolved', 'foreign_orders', 'foreign_positions'} else
+                 {'observation_id': True} if fault == 'bool_observation' else
+                 {'observation_id': 999999} if fault == 'mismatched_observation' else
+                 {'transport_reconciliation_id': '0'+old.diagnostic['transport_reconciliation_id']}
+                 if fault == 'noncanonical_observation' else
+                 {'transport_reconciliation_id': None})
+        _replace_terminal_diagnostic(conn, old, patch)
+    elif fault == 'not_running':
+        conn.execute("UPDATE sentinel_observations SET runtime_state='RECONCILING'")
+        conn.commit()
+    elif fault == 'identity_unproved':
+        conn.execute("UPDATE sentinel_automation_cycle_events SET "
+                     "detail=jsonb_set(detail,'{identity_matches_current_authority}','false'::jsonb) "
+                     "WHERE cycle_id=%s AND to_state='SUPERSEDED'", (old.cycle_id,))
+        conn.commit()
+    elif fault == 'executing_history':
+        pass
+    else:
+        if fault in {'ordinary_recovery', 'never_preflight'}:
+            patch = ('{"diagnostic":{"retry_phase":"PREPARE"}}' if fault == 'never_preflight'
+                     else '{"diagnostic":{"retry_phase":"RECOVER"}}')
+        elif fault == 'historical_plan':
+            patch = '{"plan_id":"unrecorded-old-plan"}'
+        else:
+            patch = '{"plan_fingerprint":"old-fingerprint"}'
+        # A changed early snapshot which is later overwritten still cannot be
+        # explained away using only the final planless terminal row.
+        conn.execute("UPDATE sentinel_automation_cycle_events SET detail=detail || %s::jsonb "
+                     "WHERE seq=(SELECT min(seq) FROM sentinel_automation_cycle_events "
+                     "WHERE cycle_id=%s AND to_state='RETRY_WAIT')", (patch, old.cycle_id))
+        if fault in {'historical_plan', 'historical_plan_fingerprint'}:
+            clear = ('{"plan_id":null}' if fault == 'historical_plan' else
+                     '{"plan_fingerprint":null}')
+            conn.execute("UPDATE sentinel_automation_cycle_events SET detail=detail || %s::jsonb "
+                         "WHERE seq=(SELECT max(seq) FROM sentinel_automation_cycle_events "
+                         "WHERE cycle_id=%s AND to_state='RETRY_WAIT')", (clear, old.cycle_id))
+        conn.commit()
+    with pytest.raises((ProspectiveReplacementRefused, AutomationRefused)):
+        store.create_cycle(conn, permit=permit, spec=spec, now=now)
+    assert conn.execute('SELECT count(*) FROM sentinel_automation_cycles').fetchone()[0] == 1
+    conn.rollback()
+
+
+def test_recovered_preflight_successor_independently_rechecks_predecessor_history(conn):
+    _, old, spec, permit, now = recovered_planless_preflight(conn)
+    fresh = store.create_cycle(conn, permit=permit, spec=spec, now=now)
+    integrity.validate_cycle_lineage(conn, fresh)
+    _replace_terminal_diagnostic(conn, old, {'unresolved': ['unknown']})
+    with pytest.raises(AutomationRefused, match='reached transport'):
+        integrity.validate_cycle_lineage(conn, fresh)
+
+
+def test_removing_recovered_preflight_history_proof_is_detected(conn, monkeypatch):
+    monkeypatch.setattr(integrity, 'predecessors_reached_transport', lambda *_args: False)
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_recovered_preflight_replacement_refuses_incomplete_or_unsafe_history(conn, 'ordinary_recovery')
+
+
+def test_removing_recovered_preflight_observation_proof_is_detected(conn, monkeypatch):
+    monkeypatch.setattr(integrity, '_recovered_preflight_observation', lambda *_args: True)
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_recovered_preflight_replacement_refuses_incomplete_or_unsafe_history(conn, 'not_running')
+
+
+def test_recovered_preflight_is_not_an_implicit_debug_continuation_exception(conn):
+    _, old, spec, _, _ = recovered_planless_preflight(conn)
+    assert not store._unsent_retirement(old, spec, debug=True)
+    assert store._unsent_retirement(old, spec, recovered_preflight=True)
+
+
+def test_repeated_upgrade_lineage_validates_each_snapshot_once_per_read(conn, monkeypatch):
+    _, old, spec, permit, now = retained(conn)
+    cycles = [old]
+    for _ in range(6):
+        fresh = store.create_cycle(conn, permit=permit, spec=spec, now=now)
+        cycles.append(fresh)
+        store.engage_kill(conn, actor='test', reason='repeated prospective upgrade')
+        store.deactivate(conn, actor='test', reason='repeated prospective upgrade')
+        enable(conn, config())
+        permit = store.acquire_lease(conn, holder_id='worker-a', lease_seconds=30)
+        store.adopt_cycle(conn, permit=permit, cycle_id=fresh.cycle_id,
+                          to_state=CycleState.SUPERSEDED,
+                          failure_code='CONTROL_GENERATION_SUPERSEDED')
+        spec = spec.model_copy(update={'control_generation': permit.control_generation})
+    newest = store.create_cycle(conn, permit=permit, spec=spec, now=now)
+    validation = integrity.validate_cycle_lineage
+    visited = []
+
+    def counted(conn, cycle, **kwargs):
+        memo = kwargs.get('_validated', {})
+        if memo.get(cycle.cycle_id) != cycle:
+            visited.append(cycle.cycle_id)
+        return validation(conn, cycle, **kwargs)
+
+    monkeypatch.setattr(integrity, 'validate_cycle_lineage', counted)
+    integrity.validate_cycle_lineage(conn, newest)
+    assert len(visited) == len(set(visited)) == len(cycles)+1
+    # The memo is scoped to this read; later calls must reauthenticate history.
+    conn.execute("UPDATE sentinel_automation_cycle_events SET fence_token=0 WHERE cycle_id=%s",
+                 (old.cycle_id,))
+    conn.commit()
+    with pytest.raises(AutomationRefused, match='fencing token'):
+        integrity.validate_cycle_lineage(conn, newest)

@@ -19,6 +19,10 @@ Keep an accessible image description, the document title, operational labels,
 and every other dashboard section and layout unchanged. Reuse the existing
 asset; do not generate another image or introduce horizontal overflow.
 
+[Banner resource recovery](dashboard-banner-resource-recovery.md) addresses a
+reproduced failed-resource lifetime across document replacements, without
+changing operational status or freshness.
+
 ## Display evidence and ownership
 
 ### System health and visible background work

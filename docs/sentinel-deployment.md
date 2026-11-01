@@ -330,18 +330,3 @@ Backups, archiving, restore drills and their verification remain suspended by
 the owner in this profile. PostgreSQL identity, volumes, canonical history and
 financial journals are preserved. This local PAPER profile does not authorize
 live endpoints or satisfy the separately reviewed live-operation requirements.
-# Current local PAPER architecture migration (October 23, 2026)
-
-The owner-authorized local PAPER profile uses the qualified feature checkout and
-the resumable local delivery coordinator. Its architecture and one-time b2e308bb
-quiescence bridge are specified in [the operational architecture decision](operational-architecture-20261023.md).
-The candidate adds a broker-free verifier and a GET-only execution collector to
-the shadow, automation, panel and notification-sender roles; all six roles use
-one exact qualified image. The sender has no broker credentials. Schema and
-bounded projection bootstrap occur explicitly after application quiescence;
-runtime reads never migrate or reseed coverage.
-
-Backups, archiving, restore drills and their verification remain suspended by
-the owner in this profile. PostgreSQL identity, volumes, canonical history and
-financial journals are preserved. This local PAPER profile does not authorize
-live endpoints or satisfy the separately reviewed live-operation requirements.

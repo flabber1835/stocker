@@ -317,6 +317,61 @@ def test_pure_canonical_transition_is_a_non_deployable_candidate():
     assert store.seed["genesis_sha256"] == observer.genesis_sha256
 
 
+def test_observation_handoff_returns_its_verified_records_without_extra_reads(monkeypatch):
+    observer, store = _observer()
+    history = observer._history
+    reads = []
+
+    def counted():
+        reads.append(True)
+        return history()
+
+    monkeypatch.setattr(observer, "_history", counted)
+    first = observer._observe_with_records(_fully_published(FIRST))
+    assert len(reads) == 2
+    assert first.record == store.rows[-1]
+    assert first.previous_strategy_economics == observer.initial_strategy_economics
+    assert first.result.record_sha256 == first.record["record_sha256"]
+    assert first.result.state.state_hash == first.record["state_sha256"]
+    reads.clear()
+    second = observer._observe_with_records(_fully_published(SECOND, version=8))
+    assert len(reads) == 2
+    assert second.previous_strategy_economics == first.record["strategy_economics"]
+    assert second.record == store.rows[-1]
+    assert second.result.state.state_hash == second.record["state_sha256"]
+    retry = observer.observe(_fully_published(SECOND, version=8))
+    assert isinstance(retry, SO.ShadowObservationResult)
+    assert not retry.appended and retry.record_sha256 == second.result.record_sha256
+
+
+@pytest.mark.parametrize("omit_readback", [False, True])
+def test_observation_handoff_still_verifies_persisted_content(monkeypatch, omit_readback):
+    import inspect
+    import textwrap
+    from types import MethodType
+
+    class CorruptAppend(MemoryStore):
+        def append(self, record):
+            super().append(record)
+            self.rows[-1]["state"]["feed"]["session_index"] += 1
+
+    observer, _ = _observer(store=CorruptAppend())
+    if omit_readback:
+        source = textwrap.dedent(inspect.getsource(SO.ShadowObserver._observe_with_records))
+        mutant = source.replace("retained, retained_state = self._history()",
+                                "retained, retained_state = rows + [record], advanced")
+        assert mutant != source
+        namespace = dict(vars(SO))
+        exec(mutant, namespace)
+        monkeypatch.setattr(observer, "_observe_with_records",
+                            MethodType(namespace["_observe_with_records"], observer))
+        # Executed falsifier: trusting the proposed record hides a corrupt write.
+        assert observer.observe(_fully_published(FIRST)).appended
+    else:
+        with pytest.raises(SO.ShadowObservationRefused):
+            observer.observe(_fully_published(FIRST))
+
+
 def test_bil_adjusted_open_formula_divides_by_signal_close_exactly_once():
     previous = DefensiveBar(
         session="2026-08-19", security_id="SENTINEL:BIL", ticker="BIL",

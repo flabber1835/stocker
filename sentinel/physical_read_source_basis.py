@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import re
 
-PROFILE_SHA256 = '5cff49f7c7458b1b43963849f6ca466e09487b6c4a9d6031b9216cd3dfdce443'
+PROFILE_SHA256 = '5c8303c30b2279593ee02d6798787f4b61f48ced912d0100d2e9fc412c10f1b3'
 PROFILE = Path(__file__).with_name('physical-read-source-transition.json')
 BASE_REVISION = 'c84b7c26a170dd11c7a94521bfb391f88264987b'
 BASELINES = {

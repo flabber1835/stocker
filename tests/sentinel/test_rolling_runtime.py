@@ -303,7 +303,16 @@ def test_daily_runtime_continuation_and_bounded_restart(conn, published, operati
     refresh(conn, operational_source, monkeypatch)
     with pytest.raises(authority.Refused, match="PUBLICATION_CHANGED"):
         status(conn)
-    second = advance(conn, "2026-09-15")
+    history = shadow.ShadowObserver._history
+    reads = []
+    def counted(observer, *args, **kwargs):
+        reads.append(True)
+        return history(observer, *args, **kwargs)
+    with monkeypatch.context() as counting:
+        counting.setattr(shadow.ShadowObserver, '_history', counted)
+        second = advance(conn, "2026-09-15")
+    # Initial authenticated closure, observation before/after, committed closure.
+    assert len(reads) == 4
     assert second.state.wealth_core["episodes"]
     assert second.state.state_hash != first.state.state_hash
     assert status(conn).state.state_hash == second.state.state_hash

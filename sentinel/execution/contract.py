@@ -38,6 +38,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from fractions import Fraction
+from functools import cached_property
 from typing import Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 from sentinel.execution.states import CommandState
@@ -877,7 +878,21 @@ class BrokerObservation:
         return tuple(o for o in self.orders
                      if o.is_working and o.instrument.security_id == security_id)
 
+    @cached_property
+    def _orders_by_client_key(self) -> dict:
+        orders = {}
+        for order in self.orders:
+            orders.setdefault(order.client_key, order)
+        return orders
+
+    @cached_property
+    def _exact_orders_by_client_key(self) -> dict:
+        return {evidence.client_key: evidence
+                for evidence in self.exact_order_evidence}
+
     def by_client_key(self, client_key: str) -> Optional[BrokerOrder]:
+        if isinstance(self.orders, tuple):
+            return self._orders_by_client_key.get(client_key)
         for o in self.orders:
             if o.client_key == client_key:
                 return o
@@ -885,6 +900,8 @@ class BrokerObservation:
 
     def exact_by_client_key(
             self, client_key: str) -> Optional[BrokerExactOrderEvidence]:
+        if isinstance(self.exact_order_evidence, tuple):
+            return self._exact_orders_by_client_key.get(client_key)
         for evidence in self.exact_order_evidence:
             if evidence.client_key == client_key:
                 return evidence
