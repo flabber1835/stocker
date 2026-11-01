@@ -95,6 +95,35 @@ retain a deterministic failed daily result while exposing all attempt records
 through the attempt reader. A successful replacement still earns every existing
 close/fill/cash check; historical failure is never promoted into success.
 
+### Use the native complete-history transport classification
+
+Decision: 2026-11-01, before implementation. A retained, planless preflight
+attempt had forty `RECONCILING` edges, no `EXECUTING` edge and no commands.
+The scheduler authenticated its recovery and allowed a prospective replacement,
+but the trial reader independently treated the state name as transport. This
+refused the replacement's terminal audit callback and could also obstruct the
+daily projection, its future predecessor and restored-ledger verification.
+
+Both trial-attempt callers already authenticate the complete native cycle
+lineage. After that authentication, reuse
+`automation.integrity.predecessors_reached_transport` rather than introduce a
+second interpretation of `RECONCILING`. Its existing exception is restricted to
+the authenticated `STALE_PREFLIGHT_RECOVERED` history: a complete RUNNING
+observation for the same account, planless carried snapshots, exact retirement
+and authority identity, and no execution/recovery transport phase. An ordinary,
+ambiguous or previously executing reconciliation remains transport evidence.
+The trial reader must additionally retain its exact-plan command-existence
+check for every command state, including UNKNOWN and resolved terminal states.
+
+This changes only classification of already authenticated audit history. It
+does not authorize a replacement plan, alter scheduling deadlines or replay an
+old command. Preserve every old cycle, event and immutable `NOT_VERIFIED`
+verdict. A recovered missing callback may still append only a failure record;
+successful trial economics continue to require the original close/fill/cash
+evidence. Qualify both same-session selection and callback recovery, immutable
+restart/readback, actual or ambiguous transport, all durable command states,
+and executed classifier/command-guard falsifiers.
+
 ## Qualification and delivery
 
 Use isolated PostgreSQL and simulated broker boundaries. Join the real early

@@ -1,17 +1,22 @@
 """Real immutable attempt storage, legacy recovery and daily projection guards."""
 from datetime import datetime, timedelta, timezone
+import inspect
 
 import pytest
 
 from sentinel import trial, trial_attempts
-from sentinel.automation import store
+from sentinel.automation import integrity, store
 from sentinel.automation.model import CycleState
+from sentinel.execution.states import CommandState
 from tests.sentinel.test_automation_service import pg, conn
-from tests.sentinel.test_automation_generation import retained
+from tests.sentinel.test_automation_generation import retained, recovered_planless_preflight
 
 
-def pair(conn, *, succeeded=False):
-    _service, old, spec, permit, now = retained(conn)
+def pair(conn, *, succeeded=False, recovered=False, repeats=2):
+    if recovered:
+        _service, old, spec, permit, now = recovered_planless_preflight(conn, repeats=repeats)
+    else:
+        _service, old, spec, permit, now = retained(conn)
     current = store.create_cycle(conn, permit=permit, spec=spec, now=now)
     states = [CycleState.REFRESHING_DATA]
     if succeeded:
@@ -53,6 +58,120 @@ def test_missing_unsent_terminal_callback_is_reconstructed_as_failure_only(conn)
     assert recovered['verdict']=='NOT_VERIFIED' and 'CYCLE_SUPERSEDED' in recovered['reason_codes']
     assert trial._terminal_verification_debt(conn,current.model_copy(
         update={'effective_session':current.effective_session+timedelta(days=1)})) == ()
+
+
+@pytest.mark.parametrize('succeeded', [False, True])
+@pytest.mark.parametrize('repeats', [2, 21])
+def test_authenticated_planless_preflight_is_unsent_for_trial_projection(conn, succeeded, repeats):
+    old, current = pair(conn, succeeded=succeeded, recovered=True, repeats=repeats)
+    events = conn.execute('SELECT * FROM sentinel_automation_cycle_events '
+        'WHERE cycle_id=%s ORDER BY seq', (old.cycle_id,)).fetchall()
+    assert old.plan_id is None and old.failure_code == 'STALE_PREFLIGHT_RECOVERED'
+    edges = conn.execute("SELECT count(*) FROM sentinel_automation_cycle_events WHERE cycle_id=%s "
+        "AND (from_state='RECONCILING' OR to_state='RECONCILING')", (old.cycle_id,)).fetchone()[0]
+    assert edges == (repeats - 1) * 2
+    integrity.validate_cycle_lineage(conn, old)
+    assert trial_attempts._unsent(conn, old)
+    attempts = [record(old), record(current)]
+    assert trial_attempts.select(conn, attempts) == [attempts[1]]
+    assert trial_attempts.select(conn, list(reversed(attempts))) == [attempts[1]]
+    assert all(item['verdict'] == 'NOT_VERIFIED' for item in attempts)
+    assert store.load_cycle(conn, old.cycle_id) == old
+    assert conn.execute('SELECT * FROM sentinel_automation_cycle_events '
+        'WHERE cycle_id=%s ORDER BY seq', (old.cycle_id,)).fetchall() == events
+
+
+def test_recovered_preflight_callbacks_preserve_legacy_verdict_and_restart_readback(conn):
+    old, current = pair(conn, recovered=True, repeats=21)
+    legacy = record(old)
+    name = trial.VERIFICATION_PREFIX + str(old.effective_session)
+    trial._insert_immutable(conn, name=name, session=old.effective_session, state=legacy)
+    result = trial.record_cycle_verification(conn, cycle_id=current.cycle_id)
+    assert trial.record_cycle_verification(conn, cycle_id=current.cycle_id) == result
+    assert trial._stored(conn, name)[1] == legacy
+    assert len(trial.load_attempt_verifications(conn)) == 2
+    assert trial.load_verifications(conn) == [result]
+    previous = trial._previous_verification(conn, current.effective_session + timedelta(days=1))
+    assert previous['cycle']['cycle_id'] == current.cycle_id
+    assert previous['verdict'] == result['verdict'] == legacy['verdict'] == 'NOT_VERIFIED'
+    assert store.load_cycle(conn, old.cycle_id) == old
+
+
+def test_recovered_preflight_missing_callback_is_reconstructed_only_as_failure(conn):
+    old, current = pair(conn, recovered=True, repeats=21)
+    result = trial.record_cycle_verification(conn, cycle_id=current.cycle_id)
+    recovered = trial_attempts.stored(conn, session=old.effective_session, cycle_id=old.cycle_id)[1]
+    assert recovered['recovered_terminal_callback'] is True
+    assert recovered['verdict'] == result['verdict'] == 'NOT_VERIFIED'
+    assert 'STALE_PREFLIGHT_RECOVERED' in recovered['reason_codes']
+    assert trial.load_verifications(conn) == [result]
+    assert trial._terminal_verification_debt(conn, current.model_copy(update={
+        'effective_session': current.effective_session + timedelta(days=1)})) == ()
+    assert store.load_cycle(conn, old.cycle_id) == old
+
+
+@pytest.mark.parametrize('command_state', [state.value for state in CommandState])
+def test_every_durable_command_state_blocks_trial_projection_and_failure_recovery(conn, command_state):
+    old, current = pair(conn)
+    conn.execute("INSERT INTO sentinel_commands(client_key,plan_id,security_id,deployment_id,broker,"
+        "broker_account_id,takeover_epoch,symbol,side,quantity,state) "
+        "VALUES('trial-command',%s,'sec','sentinel-a','alpaca-paper','paper-account-1',1,'TEST','BUY',1,%s)",
+        (old.plan_id, command_state))
+    conn.commit()
+    with pytest.raises(trial.TrialEvidenceRefused, match='transport evidence'):
+        trial_attempts.select(conn, [record(old), record(current)])
+    trial_attempts.recover_unsent_failures(conn, current, now=datetime.now(timezone.utc))
+    assert trial_attempts.stored(conn, session=old.effective_session, cycle_id=old.cycle_id) is None
+    assert conn.execute('SELECT state FROM sentinel_commands WHERE client_key=%s',
+        ('trial-command',)).fetchone()[0] == command_state
+
+
+@pytest.mark.parametrize('recovered', [False, True])
+def test_actual_execution_history_cannot_become_an_unsent_trial_attempt(conn, recovered):
+    if recovered:
+        _, old, _, _, _ = recovered_planless_preflight(conn, transport_history=True)
+    else:
+        _, old, _, _, _ = retained(conn, state=CycleState.EXECUTING)
+    integrity.validate_cycle_lineage(conn, old)
+    assert not trial_attempts._unsent(conn, old)
+
+
+def test_removing_native_transport_classifier_is_detected(conn, monkeypatch):
+    source = inspect.getsource(trial_attempts._unsent)
+    guard = 'if integrity.predecessors_reached_transport(conn, [cycle]):'
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, 'if False:'), '<removed-trial-transport-proof>', 'exec'),
+        vars(trial_attempts), namespace)
+    monkeypatch.setattr(trial_attempts, '_unsent', namespace['_unsent'])
+    with pytest.raises(AssertionError):
+        test_actual_execution_history_cannot_become_an_unsent_trial_attempt(conn, True)
+
+
+def test_removing_trial_command_existence_guard_is_detected(conn, monkeypatch):
+    source = inspect.getsource(trial_attempts._unsent)
+    guard = 'return not cur.fetchone()[0]'
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, 'return True'), '<removed-trial-command-proof>', 'exec'),
+        vars(trial_attempts), namespace)
+    monkeypatch.setattr(trial_attempts, '_unsent', namespace['_unsent'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_every_durable_command_state_blocks_trial_projection_and_failure_recovery(conn, 'UNKNOWN')
+
+
+def test_state_name_only_trial_classifier_reproduces_the_preflight_regression(conn, monkeypatch):
+    def state_name_only(connection, cycle):
+        with connection.cursor() as cur:
+            cur.execute("SELECT EXISTS(SELECT 1 FROM sentinel_automation_cycle_events "
+                "WHERE cycle_id=%s AND (from_state IN ('EXECUTING','RECONCILING') "
+                "OR to_state IN ('EXECUTING','RECONCILING'))) OR "
+                "EXISTS(SELECT 1 FROM sentinel_commands WHERE plan_id=%s)",
+                (cycle.cycle_id, cycle.plan_id))
+            return not cur.fetchone()[0]
+    monkeypatch.setattr(trial_attempts, '_unsent', state_name_only)
+    with pytest.raises(AssertionError):
+        test_authenticated_planless_preflight_is_unsent_for_trial_projection(conn, False, 21)
 
 
 def test_one_success_does_not_count_unsent_attempts_as_extra_economic_days(conn):

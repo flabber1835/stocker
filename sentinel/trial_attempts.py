@@ -31,12 +31,13 @@ def _scope(cycle):
 
 
 def _unsent(conn, cycle) -> bool:
+    """Both callers authenticate complete native lineage before this read."""
+    from sentinel.automation import integrity
+    if integrity.predecessors_reached_transport(conn, [cycle]):
+        return False
     with conn.cursor() as cur:
-        cur.execute("SELECT EXISTS(SELECT 1 FROM sentinel_automation_cycle_events "
-                    "WHERE cycle_id=%s AND (from_state IN ('EXECUTING','RECONCILING') "
-                    "OR to_state IN ('EXECUTING','RECONCILING'))) OR "
-                    "EXISTS(SELECT 1 FROM sentinel_commands WHERE plan_id=%s)",
-                    (cycle.cycle_id, cycle.plan_id))
+        cur.execute("SELECT EXISTS(SELECT 1 FROM sentinel_commands WHERE plan_id=%s)",
+                    (cycle.plan_id,))
         return not cur.fetchone()[0]
 
 
