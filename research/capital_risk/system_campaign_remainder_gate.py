@@ -1,6 +1,7 @@
 """Actual hosted parser, canonical settlement, pending-intent and sensor cases."""
 from copy import deepcopy
 from dataclasses import asdict
+from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -69,8 +70,24 @@ def qualify(out, cp, facts, loaded, old_objects, request, *, codec, certificate)
             market_sessions_held=17, review_completed=True)
         core.slots[0].occupied_by = sid; ledger = Ledger()
         terms = terminal_terms_from_dict(case['added'])
+        basis = {}
+        if case['ticker'] == 'DFS':
+            delivered = facts.payload['delivered_quote']
+            basis = dict(source_signal_to_raw_scale=float(Fraction(witness['signal_close']) / Fraction(witness['raw_close'])),
+                delivered_signal_to_raw_scale=float(Fraction(delivered['signal_close']) / Fraction(delivered['raw_close'])),
+                delivered_raw_open=float(delivered['raw_open']))
+            unchanged = deepcopy((core.to_dict(), ledger.to_dict()))
+            missing = apply_terminal(core, terms, ledger=ledger, session=day, cfg=cfg,
+                delivered_signal_to_raw_scale=basis['delivered_signal_to_raw_scale'],
+                delivered_raw_open=basis['delivered_raw_open'])
+            need(missing.get('blocked') is True and missing['reason'] == 'MISSING_CONVERSION_SIGNAL_BASIS',
+                 'REMAINDER_DFS_ORIGINAL_MISSING_BASIS_GUARD_REPRODUCED')
+            core = PortfolioState.from_dict(unchanged[0]); ledger = Ledger.from_dict(unchanged[1])
         result = apply_terminal(core, terms, ledger=ledger, session=day, cfg=cfg,
-            delivered_raw_open=float(facts.payload['delivered_quote']['raw_open']) if case['ticker'] == 'DFS' else None)
+            **basis)
+        save(out / ('canonical-component-' + case['ticker'] + '.json'), dict(
+            fixture_only=True, actual_future_entitlement_claimed=False, terms=case['added'],
+            result=result, supplied_basis=basis, financial_sessions_advanced=0))
         need(result['applied'] is True, 'REMAINDER_POSITIVE_CANONICAL_CASE_ACTUALLY_APPLIED')
         if case['ticker'] == 'DFS':
             need(core.cash == 9000. and sum(ep.current_shares for ep in core.episodes.values()) == 637

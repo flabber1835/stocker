@@ -87,6 +87,21 @@ silent last-price carry or an assumed pre-open completion.
 
 ## Admission and review
 
+The first hosted remainder attempt stopped in the DFS component fixture before
+any financial session or new-input adoption. The fixture omitted the source and
+delivered signal-to-raw bases required by the existing conversion contract.
+Supply both from the actual frozen source/COF witnesses, as the retained WWE
+qualification does; keep the missing-basis refusal as a negative case. Save
+each component result before asserting success so a refused gate retains its
+exact canonical reason. The original failed artifact remains immutable.
+
+An unadvanced qualification failure must be reviewed as the exact old parent,
+including its complete journal bytes and unsent tails. It is not a new economic
+result or an adopted successor. An advanced output still requires the distinct
+new input and all original-prefix checks. Certificate review uses bounded
+iteration over the unchanged canonical certificate checks; it must not retain
+both historical and successor certificate objects in memory at once.
+
 Before financial continuation, actual isolated hosted canonical cases must
 exercise each new action/range/phase treatment and its refusal cases. Local
 arithmetic and metadata checks alone are insufficient. Prove wrong-predecessor,

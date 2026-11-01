@@ -1,5 +1,6 @@
 """Stopped-source review of the exact new input and every new range-proof row."""
 from copy import deepcopy
+import ast
 from fractions import Fraction
 import json
 from pathlib import Path
@@ -12,7 +13,6 @@ from system_campaign_remainder_input import InputCodec, PRIVATE, ORDINARY, requi
 from system_campaign_remainder_facts import prepare
 from system_campaign_remainder_parent import PATH, reference
 from system_campaign_discovery_inputs import retained_inputs
-from system_campaign_outcome_archive import seed
 from system_campaign_outcome_review import recovery_inputs
 from system_campaign_outcome_proof import certified_recovery
 from system_campaign_uncertainty_context import discrete, WATCH_SCHEMA
@@ -20,6 +20,86 @@ from system_campaign_uncertainty_math import Interval, RollingWitnessBounds, gro
 from system_campaign_uncertainty_review import committed_rows
 import system_campaign_p02_unconsumed_cash_run as retained
 import system_campaign_p02_winter2025_cash_run as previous
+
+
+class CertificateRows:
+    """Repeatable read-only sequence retaining one row, not the full JSON book."""
+    def __init__(self, path, cursor):
+        self.path, self.cursor = path, cursor
+        self.count, self.last = 0, None
+
+    def append(self, row):
+        self.count += 1; self.last = row
+
+    def __len__(self):
+        return self.count
+
+    def __getitem__(self, key):
+        need(key == -1 and self.last is not None, 'REMAINDER_ONLY_BOUNDED_FINAL_SEED_ROW')
+        return self.last
+
+    def new(self, skip=0):
+        with self.path.open('rb') as stream:
+            for index, raw in enumerate(stream):
+                if index < skip:
+                    continue
+                row = json.loads(raw)
+                if row['session'] > self.cursor:
+                    break
+                yield row
+
+    def __iter__(self):
+        return self.new()
+
+
+def seed_tree(source):
+    fn, = [v for v in ast.parse(source).body
+           if isinstance(v, ast.FunctionDef) and v.name == 'seed']
+    counts = dict(stream=0, storage=0, schema=0)
+    class Sites(ast.NodeTransformer):
+        def visit_Assign(self, node):
+            text = ast.unparse(node)
+            if text == 'raw_rows = path.read_bytes().splitlines(keepends=True)':
+                counts['stream'] += 1
+                return ast.copy_location(ast.parse("raw_rows = path.open('rb')").body[0], node)
+            if text == 'rows = []':
+                counts['storage'] += 1
+                return ast.copy_location(ast.parse("rows = CertificateRows(path, cp['source_cursor'])").body[0], node)
+            return self.generic_visit(node)
+        def visit_Compare(self, node):
+            if ast.unparse(node) == "row['schema'] == SCHEMA":
+                counts['schema'] += 1
+                return ast.copy_location(ast.parse('row_schema(row, model)', mode='eval').body, node)
+            return self.generic_visit(node)
+    fn = Sites().visit(fn)
+    need(counts == dict(stream=1, storage=1, schema=1), 'REMAINDER_EXACT_THREE_ORIGINAL_SEED_ADAPTATION_SITES')
+    return ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[]))
+
+
+def bounded_seed(root, cp):
+    """Same original chain/schema/financial/watch checks, bounded storage only."""
+    import system_campaign_outcome_archive as archive
+    from system_campaign_outcome_facts import retained as outcome_input
+    archive.require_sources()
+    model, _ = outcome_input(root, cp)
+    original = archive.original
+    tree = seed_tree(Path(original.__file__).read_bytes())
+    namespace = dict(vars(original), CertificateRows=CertificateRows, model=model, row_schema=archive.row_schema)
+    exec(compile(tree,
+        '<original-certificate-checks-bounded-read-only-storage>', 'exec'), namespace)
+    return namespace['seed'](root, cp)
+
+
+def prefix_commitment(path, count):
+    import hashlib
+    hashed, size, rows = hashlib.sha256(), 0, 0
+    with path.open('rb') as stream:
+        for raw in stream:
+            if rows == count:
+                break
+            rows += 1; size += len(raw); hashed.update(raw)
+    need(rows == count, 'REMAINDER_COMPLETE_ORIGINAL_CERTIFICATE_PREFIX_AVAILABLE')
+    return dict(rows=rows, bytes=size, sha256=hashed.hexdigest())
 
 
 def event_checkpoint(root, row):
@@ -69,21 +149,20 @@ def retained_scope_reviews(root, old, cp, parent, out):
 
 def certificate_review(root, old, cp, parent, facts, loaded, out):
     from sentinel.controller import champion_config
-    inherited = seed(old, parent)
-    rows = seed(root, cp)
-    need(rows[:len(inherited)] == inherited and len(inherited) == 1388,
-         'REMAINDER_EXACT_ORIGINAL_COMMITTED_CERTIFICATE_PREFIX')
-    old_prefix = b''.join(line for line in (old / 'uncertainty-certificate.jsonl').read_bytes().splitlines(keepends=True)
-                         if json.loads(line)['session'] <= parent['source_cursor'])
-    need((root / 'uncertainty-certificate.jsonl').read_bytes().startswith(old_prefix),
+    inherited = bounded_seed(old, parent)
+    rows = bounded_seed(root, cp)
+    need(len(inherited) == 1388 and prefix_commitment(old / 'uncertainty-certificate.jsonl',len(inherited))
+         == prefix_commitment(root / 'uncertainty-certificate.jsonl',len(inherited)),
          'REMAINDER_ORIGINAL_CERTIFICATE_BYTES_NOT_REENCODED')
     financial = {v['session']: v for v in committed_rows(root / 'book', cp, 'daily')}
     watches = committed_rows(root / 'book', cp, 'watch')
     math = RollingWitnessBounds.restore(inherited[-1]['math'])
     previous_discrete = inherited[-1]['after']
     cases = [v for v in facts.catalog['cases'] if v['treatment'] != 'CANONICAL_ORDINARY']
-    resolutions, comparison_count = {}, 0
-    for row in rows[len(inherited):]:
+    resolutions, comparison_count, actual_new_days = {}, 0, []
+    individual_invariant = True
+    for row in rows.new(len(inherited)):
+        actual_new_days.append(row['session'])
         need(row['remainder_input_sha256'] == loaded.sha256 and row['before'] == previous_discrete,
              'REMAINDER_EACH_ACTUAL_INPUT_AND_COMPLETE_DISCRETE_CHAIN')
         event = [v for v in cases if v['sensor_session'] == row['session']]
@@ -155,8 +234,9 @@ def certificate_review(root, old, cp, parent, facts, loaded, out):
                  'REMAINDER_NO_NEW_UNVALUED_FINANCIAL_INTENT')
         previous_discrete = discrete(after)
         comparison_count += sum(len(v['comparisons']) for v in proof['leaves'])
+        individual_invariant = individual_invariant and proof['all_individual_comparisons_invariant']
     expected_new = [day for day in sorted(financial) if parent['source_cursor'] < day <= cp['source_cursor']]
-    need([v['session'] for v in rows[len(inherited):]] == expected_new
+    need(actual_new_days == expected_new
          and previous_discrete == discrete(cp['run']['state']['median5'])
          and math.absolute.contains(cp['run']['state']['median5']['witness_nav'][-1]),
          'REMAINDER_COMPLETE_NEW_AXIS_AND_FINAL_CANONICAL_WITNESS')
@@ -164,8 +244,7 @@ def certificate_review(root, old, cp, parent, facts, loaded, out):
     summary.update(status='COMMITTED_PREFIX_COMPLETE_CONTROLLER_OUTCOME_INVARIANT',
         rows=len(rows), through=cp['source_cursor'], checkpoint_sha256=cp['sha256'],
         inherited_rows=len(inherited), comparisons=summary['comparisons'] + comparison_count,
-        every_actual_comparison_invariant=summary['every_actual_comparison_invariant'] and all(
-            r['comparisons']['all_individual_comparisons_invariant'] for r in rows[len(inherited):]),
+        every_actual_comparison_invariant=summary['every_actual_comparison_invariant'] and individual_invariant,
         every_complete_controller_result_equal=True, remainder_input_sha256=loaded.sha256,
         remainder_event_resolutions=resolutions, every_new_remainder_scope_checked=True,
         representative_is_not_a_valuation=True)
@@ -180,6 +259,23 @@ def review(out, root, old, spec, request, timing):
     from system_campaign_pxd_basis import basis
     parent = journal.read_checkpoint(old / spec['selected_checkpoint'])
     cp = journal.read_checkpoint(root / 'book/checkpoint.json.gz')
+    if cp['repairs'] == parent['repairs']:
+        need(cp == parent and (root / 'book/checkpoint.json.gz').read_bytes()
+             == (old / spec['selected_checkpoint']).read_bytes(),
+             'REMAINDER_UNADVANCED_PARENT_EXACT_SERIALIZED_IDENTITY')
+        for name in parent['journals']:
+            need((root / 'book' / (name + '.jsonl')).read_bytes()
+                 == (old / 'book' / (name + '.jsonl')).read_bytes(),
+                 'REMAINDER_UNADVANCED_COMPLETE_JOURNAL_AND_UNSENT_TAIL_BYTES')
+        save(out / 'core-review.json', json.loads((old / 'core-review.json').read_bytes()))
+        for name in ('uncertainty-certificate-review.json','completion-position-guard-review.json',
+                     'common-factual-and-uncertainty-basis.json'):
+            (out / name).write_bytes((old / name).read_bytes())
+        save(out / 'remainder-unadvanced-failure-review.json', dict(
+            status='EXACT_PARENT_PRESERVED_QUALIFICATION_FAILED_NO_FINANCIAL_ADVANCE',
+            checkpoint_sha256=parent['sha256'], financial_sessions_advanced=0,
+            new_input_adopted=False, full_journals_and_tails_unchanged=True, production_contacted=False))
+        return
     need(cp['base'] == parent['base'] and cp['repairs'][:-1] == parent['repairs'],
          'REMAINDER_ALL41_ORIGINAL_DESCRIPTORS_AND_FINANCIAL_SOURCE_UNCHANGED')
     facts, bound, refs, path = timing.call('independent_remainder_full_hydration', prepare, parent, old, out, spec)

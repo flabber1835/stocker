@@ -123,3 +123,57 @@ def test_exact_source_bound_orchestration_and_worker_scope():
         expected_counts={'COMPLETE_P02_CLOSE_SUFFIX_REVIEWED':2})
     text = ast.unparse(job)
     assert 'p02-remainder' in text and 'STOP_UNKNOWN' in text and 'stopped_run' in text
+
+
+def bounded_reader_fixture(tmp_path):
+    source = ast.parse((ROOT/'system_campaign_remainder_review.py').read_bytes())
+    selected = [v for v in source.body if isinstance(v,(ast.ClassDef,ast.FunctionDef))
+                and v.name in ('CertificateRows','seed_tree')]
+    def need(value,reason):
+        if not value:raise ValueError(reason)
+    namespace = dict(ast=ast,json=json,need=need)
+    exec(compile(ast.Module(body=selected,type_ignores=[]),'<bounded-metadata-reader>','exec'),namespace)
+    tree = namespace['seed_tree']((ROOT/'system_campaign_uncertainty_review.py').read_bytes())
+    schema='research.leadership-uncertainty-certificate/1';watch_schema='research.leadership-uncertainty-certificate-commitment/1'
+    chain=inputs.digest(schema);rows=[];financial=[];watches=[]
+    for day in ('2025-05-01','2025-05-02'):
+        row=dict(schema=schema,session=day,next_state_sha256=inputs.sha(day.encode()),input_sha256='1'*64)
+        chain=inputs.digest(dict(previous=chain,record=row));row['chain_sha256']=chain;rows.append(row)
+        financial.append(dict(session=day,state_sha256=row['next_state_sha256'],input_sha256='1'*64))
+        watches.append(dict(schema=watch_schema,session=day,next_state_sha256=row['next_state_sha256'],
+            input_sha256='1'*64,certificate_chain_sha256=chain))
+    def committed(book,cp,name):return [] if name=='formation' else financial if name=='daily' else watches
+    namespace.update(committed_rows=committed,DAY='2019-10-22',WATCH_SCHEMA=watch_schema,SCHEMA=schema,
+        digest=inputs.digest,encoded=inputs.encoded,row_schema=lambda row,model:row['schema']==schema,model=None)
+    exec(compile(tree,'<actual-original-seed-bounded-storage>','exec'),namespace)
+    path=tmp_path/'uncertainty-certificate.jsonl'
+    def write():path.write_bytes(b''.join(inputs.encoded(v)+b'\n' for v in rows))
+    write()
+    return namespace, rows, financial, watches, path, write
+
+
+def test_actual_original_chain_reader_keeps_only_one_row(tmp_path):
+    namespace,rows,_,_,_,_=bounded_reader_fixture(tmp_path)
+    result=namespace['seed'](tmp_path,{'source_cursor':'2025-05-02'})
+    assert len(result)==2 and result[-1]==rows[-1] and list(result.new(1))==rows[1:]
+    assert set(result.__dict__)=={'path','cursor','count','last'}
+
+
+@pytest.mark.parametrize('surface',['chain','financial_state','financial_input','watch_chain','axis'])
+def test_bounded_original_reader_preserves_every_binding_guard(tmp_path,surface):
+    namespace,rows,financial,watches,path,write=bounded_reader_fixture(tmp_path)
+    if surface=='chain':rows[0]['chain_sha256']='f'*64;write()
+    if surface=='financial_state':financial[0]['state_sha256']='f'*64
+    if surface=='financial_input':financial[0]['input_sha256']='f'*64
+    if surface=='watch_chain':watches[0]['certificate_chain_sha256']='f'*64
+    if surface=='axis':financial[0]['session']='2025-04-30'
+    with pytest.raises(ValueError):namespace['seed'](tmp_path,{'source_cursor':'2025-05-02'})
+
+
+def test_dfs_component_supplies_both_required_conversion_bases():
+    tree=ast.parse((ROOT/'system_campaign_remainder_gate.py').read_bytes())
+    dictionaries=[v for v in ast.walk(tree) if isinstance(v,ast.Call) and isinstance(v.func,ast.Name)
+                  and v.func.id=='dict' and {'source_signal_to_raw_scale','delivered_signal_to_raw_scale'}
+                  <= {k.arg for k in v.keywords}]
+    assert len(dictionaries)==1
+    assert 'REMAINDER_DFS_ORIGINAL_MISSING_BASIS_GUARD_REPRODUCED' in (ROOT/'system_campaign_remainder_gate.py').read_text()
