@@ -79,7 +79,7 @@ def test_fixture_fault_precedes_feature_materialization():
 def test_actual_provenance_copy_fragment_requires_and_gets_archive_directory(tmp_path):
     """Metadata I/O fragments only; canonical restore is never called locally."""
     loader=ast.parse((HERE/'system_campaign_discovery_inputs.py').read_bytes())
-    fn,=[v for v in loader.body if isinstance(v,ast.FunctionDef) and v.name=='retained_inputs']
+    fn,=[v for v in loader.body if isinstance(v,ast.FunctionDef) and v.name=='preserve_input_documents']
     setup,=[v for v in fn.body if isinstance(v,ast.Expr)
             and isinstance(v.value,ast.Call) and ast.unparse(v.value.func)=="(output / 'book/predecessor-checkpoints').mkdir"]
     legacy=ast.parse((HERE/'system_campaign_p02_calendar_run.py').read_bytes())
@@ -100,6 +100,57 @@ def test_actual_provenance_copy_fragment_requires_and_gets_archive_directory(tmp
     exec(fragment,namespace)
     assert (out/'book/predecessor-checkpoints/origin.json.gz').read_bytes()==raw
     assert (old_archive/'origin.json.gz').read_bytes()==raw
+
+
+def test_actual_amendment_documents_reader_gets_original_descriptor_bytes(tmp_path):
+    import gzip
+    import hashlib
+    loader=ast.parse((HERE/'system_campaign_discovery_inputs.py').read_bytes())
+    helper,=[v for v in loader.body if isinstance(v,ast.FunctionDef) and v.name=='preserve_input_documents']
+    source=ast.parse((HERE/'system_campaign_future_amendment.py').read_bytes())
+    reader,=[v for v in source.body if isinstance(v,ast.FunctionDef) and v.name=='documents']
+    namespace=dict(Path=Path,hashlib=hashlib,json=json,
+        sha=lambda raw:hashlib.sha256(raw).hexdigest(),
+        need=lambda value,reason:None if value else (_ for _ in ()).throw(ValueError(reason)))
+    exec(compile(ast.Module(body=[helper,reader],type_ignores=[]),'<actual-metadata-only-input-copies-and-reader>','exec'),namespace)
+    old=tmp_path/'old';out=tmp_path/'out';(old/'book/repairs').mkdir(parents=True)
+    raw=b'{"explicit":"metadata-only"}';h=hashlib.sha256(raw).hexdigest();name=h+'.json'
+    (old/'book/repairs'/name).write_bytes(raw);cp={'repairs':[{'sha256':h,'filename':name}]}
+    with pytest.raises(FileNotFoundError):namespace['documents'](out,cp)
+    namespace['preserve_input_documents'](old,cp,out)
+    assert namespace['documents'](out,cp)=={h:json.loads(raw)}
+    assert not (out/'book/checkpoint.json.gz').exists() and not list(out.rglob('*.jsonl'))
+    # Actual retained amendment boundary: every descriptor is a metadata read,
+    # never a canonical restore, strategy transition or accounting operation.
+    root=Path('C:/Users/mbron/.codex/visualizations/2026/10/25/01a1737f-f4e0-7cf1-990e-82ae645d665b/research-capital-risk-20261027/system-optimization-002/p02-sequential-001/winter2025-cash-suffix-001/evidence-001/verified')
+    if sys.platform=='win32':root=Path(chr(92)*2+'?'+chr(92)+str(root))
+    if root.exists():
+        latest=json.loads(gzip.decompress((root/'book/checkpoint.json.gz').read_bytes()))
+        historical=json.loads(gzip.decompress((root/'book/predecessor-checkpoints/a9b87ca80dbc29e3700173c4c879083266554457aec10e4327c58ee872b860ee.json.gz').read_bytes()))
+        copied=tmp_path/'actual';namespace['preserve_input_documents'](root,latest,copied)
+        actual=namespace['documents'](copied,historical)
+        assert set(actual)=={d['sha256'] for d in historical['repairs']}
+
+
+def test_original_input_digest_guard_rejects_corruption_and_removal_is_detected(tmp_path):
+    import hashlib
+    source=ast.parse((HERE/'system_campaign_discovery_inputs.py').read_bytes())
+    helper,=[v for v in source.body if isinstance(v,ast.FunctionDef) and v.name=='preserve_input_documents']
+    old=tmp_path/'old';(old/'book/repairs').mkdir(parents=True)
+    raw=b'ORIGINAL_METADATA_ONLY';h=hashlib.sha256(raw).hexdigest();name=h+'.json'
+    (old/'book/repairs'/name).write_bytes(b'CORRUPTED_METADATA_ONLY')
+    def need(value,reason):
+        if not value:raise ValueError(reason)
+    scope=dict(Path=Path,hashlib=hashlib,need=need)
+    exec(compile(ast.Module(body=[helper],type_ignores=[]),'<actual-original-input-digest-guard>','exec'),scope)
+    cp={'repairs':[{'sha256':h,'filename':name}]}
+    with pytest.raises(ValueError,match='DISCOVERY_ORIGINAL_INPUT_BYTES'):
+        scope['preserve_input_documents'](old,cp,tmp_path/'rejected')
+    def removed(value,reason):
+        if reason!='DISCOVERY_ORIGINAL_INPUT_BYTES':need(value,reason)
+    scope['need']=removed
+    scope['preserve_input_documents'](old,cp,tmp_path/'guard-removed')
+    assert (tmp_path/'guard-removed/book/repairs'/name).read_bytes()!=raw
 
 
 def test_actual_window_feature_key_guard_rejects_old_incoherent_fixture():

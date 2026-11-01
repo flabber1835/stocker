@@ -40,6 +40,15 @@ is recovered, truncated or rewritten to create this fork. Retain the original
 strict journals and tails in the authenticated parent. The diagnostic checkpoint
 binds its new streams and the exact committed event prefix separately.
 
+Before composing the retained input loaders, copy each original SHA-named repair
+document from the strict parent into the fork's provenance folder. Validate its
+descriptor filename and complete byte digest, and refuse an unequal existing
+copy. Create the predecessor archive directory so the unchanged retained loaders
+can preserve their original boundary gzips. These are input and lineage copies;
+the strict current checkpoint and financial journals are not copied as a new
+book. Some retained loaders validate historical descriptors at their output root,
+so an empty provenance directory alone does not satisfy their contract.
+
 ## Exact diagnostic conventions
 
 1. Probe terminal application on detached copies of the Core state, ledger and

@@ -1,9 +1,30 @@
 """Compose the existing eight input codecs; no new facts or proof certificate."""
 from contextlib import ExitStack, contextmanager
+import hashlib
 from pathlib import Path
 
 from full_system_core import hosted
 from system_campaign_discovery_context import need
+
+
+def preserve_input_documents(root,checkpoint,output):
+    """Copy original input bytes only; never a financial journal or current CP."""
+    root,output=Path(root),Path(output)
+    (output/'book/predecessor-checkpoints').mkdir(parents=True,exist_ok=True)
+    target=output/'book/repairs';target.mkdir(parents=True,exist_ok=True)
+    for descriptor in checkpoint['repairs']:
+        name=descriptor['filename']
+        need(name==descriptor['sha256']+'.json' and len(descriptor['sha256'])==64
+             and all(c in '0123456789abcdef' for c in descriptor['sha256']),
+             'DISCOVERY_ORIGINAL_INPUT_FILENAME')
+        raw=(root/'book/repairs'/name).read_bytes()
+        need(hashlib.sha256(raw).hexdigest()==descriptor['sha256'],
+             'DISCOVERY_ORIGINAL_INPUT_BYTES')
+        path=target/name
+        if path.exists():
+            need(path.read_bytes()==raw,'DISCOVERY_EXISTING_INPUT_COPY_UNCHANGED')
+        else:
+            path.write_bytes(raw)
 
 
 @contextmanager
@@ -16,7 +37,7 @@ def retained_inputs(root, checkpoint, output):
     from system_campaign_outcome_facts import retained as outcome, evidence as outcome_evidence
     from system_campaign_outcome_input import InputCodec as OutcomeCodec
     root,output=Path(root),Path(output)
-    (output/'book/predecessor-checkpoints').mkdir(parents=True,exist_ok=True)
+    preserve_input_documents(root,checkpoint,output)
     prior=q4.prior
     with CashRegistry(), retained.retained_scopes(root,checkpoint,output), ExitStack() as stack:
         v1,spin,alder,_=prior.retained(checkpoint,root,output)
