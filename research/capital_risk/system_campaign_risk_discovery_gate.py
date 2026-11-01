@@ -26,11 +26,12 @@ def expected_refusal(root,parent,out,source_iterator,code):
             TerminalTerms(session=day,security_id=sid,kind=TerminalKind.CASH_MERGER,cash_per_share=None,
                 reference='research:risk-discovery-synthetic-missing-held-input/'+sid) for sid in sorted(affected)))
     buffer.append(packet);buffer.current=packet
-    published=replace(buffer.prepare(run.state,run.state.data_version+1,formation=False),
-        cash_distributions=None,spinoff_distributions=())
-    prior=deepcopy(runtime.checkpoint(run));publication=digest(published)
+    prior=deepcopy(runtime.checkpoint(run))
     original=runtime.advance
     with Execution('FAST',signal_closes=1),DiscoveryContext(out,source_sha256=digest(parent['base']['sources'])) as context:
+        published=replace(buffer.prepare(run.state,run.state.data_version+1,formation=False),
+            cash_distributions=None,spinoff_distributions=())
+        publication=digest(published)
         try:runtime.advance(run,published)
         except ValueError as error:need(str(error)==code,'RISK_GATE_EXACT_EXISTING_MISSING_INPUT_REFUSAL')
         else:raise ValueError('RISK_GATE_EXPECTED_ORIGINAL_INPUT_GUARD_DID_NOT_REFUSE')

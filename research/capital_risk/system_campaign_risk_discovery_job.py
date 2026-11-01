@@ -11,11 +11,12 @@ from system_campaign_risk_discovery_run import ARMS,CODES
 
 HERE=Path(__file__).parent
 PRIOR_SHA='863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
-REQUEST='system-campaign-risk-discovery-request-001.json'
+REQUEST='system-campaign-risk-discovery-request-002.json'
 RECOVERY='system-campaign-risk-discovery-recovery.json'
 SOURCES=tuple(dict.fromkeys((*original.SOURCES,original.REQUEST,RECOVERY,
     'system_campaign_risk_discovery_gate.py','system_campaign_risk_discovery_run.py',
-    'system_campaign_risk_discovery_job.py','system_campaign_risk_discovery_probe.py')))
+    'system_campaign_risk_discovery_job.py','system_campaign_risk_discovery_probe.py',
+    'system-campaign-risk-discovery-request-001.json','system-campaign-risk-prepare-order-provenance.json')))
 
 
 def adopted(name):
@@ -41,8 +42,34 @@ def expected_request():
         qualification_kind='ORIGINAL_RISK_GUARDS_PRESERVED_HELD_MISSING_INPUT_REFUSED',
         actual_discovery_replay_changed=False,risk_guards_bypassed=False,
         all_three_failed_before_diagnostic_origin=True,other_five_jobs_unchanged=True,
+        retained_failed_prepare_request_sha256='a2039e366633fc7a7bbd7f6e059e9eeecb01094cd916bce42df9f2d6d290570f',
+        prepare_order_provenance_sha256=sha256_file(HERE/'system-campaign-risk-prepare-order-provenance.json'),
         sources={n:sha256_file(HERE/n) for n in SOURCES})
+    validate_prepare_order()
     return request
+
+
+def validate_prepare_order():
+    oldraw=(HERE/'system-campaign-risk-discovery-request-001.json').read_bytes()
+    need(hashlib.sha256(oldraw).hexdigest()=='a2039e366633fc7a7bbd7f6e059e9eeecb01094cd916bce42df9f2d6d290570f',
+         'RISK_PREPARE_EXACT_RETAINED_FAILED_REQUEST')
+    old=json.loads(oldraw);proof=json.loads((HERE/'system-campaign-risk-prepare-order-provenance.json').read_bytes())
+    changed=['system_campaign_risk_discovery_gate.py','system_campaign_risk_discovery_job.py']
+    need(proof['changed_driver_files']==changed and proof['financial_source_or_rule_changed'] is False
+         and all(sha256_file(HERE/n)==h for n,h in old['sources'].items() if n not in changed),
+         'RISK_PREPARE_ONLY_TWO_EXPLICIT_DRIVER_SUCCESSORS')
+    raw=proof['original_gate_source_text'].encode()
+    need(hashlib.sha256(raw).hexdigest()==proof['original_gate_sha256']==old['sources'][changed[0]],
+         'RISK_PREPARE_EXACT_ORIGINAL_GATE_PREIMAGE')
+    before=ast.parse(raw);after=ast.parse((HERE/changed[0]).read_bytes())
+    fn,=[n for n in before.body if isinstance(n,ast.FunctionDef) and n.name=='expected_refusal']
+    pub,=[n for n in fn.body if isinstance(n,ast.Assign) and ast.unparse(n.targets[0])=='published']
+    prior,=[n for n in fn.body if isinstance(n,ast.Assign) and ast.unparse(n.targets[0])=='publication']
+    fn.body.remove(pub);fn.body.remove(prior)
+    block,=[n for n in fn.body if isinstance(n,ast.With)]
+    block.body[:0]=[pub,prior]
+    need(ast.dump(before,include_attributes=False)==ast.dump(after,include_attributes=False),
+         'RISK_PREPARE_ONLY_PUBLICATION_MOVED_INSIDE_EXISTING_EXECUTION_CONTEXT')
 
 
 def entrypoint(arm,mode):

@@ -29,8 +29,9 @@ class Publication:
     mutation:int=0
 
 
-def refusal_case(tmp_path,mutation=None):
-    source=Path(gate.__file__).read_bytes()
+def refusal_case(tmp_path,mutation=None,*,old_source=False):
+    source=(json.loads((job.HERE/'system-campaign-risk-prepare-order-provenance.json').read_bytes())['original_gate_source_text'].encode()
+            if old_source else Path(gate.__file__).read_bytes())
     fn,=[n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef) and n.name=='expected_refusal']
     # Pure stub bindings replace imports, leaving the actual function's guards.
     imports=[n for n in fn.body if isinstance(n,ast.ImportFrom)]
@@ -38,6 +39,10 @@ def refusal_case(tmp_path,mutation=None):
     state=SimpleNamespace(wealth_core=dict(episodes={'0':dict(security_id='HELD')}),
         median5=dict(selected=['LEADER']),data_version=1)
     run=SimpleNamespace(state=state);material=dict(synthetic='PRIOR');publication=Publication()
+    prepared=dict(active=False,prior=None)
+    class FastExecution:
+        def __enter__(self):prepared['active']=True;return self
+        def __exit__(self,*args):prepared['active']=False
     class Context:
         transitions=1 if mutation=='commit' else 0
         def __init__(self,out,**kw):self.out=out
@@ -47,16 +52,20 @@ def refusal_case(tmp_path,mutation=None):
         def __exit__(self,*args):pass
         def commitment(self):return dict(rows=1)
     def advance(*args):
+        if prepared['prior'] is not run.state:raise ValueError('REFUSED_CAMPAIGN_ACCELERATION_EXACT_PREPARED_PRIOR')
         if mutation=='prior':material['changed']=True
         if mutation=='publication':args[1].mutation=1
         if mutation=='success':return run
         raise ValueError('WRONG_ERROR' if mutation=='wrong_error' else 'REFUSED_TRIM_CURRENT_RAW_MARK')
     runtime=SimpleNamespace(advance=advance,checkpoint=lambda r:deepcopy(dict(checkpoint_sha256='1'*64,state=material)))
-    buffer=SimpleNamespace(append=lambda p:None,prepare=lambda *a,**k:publication)
+    def prepare(*a,**k):
+        prepared['prior']=a[0] if prepared['active'] else None
+        return publication
+    buffer=SimpleNamespace(append=lambda p:None,prepare=prepare)
     packet=Packet(bars=(SimpleNamespace(security_id='HELD'),SimpleNamespace(security_id='LEADER')))
     iterator=lambda *args:(run,buffer,iter([packet]),lambda p:p,['SYNTHETIC_DAY'])
     namespace=dict(vars(gate),runtime=runtime,TerminalTerms=lambda **kw:SimpleNamespace(**kw),
-        TerminalKind=SimpleNamespace(CASH_MERGER='CASH'),Execution=lambda *a,**k:nullcontext(),DiscoveryContext=Context)
+        TerminalKind=SimpleNamespace(CASH_MERGER='CASH'),Execution=lambda *a,**k:FastExecution(),DiscoveryContext=Context)
     call=compile_body(fn,namespace)
     return call,iterator,tmp_path/'probe'
 
@@ -66,6 +75,13 @@ def test_actual_refusal_function_accepts_only_expected_original_zero_commit(tmp_
     proof=call(tmp_path,dict(base=dict(sources={}),sha256='2'*64),out,iterator,'REFUSED_TRIM_CURRENT_RAW_MARK')
     assert proof['status']=='EXPECTED_ORIGINAL_RISK_INPUT_REFUSAL_QUALIFIED'
     assert proof['committed_transitions']==0 and proof['prior_and_publication_unchanged']
+
+
+def test_actual_prior_prepare_order_bug_reproduced_by_fast_scope_stub(tmp_path):
+    call,iterator,out=refusal_case(tmp_path,old_source=True)
+    with pytest.raises(ValueError,match='EXACT_EXISTING_MISSING_INPUT_REFUSAL'):
+        call(tmp_path,dict(base=dict(sources={}),sha256='2'*64),out,iterator,'REFUSED_TRIM_CURRENT_RAW_MARK')
+    assert not (out/'proof.json').exists()
 
 
 @pytest.mark.parametrize('mutation',['prior','publication','commit','success','wrong_error'])
@@ -103,7 +119,8 @@ def test_actual_new_admission_guard_removal_falsifier():
 def test_continuing_candidate_sources_and_orchestrators_remain_exact():
     request=job.expected_request();assert request['arms']==['P09','P10','P11']
     assert request['actual_discovery_replay_changed'] is False and request['risk_guards_bypassed'] is False
-    assert len(request['sources'])==389 and request['other_five_jobs_unchanged']
+    assert len(request['sources'])==391 and request['other_five_jobs_unchanged']
+    job.validate_prepare_order()
     assert 'risk' not in ast.unparse(job.adopted('worker_command')).lower()
     assert callable(compile_body(job.adopted('main'),vars(job.original)))
 

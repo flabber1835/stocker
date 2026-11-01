@@ -2,7 +2,7 @@ name: C V discovery qualification recovery
 on:
   push:
     branches: [codex/capital-risk-research]
-    paths: ['research/capital_risk/system-campaign-risk-discovery-request-001.json']
+    paths: ['research/capital_risk/system-campaign-risk-discovery-request-002.json']
 permissions:
   contents: read
   actions: read
@@ -31,7 +31,7 @@ jobs:
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
       - name: Verify metadata and all original discovery source bytes
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_risk_discovery_probe.py --request research/capital_risk/system-campaign-risk-discovery-request-001.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_risk_discovery_probe.py --request research/capital_risk/system-campaign-risk-discovery-request-002.json'
       - name: Authenticate frozen inputs and offline runtime
         timeout-minutes: 8
         env:
@@ -43,7 +43,7 @@ jobs:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
           DISCOVERY_ARM: ${{ matrix.arm }}
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_risk_discovery_job.py --arm "$DISCOVERY_ARM" --request research/capital_risk/system-campaign-risk-discovery-request-001.json --staging artifacts/capital-risk/full-core-staging.json --output artifacts/capital-risk/discovery.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_risk_discovery_job.py --arm "$DISCOVERY_ARM" --request research/capital_risk/system-campaign-risk-discovery-request-002.json --staging artifacts/capital-risk/full-core-staging.json --output artifacts/capital-risk/discovery.json'
       - name: Preserve encrypted proven stopped diagnostic evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
