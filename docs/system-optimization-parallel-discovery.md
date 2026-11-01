@@ -136,3 +136,30 @@ and no trim or stop is skipped. If ordinary discovery later encounters one of
 these refusals, that partial path is preserved and reported. The recovery
 workflow has its own concurrency group and changes neither the five continuing
 jobs nor the completed P01 diagnostic evidence.
+# Volatility discovery retention correction (2026-11-01)
+
+The authenticated P10/P11 qualification recovery at `cc13e8922d6c33e55cc6535ca8b07a8ed6558ab8`
+still refused the ordinary source-packet transition. The research acceleration
+configuration retained one signal close, inherited from CORE-only discovery;
+the unchanged volatility policy requires its complete dated return window.
+This is a research transport configuration defect. It is not evidence that the
+provider's original dated history is absent, and it does not justify weakening
+the causal-axis guard.
+
+A distinct P10/P11-only recovery retains up to 127 existing signal closes in
+both qualification and diagnostic traversal. No quote, session, risk parameter,
+stop floor, trade or financial-source module is changed. All 391 prior driver
+files and both failed requests remain immutable. P09 and the other continuing
+jobs remain at their own commits. Both V arms have proved zero diagnostic
+origins, so this is their first diagnostic traversal, not a restart of a
+committed diagnostic path.
+
+Before traversal, the hosted worker runs the same three canonical qualification
+sessions twice, with FAST retention corrected and with untruncated REFERENCE
+transport. Every actual runtime checkpoint must match, including controller,
+Core, input, pending orders and ledger. The expected missing-held-input refusal
+must still occur with zero commits. The retained old one-close implementation
+is kept as the failure preimage; a pure transport test demonstrates the lost
+history without running a local strategy. No interpretation comes from those
+pure checks alone. Unsupported normal transitions still refuse and preserve
+their exact artifacts.
