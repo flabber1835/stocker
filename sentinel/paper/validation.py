@@ -92,9 +92,9 @@ from .model import (
 )
 
 def _require_mutation_backup(conn, *, operation: str) -> None:
-    """Require a complete current restore horizon before new paper mutation."""
+    """Apply strict durability or explicitly selected bounded PAPER continuity."""
     try:
-        backup_runtime_authority.require(conn, operation=operation)
+        backup_runtime_authority.require(conn, operation=operation, allow_continuity=True)
     except backup_runtime_authority.BackupRuntimeUnavailable as exc:
         raise PaperRetryableRefused(str(exc)) from exc
     except backup_runtime_authority.BackupRuntimeRefused as exc:

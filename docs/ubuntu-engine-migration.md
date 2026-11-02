@@ -1,5 +1,10 @@
 # Sentinel engine migration into Ubuntu
 
+The later [backup disk isolation decision](backup-disk-isolation.md) supersedes
+this migration's requirement that Docker depend on the external backup mount.
+Primary data remains internal; backup loss must not stop the Engine/database.
+The original migration details below retain their historical scope.
+
 Decision: 2026-10-31. The owner requests migration from Docker Desktop to
 Docker Engine in the existing Ubuntu WSL distribution, followed by installation
 and activation of the merged PR551 release. This removes the Desktop engine,

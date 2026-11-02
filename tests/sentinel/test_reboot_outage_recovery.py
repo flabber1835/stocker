@@ -254,7 +254,7 @@ def test_wal_restore_horizon_refuses_timeline_gap():
         )
 
 
-def test_cold_boot_backup_mount_marker_is_enforced_in_archive_and_health():
+def test_backup_marker_guards_archives_without_gating_database_availability():
     archive = (ROOT / "scripts" / "sentinel-archive-wal.sh").read_text(
         encoding="utf-8")
     overlay = (ROOT / "docker-compose.sentinel-backup.yml").read_text(
@@ -266,7 +266,10 @@ def test_cold_boot_backup_mount_marker_is_enforced_in_archive_and_health():
     marker = ".sentinel-independent-durable-target-v1"
     assert marker in archive
     assert "independent durable-target marker is missing" in archive
-    assert marker in overlay
+    assert 'SENTINEL_BACKUP_TRANSPORT_DIR' in overlay
+    assert 'propagation:' in overlay
+    assert 'pg_isready -U sentinel -h 127.0.0.1' in overlay
+    assert marker not in overlay
     assert "/sentinel-backup/wal" in overlay
     assert "/sentinel-backup/base" in overlay
     assert marker in helper
