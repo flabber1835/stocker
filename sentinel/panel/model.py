@@ -385,12 +385,19 @@ class Row:
 
     def effective_status(self, now: datetime) -> str:
         """Apply the shared operator recoverability policy."""
-        if self.paper_alignment == 'SCHEDULED_WITH_HISTORY':
+        if self.paper_alignment in {'SCHEDULED_WITH_HISTORY', 'COMPLETED_WITH_HISTORY'}:
+            if (self.paper_alignment == 'COMPLETED_WITH_HISTORY'
+                    and (not isinstance(self.as_of, datetime)
+                         or self.as_of.utcoffset() != timedelta(0))):
+                return FAIL
             if (self.key != 'paper_reconciliation' or self.status != WARN
                     or self.required_current is not True or self.recovery is not None
                     or not isinstance(self.valid_until, datetime)
                     or self.valid_until.utcoffset() != timedelta(0)
                     or self.is_future(now) or self.is_stale(now)):
+                return FAIL
+            if (self.paper_alignment == 'COMPLETED_WITH_HISTORY'
+                    and (self.valid_until <= self.as_of or now >= self.valid_until)):
                 return FAIL
             return WARN
         if self.paper_alignment == 'PRIOR_CYCLE_FAILED':

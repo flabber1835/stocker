@@ -2221,6 +2221,73 @@ def _scheduled_preopen_mirror(conn, cycle, active_publication, frontier, *, now=
                 + "; orders have not completed and post-close mirror evidence remains pending"))
 
 
+def _completed_postopen_mirror(conn, cycle, active_publication, frontier, *, now=None):
+    """Prove completed current transport without certifying post-close history."""
+    now = now or datetime.now(timezone.utc)
+    if (cycle.get('state') != 'SUCCEEDED' or not cycle.get('clean_reconciliation_id')
+            or cycle.get('failure_code') or cycle.get('failure_detail')
+            or cycle.get('terminal_reason')):
+        return None
+    from sentinel import local_paper
+    from sentinel.automation.health import read_health
+    from sentinel.execution import journal
+    from sentinel.feed import calendar
+
+    if not local_paper.require_bound_account(conn):
+        return None
+    health = read_health(conn)
+    if (not health.healthy or not health.operational_ready
+            or health.enabled is not True or health.kill_switch_engaged is not False
+            or health.policy_state != 'LEADER_ACTIVE'
+            or health.authority_verdict != 'PASS'
+            or health.authority_lifecycle_current is not True
+            or health.broker_outcome_unresolved != 0):
+        return None
+    if (health.latest_cycle_id == cycle.get('cycle_id')
+            and health.latest_cycle_state == 'SUCCEEDED'):
+        current = _current_trading_run(conn)
+        expected_key = 'trading_run'
+    elif health.latest_cycle_id is None and health.latest_cycle_state is None:
+        current = _completed_trading_run(conn)
+        expected_key = 'completed_trading_run'
+    else:
+        return None
+    if (current is None or current.key != expected_key
+            or current.effective_status(now) != model.OK
+            or not current.can_show_trading_run(now)):
+        return None
+    run = current.trading_run
+    if (run.state != 'SUCCEEDED' or run.intent.cycle_id != cycle.get('cycle_id')
+            or run.intent.plan_id != cycle.get('plan_id')
+            or run.completed_at != _utc(cycle.get('completed_at'))
+            or str(run.intent.decision_session) != str(frontier)
+            or str(run.intent.effective_session) != calendar.next_session(str(frontier))):
+        return None
+    plan = journal.load_plan(conn, run.intent.plan_id)
+    if (plan is None or plan.fingerprint() != cycle.get('plan_fingerprint')
+            or plan.data_version != active_publication.version):
+        return None
+    account = _latest_account_evidence(conn)
+    if not account:
+        return None
+    account_row = model.alpaca_account_row(
+        available=True, expected_account_id=_bound_account_id(conn), **account)
+    if (account_row.effective_status(now) != model.OK or account_row.as_of is None
+            or account_row.freshness is None or current.valid_until is None):
+        return None
+    boundaries = [account_row.as_of + account_row.freshness, current.valid_until]
+    if account_row.valid_until is not None:
+        boundaries.append(account_row.valid_until)
+    boundary = min(boundaries)
+    if now >= boundary:
+        return None
+    return replace(model.paper_reconciliation_row(
+        state='PENDING', cycle_state='SUCCEEDED',
+        detail='current trading cycle completed; post-close market-data and share-unit verification is pending'),
+        as_of=account_row.as_of, valid_until=boundary, required_current=True,
+        paper_alignment='COMPLETED_WITH_HISTORY')
+
+
 def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror):
     """Keep authenticated all-history warnings distinct from exact future readiness."""
     from sentinel import informational_paper_mirror
@@ -2232,6 +2299,11 @@ def _scheduled_paper_mirror(conn, cycle, active_publication, frontier, mirror):
     scheduled = _scheduled_preopen_mirror(conn, cycle, active_publication, frontier)
     if historical:
         if scheduled is None:
+            completed = _completed_postopen_mirror(conn, cycle, active_publication, frontier)
+            if completed is not None:
+                return replace(completed, detail=(
+                    f'{count} historical informational mirror mismatch(es) remain recorded for earlier transported plans; '
+                    + completed.detail))
             return model.paper_reconciliation_row(state='MISMATCH', cycle_state=cycle.get('state'),
                 detail='historical mirror warning remains recorded; current scheduled readiness is unproved')
         return model.paper_reconciliation_row(
