@@ -60,3 +60,14 @@ and an executed removed-completion-guard control. Deliver the repair through a
 new feature PR with required checks and signed publication before any running
 application change. PR560's Windows handover, root transport cutover and backup
 unit handover are complete and must not be replayed.
+
+Finalize the existing complete-runtime source seal for these three reviewed
+panel modules before release. Follow the source-acceptance contract in
+`paper-backed-release-20261024.md`: authenticate the committed candidate bytes,
+refresh only the complete `candidate_files` map and its `TRANSITION_SHA256`
+pin, and preserve the immutable 364-file baseline, normalized checker, economic
+extraction mappings and historical profiles. This accepts the reviewed current
+source for retained comparison; it does not change actual source identity or
+grant authority. Qualify the previously failing historical-current source
+checks and the complete-map, unknown/missing/extra-byte and removed-guard
+falsifiers. Retain the original CI failures as evidence.
