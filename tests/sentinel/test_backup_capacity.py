@@ -1,13 +1,22 @@
 """Host capacity publication and lock naming remain independent of USB lifetime."""
 import json
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 from sentinel import backup_continuity as continuity
-import sentinel_backup_lock as locks
-import sentinel_backup_capacity as capacity
+# Host helpers are reviewed source fixtures, outside the immutable application's
+# import path. Restore the caller's path after their transitive imports.
+_import_path = sys.path[:]
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+    import sentinel_backup_lock as locks
+    import sentinel_backup_capacity as capacity
+    import sentinel_backup_transport as transport
+finally:
+    sys.path[:] = _import_path
 
 
 def test_missing_backup_directory_keeps_only_explicit_continuity_lock_namespace(tmp_path):
@@ -28,7 +37,6 @@ def test_lock_namespace_never_licenses_a_symlink(tmp_path):
 
 
 def test_transport_availability_checks_no_broker_or_media_writer(monkeypatch):
-    import sentinel_backup_transport as transport
     config=dict(backup='/mnt/fixture/backup',transport='/run/sentinel-backup-transport')
     monkeypatch.setattr(continuity,'selected',lambda:True)
     monkeypatch.setattr(transport,'configuration',lambda p:config)

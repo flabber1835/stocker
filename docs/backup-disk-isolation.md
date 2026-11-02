@@ -102,6 +102,10 @@ main validation, signed immutable publication and native software certification:
 2. Install the root-owned public transport configuration, the published transport
    helper and its two native units. Start only those new mount units. Preserve
    Docker's old drop-in and udev rule at this stage and prove its PID unchanged.
+   Source and signed publication/native certification must already be verified;
+   the new application image need not be locally loaded yet. The canonical
+   installer owns its exact signed-image pull and verification. Cutover checks
+   the actual installed image revision after ACTIVE.
 3. Use the canonical full fenced installation/activation to select the new
    PostgreSQL parent bind while preserving its data volume and physical identity.
    Require genuine immutable ACTIVE/operational-ready records and a healthy

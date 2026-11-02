@@ -98,6 +98,31 @@ class TestItNeverPrintsAValue:
 
 
 class TestTheWhitelist:
+    @pytest.mark.parametrize('name,value', [
+        ('SENTINEL_BACKUP_OUTAGE_POLICY', 'BOUNDED_30H_V1'),
+        ('SENTINEL_BACKUP_TRANSPORT_DIR', '/run/sentinel-backup-transport'),
+        ('SENTINEL_BACKUP_BIND_PROPAGATION', 'rslave'),
+    ])
+    def test_backup_continuity_is_selected_afresh(self, tmp_path, mod, name, value):
+        result, destination = run(tmp_path, OLD + name + '=' + value + '\n')
+        assert result.returncode == 0, result.stderr
+        assert name in mod.DELIBERATELY_UNSET
+        assert name not in mod.parse_env(destination)
+        assert value not in result.stdout + result.stderr
+
+    def test_inherited_backup_exception_guard_removal_is_detected(self, tmp_path, mod, monkeypatch):
+        monkeypatch.setattr(mod, 'CARRY', dict(mod.CARRY))
+        source = tmp_path / 'legacy.env'
+        source.write_text(OLD + 'SENTINEL_BACKUP_OUTAGE_POLICY=BOUNDED_30H_V1\n')
+        destination = tmp_path / 'new.env'
+        arguments = ['--from', str(source), '--to', str(destination)]
+        assert mod.main(arguments) == 0
+        assert 'SENTINEL_BACKUP_OUTAGE_POLICY' not in mod.parse_env(destination)
+        # Execute the broken whitelist policy against the same real converter.
+        monkeypatch.setitem(mod.CARRY, 'SENTINEL_BACKUP_OUTAGE_POLICY', 'removed explicit-selection guard')
+        assert mod.main(arguments + ['--force']) == 0
+        assert mod.parse_env(destination)['SENTINEL_BACKUP_OUTAGE_POLICY'] == 'BOUNDED_30H_V1'
+
     def test_only_whitelisted_variables_are_written(self, tmp_path, mod):
         _, dst = run(tmp_path)
         got = set(mod.parse_env(dst))
