@@ -59,6 +59,35 @@ metadata predicate and both review functions, and exercise the actual nested
 save dispatch with one exclusive creation. No strategy, Core, canonical
 serializer or financial payload is executed locally.
 
+## Empty hydration directory export correction
+
+The first review-only attempt ended with a public output-directory refusal and
+no report cipher. The actual rejected directory was not named in that receipt.
+The frozen call chain nevertheless proves a guaranteed mismatch:
+`historical_epoch` hydrates old inputs under `/out/contexts`, and
+`system_campaign_discovery_inputs.preserve_input_documents` unconditionally
+creates `book/predecessor-checkpoints` there. That input-copy helper writes only
+the original repair documents; it writes no checkpoint into this directory.
+The exporter derived permitted directories only from the ten declared context
+files, so it rejected this known empty directory.
+
+Correct the existing exporter in place. Permit exactly
+`contexts/book/predecessor-checkpoints` as an additional empty directory, require
+it to remain empty, and retain every existing file, other-directory, symlink,
+size, original-repair-byte and known-stop predicate. The streaming sealer already
+exports regular files only; the empty directory adds no archive member or data.
+The original target, financial source, reviewer, calculations and evidence stay
+unchanged. Git retains the first attempt's source and failure; no new wrapper or
+execution framework is introduced.
+
+The regression must execute the frozen input-copy function against synthetic
+repair documents and use its actual output layout in the existing inventory and
+encrypted-export handoff. The published exporter must reproduce the refusal;
+the correction must export the complete expected file inventory. Unknown empty
+directories, a file or nested directory in the allowed empty path, symlinks and
+changed repair bytes must still refuse. Only one newly selected review-only
+attempt is authorized; qualification and financial computation are not rerun.
+
 The standalone entry is fixed to `python -B -u
 /driver/p01_iac_stopped_review_run.py --spec /out/spec.json`. It launches one
 read-only reviewer and accepts no qualification or economic mode. Its execution

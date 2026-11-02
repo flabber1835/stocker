@@ -362,3 +362,69 @@ def test_known_stop_scope_success_requires_both_zero_and_host_link_pass(status,e
     assert seen[0]['successful_repair_copy_checks'] is successful
     assert seen[0]['all_failure_fragments_unadmitted'] is (not successful)
     assert seen[0]['reviewer_stop']['exit_code']==exit_code
+
+
+def hydrated_review_layout(tmp_path):
+    """Use the exact frozen copy helper, including its otherwise empty mkdir."""
+    helper=(HERE/'system_campaign_discovery_inputs.py').read_bytes()
+    assert hashlib.sha256(helper).hexdigest()=='25ef331e425c22aab0d42b0d470946a9539e05aeaca8e5a91874f70558ea0d28'
+    node,=[n for n in ast.parse(helper).body if isinstance(n,ast.FunctionDef) and n.name=='preserve_input_documents']
+    namespace=dict(Path=Path,hashlib=hashlib,need=export.need)
+    exec(compile(ast.Module(body=[node],type_ignores=[]),'<actual-frozen-input-copy-helper>','exec'),namespace)
+    old=tmp_path/'old';(old/'book/repairs').mkdir(parents=True)
+    descriptors=[]
+    for i in range(8):
+        raw=target.encoded(dict(schema='terminal-repair/1',synthetic_only=True,index=i))
+        h=hashlib.sha256(raw).hexdigest();name=h+'.json';(old/'book/repairs'/name).write_bytes(raw)
+        descriptors.append(dict(filename=name,sha256=h))
+    out=tmp_path/'review-output';out.mkdir()
+    namespace['preserve_input_documents'](old,dict(repairs=descriptors),out/'contexts')
+    for name in ('discovery-fnf-hydration.json','discovery-distribution-hydration.json'):
+        (out/'contexts'/name).write_bytes(target.encoded(dict(synthetic_only=True,kind=name)))
+    context={p.relative_to(out).as_posix():dict(bytes=p.stat().st_size,sha256=job.sha256_file(p))
+             for p in (out/'contexts').rglob('*') if p.is_file()}
+    for name in ('request.json','target.json','spec.json','review-authentication.json','review-execution.json',
+                 'iac-unit-financial-review.json','review-result-link.json','worker-inspect.json','worker.log'):
+        (out/name).write_bytes(target.encoded(dict(synthetic_only=True,kind=name)))
+    return out,dict(review_context_files=context)
+
+
+def test_actual_hydration_layout_old_fails_new_complete_export_passes(tmp_path,monkeypatch):
+    out,spec=hydrated_review_layout(tmp_path)
+    empty=out/'contexts/book/predecessor-checkpoints';assert empty.is_dir() and not any(empty.iterdir())
+    raw=subprocess.check_output(['git','show','b7baa688fd754b99c46b9f3c3c80410909f77ab1:research/capital_risk/p01_iac_stopped_review_export.py'])
+    assert hashlib.sha256(raw).hexdigest()=='aba0f05ac9175f77e4b78fbbeab46669bbf675698733b90f203c2d8c2cc127dd'
+    node,=[n for n in ast.parse(raw).body if isinstance(n,ast.FunctionDef) and n.name=='output_inventory']
+    namespace=dict(vars(export));exec(compile(ast.Module(body=[node],type_ignores=[]),'<published-export-inventory>','exec'),namespace)
+    with pytest.raises(ValueError,match='ONLY_DECLARED_OUTPUT_PARENT_DIRECTORIES'):
+        namespace['output_inventory'](out,spec,success=True)
+    inventory=export.output_inventory(out,spec,success=True)
+    assert set(inventory)=={p.relative_to(out).as_posix() for p in out.rglob('*') if p.is_file()}
+    request=tmp_path/'execution-request.json';request.write_bytes(target.encoded(dict(protocol_sha256='c'*64)))
+    monkeypatch.setenv('GITHUB_RUN_ID','123');monkeypatch.setenv('GITHUB_SHA','a'*40)
+    monkeypatch.setattr(export,'target',lambda:spec)
+    value=receipt();value.update(status='STOPPED_EVIDENCE_READONLY_REVIEW_PASSED_PENDING_CLIENT',
+        reviewer=dict(stopped=True,exit_code=0,oom_killed=False,wait_error=None))
+    export.finish(value,out,tmp_path/'public.json',b'x'*32,request,known=True)
+    assert value['output_exported'] is True
+    from seal import decrypt
+    plain=tmp_path/'report.tar.gz';decrypt(tmp_path/export.CIPHER,plain,b'x'*32,value['review_encrypted_output']['sha256'])
+    with tarfile.open(plain,'r:gz') as archive:
+        manifest=json.loads(archive.extractfile('manifest.json').read())
+        assert set(manifest['members'])==set(inventory)|{'review-output-scope.json'}
+        assert empty.relative_to(out).as_posix() not in archive.getnames()
+        for name,entry in manifest['members'].items():
+            raw=archive.extractfile(name).read()
+            assert dict(bytes=len(raw),sha256=hashlib.sha256(raw).hexdigest())==entry
+            assert raw==(out/name).read_bytes()
+
+
+@pytest.mark.parametrize('fault',['unknown_empty','file_in_known_empty','nested_in_known_empty','changed_repair'])
+def test_hydration_layout_fix_remains_exact_and_empty(fault,tmp_path):
+    out,spec=hydrated_review_layout(tmp_path)
+    if fault=='unknown_empty':(out/'other-empty').mkdir()
+    elif fault=='file_in_known_empty':(out/'contexts/book/predecessor-checkpoints/fake.json').write_bytes(b'{}')
+    elif fault=='nested_in_known_empty':(out/'contexts/book/predecessor-checkpoints/nested').mkdir()
+    else:
+        p=next((out/'contexts/book/repairs').iterdir());p.write_bytes(p.read_bytes()+b' ')
+    with pytest.raises(ValueError):export.output_inventory(out,spec,success=True)

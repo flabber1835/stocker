@@ -17,6 +17,7 @@ PUBLIC={'schema','stage','run_id','head','request_sha256','source_count','protoc
  'review_encrypted_output','output_exported','export_error'}
 ROOT_FILES={'request.json','target.json','spec.json','review-authentication.json','review-execution.json',
  'iac-unit-financial-review.json','review-result-link.json','review-output-scope.json','worker-inspect.json','worker.log','log-copy-failure.json','worker-error.txt','driver-error.txt'}
+EMPTY_CONTEXT_DIRECTORIES={'contexts/book/predecessor-checkpoints'}
 
 def sealed(root,destination,key,request):
     call=function('system_campaign_evidence_export.py','seal',{'campaign-factual-suffix':STAGE,'P02':'P01',
@@ -68,7 +69,8 @@ def output_inventory(root,spec,*,success=False):
     for path in paths:
         name=path.relative_to(root).as_posix();base=re.sub(r'\.tmp-[0-9a-f]+$','',name)
         if path.is_dir():
-            need(name in directories,'STOPPED_REVIEW_ONLY_DECLARED_OUTPUT_PARENT_DIRECTORIES');continue
+            need(name in directories or (name in EMPTY_CONTEXT_DIRECTORIES and not any(path.iterdir())),
+                'STOPPED_REVIEW_ONLY_DECLARED_OUTPUT_PARENT_DIRECTORIES');continue
         need(path.is_file(),'STOPPED_REVIEW_ONLY_REGULAR_OUTPUT_FILES')
         need(base in ROOT_FILES or base in spec['review_context_files'],'STOPPED_REVIEW_ONLY_DECLARED_FRESH_REPORT_CONTEXT_OR_FRAGMENT')
         if success and name in spec['review_context_files'] and name.startswith('contexts/book/repairs/'):
