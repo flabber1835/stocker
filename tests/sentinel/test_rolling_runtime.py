@@ -357,10 +357,11 @@ def test_runtime_requires_exact_target_and_adjacent_session(conn, published, ope
 
 def test_backup_refusal_after_candidate_commit_cannot_issue_authority(conn, published, monkeypatch):
     original = runtime.backup_runtime_authority.require
-    def require(conn, *, operation):
+    def require(conn, *, operation, allow_continuity=False):
         if operation == "rolling runtime attestation":
+            assert allow_continuity is False
             raise RuntimeError("backup refused")
-        return original(conn, operation=operation)
+        return original(conn, operation=operation, allow_continuity=allow_continuity)
     monkeypatch.setattr(runtime.backup_runtime_authority, "require", require)
     with pytest.raises(RuntimeError, match="backup refused"):
         advance(conn)

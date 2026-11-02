@@ -107,6 +107,12 @@ DELIBERATELY_UNSET = {
         "account binding is independently verified for the new deployment, never inherited from the retired application",
     "SENTINEL_LOCAL_PAPER_BACKUP_POLICY":
         "durability policy requires explicit current owner selection, never inherit a suspended or unrelated policy",
+    "SENTINEL_BACKUP_OUTAGE_POLICY":
+        "bounded PAPER continuity requires explicit current owner selection, never inherit a legacy exception",
+    "SENTINEL_BACKUP_TRANSPORT_DIR":
+        "the native transport path belongs to this reviewed host installation, never inherit a legacy mount path",
+    "SENTINEL_BACKUP_BIND_PROPAGATION":
+        "mount propagation must match this host's reviewed transport, never inherit a legacy selection",
     "SENTINEL_TEST_IMAGE_DIGEST":
         "selected by current exact-source certification with the runtime image, never inherit stale test evidence",
     "SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY":

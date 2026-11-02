@@ -6,6 +6,7 @@ x-sentinel-owner-paper-context: &sentinel-owner-paper-context
   SENTINEL_LOCAL_PAPER_MODE: ${SENTINEL_LOCAL_PAPER_MODE:-}
   SENTINEL_LOCAL_PAPER_ACCOUNT_ID: ${SENTINEL_LOCAL_PAPER_ACCOUNT_ID:-}
   SENTINEL_LOCAL_PAPER_BACKUP_POLICY: ${SENTINEL_LOCAL_PAPER_BACKUP_POLICY:-}
+  SENTINEL_BACKUP_OUTAGE_POLICY: ${SENTINEL_BACKUP_OUTAGE_POLICY:-}
 
 x-sentinel-authorized-environment: &sentinel-authorized-environment
   <<: *sentinel-owner-paper-context

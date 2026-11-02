@@ -18,6 +18,9 @@ hardlink cannot substitute storage outside the reviewed durable namespace.
 The ordinary backup guard deliberately allows a short DEGRADED grace period.
 Unattended financial mutation is stricter: the first unresolved archive failure
 fences new feed/plan/order mutation while read-only broker recovery stays live.
+The separately selected bounded owner-PAPER continuity policy may authorize
+explicit ordinary callers while the reviewed external submounts are absent;
+its primary-local checkpoint is never a new external-chain proof.
 """
 from __future__ import annotations
 
@@ -610,14 +613,39 @@ def _require(conn, *, operation: str,
 
 
 def require(conn, *, operation: str,
-            base_backup: str | None = None) -> dict:
+            base_backup: str | None = None, allow_continuity: bool = False) -> dict:
     """Prove the restore horizon; disappearing media remains a retryable fence."""
     from sentinel import local_paper
     if local_paper.backups_suspended_for_account(conn):
         return {"enabled": False}
+    from sentinel import backup_continuity
     try:
-        return _require(
-            conn, operation=operation, base_backup=base_backup)
+        selected_continuity = backup_continuity.selected()
+    except backup_guard.BackupConfigurationRefused as exc:
+        raise BackupRuntimeRefused(str(exc)) from exc
+    continuity = selected_continuity and allow_continuity and base_backup is None
+    try:
+        if continuity:
+            try:
+                # File-read errors abort a PostgreSQL transaction. Restore its
+                # previous state before examining primary-local continuity.
+                with conn.transaction():
+                    try:
+                        result = _require(conn, operation=operation)
+                    except Exception as exc:
+                        if _is_media_error(exc):
+                            raise BackupRuntimeUnavailable('external media read failed') from exc
+                        raise
+            except BackupRuntimeUnavailable:
+                with conn.transaction():
+                    result = backup_continuity.degraded(conn, operation=operation)
+            else:
+                backup_continuity.remember(conn, result)
+            return result
+        result = _require(conn, operation=operation, base_backup=base_backup)
+        if selected_continuity:
+            backup_continuity.remember(conn, result)
+        return result
     except Exception as exc:
         scope = _connection_scope(conn)
         for key in tuple(_PROOF_CACHE):
@@ -625,6 +653,10 @@ def require(conn, *, operation: str,
                 _PROOF_CACHE.pop(key, None)
         if isinstance(exc, (BackupRuntimeUnavailable, BackupRuntimeRefused)):
             raise
+        if isinstance(exc, backup_guard.BackupConfigurationRefused):
+            raise BackupRuntimeRefused(str(exc)) from exc
+        if isinstance(exc, backup_guard.BackupUnavailable):
+            raise BackupRuntimeUnavailable(str(exc)) from exc
         if _is_media_error(exc):
             raise BackupRuntimeUnavailable(
                 f"{operation}: backup media could not be read ({type(exc).__name__})") from exc

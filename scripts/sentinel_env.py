@@ -431,6 +431,20 @@ def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> No
         _fail("INVALID_LOCAL_PAPER_MODE", key="SENTINEL_LOCAL_PAPER_MODE")
     if backup_policy not in {"", "REQUIRED_V1"}:
         _fail("INVALID_LOCAL_PAPER_BACKUP_POLICY", key="SENTINEL_LOCAL_PAPER_BACKUP_POLICY")
+    outage = env.get('SENTINEL_BACKUP_OUTAGE_POLICY', '')
+    if outage not in ('', 'BOUNDED_30H_V1'):
+        _fail('INVALID_BACKUP_OUTAGE_POLICY', key='SENTINEL_BACKUP_OUTAGE_POLICY')
+    if outage and (local_mode != 'OWNER_AUTHORIZED_FUNCTION_FIRST_V1'
+                   or backup_policy != 'REQUIRED_V1'):
+        _fail('BACKUP_CONTINUITY_REQUIRES_BACKED_OWNER_PAPER')
+    transport = env.get('SENTINEL_BACKUP_TRANSPORT_DIR', '')
+    propagation = env.get('SENTINEL_BACKUP_BIND_PROPAGATION', 'rprivate')
+    if outage:
+        if (not re.fullmatch(r'/run/sentinel-backup-transport(?:-[A-Za-z0-9]+)?', transport)
+                or propagation != 'rslave'):
+            _fail('BACKUP_CONTINUITY_REQUIRES_NATIVE_TRANSPORT')
+    elif transport or propagation != 'rprivate':
+        _fail('BACKUP_TRANSPORT_REQUIRES_CONTINUITY_POLICY')
     if local_mode or local_account or backup_policy:
         if (not local_mode or re.fullmatch(r"PA[A-Za-z0-9]+", local_account) is None):
             _fail("LOCAL_PAPER_ACCOUNT_MODE_REQUIRED")

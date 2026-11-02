@@ -46,6 +46,29 @@ GENERATED = {
 }
 
 
+def test_bounded_backup_continuity_requires_complete_owner_native_transport():
+    values=dict(SENTINEL_LOCAL_PAPER_MODE='OWNER_AUTHORIZED_FUNCTION_FIRST_V1',
+        SENTINEL_LOCAL_PAPER_ACCOUNT_ID='PAFIXTURE',SENTINEL_LOCAL_PAPER_BACKUP_POLICY='REQUIRED_V1',
+        SENTINEL_PAPER_BUY_POLICY='PROTECTED_LIMIT_DAY_V1',SENTINEL_PAPER_BUY_CAP_BPS='100',
+        SENTINEL_BACKUP_OUTAGE_POLICY='BOUNDED_30H_V1',
+        SENTINEL_BACKUP_TRANSPORT_DIR='/run/sentinel-backup-transport',
+        SENTINEL_BACKUP_BIND_PROPAGATION='rslave')
+    preflight._validate_semantics(values,alert_dispatcher=False)
+    for key,value in [('SENTINEL_LOCAL_PAPER_MODE',''),('SENTINEL_BACKUP_OUTAGE_POLICY','yes'),
+            ('SENTINEL_LOCAL_PAPER_BACKUP_POLICY',''),('SENTINEL_BACKUP_TRANSPORT_DIR','/tmp/fake'),
+            ('SENTINEL_BACKUP_BIND_PROPAGATION','rprivate')]:
+        invalid=dict(values);invalid[key]=value
+        with pytest.raises(preflight.EnvRefused):
+            preflight._validate_semantics(invalid,alert_dispatcher=False)
+
+
+def test_transport_override_cannot_silently_change_strict_backup_policy():
+    for values in [dict(SENTINEL_BACKUP_TRANSPORT_DIR='/run/sentinel-backup-transport'),
+                   dict(SENTINEL_BACKUP_BIND_PROPAGATION='rslave')]:
+        with pytest.raises(preflight.EnvRefused):
+            preflight._validate_semantics(values,alert_dispatcher=False)
+
+
 def web_push_environment():
     private = ec.derive_private_key(7, ec.SECP256R1())
     public = private.public_key().public_bytes(

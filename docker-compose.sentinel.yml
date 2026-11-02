@@ -30,6 +30,7 @@ x-sentinel-owner-paper-context: &sentinel-owner-paper-context
   SENTINEL_LOCAL_PAPER_MODE: ${SENTINEL_LOCAL_PAPER_MODE:-}
   SENTINEL_LOCAL_PAPER_ACCOUNT_ID: ${SENTINEL_LOCAL_PAPER_ACCOUNT_ID:-}
   SENTINEL_LOCAL_PAPER_BACKUP_POLICY: ${SENTINEL_LOCAL_PAPER_BACKUP_POLICY:-}
+  SENTINEL_BACKUP_OUTAGE_POLICY: ${SENTINEL_BACKUP_OUTAGE_POLICY:-}
 
 services:
   # Sentinel's OWN database. bt-postgres already holds 35M rows of the same

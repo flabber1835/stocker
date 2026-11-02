@@ -51,27 +51,20 @@ services:
         target: /usr/local/libexec
         read_only: true
       - type: bind
-        source: ${SENTINEL_BACKUP_DIR:?set SENTINEL_BACKUP_DIR to a second durable target}/wal
-        target: /sentinel-backup/wal
-      - type: bind
-        source: ${SENTINEL_BACKUP_DIR:?set SENTINEL_BACKUP_DIR to a second durable target}/base
-        target: /sentinel-backup/base
-    # A bind mount can silently land on the underlying local directory when an
-    # external filesystem failed to mount before Docker starts. The host backup
-    # validator installs this marker only after proving the independent target.
-    # Unattended broker/data services already wait for PostgreSQL health, so a
-    # cold boot cannot acquire economic authority against a fallback directory.
+        # Optional native transport keeps this parent alive while its external
+        # base/WAL submounts disappear and return. Direct targets stay private.
+        source: ${SENTINEL_BACKUP_TRANSPORT_DIR:-${SENTINEL_BACKUP_DIR:?set SENTINEL_BACKUP_DIR to a second durable target}}
+        target: /sentinel-backup
+        bind:
+          create_host_path: false
+          propagation: ${SENTINEL_BACKUP_BIND_PROPAGATION:-rprivate}
+    # Database availability is independent of backup availability. Financial
+    # admission and archive publication still authenticate the external target;
+    # an empty underlying directory never acquires independent-target markers.
     healthcheck:
       test:
         - CMD-SHELL
-        - >-
-          pg_isready -U sentinel -h 127.0.0.1
-          && test -f /sentinel-backup/wal/.sentinel-independent-durable-target-v1
-          && test ! -L /sentinel-backup/wal/.sentinel-independent-durable-target-v1
-          && grep -qx 'sentinel-independent-durable-target-v1' /sentinel-backup/wal/.sentinel-independent-durable-target-v1
-          && test -f /sentinel-backup/base/.sentinel-independent-durable-target-v1
-          && test ! -L /sentinel-backup/base/.sentinel-independent-durable-target-v1
-          && grep -qx 'sentinel-independent-durable-target-v1' /sentinel-backup/base/.sentinel-independent-durable-target-v1
+        - pg_isready -U sentinel -h 127.0.0.1
       interval: 5s
       timeout: 5s
       retries: 20
