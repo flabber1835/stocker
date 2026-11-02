@@ -201,3 +201,15 @@ reference qualification launches no diagnostic worker. Both original 408-file
 drivers, failed receipts, logs and partial paths remain immutable; there is no
 financial checkpoint, policy, price, input or parameter conversion. No other
 candidate or P01 financial continuation is changed.
+
+The first reference-only recovery exported a pre-stop refusal for P11 before
+returning a qualifier receipt; P10 remains independently selected. The public
+receipt and complete job log do not localize that P11 refusal. Do not label it
+a resource failure or claim an unobserved stop. A P11-only successor retains
+the same constraints and adds an atomic, allowlisted nonfinancial admission
+note before each host phase and on an exception. It records only phase, free
+disk/memory, exception class and a strictly matched invariant code. It never
+prints exception values, paths, credentials or strategy state. The unchanged
+12-GiB initial and 10-GiB pre-worker disk gates remain enabled. This recovery
+does not rerun P10, reuse an unknown writer's output, or weaken a resource or
+snapshot guard. Complete old artifacts and the unlocalized failure remain.
