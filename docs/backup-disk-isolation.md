@@ -170,6 +170,10 @@ removed-account-guard control (6.64 seconds). These remaining-only runs retained
 the same application bytes, isolation bounds and empty cleanup errors; prior
 passed suites were not repeated. There are 380 unique local isolated cases,
 with the four capacity cases intentionally repeated after their fixture changed.
+The real primary-filesystem refusal case also uses an unreachable test-only
+reserve, rather than assuming every CI database shares the private runner's
+bounded tmpfs. Its low-threshold control remains real SQL/server execution;
+the production 10 GiB reserve is unchanged.
 
 A separate native kernel test proved real shared-parent mount withdrawal and
 return against private PostgreSQL 16 using the unchanged atomic archive script.

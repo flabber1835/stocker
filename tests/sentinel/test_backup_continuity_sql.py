@@ -35,15 +35,17 @@ def test_atomic_primary_record_roundtrip_through_real_copy_program(conn):
 
 def test_real_primary_filesystem_reserve_cannot_use_virtual_capacity_receipt(conn):
     observation=continuity.primary(conn)
-    proof=dict(system_identifier=observation['system_identifier'],
-        postmaster_start_us=observation['postmaster_start_us'],observed_at=observation['now'],
-        physical_free_bytes=continuity.RESERVE_BYTES+1,engine_id='private-sql-fixture')
-    with conn.cursor() as cur:
-        cur.execute(continuity.publication_sql(continuity.CAPACITY,continuity.seal('CAPACITY',proof)))
-    # This owned qualifier's database is on bounded 512 MiB tmpfs, below the
-    # production 10 GiB reserve, regardless of the fixture's Windows receipt.
-    with pytest.raises(BackupUnavailable,match='filesystem reserve'):
-        with conn.transaction():continuity._capacity(conn,observation)
+    # CI's private database may be on a roomy disk rather than the local
+    # qualifier's bounded tmpfs. Use an unreachable fixture reserve in either
+    # environment; production's 10 GiB constant is restored on leaving scope.
+    with patch.object(continuity,'RESERVE_BYTES',2**62):
+        proof=dict(system_identifier=observation['system_identifier'],
+            postmaster_start_us=observation['postmaster_start_us'],observed_at=observation['now'],
+            physical_free_bytes=continuity.RESERVE_BYTES+1,engine_id='private-sql-fixture')
+        with conn.cursor() as cur:
+            cur.execute(continuity.publication_sql(continuity.CAPACITY,continuity.seal('CAPACITY',proof)))
+        with pytest.raises(BackupUnavailable,match='filesystem reserve'):
+            with conn.transaction():continuity._capacity(conn,observation)
     # Executed threshold control, confined to this test process: the very same
     # server-side stat program succeeds with a 1 MiB private-fixture threshold.
     with patch.object(continuity,'RESERVE_BYTES',1024**2):
