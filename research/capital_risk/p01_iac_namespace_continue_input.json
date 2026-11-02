@@ -1,0 +1,17 @@
+{
+  "basis": "SEC_RSU_CASH_40_29_DIVIDED_BY_0_55_ESTIMATE_NOT_OBSERVED_VWAP",
+  "delivered_security_id": "179665193162456864",
+  "earliest_affected_session": "2020-10-08",
+  "estimated_delivered_share_basis": "73.2545",
+  "exchange_ratio": "11/20",
+  "fractional_cash_rounding": "HOLDER_FLOOR_TO_CENTS",
+  "predecessor_checkpoint_sha256": "63a72e6d752c8ae2ccaf1644298e402d6f1e5cb21c28ffc5fa22f2d13c95c0de",
+  "reference_policy": "EXISTING_CANONICAL_INITIAL_REFERENCE_ROUNDING_QUALIFIED_AT_EVENT",
+  "root_admission_sha256": "6eb93b3367bbca557c39e3cb8a26f0e11d316b2036077d68604a6e25f4a2fa00",
+  "schema": "research.p01-estimated-fraction-input/1",
+  "source_security_id": "107908173248206014",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1607716/000120919120054308/xslF345X03/doc4.xml",
+    "https://www.sec.gov/Archives/edgar/data/1469367/000119312520190754/d63823dex21.htm"
+  ]
+}

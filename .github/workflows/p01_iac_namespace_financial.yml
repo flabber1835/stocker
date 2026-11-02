@@ -1,8 +1,8 @@
-name: P01 own628 complete generator namespace recovery
+name: P01 accurate continuation from October 2020
 on:
   push:
     branches: [codex/capital-risk-research]
-    paths: ['research/capital_risk/p01_iac_namespace_request.json']
+    paths: ['research/capital_risk/p01_iac_namespace_continue_request.json']
 permissions:
   contents: read
   actions: read
@@ -32,20 +32,20 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/transfer-python"
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
-      - name: Verify exact own628 epoch and twelfth-input and capacity contracts
+      - name: Verify continuation source and capacity
         timeout-minutes: 2
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/p01_iac_namespace_probe.py --request research/capital_risk/p01_iac_namespace_request.json --capacity artifacts/capital-risk/ephemeral-runner-capacity.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/p01_iac_namespace_continue.py --mode probe --request research/capital_risk/p01_iac_namespace_continue_request.json --capacity artifacts/capital-risk/ephemeral-runner-capacity.json'
       - name: Authenticate frozen inputs and offline runtime
         timeout-minutes: 8
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Restore approved reference, qualify fresh FAST, then fresh own628 and review
+      - name: Qualify fractional cash then continue accurate P01 through July 2026
         timeout-minutes: 210
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/p01_iac_namespace_job.py --request research/capital_risk/p01_iac_namespace_request.json --staging artifacts/capital-risk/full-core-staging.json --capacity artifacts/capital-risk/ephemeral-runner-capacity.json --output artifacts/capital-risk/p01-iac-namespace.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/p01_iac_namespace_job.py --request research/capital_risk/p01_iac_namespace_continue_request.json --staging artifacts/capital-risk/full-core-staging.json --capacity artifacts/capital-risk/ephemeral-runner-capacity.json --output artifacts/capital-risk/p01-iac-namespace.json'
       - name: Preserve stopped qualification and stopped finance separately
         timeout-minutes: 5
         if: always()
@@ -55,11 +55,9 @@ jobs:
           path: |
             artifacts/capital-risk/ephemeral-runner-capacity.json
             artifacts/capital-risk/full-core-staging.json
-            artifacts/capital-risk/p01-iac-namespace-phase.json
-            artifacts/capital-risk/p01-iac-namespace-export-qualification.json
+            artifacts/capital-risk/p01-accurate-export-qualification.json
             artifacts/capital-risk/p01-iac-namespace.json
-            artifacts/capital-risk/p01-iac-namespace-qualification.tar.crseal
-            artifacts/capital-risk/p01-iac-namespace-financial.tar.crseal
+            artifacts/capital-risk/p01-accurate.tar.crseal
           compression-level: 0
           retention-days: 7
           if-no-files-found: error

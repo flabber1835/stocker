@@ -180,4 +180,8 @@ def main(args):return _body('main')(args)
 if __name__=='__main__':
     parser=argparse.ArgumentParser()
     for name in ('request','staging','capacity','output'):parser.add_argument('--'+name,type=Path,required=True)
-    main(parser.parse_args())
+    args=parser.parse_args()
+    if args.request.name=='p01_iac_namespace_continue_request.json':
+        from p01_iac_namespace_continue import host
+        host(args)
+    else: main(args)

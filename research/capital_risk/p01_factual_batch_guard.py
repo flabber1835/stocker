@@ -51,6 +51,7 @@ def require_scope(prior,action):
 
 class ActionGuard:
     def __init__(self,book,*,qualified=None,target_independence_qualified=False,held_target_holding_qualified=False):
+        self.scope_check=require_scope;self.expected_term=term
         self.book=Path(book);self.records=facts()['records'];self.qualified=qualified
         self.target_independence_qualified=target_independence_qualified
         self.held_target_holding_qualified=held_target_holding_qualified
@@ -126,8 +127,8 @@ class ActionGuard:
         if needs_cp:self.pre_event(run,day)
         for a in active:
             need(a['source_security_id'] in terms
-                 and material(terms[a['source_security_id']])==term(a),'EXACT_TYPED_ECONOMIC_TERM_AT_USE')
-            actual=require_scope(run.state,a)
+                 and material(terms[a['source_security_id']])==self.expected_term(a),'EXACT_TYPED_ECONOMIC_TERM_AT_USE')
+            actual=self.scope_check(run.state,a)
             target=a['delivered_security_id']
             target_present=target is not None and (any(e['security_id']==target for e in actual['episodes'].values())
                 or any(p['security_id']==target for p in actual['pending']))
