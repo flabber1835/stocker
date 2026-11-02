@@ -97,7 +97,10 @@ def test_production_mutation_surfaces_are_wired_to_full_chain_authority():
     ingest = (root / "sentinel" / "feed" / "ingest_authority_impl.py").read_text()
     compose = (root / "docker-compose.sentinel-backup.yml").read_text()
 
-    assert 'backup_runtime_authority.require(conn, operation=operation)' in validation
+    assert 'backup_runtime_authority.require(conn, operation=operation, allow_continuity=True)' in validation
+    # Explicit ordinary-PAPER callers opt in; every other caller stays strict.
+    import inspect
+    assert inspect.signature(authority.require).parameters['allow_continuity'].default is False
     assert 'operation="paper plan preparation"' in preparation
     assert 'operation="paper order execution"' in execution
     assert 'operation="automated paper order execution"' in execution
@@ -124,7 +127,8 @@ def test_paper_mutation_surfaces_fence_before_entering_inner_gateway(
         paper_error):
     observed = []
 
-    def unavailable(conn, *, operation):
+    def unavailable(conn, *, operation, allow_continuity=False):
+        assert allow_continuity is True
         observed.append((conn, operation))
         raise backup_error("simulated missing middle WAL")
 
@@ -137,6 +141,26 @@ def test_paper_mutation_surfaces_fence_before_entering_inner_gateway(
             conn=conn, broker=object(), base_url="https://paper.example",
             **arguments))
     assert observed and observed[0][0] is conn
+
+
+def test_removed_ordinary_paper_continuity_selection_is_detected(monkeypatch):
+    import inspect
+    import textwrap
+    from sentinel.paper import validation
+
+    def required_selection(conn, *, operation, allow_continuity=False):
+        assert allow_continuity is True, 'ordinary PAPER selection was removed'
+        return dict(enabled=True, backup_state='DEGRADED')
+
+    monkeypatch.setattr(authority, 'require', required_selection)
+    validation._require_mutation_backup(object(), operation='fixture')
+    source=textwrap.dedent(inspect.getsource(validation._require_mutation_backup))
+    needle=', allow_continuity=True'
+    assert source.count(needle)==1
+    namespace=dict(validation._require_mutation_backup.__globals__)
+    exec('from __future__ import annotations\n'+source.replace(needle,''),namespace)
+    with pytest.raises(AssertionError, match='ordinary PAPER selection was removed'):
+        namespace['_require_mutation_backup'](object(), operation='fixture')
 
 
 def test_feed_mutation_fences_before_reclaim_or_publication_recovery(monkeypatch):

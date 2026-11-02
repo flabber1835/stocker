@@ -146,6 +146,14 @@ were removed, cleanup errors were empty, and source bytes stayed unchanged.
 Two existing backup CLI cases require `psql` outside that cached runtime and
 remain mandatory in full required CI, without a local waiver.
 
+Backup CI subsequently passed 722 cases and exposed 13 outdated interface
+assertions in its PAPER mutation fixtures. Those assertions now check the
+explicit ordinary-PAPER selection and the strict default for all other callers.
+The 13 cases plus an executed removed-selection control passed in a separate
+remaining-only run: 14 passed in 1.27 seconds, zero failures/skips, unchanged
+458-file RAM application snapshot and empty cleanup errors. No application
+source or candidate seal changed for this test-fixture correction.
+
 A separate native kernel test proved real shared-parent mount withdrawal and
 return against private PostgreSQL 16 using the unchanged atomic archive script.
 The same database process retained all three inserted rows, writes continued
