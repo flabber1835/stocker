@@ -390,9 +390,13 @@ def _tick(root, runner, progress, started):
         if receipt is None:
             raise Refused('selected base has neither verified producer nor genuine restore evidence')
     publish_runtime_chain(status, selected, observation, root, runner)
+    from sentinel_backup_capacity import checkpoint
+    continuity_ready = checkpoint(chain, runner)
     if deferred:
         result = {'maintenance_deferred': True, 'reason': 'market and daily preparation window',
                   'base': selected['name'], 'renewal_due': renewed, 'runtime_chain_current': True}
+        if continuity_ready is not None:
+            result['continuity_ready'] = continuity_ready
         print(json.dumps(result, sort_keys=True))
         return result
     result = worker("retain", image, root, observation, runner, {
@@ -402,7 +406,8 @@ def _tick(root, runner, progress, started):
     if progress:
         _progress(progress, runner, phase='COMPLETE')
     print(json.dumps({"maintenance_ready": True, "observed_at": observation["now"], "renewed": renewed,
-                      "base": selected["name"], **result}, sort_keys=True))
+                      "base": selected["name"], **result,
+                      **({'continuity_ready': continuity_ready} if continuity_ready is not None else {})}, sort_keys=True))
     return result
 
 

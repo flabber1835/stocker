@@ -125,10 +125,11 @@ class ProductionAutomation(base.ProductionAutomation):
         try:
             try:
                 proof = backup_runtime_authority.require(
-                    conn, operation=operation)
+                    conn, operation=operation, allow_continuity=True)
                 status = backup_guard.require_writes_permitted(
                     conn, operation=operation)
-                if proof and proof.get("enabled") is True:
+                if (proof and proof.get("enabled") is True
+                        and proof.get("backup_state") != "DEGRADED"):
                     operational_evidence.record_backup_proof(
                         conn, kind="RUNTIME_CHAIN", proof=proof)
                     conn.commit()

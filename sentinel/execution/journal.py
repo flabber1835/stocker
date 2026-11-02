@@ -97,7 +97,8 @@ def writer_lock(conn, *, recovery_only: bool = False):
     writer exists" into "this process hangs forever", and a hung trading
     appliance is harder to diagnose than one that says why it stopped.
 
-    New mutations require the complete restore horizon. The explicit recovery
+    New mutations require the complete restore horizon or the explicit bounded
+    owner-PAPER continuity policy. The explicit recovery
     scope is reserved for broker-observation journals and scheduler leases;
     nested ordinary writer locks independently enforce the mutation gate.
     """
@@ -107,7 +108,7 @@ def writer_lock(conn, *, recovery_only: bool = False):
             # Cold/due archive scrubs must not monopolize account ownership.
             # The inner guard still rechecks fresh media facts under the lock.
             backup_runtime_authority.require(
-                conn, operation="plan/execution writer mutation")
+                conn, operation="plan/execution writer mutation", allow_continuity=True)
         with conn.cursor() as cur:
             cur.execute("SELECT pg_try_advisory_lock(%s)", (WRITER_LOCK_KEY,))
             acquired = bool(cur.fetchone()[0])
@@ -118,7 +119,7 @@ def writer_lock(conn, *, recovery_only: bool = False):
                 "writer; a second would race every command it creates.")
         if not recovery_only:
             backup_runtime_authority.require(
-                conn, operation="plan/execution writer mutation")
+                conn, operation="plan/execution writer mutation", allow_continuity=True)
         yield
     except BaseException:
         # Never let the housekeeping commit in ``finally`` make a caller's

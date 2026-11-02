@@ -319,7 +319,7 @@ def build_fresh_execution_guard(
             try:
                 if operation not in _READ_OPERATIONS:
                     backup_proof = backup_runtime_authority.require(
-                        conn, operation=f"broker {operation.value} mutation")
+                        conn, operation=f"broker {operation.value} mutation", allow_continuity=True)
                 validate_grant(conn, grant, operation, result)
                 rollout = load_rollout_state(conn)
                 current = feed_inputs.require_current(conn)
@@ -382,7 +382,8 @@ def build_fresh_execution_guard(
                 if isinstance(result, BrokerAccountSnapshot):
                     operational_evidence.record_account_snapshot(conn, result)
                     evidence_written = True
-                if backup_proof and backup_proof.get("enabled") is True:
+                if (backup_proof and backup_proof.get("enabled") is True
+                        and backup_proof.get("backup_state") != "DEGRADED"):
                     operational_evidence.record_backup_proof(
                         conn, kind="RUNTIME_CHAIN", proof=backup_proof)
                     evidence_written = True
