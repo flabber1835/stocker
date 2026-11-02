@@ -541,7 +541,7 @@ def inspect(name, identity=None):
     mode = ('monthly' if read(HERE / SPEC).get('monthly_review_only') else 'review') if '-review-' in name else 'qualify' if '-qualify-' in name else 'economic'
     fences(value, name, ['-B', '-u', '/driver/' + Path(__file__).name, '--mode', mode])
     need(identity is None or value['Id'] == identity, 'CONTINUE_EXACT_RUNNING_CONTAINER_ID')
-    need(value['Config']['Labels']['research.role'] == ('review' if mode == 'review' else 'worker'), 'CONTINUE_WORKER_ROLE')
+    need(value['Config']['Labels']['research.role'] == ('review' if mode in ('review', 'monthly') else 'worker'), 'CONTINUE_WORKER_ROLE')
     return value
 
 

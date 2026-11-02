@@ -66,3 +66,24 @@ def test_changed_monthly_source_refuses(evidence):
     path,cp=evidence;cp['base']['sources']['research/pooled_vacancy_funding/monthly.py']='a'*64
     (path/'book/checkpoint.json.gz').write_bytes(gzip.compress(m.encoded(cp)))
     with pytest.raises(ValueError,match='ACTUAL_FROZEN_SOURCE'):m.monthly_reproduction(path)
+
+
+
+@pytest.mark.parametrize('label,passes',[('review',True),('worker',False)])
+def test_actual_monthly_inspector_requires_review_role(monkeypatch,label,passes):
+    import p01_iac_stopped_review_transport as transport
+    from types import SimpleNamespace
+    seen=[]
+    def fences(value,name,cmd):
+        seen.append(cmd)
+        return value
+    monkeypatch.setattr(transport,'fences',fences)
+    monkeypatch.setattr(m,'read',lambda path:{'monthly_review_only':True})
+    value={'Id':'a'*64,'Config':{'Labels':{'research.role':label}}}
+    monkeypatch.setattr(m.subprocess,'run',lambda *a,**k:SimpleNamespace(stdout=json.dumps([value]).encode()))
+    if passes:
+        assert m.inspect('capital-system-p01-iac-namespace-review-123-1','a'*64)==value
+    else:
+        with pytest.raises(ValueError,match='CONTINUE_WORKER_ROLE'):
+            m.inspect('capital-system-p01-iac-namespace-review-123-1','a'*64)
+    assert seen==[['-B','-u','/driver/p01_iac_namespace_continue.py','--mode','monthly']]
