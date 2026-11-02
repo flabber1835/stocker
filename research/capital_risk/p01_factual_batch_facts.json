@@ -1,0 +1,767 @@
+{
+  "cash_records": 14,
+  "first_native_session": "2020-02-05",
+  "invariants": [
+    "No observed price or quote response is carried in this public registry. Native preimages are hash-only.",
+    "Daily-market clock scopes do not claim preopen legal completion or broker cash finality.",
+    "No common fraction price is supplied; option/award VWAP formulas cannot supply one.",
+    "The source scope does not exclude an independent target position or target pending intent."
+  ],
+  "records": [
+    {
+      "action_id": "WLH-2020-02-06",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "2.50",
+      "clock_evidence_label": "RETROSPECTIVE_CONDITION_CONJUNCTION_CLOSE_BY_00_01_NEW_YORK_NOT_PREOPEN_PUBLICATION",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": "SEC_CIK:1562476",
+      "delivered_security_id": "13062188894457483",
+      "delivered_ticker": "TMHC",
+      "economic_session": "2020-02-06",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": "0.8000",
+      "fraction_policy": "NO_COMMON_CIL_PRICE_PROVED_REFUSE_UNSUPPORTED_NONINTEGRAL",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CASH_PLUS_STOCK",
+      "legal_calendar_day": "2020-02-06",
+      "native_events": [
+        {
+          "session": "2020-02-05",
+          "sha256": "431c662cb0a1bc988bc0db33c4f08e0a1037112ab6ac900c0930381af2f38181"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm"
+          ],
+          "record_sha256": "16039b658663763f5d257a97e6f025d11ecd5c12abeb6f6c1dc26fd3357b7c12",
+          "sha256": "8035c494b5db80d3a8572d32db657e5f2216b5dd6fd07de809e83f62961ee660",
+          "source_name": "action-research/partial-stock-mergers-2020/primary-source-extraction-001.json"
+        },
+        {
+          "primary_urls": [],
+          "record_sha256": null,
+          "sha256": "7d4407393affeb161dca378b8446926272aeb11d1f73440c1b6cb3396f4b4abb",
+          "source_name": "action-research/next-grouped-financial-plan-002/peer-primary-clock-review-001.json"
+        },
+        {
+          "primary_urls": [],
+          "record_sha256": null,
+          "sha256": "b66dea58c5adba8beec17e0d8629e49c201b2b6b5d60d4b07d1205ada23020ed",
+          "source_name": "action-research/next-grouped-financial-plan-002/peer-primary-clock-interval-proof-002.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "355892456681242666",
+      "source_ticker": "WLH"
+    },
+    {
+      "action_id": "VSLR-2020-10-08",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "clock_evidence_label": "ISSUER_ALREADY_COMPLETED_AT_08_35_ET_BEFORE_MARKET_OPEN",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": "SEC_CIK:1469367",
+      "delivered_security_id": "179665193162456864",
+      "delivered_ticker": "RUN",
+      "economic_session": "2020-10-08",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": "0.55",
+      "fraction_policy": "NO_COMMON_CIL_PRICE_PROVED_REFUSE_UNSUPPORTED_NONINTEGRAL",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CONVERSION",
+      "legal_calendar_day": "2020-10-08",
+      "native_events": [
+        {
+          "session": "2020-10-07",
+          "sha256": "fe65b656a5df95c2ae63bbe2c091e2e7c519c09734be0f9cbb4e2c262d6b030c"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1469367/000119312520265967/d21282d8k.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1469367/000119312520265967/d21282d8k.htm",
+            "https://www.sec.gov/Archives/edgar/data/1607716/000119312520265966/d24983d8k.htm"
+          ],
+          "record_sha256": "3d39ac43c15eff962703d849ea9c0e0908f7ecdb3c1aedea8f1e9e4a413bbba7",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        },
+        {
+          "primary_urls": [],
+          "record_sha256": null,
+          "sha256": "7d4407393affeb161dca378b8446926272aeb11d1f73440c1b6cb3396f4b4abb",
+          "source_name": "action-research/next-grouped-financial-plan-002/peer-primary-clock-review-001.json"
+        },
+        {
+          "primary_urls": [],
+          "record_sha256": null,
+          "sha256": "b66dea58c5adba8beec17e0d8629e49c201b2b6b5d60d4b07d1205ada23020ed",
+          "source_name": "action-research/next-grouped-financial-plan-002/peer-primary-clock-interval-proof-002.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "107908173248206014",
+      "source_ticker": "VSLR"
+    },
+    {
+      "action_id": "BMCH-2021-01-04",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "clock_evidence_label": "LEGAL_JAN1_DATE_PRECEDES_FIRST_FROZEN_JAN4_OPEN_NOT_JAN4_LEGAL_COMPLETION",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": "SEC_CIK:1316835",
+      "delivered_security_id": "314959357206229827",
+      "delivered_ticker": "BLDR",
+      "economic_session": "2021-01-04",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": "1.3125",
+      "fraction_policy": "NO_COMMON_CIL_PRICE_PROVED_REFUSE_UNSUPPORTED_NONINTEGRAL",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CONVERSION",
+      "legal_calendar_day": "2021-01-01",
+      "native_events": [
+        {
+          "session": "2020-12-31",
+          "sha256": "9a81db8dd2d4cce361f65bea04e15e7c9b311d8c035b84cb310fcd8e547e2c27"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1574815/000119312521000207/d13435d8k.htm"
+          ],
+          "record_sha256": "376bddbd7d1e81cb4971f3cbec2a30d812f78a997867e7104d53f8a4e371a8ff",
+          "sha256": "8035c494b5db80d3a8572d32db657e5f2216b5dd6fd07de809e83f62961ee660",
+          "source_name": "action-research/partial-stock-mergers-2020/primary-source-extraction-001.json"
+        },
+        {
+          "primary_urls": [],
+          "record_sha256": null,
+          "sha256": "7d4407393affeb161dca378b8446926272aeb11d1f73440c1b6cb3396f4b4abb",
+          "source_name": "action-research/next-grouped-financial-plan-002/peer-primary-clock-review-001.json"
+        },
+        {
+          "primary_urls": [],
+          "record_sha256": null,
+          "sha256": "b66dea58c5adba8beec17e0d8629e49c201b2b6b5d60d4b07d1205ada23020ed",
+          "source_name": "action-research/next-grouped-financial-plan-002/peer-primary-clock-interval-proof-002.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "344954105397997801",
+      "source_ticker": "BMCH"
+    },
+    {
+      "action_id": "WPX-2021-01-07",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": null,
+      "clock_evidence_label": "RETAINED_PRIMARY_COMPLETED_BEFORE_JAN7_OPEN",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": "SEC_CIK:1090012",
+      "delivered_security_id": "603027491965685418",
+      "delivered_ticker": "DVN",
+      "economic_session": "2021-01-07",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": "0.5165",
+      "fraction_policy": "NO_COMMON_CIL_PRICE_PROVED_REFUSE_UNSUPPORTED_NONINTEGRAL",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CONVERSION",
+      "legal_calendar_day": "2021-01-07",
+      "native_events": [
+        {
+          "session": "2021-01-06",
+          "sha256": "457c96c2ef3e941e99f23d23570fc5ebf7b74adc1526b3758a6f9ddf6b2f71e3"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1518832/000110465921002045/tm2039568d3_8k.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1518832/000110465921002045/tm2039568d3_8k.htm"
+          ],
+          "record_sha256": "af227ce860b87d46f8cc0ca00ad094dbe28602bd82f713f77d1367bf4fdb1967",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        },
+        {
+          "primary_urls": [],
+          "record_sha256": null,
+          "sha256": "7d4407393affeb161dca378b8446926272aeb11d1f73440c1b6cb3396f4b4abb",
+          "source_name": "action-research/next-grouped-financial-plan-002/peer-primary-clock-review-001.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "993356691887576902",
+      "source_ticker": "WPX"
+    },
+    {
+      "action_id": "UFS-2021-11-30",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "55.50",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "DAILY_MARKET_UNHELD_SOURCE",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2021-11-30",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "SOURCE_UNHELD",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2021-11-30",
+      "native_events": [
+        {
+          "session": "2021-11-29",
+          "sha256": "93470bf15871ab34659f8452d9d4bfa96242d8eee58bff2d5918d9f28c824447"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1381531/000119312521343066/d217948d8k.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1381531/000119312521343066/d217948d8k.htm"
+          ],
+          "record_sha256": "97c7641a5ed75657180b98ef4b0ed8c2d230927264a47a9ad99823f644a56691",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "1123376669724901530",
+      "source_ticker": "UFS"
+    },
+    {
+      "action_id": "EPAY-2022-05-13",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "57.00",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2022-05-13",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2022-05-13",
+      "native_events": [
+        {
+          "session": "2022-05-13",
+          "sha256": "5eb674cff87d9baba04ab103475f0bccc7fef9ba1dcfb03d476ae6a7c20a80f4"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1073349/000119312522149601/d193127dex991.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1073349/000119312522149601/d193127dex991.htm"
+          ],
+          "record_sha256": "30a5063454d0dea65d0f8f82d8fcbb5d28bbc43e29fe5c57fc2d43a6d92f77f9",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "302828589827843603",
+      "source_ticker": "EPAY"
+    },
+    {
+      "action_id": "MSP-2022-06-23",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "35.50",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "DAILY_MARKET_UNHELD_SOURCE",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2022-06-23",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "SOURCE_UNHELD",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2022-06-23",
+      "native_events": [
+        {
+          "session": "2022-06-22",
+          "sha256": "5018fbc936ffda49edf56862746b3be103144fd0b7b400c46e7e6ac4dfca71f7"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1724570/000119312522179443/d345298d8k.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1724570/000119312522179443/d345298d8k.htm"
+          ],
+          "record_sha256": "31c9ef64c2460219084e305a3ef92f485a5199fb440a33c96d649eb0aae10b0d",
+          "sha256": "8616f0f2a99d42af5536516bb0d236800ded5884e30f748b2f74a73e0e62df02",
+          "source_name": "action-research/primary-cash-clock-gaps-001/primary-extraction.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "892733995247202485",
+      "source_ticker": "MSP"
+    },
+    {
+      "action_id": "SAFM-2022-07-22",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "203.00",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2022-07-22",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2022-07-22",
+      "native_events": [
+        {
+          "session": "2022-07-21",
+          "sha256": "d00cf559bcc50db02d1e30e69194f3f92949e1085b4bd23b53c4f134aba86d09"
+        }
+      ],
+      "primary_reference": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-143",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2022-143",
+            "https://www.prnewswire.com/news-releases/cargill-and-continental-grain-complete-acquisition-of-sanderson-farms-301591735.html"
+          ],
+          "record_sha256": "a4e2b564b23495a16e083a1c69dc6ace452a7a2d9b57b073e9a2918fe31e6b9d",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "962454383671746307",
+      "source_ticker": "SAFM"
+    },
+    {
+      "action_id": "CTXS-2022-09-30",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "104.00",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "DAILY_MARKET_UNHELD_SOURCE",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2022-09-30",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "SOURCE_UNHELD",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2022-09-30",
+      "native_events": [
+        {
+          "session": "2022-09-29",
+          "sha256": "6c306190c326bc01b52d3fb9fda5f2cd2cdf09fdc447cb5a41064136c6c4329a"
+        }
+      ],
+      "primary_reference": "https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-262",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-262",
+            "https://www.sec.gov/Archives/edgar/data/877890/000087789022000019/ctxs-20211231.htm",
+            "https://www.sec.gov/Archives/edgar/data/877890/000119312522239627/d365819d8k.htm"
+          ],
+          "record_sha256": "b739da9842a2f947f6159eb57870064cbc8477fc8a56d22e967100bc87e1dd8e",
+          "sha256": "8616f0f2a99d42af5536516bb0d236800ded5884e30f748b2f74a73e0e62df02",
+          "source_name": "action-research/primary-cash-clock-gaps-001/primary-extraction.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "554480052825212855",
+      "source_ticker": "CTXS"
+    },
+    {
+      "action_id": "LHCG-2023-02-22",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "170.00",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2023-02-22",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2023-02-22",
+      "native_events": [
+        {
+          "session": "2023-02-21",
+          "sha256": "b13c3cdc8ce1b9651108d79ca572c1a7f10aefa5a204c35fb1c8fbd28b3e3e37"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1303313/000095017023003585/lhcg-20230222.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1303313/000095017023003585/lhcg-20230222.htm"
+          ],
+          "record_sha256": "f3d8fdbd6e609d6ea643902dadab837af3c3e33308d5df7861a5977a82fafcbc",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "348961068556052300",
+      "source_ticker": "LHCG"
+    },
+    {
+      "action_id": "ONEM-2023-02-22",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "18.00",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2023-02-22",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2023-02-22",
+      "native_events": [
+        {
+          "session": "2023-02-22",
+          "sha256": "7930c9741ebd86ef403aa2c1f8a64e36a627c9db3bc4e3993fae29a438ca6d1d"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1404123/000119312523044883/d468299d8k.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1404123/000119312523044883/d468299d8k.htm"
+          ],
+          "record_sha256": "474d6a0c9d303e03e459dc26a81b2715498e975872e7d76ba7b9c0c3f5e8b786",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "677864286983813096",
+      "source_ticker": "ONEM"
+    },
+    {
+      "action_id": "SGFY-2023-03-29",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "30.50",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2023-03-29",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2023-03-29",
+      "native_events": [
+        {
+          "session": "2023-03-28",
+          "sha256": "b62f3cd219734387c09081d63dac7858e2b28ffd6f41ae29b39a9ebe0dcaa940"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1828182/000119312523082993/d467122d8k.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1828182/000119312523082993/d467122d8k.htm"
+          ],
+          "record_sha256": "ffe2ed99cf008d1fd195ddfd6206e8fc80bc5b534c5d70123d266833bbce1e01",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "151225572607695758",
+      "source_ticker": "SGFY"
+    },
+    {
+      "action_id": "FORG-2023-08-23",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "23.25",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2023-08-23",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2023-08-23",
+      "native_events": [
+        {
+          "session": "2023-08-22",
+          "sha256": "154b48f99dbae1e994a7633ecd833f93f76c00e28e3cdc1976fcee45b050fb04"
+        }
+      ],
+      "primary_reference": "https://infomemo.theocc.com/infomemos?number=53079",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://infomemo.theocc.com/infomemos?number=53079"
+          ],
+          "record_sha256": "7a4ef6dd8c494e1a4c897a2bd2211bf335d6086c9a54da56be3817d0287a3429",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "927598213803887960",
+      "source_ticker": "FORG"
+    },
+    {
+      "action_id": "HZNP-2023-10-06",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "116.50",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2023-10-06",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2023-10-06",
+      "native_events": [
+        {
+          "session": "2023-10-05",
+          "sha256": "975c5509c7016e4d4c9f414727ed6a3c40838484cf6da343b472385003b13114"
+        }
+      ],
+      "primary_reference": "https://infomemo.theocc.com/infomemos?number=53326",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://infomemo.theocc.com/infomemos?number=53326"
+          ],
+          "record_sha256": "e15618d82f09e2f43f6fad5bb7c645775de8bca2997e7455c013fac338110b8c",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "383424504385495727",
+      "source_ticker": "HZNP"
+    },
+    {
+      "action_id": "KAMN-2024-04-19",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "46.00",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "DAILY_MARKET_UNHELD_SOURCE",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2024-04-19",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "SOURCE_UNHELD",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2024-04-19",
+      "native_events": [
+        {
+          "session": "2024-04-18",
+          "sha256": "f4ad1a4b048535b57c95230ab704f0b20396d89345b75fae190e10d878522bef"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/54381/000114036124020740/ef20027261_8k.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/54381/000114036124020740/ef20027261_8k.htm",
+            "https://kaman.com/arcline-completes-acquisition-of-kaman/"
+          ],
+          "record_sha256": "e0a673551107d5c4aa211cdab3043df1a827ce707684f568063b55c41a7c312a",
+          "sha256": "8616f0f2a99d42af5536516bb0d236800ded5884e30f748b2f74a73e0e62df02",
+          "source_name": "action-research/primary-cash-clock-gaps-001/primary-extraction.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "1131981377127137469",
+      "source_ticker": "KAMN"
+    },
+    {
+      "action_id": "MDC-2024-04-19",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "63.00",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "DAILY_MARKET_UNHELD_SOURCE",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2024-04-19",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "SOURCE_UNHELD",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2024-04-19",
+      "native_events": [
+        {
+          "session": "2024-04-18",
+          "sha256": "008b11876071a34917bef3d7cdfe2bfa3385813c1d53165a1a36ae1121677eee"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/773141/000095014224001115/eh240470925_8k.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/773141/000095014224001115/eh240470925_8k.htm"
+          ],
+          "record_sha256": "a83609fc4c75f56e7db40725271f2896d066450bdcfadf65503373bcec689d9a",
+          "sha256": "8616f0f2a99d42af5536516bb0d236800ded5884e30f748b2f74a73e0e62df02",
+          "source_name": "action-research/primary-cash-clock-gaps-001/primary-extraction.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "990238054080584816",
+      "source_ticker": "MDC"
+    },
+    {
+      "action_id": "JNPR-2025-07-02",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "40.00",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "KNOWN_COMPLETION_BEFORE_OPEN",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2025-07-02",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "CANONICAL_EXACT_INTEGRAL_ONLY",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2025-07-02",
+      "native_events": [
+        {
+          "session": "2025-07-01",
+          "sha256": "eea71df25ce86ef99f87d8505cf6920884cc8a66b3aeb2d7557e74f6d295aa4c"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1645590/000114036125034206/ef20055124_ex99-3.htm",
+      "provider_duplicate_dates": [],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1645590/000114036125034206/ef20055124_ex99-3.htm"
+          ],
+          "record_sha256": "22390ba1d277526e706d86e343db1f68afc26e6b548e107e7b483a4f92548c90",
+          "sha256": "ad65c66c60a5f4aeba5ff1425e0313269db4f05eede39d2d0328bd302695a319",
+          "source_name": "action-research/retained-next-batch-001/inventory.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "949392331435765708",
+      "source_ticker": "JNPR"
+    },
+    {
+      "action_id": "SHCO-2026-01-29",
+      "cash_in_lieu_price_per_delivered_share": null,
+      "cash_per_share": "9.00",
+      "clock_evidence_label": "RETAINED_PRIMARY_CLOCK_SCOPE_WITH_ITS_STATED_TIMING_LIMITS",
+      "clock_scope": "DAILY_MARKET_UNHELD_SOURCE",
+      "delivered_issuer_id": null,
+      "delivered_security_id": null,
+      "delivered_ticker": null,
+      "economic_session": "2026-01-29",
+      "entitlement_aggregation": "HOLDER",
+      "exact_legal_effective_minute_proven": false,
+      "exchange_ratio": null,
+      "fraction_policy": "NOT_APPLICABLE",
+      "held_representation_scope": "SOURCE_UNHELD",
+      "kind": "CASH_MERGER",
+      "legal_calendar_day": "2026-01-29",
+      "native_events": [
+        {
+          "session": "2026-01-28",
+          "sha256": "1925b21534a70b9b25ab331350bf9cf46d37f397925c733c7f96a8e0c22d27c5"
+        }
+      ],
+      "primary_reference": "https://www.sec.gov/Archives/edgar/data/1846510/000114036126002807/ef20064097_8k.htm",
+      "provider_duplicate_dates": [
+        "2026-01-29",
+        "2026-01-30"
+      ],
+      "source_evidence": [
+        {
+          "primary_urls": [
+            "https://www.sec.gov/Archives/edgar/data/1846510/000114036126002807/ef20064097_8k.htm",
+            "https://www.sec.gov/Archives/edgar/data/876661/000087666126000066/ruleprovisionnotice.htm"
+          ],
+          "record_sha256": "fc9254b3449b08545eacd25fdd58c7f66dfe5160e07abc56678806c03d5eaa94",
+          "sha256": "8616f0f2a99d42af5536516bb0d236800ded5884e30f748b2f74a73e0e62df02",
+          "source_name": "action-research/primary-cash-clock-gaps-001/primary-extraction.json"
+        }
+      ],
+      "source_pending_scope": "REFUSE_ALL_SOURCE_INTENTS",
+      "source_security_id": "162004720301108303",
+      "source_ticker": "SHCO"
+    }
+  ],
+  "schema": "research.p01-grouped-ordinary-factual-registry/1",
+  "stock_records": 4
+}
