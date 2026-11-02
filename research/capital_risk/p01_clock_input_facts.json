@@ -1,0 +1,25 @@
+{
+  "classification_or_eligibility_changed": false,
+  "component_artifact_id": 13109865765,
+  "component_final_inventory_guard_failure_retained": true,
+  "component_head": "a6557f4ce44369ca6e2fd4127a1f4ff1e0e5a6c7",
+  "component_review_sha256": "7097b71c204cafc58f249c411d9402499de617a67e72c2d64de0c5546c6ab277",
+  "component_run_id": 41370950659,
+  "component_worker_exit_code": 1,
+  "economic_session": "2019-10-01",
+  "exchange_tradability_claimed": false,
+  "financial_source515_changed": false,
+  "legal_consideration_resolved": false,
+  "native_session": "2019-09-30",
+  "primary_clock_fixed_before_qualification": true,
+  "primary_sources": [
+    "https://www.sec.gov/Archives/edgar/data/936340/000119312516727205/d243567d424b2.htm",
+    "https://www.sec.gov/Archives/edgar/data/936340/000093634020000127/dteenergy2019123110k.htm"
+  ],
+  "schema": "research.p01-economic-clock-source-facts/1",
+  "scope": "ONLY_ECONOMIC_CLOCK_WITH_UNHELD_UNORDERED_AND_OCT1_UNSELECTED_GUARDS_NO_CONSIDERATION_GUESSED",
+  "security_id": "718647188059134933",
+  "source_clock_lead007_sha256": "2fec247cb36d97c6c205d71d5eff04b45d65ca03dd9c6377593710b5f3624c38",
+  "source_term_sha256": "224c4333e100384a3d8c76ccd67397234fdaca6c9d90fd3753de8b38cd43e973",
+  "ticker": "DTV"
+}
