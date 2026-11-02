@@ -1,4 +1,4 @@
-name: P01 accurate continuation from October 2020
+name: P01 checkpoint review and accurate continuation
 on:
   push:
     branches: [codex/capital-risk-research]
@@ -40,7 +40,7 @@ jobs:
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Qualify fractional cash then continue accurate P01 through July 2026
+      - name: Review saved P01 checkpoint or continue accurate pass
         timeout-minutes: 210
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}

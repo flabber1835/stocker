@@ -40,3 +40,21 @@ watch bytes are preserved as evidence; only the committed prefix is continued.
 All remaining 1459 financial sessions are requested through 2026-07-31 in the same
 bounded runner. A refused later event leaves the new committed prefix intact.
 No financial completion/admission is inferred from a process exit alone.
+
+## Saved-prefix continuation and monthly reporting
+
+The first continuation saved 858 sessions through 2021-05-28, then the inherited
+2021-06-29 guard refused June 30. Later June journal records are uncommitted and
+must remain separate; the next authoritative financial session is June 1.
+
+Before admitting 858, run only a DATA reporting reproduction in the original
+frozen Linux image. Rebuild the eight new MonthlyStats reports from the admitted
+697 summary and the 161 committed daily NAV records; require exact report and
+checkpoint summary equality. This closes source-runtime CAGR differences without
+tolerance, value rewriting, old-proof expansion or financial replay. The candidate
+descriptor explicitly forbids financial continuation until root admission.
+
+Future runs use the actual root-admitted checkpoint, retain all archived inputs,
+reuse already completed event qualification, and do not adopt input13 again.
+The existing guard gains an explicit per-run endpoint, retaining its historical
+default. No canonical Core/controller code changes.

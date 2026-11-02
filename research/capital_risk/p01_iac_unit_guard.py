@@ -152,10 +152,12 @@ def anchor_record(state,prepared):
 
 
 class UnitGuard(ActionGuard):
-    def __init__(self,book,codec,contract,*,qualified=None,reused=None):
+    def __init__(self,book,codec,contract,*,qualified=None,reused=None,processing_endpoint=END):
         need(reused is not None and reused['target_independence_qualified'] is True
              and reused['held_target_holding_qualified'] is True,'EXACT_ADMITTED_ORDINARY_COMPONENT_SCOPE')
         super().__init__(book,target_independence_qualified=True,held_target_holding_qualified=True)
+        need(type(processing_endpoint) is str and EVENT<=processing_endpoint<='2026-07-31','EXPLICIT_CONTINUATION_ENDPOINT_BOUND')
+        self.processing_endpoint=processing_endpoint
         self.codec=codec;self.contract=contract;self.qualified=qualified
         self.source_checks=[];self.unit_checks=[];self.prepared=[];self.refusals=[];self.current_windows={}
 
@@ -209,7 +211,7 @@ class UnitGuard(ActionGuard):
         return result
 
     def advance(self,run,published):
-        day=published.session;need(EVENT<=day<=END,'EXACT_SELECTED_UNIT_SUFFIX_BOUND')
+        day=published.session;need(EVENT<=day<=self.processing_endpoint,'EXACT_SELECTED_UNIT_SUFFIX_BOUND')
         checks=unit_scope(run.state,day)
         need(day not in self.codec.refusals and day in self.current_windows,'ACTUAL_UNIT_WINDOW_PREPARED_WITHOUT_REFUSAL')
         if day==EVENT:self.pre_event(run,day)

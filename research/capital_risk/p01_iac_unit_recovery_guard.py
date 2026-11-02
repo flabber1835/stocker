@@ -10,7 +10,7 @@ BACKTEST = 'research/pooled_vacancy_funding/backtest.py'
 ADAPTER = 'research/pooled_input_support/adapter.py'
 BACKTEST_SHA = 'b6d0eeec392990518e2ba5e210737050a5d8a310c2c2aeac80db40952e2185fc'
 ADAPTER_SHA = '4fcb1326b8b9e713837257613330abd33927e940106e1473654958f085c1fc08'
-FROZEN_GUARD_SHA = 'f0d96a076d866969c9226a4f02ca263472ee8714b76dd094ccf0640670ee5fbd'
+FROZEN_GUARD_SHA = '4363e6014110d666af1856b04d2e9b1c6077e48e5b3a236055021e05ae69b6b8'
 
 
 def interface(backtest_source, adapter_source):

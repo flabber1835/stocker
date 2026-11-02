@@ -93,14 +93,14 @@ def parent_check(root, spec):
     path = Path(root) / 'book/checkpoint.json.gz'
     raw = path.read_bytes(); cp = cp_read(path)
     need(dict(bytes=len(raw), sha256=sha(raw)) == spec['selected_file'], 'CONTINUE_RAW_PARENT')
-    need(cp['sha256'] == spec['outer_sha256'] == OUTER
+    need(cp['sha256'] == spec['outer_sha256']
          and cp['sha256'] == digest({k: v for k, v in cp.items() if k != 'sha256'})
-         and cp['completed'] == 697 and cp['source_cursor'] == '2020-10-07'
+         and cp['completed'] == spec.get('completed', 697) and cp['source_cursor'] == spec.get('selected_session', '2020-10-07')
          and cp['run']['checkpoint_sha256'] == spec['inner_sha256']
          and cp['run']['state_sha256'] == spec['state_sha256']
          and cp['run']['input_sha256'] == spec['input_sha256']
          and cp['base'] == spec['base'] and cp['repairs'] == spec['repairs']
-         and len(cp['repairs']) == 12, 'CONTINUE_ADMITTED697_IDENTITY')
+         and len(cp['repairs']) == len(spec['repairs']), 'CONTINUE_ADMITTED_PARENT_IDENTITY')
     for name, entry in cp['journals'].items():
         raw = (Path(root) / 'book' / (name + '.jsonl')).read_bytes()
         need(sha(raw[:entry['bytes']]) == entry['prefix_sha256'], 'CONTINUE_PARENT_PREFIX')
@@ -120,7 +120,7 @@ def prepare(old, out, spec):
         if path.is_dir(): os.chmod(path, 0o700)
     for name in ('checkpoint.json.gz', 'identity.json'):
         shutil.copyfile(old / 'book' / name, book / name)
-    shutil.copyfile(old / 'book/checkpoint.json.gz', book / 'predecessor-checkpoints' / (OUTER + '.json.gz'))
+    shutil.copyfile(old / 'book/checkpoint.json.gz', book / 'predecessor-checkpoints' / (cp['sha256'] + '.json.gz'))
     # Preserve existing raw archived checkpoints without using them as new state.
     lineage = out / 'lineage/original-checkpoints'; lineage.mkdir(parents=True)
     for base in ('book', 'lineage'):
@@ -255,13 +255,95 @@ def hydrate(old, out, spec, rows):
     need(tenth['quote_capsule'] == descriptor and tenth['terms']['right_quote'] == quote, 'CONTINUE_RETAINED_AUTHENTICATED_QUOTE')
     with old_inputs(old, {**parent, 'repairs': parent['repairs'][:9]}, out / 'contexts'), \
          CelgCodec(native(OLD, CELG), tenth), BatchCodec(source_terms()), UnitCodec(rows, origin) as unit, \
-         EstimateCodec(parent) as estimate, SourceGate(parent, old, out) as gate:
+         EstimateCodec(input_origin(old, parent)) as estimate, SourceGate(parent, old, out) as gate:
         for entry in parent['repairs']:
             obj = backtest.load_repair(old / 'book/repairs' / entry['filename'], resume_session=entry['resume_session'],
                                       predecessor_checkpoint_sha256=entry['predecessor_checkpoint_sha256'])
             need(obj.sha256 == entry['sha256'], 'CONTINUE_ALL_TWELVE_ORIGINAL_CODECS_IN_ORDER')
         yield parent, unit, estimate, gate, mapping
 
+
+
+def input_origin(old, parent):
+    if parent['sha256'] == OUTER: return parent
+    for path in old.rglob('*.json.gz'):
+        if not any(part in path.parts for part in ('book', 'lineage')): continue
+        value = cp_read(path)
+        if isinstance(value, dict) and value.get('sha256') == OUTER: return value
+    need(False, 'CONTINUE_RETAINED_697_ESTIMATE_INPUT_ORIGIN')
+
+
+def admitted_capabilities(spec, mapping):
+    value = spec['reused_action_qualification']
+    need(value['source_map_identity_sha256'] == digest(mapping)
+         and all(value[k] is True for k in ('target_independence_qualified', 'held_target_holding_qualified', 'ordinary_representation_qualified'))
+         and value['held_source_with_target_pending_qualified'] is False
+         and value['old_synthetic_components_reexecuted'] is False,
+         'CONTINUE_ONLY_ROOT_ADMITTED_SAME516_ACTION_CAPABILITIES')
+    return deepcopy(value)
+
+
+def monthly_reproduction(evidence, parent=None):
+    """Exact reporting replay only; no financial runtime is restored/advanced."""
+    from decimal import getcontext
+    from research.pooled_vacancy_funding.monthly import MonthlyStats
+    getcontext().prec = 50
+    current = cp_read(evidence / 'book/checkpoint.json.gz')
+    parent = input_origin(evidence, current) if parent is None else parent
+    need(parent['completed'] >= 697 and current['completed'] >= parent['completed'], 'MONTHLY_EXACT_PREVIOUS_ADMISSION')
+    def rows(name):
+        a = parent['journals'][name]['bytes']; b = current['journals'][name]['bytes']
+        raw = (evidence / 'book' / (name + '.jsonl')).read_bytes()
+        return [json.loads(line) for line in raw[a:b].splitlines()]
+    daily = rows('daily'); reports = rows('monthly')
+    following = None
+    with (evidence / 'book/daily.jsonl').open('rb') as stream:
+        stream.seek(current['journals']['daily']['bytes']); line = stream.readline()
+        if line: following = json.loads(line)['session']
+    if following is None:
+        following = '2026-08-03' if current['source_cursor'] == END else read(evidence / 'book/result.json').get('failed_session')
+    need(type(following) is str and following > current['source_cursor'], 'MONTHLY_ACTUAL_LOOKAHEAD')
+    dates = [r['session'] for r in daily] + [following]
+    stats = MonthlyStats.from_dict(parent['stats']); actual = []; stored = []
+    for index,row in enumerate(daily):
+        report = stats.advance(row['session'], {k:Decimal(v) for k,v in row['comparison_navs'].items()},
+            core_target=str(row['decision']['target_core_exposure']), month_end=dates[index+1][:7] != row['session'][:7])
+        if report: actual.append(report)
+    for value in reports:
+        value = deepcopy(value); value.pop('slot_retries'); stored.append(value)
+    need(actual == stored and stats.to_dict() == current['stats'], 'ALL_NEW_MONTHLY_REPORTS_AND_FULL_SUMMARY_EXACT')
+    source = Path('/variant/research/pooled_vacancy_funding/monthly.py').read_bytes()
+    need(sha(source) == current['base']['sources']['research/pooled_vacancy_funding/monthly.py'], 'MONTHLY_ACTUAL_FROZEN_SOURCE')
+    return dict(schema='research.p01-exact-linux-monthly-reproduction/1', passed=True,
+                parent_sha256=parent['sha256'], checkpoint_sha256=current['sha256'],
+                completed=current['completed'], source_cursor=current['source_cursor'],
+                new_daily_records=len(daily), new_reports=len(reports),
+                all_new_monthly_reports_exact=True, all_monthly_checkpoint_state_exact=True,
+                financial_transitions_reexecuted=0, financial_authority=False,
+                monthly_source_sha256=sha(source),
+                complete_stored_reports_sha256=digest(reports),
+                entire_monthly_journal_sha256=sha((evidence / 'book/monthly.jsonl').read_bytes()))
+
+
+def authenticate_successor(root, key, spec):
+    import system_campaign_factual_admit as crypto
+    from p01_iac_stopped_review_transport import extract, fences
+    from seal import sha256_file
+    t = spec['transport']; origin = t['origin']; root.mkdir(mode=0o700); archive = root / 'selected.zip'
+    with archive.open('xb') as stream:
+        subprocess.run(['gh','api',f'repos/flabber1835/stocker/actions/artifacts/{t["artifact_id"]}/zip'],stdout=stream,check=True,timeout=180)
+    need(dict(bytes=archive.stat().st_size,sha256=sha256_file(archive)) == t['zip'], 'CONTINUE_SELECTED_SUCCESSOR_ZIP')
+    with zipfile.ZipFile(archive) as z:
+        asset = t['asset']; header, tag = crypto.authenticate(z,asset,key); out = root / 'financial'
+        extract(z,asset,key,header,tag,out,t['manifest'],origin,t['stage'])
+    value = read(out / 'worker-inspect.json')
+    command = ['-B','-u','/driver/p01_iac_namespace_continue.py','--mode','economic']
+    fences(value,'capital-system-p01-iac-namespace-worker-'+str(origin['run_id'])+'-1',command)
+    need(value['Id'] == t['worker_id'] and value['State']['Running'] is False
+         and value['State']['OOMKilled'] is False and value['State']['ExitCode'] == 0,
+         'CONTINUE_PREVIOUS_ACTUAL_STOPPED_FINANCIAL_WORKER')
+    parent_check(out,spec)
+    return out
 
 def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
     from full_system_core import arguments
@@ -276,25 +358,29 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
     from research.pooled_input_support.bundle import axis
     parent = prepare(old, out, spec)
     wanted = [d for d in axis() if parent['source_cursor'] < d <= END]
-    need(len(wanted) == 1459 and wanted[0] == EVENT and wanted[-1] == END, 'CONTINUE_EXACT_REMAINING_SOURCE_AXIS')
+    need(len(wanted) == 2156-parent['completed'] and wanted[0] == spec.get('next_session', EVENT) and wanted[-1] == END, 'CONTINUE_EXACT_REMAINING_SOURCE_AXIS')
     with hydrate(old, out, spec, rows) as values:
         parent, unit, estimate, gate, mapping = values
         args = arguments(out / 'book', True); args[args.index('--policy') + 1] = parent['base']['policy']
         source_args = ['--source-successor', str(old / 'source-successor.json')]
-        # Canonical startup validates the restored state without advancing it.
-        with EpochPause(parent, out / 'book/checkpoint.json.gz'):
-            code = backtest.main(args + source_args)
-        need(code == 0 and journal.read_checkpoint(out / 'book/checkpoint.json.gz') == parent, 'CONTINUE_EXACT_ZERO_STARTUP')
-        input_path = out / 'estimated-fraction-input.json'; input_path.write_bytes((HERE / INPUT).read_bytes())
-        loaded = backtest.load_repair(input_path, resume_session=parent['source_cursor'],
-                                      predecessor_checkpoint_sha256=parent['run']['checkpoint_sha256'])
-        with PauseAfterAdoption(parent, out / 'book/checkpoint.json.gz', loaded.sha256, EVENT):
-            code = backtest.main(args + source_args + ['--repair-overlay', str(input_path)])
-        zero = journal.read_checkpoint(out / 'book/checkpoint.json.gz'); adoption = gate.allow(zero, loaded.sha256)
-        need(code == 0, 'CONTINUE_CANONICAL_FUTURE_INPUT_ZERO')
-        reused = reused_qualification(old, mapping)
+        if len(parent['repairs']) == 12:
+            # Canonical startup validates the restored state without advancing it.
+            with EpochPause(parent, out / 'book/checkpoint.json.gz'):
+                code = backtest.main(args + source_args)
+            need(code == 0 and journal.read_checkpoint(out / 'book/checkpoint.json.gz') == parent, 'CONTINUE_EXACT_ZERO_STARTUP')
+            input_path = out / 'estimated-fraction-input.json'; input_path.write_bytes((HERE / INPUT).read_bytes())
+            loaded = backtest.load_repair(input_path, resume_session=parent['source_cursor'],
+                                          predecessor_checkpoint_sha256=parent['run']['checkpoint_sha256'])
+            with PauseAfterAdoption(parent, out / 'book/checkpoint.json.gz', loaded.sha256, EVENT):
+                code = backtest.main(args + source_args + ['--repair-overlay', str(input_path)])
+            zero = journal.read_checkpoint(out / 'book/checkpoint.json.gz'); adoption = gate.allow(zero, loaded.sha256)
+            need(code == 0, 'CONTINUE_CANONICAL_FUTURE_INPUT_ZERO')
+        else:
+            need(len(parent['repairs']) == 13 and len(estimate.objects) > 0, 'CONTINUE_REGISTERED_EXISTING_ESTIMATE')
+            loaded = estimate.objects[-1]; adoption = None
+        reused = reused_qualification(old, mapping) if len(parent['repairs']) == 12 else admitted_capabilities(spec, mapping)
         contract = source_contract(type('Binding', (), {'source_map': mapping})())
-        guard = UnitGuard(out / 'book', unit, contract, reused=reused)
+        guard = UnitGuard(out / 'book', unit, contract, reused=reused, processing_endpoint=END)
         guard.scope_check = estimate.scope; guard.expected_term = estimate.expected_term
         original_advance = guard.advance; components = []
         def advance(run, published):
@@ -314,9 +400,9 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
             code = backtest.main(args + source_args)
         current = journal.read_checkpoint(out / 'book/checkpoint.json.gz')
         result = dict(schema='research.p01-accurate-progress-outcome/1', completed=current['completed'],
-                      source_cursor=current['source_cursor'], new_transitions=current['completed'] - 697,
+                      source_cursor=current['source_cursor'], new_transitions=current['completed'] - parent['completed'],
                       requested_transitions=count, complete=current['completed'] == 2156 and current['source_cursor'] == END,
-                      canonical_return_code=code, parent_sha256=OUTER, input_sha256=loaded.sha256,
+                      canonical_return_code=code, parent_sha256=parent['sha256'], input_sha256=loaded.sha256,
                       input_adoption=adoption, estimated_treatment=estimate.value,
                       estimated_applications=estimate.applied, original_twelve_inputs_unchanged=current['repairs'][:12] == parent['repairs'],
                       financial_source_changed=False, qualification_state_adopted=False, production_contacted=False,
@@ -348,7 +434,7 @@ def review(old, evidence, out, spec, rows):
     with hydrate(old, out, spec, rows):
         restored = runtime.restore(current['run'], policy=current['base']['policy'], input_sha256=current['run']['input_sha256'])
         need(runtime.checkpoint(restored) == current['run'] and current['base'] == parent['base']
-             and current['repairs'][:12] == parent['repairs'] and len(current['repairs']) == 13,
+             and current['repairs'][:len(parent['repairs'])] == parent['repairs'] and len(current['repairs']) == 13,
              'CONTINUE_CURRENT_SOURCE_INPUT_AND_CANONICAL_ROUNDTRIP')
         stream = reader(journal.Journal, evidence / 'book', journal.STREAMS)
         try: stream.verify(current['journals'])
@@ -356,7 +442,9 @@ def review(old, evidence, out, spec, rows):
         events = current['run']['state']['ledger']['events']; prior = parent['economics']; chain = parent['chain']
         watch = (evidence / 'book/watch.jsonl').read_bytes()
         new_watch = [json.loads(v) for v in watch[parent['journals']['watch']['bytes']:current['journals']['watch']['bytes']].splitlines()]
-        need(new_watch and new_watch[0] == read(evidence / 'accurate-outcome.json')['input_adoption'], 'CONTINUE_ONE_ACTUAL_INPUT_CHAIN_ADOPTION')
+        input_event = read(evidence / 'accurate-outcome.json')['input_adoption']
+        if input_event is not None:
+            need(new_watch and new_watch[0] == input_event, 'CONTINUE_ONE_ACTUAL_INPUT_CHAIN_ADOPTION')
         successors = [e for e in new_watch if e.get('schema') == 'research.pooled-action-successor/1']
         checked = 0; accountings = 0
         raw = (evidence / 'book/daily.jsonl').read_bytes()
@@ -373,7 +461,7 @@ def review(old, evidence, out, spec, rows):
                 chain = backtest.hash_value(dict(previous=chain, event=successors.pop(0)))
             chain = backtest.hash_value(dict(previous=chain, session=row['session'], state_sha256=row['state_sha256'], economics=row['economics']))
             need(chain == row['chain_sha256'], 'CONTINUE_EVERY_NEW_DAILY_CHAIN'); checked += 1
-        need(checked == current['completed'] - 697 and chain == current['chain'] and prior == current['economics'], 'CONTINUE_FINAL_SUFFIX_CHAIN_AND_ECONOMICS')
+        need(checked == current['completed'] - parent['completed'] and chain == current['chain'] and prior == current['economics'], 'CONTINUE_FINAL_SUFFIX_CHAIN_AND_ECONOMICS')
         for name, entry in parent['journals'].items():
             before = (old / 'book' / (name + '.jsonl')).read_bytes(); after = (evidence / 'book' / (name + '.jsonl')).read_bytes()
             need(after[:entry['bytes']] == before[:entry['bytes']], 'CONTINUE_EVERY_ORIGINAL_COMMITTED_PREFIX')
@@ -383,6 +471,7 @@ def review(old, evidence, out, spec, rows):
                       source_cursor=current['source_cursor'], new_rows=checked, raw_accounting_snapshots=accountings,
                       checkpoint_sha256=current['sha256'], estimated_treatment=read(evidence / 'accurate-outcome.json')['estimated_treatment'],
                       complete=current['completed'] == 2156 and current['source_cursor'] == END, financial_authority=False)
+        result['monthly_reproduction'] = monthly_reproduction(evidence, parent)
         (out / 'accurate-review.json').write_bytes(encoded(result))
 
 
@@ -390,9 +479,12 @@ def expected_request():
     from seal import sha256_file
     old = read(HERE / 'p01_iac_stopped_review_request.json')
     names = sorted(set(old['sources']) | {'p01_iac_stopped_review_request.json', Path(__file__).name, SPEC, INPUT})
+    parent = read(HERE / SPEC)
     return dict(schema='research.p01-accurate-progress-request/1', arm='P01', stage=STAGE,
-                parent_sha256=OUTER, root_admission_sha256=ROOT_ADMISSION, first_session=EVENT, endpoint=END,
-                original_sessions=697, remaining_sessions=1459, estimated_fractional_cash=True,
+                parent_sha256=parent['outer_sha256'], root_admission_sha256=parent['root_admission_sha256'], first_session=parent.get('next_session', EVENT), endpoint=END,
+                original_sessions=parent.get('completed', 697), remaining_sessions=2156-parent.get('completed', 697), estimated_fractional_cash=True,
+                monthly_review_only=parent.get('monthly_review_only',False),
+                financial_resume_authorized=parent.get('financial_predecessor_admitted',False) and not parent.get('monthly_review_only',False),
                 protocol_sha256=old['protocol_sha256'], capacity_source_sha256=old['capacity_source_sha256'],
                 quote_descriptor=old['quote_descriptor'], old_qualification_reexecuted=False,
                 financial_wait_seconds=9000, qualification_wait_seconds=1200, review_wait_seconds=1200,
@@ -412,6 +504,8 @@ def authenticate_parent(root, key):
     from p01_iac_stopped_review_target import target
     from p01_iac_stopped_review_transport import extract, original_stop
     from seal import sha256_file
+    selected = read(HERE / SPEC)
+    if 'transport' in selected: return authenticate_successor(root, key, selected)
     spec = target(); origin = spec['original']; root.mkdir(mode=0o700); archive = root / 'original.zip'
     with archive.open('xb') as stream:
         subprocess.run(['gh', 'api', f'repos/flabber1835/stocker/actions/artifacts/{origin["artifact_id"]}/zip'], stdout=stream, check=True, timeout=180)
@@ -430,7 +524,7 @@ def authenticate_parent(root, key):
 def command(name, mode, source, frozen, out, old, capsule, evidence):
     from full_system_trials_job import command as base
     from p01_factual_batch_job import DESCRIPTOR
-    args = base(name, source, frozen, out, 'review' if mode == 'review' else 'economic')
+    args = base(name, source, frozen, out, 'review' if mode in ('review','monthly') else 'economic')
     i = args.index('--entrypoint')
     mounts = []
     for source_path, destination in ((old, '/old'), (capsule, '/celg-input'), (HERE / DESCRIPTOR, '/celg-input-descriptor.json'), (evidence, '/evidence')):
@@ -444,7 +538,7 @@ def inspect(name, identity=None):
     from p01_iac_stopped_review_transport import fences
     from runtime_identity import EXECUTION_IMAGE
     value = json.loads(subprocess.run(['docker', 'inspect', name], capture_output=True, check=True, timeout=20).stdout)[0]
-    mode = 'review' if '-review-' in name else 'qualify' if '-qualify-' in name else 'economic'
+    mode = ('monthly' if read(HERE / SPEC).get('monthly_review_only') else 'review') if '-review-' in name else 'qualify' if '-qualify-' in name else 'economic'
     fences(value, name, ['-B', '-u', '/driver/' + Path(__file__).name, '--mode', mode])
     need(identity is None or value['Id'] == identity, 'CONTINUE_EXACT_RUNNING_CONTAINER_ID')
     need(value['Config']['Labels']['research.role'] == ('review' if mode == 'review' else 'worker'), 'CONTINUE_WORKER_ROLE')
@@ -454,16 +548,19 @@ def inspect(name, identity=None):
 def host(args):
     from p01_iac_namespace_job import check_context, stage_valid, validate_prepared_receipt, resources, freeze, reconstruct, authenticate_capsule
     from p01_iac_namespace_job import SECRET, stopped_run, StopUnknown
-    from system_campaign_p01_accurate_export import qualify_export, finish, write_receipt
+    from system_campaign_p01_accurate_export import qualify_export, finish, write_receipt as public_receipt
     from seal import sha256_file
     check_context(os.environ); need(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'CONTINUE_NO_BLIND_RERUN')
     request = validate_request(args.request)
     validate_prepared_receipt(read(args.capacity), head=os.environ['GITHUB_SHA'], run_id=os.environ['GITHUB_RUN_ID'], source_sha256=request['capacity_source_sha256'])
     stage_valid(read(args.staging)); temp = Path(os.environ['RUNNER_TEMP']); args.output.parent.mkdir(parents=True, exist_ok=True)
+    def write_receipt(path, value):
+        public_receipt(path, value)
+        print('P01_PHASE '+value['status'], flush=True)
     receipt = dict(schema='research.p01-accurate-financial-prefix-receipt/1', arm='P01', stage='campaign-p01-accurate-prefix',
                    run_id=os.environ['GITHUB_RUN_ID'], head=os.environ['GITHUB_SHA'], request_sha256=sha256_file(args.request),
-                   protocol_sha256=request['protocol_sha256'], strict_parent_outer_sha256=OUTER,
-                   strict_parent_run_id=41487773225, status='PREPARING_CONTINUATION', production_contacted=False)
+                   protocol_sha256=request['protocol_sha256'], strict_parent_outer_sha256=read(HERE / SPEC)['outer_sha256'],
+                   strict_parent_run_id=read(HERE / SPEC).get('run_id', 41487773225), status='PREPARING_CONTINUATION', production_contacted=False)
     write_receipt(args.output, receipt)
     marker = qualify_export(temp / 'p01-progress-export-probe', args.request)
     marker_path = args.output.parent / 'p01-accurate-export-qualification.json'; marker_path.write_bytes(encoded(marker))
@@ -477,19 +574,36 @@ def host(args):
         frozen = temp / 'capital-risk-stage-001/inputs'; original, source = reconstruct(frozen, old, temp)
         for root in (old, capsule, original, source): freeze(root)
         os.environ.pop('GH_TOKEN', None)
+        if request['monthly_review_only']:
+            need(request['financial_resume_authorized'] is False, 'MONTHLY_CANDIDATE_CANNOT_AUTHORIZE_FINANCE')
+            for filename in (SPEC, INPUT, REQUEST): shutil.copyfile(HERE / filename, out / filename)
+            name = 'capital-system-p01-iac-namespace-review-' + os.environ['GITHUB_RUN_ID'] + '-1'
+            receipt['status'] = 'DATA_ONLY_MONTHLY_REVIEW_RUNNING'; write_receipt(args.output, receipt)
+            resources(request,temp)
+            receipt['reviewer'] = stopped_run(command(name,'monthly',source,frozen,out,old,capsule,old),name,out,
+                deadline=request['review_wait_seconds'],inspector=inspect)
+            known = True; stop = receipt['reviewer']
+            receipt['status'] = 'MONTHLY_REVIEW_PASSED_PENDING_ROOT' if stop['exit_code'] == 0 and not stop['oom_killed'] else 'MONTHLY_REVIEW_REFUSED_PRESERVED'
+            finish(receipt,out,args.output,key,args.request,known=True); key=None
+            raise SystemExit(0 if receipt['status']=='MONTHLY_REVIEW_PASSED_PENDING_ROOT' else 2)
+        need(request['financial_resume_authorized'] is True, 'ROOT_FINANCIAL_ADMISSION_REQUIRED_BEFORE_CONTINUATION')
         qual = temp / 'p01-progress-new-event-qualification'; qual.mkdir(mode=0o700)
         for name in (SPEC, INPUT, REQUEST): shutil.copyfile(HERE / name, out / name)
-        name = 'capital-system-p01-iac-namespace-qualify-' + os.environ['GITHUB_RUN_ID'] + '-1'
-        resources(request, temp); receipt['status'] = 'NEW_FRACTION_EVENT_QUALIFYING'; write_receipt(args.output, receipt)
-        stop = stopped_run(command(name, 'qualify', source, frozen, qual, old, capsule, old), name, qual, deadline=request['qualification_wait_seconds'], inspector=inspect)
-        known = True
-        shutil.copytree(qual, out / 'new-event-qualification')
-        need(stop['exit_code'] == 0 and not stop['oom_killed'], 'CONTINUE_NEW_EVENT_QUALIFICATION_REFUSED')
-        proof = json.loads(gzip.decompress((qual / 'qualification.json.gz').read_bytes()))
-        need(proof['passed'] is True and proof['parent_sha256'] == OUTER and proof['old_qualification_reexecuted'] is False, 'CONTINUE_NEW_EVENT_QUALIFICATION')
-        freeze(qual); resources(request, temp)
+        if len(read(HERE / SPEC)['repairs']) == 12:
+            name = 'capital-system-p01-iac-namespace-qualify-' + os.environ['GITHUB_RUN_ID'] + '-1'
+            resources(request, temp); receipt['status'] = 'NEW_FRACTION_EVENT_QUALIFYING'; write_receipt(args.output, receipt)
+            stop = stopped_run(command(name, 'qualify', source, frozen, qual, old, capsule, old), name, qual, deadline=request['qualification_wait_seconds'], inspector=inspect)
+            known = True
+            shutil.copytree(qual, out / 'new-event-qualification')
+            need(stop['exit_code'] == 0 and not stop['oom_killed'], 'CONTINUE_NEW_EVENT_QUALIFICATION_REFUSED')
+            proof = json.loads(gzip.decompress((qual / 'qualification.json.gz').read_bytes()))
+            need(proof['passed'] is True and proof['parent_sha256'] == OUTER and proof['old_qualification_reexecuted'] is False, 'CONTINUE_NEW_EVENT_QUALIFICATION')
+            freeze(qual); resources(request, temp)
+        else:
+            (qual / 'reused-qualification.json').write_bytes(encoded(dict(root_admission_sha256=read(HERE / SPEC)['root_admission_sha256'], old_qualification_reexecuted=False)))
+            freeze(qual); resources(request, temp)
         name = 'capital-system-p01-iac-namespace-worker-' + os.environ['GITHUB_RUN_ID'] + '-1'
-        known = False; receipt['status'] = 'FINANCIAL_RUNNING_FROM_2020_10_08'; write_receipt(args.output, receipt)
+        known = False; receipt['status'] = 'FINANCIAL_RUNNING_FROM_ADMITTED_CHECKPOINT'; write_receipt(args.output, receipt)
         receipt['worker'] = stopped_run(command(name, 'economic', source, frozen, out, old, capsule, qual), name, out, deadline=request['financial_wait_seconds'], inspector=inspect)
         known = True; receipt['status'] = 'FINANCIAL_STOPPED_PENDING_REVIEW'; write_receipt(args.output, receipt)
         review_out = temp / 'p01-progress-review'; review_out.mkdir(mode=0o700); resources(request, temp)
@@ -500,7 +614,10 @@ def host(args):
         receipt['status'] = ('FINANCIAL_COMPLETE_HOSTED_REVIEWED_PENDING_CLIENT' if outcome['complete'] else 'PARTIAL_PREFIX_HOSTED_REVIEWED') if stop['exit_code'] == 0 and not stop['oom_killed'] else 'FINANCIAL_REVIEW_REFUSED_PRESERVED'
     except StopUnknown:
         known = False; receipt['status'] = 'STOP_UNKNOWN_NO_MUTABLE_EXPORT'
-    except Exception:
+    except Exception as error:
+        import re
+        code = str(error)
+        print('P01_FAILURE '+(code if re.fullmatch('REFUSED_[A-Z0-9_]+', code) else type(error).__name__), flush=True)
         receipt['status'] = 'CONTINUATION_REFUSED_PRESERVED'
         (out / 'driver-failure.txt').write_text(traceback.format_exc())
     finish(receipt, out, args.output, key, args.request, known=known); key = None
@@ -511,18 +628,32 @@ def worker(mode):
     from full_system_core import hosted
     hosted(); validate_request(HERE / REQUEST)
     spec = read(HERE / SPEC); old = Path('/old'); out = Path('/out')
+    need((mode == 'monthly') == spec.get('monthly_review_only', False), 'EXACT_REQUESTED_REPORTING_OR_FINANCIAL_ROLE')
+    if mode == 'economic':
+        need(spec.get('financial_predecessor_admitted') is True, 'ROOT_ADMISSION_REQUIRED_BEFORE_WORKER_FINANCE')
+    if mode == 'monthly':
+        need(spec.get('monthly_review_only') is True and spec.get('financial_predecessor_admitted') is False,
+             'ONLY_EXPLICIT_DATA_MONTHLY_CANDIDATE')
+        result = monthly_reproduction(old)
+        (out / 'monthly-runtime-reproduction.json').write_bytes(encoded(result))
+        return
     from p01_iac_unit_codec import source_rows
     rows, _ = source_rows(through=END)
     if mode == 'qualify': qualification(old, out, spec, rows)
     elif mode == 'economic':
-        proof = json.loads(gzip.decompress(Path('/evidence/qualification.json.gz').read_bytes()))
-        need(proof['passed'] is True and proof['parent_sha256'] == OUTER, 'CONTINUE_PROOF_BEFORE_FINANCE')
-        branch(old, out, spec, rows, qualified=proof['components'])
+        components = None
+        if len(spec['repairs']) == 12:
+            proof = json.loads(gzip.decompress(Path('/evidence/qualification.json.gz').read_bytes()))
+            need(proof['passed'] is True and proof['parent_sha256'] == OUTER, 'CONTINUE_PROOF_BEFORE_FINANCE')
+            components = proof['components']
+        else:
+            need(read(Path('/evidence/reused-qualification.json'))['root_admission_sha256'] == spec['root_admission_sha256'], 'CONTINUE_ADMITTED_QUALIFICATION_REUSE')
+        branch(old, out, spec, rows, qualified=components)
     else: review(old, Path('/evidence'), out, spec, rows)
 
 
 if __name__ == '__main__':
-    p = argparse.ArgumentParser(); p.add_argument('--mode', choices=('qualify', 'economic', 'review', 'probe'), required=True)
+    p = argparse.ArgumentParser(); p.add_argument('--mode', choices=('qualify', 'economic', 'review', 'monthly', 'probe'), required=True)
     p.add_argument('--request', type=Path); p.add_argument('--capacity', type=Path)
     args = p.parse_args()
     if args.mode == 'probe':

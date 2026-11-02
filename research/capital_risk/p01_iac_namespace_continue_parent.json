@@ -243,9 +243,13 @@
     },
     "start": "2018-01-02"
   },
-  "inner_sha256": "63a72e6d752c8ae2ccaf1644298e402d6f1e5cb21c28ffc5fa22f2d13c95c0de",
-  "input_sha256": "ce0615156c89367169ac5da437c5418747b5d290c7634a79f52a415fb68262b8",
-  "outer_sha256": "5dc336e287d41607b338bd84c6a143a3f1701eb95b307461b8ac478c5e9cb6c3",
+  "completed": 858,
+  "financial_predecessor_admitted": false,
+  "inner_sha256": "c480622cd66afe1fc19203c4c57f79e9c2acc6b883ff8b429e6fc3205600f81b",
+  "input_sha256": "16956ff7069c300aadabfb0d0552526aa8e5fe2489a905e3adb36a5a75e8bd3a",
+  "monthly_review_only": true,
+  "next_session": "2021-06-01",
+  "outer_sha256": "2ad0fafc4a57f654a50280078e0b61485df762254efa76b92579362448d96193",
   "repairs": [
     {
       "filename": "982c9c1e45ad42dc4f16b4b8888ba46592595604ea1511d6225318846629b801.json",
@@ -318,18 +322,35 @@
       "predecessor_checkpoint_sha256": "ad10aa369b7ea020f0a586571b51807b166e73788030c22345d5db7ac8c28186",
       "resume_session": "2020-06-30",
       "sha256": "0f1f4672e1a3ee3f64f8281d25f3348d9f53f28ea6146d71c4f71a8378d515b7"
+    },
+    {
+      "filename": "5a63c58c8d4d9bbad3bcd1c02bddae2ba2c4439fe39be7b365bf98d5c96a83d3.json",
+      "predecessor_checkpoint_sha256": "63a72e6d752c8ae2ccaf1644298e402d6f1e5cb21c28ffc5fa22f2d13c95c0de",
+      "resume_session": "2020-10-07",
+      "sha256": "5a63c58c8d4d9bbad3bcd1c02bddae2ba2c4439fe39be7b365bf98d5c96a83d3"
     }
   ],
-  "root_admission_sha256": "6eb93b3367bbca557c39e3cb8a26f0e11d316b2036077d68604a6e25f4a2fa00",
-  "selected_file": {
-    "bytes": 1199831,
-    "sha256": "6c88d0817951fdee4ecc0948d0c02c2444b1731aeb1260bd0ebd77bc2ce9ec7b"
+  "reused_action_qualification": {
+    "component_sha256": "d1473ed7d1f663a63d45718814647a53ef013a6fa08215b9ce282047d21d2991",
+    "held_source_with_target_pending_qualified": false,
+    "held_target_holding_qualified": true,
+    "old_synthetic_components_reexecuted": false,
+    "ordinary_representation_qualified": true,
+    "source_map_identity_sha256": "c3a47c8c7d7facc3d7bd798b74fd3f3fbb9dd0115b86369b7dc5b4f3e1aab915",
+    "target_independence_qualified": true
   },
-  "state_sha256": "b90f7764b6ff3484e10123212adf3dc172b06afb8c90aeda107393f8547cef66",
+  "root_admission_sha256": "6eb93b3367bbca557c39e3cb8a26f0e11d316b2036077d68604a6e25f4a2fa00",
+  "run_id": 41535146204,
+  "selected_file": {
+    "bytes": 1500100,
+    "sha256": "6ddd9367360907fd02517885dfd40e6b1f10b5592270ac439039414df9521f93"
+  },
+  "selected_session": "2021-05-28",
+  "state_sha256": "4e7ccace04ad8d3724133605e430f66015c16fc0d8b0149c91398347c3fc7db0",
   "tails": {
     "daily": {
-      "bytes": 0,
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "bytes": 5042657,
+      "sha256": "3d4d9f638f8c4457966343ccc9531b46cba145fa4f63c2525393cce77d9483f3"
     },
     "formation": {
       "bytes": 0,
@@ -340,8 +361,37 @@
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "watch": {
-      "bytes": 540,
-      "sha256": "5b939f5434c4724f8043f46216051fbc512b9b91883b1b17fc7c2b935ec7218f"
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "transport": {
+    "artifact_id": 13187651129,
+    "asset": {
+      "bytes": 392165347,
+      "compression": "TAR_GZIP_V1",
+      "manifest_sha256": "7e65a621a25713013d86d3a0a852085bb3f2beefd428694c3a8875f700685fcc",
+      "name": "p01-accurate.tar.crseal",
+      "sha256": "58c9c74ab2bb5ccaf4f4cc26f88ab4c3a9cbdc30da5f6f243865a7a7c9e4477a"
+    },
+    "manifest": {
+      "inventory_sha256": "e53df92e49bdf371645157c41ef1e68dd9686e99199b71f2b366df798039aa29",
+      "member_count": 322,
+      "original_manifest_bytes": 79386,
+      "original_manifest_sha256": "7e65a621a25713013d86d3a0a852085bb3f2beefd428694c3a8875f700685fcc",
+      "raw_member_bytes": 832760157
+    },
+    "origin": {
+      "financial_protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+      "head": "a6ac8a0da42f4afb8080426b0c07c4f8f8b8f32c",
+      "request_sha256": "f521a28cfa1680c20e2f78a22a6486eca13ab629d6fe7644da6cebe975e4332a",
+      "run_id": 41535146204
+    },
+    "stage": "campaign-p01-accurate-prefix",
+    "worker_id": "6205c31313e288fb81adb88c4d69da8c29b56b4ab02c777f5c6f76febc927ecf",
+    "zip": {
+      "bytes": 392169556,
+      "sha256": "427e8f759a6ddf8caff3e5d207e46812588c78215d3a9823878e07b146912644"
     }
   }
 }
