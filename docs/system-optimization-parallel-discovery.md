@@ -213,3 +213,33 @@ prints exception values, paths, credentials or strategy state. The unchanged
 12-GiB initial and 10-GiB pre-worker disk gates remain enabled. This recovery
 does not rerun P10, reuse an unknown writer's output, or weaken a resource or
 snapshot guard. Complete old artifacts and the unlocalized failure remain.
+
+## Match each V factory's original signal material
+
+The retained reference-only runs completed all three REFERENCE cases. The exact
+P10 artifact `13108100275` and P11 artifact `13107654814` passed independent
+inspection of all twelve runtime checkpoints, source/input identities, ledger
+prefixes, pending orders, decisions, and both expected-refusal paths. Every
+FAST and REFERENCE runtime field matched. The failed comparison paths were
+exactly `$[0].publication_sha256`, `$[1].publication_sha256`, and
+`$[2].publication_sha256` for each arm. These negative results remain preserved;
+neither qualifier was admitted and neither diagnostic origin launched.
+
+Static reconstruction of each byte-bound private source proves that the
+original P10 signal factory retains 21 closes and P11 retains 10. The research
+FAST transport's 127-close setting retains excess input material. A new
+source-bound transport successor reads and verifies the original private
+factory and frozen parameter binding, then uses precisely that original
+horizon. It changes no V parameter, price, calendar, controller or financial
+source. The complete publication comparison remains strict: no fields or
+hashes are ignored and no full-runtime comparison is weakened.
+
+Reuse the completed REFERENCE artifacts byte for byte; run only the changed
+FAST transport's three actual cases. Match every new full publication digest
+and runtime checkpoint to that immutable reference. A failure stays refused.
+Before any first diagnostic traversal, use the same native horizon and the
+shared versioned anchor-proof writer that fixes the already observed P03/P05
+exclusive-file collision. This applies the known research fixes across
+candidates instead of rediscovering them independently. Reference-case
+reexecution, source conversion, financial checkpoint grafts, and interpreting
+these qualification snapshots as performance are forbidden.
