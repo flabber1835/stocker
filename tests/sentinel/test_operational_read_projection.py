@@ -563,12 +563,15 @@ def snapshot_receipts(monkeypatch):
     monkeypatch.setattr(operational_ddl_epoch,'current',epoch)
     monkeypatch.setattr(projection.schema,'require_schema',lambda *_:True)
     connection=ReceiptConnection({})
+    monkeypatch.setenv('ALPACA_BASE_URL','https://paper-api.alpaca.markets')
     environment={name:projection.os.environ.get(name,'') for name in sorted(projection.SUBJECT_ENV)}
     for scope,rows in [('SHADOW',shadow()),('PAPER',[model.paper_reconciliation_row(state='CLEAN')])]:
-        # The established pre-consolidation wire identity remains byte-for-byte.
+        # SHADOW keeps its wire identity; account receipts also bind URL mode.
+        selected = ({**environment,'ALPACA_BASE_URL':'https://paper-api.alpaca.markets'}
+                    if scope == 'PAPER' else environment)
         current=projection._digest([projection.SCHEMA,'fixture',scope,
             list(connection.revisions[scope]),['7691913275518591014','paper'],
-            'authenticated-installation',('original-ddl-incarnation',5),environment])
+            'authenticated-installation',('original-ddl-incarnation',5),selected])
         value,signature=projection.make(scope,current,rows,[],observed_at=NOW)
         connection.receipts[scope]=(current,NOW,NOW+timedelta(seconds=600),value,signature)
     return connection,calls

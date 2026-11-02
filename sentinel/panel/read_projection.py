@@ -59,6 +59,16 @@ def _subject(conn, database_url, scope, *, facts=None):
     if row is None:
         raise ValueError('verification invalidation state unavailable')
     physical,installation,epoch,environment = facts if facts is not None else _subject_facts(conn)
+    if scope == 'PAPER':
+        # This compatibility scope contains account evidence. URL changes must
+        # invalidate it without invalidating broker-independent SHADOW facts.
+        from sentinel.trading_environment import TradingEndpoint
+        raw_url = os.environ.get('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+        try:
+            selected_url = TradingEndpoint.parse(raw_url).base_url
+        except ValueError:
+            selected_url = 'INVALID'
+        environment = {**environment, 'ALPACA_BASE_URL': selected_url}
     return _digest([SCHEMA, database_url, scope, list(row),list(physical),
                     installation['installation_id'] if installation is not None else None,
                     epoch,environment])

@@ -75,9 +75,16 @@ def _is_media_error(exc: Exception) -> bool:
             or getattr(exc, "sqlstate", None) in {"58P01", "42501", "58030"})
 
 
+def _live_origin_selected() -> bool:
+    from sentinel.config import DEFAULT_BASE_URL, trading_endpoint
+    from sentinel.trading_environment import TradingEnvironment
+    return trading_endpoint(os.environ.get("ALPACA_BASE_URL", DEFAULT_BASE_URL)).environment is TradingEnvironment.LIVE
+
+
 def enabled() -> bool:
     from sentinel import local_paper
-    if local_paper.backups_suspended():
+    live = _live_origin_selected()
+    if not live and local_paper.backups_suspended():
         return False
     value = str(os.environ.get(AUTHORITY_ENV, "")).strip()
     if value not in ("", AUTHORITY_VALUE):
@@ -88,7 +95,7 @@ def enabled() -> bool:
         marker = None
     if marker is not None and marker != POLICY_BYTES:
         raise BackupRuntimeRefused("invalid baked runtime backup authority policy")
-    local_required = (local_paper.enabled()
+    local_required = (not live and local_paper.enabled()
                       and local_paper.backup_policy() == local_paper.BACKUP_POLICY)
     return local_required or marker is not None or value == AUTHORITY_VALUE
 
@@ -616,11 +623,20 @@ def require(conn, *, operation: str,
             base_backup: str | None = None, allow_continuity: bool = False) -> dict:
     """Prove the restore horizon; disappearing media remains a retryable fence."""
     from sentinel import local_paper
-    if local_paper.backups_suspended_for_account(conn):
+    live = _live_origin_selected()
+    if not live and local_paper.backups_suspended_for_account(conn):
         return {"enabled": False}
     from sentinel import backup_continuity
     try:
-        selected_continuity = backup_continuity.selected()
+        if live:
+            # A URL switch may retain known PAPER-only settings. They cannot
+            # select continuity for LIVE; malformed selections still refuse.
+            value = os.environ.get(backup_continuity.POLICY_ENV, '')
+            if value not in ('', backup_continuity.POLICY):
+                raise backup_guard.BackupConfigurationRefused('unsupported backup outage policy')
+            selected_continuity = False
+        else:
+            selected_continuity = backup_continuity.selected()
     except backup_guard.BackupConfigurationRefused as exc:
         raise BackupRuntimeRefused(str(exc)) from exc
     continuity = selected_continuity and allow_continuity and base_backup is None
@@ -643,6 +659,10 @@ def require(conn, *, operation: str,
                 backup_continuity.remember(conn, result)
             return result
         result = _require(conn, operation=operation, base_backup=base_backup)
+        if live and (result.get("enabled") is not True
+                or result.get("backup_state") == "DEGRADED"
+                or result.get("independent_archive_current", True) is not True):
+            raise BackupRuntimeRefused("LIVE requires enabled qualified runtime backup authority and current independent archive")
         if selected_continuity:
             backup_continuity.remember(conn, result)
         return result
@@ -671,7 +691,8 @@ def require_staging(conn, *, operation: str) -> dict:
     Missing media, archive failures and unsupported policies still fence work.
     """
     from sentinel import local_paper
-    if local_paper.backups_suspended_for_account(conn) or not enabled():
+    if ((not _live_origin_selected() and local_paper.backups_suspended_for_account(conn))
+            or not enabled()):
         return {'enabled': False, 'scope': 'NON_AUTHORITATIVE_STAGING'}
     try:
         result = backup_guard.require_bulk_writes_permitted(conn, operation=operation)

@@ -1,4 +1,4 @@
-"""GET-only local PAPER account evidence for the operator panel.
+"""GET-only URL-selected account evidence for the operator panel.
 
 No execution grant, journal transition or financial reconciliation is issued.
 """
@@ -24,7 +24,12 @@ class AccountStatusRefused(ValueError):
     pass
 
 
-def _bound(conn):
+def _bound(conn, *, config=None):
+    if config is not None:
+        from sentinel.trading_environment import TradingEnvironment
+        if config.environment is TradingEnvironment.LIVE:
+            from sentinel.execution.trading_readonly import live_binding
+            return live_binding(conn, config=config)
     owner = local_paper.bound_account(conn)
     if owner is None:
         return None
@@ -103,7 +108,7 @@ def recorded_reservation(conn, *, account, now):
             "order_count": len(commands)}
 
 
-async def _collect(conn, *, reader, bound, commands):
+async def _collect(conn, *, reader, bound, commands, config=None):
     conn.commit()  # Never retain a database transaction over provider I/O.
     snapshot = await reader.account_snapshot()
     _inspection_account_or_refuse(snapshot, bound[2])
@@ -120,7 +125,8 @@ async def _collect(conn, *, reader, bound, commands):
             != (first.broker, first.account_id, native)
             or last.identity.raw.get("currency") != "USD"):
         raise AccountStatusRefused("ACCOUNT_IDENTITY_OR_CURRENCY_CHANGED")
-    if _bound(conn) != bound:
+    current = _bound(conn) if config is None else _bound(conn, config=config)
+    if current != bound:
         raise AccountStatusRefused("DURABLE_BINDING_CHANGED")
     proof = None
     if (native_orders and commands == _commands(conn, bound)
@@ -134,14 +140,21 @@ async def _collect(conn, *, reader, bound, commands):
 
 async def collect(conn, *, config, reader=None):
     """Publish authenticated display evidence only, including blocked accounts."""
-    config.assert_paper()
-    bound = _bound(conn)
+    from sentinel.trading_environment import TradingEnvironment
+    live = config.environment is TradingEnvironment.LIVE
+    if not live:
+        config.assert_paper()
+    bound = _bound(conn, config=config) if live else _bound(conn)
     if bound is None:
         return False
-    commands = _commands(conn, bound)
-    if reader is None:
+    commands = None if live else _commands(conn, bound)
+    if live:
+        from sentinel.execution.trading_readonly import live_monitoring_reader
+        reader = live_monitoring_reader(config, reader)
+    elif reader is None:
         from sentinel.execution.alpaca import AlpacaExecutionBroker
         reader = AlpacaExecutionBroker(api_key=config.alpaca_key,
             secret_key=config.alpaca_secret, base_url=config.base_url)
     return await asyncio.wait_for(
-        _collect(conn, reader=reader, bound=bound, commands=commands), DEADLINE_SECONDS)
+        _collect(conn, reader=reader, bound=bound, commands=commands,
+                 config=config if live else None), DEADLINE_SECONDS)

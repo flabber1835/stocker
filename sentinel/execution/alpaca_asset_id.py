@@ -30,10 +30,11 @@ from sentinel.execution.contract import (
     Side,
 )
 from sentinel.execution.states import CommandState as S
+from sentinel.execution.guarded import BrokerAuthorityRefused
 
 
 class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
-    """Alpaca PAPER adapter whose order transport is bound to ``asset_id``."""
+    """Selected Alpaca transport whose orders are bound to ``asset_id``."""
 
     async def submit(
         self,
@@ -56,11 +57,16 @@ class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
             quantity=quantity, order_terms=order_terms, capabilities=self.capabilities)
         try:
             async with self._httpx.AsyncClient(timeout=20.0) as client:
+                self._require_transport_authority(
+                    operation="SUBMIT", command_key=client_key, terms=order_terms,
+                    instrument=instrument, side=side, quantity=quantity)
                 resp = await client.post(
                     f"{self.base_url}/v2/orders",
                     headers=self._headers(),
                     json=body,
                 )
+        except BrokerAuthorityRefused:
+            raise
         except Exception as exc:  # noqa: BLE001
             return CommandOutcome(
                 state=S.UNKNOWN,

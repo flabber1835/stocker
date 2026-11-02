@@ -410,10 +410,20 @@ def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
                             'schema.require_runtime_schema', 'automation_store.load_control',
                             '_source_digests', 'coverage._authenticated', 'coverage.head',
                             'coverage._inventory_material', 'coverage.write'} <= calls
+                if relative == 'sentinel/trading.py':
+                    owners = [f for f in ast.walk(tree)
+                              if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+                              and node in ast.walk(f)]
+                    assert len(owners) == 1 and owners[0].name == 'recover_trading_account'
+                    assert ast.unparse(node.func) == 'journal.writer_lock'
+                    calls = {ast.unparse(call.func) for call in ast.walk(owners[0])
+                             if isinstance(call, ast.Call)}
+                    assert 'reconcile.reconcile' in calls
+                    assert 'executor.execute_session' not in calls
     assert found == {
         "sentinel/automation/store.py", "sentinel/paper/recovery.py",
         "sentinel/execution/executor.py", "sentinel/rolling_runtime.py",
-        "sentinel/chain_progress_recovery.py"}
+        "sentinel/chain_progress_recovery.py", "sentinel/trading.py"}
 
 
 @pytest.mark.parametrize("event", ["advance", "failure"])

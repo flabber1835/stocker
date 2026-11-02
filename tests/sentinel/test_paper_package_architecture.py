@@ -213,6 +213,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
 @pytest.mark.parametrize('definition,owner', [
     ('_local_window_resizing', 'preparation'),
     ('prepare_paper_plan', 'preparation'),
+    ('current_paper_plan', 'preparation'),
     ('_target_projection_or_refuse', 'targets'),
     ('_execute_current_paper_plan', 'execution'),
     ('recover_automated_paper_cycle', 'recovery'),

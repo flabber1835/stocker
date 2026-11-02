@@ -93,7 +93,8 @@ def clear_archive_snapshot(conn) -> None:
 
 def status(conn) -> BackupGuardStatus:
     from sentinel import local_paper
-    if local_paper.backups_suspended_for_account(conn):
+    from sentinel.backup_runtime_authority import _live_origin_selected
+    if not _live_origin_selected() and local_paper.backups_suspended_for_account(conn):
         return BackupGuardStatus(
             state="DISABLED_BY_OPERATOR", archive_mode="off",
             last_success_age_seconds=None, unresolved_failure=False,

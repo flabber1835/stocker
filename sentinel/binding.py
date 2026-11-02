@@ -93,6 +93,15 @@ class AccountBinding:
     def is_owned(self) -> bool:
         return self.ownership_state == SENTINEL_OWNED
 
+    @property
+    def trading_environment(self):
+        """The durable namespace selects mode without rewriting legacy rows."""
+        return self.identity.trading_environment
+
+    @property
+    def trading_base_url(self) -> str | None:
+        return self.identity.trading_base_url
+
     def to_dict(self) -> dict:
         return {"deployment_id": self.deployment_id, "broker": self.broker,
                 "broker_account_id": self.broker_account_id,

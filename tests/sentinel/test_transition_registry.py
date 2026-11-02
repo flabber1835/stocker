@@ -276,7 +276,10 @@ def test_current_full_refactor_seal_preserves_exact_baseline_and_refuses_unknown
     assert refactor.TRANSITION_SHA256 != '0' * 64
     actual = {path.relative_to(registry.ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in registry.ROOT.rglob('*.py') if '__pycache__' not in path.parts}
-    baseline = refactor.historical_view(actual)
+    predecessor = registry.comparison_view(actual)
+    assert predecessor is not actual
+    assert refactor.historical_view(actual) is actual
+    baseline = refactor.historical_view(predecessor)
     assert baseline is not actual
     assert 'publisher_pipeline_source_basis.py' not in baseline
     for name in actual:

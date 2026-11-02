@@ -295,6 +295,53 @@ class BrokerAccountIdentity:
 
 
 @dataclass(frozen=True)
+class NativeFundingFacts:
+    """Typed native account fields, without claiming settled-funds semantics.
+
+    A separately enrolled source contract must accept any mapping to funds.
+    PAPER snapshots retain ``None`` and never acquire this preparation surface.
+    """
+
+    source_profile: str
+    base_url: str
+    account_id: str
+    currency: str
+    observed_at: datetime
+    account_snapshot_sha256: str
+    amounts: tuple[tuple[str, Decimal], ...]
+
+    def __post_init__(self) -> None:
+        from sentinel.trading_environment import TradingEndpoint, TradingEnvironment
+        endpoint = TradingEndpoint.parse(self.base_url)
+        if (self.source_profile != "ALPACA_ACCOUNT_DECIMAL_FIELDS_V1"
+                or endpoint.environment is not TradingEnvironment.LIVE
+                or endpoint.base_url != self.base_url or self.currency != "USD"
+                or type(self.account_id) is not str or not self.account_id
+                or self.account_id != self.account_id.strip()):
+            raise ValueError("native funding source identity is invalid")
+        if not isinstance(self.observed_at, datetime) or self.observed_at.utcoffset() is None:
+            raise ValueError("native funding observation requires an aware clock")
+        if (type(self.account_snapshot_sha256) is not str or len(self.account_snapshot_sha256) != 64
+                or any(char not in "0123456789abcdef" for char in self.account_snapshot_sha256)):
+            raise ValueError("native funding snapshot requires an exact SHA256")
+        allowed = {"cash", "buying_power", "non_marginable_buying_power",
+                   "long_market_value", "short_market_value"}
+        if (type(self.amounts) is not tuple or not 4 <= len(self.amounts) <= len(allowed)
+                or any(type(item) is not tuple or len(item) != 2 for item in self.amounts)):
+            raise ValueError("native funding fields must be a bounded immutable tuple")
+        names = tuple(name for name, _value in self.amounts)
+        if (len(set(names)) != len(names) or not set(names) <= allowed
+                or names != tuple(sorted(names))
+                or not {"cash", "buying_power", "long_market_value", "short_market_value"} <= set(names)):
+            raise ValueError("native funding fields are missing, duplicated or unknown")
+        for name, value in self.amounts:
+            _require_decimal("native funding " + name, value)
+            if (not value.is_finite() or len(value.as_tuple().digits) > 128
+                    or abs(value.as_tuple().exponent) > 128):
+                raise ValueError("native funding amount exceeds its finite numeric bound")
+
+
+@dataclass(frozen=True)
 class BrokerAccountSnapshot:
     """Typed sizing facts from the account endpoint.
 
@@ -313,6 +360,7 @@ class BrokerAccountSnapshot:
     trading_blocked: bool = False
     account_blocked: bool = False
     trade_suspended_by_user: bool = False
+    native_funding: Optional[NativeFundingFacts] = None
 
     def __post_init__(self) -> None:
         _require_decimal("BrokerAccountSnapshot.equity", self.equity)
@@ -322,6 +370,8 @@ class BrokerAccountSnapshot:
                 "BrokerAccountSnapshot.buying_power", self.buying_power)
         if self.multiplier is not None:
             _require_decimal("BrokerAccountSnapshot.multiplier", self.multiplier)
+        if self.native_funding is not None and type(self.native_funding) is not NativeFundingFacts:
+            raise TypeError("BrokerAccountSnapshot.native_funding must be typed")
 
 
 def available_purchase_cash(snapshot: BrokerAccountSnapshot) -> Decimal:

@@ -35,7 +35,7 @@ def collect_once(kind, *, reader=None, config=None, connection_factory=None):
     from sentinel.automation import outbox
     from sentinel.execution import account_status, fill_notifications
     config = config or SentinelConfig.from_env()
-    config.assert_paper()
+    config.trading_endpoint  # Refuse unknown origins before any collector I/O.
     factory = connection_factory or store.connect
     conn = factory(config.database_url,connect_timeout=3,statement_timeout_ms=2000)
     try:
@@ -65,6 +65,8 @@ def run(*, stopped=None, runner=supervisor_io.run, clock=time.monotonic):
     from sentinel.execution import account_status, fill_notifications
     from sentinel.execution import issuer_refresh
     from sentinel.feed.issuer_refresh import CONTACT_ENV
+    from sentinel.config import trading_endpoint, DEFAULT_BASE_URL
+    from sentinel.trading_environment import TradingEnvironment
     if os.environ.get('SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY'):
         raise ValueError('execution collector must not hold push signing credentials')
     stopped = stopped or Event()
@@ -73,10 +75,11 @@ def run(*, stopped=None, runner=supervisor_io.run, clock=time.monotonic):
     due = {'ACCOUNT':float('-inf'),'FILL':float('-inf'),'ISSUER':float('-inf')}
     try:
         while not stopped.is_set():
+            live = trading_endpoint(os.environ.get('ALPACA_BASE_URL', DEFAULT_BASE_URL)).environment is TradingEnvironment.LIVE
             for kind, enabled, interval in (
-                    ('ACCOUNT',local_paper.enabled(),account_status.POLL_SECONDS),
+                    ('ACCOUNT',live or local_paper.enabled(),account_status.POLL_SECONDS),
                     ('FILL',bool(os.environ.get(fill_notifications.SINCE_ENV)),fill_notifications.POLL_SECONDS),
-                    ('ISSUER',local_paper.enabled() and bool(os.environ.get(CONTACT_ENV)),3600)):
+                    ('ISSUER',(live or local_paper.enabled()) and bool(os.environ.get(CONTACT_ENV)),3600)):
                 if not enabled or stopped.is_set() or clock() < due[kind]:
                     continue
                 due[kind] = clock()+interval

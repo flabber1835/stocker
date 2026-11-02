@@ -13,6 +13,14 @@ from sentinel.feed import store as feed_store
 
 
 EXPECTED_OWNERS = {
+    "prepare-trading-plan": "sentinel.cli.trading",
+    "current-trading-plan": "sentinel.cli.trading",
+    "execute-trading-plan": "sentinel.cli.trading",
+    "recover-trading-account": "sentinel.cli.trading",
+    "bind-empty-live-account": "sentinel.cli.trading",
+    "activate-live-automation": "sentinel.cli.trading",
+    "release-live-automation-kill-switch": "sentinel.cli.trading",
+    "enroll-live-issuer-policy": "sentinel.cli.trading",
     "status": "sentinel.cli.status",
     "shadow-status": "sentinel.cli.status",
     "shadow-run": "sentinel.cli.status",
@@ -82,7 +90,7 @@ def test_cli_has_one_parser_construction_and_one_parse_call():
 def test_every_command_has_one_static_direct_owner():
     combined = {**cli_main.ROUTES, **AUTHORIZED_ROUTES}
     assert set(combined) == set(EXPECTED_OWNERS)
-    assert len(combined) == 43
+    assert len(combined) == 51
     assert not (set(cli_main.ROUTES) & set(AUTHORIZED_ROUTES))
     for command, owner in EXPECTED_OWNERS.items():
         assert combined[command].__module__ == owner, command

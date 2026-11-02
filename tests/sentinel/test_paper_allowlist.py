@@ -110,10 +110,12 @@ class TestTheConfigBoundary:
         with pytest.raises(CFG.LiveEndpointRefused):
             a_config(url).assert_paper()
 
-    def test_from_env_refuses_at_construction(self):
+    def test_from_env_selects_live_without_granting_paper_permission(self):
+        cfg = CFG.SentinelConfig.from_env({"ALPACA_BASE_URL":
+                                          "https://api.alpaca.markets"})
+        assert cfg.broker_namespace == "alpaca-live"
         with pytest.raises(CFG.LiveEndpointRefused):
-            CFG.SentinelConfig.from_env({"ALPACA_BASE_URL":
-                                         "https://api.alpaca.markets"})
+            cfg.assert_paper()
 
     def test_the_default_is_the_paper_endpoint(self):
         cfg = CFG.SentinelConfig.from_env({})

@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from sentinel import binding, local_paper
-from sentinel.config import SentinelConfig, LiveEndpointRefused
+from sentinel.config import SentinelConfig
 from sentinel.execution import account_status as module, journal
 from sentinel.execution.alpaca import AlpacaExecutionBroker
 from sentinel.execution.commands import Command
@@ -124,13 +124,14 @@ def test_binding_rechecked_after_network_reads(db, monkeypatch):
     assert db.execute("SELECT count(*) FROM sentinel_broker_account_evidence").fetchone()[0] == 0
 
 
-def test_disabled_local_mode_and_live_endpoint_never_poll(db, monkeypatch):
+def test_disabled_local_paper_and_live_url_with_paper_binding_never_poll(db, monkeypatch):
     f = fixture(db, monkeypatch)
     monkeypatch.delenv(local_paper.MODE_ENV)
     assert collect(db, f) is False and not f.calls
     from dataclasses import replace
     f.config = replace(f.config, base_url="https://api.alpaca.markets")
-    with pytest.raises(LiveEndpointRefused):
+    from sentinel.execution.trading_readonly import MonitoringReadRefused
+    with pytest.raises(MonitoringReadRefused, match="alpaca-live binding"):
         collect(db, f)
     assert not f.calls
 

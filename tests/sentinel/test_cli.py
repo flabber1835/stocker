@@ -74,10 +74,10 @@ def env(**over):
     return base
 
 
-class TestPaperOnly:
-    def test_the_LIVE_endpoint_is_refused(self):
+class TestUrlSelection:
+    def test_explicit_paper_operations_refuse_live(self):
         with pytest.raises(LiveEndpointRefused, match="api.alpaca.markets"):
-            SentinelConfig.from_env(env(ALPACA_BASE_URL="https://api.alpaca.markets"))
+            SentinelConfig.from_env(env(ALPACA_BASE_URL="https://api.alpaca.markets")).assert_paper()
 
     def test_malformed_numeric_runtime_config_is_a_controlled_refusal(
             self, monkeypatch, capsys):
@@ -95,19 +95,12 @@ class TestPaperOnly:
         {"LIVE_TRADING_ENABLED": "true", "PAPER_ONLY": "false"},
     ])
     def test_there_is_no_override(self, extra, monkeypatch):
-        """A flag that could grant a live mandate is the same slip the hardcoded
-        trade_type was. No env var combination may unlock the live endpoint.
-
-        The overrides are set in the PROCESS environment as well as passed in the
-        mapping. An earlier version only did the latter, and a deliberately
-        introduced `os.getenv('SENTINEL_ALLOW_LIVE')` escape hatch sailed through
-        it — the test was checking a channel nobody would use to add one.
-        """
+        """A mode flag cannot grant authority to an explicitly PAPER operation."""
         for k, v in extra.items():
             monkeypatch.setenv(k, v)
         with pytest.raises(LiveEndpointRefused):
             SentinelConfig.from_env(
-                env(ALPACA_BASE_URL="https://api.alpaca.markets", **extra))
+                env(ALPACA_BASE_URL="https://api.alpaca.markets", **extra)).assert_paper()
 
     def test_no_override_reaches_the_guard_from_the_process_env_either(self, monkeypatch):
         """`from_env` with NO mapping at all — the real production path."""
@@ -115,7 +108,7 @@ class TestPaperOnly:
                         SENTINEL_ALLOW_LIVE="1").items():
             monkeypatch.setenv(k, v)
         with pytest.raises(LiveEndpointRefused):
-            SentinelConfig.from_env()
+            SentinelConfig.from_env().assert_paper()
 
     def test_ONLY_the_paper_endpoint_is_accepted(self):
         """This test used to be `test_paper_and_unknown_hosts_are_accepted`,
@@ -134,10 +127,13 @@ class TestPaperOnly:
             with pytest.raises(LiveEndpointRefused):
                 SentinelConfig.from_env(env(ALPACA_BASE_URL=url))
 
-    def test_the_cli_exits_1_rather_than_traceback(self, monkeypatch):
+    def test_status_reports_live_selection_without_broker_authority(self, monkeypatch, capsys):
         for k, v in env(ALPACA_BASE_URL="https://api.alpaca.markets").items():
             monkeypatch.setenv(k, v)
-        assert cli.main(["status"]) == cli.EXIT_CONFIG
+        assert cli.main(["status"]) == cli.EXIT_OK
+        result = json.loads(capsys.readouterr().out)
+        assert result["config"]["environment"] == "ALPACA_LIVE"
+        assert result["authority"] == "none"
 
 
 class TestCredentialRefusal:

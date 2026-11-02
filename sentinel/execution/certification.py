@@ -96,8 +96,8 @@ REGISTRY: Mapping[str, AdapterCertification] = {
     "alpaca": AdapterCertification(
         name="alpaca", certified=True,
         notes=(
-            "paper only — sentinel/config.py refuses api.alpaca.markets with no "
-            "override. Certified for deterministic client keys, single-order "
+            "PAPER scope only; LIVE requires its own signed account admission "
+            "and adapter identity. Certified for deterministic client keys, single-order "
             "cancel, DAY market orders addressed by durable Alpaca asset_id, "
             "and account-bound observations. Candidate Activity-SSE parsing "
             "has local fixture coverage, not accepted financial authority. Open-order REST "
@@ -118,6 +118,11 @@ REGISTRY: Mapping[str, AdapterCertification] = {
             "upper boundary is also UNcertified and its independent capability "
             "bit is false; recent-fill recovery is not negative-space proof. "
             "Fractional quantities and market-on-open remain uncertified.")),
+
+    "alpaca-live": AdapterCertification(
+        name="alpaca-live", certified=False,
+        reasons=("LIVE requires separately enrolled, current account-specific admission",),
+        notes="PAPER conformance is never LIVE authority; admission is checked per instance and request."),
 
     "ibkr": AdapterCertification(
         name="ibkr", certified=False,
@@ -170,6 +175,7 @@ _IMPLEMENTATIONS = {
         "sentinel.execution.simulator.SimulatedBroker",
     }),
 }
+_IMPLEMENTATIONS["alpaca-live"] = _IMPLEMENTATIONS["alpaca"]
 
 _CERTIFIED_CAPABILITIES = {
     "alpaca": frozenset({
@@ -184,9 +190,11 @@ _CERTIFIED_CAPABILITIES = {
         "account_bound_observation",
     }),
 }
+_CERTIFIED_CAPABILITIES["alpaca-live"] = _CERTIFIED_CAPABILITIES["alpaca"]
 
 _CONFORMANCE_SUITES = {
     "alpaca": "sentinel.alpaca-paper-conformance/1",
+    "alpaca-live": "sentinel.alpaca-live-software-conformance/1",
     "simulator": "sentinel.execution-contract-oracle/1",
 }
 
@@ -251,9 +259,22 @@ def _composition_sha256(
 
 
 def certify_adapter(value, *, name: str,
-                    mode: str) -> CertifiedAdapterIdentity:
+                    mode: str, live_admission=None) -> CertifiedAdapterIdentity:
     """Issue identity only for an exact implementation in the registry."""
-    require_certified(name)
+    if name == "alpaca-live":
+        from sentinel.authority.live import require_live_adapter_admission
+        if mode != "ALPACA_LIVE" or live_admission is None:
+            raise AdapterNotCertified("LIVE adapter identity requires independent LIVE admission")
+        if getattr(value, "live_admission", None) is not live_admission:
+            raise AdapterNotCertified("LIVE adapter admission differs from its construction")
+        try:
+            require_live_adapter_admission(live_admission, base_url=value.base_url)
+        except Exception as exc:
+            raise AdapterNotCertified("LIVE adapter admission or qualification refused") from exc
+    else:
+        if live_admission is not None:
+            raise AdapterNotCertified("LIVE admission cannot authorize another adapter mode")
+        require_certified(name)
     implementation = _implementation(value)
     if implementation not in _IMPLEMENTATIONS.get(name, ()):
         raise AdapterNotCertified(
@@ -262,6 +283,11 @@ def certify_adapter(value, *, name: str,
     if name == "alpaca" and mode != "ALPACA_PAPER":
         raise AdapterNotCertified(
             "Alpaca certification is scoped to ALPACA_PAPER")
+    if name in {"alpaca", "alpaca-live"}:
+        from sentinel.trading_environment import TradingEndpoint
+        endpoint = TradingEndpoint.parse(value.base_url)
+        if endpoint.environment.value != mode or endpoint.broker_namespace != name:
+            raise AdapterNotCertified("adapter origin, environment and durable namespace differ")
     identity = CertifiedAdapterIdentity(
         name=name,
         implementation=implementation,
@@ -272,7 +298,9 @@ def certify_adapter(value, *, name: str,
         wrapper_kind=None,
         composition_sha256="",
         _seal=_SEAL)
-    _store_identity(value, identity)
+    _store_identity(value, identity, configuration=(
+        (value.base_url, value.broker_namespace, live_admission)
+        if name == "alpaca-live" else ()))
     return identity
 
 
@@ -331,6 +359,16 @@ def require_certified_adapter(value, *, expected: str | None = None
     identity = retained.identity
     if identity._seal is not _SEAL:
         raise AdapterNotCertified("adapter certification seal is invalid")
+    if identity.name == "alpaca-live" and identity.wrapper_kind is None:
+        if (len(retained.configuration) != 3
+                or getattr(value, "base_url", None) != retained.configuration[0]
+                or getattr(value, "broker_namespace", None) != retained.configuration[1]
+                or getattr(value, "live_admission", None) is not retained.configuration[2]):
+            raise AdapterNotCertified("LIVE adapter origin or admission changed")
+        try:
+            value._require_transport_authority()
+        except Exception as exc:
+            raise AdapterNotCertified("fresh LIVE adapter admission refused") from exc
     if identity.wrapper_kind is not None:
         spec = _WRAPPER_SPECS.get(identity.wrapper_kind)
         if spec is None or _implementation(value) != spec[0]:

@@ -613,7 +613,8 @@ class ProductionAutomation:
                  alert_adapter: outbox.AlertAdapter | None = None) -> None:
         if not sentinel_config.database_url:
             raise ValueError("SENTINEL_DATABASE_URL is required")
-        sentinel_config.assert_paper()
+        from sentinel.trading_environment import TradingEnvironment
+        self._live_run_enabled = sentinel_config.environment is TradingEnvironment.LIVE
         self.sentinel_config = sentinel_config
         self.automation_config = automation_config
         self.holder_id = holder_id or f"sentinel-{uuid.uuid4()}"
@@ -628,7 +629,7 @@ class ProductionAutomation:
             "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "")).strip().lower()
         if reviewed_mode not in {"", "shadow", "dual", "paper"}:
             raise ValueError("SENTINEL_REVIEWED_DEPLOYMENT_MODE is invalid")
-        self._dual_run_enabled = reviewed_mode == "dual"
+        self._dual_run_enabled = reviewed_mode == "dual" and not self._live_run_enabled
         # The deployed Compose service fixes this mode. Historical fixtures may
         # still exercise legacy readers, but a production worker cannot fall
         # back to Sharadar when a rolling publication is missing.
@@ -720,6 +721,8 @@ class ProductionAutomation:
             self._warn_slow_authority_stage("signed-authority-publication", started)
             bound = control.binding
             if (bound is None
+                    or (getattr(self, "_live_run_enabled", False)
+                        and bound.broker != "alpaca-live")
                     or certificate.certificate_sha256
                     != bound.certificate_sha256
                     or bound.rollout_mode != rollout.mode.value
@@ -793,6 +796,9 @@ class ProductionAutomation:
             permit.acquired_at)
 
     def _idle_attestation_current(self, conn, control, permit, now):
+        if getattr(self, "_live_run_enabled", False):
+            # LIVE always re-earns its independent signed runtime authority.
+            return False
         last_observed = getattr(self, "_idle_attestation_observed_at", None)
         self._idle_attestation_observed_at = now
         if last_observed is not None and now < last_observed:
@@ -834,13 +840,22 @@ class ProductionAutomation:
         return current
 
     def _broker(self, conn, session: str):
-        if getattr(self, "_shadow_observation_enabled", False):
+        live = getattr(self, "_live_run_enabled", False)
+        if getattr(self, "_shadow_observation_enabled", False) and not live:
             raise NonRetryableCallbackRefused(
                 "broker construction is forbidden while broker-free shadow "
                 "observation mode is enabled")
         resolver = paper.build_security_resolver(conn, session)
+        kwargs = {}
+        if live:
+            from sentinel.authority.live_runtime import load_live_adapter_admission
+            kwargs["live_admission"] = load_live_adapter_admission(
+                conn, base_url=self.sentinel_config.base_url,
+                runtime_identity=system_identity.rehearsal_identity(),
+                strategy_identity=production_strategy()[1],
+                automation_config_sha256=self.automation_config.fingerprint)
         return build_execution_broker(
-            self.sentinel_config, resolve_security_id=resolver)
+            self.sentinel_config, resolve_security_id=resolver, **kwargs)
 
     def _recovery_identity_session(self, cycle):
         """Observe the present session before refresh; never project two ahead."""
@@ -858,7 +873,7 @@ class ProductionAutomation:
         """Recheck source authority when a persisted cycle skips refresh."""
         if not getattr(self, "_operational_source_only", False):
             return
-        if not getattr(self, "_dual_run_enabled", False):
+        if not (getattr(self, "_dual_run_enabled", False) or getattr(self, "_live_run_enabled", False)):
             raise NonRetryableCallbackRefused(
                 "operational paper automation requires reviewed dual mode")
         current = feed_inputs.current(conn)
@@ -987,7 +1002,7 @@ class ProductionAutomation:
                 except operational_snapshot.OperationalSnapshotRefused as exc:
                     raise NonRetryableCallbackRefused(str(exc)) from exc
             if feed_inputs.is_rolling(current):
-                feed_inputs.require_shadow_mode(current, self._dual_run_enabled)
+                feed_inputs.require_shadow_mode(current, self._dual_run_enabled or getattr(self, "_live_run_enabled", False))
                 if (getattr(current, 'window_end', None) == str(cycle.decision_session)
                         and getattr(self, 'sentinel_config', None) is not None):
                     from sentinel import prepare_shadow_wait
@@ -1007,10 +1022,16 @@ class ProductionAutomation:
                         raise SourceDataPending(detail)
                 from sentinel import dual_reconciliation
                 try:
-                    dual_reconciliation.verified_shadow_intent(
-                        conn, decision_session=cycle.decision_session,
-                        observation_id=self._shadow_observation_id,
-                        starting_cash=self._shadow_starting_cash)
+                    if getattr(self, "_live_run_enabled", False):
+                        from sentinel import trading
+                        trading._shadow(conn, session=cycle.decision_session,
+                            observation_id=self._shadow_observation_id,
+                            starting_cash=self._shadow_starting_cash)
+                    else:
+                        dual_reconciliation.verified_shadow_intent(
+                            conn, decision_session=cycle.decision_session,
+                            observation_id=self._shadow_observation_id,
+                            starting_cash=self._shadow_starting_cash)
                 except dual_reconciliation.DualReconciliationPending as exc:
                     raise _closing_frontier_wait(exc,
                         frontier=getattr(current, 'window_end', None),
@@ -1034,7 +1055,7 @@ class ProductionAutomation:
                     already_published=True, data_version=str(current.version),
                     publication_fingerprint=publication_fingerprint(current),
                     diagnostic={"frontier": visible})
-            if self._dual_run_enabled:
+            if self._dual_run_enabled or getattr(self, "_live_run_enabled", False):
                 # The dedicated broker-free shadow service is the sole
                 # Sharadar publisher in dual mode. Two writers that both saw a
                 # stale frontier can serialize yet still publish the same
@@ -1104,7 +1125,7 @@ class ProductionAutomation:
             if getattr(self, '_operational_source_only', False):
                 input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
             missed = ()
-            if not self._dual_run_enabled:
+            if not self._dual_run_enabled and not getattr(self, "_live_run_enabled", False):
                 # Reviewed dual mode adopts the exact current shadow-produced
                 # plan.  Its broker-free shadow chain is the only historical
                 # lineage authority, so legacy PAPER catch-up obligations must
@@ -1150,7 +1171,9 @@ class ProductionAutomation:
             broker = self._broker(conn, cycle.decision_session.isoformat())
             try:
                 context.require_active()
-                result = await paper.prepare_paper_plan(
+                from sentinel import trading
+                prepare = trading.prepare_trading_plan if getattr(self, "_live_run_enabled", False) else paper.prepare_paper_plan
+                result = await prepare(
                     conn=conn, broker=broker,
                     base_url=self.sentinel_config.base_url,
                     through=cycle.decision_session,
@@ -1161,10 +1184,10 @@ class ProductionAutomation:
                         self.automation_config.fingerprint,
                     dual_shadow_observation_id=(
                         self._shadow_observation_id
-                        if self._dual_run_enabled else None),
+                        if self._dual_run_enabled or getattr(self, "_live_run_enabled", False) else None),
                     dual_shadow_starting_cash=(
                         self._shadow_starting_cash
-                        if self._dual_run_enabled else None))
+                        if self._dual_run_enabled or getattr(self, "_live_run_enabled", False) else None))
                 context.require_active()
             except paper.PaperRetryableRefused as exc:
                 raise TransientInfrastructureFailure(str(exc)) from exc
@@ -1230,7 +1253,9 @@ class ProductionAutomation:
                 raise
             try:
                 context.require_active()
-                result = await paper.recover_automated_paper_cycle(
+                from sentinel import trading
+                recover = trading.recover_trading_account if getattr(self, "_live_run_enabled", False) else paper.recover_automated_paper_cycle
+                result = await recover(
                     conn=conn, broker=broker,
                     base_url=self.sentinel_config.base_url,
                     grant=_grant(
@@ -1239,10 +1264,10 @@ class ProductionAutomation:
                         self.automation_config.fingerprint,
                     dual_shadow_observation_id=(
                         self._shadow_observation_id
-                        if self._dual_run_enabled else None),
+                        if self._dual_run_enabled or getattr(self, "_live_run_enabled", False) else None),
                     dual_shadow_starting_cash=(
                         self._shadow_starting_cash
-                        if self._dual_run_enabled else None))
+                        if self._dual_run_enabled or getattr(self, "_live_run_enabled", False) else None))
                 context.require_active()
             except paper.PreOpenShareUnitAuthorityUnavailable as exc:
                 detail = str(exc)
@@ -1385,7 +1410,7 @@ class ProductionAutomation:
                     failure_code='POST_PLAN_CASH_ACTIVITY_RECONCILED',
                     failure_detail='native cash activity changed; await the next ordinary decision',
                     diagnostic=result_diagnostic)
-            if (self._dual_run_enabled and
+            if ((self._dual_run_enabled or getattr(self, "_live_run_enabled", False)) and
                     str(cycle.decision_session) < str(feed_inputs.frontier(conn))):
                 return ExecuteResult(
                     disposition=ExecuteDisposition.SUPERSEDED, **evidence,
@@ -1536,7 +1561,7 @@ class ProductionAutomation:
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="EXECUTE")
             self._require_operational_inputs(conn)
-            if self._dual_run_enabled:
+            if self._dual_run_enabled or getattr(self, "_live_run_enabled", False):
                 current_plan = journal.latest_plan(conn)
                 if (current_plan is None
                         or current_plan.plan_id != cycle.plan_id
@@ -1550,7 +1575,9 @@ class ProductionAutomation:
             broker = self._broker(conn, cycle.effective_session.isoformat())
             try:
                 context.require_active()
-                result = await paper.execute_automated_paper_plan(
+                from sentinel import trading
+                execute = trading.execute_automated_trading_plan if getattr(self, "_live_run_enabled", False) else paper.execute_automated_paper_plan
+                result = await execute(
                     conn=conn, broker=broker,
                     base_url=self.sentinel_config.base_url,
                     grant=_grant(
@@ -1559,10 +1586,10 @@ class ProductionAutomation:
                         self.automation_config.fingerprint,
                     dual_shadow_observation_id=(
                         self._shadow_observation_id
-                        if self._dual_run_enabled else None),
+                        if self._dual_run_enabled or getattr(self, "_live_run_enabled", False) else None),
                     dual_shadow_starting_cash=(
                         self._shadow_starting_cash
-                        if self._dual_run_enabled else None))
+                        if self._dual_run_enabled or getattr(self, "_live_run_enabled", False) else None))
                 context.require_active()
             except paper.PreOpenShareUnitAuthorityUnavailable as exc:
                 detail = str(exc)
@@ -1839,7 +1866,8 @@ class ProductionAutomation:
                 max_attempts=self.automation_config.alert_max_attempts)
             return next_wake
         shadow_result = None
-        if getattr(self, "_shadow_observation_enabled", False):
+        if (getattr(self, "_shadow_observation_enabled", False)
+                and not getattr(self, "_live_run_enabled", False)):
             try:
                 from sentinel import shadow_runtime
                 shadow_result = shadow_runtime.advance_ready_shadow(

@@ -339,9 +339,12 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
     retained = ('<p class="overview-retained">Last known overview · refreshing status. '
                 'The original evidence times are shown below.</p>' if refresh_pending else '')
     css = 'overview retained-overview' if refresh_pending else 'overview'
+    selection = panel.row('trading_environment')
+    selected = ('<p class="overview-mode" role="status">Selected trading environment: <strong>'
+                +_esc(selection.value)+'</strong></p>' if selection is not None else '')
     return ('<main class="'+css+'" aria-label="Trading overview">'
             '<p class="overview-withdrawn">Last known overview · status is not current.</p>'
-            +retained+_plan_readiness_html(panel, refresh_pending=refresh_pending)
+            +selected+retained+_plan_readiness_html(panel, refresh_pending=refresh_pending)
             +_preparation_html(panel, refresh_pending=refresh_pending)+_plan_html(panel)
             +(_run_html(panel) if panel.row('paper_plan') is not None
               and panel.row('paper_plan').can_show_paper_plan(panel.now) else '')

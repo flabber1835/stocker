@@ -14,6 +14,12 @@ x-sentinel-authorized-environment: &sentinel-authorized-environment
   ALPACA_API_KEY: ${ALPACA_API_KEY:-}
   ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
   OPENFIGI_API_KEY: ${OPENFIGI_API_KEY:-}
+  # Public signed envelopes and enrolled public keys only. Paths are inside
+  # the read-only authority mount; no signing key belongs in these services.
+  SENTINEL_LIVE_CERTIFICATE_PATH: ${SENTINEL_LIVE_CERTIFICATE_PATH:-}
+  SENTINEL_LIVE_TRUST_ROOTS_PATH: ${SENTINEL_LIVE_TRUST_ROOTS_PATH:-}
+  SENTINEL_LIVE_PROVISIONING_CERTIFICATE_PATH: ${SENTINEL_LIVE_PROVISIONING_CERTIFICATE_PATH:-}
+  SENTINEL_LIVE_FUNDING_CERTIFICATE_PATH: ${SENTINEL_LIVE_FUNDING_CERTIFICATE_PATH:-}
   SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
   SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
   SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:?set exact built Git commit}
@@ -118,6 +124,10 @@ services:
     entrypoint: ["python", "-m", "sentinel.automation_supervisor"]
     volumes:
       - sentinel_state:/var/lib/sentinel:ro
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
+        target: /var/lib/sentinel-authority
+        read_only: true
     environment:
       <<: *sentinel-authorized-environment
       SENTINEL_FEED_AUTHORIZED: DEPLOYED_REVIEWED_IMAGE_V1
@@ -148,7 +158,7 @@ services:
     entrypoint: ["python", "-m", "sentinel.alert_service"]
     environment:
       <<: *sentinel-owner-paper-context
-      ALPACA_BASE_URL: https://paper-api.alpaca.markets
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
       ALPACA_API_KEY: ""
       ALPACA_SECRET_KEY: ""
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
@@ -240,14 +250,17 @@ services:
     security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "sentinel.execution_collector"]
     environment:
-      <<: *sentinel-owner-paper-context
-      ALPACA_BASE_URL: https://paper-api.alpaca.markets
-      ALPACA_API_KEY: ${ALPACA_API_KEY:-}
-      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
-      SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
-      SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
+      # GET-only facade independently verifies the same actual runtime and
+      # configuration identity as execution. This grants no mutation permit.
+      <<: *sentinel-authorized-environment
       SENTINEL_FILL_NOTIFICATIONS_SINCE: ${SENTINEL_FILL_NOTIFICATIONS_SINCE:-}
       SENTINEL_SEC_CONTACT_EMAIL: ${SENTINEL_SEC_CONTACT_EMAIL:-}
+    volumes:
+      - sentinel_state:/var/lib/sentinel:ro
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
+        target: /var/lib/sentinel-authority
+        read_only: true
     healthcheck:
       test: ["CMD", "python", "-m", "sentinel.execution_collector", "--health"]
       interval: 10s

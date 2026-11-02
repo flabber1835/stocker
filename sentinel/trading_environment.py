@@ -54,6 +54,11 @@ class TradingEndpoint:
     def assets_url(self) -> str:
         return self.base_url + "/v2/assets"
 
+    @property
+    def broker_namespace(self) -> str:
+        """Keep durable PAPER identities unchanged and LIVE identities disjoint."""
+        return "alpaca" if self.environment is TradingEnvironment.PAPER else "alpaca-live"
+
     def subject(self, *, account_id: str, takeover_epoch: int) -> dict:
         if (not isinstance(account_id, str) or not account_id.strip()
                 or account_id != account_id.strip()

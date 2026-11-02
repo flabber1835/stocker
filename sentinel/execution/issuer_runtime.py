@@ -20,7 +20,7 @@ def policy_selected(conn, binding):
     from sentinel import local_paper
 
     admission._lock(conn)
-    if local_paper.enabled():
+    if admission._binding(binding).broker == 'alpaca-live' or local_paper.enabled():
         return True
     key = admission.ENROLLMENT_PREFIX + admission._scope(binding)
     return conn.execute('SELECT 1 FROM sentinel_processed_sessions WHERE cursor_name=%s',
