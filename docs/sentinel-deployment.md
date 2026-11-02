@@ -1,5 +1,10 @@
 # Sentinel current operating contract
 
+[URL-selected trading](url-selected-trading.md) records the owner's separate-PR
+request for environment selection and isolated LIVE execution authority. It is
+development intent, not activation of the installed PAPER deployment or proof
+that native live-account qualification has passed.
+
 The October 27 owner-directed [verification cleanup](verification-workflow-simplification.md#separate-application-installation-from-physical-recovery-work)
 removes per-image full restores from local PAPER application installation and
 normal backup maintenance. Normal maintenance uses verified daily-base and WAL

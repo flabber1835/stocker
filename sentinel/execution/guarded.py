@@ -212,9 +212,33 @@ class AutomationExecutionGrant:
             self.cancellation_check()
 
 
+@dataclass(frozen=True)
+class LiveExecutionGrant:
+    """Explicit LIVE operation identity; signed authority remains independent."""
+
+    subject: object
+    operation_scope: str
+    plan_id: str | None = None
+    effective_session: date | None = None
+    confirm_submit_live_orders: bool = False
+
+    def __post_init__(self) -> None:
+        from sentinel.execution.native_readonly import ExecutionSubject
+        from sentinel.trading_environment import TradingEnvironment
+        if (type(self.subject) is not ExecutionSubject
+                or self.subject.environment is not TradingEnvironment.LIVE):
+            raise TypeError("LIVE grant requires its exact LIVE execution subject")
+        if self.operation_scope not in {"PREPARE", "RECOVER", "EXECUTE"}:
+            raise ValueError("LIVE grant has an unknown operation scope")
+        if self.operation_scope == "EXECUTE":
+            if (not self.plan_id or type(self.effective_session) is not date
+                    or self.confirm_submit_live_orders is not True):
+                raise ValueError("LIVE execution requires exact plan/session and explicit submission confirmation")
+
+
 ExecutionGrant: TypeAlias = (
     PaperPreparationGrant | ManualExecutionGrant | AutomationExecutionGrant
-    | AttendedPaperExecutionGrant)
+    | AttendedPaperExecutionGrant | LiveExecutionGrant)
 BeforeRead: TypeAlias = Callable[
     [ExecutionGrant, BrokerOperation], Awaitable[None]]
 AfterRead: TypeAlias = Callable[
@@ -243,9 +267,10 @@ class GuardedExecutionBroker(ExecutionBroker):
     def __init__(
             self, *, inner: ExecutionBroker, grant: ExecutionGrant,
             guard: ExecutionBrokerGuard, protected_funding=None,
-            issuer_admission_check=None) -> None:
+            issuer_admission_check=None, live_policy=None) -> None:
         if not isinstance(grant, (PaperPreparationGrant, ManualExecutionGrant,
-                                  AutomationExecutionGrant, AttendedPaperExecutionGrant)):
+                                  AutomationExecutionGrant, AttendedPaperExecutionGrant,
+                                  LiveExecutionGrant)):
             raise TypeError("grant must be a typed execution grant")
         if not isinstance(guard, ExecutionBrokerGuard):
             raise TypeError("guard must be an ExecutionBrokerGuard")
@@ -254,6 +279,20 @@ class GuardedExecutionBroker(ExecutionBroker):
         self._inner = inner
         self._grant = grant
         self._guard = guard
+        from sentinel.trading_environment import TradingEndpoint, TradingEndpointRefused, TradingEnvironment
+        try:
+            self._live = TradingEndpoint.parse(getattr(inner, "base_url", "")).environment is TradingEnvironment.LIVE
+        except TradingEndpointRefused:
+            self._live = False
+        if self._live:
+            from sentinel.execution.live_transport import LiveExecutionPolicy
+            if type(live_policy) is not LiveExecutionPolicy:
+                raise TypeError("LIVE broker requires the canonical order policy")
+            if not isinstance(grant, (LiveExecutionGrant, AutomationExecutionGrant)):
+                raise TypeError("PAPER grants cannot authorize LIVE execution")
+        elif live_policy is not None or isinstance(grant, LiveExecutionGrant):
+            raise TypeError("LIVE policy or grant cannot authorize PAPER execution")
+        self._live_policy = live_policy
         self._unsent_proofs = {}
         if protected_funding is not None and not callable(protected_funding):
             raise TypeError("protected_funding must be a canonical funding callback")
@@ -476,7 +515,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         # It cannot survive a later attempt that might cross transport.
         self._unsent_proofs.clear()
         try:
-            await self._prepare_submit(client_key=client_key,
+            live_permit = await self._prepare_submit(client_key=client_key,
                                        instrument=instrument, side=side,
                                        quantity=quantity, order_terms=order_terms)
         except PreTransportAuthorityRefused as exc:
@@ -491,6 +530,17 @@ class GuardedExecutionBroker(ExecutionBroker):
                       side=side, quantity=quantity)
         if order_terms != OrderTerms():
             kwargs["order_terms"] = order_terms
+        if self._live:
+            from sentinel.execution.live_transport import _mutation_scope, _transport_prevented
+            try:
+                with _mutation_scope(live_permit):
+                    return await self._inner.submit(**kwargs)
+            except PreTransportAuthorityRefused as exc:
+                if _transport_prevented(live_permit, exc):
+                    nonce = object()
+                    self._unsent_proofs[nonce] = (client_key, instrument, side, quantity, order_terms)
+                    exc._not_transported = nonce
+                raise
         return await self._inner.submit(**kwargs)
 
     def consume_not_transported(self, exc, command) -> None:
@@ -523,6 +573,8 @@ class GuardedExecutionBroker(ExecutionBroker):
             return
         try:
             if self._issuer_admission_check is None:
+                if self._live:
+                    raise OrderEvidenceNotReady('separate LIVE issuer admission authority is absent')
                 from sentinel import local_paper
                 if not local_paper.enabled():
                     return
@@ -545,7 +597,8 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     async def _prepare_submit(self, *, client_key: str,
                               instrument: BrokerInstrument, side: Side,
-                              quantity: Decimal, order_terms: OrderTerms) -> None:
+                              quantity: Decimal, order_terms: OrderTerms):
+        live_permit = None
         try:
             if not isinstance(order_terms, OrderTerms):
                 raise TypeError("submission requires typed immutable order terms")
@@ -554,13 +607,17 @@ class GuardedExecutionBroker(ExecutionBroker):
             raise PreTransportAuthorityRefused(str(exc)) from exc
         self._require_selected_buy_terms(side=side, order_terms=order_terms)
         protected = order_terms.order_type == "limit"
+        if self._live and side is Side.BUY and not protected:
+            raise PreTransportAuthorityRefused("LIVE BUY requires protected LIMIT/DAY terms")
         if protected:
             if (self.capabilities.protected_limit_day is not True
                     or not self.supports_market_clock
-                    or self._protected_funding is None):
+                    or (self._protected_funding is None and not self._live)):
                 raise PreTransportAuthorityRefused(
                     "protected LIMIT/DAY capability, clock or funding authority is absent")
         if (isinstance(self._grant, PaperPreparationGrant)
+                or (isinstance(self._grant, LiveExecutionGrant)
+                    and self._grant.operation_scope != "EXECUTE")
                 or (isinstance(self._grant, AutomationExecutionGrant)
                     and self._grant.operation_scope != "EXECUTE")):
             raise PreTransportAuthorityRefused(
@@ -612,7 +669,7 @@ class GuardedExecutionBroker(ExecutionBroker):
 
         from sentinel.execution.opening_prices import OpeningPriceNotReady, RegularQuotes
         quote = None
-        if protected:
+        if protected and not self._live:
             try:
                 account = await self.account_snapshot()
                 await self._protected_funding(
@@ -627,7 +684,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                 raise PreTransportAuthorityRefused(
                     "protected maximum-cost proof unavailable: "
                     f"{type(exc).__name__}: {exc}") from exc
-        elif side is Side.BUY and self.capabilities.regular_session_quote_prices:
+        elif side is Side.BUY and not self._live and self.capabilities.regular_session_quote_prices:
             try:
                 quote = await self.opening_prices(session=clock.timestamp.date(),
                     instruments={instrument.security_id:instrument})
@@ -650,6 +707,25 @@ class GuardedExecutionBroker(ExecutionBroker):
                     'increase quote or affordability unavailable before transport: ' + type(exc).__name__) from exc
         self._require_issuer_admission(client_key=client_key,
             instrument=instrument, side=side, quantity=quantity, order_terms=order_terms)
+        if self._live:
+            try:
+                live_permit = await self._live_policy.authorize_submit(self._inner,
+                    client_key=client_key, instrument=instrument, side=side,
+                    quantity=quantity, order_terms=order_terms)
+                original_recheck = live_permit.recheck
+                def recheck():
+                    self._require_issuer_admission(client_key=client_key,
+                        instrument=instrument, side=side, quantity=quantity, order_terms=order_terms)
+                    original_recheck()
+                live_permit.recheck = recheck
+            except PreTransportAuthorityRefused:
+                raise
+            except Exception as exc:
+                from sentinel.execution.live_order_policy import LiveOrderDeferred
+                if isinstance(exc, LiveOrderDeferred):
+                    raise OrderEvidenceNotReady(str(exc)) from exc
+                raise PreTransportAuthorityRefused(
+                    "LIVE original order authority refused: " + type(exc).__name__) from exc
         await self._authorize_mutation(BrokerOperation.SUBMIT)
         if side is Side.BUY and self.supports_market_clock:
             try:
@@ -666,7 +742,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                         raise ValueError('attended plan belongs to another session')
                 else:
                     from sentinel.automation.model import PaperDebugWindow
-                    window = PaperDebugWindow.from_env()
+                    window = None if self._live else PaperDebugWindow.from_env()
                     if (window is not None or isinstance(self._grant, AutomationExecutionGrant)
                             and self._grant.config_sha256 is not None):
                         from sentinel.automation_runtime import config_from_env
@@ -699,15 +775,31 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "increase refused at final next-open freshness boundary: "
                     f"{type(exc).__name__}: {exc}") from exc
         self._require_selected_buy_terms(side=side, order_terms=order_terms)
+        return live_permit
 
     async def cancel(self, broker_order_id: str) -> CommandOutcome:
         if (isinstance(self._grant, PaperPreparationGrant)
+                or (isinstance(self._grant, LiveExecutionGrant)
+                    and self._grant.operation_scope == "PREPARE")
                 or (isinstance(self._grant, AutomationExecutionGrant)
                     and self._grant.operation_scope == "PREPARE")):
             raise PreTransportAuthorityRefused(
                 "preparation grant is read-only; cancel refused before "
                 "transport")
+        permit = None
+        if self._live:
+            try:
+                permit = await self._live_policy.authorize_cancel(self._inner, broker_order_id)
+            except PreTransportAuthorityRefused:
+                raise
+            except Exception as exc:
+                raise PreTransportAuthorityRefused(
+                    "LIVE owned cancellation authority refused: " + type(exc).__name__) from exc
         await self._authorize_mutation(BrokerOperation.CANCEL)
+        if self._live:
+            from sentinel.execution.live_transport import _mutation_scope
+            with _mutation_scope(permit):
+                return await self._inner.cancel(broker_order_id)
         return await self._inner.cancel(broker_order_id)
 
     async def recent_fills(self, since: datetime) -> Sequence[BrokerFill]:
@@ -724,5 +816,6 @@ __all__ = [
     "GuardedExecutionBroker", "ManualExecutionGrant",
     "AttendedPaperExecutionGrant",
     "PaperPreparationGrant",
+    "LiveExecutionGrant",
     "PreTransportAuthorityRefused",
 ]

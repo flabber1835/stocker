@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import hmac
 import json
 import os
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal
 
 from pydantic import Field
@@ -323,7 +324,7 @@ def _source_files(current):
 
 def _backed_owner_scope(runtime, context, *, actual=None):
     """Identify the closed backed-PAPER edge, including existing admissions."""
-    from sentinel import backed_paper_source
+    from sentinel import backed_paper_source, transition_registry
     # Historical book authentication intentionally uses its original process
     # identity. Only a different executable can consume this successor edge.
     if (runtime.get('git_commit') != backed_paper_source.ORIGIN_REVISION
@@ -334,10 +335,14 @@ def _backed_owner_scope(runtime, context, *, actual=None):
         actual = _source_files(identity._imported_package_root('sentinel'))
     if source_closure(actual) != context['runtime']['sentinel_source_sha256']:
         raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
+    comparison = transition_registry.comparison_view(actual)
     scope = backed_paper_source.scope_for(revision=runtime['git_commit'],
-        source_sha256=runtime['sentinel_source_sha256'], actual=actual)
+        source_sha256=runtime['sentinel_source_sha256'], actual=comparison)
     if scope is None:
         raise Refused('BACKED_PAPER_SOURCE_SCOPE_REQUIRED')
+    if comparison != actual:
+        scope = replace(scope, current_files=MappingProxyType(dict(actual)),
+                        current_source_sha256=source_closure(actual))
     scope.require_mode()
     return scope
 
@@ -357,7 +362,7 @@ def _require_backed_owner_scope(conn, runtime, context):
 
 def prove_compatibility(manifest, checkpoint, context, *, source=None):
     from sentinel import semantic_source_basis as basis
-    from sentinel import structural_refactor_source_basis, transition_registry
+    from sentinel import transition_registry
     transitions = transition_registry.load()
 
     manifest = SourceManifest.model_validate(manifest)
@@ -395,8 +400,8 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
                 or historical_wealth['hash'] != old['wealth_core_source_sha256']):
             raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
         env['wealth_core_source']['hash'] = old['wealth_core_source_sha256']
-    historical = structural_refactor_source_basis.historical_view(actual)
-    if not transitions.closure_allowed(manifest.files, historical, ADDITIONS):
+    historical = transition_registry.historical_view(manifest.files, actual)
+    if not transitions.closure_allowed(manifest.files, actual, ADDITIONS):
         # Supported historical edges retain their complete original verifier.
         # Only this supplementary edge requires the backed owner PAPER proof.
         if backed is None:

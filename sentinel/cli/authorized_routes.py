@@ -7,10 +7,18 @@ runtime membrane documented in ``docs/sentinel-deployment.md``.
 """
 from __future__ import annotations
 
-from sentinel.cli import _shared, account, authority, automation, paper
+from sentinel.cli import _shared, account, authority, automation, paper, trading
 
 
 ROUTES = {
+    "prepare-trading-plan": trading.prepare,
+    "current-trading-plan": trading.current,
+    "execute-trading-plan": trading.execute,
+    "recover-trading-account": trading.recover,
+    "bind-empty-live-account": trading.bind_empty_live,
+    "activate-live-automation": trading.activate_live,
+    "release-live-automation-kill-switch": trading.release_live,
+    "enroll-live-issuer-policy": trading.enroll_live_issuer,
     "migration-plan": account._migration_plan,
     "inspect-paper-account": paper._inspect_paper_account,
     "inspect-empty-paper-account": paper._inspect_empty_paper_account,

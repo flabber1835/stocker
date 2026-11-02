@@ -39,7 +39,7 @@ import inspect
 import sys
 
 from sentinel.cli import (
-    _shared, account, authority, automation, feed, paper, status,
+    _shared, account, authority, automation, feed, paper, status, trading,
 )
 from sentinel.config import (
     LiveEndpointRefused, MissingCredentials, SentinelConfig,
@@ -99,6 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sentinel", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
+    trading.register_parser(sub)
     sub.add_parser(
         "status", help="print canonical binding and audit status; no broker")
     sub.add_parser(
@@ -487,6 +488,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         config = SentinelConfig.from_env()
+        if args.command in {
+                "inspect-paper-account", "inspect-empty-paper-account",
+                "bind-empty-paper-account", "prepare-paper-plan", "current-paper-plan",
+                "execute-paper-plan", "set-paper-rollout-mode", "activate-paper-automation",
+                "authorize-unsent-paper-recovery", "release-paper-automation-kill-switch"}:
+            config.assert_paper()
     except (LiveEndpointRefused, ValueError) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_CONFIG

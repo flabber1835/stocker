@@ -119,7 +119,18 @@ def _writer(conn):
 
 
 def _owner(conn):
+    import os
     from sentinel import local_paper
+    from sentinel.config import DEFAULT_BASE_URL, trading_endpoint
+    from sentinel.trading_environment import TradingEnvironment
+    if trading_endpoint(os.environ.get('ALPACA_BASE_URL', DEFAULT_BASE_URL)).environment is TradingEnvironment.LIVE:
+        from sentinel import binding
+        owner = binding.require(conn)
+        if owner.broker != 'alpaca-live' or not owner.is_owned:
+            raise ValueError('issuer refresh requires the exact LIVE account namespace')
+        value = admission._binding(owner.identity)
+        admission.load_enrollment(conn, binding=value)
+        return value
     owner = local_paper.bound_account(conn)
     if owner is None:
         raise ValueError('issuer refresh requires the exact owner PAPER account')

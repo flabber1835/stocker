@@ -1,4 +1,4 @@
-"""Account-bound native fill receipts for local PAPER notifications only.
+"""Account-bound native fill receipts for URL-selected notifications only.
 
 No financial ledger writes, completeness claims, or broker mutations live here.
 """
@@ -25,7 +25,12 @@ class FillNotificationRefused(ValueError):
     pass
 
 
-def _binding(conn):
+def _binding(conn, *, config=None):
+    if config is not None:
+        from sentinel.trading_environment import TradingEnvironment
+        if config.environment is TradingEnvironment.LIVE:
+            from sentinel.execution.trading_readonly import live_binding
+            return live_binding(conn, config=config)
     from sentinel import local_paper
     value = local_paper.bound_account(conn)
     if value is None:
@@ -114,8 +119,8 @@ async def _activities(reader, order_id):
     raise FillNotificationRefused("FILL_PAGE_LIMIT")
 
 
-async def _collect(conn, *, reader, since, now):
-    bound = _binding(conn)
+async def _collect(conn, *, reader, since, now, config=None):
+    bound = _binding(conn) if config is None else _binding(conn, config=config)
     candidates = _candidates(conn, bound, since)
     conn.commit()  # No transaction or execution-writer lock spans network I/O.
     if not candidates:
@@ -156,6 +161,9 @@ async def _collect(conn, *, reader, since, now):
                 source="ALPACA_ORDER_ACTIVITIES_V1", native_activity=raw,
                 native_account_id=native, binding=list(bound),
                 native_order_filled_at=order.get("filled_at"))
+            if config is not None:
+                alert["payload"].update(environment=config.environment.value,
+                    base_url=config.trading_endpoint.base_url, broker=bound[1])
             alerts.append(alert)
         # Reuse actual adapter normalization and the existing exact arithmetic
         # checks, without claiming that account-wide history is complete.
@@ -166,7 +174,8 @@ async def _collect(conn, *, reader, since, now):
     last = await reader.identify_account()
     if (last.account_id, last.broker, last.raw.get("id")) != (first.account_id, first.broker, native):
         raise FillNotificationRefused("BROKER_ACCOUNT_CHANGED")
-    if _binding(conn) != bound:
+    current = _binding(conn) if config is None else _binding(conn, config=config)
+    if current != bound:
         raise FillNotificationRefused("DURABLE_BINDING_CHANGED")
     existing = _existing(conn)
     for alert in alerts:
@@ -201,10 +210,17 @@ async def collect(conn, *, config, reader=None, now=None):
     now = now or datetime.now(timezone.utc)
     if since > now:
         raise FillNotificationRefused("FUTURE_NOTIFICATION_BOUNDARY")
-    config.assert_paper()
+    from sentinel.trading_environment import TradingEnvironment
+    live = config.environment is TradingEnvironment.LIVE
+    if live:
+        from sentinel.execution.trading_readonly import live_monitoring_reader
+        reader = live_monitoring_reader(config, reader)
+    else:
+        config.assert_paper()
     if reader is None:
         from sentinel.execution.alpaca import AlpacaExecutionBroker
         reader = AlpacaExecutionBroker(api_key=config.alpaca_key,
             secret_key=config.alpaca_secret, base_url=config.base_url)
     return await asyncio.wait_for(
-        _collect(conn, reader=reader, since=since, now=now), DEADLINE_SECONDS)
+        _collect(conn, reader=reader, since=since, now=now,
+                 config=config if live else None), DEADLINE_SECONDS)

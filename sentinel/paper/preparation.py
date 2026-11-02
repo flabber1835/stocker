@@ -904,6 +904,7 @@ def current_paper_plan(
     and re-derives the immutable account-sizing authority.  Ordinary PAPER
     keeps the historical strict catch-up-state inspection unchanged.
     """
+    assert_paper_url(base_url)
     dual_values = (
         dual_shadow_observation_id, dual_shadow_starting_cash)
     if any(value is not None for value in dual_values) \
