@@ -1,0 +1,58 @@
+name: P01 CELG synthetic canonical component qualification
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/p01_celg_component_request.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: system-optimization-002-p01-celg-synthetic-component
+  cancel-in-progress: false
+jobs:
+  component:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: research/capital_risk
+          fetch-depth: 1
+      - name: Install locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
+      - name: Verify exact P01 source closure and synthetic fixture scope
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/p01_celg_probe.py --request research/capital_risk/p01_celg_component_request.json'
+      - name: Prepare dedicated ephemeral runner capacity before input staging
+        timeout-minutes: 5
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/ephemeral_runner_capacity.py --output "$GITHUB_WORKSPACE/artifacts/capital-risk/ephemeral-runner-capacity.json"'
+      - name: Authenticate frozen inputs and offline runtime
+        timeout-minutes: 8
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
+      - name: Qualify new export scope then run one synthetic canonical component worker
+        timeout-minutes: 35
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/p01_celg_job.py --request research/capital_risk/p01_celg_component_request.json --staging artifacts/capital-risk/full-core-staging.json --capacity artifacts/capital-risk/ephemeral-runner-capacity.json --output artifacts/capital-risk/p01-celg-component.json'
+      - name: Preserve public preparation and encrypted stopped component evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: system-p01-celg-component-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/ephemeral-runner-capacity.json
+            artifacts/capital-risk/full-core-staging.json
+            artifacts/capital-risk/p01-celg-component-phase.json
+            artifacts/capital-risk/p01-celg-component-export-qualification.json
+            artifacts/capital-risk/p01-celg-component.json
+            artifacts/capital-risk/p01-celg-component.tar.crseal
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

@@ -1,0 +1,170 @@
+{
+  "CVR_trading": {
+    "expected_first_session": "2019-11-21",
+    "new_CVR_symbol": "BMYRT",
+    "older_CVR_is_distinct": true,
+    "older_Celgene_CVR_symbols": [
+      "CELGZ",
+      "CELGRT"
+    ]
+  },
+  "actual_diagnostic_role": "HELD",
+  "cessation": {
+    "do_not_rewrite_prior_trading_day": true,
+    "preopen_date": "2019-11-21",
+    "primary_statement": "Trading of CELG common was requested suspended before the November21,2019 market opening."
+  },
+  "completion_calendar_date": "2019-11-20",
+  "consideration_per_eligible_common_share": {
+    "BMYRT_tradeable_CVR_units": "1",
+    "BMY_common_shares": "1",
+    "cash_usd": "50.00"
+  },
+  "contingent_CVR_payment": {
+    "all_conditions_required": true,
+    "amount_usd": "9.00",
+    "conditions": [
+      {
+        "product": "JCAR017",
+        "regulatory_deadline": "2020-12-31"
+      },
+      {
+        "product": "Ozanimod",
+        "regulatory_deadline": "2020-12-31"
+      },
+      {
+        "product": "BB2121",
+        "regulatory_deadline": "2021-03-31"
+      }
+    ],
+    "fixed_merger_cash": false
+  },
+  "financial_overlay_created": false,
+  "frozen_metadata_matches": [
+    {
+      "effective_session": "2006-01-03",
+      "ff12": "UNKNOWN:578964201416671255",
+      "issuer_id": "SEC_UNKNOWN:578964201416671255",
+      "issuer_source": "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+      "listing_first_session": "1997-12-31",
+      "metadata_admitted": "1",
+      "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+      "security_id": "578964201416671255",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "sic": "",
+      "ticker": "BMY"
+    },
+    {
+      "effective_session": "2006-01-03",
+      "ff12": "UNKNOWN:11651249425833422",
+      "issuer_id": "SEC_UNKNOWN:11651249425833422",
+      "issuer_source": "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON",
+      "listing_first_session": "1997-12-31",
+      "metadata_admitted": "1",
+      "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+      "security_id": "11651249425833422",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "sic": "",
+      "ticker": "CELG"
+    },
+    {
+      "effective_session": "2006-02-06",
+      "ff12": "UNKNOWN:11651249425833422",
+      "issuer_id": "SEC_CIK:816284",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_first_session": "1997-12-31",
+      "metadata_admitted": "1",
+      "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+      "security_id": "11651249425833422",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "sic": "",
+      "ticker": "CELG"
+    },
+    {
+      "effective_session": "2008-05-09",
+      "ff12": "UNKNOWN:578964201416671255",
+      "issuer_id": "SEC_CIK:14272",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_first_session": "1997-12-31",
+      "metadata_admitted": "1",
+      "sector_source": "SEC_STRICT_PRIOR_SIC_UNKNOWN_SINGLETON",
+      "security_id": "578964201416671255",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "sic": "",
+      "ticker": "BMY"
+    },
+    {
+      "effective_session": "2009-07-24",
+      "ff12": "10 Hlth",
+      "issuer_id": "SEC_CIK:14272",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_first_session": "1997-12-31",
+      "metadata_admitted": "1",
+      "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+      "security_id": "578964201416671255",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "sic": "2834",
+      "ticker": "BMY"
+    },
+    {
+      "effective_session": "2009-08-03",
+      "ff12": "10 Hlth",
+      "issuer_id": "SEC_CIK:816284",
+      "issuer_source": "SEC_CIK_STRICT_PRIOR",
+      "listing_first_session": "1997-12-31",
+      "metadata_admitted": "1",
+      "sector_source": "SEC_CIK_SIC_STRICT_PRIOR_FROZEN_FF12",
+      "security_id": "11651249425833422",
+      "security_type": "common",
+      "security_type_eligible": "1",
+      "security_type_source": "SEC_POSITIVE_STRICT_PRIOR_CIK_MATCH",
+      "sic": "2834",
+      "ticker": "CELG"
+    }
+  ],
+  "frozen_metadata_member": {
+    "bytes": 871122,
+    "rows": 31869,
+    "sha256": "0f4e7747de0d9c5947c6123225c8870356b9bc8386b63f5ff284bbe635b1775a"
+  },
+  "issuer_2019_accounting_quote_reference": {
+    "basis_note": "Acquisition accounting table references the first November21,2019 trade.",
+    "not_an_assumed_fill_or_fixed_cash_entitlement": true,
+    "price_or_execution_input_admitted": false,
+    "reported_CVR_value_usd": "2.30",
+    "url": "https://www.sec.gov/Archives/edgar/data/14272/000001427220000082/bmy-20191231x10xk_htm.xml"
+  },
+  "native_session": "2019-11-20",
+  "production_contacted": false,
+  "representation_pending": [
+    "Locate an actually qualified complete treatment of cash, BMY shares and separate tradeable CVR; no P02 CELG contract was found in the29reference catalogs or its action-research directory.",
+    "Check actual frozen BMYRT identity/quotes and canonical support before choosing any representation. Metadata absence alone does not prove quote absence.",
+    "Do not omit the CVR, count9USD as fixed cash, assume hindsight zero, invent a quote or retrospectively settle diagnostic state.",
+    "Preserve actual November20 trading; bind financial-session placement and every leg to P01 own exact predecessor/source/input."
+  ],
+  "schema": "research.p01-celg-primary-research/1",
+  "security_id": "11651249425833422",
+  "source_accession": "0001104659-19-065939",
+  "source_or_state_changed": false,
+  "source_primary_url": "https://www.sec.gov/Archives/edgar/data/816284/000110465919065939/tm1923405d1_8k.htm",
+  "source_read_via": "Official SEC HTML via web open",
+  "source_sections": [
+    "Item2.01",
+    "Item3.01"
+  ],
+  "status": "PREPARATION_ONLY_NO_TERMINAL_OR_PRICE_ADMISSION",
+  "supporting_primary_url": "https://www.sec.gov/Archives/edgar/data/14272/000114036119021048/form8k.htm",
+  "terms_or_prices_admitted": false,
+  "ticker": "CELG",
+  "utc": "2026-11-01T19:40:57.312224+00:00"
+}
