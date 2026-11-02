@@ -404,7 +404,8 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
                       requested_transitions=count, complete=current['completed'] == 2156 and current['source_cursor'] == END,
                       canonical_return_code=code, parent_sha256=parent['sha256'], input_sha256=loaded.sha256,
                       input_adoption=adoption, estimated_treatment=estimate.value,
-                      estimated_applications=estimate.applied, original_twelve_inputs_unchanged=current['repairs'][:12] == parent['repairs'],
+                      estimated_applications=estimate.applied, original_twelve_inputs_unchanged=current['repairs'][:12] == parent['repairs'][:12],
+                      all_admitted_inputs_unchanged=current['repairs'][:len(parent['repairs'])] == parent['repairs'],
                       financial_source_changed=False, qualification_state_adopted=False, production_contacted=False,
                       financial_authority=False, checkpoint_sha256=current['sha256'])
         (out / 'accurate-outcome.json').write_bytes(encoded(result))

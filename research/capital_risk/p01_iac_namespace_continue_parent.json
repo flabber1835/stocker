@@ -244,10 +244,10 @@
     "start": "2018-01-02"
   },
   "completed": 858,
-  "financial_predecessor_admitted": false,
+  "financial_predecessor_admitted": true,
   "inner_sha256": "c480622cd66afe1fc19203c4c57f79e9c2acc6b883ff8b429e6fc3205600f81b",
   "input_sha256": "16956ff7069c300aadabfb0d0552526aa8e5fe2489a905e3adb36a5a75e8bd3a",
-  "monthly_review_only": true,
+  "monthly_review_only": false,
   "next_session": "2021-06-01",
   "outer_sha256": "2ad0fafc4a57f654a50280078e0b61485df762254efa76b92579362448d96193",
   "repairs": [
@@ -339,7 +339,7 @@
     "source_map_identity_sha256": "c3a47c8c7d7facc3d7bd798b74fd3f3fbb9dd0115b86369b7dc5b4f3e1aab915",
     "target_independence_qualified": true
   },
-  "root_admission_sha256": "6eb93b3367bbca557c39e3cb8a26f0e11d316b2036077d68604a6e25f4a2fa00",
+  "root_admission_sha256": "241ebab82db401c430c78e559adb2472783af037c3e53f38ee36731cb7515f2d",
   "run_id": 41535146204,
   "selected_file": {
     "bytes": 1500100,

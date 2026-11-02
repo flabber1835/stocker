@@ -58,3 +58,7 @@ Future runs use the actual root-admitted checkpoint, retain all archived inputs,
 reuse already completed event qualification, and do not adopt input13 again.
 The existing guard gains an explicit per-run endpoint, retaining its historical
 default. No canonical Core/controller code changes.
+
+The 858-session checkpoint was root-admitted after the exact eight-report Linux
+reproduction and independent 224-metric monthly/retry verification. Continuation
+starts June 1, 2021, with the existing thirteen inputs and no new qualification.
