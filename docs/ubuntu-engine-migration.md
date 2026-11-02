@@ -169,3 +169,9 @@ environment. Its native supervisor and media locks remain the sole ownership
 authority. Require a real read-only Windows capacity observation from that same
 systemd environment before starting it; never persist a captured WSL interop
 socket or substitute invented free-space data.
+
+# Windows USB failure isolation
+
+[Windows USB lifetime isolation](windows-usb-lifetime-isolation.md) specifies
+the owner-directed separation of optional USB management from the WSL keepalive,
+including bounded diagnostics and a handover without a VM/Engine restart.

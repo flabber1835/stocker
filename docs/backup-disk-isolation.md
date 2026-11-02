@@ -173,7 +173,10 @@ with the four capacity cases intentionally repeated after their fixture changed.
 The real primary-filesystem refusal case also uses an unreachable test-only
 reserve, rather than assuming every CI database shares the private runner's
 bounded tmpfs. Its low-threshold control remains real SQL/server execution;
-the production 10 GiB reserve is unchanged.
+the production 10 GiB reserve is unchanged. One additional rolling-attestation
+fixture now accepts the explicit continuity keyword while asserting that rolling
+admission remains strict. Its exact previously failing case passed alone, with
+unchanged source and empty cleanup errors: 381 unique local isolated cases.
 
 A separate native kernel test proved real shared-parent mount withdrawal and
 return against private PostgreSQL 16 using the unchanged atomic archive script.
