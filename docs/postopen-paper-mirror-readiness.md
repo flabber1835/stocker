@@ -32,6 +32,16 @@ The existing current-health rows continue to determine dashboard health.
 Missing, stale, foreign, ambiguous or contradictory current completion proof
 keeps the existing red refusal. No text matching grants eligibility.
 
+A later software activation cannot adopt a terminal cycle into its new control
+generation. If that generation has no cycle at all, the existing account-bound
+completed-trading-run reader may supply exactly one earlier-generation success
+for today. It already checks the current account binding, completed clean cycle,
+immutable plan/sizing authority and dated command evidence. Require the same
+cycle/plan/publication identities and fresh current health/account proof above.
+Do not substitute older completion evidence for any current-generation cycle,
+including one that is incomplete, failed, ambiguous or awaiting recovery. This
+is a dated display fact only; it neither creates nor adopts a trading cycle.
+
 Bound that amber observation by the original account observation's freshness
 and the existing current-trading-run validity. Preserve its original timestamp;
 page reads cannot extend either boundary. The ordinary current leader,

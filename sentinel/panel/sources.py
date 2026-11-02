@@ -2241,12 +2241,19 @@ def _completed_postopen_mirror(conn, cycle, active_publication, frontier, *, now
             or health.policy_state != 'LEADER_ACTIVE'
             or health.authority_verdict != 'PASS'
             or health.authority_lifecycle_current is not True
-            or health.broker_outcome_unresolved != 0
-            or health.latest_cycle_id != cycle.get('cycle_id')
-            or health.latest_cycle_state != 'SUCCEEDED'):
+            or health.broker_outcome_unresolved != 0):
         return None
-    current = _current_trading_run(conn)
-    if (current is None or current.effective_status(now) != model.OK
+    if (health.latest_cycle_id == cycle.get('cycle_id')
+            and health.latest_cycle_state == 'SUCCEEDED'):
+        current = _current_trading_run(conn)
+        expected_key = 'trading_run'
+    elif health.latest_cycle_id is None and health.latest_cycle_state is None:
+        current = _completed_trading_run(conn)
+        expected_key = 'completed_trading_run'
+    else:
+        return None
+    if (current is None or current.key != expected_key
+            or current.effective_status(now) != model.OK
             or not current.can_show_trading_run(now)):
         return None
     run = current.trading_run

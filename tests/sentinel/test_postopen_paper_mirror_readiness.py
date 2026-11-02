@@ -39,10 +39,12 @@ def completed(monkeypatch):
         as_of=NOW-timedelta(seconds=3), freshness=timedelta(seconds=60))
     plan = SimpleNamespace(fingerprint=lambda: 'a'*64, data_version=8)
     values = dict(cycle=cycle, health=h, row=row, account=account,
-        plan=plan, local=True, account_available=True, publication=SimpleNamespace(version=8))
+        plan=plan, local=True, account_available=True, prior=None,
+        publication=SimpleNamespace(version=8))
     monkeypatch.setattr(local_paper, 'require_bound_account', lambda _: values['local'])
     monkeypatch.setattr(health, 'read_health', lambda _: values['health'])
     monkeypatch.setattr(sources, '_current_trading_run', lambda _: values['row'])
+    monkeypatch.setattr(sources, '_completed_trading_run', lambda _: values['prior'])
     monkeypatch.setattr(journal, 'load_plan', lambda *_: values['plan'])
     monkeypatch.setattr(sources, '_latest_account_evidence',
         lambda _: {} if not values['account_available'] else {'test_account': True})
@@ -168,6 +170,59 @@ def test_malformed_completion_display_fact_refuses(completed, changes):
 ])
 def test_internal_completion_clock_or_shape_refuses_before_clock_arithmetic(completed, changes):
     assert replace(observe(completed), **changes).effective_status(NOW)==model.FAIL
+
+
+def prior_completed(values):
+    values['prior']=replace(values['row'],key='completed_trading_run')
+    values['row']=None
+    values['health'].latest_cycle_id=None
+    values['health'].latest_cycle_state=None
+    return values
+
+
+def test_same_day_completed_run_survives_later_software_generation(completed):
+    row=observe(prior_completed(completed))
+    assert row.paper_alignment=='COMPLETED_WITH_HISTORY'
+    assert row.status==row.effective_status(NOW)==model.WARN
+    assert 'NOT VERIFIED' in row.value
+
+
+@pytest.mark.parametrize('defect', [
+    'missing_prior','expired_prior','foreign_prior','wrong_plan','failed_prior',
+    'current_cycle','foreign_current_cycle','partial_health_identity','wrong_row_kind',
+])
+def test_older_completion_never_substitutes_for_current_work_or_invalid_history(completed,defect):
+    v=prior_completed(completed)
+    if defect=='missing_prior':v['prior']=None
+    elif defect=='expired_prior':v['prior']=replace(v['prior'],valid_until=NOW-timedelta(seconds=1))
+    elif defect in {'foreign_prior','wrong_plan'}:
+        run=v['prior'].trading_run
+        field='cycle_id' if defect=='foreign_prior' else 'plan_id'
+        v['prior']=replace(v['prior'],trading_run=run.model_copy(update={
+            'intent':run.intent.model_copy(update={field:'foreign'})}))
+    elif defect=='failed_prior':v['prior']=replace(v['prior'],trading_run=
+        v['prior'].trading_run.model_copy(update={'state':'FAILED'}))
+    elif defect=='current_cycle':
+        v['health'].latest_cycle_id='current-cycle';v['health'].latest_cycle_state='SUCCEEDED'
+    elif defect=='foreign_current_cycle':
+        v['health'].latest_cycle_id='another-cycle';v['health'].latest_cycle_state='SUCCEEDED'
+    elif defect=='partial_health_identity':v['health'].latest_cycle_state='SUCCEEDED'
+    elif defect=='wrong_row_kind':v['prior']=replace(v['prior'],key='trading_run')
+    assert observe(v) is None
+
+
+def test_removed_absent_current_cycle_guard_is_detected(monkeypatch,completed):
+    v=prior_completed(completed)
+    v['health'].latest_cycle_id='another-cycle';v['health'].latest_cycle_state='SUCCEEDED'
+    assert observe(v) is None
+    tree=ast.parse(inspect.getsource(sources._completed_postopen_mirror))
+    guard=next(n for n in ast.walk(tree) if isinstance(n,ast.If)
+        and 'health.latest_cycle_id is None' in ast.unparse(n.test))
+    guard.test=ast.Constant(True)
+    scope=dict(vars(sources));exec(compile(ast.fix_missing_locations(tree),
+        '<removed-absent-current-cycle-guard>','exec'),scope)
+    monkeypatch.setattr(sources,'_completed_postopen_mirror',scope['_completed_postopen_mirror'])
+    with pytest.raises(AssertionError):assert observe(v) is None
 
 
 def test_removed_completion_guard_is_detected(monkeypatch, completed):
