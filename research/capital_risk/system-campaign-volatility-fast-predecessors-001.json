@@ -1,0 +1,105 @@
+{
+  "arms": {
+    "P10": {
+      "actual_fast_path": {
+        "bytes": 2350100,
+        "sha256": "c20bad484b54bbe25d994b6d3ca5320214c6531636381dc1d21556006616759e"
+      },
+      "actual_fast_proof": {
+        "bytes": 2494,
+        "sha256": "939c6ec3a871735ba7c4b4777360eb427b66e41cb9b3ad25489cc2114fa88858"
+      },
+      "arm": "P10",
+      "artifact_id": 13106985887,
+      "encrypted_output": {
+        "bytes": 2458389,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "fcb61ae2b9eb58156152158db686121ac7dc6df7cf149dcbbd64eb2a698bce81",
+        "name": "discovery.tar.crseal",
+        "sha256": "094221fc9c35520144bec9081cd4ba9e3aa2a5a0a7f43c7781b61ab05ade2492"
+      },
+      "head": "5ff2a080af04094416e27103ec9195bd6762eec8",
+      "independent_failure_review_sha256": "3f8bacb0d20840c8e18ef83128ed1b5a2dea905cb03464a17d2cb4dd55c0c2ca",
+      "inspection": {
+        "exit_code": 137,
+        "id": "b0e3fc1dec12e1b1f2ecad72c1442309acbc61b1131196e4e50d3008bfe295fa",
+        "name": "/capital-system-parallel-discovery-p10-qualify-41362963470-1",
+        "sha256": "2bd4eafc5d746e8e7a1242c24dc587dff6b8e3fbd9a040019c549ee5c9aaf762"
+      },
+      "inventory_members": 24,
+      "inventory_sha256": "b374984555e49eb53d7c9d8b74d8e15da3201587bed9217640aa9d6bb1de1a62",
+      "no_diagnostic_origin_or_worker": true,
+      "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+      "public_probe_sha256": "40d76497d7b1168a0156c221096b523e1330dd28e0e2b8c990eb9b91765570a0",
+      "qualification_worker": {
+        "exit_code": 137,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": "TimeoutExpired"
+      },
+      "receipt_name": "discovery.json",
+      "receipt_schema": "research.parallel-disposable-discovery-receipt/1",
+      "receipt_sha256": "934e9914432852683b7a71303869da7df044015715c9a90089928e80c0bdc5c1",
+      "request_sha256": "40774539921540348cf90cff4b95c81d08ab5ec1f0e6b028efaf1167cc93e4e0",
+      "run_id": 41362963470,
+      "source_binding_sha256": "1f35cad79d032a9deec064f62306bc276ee5ab21e392406fea1a768cd00f0652",
+      "stage": "campaign-disposable-discovery",
+      "strict_parent_outer_sha256": "451a2b0e762f137c4b2334a997abbc1b24b9b31809d860404a2d5c0adbe41c9f",
+      "zip_bytes": 2462022,
+      "zip_sha256": "fd38f754913454a85b79d5ce020ec5b770b57da0cb3a1ddb7350b73be2fd629a"
+    },
+    "P11": {
+      "actual_fast_path": {
+        "bytes": 2352968,
+        "sha256": "13de77413c4a6212402a360d92e29241b429169fd38657f6f9ac947815f0861e"
+      },
+      "actual_fast_proof": {
+        "bytes": 2496,
+        "sha256": "f472beea408db486024d19a74f4fe703969709508419102e85844961d519b0a3"
+      },
+      "arm": "P11",
+      "artifact_id": 13106671839,
+      "encrypted_output": {
+        "bytes": 2467146,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "4744004d23248841f80cc70bae91f4577a48ad928ca88b94bd57314d57f408c2",
+        "name": "discovery.tar.crseal",
+        "sha256": "1b16e35f5139b446794056f520c22c43e15f70c0a4a33e9b0f0aa113bf0ef94d"
+      },
+      "head": "5ff2a080af04094416e27103ec9195bd6762eec8",
+      "independent_failure_review_sha256": "30b175d9cdb8a43cf7d27aaba39cff1a1827f4affa405cb72c9c33e092e62f4c",
+      "inspection": {
+        "exit_code": 137,
+        "id": "3a15acae144004188ba3f217079e1c32e35ff7e37ddb9678fa56bd41e0b38fbb",
+        "name": "/capital-system-parallel-discovery-p11-qualify-41362963470-1",
+        "sha256": "35b6cb4dacfce783ccf86dae8d33b038794b1c8dfc525b22ceb7e3effb8d278c"
+      },
+      "inventory_members": 24,
+      "inventory_sha256": "436e1f302be6980940b2828b0cb2e8d1b598e202207a87ca31f6492a17de99cc",
+      "no_diagnostic_origin_or_worker": true,
+      "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+      "public_probe_sha256": "0674abf29c9a3446ca3c121402f657c6ffdb5e8c1bb03cef1e19807b8ea5e5cf",
+      "qualification_worker": {
+        "exit_code": 137,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": "TimeoutExpired"
+      },
+      "receipt_name": "discovery.json",
+      "receipt_schema": "research.parallel-disposable-discovery-receipt/1",
+      "receipt_sha256": "516284684ba3cf3d73bdcbb84f50cad9f3ad55171b0a64d6abd0fee7f39754d0",
+      "request_sha256": "40774539921540348cf90cff4b95c81d08ab5ec1f0e6b028efaf1167cc93e4e0",
+      "run_id": 41362963470,
+      "source_binding_sha256": "903d4c4a7b52a54c9c396357be86f461ebf4a273f728454c4980bd7f140d35fd",
+      "stage": "campaign-disposable-discovery",
+      "strict_parent_outer_sha256": "527b7d4fcb92d4136195cc0eacf0459b73c368edfb0cdf3e9121f15ed8335e57",
+      "zip_bytes": 2470779,
+      "zip_sha256": "8d0996f1ac932763f2af4c4b2039b15d032ba2a9dd3e8a6899bcac1abc389a91"
+    }
+  },
+  "authority": "DISCOVERY_ONLY_NOT_FINANCIAL_AUTHORITY",
+  "financial_authority": false,
+  "head": "5ff2a080af04094416e27103ec9195bd6762eec8",
+  "run_id": 41362963470,
+  "schema": "research.volatility-retained-fast-qualification-predecessors/1"
+}

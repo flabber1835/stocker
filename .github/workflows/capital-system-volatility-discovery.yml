@@ -1,8 +1,8 @@
-name: V discovery history retention recovery
+name: V missing-reference qualification and discovery
 on:
   push:
     branches: [codex/capital-risk-research]
-    paths: ['research/capital_risk/system-campaign-volatility-discovery-request-002.json']
+    paths: ['research/capital_risk/system-campaign-volatility-discovery-request-003.json']
 permissions:
   contents: read
   actions: read
@@ -30,20 +30,20 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/transfer-python"
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
-      - name: Verify metadata and all 402 prior driver bytes
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_volatility_discovery_probe_v2.py --request research/capital_risk/system-campaign-volatility-discovery-request-002.json'
+      - name: Verify metadata and all 408 prior driver bytes
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_volatility_reference_probe.py --request research/capital_risk/system-campaign-volatility-discovery-request-003.json'
       - name: Authenticate frozen inputs and offline runtime
         timeout-minutes: 8
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
         run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
-      - name: Prove actual FAST reference equality then discover V path
+      - name: Reuse completed FAST and prove missing reference before first V discovery
         timeout-minutes: 335
         env:
           CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
           GH_TOKEN: ${{ github.token }}
           DISCOVERY_ARM: ${{ matrix.arm }}
-        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_volatility_discovery_job_v2.py --arm "$DISCOVERY_ARM" --request research/capital_risk/system-campaign-volatility-discovery-request-002.json --staging artifacts/capital-risk/full-core-staging.json --output artifacts/capital-risk/discovery.json'
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_volatility_reference_job.py --arm "$DISCOVERY_ARM" --request research/capital_risk/system-campaign-volatility-discovery-request-003.json --staging artifacts/capital-risk/full-core-staging.json --output artifacts/capital-risk/discovery.json'
       - name: Preserve encrypted proven stopped diagnostic evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

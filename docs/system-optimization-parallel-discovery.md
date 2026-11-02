@@ -173,3 +173,31 @@ checkpoint hashing and all financial behavior remain unchanged. The actual
 old recorder error must be reproduced by a dataclass transport stub, and the
 corrected recorder must reject unequal FAST/REFERENCE publication or runtime
 paths before another first-origin V traversal is admitted.
+
+## Resume the incomplete V qualification without repeating FAST
+
+Run `41362963470` retained a complete three-session FAST qualification for each
+V arm, including its actual runtime checkpoints, expected missing-input refusal
+and event chains. Both qualifier workers reached their 900-second deadlines
+and were proven stopped with exit 137 and no OOM. No complete REFERENCE path,
+combined equality proof or diagnostic origin was exported. The reference
+worker's inner phase is unknown; an outer deadline does not establish a
+strategy defect or a completed equivalence test.
+
+A separately pinned qualification recovery authenticates those exact artifacts
+and mounts them read-only as `/previous`. It reuses their completed FAST paths
+byte for byte and runs only the missing REFERENCE qualification, from the same
+strict parent. Every full runtime checkpoint and publication must still match;
+the comparison and the original missing-input guard remain mandatory. This
+qualification has a 3,600-second wait. Each successful reference transition
+and phase timing is durably retained before the final combined proof, so a
+later refusal can be located without discarding completed evidence.
+
+Only after actual combined equality and a stopped-zero qualifier may the first
+V diagnostic traversal launch. A 14,400-second discovery wait and 360-minute
+job leave headroom for admission, qualification and encrypted export. These
+are processing bounds, not changes to the dates or strategy. An incomplete
+reference qualification launches no diagnostic worker. Both original 408-file
+drivers, failed receipts, logs and partial paths remain immutable; there is no
+financial checkpoint, policy, price, input or parameter conversion. No other
+candidate or P01 financial continuation is changed.
