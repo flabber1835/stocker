@@ -9,12 +9,14 @@ from typing import Mapping
 
 from sentinel import structural_refactor_source_basis as structural
 
-BASE_REVISION = '403617ec3df4ba0950a989fa140038802f7e7b6e'
-BASE_SOURCE_SHA256 = 'd83a9932ae32e0d87adde8691fcc36a7a8c1d93658f2c0ce954a211363918691'
-STRUCTURAL_PROFILE_SHA256 = 'c362540d1e4364fb92216a7810116f1563ba035fd75c0e4d9eeb1f98e7e7782b'
-PROFILE_SHA256 = 'ebd25d68bcc90e27c6d07b9090f94377b7722f879e4916f027a50f5e8c78f3d7'
+BASE_REVISION = '71b7c2a113dca8882f4cbf7a03d79f771e383092'
+BASE_SOURCE_SHA256 = '85f353c936459255c048aedc366272ca4c6f3053f654a006da61a42af2688352'
+RETAINED_REVISION = '403617ec3df4ba0950a989fa140038802f7e7b6e'
+RETAINED_SOURCE_SHA256 = 'd83a9932ae32e0d87adde8691fcc36a7a8c1d93658f2c0ce954a211363918691'
+STRUCTURAL_PROFILE_SHA256 = '12e5447817a8f583e2dbf57acfb7af857d0155f4600a2fff4bdef8d748aa429f'
+PROFILE_SHA256 = '66fed3091ae132830e622522e3eb835152570834f18ef6ef23f0a556e51b481a'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
-_SCHEMA = 'sentinel.url-selected-trading-transition/1'
+_SCHEMA = 'sentinel.url-selected-trading-transition/2'
 _SELF = 'url_selected_source_basis.py'
 
 
@@ -72,7 +74,8 @@ def _profile() -> dict | None:
         parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite profile')))
     if (not isinstance(value, dict) or set(value) != {
             'schema', 'authority_effect', 'base_revision', 'base_source_sha256',
-            'base_files', 'candidate_files', 'module_sha256', 'structural_profile_sha256'}
+            'base_files', 'candidate_files', 'module_sha256', 'structural_profile_sha256',
+            'retained_predecessors'}
             or value['schema'] != _SCHEMA or value['authority_effect'] != 'NONE'
             or value['base_revision'] != BASE_REVISION
             or value['base_source_sha256'] != BASE_SOURCE_SHA256
@@ -87,14 +90,23 @@ def _profile() -> dict | None:
         raise ValueError('URL_SOURCE_PREDECESSOR_UNSEALED')
     expected = dict(sealed['candidate_files'])
     expected['structural_refactor_source_basis.py'] = _sha(Path(structural.__file__).read_bytes())
-    if (len(baseline) != 421 or _closure(baseline) != BASE_SOURCE_SHA256
+    retained = value['retained_predecessors']
+    if (not isinstance(retained, dict) or set(retained) != {RETAINED_REVISION}
+            or not isinstance(retained[RETAINED_REVISION], dict)
+            or set(retained[RETAINED_REVISION]) != {'source_sha256', 'files'}
+            or retained[RETAINED_REVISION]['source_sha256'] != RETAINED_SOURCE_SHA256
+            or len(_source_map(retained[RETAINED_REVISION]['files'])) != 421
+            or _closure(retained[RETAINED_REVISION]['files']) != RETAINED_SOURCE_SHA256
+            or set(retained[RETAINED_REVISION]['files']) - set(baseline)):
+        raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+    if (len(baseline) != 422 or _closure(baseline) != BASE_SOURCE_SHA256
             or baseline != expected or set(baseline) - set(candidate)
             or _SELF in baseline or _SELF in candidate):
         raise ValueError('URL_SOURCE_COMPLETE_MAP_CHANGED')
     return value
 
 
-def predecessor_view(actual: Mapping[str, str]) -> Mapping[str, str]:
+def predecessor_view(actual: Mapping[str, str], *, previous=None) -> Mapping[str, str]:
     """Translate only the complete sealed candidate; retain actual identities."""
     value = _profile()
     if value is None:
@@ -103,4 +115,7 @@ def predecessor_view(actual: Mapping[str, str]) -> Mapping[str, str]:
     expected[_SELF] = _sha(Path(__file__).read_bytes())
     if actual != expected:
         return actual
+    retained = value['retained_predecessors'][RETAINED_REVISION]['files']
+    if previous == retained:
+        return retained
     return value['base_files']

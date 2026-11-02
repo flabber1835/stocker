@@ -45,6 +45,13 @@ considering any owner-PAPER exemption. LIVE ignores those exemption flags,
 requires the separately selected real backup authority and verifies its actual
 restore chain. The same rule applies to native restart/restore increase fences;
 the distinct LIVE namespace cannot skip those fences.
+Integration with bounded backup-disk continuity preserves its PAPER-only
+contract. Ordinary PAPER broker mutations explicitly select `allow_continuity`;
+LIVE always leaves it false and requires a current independent external proof.
+LIVE ignores the known owner-PAPER `BOUNDED_30H_V1` selection when inherited
+with other PAPER flags, while unknown outage-policy values refuse. Disabled,
+`DEGRADED`, or explicitly non-independent evidence cannot authorize LIVE.
+Degraded PAPER continuity is never recorded as a fresh `RUNTIME_CHAIN` proof.
 After the HTTP client's final asynchronous entry, the single-use transport
 permit invokes the same synchronous fresh-database authority check immediately
 before the actual request. A kill, lease/control change, source change or

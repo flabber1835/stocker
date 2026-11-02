@@ -10,7 +10,12 @@ fi
 . scripts/sentinel-env.sh
 sentinel_load_environment --profile maintenance
 . scripts/sentinel-backup-lib.sh
-export SENTINEL_BASE_BACKUP_LOCK_ROOT="$(sentinel_backup_root)"
+if [ "${SENTINEL_BACKUP_OUTAGE_POLICY:-}" = BOUNDED_30H_V1 ]; then
+  SENTINEL_BASE_BACKUP_LOCK_ROOT="$("$PYTHON" scripts/sentinel_backup_capacity.py lock-root)"
+else
+  SENTINEL_BASE_BACKUP_LOCK_ROOT="$(sentinel_backup_root)"
+fi
+export SENTINEL_BASE_BACKUP_LOCK_ROOT
 if [ "${1:-}" = --loop ] && [ "$#" -eq 1 ]; then
   exec "$PYTHON" scripts/sentinel_backup_maintenance.py --loop
 fi

@@ -28,10 +28,13 @@ def test_sealed_successor_and_all_original_witnesses_have_exact_bytes():
     predecessor = basis.predecessor_view(actual)
     assert predecessor is not actual
     assert actual == before
-    assert len(predecessor) == 421
+    assert len(predecessor) == 422
     assert admission.source_closure(predecessor) == basis.BASE_SOURCE_SHA256
     assert predecessor == profile['base_files']
     assert profile['authority_effect'] == 'NONE'
+    retained = profile['retained_predecessors'][basis.RETAINED_REVISION]
+    assert len(retained['files']) == 421
+    assert admission.source_closure(retained['files']) == basis.RETAINED_SOURCE_SHA256
     assert structural.historical_view(actual) is actual
     historical = structural.historical_view(predecessor)
     assert len(historical) == 364
@@ -90,7 +93,8 @@ def test_changed_checker_or_original_structural_witness_refuses(tmp_path, monkey
 
 @pytest.mark.parametrize('defect', ['raw_bytes', 'authority', 'base_revision',
     'base_hash', 'base_neighbor', 'base_missing', 'base_extra', 'self_pin',
-    'path', 'module', 'structural'])
+    'path', 'module', 'structural', 'retained_revision', 'retained_hash',
+    'retained_neighbor', 'retained_missing', 'retained_extra'])
 def test_changed_or_supplied_profile_digest_cannot_widen_independent_policy(
         tmp_path, monkeypatch, defect):
     raw = basis.PROFILE.read_bytes()
@@ -116,8 +120,20 @@ def test_changed_or_supplied_profile_digest_cannot_widen_independent_policy(
             value['candidate_files']['../unknown.py'] = 'f' * 64
         elif defect == 'module':
             value['module_sha256'] = 'f' * 64
-        else:
+        elif defect == 'structural':
             value['structural_profile_sha256'] = 'f' * 64
+        elif defect == 'retained_revision':
+            value['retained_predecessors']['f' * 40] = value['retained_predecessors'].pop(basis.RETAINED_REVISION)
+        else:
+            retained = value['retained_predecessors'][basis.RETAINED_REVISION]
+            if defect == 'retained_hash':
+                retained['source_sha256'] = 'f' * 64
+            elif defect == 'retained_neighbor':
+                retained['files']['core/decision.py'] = 'f' * 64
+            elif defect == 'retained_missing':
+                retained['files'].pop('core/decision.py')
+            else:
+                retained['files']['unknown.py'] = 'f' * 64
         changed = json.dumps(value, sort_keys=True).encode()
         monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(changed).hexdigest())
     path = tmp_path / 'changed-profile.json'
@@ -140,6 +156,19 @@ def test_no_authority_effect_guard_has_a_behavioral_falsifier(tmp_path, monkeypa
             tmp_path, monkeypatch, 'authority')
 
 
+def test_retained_predecessor_hash_guard_has_a_behavioral_falsifier(tmp_path, monkeypatch):
+    source = inspect.getsource(basis._profile)
+    needle = "_closure(retained[RETAINED_REVISION]['files']) != RETAINED_SOURCE_SHA256"
+    assert source.count(needle) == 1
+    namespace = {}
+    exec(compile(source.replace(needle, 'False'), 'open-retained-predecessor', 'exec'),
+         basis.__dict__, namespace)
+    monkeypatch.setattr(basis, '_profile', namespace['_profile'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_changed_or_supplied_profile_digest_cannot_widen_independent_policy(
+            tmp_path, monkeypatch, 'retained_neighbor')
+
+
 def test_exact_predecessor_pair_is_the_only_new_registry_edge():
     actual = _actual()
     predecessor = basis.predecessor_view(actual)
@@ -151,12 +180,40 @@ def test_exact_predecessor_pair_is_the_only_new_registry_edge():
         assert not registry.closure_allowed(changed, actual, admission.ADDITIONS)
     assert not registry.source_allowed('execution/live_order_policy.py', 'f' * 64,
                                        actual['execution/live_order_policy.py'])
+    retained = basis._profile()['retained_predecessors'][basis.RETAINED_REVISION]['files']
+    assert basis.predecessor_view(actual, previous=retained) == retained
+    assert registry.closure_allowed(retained, actual, admission.ADDITIONS)
+    assert transition_registry.historical_view(retained, actual) == retained
+    for changed in ({**retained, 'unknown.py': 'f' * 64},
+                    {**retained, 'core/decision.py': 'f' * 64},
+                    {name: digest for name, digest in retained.items() if name != 'backup_guard.py'}):
+        assert basis.predecessor_view(actual, previous=changed) == predecessor
+        assert not registry.closure_allowed(changed, actual, admission.ADDITIONS)
+    unknown = {**actual, 'execution/foreign.py': 'f' * 64}
+    assert basis.predecessor_view(unknown, previous=retained) is unknown
 
 
-def test_exact_current_main_manifest_uses_the_new_edge_without_rewriting_identities(handover):
+def test_direct_retained_selection_guard_has_a_behavioral_falsifier(monkeypatch):
+    source = inspect.getsource(basis.predecessor_view)
+    needle = 'if previous == retained:'
+    assert source.count(needle) == 1
+    namespace = {}
+    exec(compile(source.replace(needle, 'if previous is not None:'), 'open-direct-predecessor', 'exec'),
+         basis.__dict__, namespace)
+    monkeypatch.setattr(basis, 'predecessor_view', namespace['predecessor_view'])
+    with pytest.raises(AssertionError):
+        test_exact_predecessor_pair_is_the_only_new_registry_edge()
+
+
+@pytest.mark.parametrize('predecessor', ['current_main', 'retained_main'])
+def test_exact_current_main_manifest_uses_the_new_edge_without_rewriting_identities(handover, predecessor):
     case = handover
+    revision, files = basis.BASE_REVISION, basis.predecessor_view(case.actual)
+    if predecessor == 'retained_main':
+        revision = basis.RETAINED_REVISION
+        files = basis._profile()['retained_predecessors'][revision]['files']
     case.manifest = {"schema": "sentinel.retained-source-manifest/1",
-        "revision": basis.BASE_REVISION, "files": dict(basis.predecessor_view(case.actual)),
+        "revision": revision, "files": dict(files),
         "seam_sources": {}}
     _rebind_origin(case)
     before = deepcopy((case.source, case.context, case.checkpoint.model_dump(by_alias=True)))

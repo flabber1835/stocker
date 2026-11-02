@@ -7,6 +7,7 @@ sentinel/url-selected-trading-transition.json text eol=lf
 deploy/sentinel-authorized-runtime-v1 text eol=lf
 deploy/sentinel-backup-policy-v1 text eol=lf
 *.sh text eol=lf
+scripts/windows/*.ps1 text eol=lf
 # This CSV is a byte-pinned certification falsifier.  Treating it as text lets
 # core.autocrlf change its SHA-256 in a Windows checkout before the runner can
 # verify it against the bundle's SHA256SUMS.txt.

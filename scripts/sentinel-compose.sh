@@ -128,7 +128,11 @@ fi
 
 if [ "$RUN" -eq 1 ]; then
   . scripts/sentinel-backup-lib.sh
-  sentinel_backup_root >/dev/null
+  if [ "${SENTINEL_BACKUP_OUTAGE_POLICY:-}" = BOUNDED_30H_V1 ]; then
+    "$PYTHON" scripts/sentinel_backup_capacity.py transport-root
+  else
+    sentinel_backup_root >/dev/null
+  fi
 
   # No operational command may reinterpret the reviewed graph, project, state
   # namespace or container execution environment after host validation.

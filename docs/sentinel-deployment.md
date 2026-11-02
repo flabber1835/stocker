@@ -5,6 +5,11 @@ request for environment selection and isolated LIVE execution authority. It is
 development intent, not activation of the installed PAPER deployment or proof
 that native live-account qualification has passed.
 
+[Backup disk isolation](backup-disk-isolation.md) records the owner-directed
+correction of the external USB dependency. Its bounded PAPER outage policy and
+independent mount transport require qualified delivery; the decision alone does
+not change the installed strict backup policy.
+
 The October 27 owner-directed [verification cleanup](verification-workflow-simplification.md#separate-application-installation-from-physical-recovery-work)
 removes per-image full restores from local PAPER application installation and
 normal backup maintenance. Normal maintenance uses verified daily-base and WAL

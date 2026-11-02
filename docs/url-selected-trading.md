@@ -260,9 +260,9 @@ currently installed laptop's URL does not complete this first-time enrollment.
 ## Closed retained-source successor
 
 Retained source compatibility adds one complete, sealed successor from reviewed
-main revision `403617ec3df4ba0950a989fa140038802f7e7b6e`. Its 421-file Python
+main revision `71b7c2a113dca8882f4cbf7a03d79f771e383092`. Its 422-file Python
 source closure is
-`d83a9932ae32e0d87adde8691fcc36a7a8c1d93658f2c0ce954a211363918691`.
+`85f353c936459255c048aedc366272ca4c6f3053f654a006da61a42af2688352`.
 The new descriptor records every predecessor and candidate Python file and the
 normalized checker identity. It authenticates the existing structural profile
 and its complete predecessor map without changing any historical profile,
@@ -278,3 +278,17 @@ mode and account requirements and binds its current-file proof to actual bytes.
 The descriptor's authority effect is exactly `NONE`: source compatibility grants
 no broker, financial, LIVE, activation, backup or deployment permission. Its final
 map is sealed only after all runtime Python changes are stable.
+
+After merging the independently reviewed backup disk isolation release, the
+new URL descriptor uses schema `sentinel.url-selected-trading-transition/2`.
+It pins main's existing structural profile
+`12e5447817a8f583e2dbf57acfb7af857d0155f4600a2fff4bdef8d748aa429f`
+without changing that profile or its checker. It also retains the exact prior
+421-file main snapshot `403617ec3df4ba0950a989fa140038802f7e7b6e`, with canonical
+closure `d83a9932ae32e0d87adde8691fcc36a7a8c1d93658f2c0ce954a211363918691`,
+as a second direct predecessor. Only an entire exact final candidate may use
+either entire predecessor map; unknown combinations gain no allowance. The
+ordinary comparison uses the new main snapshot before the unchanged structural
+comparison to the original financial baseline. This preserves both published
+source histories while retaining the separately qualified strict LIVE backup
+requirements and main's exclusively PAPER continuity policy.

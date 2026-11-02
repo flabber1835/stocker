@@ -37,15 +37,15 @@ NONADMINISTRATIVE_SCOPES = ('native_read', 'clock_sampling', 'idle_leader',
                            'opening_latency', 'protected_cohort')
 
 
-def comparison_view(actual):
+def comparison_view(actual, *, previous=None):
     """The complete sealed URL successor gains only its exact predecessor map."""
     from sentinel.url_selected_source_basis import predecessor_view
-    return predecessor_view(actual)
+    return predecessor_view(actual, previous=previous)
 
 
 def historical_view(previous, actual):
     from sentinel import structural_refactor_source_basis
-    predecessor = comparison_view(actual)
+    predecessor = comparison_view(actual, previous=previous)
     if predecessor != actual and previous == predecessor:
         return predecessor
     return structural_refactor_source_basis.historical_view(predecessor)
@@ -180,7 +180,7 @@ class Transitions:
         return allowed
 
     def closure_allowed(self, previous, actual, base_additions):
-        predecessor = comparison_view(actual)
+        predecessor = comparison_view(actual, previous=previous)
         if predecessor != actual and previous == predecessor:
             return True
         actual = historical_view(previous, actual)
