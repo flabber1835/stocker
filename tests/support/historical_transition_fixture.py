@@ -26,17 +26,17 @@ def require_current_release(*, focus='runtime_admission.py', observed=None):
     actual = _executable_source_files(transition_registry.ROOT)
     if observed is not None:
         assert observed == actual, 'observed current source differs from executable bytes'
-    baseline = structural.historical_view(actual)
+    baseline = structural.historical_view(transition_registry.comparison_view(actual))
     assert baseline is not actual, 'current executable source is not fully sealed'
     assert baseline == baseline_catalog()['files'], 'current source lost its immutable baseline'
     assert focus in actual
     neighbor = {**actual, focus: 'f' * 64}
-    assert structural.historical_view(neighbor) is neighbor, 'neighboring current source was accepted'
+    assert structural.historical_view(transition_registry.comparison_view(neighbor)) is neighbor, 'neighboring current source was accepted'
     missing = {name: value for name, value in actual.items() if name != focus}
-    assert structural.historical_view(missing) is missing, 'missing current source was accepted'
+    assert structural.historical_view(transition_registry.comparison_view(missing)) is missing, 'missing current source was accepted'
     assert 'unreviewed_fixture_extra.py' not in actual
     extra = {**actual, 'unreviewed_fixture_extra.py': 'f' * 64}
-    assert structural.historical_view(extra) is extra, 'extra current source was accepted'
+    assert structural.historical_view(transition_registry.comparison_view(extra)) is extra, 'extra current source was accepted'
     return actual
 
 

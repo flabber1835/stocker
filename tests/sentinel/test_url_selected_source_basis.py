@@ -32,9 +32,11 @@ def test_sealed_successor_and_all_original_witnesses_have_exact_bytes():
     assert admission.source_closure(predecessor) == basis.BASE_SOURCE_SHA256
     assert predecessor == profile['base_files']
     assert profile['authority_effect'] == 'NONE'
-    retained = profile['retained_predecessors'][basis.RETAINED_REVISION]
-    assert len(retained['files']) == 421
-    assert admission.source_closure(retained['files']) == basis.RETAINED_SOURCE_SHA256
+    assert set(profile['retained_predecessors']) == set(basis.RETAINED_PREDECESSORS)
+    for revision, (count, sha) in basis.RETAINED_PREDECESSORS.items():
+        retained = profile['retained_predecessors'][revision]
+        assert len(retained['files']) == count
+        assert admission.source_closure(retained['files']) == sha
     assert structural.historical_view(actual) is actual
     historical = structural.historical_view(predecessor)
     assert len(historical) == 364
@@ -158,7 +160,7 @@ def test_no_authority_effect_guard_has_a_behavioral_falsifier(tmp_path, monkeypa
 
 def test_retained_predecessor_hash_guard_has_a_behavioral_falsifier(tmp_path, monkeypatch):
     source = inspect.getsource(basis._profile)
-    needle = "_closure(retained[RETAINED_REVISION]['files']) != RETAINED_SOURCE_SHA256"
+    needle = "_closure(record['files']) != expected_sha"
     assert source.count(needle) == 1
     namespace = {}
     exec(compile(source.replace(needle, 'False'), 'open-retained-predecessor', 'exec'),
@@ -169,7 +171,8 @@ def test_retained_predecessor_hash_guard_has_a_behavioral_falsifier(tmp_path, mo
             tmp_path, monkeypatch, 'retained_neighbor')
 
 
-def test_exact_predecessor_pair_is_the_only_new_registry_edge():
+@pytest.mark.parametrize('revision', sorted(basis.RETAINED_PREDECESSORS))
+def test_exact_predecessor_pair_is_the_only_new_registry_edge(revision):
     actual = _actual()
     predecessor = basis.predecessor_view(actual)
     registry = transition_registry.load()
@@ -180,7 +183,7 @@ def test_exact_predecessor_pair_is_the_only_new_registry_edge():
         assert not registry.closure_allowed(changed, actual, admission.ADDITIONS)
     assert not registry.source_allowed('execution/live_order_policy.py', 'f' * 64,
                                        actual['execution/live_order_policy.py'])
-    retained = basis._profile()['retained_predecessors'][basis.RETAINED_REVISION]['files']
+    retained = basis._profile()['retained_predecessors'][revision]['files']
     assert basis.predecessor_view(actual, previous=retained) == retained
     assert registry.closure_allowed(retained, actual, admission.ADDITIONS)
     assert transition_registry.historical_view(retained, actual) == retained
@@ -202,15 +205,15 @@ def test_direct_retained_selection_guard_has_a_behavioral_falsifier(monkeypatch)
          basis.__dict__, namespace)
     monkeypatch.setattr(basis, 'predecessor_view', namespace['predecessor_view'])
     with pytest.raises(AssertionError):
-        test_exact_predecessor_pair_is_the_only_new_registry_edge()
+        test_exact_predecessor_pair_is_the_only_new_registry_edge(basis.RETAINED_REVISION)
 
 
-@pytest.mark.parametrize('predecessor', ['current_main', 'retained_main'])
+@pytest.mark.parametrize('predecessor', ['current_main', *sorted(basis.RETAINED_PREDECESSORS)])
 def test_exact_current_main_manifest_uses_the_new_edge_without_rewriting_identities(handover, predecessor):
     case = handover
     revision, files = basis.BASE_REVISION, basis.predecessor_view(case.actual)
-    if predecessor == 'retained_main':
-        revision = basis.RETAINED_REVISION
+    if predecessor != 'current_main':
+        revision = predecessor
         files = basis._profile()['retained_predecessors'][revision]['files']
     case.manifest = {"schema": "sentinel.retained-source-manifest/1",
         "revision": revision, "files": dict(files),
@@ -236,3 +239,42 @@ def test_backed_owner_scope_keeps_actual_current_identity_and_operating_guards(h
     with pytest.raises(admission.Refused, match='OWNER_PAPER_SOURCE_MODE_REQUIRED'):
         admission._backed_owner_scope(case.checkpoint.runtime_identity,
                                      case.context, actual=case.actual)
+
+
+@pytest.mark.parametrize('revision', sorted(basis.RETAINED_PREDECESSORS))
+@pytest.mark.parametrize('defect', ['hash', 'neighbor', 'missing', 'extra', 'absent'])
+def test_each_retained_snapshot_requires_its_independent_complete_closure(
+        tmp_path, monkeypatch, revision, defect):
+    value = json.loads(basis.PROFILE.read_bytes())
+    record = value['retained_predecessors'][revision]
+    if defect == 'hash':
+        record['source_sha256'] = 'f' * 64
+    elif defect == 'neighbor':
+        record['files']['core/decision.py'] = 'f' * 64
+    elif defect == 'missing':
+        del record['files']['core/decision.py']
+    elif defect == 'extra':
+        record['files']['unreviewed.py'] = 'f' * 64
+    else:
+        del value['retained_predecessors'][revision]
+    raw = json.dumps(value, sort_keys=True).encode()
+    path = tmp_path / 'retained-profile.json'
+    path.write_bytes(raw)
+    monkeypatch.setattr(basis, 'PROFILE', path)
+    monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError, match='URL_SOURCE_RETAINED_PREDECESSOR_CHANGED'):
+        basis._profile()
+
+
+@pytest.mark.parametrize('revision', sorted(basis.RETAINED_PREDECESSORS))
+def test_each_retained_closure_guard_has_a_behavioral_falsifier(tmp_path, monkeypatch, revision):
+    source = inspect.getsource(basis._profile)
+    guard = "_closure(record['files']) != expected_sha"
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, 'False'), '<removed-retained-closure-guard>', 'exec'),
+         basis.__dict__, namespace)
+    monkeypatch.setattr(basis, '_profile', namespace['_profile'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_each_retained_snapshot_requires_its_independent_complete_closure(
+            tmp_path, monkeypatch, revision, 'neighbor')

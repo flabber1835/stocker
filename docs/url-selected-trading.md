@@ -292,3 +292,33 @@ ordinary comparison uses the new main snapshot before the unchanged structural
 comparison to the original financial baseline. This preserves both published
 source histories while retaining the separately qualified strict LIVE backup
 requirements and main's exclusively PAPER continuity policy.
+
+## Integration with completed-cycle dashboard readiness
+
+Before implementation on November 2, integrate reviewed main
+`e790d2120d3e0d69b0c7a8935ab2de8d9d2c4666` and preserve its completed-cycle
+display proof and structural source seal. Version the new URL descriptor as
+`sentinel.url-selected-trading-transition/3`, with that exact complete 422-file
+main snapshot as the primary predecessor. Retain both complete published
+predecessors, `71b7c2a113dca8882f4cbf7a03d79f771e383092` (422 files) and
+`403617ec3df4ba0950a989fa140038802f7e7b6e` (421 files), each with an independent
+closure pin. A complete exact candidate alone can select one exact predecessor;
+mixed, neighboring, missing and extra maps never gain compatibility. Main's
+structural descriptor, its immutable baseline, normalized checker, economic
+mapping and historical source profiles retain their original bytes.
+
+Historical admission tests must authenticate the actual complete executable
+through the canonical URL-selected comparison and then the unchanged structural
+comparison before exercising a historical counterpart. Their actual-file,
+unknown-neighbor, missing-file, extra-file and removed-guard controls remain
+mandatory. This repairs test integration with the new successor; it cannot
+substitute a marker fixture or claimed source map for executable bytes.
+
+The explicit PAPER URL assertion already added to `current_paper_plan` is a
+reviewed refusal policy delta. Record its exact new canonical AST and its URL
+refusal tests while preserving its original historical AST. Do not normalize
+away the refusal or alter a financial golden. Requalify failed CI cases and
+directly affected source, PAPER durability, URL dispatch and completed-cycle
+display regressions in isolation. All new exact-head CI is required before any
+merge. This software continuation changes no installed account, authority,
+runtime or completed trading cycle and authorizes no real-money operation.

@@ -53,6 +53,20 @@ def test_explicit_paper_current_plan_api_refuses_live_before_database(monkeypatc
         preparation.current_paper_plan(object(), base_url=LIVE)
 
 
+def test_explicit_paper_current_plan_url_guard_has_a_behavioral_falsifier(monkeypatch):
+    import inspect
+    from sentinel.paper import preparation
+    source = inspect.getsource(preparation.current_paper_plan)
+    guard = '    assert_paper_url(base_url)\n'
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, ''), '<removed-paper-url-guard>', 'exec'),
+         preparation.__dict__, namespace)
+    monkeypatch.setattr(preparation, 'current_paper_plan', namespace['current_paper_plan'])
+    with pytest.raises(pytest.fail.Exception, match='PAPER current-plan owner entered LIVE'):
+        test_explicit_paper_current_plan_api_refuses_live_before_database(monkeypatch)
+
+
 def test_wrong_live_namespace_refuses_before_any_broker_access(monkeypatch):
     monkeypatch.setattr(trading, "_schema", lambda _c: None)
     monkeypatch.setattr(trading.journal, "writer_lock", lambda *_a, **_k: _scope())

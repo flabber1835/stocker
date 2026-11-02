@@ -9,14 +9,19 @@ from typing import Mapping
 
 from sentinel import structural_refactor_source_basis as structural
 
-BASE_REVISION = '71b7c2a113dca8882f4cbf7a03d79f771e383092'
-BASE_SOURCE_SHA256 = '85f353c936459255c048aedc366272ca4c6f3053f654a006da61a42af2688352'
+BASE_REVISION = 'e790d2120d3e0d69b0c7a8935ab2de8d9d2c4666'
+BASE_SOURCE_SHA256 = '6d83f60c1503637cf0f6f8b6757d41ca47d5e1afa768da99c01a82d98b4c62db'
 RETAINED_REVISION = '403617ec3df4ba0950a989fa140038802f7e7b6e'
 RETAINED_SOURCE_SHA256 = 'd83a9932ae32e0d87adde8691fcc36a7a8c1d93658f2c0ce954a211363918691'
-STRUCTURAL_PROFILE_SHA256 = '12e5447817a8f583e2dbf57acfb7af857d0155f4600a2fff4bdef8d748aa429f'
-PROFILE_SHA256 = '66fed3091ae132830e622522e3eb835152570834f18ef6ef23f0a556e51b481a'
+PREVIOUS_BASE_REVISION = '71b7c2a113dca8882f4cbf7a03d79f771e383092'
+RETAINED_PREDECESSORS = {
+    RETAINED_REVISION: (421, RETAINED_SOURCE_SHA256),
+    PREVIOUS_BASE_REVISION: (422, '85f353c936459255c048aedc366272ca4c6f3053f654a006da61a42af2688352'),
+}
+STRUCTURAL_PROFILE_SHA256 = '139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0'
+PROFILE_SHA256 = '4d9e83498e01f57cdeb12fa742562d6481ac11bb21e52a5e0037ac74b3343242'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
-_SCHEMA = 'sentinel.url-selected-trading-transition/2'
+_SCHEMA = 'sentinel.url-selected-trading-transition/3'
 _SELF = 'url_selected_source_basis.py'
 
 
@@ -91,14 +96,16 @@ def _profile() -> dict | None:
     expected = dict(sealed['candidate_files'])
     expected['structural_refactor_source_basis.py'] = _sha(Path(structural.__file__).read_bytes())
     retained = value['retained_predecessors']
-    if (not isinstance(retained, dict) or set(retained) != {RETAINED_REVISION}
-            or not isinstance(retained[RETAINED_REVISION], dict)
-            or set(retained[RETAINED_REVISION]) != {'source_sha256', 'files'}
-            or retained[RETAINED_REVISION]['source_sha256'] != RETAINED_SOURCE_SHA256
-            or len(_source_map(retained[RETAINED_REVISION]['files'])) != 421
-            or _closure(retained[RETAINED_REVISION]['files']) != RETAINED_SOURCE_SHA256
-            or set(retained[RETAINED_REVISION]['files']) - set(baseline)):
+    if not isinstance(retained, dict) or set(retained) != set(RETAINED_PREDECESSORS):
         raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+    for revision, (count, expected_sha) in RETAINED_PREDECESSORS.items():
+        record = retained[revision]
+        if (not isinstance(record, dict) or set(record) != {'source_sha256', 'files'}
+                or record['source_sha256'] != expected_sha
+                or len(_source_map(record['files'])) != count
+                or _closure(record['files']) != expected_sha
+                or set(record['files']) - set(baseline)):
+            raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
     if (len(baseline) != 422 or _closure(baseline) != BASE_SOURCE_SHA256
             or baseline != expected or set(baseline) - set(candidate)
             or _SELF in baseline or _SELF in candidate):
@@ -115,7 +122,8 @@ def predecessor_view(actual: Mapping[str, str], *, previous=None) -> Mapping[str
     expected[_SELF] = _sha(Path(__file__).read_bytes())
     if actual != expected:
         return actual
-    retained = value['retained_predecessors'][RETAINED_REVISION]['files']
-    if previous == retained:
-        return retained
+    for record in value['retained_predecessors'].values():
+        retained = record['files']
+        if previous == retained:
+            return retained
     return value['base_files']
