@@ -1,0 +1,64 @@
+name: Capital risk Core recovery qualification
+
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/core-recovery-request.json']
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: capital-risk-core-recovery-qualification-001
+  cancel-in-progress: false
+
+jobs:
+  qualify-recovery:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        window: [stress2021, recent2025]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            research/capital_risk
+          fetch-depth: 1
+      - name: Install hash-locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+      - name: Verify research guards
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B -m unittest discover -s research/capital_risk/tests -v'
+      - name: Retrieve exact original encrypted window artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED_WINDOW: ${{ matrix.window }}
+        run: 'gh run download 40564376348 --repo flabber1835/stocker --name "capital-risk-short-window-$SELECTED_WINDOW-14332ba4b490086a3294205f4fef9a0ba8ae9ce4" --dir "$RUNNER_TEMP/window-predecessor"'
+      - name: Authenticate frozen inputs and exact retained runtime
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/recovery-staging.json'
+      - name: Qualify corrected identities and exact warmup succession without replay
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          SELECTED_WINDOW: ${{ matrix.window }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/core_recovery_job.py --request research/capital_risk/core-recovery-request.json --staging-receipt artifacts/capital-risk/recovery-staging.json --predecessor-download "$RUNNER_TEMP/window-predecessor" --window "$SELECTED_WINDOW" --output artifacts/capital-risk/recovery-qualification.json'
+      - name: Preserve only authenticated ciphertext and nonfinancial receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: capital-risk-core-recovery-qualification-${{ matrix.window }}-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/recovery-staging.json
+            artifacts/capital-risk/recovery-qualification.json
+            artifacts/capital-risk/recovery-qualification-*.tar.crseal
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7

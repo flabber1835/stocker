@@ -1,0 +1,48 @@
+name: Full system research throughput
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/full-system-measurement-request.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: full-system-search-20261029
+  cancel-in-progress: false
+jobs:
+  throughput:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: research/capital_risk
+          fetch-depth: 1
+      - name: Install locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+      - name: Authenticate existing historical source and input archive
+        timeout-minutes: 8
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-system-staging.json'
+      - name: Measure canonical throughput and independently review prefix
+        timeout-minutes: 21
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/full_system_job.py --request research/capital_risk/full-system-measurement-request.json --staging artifacts/capital-risk/full-system-staging.json --output artifacts/capital-risk/full-system-measurement.json'
+      - name: Preserve encrypted measurement evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: full-system-measurement-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/full-system-staging.json
+            artifacts/capital-risk/full-system-measurement.json
+            artifacts/capital-risk/full-system-measurement.tar.crseal
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

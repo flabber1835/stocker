@@ -1,0 +1,70 @@
+name: P11 native volatility discovery after dedicated host preparation
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/system-campaign-volatility-capacity-request-001.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: system-optimization-002-volatility-capacity-discovery
+  cancel-in-progress: false
+jobs:
+  discovery:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: research/capital_risk
+          fetch-depth: 1
+      - name: Verify the pinned host preparation source
+        run: |
+          python3 -B - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root=Path('research/capital_risk')
+          value=json.loads((root/'system-campaign-volatility-capacity-request-001.json').read_bytes())
+          name='ephemeral_runner_capacity.py'
+          actual=hashlib.sha256((root/name).read_bytes()).hexdigest()
+          if not (actual==value['capacity_helper_sha256']==value['sources'][name]):
+              raise SystemExit('REFUSED_CAPACITY_HELPER_SOURCE')
+          PY
+      - name: Prepare fixed unused SDK capacity on this dedicated research host
+        timeout-minutes: 5
+        run: 'python3 -B research/capital_risk/ephemeral_runner_capacity.py --output "$GITHUB_WORKSPACE/artifacts/capital-risk/ephemeral-runner-capacity.json"'
+      - name: Install locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
+      - name: Verify actual capacity receipt and retained native source closure
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_volatility_capacity_probe.py --request research/capital_risk/system-campaign-volatility-capacity-request-001.json --capacity-receipt "$GITHUB_WORKSPACE/artifacts/capital-risk/ephemeral-runner-capacity.json"'
+      - name: Authenticate frozen inputs and offline runtime
+        timeout-minutes: 8
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
+      - name: Compare P11 native FAST to retained REFERENCE before first diagnostic origin
+        timeout-minutes: 335
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_volatility_capacity_job.py --arm P11 --request research/capital_risk/system-campaign-volatility-capacity-request-001.json --staging artifacts/capital-risk/full-core-staging.json --output artifacts/capital-risk/discovery.json'
+      - name: Preserve capacity, safe host phases and independently stopped encrypted evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: system-volatility-capacity-P11-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/ephemeral-runner-capacity.json
+            artifacts/capital-risk/full-core-staging.json
+            artifacts/capital-risk/export-qualification.json
+            artifacts/capital-risk/admission-phase.json
+            artifacts/capital-risk/discovery.json
+            artifacts/capital-risk/discovery.tar.crseal
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

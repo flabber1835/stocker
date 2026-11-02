@@ -1,0 +1,90 @@
+{
+  "schema": "research.system-campaign-early2019-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "DM2",
+      "security_id": "483656974060231265",
+      "native_session": "2019-01-25",
+      "native_term_sha256": "dfb772bf0b727d13c2a00ad9950d2900e49e394dcc0371b3452f6e074cc6332a",
+      "added": {
+        "security_id": "483656974060231265",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1603286/000119312519020861/d663306d8k.htm | Issuercompleted8K confirms .2492Dominion(D)shares pereligiblepublicDMcommonunit and cessation BEFORE January28,2019open. OCC44475 confirms https://www.miaxglobal.com/sites/default/files/alert-files/DM_Split_44475.pdf . January25consent isNOTcompletion; preserveJanuary25. Allstock,no inventedbasecash. StoredDM2unitclassification/issuerunchanged, notDesktopMetal oroptionssymbol. FractionalCIL uses frozenfirsteffectiveD raw-openproxy,notactualagentnetproceeds.",
+        "delivered_security_id": "1100081557843370397",
+        "delivered_ticker": "D",
+        "delivered_issuer_id": "SEC_CIK:715957",
+        "session": "2019-01-28",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": null,
+        "exchange_ratio": 0.2492,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1603286/000119312519020861/d663306d8k.htm",
+      "description": "Issuercompleted8K confirms .2492Dominion(D)shares pereligiblepublicDMcommonunit and cessation BEFORE January28,2019open. OCC44475 confirms https://www.miaxglobal.com/sites/default/files/alert-files/DM_Split_44475.pdf . January25consent isNOTcompletion; preserveJanuary25. Allstock,no inventedbasecash. StoredDM2unitclassification/issuerunchanged, notDesktopMetal oroptionssymbol. FractionalCIL uses frozenfirsteffectiveD raw-openproxy,notactualagentnetproceeds.",
+      "proxy": {
+        "session": "2019-01-28",
+        "security_id": "1100081557843370397",
+        "source_observation_sha256": "6df5a3ef8537008f929c75e5aa3e4eafa8b6727f6254931ffc5774b511b8b1eb"
+      }
+    },
+    {
+      "ticker": "LOXO",
+      "security_id": "237379470224660890",
+      "native_session": "2019-02-15",
+      "native_term_sha256": "9c772050ab9753c9187a1090489c0d6150b17322e94ebcedcb8ad00d7121c8e9",
+      "added": {
+        "security_id": "237379470224660890",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1581720/000119312519042505/d664418d8k.htm | Issuercompleted8K confirms235USD mandatoryremaining-commonshare conversion after251hmerger, notassumedvoluntarytender. Final14D9 explicitcessation BEFORE February15,2019Nasdaqopen: https://www.sec.gov/Archives/edgar/data/1581720/000119312519041759/d716395dsc14d9a.htm . Same-daynativeincomplete termreplaced,notmoved.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-02-15",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 235.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1581720/000119312519042505/d664418d8k.htm",
+      "description": "Issuercompleted8K confirms235USD mandatoryremaining-commonshare conversion after251hmerger, notassumedvoluntarytender. Final14D9 explicitcessation BEFORE February15,2019Nasdaqopen: https://www.sec.gov/Archives/edgar/data/1581720/000119312519041759/d716395dsc14d9a.htm . Same-daynativeincomplete termreplaced,notmoved.",
+      "proxy": null
+    },
+    {
+      "ticker": "AHL2",
+      "security_id": "1144531901989620662",
+      "native_session": "2019-02-14",
+      "native_term_sha256": "70a2ce0de45c9f0fe0cdb52fc06d0c3644ea1c61f701a74c6d6dda0a4f8e2000",
+      "added": {
+        "security_id": "1144531901989620662",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1267395/000126739519000013/exhibit991-aspenxapolloclo.htm | Issuercompletedrelease andOCC44575 establish42.75USD ordinaryshare cash BEFORE February15,2019open: https://www.miaxglobal.com/sites/default/files/alert-files/AHL_Merger_44575.pdf . PreserveFebruary14. StoredAHL2historicordinaryepisode/SEC_UNKNOWN/unknownineligibleunchanged. Notlater2025relistedAHL orAHLpreferredshareswhichremainedlisted. Aliasmap historicalendpointinference,noteligibilityupgrade.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-02-15",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 42.75,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1267395/000126739519000013/exhibit991-aspenxapolloclo.htm",
+      "description": "Issuercompletedrelease andOCC44575 establish42.75USD ordinaryshare cash BEFORE February15,2019open: https://www.miaxglobal.com/sites/default/files/alert-files/AHL_Merger_44575.pdf . PreserveFebruary14. StoredAHL2historicordinaryepisode/SEC_UNKNOWN/unknownineligibleunchanged. Notlater2025relistedAHL orAHLpreferredshareswhichremainedlisted. Aliasmap historicalendpointinference,noteligibilityupgrade.",
+      "proxy": null
+    }
+  ],
+  "identity_witnesses": [
+    {
+      "session": "2019-02-14",
+      "security_id": "1144531901989620662",
+      "ticker": "AHL2",
+      "issuer_id": "SEC_UNKNOWN:1144531901989620662",
+      "listing_first_session": "2003-12-05",
+      "security_type_eligible": "0",
+      "source_observation_sha256": "098bdd77102d01e150bb71c7b59898f05c5b6afd2902451210dbcab5bf934958"
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "FMSA_exact_cash_unproven": true,
+  "AAAP_mandatory_payment_unproven": true
+}

@@ -1,0 +1,303 @@
+{
+  "canonical_financial_source_changed": false,
+  "cil_convention": "RETAINED_FROZEN_RAW_OPEN_PROXY_NOT_ACTUAL_ISSUER_SETTLEMENT",
+  "commitment_group": {
+    "catalog_file": "system-campaign-stock-calendar-terminal-facts.json",
+    "loader_file": "system_campaign_stock_calendar.py",
+    "overlay_file": "stock-calendar-overlay.json",
+    "private_file": "hydrated-stock-calendar-terminal-catalog.json",
+    "reference_stem": "research:system-optimization-002/ordinary-catalog/stock-calendar/1/"
+  },
+  "loader_sha256": "202b6a3d8a06597db4b2d3b27cdb0e056b489bb8239b63bc4de71a333ec6d91d",
+  "new_tax_or_settlement_model": false,
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "schema": "research.factual-stock-calendar-catalog/1",
+  "terms": [
+    {
+      "actual_completion_date": "2022-05-05",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": "SEC_CIK:1772757",
+        "delivered_security_id": "172096015945174566",
+        "delivered_ticker": "DKNG",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": 0.365,
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1883685/000188368522000016/R12.htm | Mandatory common-share completion before open on 2022-05-05; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+        "security_id": "492385206273420565",
+        "session": "2022-05-05"
+      },
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1772757",
+        "listing_first_session": "2019-05-10",
+        "security_id": "172096015945174566",
+        "security_type_eligible": "1",
+        "session": "2022-05-05",
+        "source_observation_sha256": "6d732d95c969e9d062711aade0b87570990c58f5a92b3bc9579e75d9cce618d2",
+        "ticker": "DKNG"
+      },
+      "description": "Mandatory common-share completion before open on 2022-05-05; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+      "frozen_provider_issuer_limitation": {
+        "actual_new_issuer": "SEC_CIK:1883685",
+        "delivered_frozen_issuer": "SEC_CIK:1772757",
+        "provider_metadata_upgraded": false
+      },
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1768012",
+        "listing_first_session": "2019-05-07",
+        "security_id": "492385206273420565",
+        "security_type_eligible": "1",
+        "session": "2022-05-03",
+        "source_observation_sha256": "1e0c726e0d96e7a030f97f371a102ef8f91f6339f8a6b8b2bde1875b2d13049e",
+        "ticker": "GNOG"
+      },
+      "last_trading_session": "2022-05-04",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-05-04",
+      "native_term_sha256": "04c3597fed20e3dde7fa44db154cad48a097d1737f419fafd1b70074a95cfe33",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1883685/000188368522000016/R12.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "3c9594bf51b46b64938e7d74ff66bf5c165442461c03d867e78f5815fddf5cec",
+        "selected_row_sha256": [
+          "a3c036e92cb162144208cd5d808d20970b4fea583072e77db5fa429bae063634",
+          "d0fa9a19f2d16bedadb99bd4cbd5ff57bb29a75b65ca624cfde65c04dae62f18",
+          "dbfec851f6486fbfdb03a3de7c5b36488dc197578135422a493e3672277b4421"
+        ],
+        "session": "2022-05-04",
+        "ticker": "GNOG"
+      },
+      "security_id": "492385206273420565",
+      "ticker": "GNOG",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-86"
+    },
+    {
+      "actual_completion_date": "2022-07-06",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 133.0,
+        "delivered_issuer_id": "SEC_CIK:1101302",
+        "delivered_security_id": "981726494399406571",
+        "delivered_ticker": "ENTG",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": 0.4506,
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1102934/000114036122025276/ny20004647x4_8k.htm | Mandatory common-share completion before open on 2022-07-06; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+        "security_id": "361307705630329294",
+        "session": "2022-07-06"
+      },
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1101302",
+        "listing_first_session": "2000-07-11",
+        "security_id": "981726494399406571",
+        "security_type_eligible": "1",
+        "session": "2022-07-06",
+        "source_observation_sha256": "400d99415918fb0c2c63d4f7bf9eb7e5c2f779b64a862021f742e21d0cf18b82",
+        "ticker": "ENTG"
+      },
+      "description": "Mandatory common-share completion before open on 2022-07-06; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1102934",
+        "listing_first_session": "2000-04-05",
+        "security_id": "361307705630329294",
+        "security_type_eligible": "1",
+        "session": "2022-07-01",
+        "source_observation_sha256": "f0906b66d61755e855e8bf0f58ac5fb8b3f30c7ed29e035001bbd66c93c0ace4",
+        "ticker": "CCMP"
+      },
+      "last_trading_session": "2022-07-05",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-07-05",
+      "native_term_sha256": "e6b906f60567135af8a2d339bb3cfbb866d6a3236b446f4a7e402d6456ad915d",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1102934/000114036122025276/ny20004647x4_8k.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "cdf988826ee8d8f00896838e679cc9c39395cc367778f82a5ce54d3ac3ca7adb",
+        "selected_row_sha256": [
+          "f6bb84c7cf245a8468f1701d9038d65f6291ba8e9839e453ad4ed12ab46b1f4b",
+          "45a2b785f2991fabfd60837a1bb38e7ecda22c6ecc3b8ad319a3207dcf5b68d1",
+          "c95434fa4564d6c0068ef161755fd4f10715996f3f3014f1123e3227d6f10069"
+        ],
+        "session": "2022-07-05",
+        "ticker": "CCMP"
+      },
+      "security_id": "361307705630329294",
+      "ticker": "CCMP",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=50688"
+    },
+    {
+      "actual_completion_date": "2022-10-03",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": "SEC_CIK:1045609",
+        "delivered_security_id": "242191666340217044",
+        "delivered_ticker": "PLD",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": 0.475,
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/783280/000110465922105242/tm2227228d1_8k.htm | Mandatory common-share completion before open on 2022-10-03; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+        "security_id": "518054177581800417",
+        "session": "2022-10-03"
+      },
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1045609",
+        "listing_first_session": "1997-12-31",
+        "security_id": "242191666340217044",
+        "security_type_eligible": "1",
+        "session": "2022-10-03",
+        "source_observation_sha256": "42133bb5b2f7bdc0f601998a278b7971d53021eec05f29cd62625cf3b8c61da0",
+        "ticker": "PLD"
+      },
+      "description": "Mandatory common-share completion before open on 2022-10-03; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:783280",
+        "listing_first_session": "1997-12-31",
+        "security_id": "518054177581800417",
+        "security_type_eligible": "1",
+        "session": "2022-09-29",
+        "source_observation_sha256": "1b784f176dd4dff4dad565fd7f139a8c3b6bbe53b303c99f79138034b1ff5f74",
+        "ticker": "DRE"
+      },
+      "last_trading_session": "2022-09-30",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-09-30",
+      "native_term_sha256": "713092be4dbb3c3f9ba9d72f027191a8e5394a69087bbd98b7351d19c7d94c3c",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/783280/000110465922105242/tm2227228d1_8k.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "9737e3c101a153e5b1d9bef4baa0e319049de8f5cd873fe54677e72cc969455d",
+        "selected_row_sha256": [
+          "c37b625193453a29d1b75ff265eab7f281cf77ff7b58c77698be5c17efcc7b6f",
+          "c5b144c8e28abf7816bebfe82da81e5806538c008b038c6d1d1b09efbf147088",
+          "1adee7a7a99b094f20b37ac3361c3a52e916d317dd75dc9361ee1c1b1bcfc3ae"
+        ],
+        "session": "2022-09-30",
+        "ticker": "DRE"
+      },
+      "security_id": "518054177581800417",
+      "ticker": "DRE",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=51115"
+    },
+    {
+      "actual_completion_date": "2023-07-20",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": "SEC_CIK:1289490",
+        "delivered_security_id": "303508729739314651",
+        "delivered_ticker": "EXR",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": 0.895,
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1060224/000119312523190113/d405124d8k.htm | Mandatory common-share completion before open on 2023-07-20; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+        "security_id": "753641750484343508",
+        "session": "2023-07-20"
+      },
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1289490",
+        "listing_first_session": "2004-08-16",
+        "security_id": "303508729739314651",
+        "security_type_eligible": "1",
+        "session": "2023-07-20",
+        "source_observation_sha256": "a85f8e77f423cb3355ea8c63fcf4527c7ab6dcb030cad38cf7628062a49e2275",
+        "ticker": "EXR"
+      },
+      "description": "Mandatory common-share completion before open on 2023-07-20; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:944314",
+        "listing_first_session": "1997-12-31",
+        "security_id": "753641750484343508",
+        "security_type_eligible": "1",
+        "session": "2023-07-18",
+        "source_observation_sha256": "ca457c585bce7145aec71ef047dc0cb52613d3901cf885c3ebf69c3d1f838540",
+        "ticker": "LSI"
+      },
+      "last_trading_session": "2023-07-19",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-07-19",
+      "native_term_sha256": "ccb498dd580b7f803166463271de8bfb95d1c9f362efaa4f50c0398ed7fdf677",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1060224/000119312523190113/d405124d8k.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "551297d976ffc21b825cf38c33eed8152d1af38038e7045f3243acdc1039a781",
+        "selected_row_sha256": [
+          "3dab4d127e34eaeb84f8a2d963d9c72111172b5860a2ae6f16586c79cdffcce4",
+          "4b26ed69a06848b3614702c6489418bdcfe4430d081297431fccaee9254dd9ae",
+          "ed848ab4a317ec2a19913072e0077a8c4a6abe03e3cae39835f4dc5a5b03c840"
+        ],
+        "session": "2023-07-19",
+        "ticker": "LSI"
+      },
+      "security_id": "753641750484343508",
+      "ticker": "LSI",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=52871"
+    },
+    {
+      "actual_completion_date": "2025-02-28",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 2.75,
+        "delivered_issuer_id": "SEC_CIK:1057352",
+        "delivered_security_id": "367614688978831725",
+        "delivered_ticker": "CSGP",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": 0.03552,
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1057352/000119312525042465/d899523d8k.htm | Mandatory common-share completion before open on 2025-02-28; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+        "security_id": "268723442486744870",
+        "session": "2025-02-28"
+      },
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1057352",
+        "listing_first_session": "1998-07-01",
+        "security_id": "367614688978831725",
+        "security_type_eligible": "1",
+        "session": "2025-02-28",
+        "source_observation_sha256": "cea6fb90ffabce03b4f8653af8b844cbbf09a0bd0efdeec97d12cdbca3493c6a",
+        "ticker": "CSGP"
+      },
+      "description": "Mandatory common-share completion before open on 2025-02-28; frozen delivery identity/classification retained; fractional cash uses inherited raw-open proxy, not actual settlement.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1819394",
+        "listing_first_session": "2020-12-11",
+        "security_id": "268723442486744870",
+        "security_type_eligible": "1",
+        "session": "2025-02-26",
+        "source_observation_sha256": "71f2817588a559a553220d6ee21b24997977116650fb9992c71a68f90eb78a0e",
+        "ticker": "MTTR"
+      },
+      "last_trading_session": "2025-02-27",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-02-27",
+      "native_term_sha256": "421d2c626abc23c56c22ffc5ecf7f94f5b42620dd5af1255c4464c232b2b3fbb",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1057352/000119312525042465/d899523d8k.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "4a177359e6a143ac91e86365220e4c7303a83cbf979324a256c077b9141abff8",
+        "selected_row_sha256": [
+          "1d991480e5ca7c61f4051c0050130dffa83a2e2d333312fc2117d401f857836a",
+          "5a8341c18cc05173eaa0bf2da157350f627f7daa30e61e240a7dfec48e4c19eb",
+          "d34f5f6d111400af7571b71d961fbcee794e6a1093e5d78f86e5def4605dc00e"
+        ],
+        "session": "2025-02-27",
+        "ticker": "MTTR"
+      },
+      "security_id": "268723442486744870",
+      "ticker": "MTTR",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=56129"
+    }
+  ]
+}

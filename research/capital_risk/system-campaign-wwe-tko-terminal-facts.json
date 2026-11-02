@@ -1,0 +1,88 @@
+{
+  "canonical_financial_source_changed": false,
+  "cil_convention": "RETAINED_FROZEN_RAW_OPEN_PROXY_NOT_ACTUAL_ISSUER_SETTLEMENT",
+  "commitment_group": {
+    "catalog_file": "system-campaign-wwe-tko-terminal-facts.json",
+    "loader_file": "system_campaign_stock_calendar.py",
+    "overlay_file": "wwe-tko-overlay.json",
+    "private_file": "hydrated-wwe-tko-terminal-catalog.json",
+    "reference_stem": "research:system-optimization-002/ordinary-catalog/wwe-tko/1/"
+  },
+  "loader_sha256": "202b6a3d8a06597db4b2d3b27cdb0e056b489bb8239b63bc4de71a333ec6d91d",
+  "new_tax_or_settlement_model": false,
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "schema": "research.factual-stock-calendar-catalog/1",
+  "separate_dividend": {
+    "amount": "3.86",
+    "ex_date": "2023-09-21",
+    "frozen_bar_already_contains_dividend": true,
+    "issuer": "TKO",
+    "new_dividend_or_merger_cash_added": false,
+    "payable_date": "2023-09-29",
+    "record_date": "2023-09-22"
+  },
+  "terms": [
+    {
+      "actual_completion_date": "2023-09-12",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": "SEC_CIK:1094084",
+        "delivered_security_id": "351179184194166734",
+        "delivered_ticker": "TKO",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": 1.0,
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1091907/000119312523233499/d519698d8k.htm | Mandatory one-for-one WWE common-share conversion to TKO Class A before the September12 open; September11 trading and frozen delivery identity/classification retained. The later TKO special dividend is separate and already present in frozen input.",
+        "security_id": "426024777347801008",
+        "session": "2023-09-12"
+      },
+      "delivered_identity_witness": {
+        "issuer_id": "SEC_CIK:1094084",
+        "listing_first_session": "2023-09-12",
+        "security_id": "351179184194166734",
+        "security_type_eligible": "1",
+        "session": "2023-09-12",
+        "source_observation_sha256": "fb58ab3923d9c31f9d01edfceed5e33155f2f1449ee9a19b56c6a0dc7c19a8ab",
+        "ticker": "TKO"
+      },
+      "description": "Mandatory one-for-one WWE common-share conversion to TKO Class A before the September12 open; September11 trading and frozen delivery identity/classification retained. The later TKO special dividend is separate and already present in frozen input.",
+      "frozen_provider_issuer_limitation": {
+        "actual_new_issuer": "SEC_CIK:1973266",
+        "delivered_frozen_issuer": "SEC_CIK:1094084",
+        "provider_metadata_upgraded": false
+      },
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1091907",
+        "listing_first_session": "1999-10-19",
+        "security_id": "426024777347801008",
+        "security_type_eligible": "1",
+        "session": "2023-09-11",
+        "source_observation_sha256": "59bb9c6d512caffba9d8f75dabd8377d2f44e7f736652dbce596ba530601db38",
+        "ticker": "WWE"
+      },
+      "last_trading_session": "2023-09-11",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2023-09-11",
+      "native_term_sha256": "aa99115df1cfdc59e142e6572adb258decc4adedefcb9815e5cce7dcb030c035",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1091907/000119312523233499/d519698d8k.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "eeb52c526c66d41733b3ddcf7088b8bb6214478ec9413bdc110c93fd46d8c81f",
+        "selected_row_sha256": [
+          "1e994d7abb58d3522b800b3995623ce28a44ffae8a24aade7a43577fa907a3bd",
+          "e56e1c7cb0999e05f05172b2d85c46be802cbd3d50df29ce7364568dd46d7cbf",
+          "86f32864b9872ec8b8ae43f760aa4ea55eb741ce2b6436d5cf30891065f3213b"
+        ],
+        "session": "2023-09-11",
+        "ticker": "WWE"
+      },
+      "security_id": "426024777347801008",
+      "ticker": "WWE",
+      "timing_source": "https://corporate.wwe.com/f/docs/sec-filings/16925127.PDF"
+    }
+  ]
+}

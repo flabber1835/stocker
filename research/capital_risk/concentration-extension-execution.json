@@ -1,0 +1,20 @@
+{
+  "schema": "research.concentration-extension-execution/1",
+  "id": "concentration-quarter-extension-001",
+  "owner_instruction": "Run the extension otherwise this is useless. Get it done and yes you are authorized",
+  "numerical_protocol_sha256": "74ec187ef27d250ed5d53bba1a3c97115001a5156c0d360406f2da5a9b97dfa7",
+  "window": ["2025-01-02", "2025-03-31", 60],
+  "arms": ["B", "B0", "C"],
+  "fresh_origin": false,
+  "same_financial_source_required": true,
+  "resume_each_own_exact_checkpoint": true,
+  "worker_wait_seconds": 3600,
+  "review_wait_seconds": 600,
+  "workflow_timeout_minutes": 90,
+  "worker_cpu": 1,
+  "worker_memory_gib": 2,
+  "new_rule_or_window": false,
+  "production_contacted": false,
+  "artifact_retention_days": 7,
+  "plaintext_financial_publication": false
+}

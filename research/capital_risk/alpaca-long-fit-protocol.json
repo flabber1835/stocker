@@ -1,0 +1,107 @@
+{
+  "schema": "research.bounded-alpaca-policy-fit/2",
+  "study_id": "alpaca-owned55-long-fit-001",
+  "providers": [
+    "ALPACA",
+    "OPENFIGI_FREE"
+  ],
+  "data_start": "2016-01-04",
+  "data_end": "2026-10-27",
+  "measured_start": "2018-01-02",
+  "training_end": "2022-12-30",
+  "validation_start": "2023-01-03",
+  "feature_sessions": 299,
+  "formation_sessions": 126,
+  "capital": "50000",
+  "family": "EXISTING_OWNED55_PARAMETERS_ONLY",
+  "grid": {
+    "entry_damage": [
+      "0.50",
+      "0.63",
+      "0.75",
+      "0.88"
+    ],
+    "entry_sessions": [
+      1,
+      3,
+      5
+    ],
+    "recovery_sessions": [
+      3,
+      5,
+      8
+    ],
+    "active_ceiling": [
+      "0.25",
+      "0.55",
+      "0.75"
+    ]
+  },
+  "fixed": {
+    "entry_drawdown": "-0.10",
+    "entry_green": "0.20",
+    "recovery_damage": "0.63",
+    "recovery_green": "0.20",
+    "recovery_core_r20_above": "0"
+  },
+  "combinations": 108,
+  "baseline": {
+    "entry_damage": "0.88",
+    "entry_sessions": 5,
+    "recovery_sessions": 8,
+    "active_ceiling": "0.55"
+  },
+  "relative_drawdown_budgets": [
+    "0.50",
+    "0.75",
+    "1.00"
+  ],
+  "maximum_shortlist": 4,
+  "selection": "TRAINING_PARETO_BUDGET_WINNERS_PLUS_BEST_STRICT_JOINT_GAIN_GROWTH_TURNOVER_ID",
+  "source_strategy_unchanged": true,
+  "native_and_champion_unchanged": true,
+  "execution_model": "RESEARCH_PERSISTENT_QUANTITIES_IDEAL_NEXT_RAW_OPEN_NOT_PAPER_LIMIT_FILLS",
+  "initial_worker_seconds": 3600,
+  "initial_workflow_minutes": 120,
+  "timing_prefix_formation_transitions": 5,
+  "known_history_not_unseen": true,
+  "current_cohort_survivor_conditioned": true,
+  "new_forecaster": false,
+  "production_contacted": false,
+  "formation_end": "2017-12-29",
+  "validation_end": "2024-12-31",
+  "diagnostic_start": "2025-01-02",
+  "period_choice": "MULTIYEAR_EVIDENCE_OWNER_ALLOWS_SEVERAL_HOURS",
+  "selection_locked_before": "2023-01-03",
+  "postselection_policy_retuning": false,
+  "new_financial_origin_requires_source_identity_qualification": true,
+  "parent_invalid_trial": "alpaca-owned55-fit-001/canonical-suffix-006",
+  "stock_price_domains": [
+    "raw",
+    "split",
+    "all"
+  ],
+  "equity_all_domain_use": "ACTION_COVERAGE_CORROBORATION_ONLY_NO_INFERRED_CASH",
+  "corporate_action_process_start": "2015-01-01",
+  "corporate_action_process_end": "2027-10-27",
+  "corporate_action_financial_effect_cutoff": "2026-10-27",
+  "source_capture_scope": "LONG_HISTORY",
+  "capture_max_seconds": 5400,
+  "capture_max_requests": 8000,
+  "capture_max_raw_bytes": 8589934592,
+  "capture_max_gzip_bytes": 2147483648,
+  "source_pool_workers_requested": 3,
+  "source_container_cpus_requested": 4,
+  "source_pool_actual_qualification_required": true,
+  "evaluation_reporting": [
+    "2023",
+    "2024",
+    "2023-2024"
+  ],
+  "later_diagnostic_reporting": [
+    "2025",
+    "2026_PARTIAL",
+    "2025-2026_PARTIAL"
+  ],
+  "interpretation": "FINITE_CLASS_CONDITIONAL_HISTORICAL_FIT_NO_UNSEEN_OOS_OR_PRODUCTION_CERTIFICATION"
+}

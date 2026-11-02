@@ -1,0 +1,53 @@
+{
+  "schema": "research.system-campaign-sprint-terminal-facts/1",
+  "source_identity_witness": {
+    "session": "2020-03-30",
+    "security_id": "957008674074369745",
+    "ticker": "S2",
+    "issuer_id": "SEC_UNKNOWN:957008674074369745",
+    "listing_first_session": "1997-12-31",
+    "security_type_eligible": "0",
+    "source_observation_sha256": "dd51c6a23681ecedbb6d597697de3a60f49ff9447ffd4ff2278e2ea981e61a90"
+  },
+  "delivered_identity_witness": {
+    "session": "2020-04-01",
+    "security_id": "36692955301160544",
+    "ticker": "TMUS",
+    "issuer_id": "SEC_CIK:1283699",
+    "listing_first_session": "2007-04-19",
+    "security_type_eligible": "1",
+    "source_observation_sha256": "50b9829cb66fd616b7cab6f886bed61f3afd8facdf887d129fb171ea07423bf1"
+  },
+  "native_session": "2020-03-31",
+  "native_term_sha256": "19de7e96860750033acdad9dbf88ae9471f95a6abfc65047f398cbe932e889a5",
+  "added": {
+    "session": "2020-04-01",
+    "security_id": "957008674074369745",
+    "kind": "CONVERSION",
+    "cash_per_share": null,
+    "delivered_security_id": "36692955301160544",
+    "delivered_ticker": "TMUS",
+    "delivered_issuer_id": "SEC_CIK:1283699",
+    "exchange_ratio": "0.10256",
+    "cash_in_lieu_price_per_delivered_share": null,
+    "reference": "https://www.sec.gov/Archives/edgar/data/101830/000119312520093630/d853508d8k.htm | April1preopen completed ordinary-holder Sprint merger exchanges each share for0.10256TMUS; holder aggregate fractional cash only. S2 provider alias proven from originalACTIONS source. Frozen unknown issuer/eligible0 unchanged. FractionalCIL uses declared frozen delivered raw-open proxy, not actual issuer settlement.",
+    "entitlement_aggregation": "HOLDER"
+  },
+  "primary_source": "https://www.sec.gov/Archives/edgar/data/101830/000119312520093630/d853508d8k.htm",
+  "acquirer_source": "https://www.sec.gov/Archives/edgar/data/1283699/000119312520093622/d886127d8k.htm",
+  "provider_alias_source": {
+    "url": "https://raw.githubusercontent.com/flabber1835/stocker/86fe82c474396ce84c91e8b774ae97a4500f7b39/sharadar/SHARADAR_ACTIONS.zip",
+    "sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+    "bytes": 9855560,
+    "selected_row_sha256": [
+      "21090e4be3538cb60b24c0b6233760084159946390bf0c30b994105408f1ac4a",
+      "87c97a13347da86bed6fba4a5abfa53de18d5f36c8f55dccfa6f00310414d02e",
+      "c0e814289e8e27b6cb3270fa1d2c9c3e1e000a72fe2be62439300d2a47129254",
+      "cb15d315568adf8e655552b48e72aead3674c0f43a095d9f7b2b9762a5198db8"
+    ]
+  },
+  "cil_convention": "FROZEN_DELIVERED_RAW_OPEN_PROXY_NOT_ISSUER_SETTLEMENT_PRICE",
+  "provider_snapshot_used_as_strategy_metadata": false,
+  "canonical_financial_source_changed": false,
+  "production_contacted": false
+}

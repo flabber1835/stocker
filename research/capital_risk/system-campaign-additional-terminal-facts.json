@@ -1,0 +1,152 @@
+{
+  "schema": "research.system-campaign-additional-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "WFM",
+      "native_session": "2017-08-28",
+      "security_id": "224485637995476227",
+      "native_term_sha256": "8c0cf8e97cce8b69804f500530154c93b99dc3f38807c82045164a067d8848b5",
+      "added": {
+        "security_id": "224485637995476227",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/865436/000114420417045261/v474128_8k.htm",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2017-08-28",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 42.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/865436/000114420417045261/v474128_8k.htm",
+      "description": "Issuer SEC completion filing confirms cash conversion and requested suspension before August 28 market open.",
+      "proxy": null
+    },
+    {
+      "ticker": "RICE1",
+      "native_session": "2017-11-10",
+      "security_id": "528305894639165573",
+      "native_term_sha256": "56874db225ed1e8863fc73f1cf70178777456c3564db3ac8b74b45acc9938feb",
+      "added": {
+        "security_id": "528305894639165573",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1588238/000110465917068865/a17-26468_68k.htm | Fractional cash uses the frozen first effective-session EQT raw open proxy; actual exchange-agent net sale rate unobserved.",
+        "delivered_security_id": "883677726045016523",
+        "delivered_ticker": "EQT",
+        "delivered_issuer_id": "SEC_CIK:33213",
+        "session": "2017-11-13",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 5.3,
+        "exchange_ratio": 0.37,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1588238/000110465917068865/a17-26468_68k.htm",
+      "description": "Successor SEC completion filing confirms 0.37 EQT shares plus 5.30 USD per Rice share and suspension before November 13 open; retain November 10 trading.",
+      "proxy": {
+        "session": "2017-11-13",
+        "security_id": "883677726045016523",
+        "source_observation_sha256": "28b0c7a8b1511568594258adba58ec5dac65debd3cb5c18209f7b37ae9e8449a",
+        "convention": "RETAINED_FIRST_EFFECTIVE_SESSION_RAW_OPEN_PROXY_NOT_ACTUAL_EXCHANGE_AGENT_NET_RATE"
+      }
+    },
+    {
+      "ticker": "RXDX1",
+      "native_session": "2018-02-08",
+      "security_id": "577343057227054697",
+      "native_term_sha256": "7a9abfb3c3133b544acd415bdf22632e9a7bce872b7d4940ac70e223425ae098",
+      "added": {
+        "security_id": "577343057227054697",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1557421/000119312518035589/d451894d8k.htm",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-02-08",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 27.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1557421/000119312518035589/d451894d8k.htm",
+      "description": "Issuer SEC completion filing confirms cash conversion of untendered eligible shares and halt before February 8 market open.",
+      "proxy": null
+    },
+    {
+      "ticker": "SODA",
+      "native_session": "2018-12-04",
+      "security_id": "580777104042893954",
+      "native_term_sha256": "54e415365b481b2178c9f6a9dbec28acf468e4265fe4365860df9dbbfb17fe36",
+      "added": {
+        "security_id": "580777104042893954",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1502916/000114420418063214/tv508481_6k.htm",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-12-06",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 144.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1502916/000114420418063214/tv508481_6k.htm",
+      "description": "Issuer SEC completion filing confirms December 5 cancellation and 144 USD per share; US trading ceased before December 6 open. December 5 was not a US market session.",
+      "proxy": null
+    },
+    {
+      "ticker": "SONC",
+      "native_session": "2018-12-07",
+      "security_id": "789689535963205828",
+      "native_term_sha256": "5f13089ea020fe7fa5eb2aa6f72aa82a64943e4d45ed6eff6a29d4d74a8cc64d",
+      "added": {
+        "security_id": "789689535963205828",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/868611/000094787118000950/ss117852_8k.htm",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-12-07",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 43.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/868611/000094787118000950/ss117852_8k.htm",
+      "description": "Issuer SEC completion filing confirms 43.50 USD cash conversion and Nasdaq halt before December 7 open.",
+      "proxy": null
+    },
+    {
+      "ticker": "BEL",
+      "native_session": "2019-04-16",
+      "security_id": "882904858327189489",
+      "native_term_sha256": "63b847254ce2f74e3f9e3155130524826894c316a35bc3a60fe83ea1e244650a",
+      "added": {
+        "security_id": "882904858327189489",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1115836/000110465919021838/a19-8416_18k.htm",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-04-17",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 25.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1115836/000110465919021838/a19-8416_18k.htm",
+      "description": "Issuer SEC completion filing confirms 25 USD cash conversion and cessation before April 17 open; retain April 16 trading.",
+      "proxy": null
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "unresolved": [
+    {
+      "ticker": "AAAP1",
+      "security_id": "554122275008038119",
+      "reason": "Voluntary 82 USD ADS tender does not prove mandatory untendered-holder cash conversion; no overlay/payment authorized by these facts.",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1114448/000104746917007509/a2233981zex-99_11a.htm"
+    }
+  ]
+}

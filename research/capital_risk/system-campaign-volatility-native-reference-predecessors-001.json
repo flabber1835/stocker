@@ -1,0 +1,130 @@
+{
+  "arms": {
+    "P10": {
+      "arm": "P10",
+      "artifact_id": 13108100275,
+      "encrypted_output": {
+        "bytes": 8060377,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "0e55ac799db22a50d7084c9117caa5818e32e58f99696a3eedc633fca7a24b8d",
+        "name": "discovery.tar.crseal",
+        "sha256": "124ec502e21d334e26f614fce71f7b8c5600876a7f2e8154c0bd6269c596f353"
+      },
+      "head": "168d18eb70304aa27c0ea897f72764e52701cd6f",
+      "independent_failure_review_sha256": "301544624c9fb995861ee4df232b6837be0b42f05abafed3fe93649330ef915c",
+      "inspection": {
+        "exit_code": 1,
+        "id": "ecb7a711bc3f69bf3ffe9da0bd8ff8ab18a91930af4d7f0bff391f108d85326b",
+        "name": "/capital-system-parallel-discovery-p10-qualify-41366297007-1",
+        "sha256": "aba64c3bebfb25962b9b106449539a3a75d43e5e70bd05a2654223d9ac5fa039"
+      },
+      "inventory_members": 39,
+      "inventory_sha256": "ad2be179696d49dd524fc95c9f18bcb77a1c8d202fd1be2adaf742c89553276b",
+      "native_signal_closes": 21,
+      "native_signal_factory_sha256": "e794287920d72583fa5a4116cc53d6dfcaf6ab2bbe54181741030a3dce9540a8",
+      "no_diagnostic_origin_or_worker": true,
+      "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+      "public_members": [
+        "full-core-staging.json",
+        "discovery.json",
+        "export-qualification.json",
+        "discovery.tar.crseal"
+      ],
+      "public_probe_sha256": "1cf6f2de6a565e44e4506d73925d930893a3536ce613e18c0f802e48ccd4a65e",
+      "qualification_worker": {
+        "exit_code": 1,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      },
+      "receipt_name": "discovery.json",
+      "receipt_schema": "research.parallel-disposable-discovery-receipt/1",
+      "receipt_sha256": "c3274c1a661bbca592d6660ec0594ca04d6b4db9e155841a6ce81999b693d4f6",
+      "reference_path": {
+        "bytes": 2350099,
+        "sha256": "b5a5a30f3d28e0c029e4a7108d71ebe5617b04f8ad232939ddac482bc4c1035c"
+      },
+      "reference_proof": {
+        "bytes": 2494,
+        "sha256": "ea4546dc9dd987bf88986d23720eb77a669b90a9227b9e28b36e43b3e45098b2"
+      },
+      "request_file": "system-campaign-volatility-discovery-request-003.json",
+      "request_sha256": "542b3c344802e425786ff817cd69a56be6dc413dc9f89b1bdd1bf8371481afd4",
+      "run_id": 41366297007,
+      "source_binding_sha256": "1f35cad79d032a9deec064f62306bc276ee5ab21e392406fea1a768cd00f0652",
+      "stage": "campaign-disposable-discovery",
+      "strict_parent_gzip": {
+        "bytes": 972317,
+        "sha256": "7937d0feb599c442a53b29e2b75a1cfc0c714140fd54d73c0ad7b06484358a21"
+      },
+      "strict_parent_outer_sha256": "451a2b0e762f137c4b2334a997abbc1b24b9b31809d860404a2d5c0adbe41c9f",
+      "zip_bytes": 8063996,
+      "zip_sha256": "b91c0ab683567913fe3ba7851fb51430eec4ecee07ddfcdf91f16d2d955bac6a"
+    },
+    "P11": {
+      "arm": "P11",
+      "artifact_id": 13107654814,
+      "encrypted_output": {
+        "bytes": 8111144,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "34b356dd62df529f2025492642dacadc10d225af53f10a5429aef5bfdc55dc23",
+        "name": "discovery.tar.crseal",
+        "sha256": "07efef7071cc982e035154ca485fc281ab907c897b372e1b727f4edee330209e"
+      },
+      "head": "869416a498e82288384a497b2896268c7ae732b7",
+      "independent_failure_review_sha256": "0bedb94d22ca4507f80e8c9286bd1f67efbaa30657554dbc4299b8eb7753afc5",
+      "inspection": {
+        "exit_code": 1,
+        "id": "9381def7c5a143c20649e31eb10627e37080fcc343dce1640a9487b8d7e07989",
+        "name": "/capital-system-parallel-discovery-p11-qualify-41367239924-1",
+        "sha256": "febca02441b860e45f0fb90df92d7b4489b52ab24cea13136eaa8fcfb02abc33"
+      },
+      "inventory_members": 39,
+      "inventory_sha256": "3a1b4980bc12051634fc5c1a09bba076be4df99327f95bed1f3a6172b8a697dd",
+      "native_signal_closes": 10,
+      "native_signal_factory_sha256": "5a11cab91d348bda7118a9db01388b92dd23b5b6f02eeeafe70a154e843e68c0",
+      "no_diagnostic_origin_or_worker": true,
+      "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+      "public_members": [
+        "full-core-staging.json",
+        "admission-phase.json",
+        "export-qualification.json",
+        "discovery.json",
+        "discovery.tar.crseal"
+      ],
+      "public_probe_sha256": "f162bf39c924c45124892010acd85203809865f5d83ebab92b241c80fab6a8e8",
+      "qualification_worker": {
+        "exit_code": 1,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      },
+      "receipt_name": "discovery.json",
+      "receipt_schema": "research.parallel-disposable-discovery-receipt/1",
+      "receipt_sha256": "b26b183c41fb5f326f80b034147d121b26b483b4a4bb8638c084e083d49df875",
+      "reference_path": {
+        "bytes": 2352964,
+        "sha256": "cca4da7e615582f6cdbbfb7086bbae2c700d6983ebc62a308d88ff0730d3cd9b"
+      },
+      "reference_proof": {
+        "bytes": 2496,
+        "sha256": "2fc11faefb62c8547f5020b1b24455369e0fd2d1c20dd80dc8909227c30ae813"
+      },
+      "request_file": "system-campaign-volatility-admission-recovery-request-001.json",
+      "request_sha256": "b8a5349cdcd8f9017af4d1338f5b8a5fbf88ef049ddc28cba32f9083ba4d12bf",
+      "run_id": 41367239924,
+      "source_binding_sha256": "903d4c4a7b52a54c9c396357be86f461ebf4a273f728454c4980bd7f140d35fd",
+      "stage": "campaign-disposable-discovery",
+      "strict_parent_gzip": {
+        "bytes": 1002775,
+        "sha256": "f5310cf318e4dbb86a0d46eb4b890a66d23579bc67d37cbc185ea5d3f52304e6"
+      },
+      "strict_parent_outer_sha256": "527b7d4fcb92d4136195cc0eacf0459b73c368edfb0cdf3e9121f15ed8335e57",
+      "zip_bytes": 8115660,
+      "zip_sha256": "76d3d26e4f5398d839445058a8ab462135ba4eff30bd1f7a2e4e33041701b838"
+    }
+  },
+  "authority": "DISCOVERY_ONLY_NOT_FINANCIAL_AUTHORITY",
+  "financial_authority": false,
+  "schema": "research.volatility-completed-reference-predecessors/1"
+}

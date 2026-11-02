@@ -1,0 +1,58 @@
+{
+  "schema": "research.system-campaign-midyear-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "FMI",
+      "security_id": "59735459814812516",
+      "native_session": "2018-07-31",
+      "native_term_sha256": "d243c5b721e481d838045eb22660540e5d98f5c3db9e9ca9522eaea6dafe1421",
+      "added": {
+        "security_id": "59735459814812516",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1488613/000119312518232463/d553566d8k.htm | Issuer completion8K confirms137USD mandatory eligible remaining-holder cash conversion July31 and requested morningpreopen halt; retained terminal source print does not establish regular trading.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-07-31",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 137.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1488613/000119312518232463/d553566d8k.htm",
+      "description": "Issuer completion8K confirms137USD mandatory eligible remaining-holder cash conversion July31 and requested morningpreopen halt; retained terminal source print does not establish regular trading.",
+      "proxy": null
+    },
+    {
+      "ticker": "COL",
+      "security_id": "589557654748685297",
+      "native_session": "2018-11-26",
+      "native_term_sha256": "db9edbf14a892ae5afcd53dc08769f1ce822e647ea6abfd886e6c976d41bc9b6",
+      "added": {
+        "security_id": "589557654748685297",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1137411/000119312518334170/d598640d8k.htm | Issuer completion8K confirms93.33USD cash plus.37525UTX shares, legalNovember26. Successor announcement18:07ET: https://investors.rtx.com/news-releases/news-release-details/united-technologies-announces-intention-separate-three . Declared next-session daily convention November27 preservesNovember26; exactlegalminute/haltunobserved. | Frozen provider retroactive RTX ticker and SEC_UNKNOWN identity retained. UTX/RTX continuity: https://www.sec.gov/Archives/edgar/data/1047122/000119312520097237/d827106dex991.htm . Fractional cash uses frozen first-effective raw-open proxy, not actual exchange-agent net rate.",
+        "delivered_security_id": "148187321807650528",
+        "delivered_ticker": "RTX",
+        "delivered_issuer_id": "SEC_UNKNOWN:148187321807650528",
+        "session": "2018-11-27",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 93.33,
+        "exchange_ratio": 0.37525,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1137411/000119312518334170/d598640d8k.htm",
+      "description": "Issuer completion8K confirms93.33USD cash plus.37525UTX shares, legalNovember26. Successor announcement18:07ET: https://investors.rtx.com/news-releases/news-release-details/united-technologies-announces-intention-separate-three . Declared next-session daily convention November27 preservesNovember26; exactlegalminute/haltunobserved.",
+      "proxy": {
+        "session": "2018-11-27",
+        "security_id": "148187321807650528",
+        "source_observation_sha256": "aafe8c89d86c73d0a791195a8f5390a555f24dc4458933d2b9ca45e2c3fbb08f",
+        "convention": "RETAINED_FIRST_EFFECTIVE_SESSION_RAW_OPEN_PROXY_NOT_ACTUAL_EXCHANGE_AGENT_NET_RATE"
+      }
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "FMSA_exact_cash_unproven": true,
+  "AAAP_mandatory_payment_unproven": true
+}

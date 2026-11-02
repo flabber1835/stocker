@@ -1,0 +1,71 @@
+{
+  "schema": "research.system-campaign-march-cash-facts/1",
+  "terms": [
+    {
+      "ticker": "CUDA",
+      "security_id": "148871671152584159",
+      "native_session": "2018-02-09",
+      "native_term_sha256": "114eb8644d2df66109ad6b87a5b248dc9879da2e7675de24290d45705fad29b6",
+      "added": {
+        "security_id": "148871671152584159",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1348334/000119312518041082/d537244d8k.htm | Issuer completion 8-K confirms 27.55 USD automatic conversion. OCC notice 42601 independently confirms consummation before February 12 open; preserve February 9 trading. https://infomemo.theocc.com/infomemos?date=201802&number=42601",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-02-12",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 27.55,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1348334/000119312518041082/d537244d8k.htm",
+      "description": "Issuer completion 8-K confirms 27.55 USD automatic conversion. OCC notice 42601 independently confirms consummation before February 12 open; preserve February 9 trading. https://infomemo.theocc.com/infomemos?date=201802&number=42601"
+    },
+    {
+      "ticker": "JUNO",
+      "security_id": "144960909198723337",
+      "native_session": "2018-03-05",
+      "native_term_sha256": "25ac88cd564f401486b92acdec6b0be8cbcd9c7224c511cefd94d3e576924973",
+      "added": {
+        "security_id": "144960909198723337",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1594864/000119312518071366/d519479d8k.htm | Issuer completion 8-K: legal merger March 6; nonexcluded outstanding shares converted to 87 USD; Nasdaq suspension before March 7 open. Preserve March 5 and March 6 trading under next-session daily processing convention; actual payment-agent settlement time is unobserved.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-03-07",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 87.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1594864/000119312518071366/d519479d8k.htm",
+      "description": "Issuer completion 8-K: legal merger March 6; nonexcluded outstanding shares converted to 87 USD; Nasdaq suspension before March 7 open. Preserve March 5 and March 6 trading under next-session daily processing convention; actual payment-agent settlement time is unobserved."
+    },
+    {
+      "ticker": "BIVV",
+      "security_id": "211586488812101529",
+      "native_session": "2018-03-08",
+      "native_term_sha256": "5e92692e7cd7da84959e40c4e1c207a560a990d153d9c6aa6a353fd2ffc018f3",
+      "added": {
+        "security_id": "211586488812101529",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1681689/000110465918015757/a18-7726_18k.htm | Issuer completion 8-K: 105 USD automatic cash conversion and Nasdaq cessation before March 8 open.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-03-08",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 105.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1681689/000110465918015757/a18-7726_18k.htm",
+      "description": "Issuer completion 8-K: 105 USD automatic cash conversion and Nasdaq cessation before March 8 open."
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "AAAP_mandatory_payment_unproven": true
+}

@@ -1,0 +1,101 @@
+{
+  "arm": "P01",
+  "artifact_id": 13095401399,
+  "authority": "DISCOVERY_ONLY_NOT_FINANCIAL_AUTHORITY",
+  "checkpoint_bytes": 1399747,
+  "client_review_sha256": "787a9779fb40c415660ec15458e44854187efaede82ee6d795c1f66e199e44f5",
+  "client_review_status": "PARTIAL356_DIAGNOSTIC_PREFIX_INDEPENDENTLY_REVIEWED_NOT_FINANCIAL_AUTHORITY",
+  "cumulative_expected_sessions": 1737,
+  "diagnostic_checkpoint": "diagnostic-book/discovery-checkpoint.json.gz",
+  "diagnostic_checkpoint_sha256": "94c5984a2565bdb19d2d53ffa250a1a2091e21677b5ff348ea254decdf21d1cf",
+  "encrypted_output": {
+    "bytes": 1965597,
+    "compression": "TAR_GZIP_V1",
+    "manifest_sha256": "b32a9a50e92cd1e87e8ef52ec7d17fc97b941021d3c21b1d0be1c0e74125d6f3",
+    "name": "p01-discovery.tar.crseal",
+    "sha256": "52c60437d8117641404676aa003ca4b540f5cf67cfdd6c1e0811d1f3083ba9cd"
+  },
+  "events": {
+    "bytes": 2602025,
+    "chain_sha256": "0b7ac57031d8c41b465fd97245bfc8d0a4577591682c476fb28a4b213f441e6f",
+    "prefix_sha256": "ab7caf265eb78fafa445aca14729209a4bff91a4672bd9f576331fd772886d25",
+    "rows": 2513
+  },
+  "expected_remaining_sessions": 1381,
+  "financial_authority": false,
+  "financial_replay_started": false,
+  "head": "2671c86e334d9d239fb3cd01dd51a7adedabe70b",
+  "input_sha256": "2ce8b81eb52c779f9bd47f5e81c5c9c2445f3e8714b2c6a1469aac2d456fab81",
+  "inspections": {
+    "qualification/worker-inspect.json": {
+      "id": "8c298caec7c6ec80c6ccab97b41adb0ea22018b7146b854c94a464602637035b",
+      "metadata": {
+        "exit_code": 0,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      },
+      "name": "/capital-system-discovery-p01-qualify-41331415571-1",
+      "role": "qualify",
+      "sha256": "ccccf21af62740ec77c8b854e417e594516206f10e75a3ab78af640ad1cefc53"
+    },
+    "worker-inspect.json": {
+      "id": "dd6c6d507fcc646877d7b7b20052b132272d438e395a3cf9ea77de76afacd29f",
+      "metadata": {
+        "exit_code": 1,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      },
+      "name": "/capital-system-discovery-p01-worker-41331415571-1",
+      "role": "worker",
+      "sha256": "110214802b83c8200bf1f3fc6762ead0f4b70723756ae144e3c9dcb7f66c010b"
+    }
+  },
+  "inventory_members": 53,
+  "journals": {
+    "daily": {
+      "bytes": 497409,
+      "last_record_sha256": "ad355ff35d6ad13011355a9292e6473e9ddfa4cd896b40653b8b572adf0ae7f9",
+      "prefix_sha256": "3e71453af115ef16edc039eb981228bd6954e00372e6ee8289b993165c45a63f"
+    },
+    "formation": {
+      "bytes": 0,
+      "last_record_sha256": null,
+      "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "monthly": {
+      "bytes": 0,
+      "last_record_sha256": null,
+      "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "watch": {
+      "bytes": 0,
+      "last_record_sha256": null,
+      "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "next_session": "2021-02-01",
+  "no_financial_state_adoption": true,
+  "original_qualification_sha256": "f5a52ed67804fbdf3c1701954714c3574e26b5366b392f0d7db8f98f43f9043a",
+  "production_contacted": false,
+  "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+  "public_probe_sha256": "65670541c77ebea865d2f3fdcab8edc3fc8f3d9d99f61aec98ac8a947e515d20",
+  "receipt_name": "p01-discovery.json",
+  "receipt_sha256": "d9548ebb4eab0ac60aacdd1b32fea4d654bc5f0fd7b807dd6a83a768670cd6b6",
+  "request_sha256": "82174d3116e9aa8617de2041f3ba69df5bc447fa7c2e7cb00ced450e5a5bc3b7",
+  "retained_all_current_tails_zero": true,
+  "run_id": 41331415571,
+  "runtime_checkpoint_sha256": "6e7a2db4900db5586e56146c41c89eda2547a7fec0d608b2f3317e3d19201424",
+  "schema": "research.p01-diagnostic-suffix-predecessor/1",
+  "selected_session": "2021-01-29",
+  "source_binding_sha256": "cbff432d861381735e7bba6ecd79491b059405cde8840cc2d128dbbad85d0b14",
+  "state_sha256": "2cdad43deb6585ff3655eeb8f0b55f17399e725736cc42cebb87c97136549019",
+  "strict_financial_spec_sha256": "9da42e06f7c0b44f85fad5a922340519f6e8db06b679433cf79d9ba12f640ff7",
+  "strict_parent_outer_sha256": "84d44463c7288711a97fa8f36fdec0734e0c2a6bf47153494684d5739c599262",
+  "target_end": "2026-07-31",
+  "transition_chain_sha256": "7b497d2191cc202420283ac3fa04a01e933ab58da4b187b2ed0693a5b35c7047",
+  "transitions": 356,
+  "zip_bytes": 1969354,
+  "zip_sha256": "871928ae5c7d2d6aacfa38a8eeafffbdd0417477978e45bb590decff6b48d43b"
+}

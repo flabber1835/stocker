@@ -1,0 +1,79 @@
+{
+  "schema": "research.system-campaign-followup-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "AVXS",
+      "security_id": "537412601986694101",
+      "native_session": "2018-05-15",
+      "native_term_sha256": "0c9d42b3b38276106e0f5c467d39965960d89e18c10640e8f7a858b32dfbace1",
+      "added": {
+        "security_id": "537412601986694101",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.miaxglobal.com/sites/default/files/alert-files/AVXS_Merger_43039.pdf | OCC43039 confirms consummation before May15 open and conversion of every existing common share into 218 USD cash. Nasdaq May16 administrative suspension does not move the explicit merger boundary. Issuer-distributed SEC disclosure covers mandatory remaining eligible-holder conversion. https://www.sec.gov/Archives/edgar/data/1114448/000110465918033207/a18-10056_9ex99da5g.htm",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-05-15",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 218.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.miaxglobal.com/sites/default/files/alert-files/AVXS_Merger_43039.pdf",
+      "description": "OCC43039 confirms consummation before May15 open and conversion of every existing common share into 218 USD cash. Nasdaq May16 administrative suspension does not move the explicit merger boundary. Issuer-distributed SEC disclosure covers mandatory remaining eligible-holder conversion. https://www.sec.gov/Archives/edgar/data/1114448/000110465918033207/a18-10056_9ex99da5g.htm",
+      "proxy": null
+    },
+    {
+      "ticker": "PNK",
+      "security_id": "217671929800919078",
+      "native_session": "2018-10-12",
+      "native_term_sha256": "fe61b3e564ff3d56127cf1ee61a5ab1fc4c74b7b3c32795d93bbdd75a9c85f5e",
+      "added": {
+        "security_id": "217671929800919078",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1656239/000119312518298904/d639383d8k.htm | Issuer8K confirms mandatory 20 USD cash plus .42 PENN shares. OCC43835 confirms consummation before October15 open. Preserve October12 trading. https://www.miaxglobal.com/sites/default/files/alert-files/PNK_Merger_43835.pdf | Fractional holder cash uses frozen first effective-session PENN raw-open proxy; actual exchange-agent net rate unobserved.",
+        "delivered_security_id": "449165340222487471",
+        "delivered_ticker": "PENN",
+        "delivered_issuer_id": "SEC_CIK:921738",
+        "session": "2018-10-15",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 20.0,
+        "exchange_ratio": 0.42,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1656239/000119312518298904/d639383d8k.htm",
+      "description": "Issuer8K confirms mandatory 20 USD cash plus .42 PENN shares. OCC43835 confirms consummation before October15 open. Preserve October12 trading. https://www.miaxglobal.com/sites/default/files/alert-files/PNK_Merger_43835.pdf",
+      "proxy": {
+        "session": "2018-10-15",
+        "security_id": "449165340222487471",
+        "source_observation_sha256": "68adf6fda801bbb368fb6fa2c66aa13da1af07acdd609b458441c7cee9ce7957",
+        "convention": "RETAINED_FIRST_EFFECTIVE_SESSION_RAW_OPEN_PROXY_NOT_ACTUAL_EXCHANGE_AGENT_NET_RATE"
+      }
+    },
+    {
+      "ticker": "KS",
+      "security_id": "39811233483263965",
+      "native_session": "2018-11-02",
+      "native_term_sha256": "c4174a5a1651b3fa87d5e32b9c3c6ceba893703ad80aeb15beb31b6b4fc304c3",
+      "added": {
+        "security_id": "39811233483263965",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1325281/000117184318007571/f8k_110518.htm | Issuer8K confirms35 USD cash for nonelecting eligible holders and no stock-election proration. Legal completionNovember2, suspensionbeforeNovember5open/OCC43946. Explicit next-session daily convention preservesNovember2trading. No shadow stock election assumed. https://www.miaxglobal.com/sites/default/files/alert-files/KS_Merger_43946.pdf",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-11-05",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 35.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1325281/000117184318007571/f8k_110518.htm",
+      "description": "Issuer8K confirms35 USD cash for nonelecting eligible holders and no stock-election proration. Legal completionNovember2, suspensionbeforeNovember5open/OCC43946. Explicit next-session daily convention preservesNovember2trading. No shadow stock election assumed. https://www.miaxglobal.com/sites/default/files/alert-files/KS_Merger_43946.pdf",
+      "proxy": null
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "AAAP_mandatory_payment_unproven": true
+}

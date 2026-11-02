@@ -1,0 +1,11 @@
+{
+  "schema": "research.capital-risk-timeout-export-request/1",
+  "request_id": "timeout-export-001",
+  "stage": "engineering-only",
+  "core_protocol_sha256": "a6221986918db165b989ea234e8185e0076b0c8934dea4fa0c753974754f4028",
+  "execution_image": "sha256:1b449754a48473e4737fc34f3f51ae0b4226d5e84540dea54115d4693142ed9d",
+  "deadline_seconds": 3,
+  "financial_sessions": 0,
+  "marker_source_sha256": "ffe88c4f534bd6c89d93af392d82b0e6f86a01ad24becfe06b826828894fc84b",
+  "marker_payload_sha256": "a53dfb2c81b639c963d37471a08c9f2cee732efe181eb5ae67c472a4313f6b32"
+}

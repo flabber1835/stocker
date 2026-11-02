@@ -1,0 +1,243 @@
+{
+  "schema": "research.system-campaign-following-completions-facts/1",
+  "terms": [
+    {
+      "ticker": "ACIA",
+      "security_id": "43443874000076334",
+      "native_session": "2021-02-26",
+      "native_term_sha256": "34e39e53f1bd2e528acb414422fc3c0e9cde54d3811b556e7f96d64fde390cce",
+      "identity_witness": {
+        "session": "2021-02-25",
+        "security_id": "43443874000076334",
+        "ticker": "ACIA",
+        "issuer_id": "SEC_CIK:1651235",
+        "listing_first_session": "2016-05-13",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "f92049d1d50aa6451a6a5e715c944749d3bbbad7010f6655a0a5bee0b0d0c56d"
+      },
+      "last_trading_session": "2021-02-26",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1651235/000119312521062708/d143111d8k.htm",
+      "timing_source": "https://www.miaxglobal.com/sites/default/files/alert-files/ACIA_merger_48363.pdf",
+      "description": "Mandatory ordinary common-share completion; preserve2021-02-26 trading and use the existing next-session convention on2021-03-01.",
+      "added": {
+        "session": "2021-03-01",
+        "security_id": "43443874000076334",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1651235/000119312521062708/d143111d8k.htm | Mandatory ordinary common-share completion; preserve2021-02-26 trading and use the existing next-session convention on2021-03-01.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 115.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      }
+    },
+    {
+      "ticker": "APHA",
+      "security_id": "1056418588994492299",
+      "native_session": "2021-04-30",
+      "native_term_sha256": "31b315bf0ae426ae1216fb3fa44dc6d4d084313ce05786b4c7b2082a62b5f6bb",
+      "identity_witness": {
+        "session": "2021-04-29",
+        "security_id": "1056418588994492299",
+        "ticker": "APHA",
+        "issuer_id": "SEC_UNKNOWN:1056418588994492299",
+        "listing_first_session": "2018-11-02",
+        "security_type_eligible": "0",
+        "source_observation_sha256": "4e630e0706bcd6a2d2f73c36845a40feaffc1163ee11bed990790739d3e8d5a4"
+      },
+      "last_trading_session": "2021-04-30",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1731348/000114036121015755/nt10023917x2_8k.htm",
+      "timing_source": "https://www.nasdaqtrader.com/tradernews.aspx?id=eca2021-71",
+      "description": "Mandatory ordinary common-share completion; preserve2021-04-30 trading and use the existing next-session convention on2021-05-03.",
+      "added": {
+        "session": "2021-05-03",
+        "security_id": "1056418588994492299",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1731348/000114036121015755/nt10023917x2_8k.htm | Mandatory ordinary common-share completion; preserve2021-04-30 trading and use the existing next-session convention on2021-05-03.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": null,
+        "exchange_ratio": 0.8381,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": "653423826172679659",
+        "delivered_ticker": "TLRY",
+        "delivered_issuer_id": "SEC_CIK:1731348"
+      },
+      "delivered_identity_witness": {
+        "session": "2021-05-03",
+        "security_id": "653423826172679659",
+        "ticker": "TLRY",
+        "issuer_id": "SEC_CIK:1731348",
+        "listing_first_session": "2018-07-19",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "73ba6d30c2699f8c1ca3c416aa072f1853fff0dd274a0f3d1fb405e080894984"
+      }
+    },
+    {
+      "ticker": "CATM",
+      "security_id": "1127660475946542495",
+      "native_session": "2021-06-18",
+      "native_term_sha256": "070bed00fbafec28dd4c16c22728f6655e10bb1c1f67468bc06265bb33acb8cc",
+      "identity_witness": {
+        "session": "2021-06-17",
+        "security_id": "1127660475946542495",
+        "ticker": "CATM",
+        "issuer_id": "SEC_CIK:1671013",
+        "listing_first_session": "2007-12-13",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "890648463f943d47b80dbbb9b2957478284735a70680f4a4388cb19c68dbc96a"
+      },
+      "last_trading_session": "2021-06-18",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1671013/000110465921083463/tm2119314d2_8k.htm",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2021-107",
+      "description": "Mandatory ordinary common-share completion; preserve2021-06-18 trading and use the existing next-session convention on2021-06-21.",
+      "added": {
+        "session": "2021-06-21",
+        "security_id": "1127660475946542495",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1671013/000110465921083463/tm2119314d2_8k.htm | Mandatory ordinary common-share completion; preserve2021-06-18 trading and use the existing next-session convention on2021-06-21.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 39.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      }
+    },
+    {
+      "ticker": "AZPN1",
+      "security_id": "223345417151181882",
+      "native_session": "2022-05-16",
+      "native_term_sha256": "79fc7e1f6db87e47b08a3dcbd746b92021c7d9d7627a9bf1473605be4e00608a",
+      "identity_witness": {
+        "session": "2022-05-13",
+        "security_id": "223345417151181882",
+        "ticker": "AZPN1",
+        "issuer_id": "SEC_UNKNOWN:223345417151181882",
+        "listing_first_session": "1997-12-31",
+        "security_type_eligible": "0",
+        "source_observation_sha256": "d827ff594368cf62e6afb592c05891aaed3e1e558163ff94dbb5893e4ce9cdff"
+      },
+      "last_trading_session": "2022-05-16",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/929940/000114036122019468/ny20004077x9_8k.htm",
+      "timing_source": "https://nasdaqtrader.com/TraderNews.aspx?id=eca2022-100",
+      "description": "Retained next-session mandatory common-share transaction; preserve 2022-05-16 trading and all frozen identities/classifications.",
+      "added": {
+        "session": "2022-05-17",
+        "security_id": "223345417151181882",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/929940/000114036122019468/ny20004077x9_8k.htm | Retained next-session mandatory common-share transaction; preserve 2022-05-16 trading and all frozen identities/classifications.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 87.69,
+        "exchange_ratio": 0.42,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": "556944515102158299",
+        "delivered_ticker": "AZPN",
+        "delivered_issuer_id": "SEC_CIK:929940"
+      },
+      "delivered_identity_witness": {
+        "session": "2022-05-17",
+        "security_id": "556944515102158299",
+        "ticker": "AZPN",
+        "issuer_id": "SEC_CIK:929940",
+        "listing_first_session": "2022-05-17",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "d8a2d9bb914c9888e9f0b9ad238ddb597830ff2e12a0277c9776e6895b95ad95"
+      },
+      "provider_alias_proof": {
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "archive_bytes": 9855560,
+        "ticker": "AZPN1",
+        "original_ticker": "AZPN",
+        "company": "ASPEN TECHNOLOGY INC",
+        "session": "2022-05-16",
+        "selected_row_sha256": [
+          "8c3fc40a5ce2c92c07213df302091c4577b1987e35f0b9459defd6a64cb64b7e",
+          "e62549a630b5609eb415117bf04cabfdae20ebd6186b89429d6c6488dabd390d",
+          "4f17d8c4dac1ea721fb70327eb616fe0ceb3f18dc47780e243694fa07d2c7536",
+          "19e0f1ecaaead53d3f244207a8ad1c3d8f72c4b39187c23f83e68edce269f3a0",
+          "085cce3a400021af3096b4a03d72c883e5772e5814396dcda5c4681df335b922"
+        ],
+        "rows_sha256": "237357f6fa761c9a2bb4e14ef93f56dd3297ce1da5b6114e909ee429a81d115e"
+      },
+      "frozen_provider_issuer_limitation": {
+        "source_issuer": "SEC_UNKNOWN:223345417151181882",
+        "delivered_frozen_issuer": "SEC_CIK:929940",
+        "actual_new_issuer": "SEC_CIK:1897982",
+        "provider_metadata_upgraded": false
+      }
+    },
+    {
+      "ticker": "REGI",
+      "security_id": "1012599037173653936",
+      "native_session": "2022-06-10",
+      "native_term_sha256": "db8331a6239b9aadba37604efb31c8e0cec398a975859cd376bc8a7c53ffb619",
+      "identity_witness": {
+        "session": "2022-06-09",
+        "security_id": "1012599037173653936",
+        "ticker": "REGI",
+        "issuer_id": "SEC_CIK:1463258",
+        "listing_first_session": "2012-01-19",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "b9d9bb81b36daa3ea6d7701de147efd577c09866d76a99c6c3c1209d766bf750"
+      },
+      "last_trading_session": "2022-06-10",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1463258/000119312522172511/d350039d8k.htm",
+      "timing_source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2022-136",
+      "description": "Mandatory ordinary common-share completion; preserve2022-06-10 trading and use the existing next-session convention on2022-06-13.",
+      "added": {
+        "session": "2022-06-13",
+        "security_id": "1012599037173653936",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1463258/000119312522172511/d350039d8k.htm | Mandatory ordinary common-share completion; preserve2022-06-10 trading and use the existing next-session convention on2022-06-13.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 61.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      }
+    },
+    {
+      "ticker": "PLAN",
+      "security_id": "621163045039428157",
+      "native_session": "2022-06-21",
+      "native_term_sha256": "dd03d1787c5e048af217a9f9313ea4347123dd290c0ee01feac24811b68c89e6",
+      "identity_witness": {
+        "session": "2022-06-17",
+        "security_id": "621163045039428157",
+        "ticker": "PLAN",
+        "issuer_id": "SEC_CIK:1540755",
+        "listing_first_session": "2018-10-12",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "bf49323008161d93a545893bff90da745872320b60ea71d96af5a49953952806"
+      },
+      "last_trading_session": "2022-06-21",
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1540755/000119312522178282/d333986d8k.htm",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=50625",
+      "description": "Retained next-session mandatory common-share transaction; preserve 2022-06-21 trading and all frozen identities/classifications.",
+      "added": {
+        "session": "2022-06-22",
+        "security_id": "621163045039428157",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1540755/000119312522178282/d333986d8k.htm | Retained next-session mandatory common-share transaction; preserve 2022-06-21 trading and all frozen identities/classifications.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 63.75,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      }
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "provider_metadata_upgraded": false,
+  "new_tax_or_settlement_model": false,
+  "production_contacted": false,
+  "cil_convention": "RETAINED_FROZEN_RAW_OPEN_PROXY_NOT_ACTUAL_ISSUER_SETTLEMENT",
+  "cash_model": "INHERITED_PRETAX_GROSS_COMMON_SHARE_CASH_NO_INDIVIDUAL_WITHHOLDING_OR_OPTION_SETTLEMENT_MODEL"
+}

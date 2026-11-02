@@ -1,0 +1,361 @@
+{
+  "active_unconsumed_events": 5,
+  "canonical_financial_source_changed": false,
+  "commitment_group": {
+    "catalog_file": "system-campaign-unconsumed2024-cash-calendar-terminal-facts.json",
+    "loader_file": "system_campaign_cash_calendar.py",
+    "overlay_file": "unconsumed2024-cash-calendar-overlay.json",
+    "private_file": "hydrated-unconsumed2024-cash-calendar-terminal-catalog.json",
+    "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-unconsumed2024/1/"
+  },
+  "excluded_consumed_events": [
+    {
+      "native_session": "2024-03-15",
+      "reason": "NATIVE_ALREADY_CONSUMED_BEFORE_OWN37_APR30_NO_RETROACTIVE_CHANGE",
+      "ticker": "KRTX"
+    },
+    {
+      "native_session": "2024-03-18",
+      "reason": "NATIVE_ALREADY_CONSUMED_BEFORE_OWN37_APR30_NO_RETROACTIVE_CHANGE",
+      "ticker": "AYX"
+    },
+    {
+      "native_session": "2024-04-18",
+      "reason": "NATIVE_ALREADY_CONSUMED_BEFORE_OWN37_APR30_NO_RETROACTIVE_CHANGE",
+      "ticker": "MDC"
+    }
+  ],
+  "excluded_pending_events": [
+    {
+      "reason": "ACTUAL_FROZEN_RECOGNITION_QUOTE_CONFLICT",
+      "ticker": "WIRE"
+    }
+  ],
+  "frozen_year_member_checks": [
+    {
+      "all_rows_read": 1647175,
+      "gzip_bytes": 78118364,
+      "gzip_sha256": "13016d332486bbdba3327835205e6c6da9d2e1363229836088ee6e2472d31e30",
+      "member": "observations-2024.csv.gz",
+      "zip_crc32": 3071881209
+    }
+  ],
+  "full_provider_rows_verification_required": true,
+  "loader_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "same_day_quote_claims": [],
+  "schema": "research.factual-cash-calendar-catalog/1",
+  "source_research_events": 8,
+  "terms": [
+    {
+      "actual_completion_date": "2024-05-20",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 65.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-229 | Mandatory remaining ordinary-common shares convert at65USD in the completed merger before the May20,2024 regular market opening; preserve May17 trading and frozen source metadata. The May21 suspension date is not the recognition date.",
+        "security_id": "1079367959124332531",
+        "session": "2024-05-20"
+      },
+      "description": "Mandatory remaining ordinary-common shares convert at65USD in the completed merger before the May20,2024 regular market opening; preserve May17 trading and frozen source metadata. The May21 suspension date is not the recognition date.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1626199",
+        "listing_first_session": "2015-06-17",
+        "security_id": "1079367959124332531",
+        "security_type_eligible": "1",
+        "session": "2024-05-17",
+        "source_observation_sha256": "f8d669fc12b70ae77f7905629aed7219a11dc58d6b301e533d8e2ff963235416",
+        "ticker": "ALPN"
+      },
+      "last_trading_session": "2024-05-17",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-05-17",
+      "native_term_sha256": "501ef01c210d47e1194cf165eca0b17cc2e014f52a7b01ea6aef622b1f95a300",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_effective_clock_claimed": false,
+        "before_market_open": true,
+        "cash_per_common_share": "65.00",
+        "cash_per_ordinary_share": "65.00",
+        "completion": "2024-05-20",
+        "corroboration": "https://www.sec.gov/Archives/edgar/data/875320/000119312524142278/d818729d8k.htm",
+        "currency": "USD",
+        "last_trade_confirmed": "2024-05-17",
+        "mandatory_common_equity": true,
+        "native_discovery_session": "2024-05-17",
+        "source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-229",
+        "ticker": "ALPN"
+      },
+      "primary_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-229",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "1ac14fff6a71799479bd141accf0f5a9025e24181c59fda901663f3d90d1128e",
+        "selected_row_sha256": [
+          "aff94f342854548b04be3ae24303e5a59cc4695e4bad66d6a5aa8769530833df",
+          "6612ef65136dda621a078418d90597222f42a0c95864fcbebe0a1ec3495aff1b",
+          "f8fdfba4874de9f70922941df824415afff8c65109303b02a8c178f7767c85b0"
+        ],
+        "session": "2024-05-17",
+        "ticker": "ALPN"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "1079367959124332531",
+      "ticker": "ALPN",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-229"
+    },
+    {
+      "actual_completion_date": "2024-05-31",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 335.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2024-255 | Mandatory remaining common-share cash conversion completed before the 2024-05-31 market open; preserve 2024-05-30 trading and frozen source metadata.",
+        "security_id": "158012003593585084",
+        "session": "2024-05-31"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2024-05-31 market open; preserve 2024-05-30 trading and frozen source metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1642545",
+        "listing_first_session": "2019-03-07",
+        "security_id": "158012003593585084",
+        "security_type_eligible": "1",
+        "session": "2024-05-30",
+        "source_observation_sha256": "5e34fb5522e43cdc9714baf2524b516387271ffc027a0c2646c6db5c756fe505",
+        "ticker": "SWAV"
+      },
+      "last_trading_session": "2024-05-30",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-05-30",
+      "native_term_sha256": "011cbd286ef8f6e57519452164b18187177190814dfe5742ce4ac52d70f02a0c",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "before_market_open": true,
+        "cash_per_common_share": "335.00",
+        "cash_per_ordinary_share": "335.00",
+        "completion": "2024-05-31",
+        "corroboration": "https://www.investor.jnj.com/investor-news/news-details/2024/Johnson--Johnson-Completes-Acquisition-of-Shockwave-Medical/default.aspx",
+        "currency": "USD",
+        "last_trade_confirmed": "2024-05-30",
+        "mandatory_common_equity": true,
+        "native_discovery_session": "2024-05-30",
+        "source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2024-255",
+        "ticker": "SWAV"
+      },
+      "primary_source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2024-255",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "07cd0520063f8ccddb59c795d649d6bcf2cef4cc6dea1a596e7f83ecbe136265",
+        "selected_row_sha256": [
+          "fc0c8e151b4e1806065545285e8240ff95079e7022d728024867b8d813062e17",
+          "f4f46d3ef6566586dba64756844929835d8b8e25bdbf8b7de0fcbc5abb8b1618",
+          "4b0ecf2f681db54826eb8107b431a4b5935d465321b23fae2613d088d8bd362c"
+        ],
+        "session": "2024-05-30",
+        "ticker": "SWAV"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "158012003593585084",
+      "ticker": "SWAV",
+      "timing_source": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2024-255"
+    },
+    {
+      "actual_completion_date": "2024-06-11",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 25.6,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1654151/000119312524158772/d824393d8k.htm | Mandatory remaining common-share cash conversion completed before the 2024-06-11 market open; preserve 2024-06-10 trading and frozen source metadata.",
+        "security_id": "710952026927009495",
+        "session": "2024-06-11"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2024-06-11 market open; preserve 2024-06-10 trading and frozen source metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1654151",
+        "listing_first_session": "2017-09-28",
+        "security_id": "710952026927009495",
+        "security_type_eligible": "1",
+        "session": "2024-06-10",
+        "source_observation_sha256": "f7fa294661fcdcd34cd75190db8f230760c0fc3c773535e3a964425296144414",
+        "ticker": "DCPH"
+      },
+      "last_trading_session": "2024-06-10",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-06-10",
+      "native_term_sha256": "0176813ad5782f9bf8ac9d288c890209119c6e1030675018523f6ba660ed979c",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "before_market_open": true,
+        "cash_per_common_share": "25.60",
+        "cash_per_ordinary_share": "25.60",
+        "completion": "2024-06-11",
+        "corroboration": "https://www.ono-pharma.com/en/news/20240611.html",
+        "currency": "USD",
+        "last_trade_confirmed": null,
+        "mandatory_common_equity": true,
+        "native_discovery_session": "2024-06-10",
+        "source": "https://www.sec.gov/Archives/edgar/data/1654151/000119312524158772/d824393d8k.htm",
+        "source_evidence": "Completion under DGCL251(h), including remaining non-tendered ordinary shares at25.60; separate from tender-only entitlement assumptions. Item3.01 requests cessation before Jun11 opening.",
+        "ticker": "DCPH"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1654151/000119312524158772/d824393d8k.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "00c7f97ea220df75a505743a28957c2bebcbae05faba8919fa9f72605f2946d4",
+        "selected_row_sha256": [
+          "249848017a54b1aa560513c07dab0dc35ff57e5aafab9231264d943fb709318c",
+          "d5ce3032a03d0231847b6bafae6fa8ee92f7acedb0f1173d020d9709e1101975",
+          "8f4af6917fc509d778f823247d1ab99808e8d8d14f9f9f839f9094dee6f485c6"
+        ],
+        "session": "2024-06-10",
+        "ticker": "DCPH"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "710952026927009495",
+      "ticker": "DCPH",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1654151/000119312524158772/d824393d8k.htm"
+    },
+    {
+      "actual_completion_date": "2024-07-02",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 35.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1437352/000119312524173902/d804733dex991.htm | Mandatory remaining common-share cash conversion completed before the 2024-07-02 market open; preserve 2024-07-01 trading and frozen source metadata.",
+        "security_id": "741035362761868119",
+        "session": "2024-07-02"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2024-07-02 market open; preserve 2024-07-01 trading and frozen source metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1437352",
+        "listing_first_session": "2016-09-16",
+        "security_id": "741035362761868119",
+        "security_type_eligible": "1",
+        "session": "2024-07-01",
+        "source_observation_sha256": "ddbe5ff5f27f9035cd9202053008a99d2cf81dd5a9dbbea7d1938d2a3b431898",
+        "ticker": "EVBG"
+      },
+      "last_trading_session": "2024-07-01",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-07-01",
+      "native_term_sha256": "3945592c297ca7206c046072586f3ae7dc328922b05b96e1db7e6f6530b783c9",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "before_market_open": true,
+        "cash_per_common_share": "35.00",
+        "cash_per_ordinary_share": "35.00",
+        "completion": "2024-07-02",
+        "currency": "USD",
+        "last_trade_confirmed": "2024-07-01",
+        "mandatory_common_equity": true,
+        "native_discovery_session": "2024-07-01",
+        "source": "https://www.sec.gov/Archives/edgar/data/1437352/000119312524173902/d804733dex991.htm",
+        "ticker": "EVBG",
+        "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-316"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1437352/000119312524173902/d804733dex991.htm",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "08df6f1d8c6f248c9ef330fd4da5196fda0a266e7105f4a517ed38298d964cab",
+        "selected_row_sha256": [
+          "4aba84f1c85eb9b18389fad2fcf87e59afabc028033f996b51f4c43dc82fcbf8",
+          "db0aceca525e428052a86e69b0d175fcad57d9cf298d62bdb02599c0c7948ac7",
+          "13ab0497813a4b40eac1a88011ca40152fa84e9f96f334ec0f8f20cefc032d5d"
+        ],
+        "session": "2024-07-01",
+        "ticker": "EVBG"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "741035362761868119",
+      "ticker": "EVBG",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-316"
+    },
+    {
+      "actual_completion_date": "2024-10-02",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 76.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.perficient.com/about/newsroom/news-releases/2024/eqt-completes-acquisition-of-perficient | Mandatory remaining common-share cash conversion completed before the 2024-10-02 market open; preserve 2024-10-01 trading and frozen source metadata.",
+        "security_id": "183768544366008802",
+        "session": "2024-10-02"
+      },
+      "description": "Mandatory remaining common-share cash conversion completed before the 2024-10-02 market open; preserve 2024-10-01 trading and frozen source metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1085869",
+        "listing_first_session": "1999-07-29",
+        "security_id": "183768544366008802",
+        "security_type_eligible": "1",
+        "session": "2024-10-01",
+        "source_observation_sha256": "c55b064dbfa59c9beafea82e1bb30b635570a48906ffe257c086325f696425b1",
+        "ticker": "PRFT"
+      },
+      "last_trading_session": "2024-10-01",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-10-01",
+      "native_term_sha256": "3e51dd694101fef4a99b3f1fbfb9764802b072776546b77886be7036c6a47602",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "before_market_open": true,
+        "cash_per_common_share": "76.00",
+        "cash_per_ordinary_share": "76.00",
+        "completion": "2024-10-02",
+        "corroboration": "https://infomemo.theocc.com/infomemos?number=55308",
+        "currency": "USD",
+        "last_trade_confirmed": null,
+        "limitation": "Issuer completion notice establishes cessation before Oct2 open; exact frozen last trading witness still requires qualification. OCC underlying common-share statement corroborates price; option deliverables are not Core holdings.",
+        "mandatory_common_equity": true,
+        "native_discovery_session": "2024-10-01",
+        "source": "https://www.perficient.com/about/newsroom/news-releases/2024/perficient-to-be-acquired-by-eqt-for-approximately-3-billion",
+        "ticker": "PRFT",
+        "timing_source": "https://www.perficient.com/about/newsroom/news-releases/2024/eqt-completes-acquisition-of-perficient"
+      },
+      "primary_source": "https://www.perficient.com/about/newsroom/news-releases/2024/eqt-completes-acquisition-of-perficient",
+      "provider_rows_proof": {
+        "archive_bytes": 9855560,
+        "archive_sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+        "rows_sha256": "1f33fccc47b512b02cc4977d9d7a01858524e227c88c31ba507890851af423f2",
+        "selected_row_sha256": [
+          "7fe791935d2248390ffc893ac0186014888acf99c2b9b2d847dd48fb12cc3815",
+          "d70e32eaddc5aeae27a476d766ac10834f0625007ad2fe7905f4797a2eccd15e",
+          "264ce6650f3a722517d07be3e58f67a24ccddc6f64eaf037f732f44c4debdbaa"
+        ],
+        "session": "2024-10-01",
+        "ticker": "PRFT"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "183768544366008802",
+      "ticker": "PRFT",
+      "timing_source": "https://www.perficient.com/about/newsroom/news-releases/2024/eqt-completes-acquisition-of-perficient"
+    }
+  ]
+}

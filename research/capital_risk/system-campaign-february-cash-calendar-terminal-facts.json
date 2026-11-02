@@ -1,0 +1,125 @@
+{
+  "canonical_financial_source_changed": false,
+  "commitment_group": {
+    "catalog_file": "system-campaign-february-cash-calendar-terminal-facts.json",
+    "loader_file": "system_campaign_cash_calendar.py",
+    "overlay_file": "february-cash-calendar-overlay.json",
+    "private_file": "hydrated-february-cash-calendar-terminal-catalog.json",
+    "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-february/1/"
+  },
+  "limitation": "Frozen provider inputs and immediate daily common-share cash-entitlement convention unchanged.",
+  "loader_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "schema": "research.factual-cash-calendar-catalog/1",
+  "terms": [
+    {
+      "actual_completion_date": "2022-02-23",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 79.25,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1129260/000119312522050048/d300567d8k.htm | Mandatory common-share cash completion before market open on 2022-02-23; preserve last trade 2022-02-22 and all frozen source metadata.",
+        "security_id": "576374012507208201",
+        "session": "2022-02-23"
+      },
+      "description": "Mandatory common-share cash completion before market open on 2022-02-23; preserve last trade 2022-02-22 and all frozen source metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1129260",
+        "listing_first_session": "2012-03-28",
+        "security_id": "576374012507208201",
+        "security_type_eligible": "1",
+        "session": "2022-02-18",
+        "source_observation_sha256": "49ecfb120b630518e9fc50c79256d94734fad4c154008b484e9c513abfb04793",
+        "ticker": "VCRA"
+      },
+      "last_trading_session": "2022-02-22",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2022-02-22",
+      "native_term_sha256": "96d66e520046facaa9871daea03f370b8714e39c410e508854b7abaf72cdb649",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1129260/000119312522050048/d300567d8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "576374012507208201",
+      "ticker": "VCRA",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=50092"
+    },
+    {
+      "actual_completion_date": "2024-07-18",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 0.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1814329/000119312524180782/d833105d8k.htm | Mandatory common-share cash completion before market open on 2024-07-18; preserve last trade 2024-07-17 and all frozen source metadata.",
+        "security_id": "1011284967859810069",
+        "session": "2024-07-18"
+      },
+      "description": "Mandatory common-share cash completion before market open on 2024-07-18; preserve last trade 2024-07-17 and all frozen source metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1814329",
+        "listing_first_session": "2020-08-05",
+        "security_id": "1011284967859810069",
+        "security_type_eligible": "1",
+        "session": "2024-07-16",
+        "source_observation_sha256": "49454d118c571dfe368607884fb4aad2469c0565365b8593ebf00ec6558ba4f1",
+        "ticker": "ASTR"
+      },
+      "last_trading_session": "2024-07-17",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-07-17",
+      "native_term_sha256": "4d014735e70d00fde30af61fc710a750d3c724c888a517d220e4fdc864dd8982",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1814329/000119312524180782/d833105d8k.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "1011284967859810069",
+      "ticker": "ASTR",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-296"
+    },
+    {
+      "actual_completion_date": "2025-07-02",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 40.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1645590/000114036125034206/ef20055124_ex99-3.htm | Mandatory common-share cash completion before market open on 2025-07-02; preserve last trade 2025-07-01 and all frozen source metadata.",
+        "security_id": "949392331435765708",
+        "session": "2025-07-02"
+      },
+      "description": "Mandatory common-share cash completion before market open on 2025-07-02; preserve last trade 2025-07-01 and all frozen source metadata.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1043604",
+        "listing_first_session": "1999-06-25",
+        "security_id": "949392331435765708",
+        "security_type_eligible": "1",
+        "session": "2025-06-30",
+        "source_observation_sha256": "2daf8c165f886ff191dcac6c90db3ef05bca75db09de455e4c24c53afa51b20a",
+        "ticker": "JNPR"
+      },
+      "last_trading_session": "2025-07-01",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-07-01",
+      "native_term_sha256": "eea71df25ce86ef99f87d8505cf6920884cc8a66b3aeb2d7557e74f6d295aa4c",
+      "preopen_completion_confirmed": true,
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1645590/000114036125034206/ef20055124_ex99-3.htm",
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "949392331435765708",
+      "ticker": "JNPR",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=56805"
+    }
+  ]
+}

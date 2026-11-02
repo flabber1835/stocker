@@ -1,0 +1,13 @@
+{
+  "groups": [
+    {
+      "catalog_file": "system-campaign-winter2025-cash-terminal-facts.json",
+      "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "winter2025-cash-overlay.json",
+      "private_file": "hydrated-winter2025-cash-catalog.json",
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-winter2025/1/"
+    }
+  ],
+  "required_lbph_extension_sha256": "065e6302a1c68c24830ef3735247f47f96e65e15ab9f02e1e0ed67be383e710b",
+  "schema": "research.ordinary-catalog-registry-extension/1"
+}

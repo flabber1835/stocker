@@ -1,0 +1,38 @@
+{
+  "actual_fast_reference_full_runtime_equivalence_required": true,
+  "arms": {
+    "P10": {
+      "actual_log_sha256": "1f60e8d750ca30cf22bc1bc8b4acadb454f6590a925ff1c76096b94173d78d89",
+      "actual_refusal": "REFUSED_VOLATILITY_CAUSAL_AXIS",
+      "artifact_id": 13104392627,
+      "artifact_zip_sha256": "e1d61a690cadd793c19d29422d7c56a41dc42659bdaa4650b47cba14c028662d",
+      "cause": "FAST transport kept one close while unchanged V policy requires its full dated window.",
+      "encrypted_output_sha256": "4211f004b99b0e7292e6146d00bd997444f153c1266bfbc89751a0b77a5b3cbd",
+      "manifest_sha256": "ded432199d665b82a017488997f2be4303143a8430028be4204081e3d63aa2de",
+      "no_diagnostic_origin_or_worker": true,
+      "oom_killed": false,
+      "qualifier_exit_code": 1,
+      "receipt_sha256": "5fb21ebf28ad9d724b7d39c29c9cfcf923b3857dde57152b4dea3ed9d31fdd1f"
+    },
+    "P11": {
+      "actual_log_sha256": "1f60e8d750ca30cf22bc1bc8b4acadb454f6590a925ff1c76096b94173d78d89",
+      "actual_refusal": "REFUSED_VOLATILITY_CAUSAL_AXIS",
+      "artifact_id": 13104507459,
+      "artifact_zip_sha256": "029f9297cbf036cfa5adac528e46c08e3c7fca60faf6d1e12ae39b8cc71731d1",
+      "cause": "FAST transport kept one close while unchanged V policy requires its full dated window.",
+      "encrypted_output_sha256": "b30f4daaa91beb4e2caba8e9a04fdae745223ed2f3a14b0192e17d3a2d8e6014",
+      "manifest_sha256": "9e721c0d308ff5fac7a36d9849141abaf5e438aa18cc6af8bbb450b24863c9f3",
+      "no_diagnostic_origin_or_worker": true,
+      "oom_killed": false,
+      "qualifier_exit_code": 1,
+      "receipt_sha256": "b726641272797020e44a3e9a720198ac4aa629c86dd68d8411f163de5dae0ef8"
+    }
+  },
+  "change": "Retain up to127 original closes; no quotes or dates fabricated.",
+  "financial_authority": false,
+  "head": "cc13e8922d6c33e55cc6535ca8b07a8ed6558ab8",
+  "original391_source_bytes_unchanged": true,
+  "production_contacted": false,
+  "run_id": 41358212146,
+  "schema": "research.volatility-retention-qualification-recovery/1"
+}
