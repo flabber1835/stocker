@@ -158,6 +158,19 @@ remaining-only run: 14 passed in 1.27 seconds, zero failures/skips, unchanged
 458-file RAM application snapshot and empty cleanup errors. No application
 source or candidate seal changed for this test-fixture correction.
 
+Follow-up CI collection exposed a host-helper import-path fixture and a missing
+legacy environment classification. The four capacity cases passed with helper
+imports initially absent from Python's path (3.06 seconds). The converter now
+deliberately discards continuity/transport selections, matching the existing
+requirement for fresh owner/host selection: its failed completeness case and
+four selection/control cases passed (1.03 seconds). The same stale fake-function
+signature was reproduced in two retained-account cases; both passed after
+asserting the explicit ordinary-writer selection, including the existing
+removed-account-guard control (6.64 seconds). These remaining-only runs retained
+the same application bytes, isolation bounds and empty cleanup errors; prior
+passed suites were not repeated. There are 380 unique local isolated cases,
+with the four capacity cases intentionally repeated after their fixture changed.
+
 A separate native kernel test proved real shared-parent mount withdrawal and
 return against private PostgreSQL 16 using the unchanged atomic archive script.
 The same database process retained all three inserted rows, writes continued

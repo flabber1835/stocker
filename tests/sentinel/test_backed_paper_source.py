@@ -816,7 +816,8 @@ def _commit_binding_change(case, monkeypatch):
     monkeypatch.setattr(rolling_runtime, '_closure', lambda *_: None)
     monkeypatch.setattr(admission.publication, '_publication_recovery_target', lambda _: {})
     operations = []
-    def durability(_conn, *, operation):
+    def durability(_conn, *, operation, allow_continuity=False):
+        assert allow_continuity is (operation == 'plan/execution writer mutation')
         operations.append(operation)
         if operation == 'compatible retained runtime admission commit':
             _foreign_binding(case)
