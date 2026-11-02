@@ -1,0 +1,172 @@
+{
+  "adapter": {
+    "module": "p01_iac_namespace_review_recovery.py",
+    "sha256": "6254996408ae4915e84089dcfed68a1f9bd075e6c0168cdf82afb75fe31bfe23"
+  },
+  "authority": "READ_ONLY_STOPPED_EVIDENCE_REVIEW",
+  "financial_authority": false,
+  "financial_resume_authorized": false,
+  "original": {
+    "actual_inspection_ids": {
+      "qualify": "848be089d5df78a0fb1b7b8d42c13bc0b6b8bb14554bd6faddb7c2da2bf11bd7",
+      "review": "99a1f252f166bb7d4cf9517f216c468dbbdba894b980ba98c75f802fd803d6dd",
+      "worker": "2fca9c3d763c6529b626ce4be3d7790119a3cc76859d716bf6102ce7ec1e6c4a"
+    },
+    "artifact_id": 13165167672,
+    "assets": {
+      "encrypted_output": {
+        "bytes": 198093648,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "5d99cffd62e6e4cdae5aed36acbc463b8392af27a5d3808dd12ad80fe83ae5e9",
+        "name": "p01-iac-namespace-financial.tar.crseal",
+        "sha256": "cf02b86b59d728c3bf699957baa64cd0ce4654444add65e5b43634289e84f00a"
+      },
+      "qualification_encrypted_output": {
+        "bytes": 38922610,
+        "compression": "TAR_GZIP_V1",
+        "manifest_sha256": "16598851f4a85d96fe5487e1f2fd1c77294867ff70d98eda45df3fe6535d9eb5",
+        "name": "p01-iac-namespace-qualification.tar.crseal",
+        "sha256": "4bf6b995bec591b33242b5a9906eb27e5b15c36671fcf189daa860709aff5850"
+      }
+    },
+    "capture_metadata": {
+      "bytes": 2055,
+      "sha256": "f9e6e58a91ed05d992bc501825b7da8c9fad794c7caab556f413d9c566c8b4a2"
+    },
+    "financial_protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+    "head": "3ea405f31cfcc0d75ea5e330177de76e7c79053a",
+    "job_id": 125422506634,
+    "manifests": {
+      "financial": {
+        "captured_metadata_copy": {
+          "bytes": 28392,
+          "file": "financial-authenticated-manifest.json",
+          "sha256": "5f061da25e68ae24e791c9680654c9f972ec30f8ee4efe7043bfc26c6e842c89"
+        },
+        "inventory_sha256": "b91860d4b5c39beb3e58e128855fc6c6ccfe477d2b3bf2244202697dff0b66cd",
+        "member_count": 127,
+        "original_manifest_bytes": 25574,
+        "original_manifest_sha256": "5d99cffd62e6e4cdae5aed36acbc463b8392af27a5d3808dd12ad80fe83ae5e9",
+        "raw_member_bytes": 556740580
+      },
+      "qualification": {
+        "captured_metadata_copy": {
+          "bytes": 2775,
+          "file": "qualification-authenticated-manifest.json",
+          "sha256": "eb67dda5d5e0b8a61dc6977097ea07090159278579c9489a3c9ba9bdcad49aa6"
+        },
+        "inventory_sha256": "fa4fe59ea6d43f7dc3219e78ac476a539026c619218f51e1ba4b3c6b47e50484",
+        "member_count": 15,
+        "original_manifest_bytes": 2421,
+        "original_manifest_sha256": "16598851f4a85d96fe5487e1f2fd1c77294867ff70d98eda45df3fe6535d9eb5",
+        "raw_member_bytes": 121562639
+      }
+    },
+    "original_review_log_sha256": "c841fbc1765bf2a7cd6d42b33859e25345c1e9f84d8e280083bd87ad4be9a9c5",
+    "receipt": {
+      "captured_copy": {
+        "bytes": 1844,
+        "sha256": "61345fcc73eb2c1427e59f15440c828317d1978b9a4229c36f7f4c3e042d2d74"
+      },
+      "schema": "research.p01-own628-iac-namespace-receipt/1",
+      "stage": "campaign-p01-iac-namespace-financial",
+      "status": "FINANCIAL_SUFFIX_REVIEW_REFUSED_PRESERVED"
+    },
+    "request_file": "p01_iac_namespace_request.json",
+    "request_sha256": "9068e16677950f58dcf3055bc5b7cbee39f898115bfab2587478bbad96e8b230",
+    "run_id": 41487773225,
+    "source_count": 515,
+    "stops": {
+      "qualification_worker": {
+        "exit_code": 0,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      },
+      "reviewer": {
+        "exit_code": 1,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      },
+      "worker": {
+        "exit_code": 0,
+        "oom_killed": false,
+        "stopped": true,
+        "wait_error": null
+      }
+    },
+    "zip": {
+      "bytes": 237024307,
+      "sha256": "5a61de439fbdf3f7f15c8b81ea687a618a1dfbeafd28f9c9a4bc381dabdbffbb"
+    }
+  },
+  "original_states_adopted": false,
+  "public_members": {
+    "ephemeral-runner-capacity.json": {
+      "bytes": 698,
+      "sha256": "221a3aa6b02840a109eff11bce81fde5f8e116941d5d3a3cff48e8678ff47d4a"
+    },
+    "full-core-staging.json": {
+      "bytes": 964,
+      "sha256": "ef398546d9cee55b333756ac918af21882f09ee9ac00a2497760371e12524188"
+    },
+    "p01-iac-namespace-export-qualification.json": {
+      "bytes": 539,
+      "sha256": "b2c17661dcf211587f114396ab98800265073792b1d128b8000728709ffda145"
+    },
+    "p01-iac-namespace-phase.json": {
+      "bytes": 2888,
+      "sha256": "7e0eabb669d18ae69c8a8326f013d53531bbe1618c70310db9282a9cc524a992"
+    },
+    "p01-iac-namespace.json": {
+      "bytes": 1844,
+      "sha256": "61345fcc73eb2c1427e59f15440c828317d1978b9a4229c36f7f4c3e042d2d74"
+    }
+  },
+  "qualification_or_financial_replay_authorized": false,
+  "review_context_files": {
+    "contexts/book/repairs/2dcd5e98eee15d9482ccdde6aebe9fa571d1a1ea6754a9cc5209ea4662384163.json": {
+      "bytes": 4043,
+      "sha256": "2dcd5e98eee15d9482ccdde6aebe9fa571d1a1ea6754a9cc5209ea4662384163"
+    },
+    "contexts/book/repairs/8cb899dbd7df2d83e68548ad581531577c55efb2ce250960225ec561c9facf55.json": {
+      "bytes": 11445,
+      "sha256": "8cb899dbd7df2d83e68548ad581531577c55efb2ce250960225ec561c9facf55"
+    },
+    "contexts/book/repairs/982c9c1e45ad42dc4f16b4b8888ba46592595604ea1511d6225318846629b801.json": {
+      "bytes": 14298,
+      "sha256": "982c9c1e45ad42dc4f16b4b8888ba46592595604ea1511d6225318846629b801"
+    },
+    "contexts/book/repairs/c42a3273da4db939d7c235f8a5f3157649b36ca1c0f040515f06614ad5b927f8.json": {
+      "bytes": 5903,
+      "sha256": "c42a3273da4db939d7c235f8a5f3157649b36ca1c0f040515f06614ad5b927f8"
+    },
+    "contexts/book/repairs/c6cb54dce7a964f3b9b400ee1d8a14706510ca6f802d63b51900cdf5e3a1aab2.json": {
+      "bytes": 13826,
+      "sha256": "c6cb54dce7a964f3b9b400ee1d8a14706510ca6f802d63b51900cdf5e3a1aab2"
+    },
+    "contexts/book/repairs/cf6b2b8fe6952930982fe2526a60130edee7533af446a1d04c973028893df526.json": {
+      "bytes": 7181,
+      "sha256": "cf6b2b8fe6952930982fe2526a60130edee7533af446a1d04c973028893df526"
+    },
+    "contexts/book/repairs/d1afa8c84755637941d161d4b08b1e5f894c5e028eb2a96636148f5722764195.json": {
+      "bytes": 3676,
+      "sha256": "d1afa8c84755637941d161d4b08b1e5f894c5e028eb2a96636148f5722764195"
+    },
+    "contexts/book/repairs/f9a74fd41e2e673533800bf3883b15298b41bad4d9b9b4583f460ff4e09a93ad.json": {
+      "bytes": 6295,
+      "sha256": "f9a74fd41e2e673533800bf3883b15298b41bad4d9b9b4583f460ff4e09a93ad"
+    },
+    "contexts/discovery-distribution-hydration.json": {
+      "bytes": 8794,
+      "sha256": "48934fb27be033788f6022fb7c676ada9fc5bebb7e9e440ffe07f9d421cc60e0"
+    },
+    "contexts/discovery-fnf-hydration.json": {
+      "bytes": 12610,
+      "sha256": "8faaf92233de9e3f8542bb128ba4381cd0cc3cdd4b6b07d23987a1c5cb6ea15e"
+    }
+  },
+  "root_review_only_authorized": true,
+  "schema": "research.p01-stopped-evidence-review-target/1"
+}
