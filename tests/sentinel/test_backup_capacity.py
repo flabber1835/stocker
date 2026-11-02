@@ -1,7 +1,5 @@
 """Host capacity publication and lock naming remain independent of USB lifetime."""
-import importlib.util
 import json
-import os
 from pathlib import Path
 from types import SimpleNamespace
 

@@ -121,6 +121,49 @@ any credentials, host writes or service calls while either is unspecified.
 Existing operation evidence means inspect its owner/result, never replay it.
 This delivery does not claim the historical supervisor failure is repaired.
 
+Run application lifecycle launchers through the existing native user systemd
+manager, and host mount configuration through native systemd, with finite
+one-shot ownership. The physical test showed a stale frontend WSL mount view
+while PID1, the backup owner and PostgreSQL saw the reconnected device. Do not
+repair that view by restarting WSL/Engine or use it to override service evidence.
+Private contact and Git read credentials still travel only through stdin JSON,
+never unit command arguments or logs. Before stopping the old maintenance loop,
+acquire its existing canonical media-writer flock and let any physical backup
+finish under the unchanged native invocation bound. Release that lock before
+starting the one replacement owner.
+
+## Recorded qualification
+
+Local qualification completed with 359 unique isolated pytest passes, zero
+remaining failures or skips, plus 43 standard-library unit cases. The isolated
+runner used private PostgreSQL 16 and Python 3.12, a frozen RAM source snapshot,
+the cached signed runtime, no provider credentials, and a private database-only
+network. Its first attempt passed 27 cases and failed three because a read-only
+standby Compose fixture was omitted. The remaining-only attempt supplied that
+fixture and passed 332 in 37.76 seconds. The first attempt is not a whole-run
+PASS; its 27 successful cases were not repeated. Owned containers and snapshots
+were removed, cleanup errors were empty, and source bytes stayed unchanged.
+Two existing backup CLI cases require `psql` outside that cached runtime and
+remain mandatory in full required CI, without a local waiver.
+
+A separate native kernel test proved real shared-parent mount withdrawal and
+return against private PostgreSQL 16 using the unchanged atomic archive script.
+The same database process retained all three inserted rows, writes continued
+without media, the archiver failed honestly and retried successfully after
+return. The production Engine PID and production container start times stayed
+unchanged. This used private RAM media with a fixture identity; it does not
+claim a physical surprise-removal test of the eventual deployment.
+
+Prepared host launchers passed 32 pure checks with no production calls or real
+secrets, including unset commit/image refusals under optimized Python, private
+configuration preservation, exact ACTIVE/installation-chain refusals, an
+executed removed-identity-guard control, exact prior drop-in membership, and
+media-lock release ordering. Actual offline Compose expansion also passed for
+strict and bounded modes using synthetic values and disabled environment-file
+loading. These checks neither install the host changes nor establish current
+production readiness. All required PR and protected-main checks, signed
+publication, and the documented native delivery evidence remain required.
+
 References: [PostgreSQL archive failure and retained WAL](https://www.postgresql.org/docs/16/continuous-archiving.html),
 [systemd mount requirements](https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html#RequiresMountsFor=),
 [Docker bind propagation](https://docs.docker.com/engine/storage/bind-mounts/).

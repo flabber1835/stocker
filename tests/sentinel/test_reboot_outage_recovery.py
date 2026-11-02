@@ -230,6 +230,32 @@ def test_backup_integrity_refusal_remains_terminal(monkeypatch):
         runtime._require_backup_for_new_mutation("test mutation")
 
 
+def test_automation_degraded_continuity_is_not_new_external_backup_evidence(monkeypatch):
+    import inspect
+    import textwrap
+    runtime=object.__new__(ProductionAutomation)
+    conn=_Conn();runtime.connect=lambda:conn
+    calls=[]
+    def proof(connection,**kwargs):
+        calls.append(kwargs)
+        return dict(enabled=True,backup_state='DEGRADED',independent_archive_current=False)
+    def false_chain(*args,**kwargs):raise AssertionError('degraded proof must not become RUNTIME_CHAIN')
+    monkeypatch.setattr(backup_runtime_authority,'require',proof)
+    monkeypatch.setattr(backup_guard,'require_writes_permitted',lambda *args,**kwargs:'permitted')
+    monkeypatch.setattr(operational_evidence,'record_backup_proof',false_chain)
+    assert runtime._require_backup_for_new_mutation('order')=='permitted'
+    assert calls==[dict(operation='order',allow_continuity=True)]
+    assert conn.commits==0 and conn.closed
+    method=ProductionAutomation._check_backup_for_new_mutation
+    source=textwrap.dedent(inspect.getsource(method))
+    needle='and proof.get("backup_state") != "DEGRADED"'
+    assert source.count(needle)==1
+    namespace=dict(method.__globals__)
+    exec('from __future__ import annotations\n'+source.replace(needle,''),namespace)
+    with pytest.raises(AssertionError,match='degraded proof must not become'):
+        namespace[method.__name__](runtime,'order')
+
+
 def test_wal_restore_horizon_crosses_log_boundary_contiguously():
     result = backup_runtime_authority._expected_wals(
         "0000000100000000000000FE",
