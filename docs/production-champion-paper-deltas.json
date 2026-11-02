@@ -397,9 +397,15 @@
       "module": "inspection"
     },
     "current_paper_plan": {
-      "generated_ast_sha256": "af0f9021f401ed7aa06cdc3cfe2854f525e1578d528df07f366014b4f665b07d",
+      "generated_ast_sha256": "6aeb88fced6fa09bb6ca269d34f662c0d27dbcf5751ea08f693e0a32cba23b3f",
       "historical_ast_sha256": "28a81ab27dc25f2b8c0734cde7e33bde9985bbb2b19bff7b0790a9a100d50a27",
-      "module": "preparation"
+      "module": "preparation",
+      "reason": "PR #561 adds only the explicit PAPER URL refusal before current-plan database inspection; all existing immutable plan, source and account-sizing logic is unchanged.",
+      "url_acceptance": [
+        "tests/sentinel/test_url_selected_gateway.py::test_explicit_paper_current_plan_api_refuses_live_before_database",
+        "tests/sentinel/test_url_selected_gateway.py::test_explicit_paper_current_plan_url_guard_has_a_behavioral_falsifier"
+      ],
+      "url_design": "docs/url-selected-trading.md"
     },
     "prepare_paper_plan": {
       "acceptance": "docs/unattended-operation-qualification.md",

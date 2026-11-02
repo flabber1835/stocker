@@ -1,5 +1,10 @@
 # Sentinel current operating contract
 
+[URL-selected trading](url-selected-trading.md) records the owner's separate-PR
+request for environment selection and isolated LIVE execution authority. It is
+development intent, not activation of the installed PAPER deployment or proof
+that native live-account qualification has passed.
+
 [Completed PAPER mirror readiness](postopen-paper-mirror-readiness.md) keeps
 authenticated earlier-plan warnings visible after a proved current cycle
 completes, while its ordinary post-close verification remains pending.

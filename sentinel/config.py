@@ -1,17 +1,8 @@
-"""Sentinel's runtime configuration, and the paper-only guard.
+"""URL-selected execution configuration and explicit PAPER-only operations.
 
-Deployment is Alpaca PAPER only (`docs/sentinel-deployment.md` §2). Sentinel
-therefore **refuses to start** against the live trading API rather than labelling
-its orders "live" and relying on a downstream gate to reject them.
-
-That is a deliberately stronger rule than Stocker's. Stocker derives a
-`trade_type` from the endpoint (`trade-executor/app/main.py
-trade_type_for_base_url`) and hands it to the risk service, which rejects it
-unless `LIVE_TRADING_ENABLED=true` and `PAPER_ONLY=false` — a two-key turn that
-exists because the label used to be hardcoded, which made those gates decorative.
-Sentinel has no risk service to appeal to and no live mandate at all, so the
-correct behaviour is not to run. There is no env var that overrides this; going
-live will be a code change, reviewed as one.
+The exact trading origin selects the environment. LIVE transport additionally
+requires independently signed, account-bound admission; selecting a URL never
+grants order authority. Administrative PAPER operations retain their allowlist.
 
 Credentials come from the environment only. Nothing here reads or writes a repo
 file, and none of these values are ever logged.
@@ -30,10 +21,7 @@ from sentinel.trading_environment import (
 
 DEFAULT_BASE_URL = "https://paper-api.alpaca.markets"
 
-#: Hosts that reach REAL money. Mirrors Stocker's `_LIVE_ALPACA_HOSTS`; kept here
-#: rather than imported because Sentinel must not depend on a retired service,
-#: and because the two make different DECISIONS from the same fact — Stocker
-#: labels, Sentinel refuses.
+#: Retained audit classification; the strict origin parser selects the mode.
 LIVE_HOSTS = frozenset({"api.alpaca.markets"})
 
 #: THE ALLOWLIST, and the actual gate. `LIVE_HOSTS` above answers "is this the
@@ -61,7 +49,17 @@ DEFAULT_STATE_DIR = "/var/lib/sentinel"
 
 
 class LiveEndpointRefused(RuntimeError):
-    """Raised when configuration points at anything but the paper broker."""
+    """An origin is invalid or an explicitly PAPER-only operation selected LIVE."""
+
+
+def trading_endpoint(url: str) -> TradingEndpoint:
+    """Validate one canonical trading origin without granting broker authority."""
+    try:
+        return TradingEndpoint.parse(url)
+    except TradingEndpointRefused as exc:
+        # Do not echo malformed userinfo, which could contain credentials.
+        raise LiveEndpointRefused(
+            "ALPACA_BASE_URL must be an exact supported Alpaca HTTPS trading origin") from exc
 
 
 def is_paper_url(url: str) -> bool:
@@ -87,8 +85,8 @@ def assert_paper_url(url: str) -> None:
         f"https://{sorted(PAPER_HOSTS)[0]} — https scheme, that hostname, no "
         f"embedded credentials. This is an ALLOWLIST on purpose: a rule that "
         f"merely excludes the known live host permits every proxy, lookalike "
-        f"domain and cleartext URL nobody thought to enumerate. Going live "
-        f"must be a reviewed code change, never a URL.")
+        f"domain and cleartext URL nobody thought to enumerate. This operation "
+        f"is explicitly PAPER-only.")
 
 
 class MissingCredentials(RuntimeError):
@@ -104,6 +102,18 @@ class SentinelConfig:
     max_cycles: int
     poll_seconds: float
     database_url: str = ""
+
+    @property
+    def trading_endpoint(self) -> TradingEndpoint:
+        return trading_endpoint(self.base_url)
+
+    @property
+    def environment(self) -> TradingEnvironment:
+        return self.trading_endpoint.environment
+
+    @property
+    def broker_namespace(self) -> str:
+        return self.trading_endpoint.broker_namespace
 
     @property
     def ownership_log(self) -> Path:
@@ -148,6 +158,8 @@ class SentinelConfig:
         return {
             "base_url": self.base_url,
             "endpoint_host": self.endpoint_host,
+            "environment": self.environment.value,
+            "broker_namespace": self.broker_namespace,
             "alpaca_key": f"<{len(self.alpaca_key)} chars ...{tail}>",
             "alpaca_secret": "<set>" if self.alpaca_secret else "<unset>",
             "state_dir": str(self.state_dir),
@@ -161,16 +173,17 @@ class SentinelConfig:
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "SentinelConfig":
         e = os.environ if env is None else env
+        endpoint = trading_endpoint(
+            e.get("ALPACA_BASE_URL", DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL)
         cfg = cls(
             alpaca_key=e.get("ALPACA_API_KEY", "").strip(),
             alpaca_secret=e.get("ALPACA_SECRET_KEY", "").strip(),
-            base_url=e.get("ALPACA_BASE_URL", DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL,
+            base_url=endpoint.base_url,
             state_dir=Path(e.get("SENTINEL_STATE_DIR", DEFAULT_STATE_DIR)),
             max_cycles=int(e.get("SENTINEL_MAX_CYCLES", "40")),
             poll_seconds=float(e.get("SENTINEL_POLL_SECONDS", "5")),
             database_url=e.get("SENTINEL_DATABASE_URL", "").strip(),
         )
-        cfg.assert_paper()
         return cfg
 
     def assert_paper(self) -> None:
@@ -188,10 +201,9 @@ class SentinelConfig:
                    f"that merely excludes the live host permits every proxy, "
                    f"lookalike domain and cleartext URL nobody enumerated")
         raise LiveEndpointRefused(
-            f"ALPACA_BASE_URL {why}. Sentinel is paper-only and will not "
-            f"start. There is deliberately no override: this deployment has no "
-            f"live mandate, and an env var that could grant one is the same "
-            f"slip the hardcoded trade_type was. Use {DEFAULT_BASE_URL}."
+            f"ALPACA_BASE_URL {why}. This operation is PAPER-only. "
+            f"Use {DEFAULT_BASE_URL}; selecting LIVE cannot grant a PAPER "
+            f"administrative operation permission to contact real money."
         )
 
     def assert_credentials(self) -> None:
@@ -225,8 +237,8 @@ def build_broker(config: SentinelConfig):
 
 
 def build_execution_broker(config: SentinelConfig, *, resolve_security_id,
-                           to_broker_symbol=None):
-    """Construct the certified typed Alpaca PAPER execution adapter.
+                           to_broker_symbol=None, live_admission=None):
+    """Construct the selected transport with independent LIVE admission.
 
     Production order transport is addressed by Alpaca's stable ``asset_id``.
     The Trading API accepts an asset ID in its create-order ``symbol`` field,
@@ -241,9 +253,18 @@ def build_execution_broker(config: SentinelConfig, *, resolve_security_id,
     from sentinel.execution.certification import (
         certify_adapter, require_certified)
 
-    config.assert_paper()
+    endpoint = config.trading_endpoint
+    if endpoint.environment is TradingEnvironment.LIVE:
+        if live_admission is None:
+            raise LiveEndpointRefused(
+                "LIVE execution requires separately validated account authority and qualification")
+        from sentinel.authority.live import require_live_adapter_admission
+        require_live_adapter_admission(live_admission, base_url=endpoint.base_url)
+    elif live_admission is not None:
+        raise LiveEndpointRefused("LIVE admission cannot authorize PAPER transport")
     config.assert_credentials()
-    require_certified("alpaca")
+    if endpoint.environment is TradingEnvironment.PAPER:
+        require_certified("alpaca")
     provider = getattr(resolve_security_id, "source_provider", "SHARADAR")
     if provider not in {"SHARADAR", "ALPACA_NASDAQ", "ALPACA_OPENFIGI"}:
         raise ValueError("execution resolver has an unsupported source symbol domain")
@@ -257,8 +278,11 @@ def build_execution_broker(config: SentinelConfig, *, resolve_security_id,
         api_key=config.alpaca_key, secret_key=config.alpaca_secret,
         base_url=config.base_url, resolve_security_id=resolve_security_id,
         to_broker_symbol=to_broker_symbol,
-        from_broker_symbol=from_broker_symbol)
-    certify_adapter(broker, name="alpaca", mode="ALPACA_PAPER")
+        from_broker_symbol=from_broker_symbol,
+        **({"live_admission": live_admission} if live_admission is not None else {}))
+    certify_adapter(broker, name=endpoint.broker_namespace,
+                    mode=endpoint.environment.value,
+                    **({"live_admission": live_admission} if live_admission is not None else {}))
     from sentinel.execution.contract import resolved_capability_graph
     resolved_capability_graph(broker)
     return broker

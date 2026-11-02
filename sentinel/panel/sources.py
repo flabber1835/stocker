@@ -3297,6 +3297,22 @@ def _shadow_worker_row(state_dir, database_url):
             required_current=True)
 
 
+def trading_environment_row(base_url: str) -> model.Row:
+    """Display URL selection without asserting account or execution authority."""
+    from sentinel.trading_environment import TradingEndpoint, TradingEnvironment
+    try:
+        endpoint = TradingEndpoint.parse(base_url)
+    except ValueError:
+        return model.Row('trading_environment', 'Selected trading environment',
+                         'UNCONFIGURED', model.UNKNOWN,
+                         'Alpaca trading URL is invalid; execution must refuse')
+    live = endpoint.environment is TradingEnvironment.LIVE
+    return model.Row('trading_environment', 'Selected trading environment',
+                     'LIVE · real money' if live else 'PAPER · simulation',
+                     model.OK, endpoint.base_url +
+                     ' · URL selection alone does not authorize trading')
+
+
 def build_panel(*, state_dir: Path, database_url: str,
                 now: Optional[datetime] = None) -> model.Panel:
     """Assemble the whole page.
@@ -3345,6 +3361,8 @@ def build_panel(*, state_dir: Path, database_url: str,
     errors.extend(operator_errs)
 
     rows = [
+        trading_environment_row(os.environ.get('ALPACA_BASE_URL',
+                                               'https://paper-api.alpaca.markets')),
         *financial_rows,
         *([worker] if worker is not None else []),
         own,

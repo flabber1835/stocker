@@ -28,6 +28,10 @@ AUTHORIZED_RUNTIME_CAPABILITY_BYTES = b"sentinel-authorized-capability/1\n"
 # unattended operation. Emergency fencing remains available in the ordinary
 # runtime so loss of the authorized image cannot prevent revocation.
 AUTHORIZED_RUNTIME_COMMANDS = frozenset({
+    "prepare-trading-plan", "current-trading-plan", "execute-trading-plan",
+    "recover-trading-account", "bind-empty-live-account",
+    "activate-live-automation", "release-live-automation-kill-switch",
+    "enroll-live-issuer-policy",
     "migration-plan",
     "inspect-paper-account",
     "inspect-empty-paper-account",
@@ -159,9 +163,11 @@ def paper_refusal_types() -> tuple[type[BaseException], ...]:
     from sentinel.execution import (
         alpaca, certification, contract, executor, journal, projection,
     )
+    from sentinel.execution.guarded import BrokerAuthorityRefused
     from sentinel.feed import calendar, publication
 
     return (
+        BrokerAuthorityRefused,
         backup_guard.BackupWriteFenced,
         schema.SchemaMigrationRefused,
         paper.PaperActivationRefused,

@@ -33,6 +33,15 @@ POLICY = 'SEC_OPERATING_ISSUER_NEW_PAPER_EPISODE_V1'
 POLICY_SHA256 = digest({'policy': POLICY, 'baseline': 'ONCE_POSITIVELY_ATTRIBUTED_EPISODES',
     'unknown_incumbent': 'BLOCK_NEW_EPISODES', 'source_max_age_days': 30,
     'winner': 'CANONICAL_SLOT_SECURITY_ORDER', 'targets': 'PRESERVE_POSITIVE_INTENT'})
+LIVE_POLICY = 'SEC_OPERATING_ISSUER_NEW_LIVE_EPISODE_V1'
+LIVE_POLICY_SHA256 = digest({'policy': LIVE_POLICY, 'baseline': 'EMPTY_LIVE_BOOK',
+    'unknown_incumbent': 'BLOCK_NEW_EPISODES', 'source_max_age_days': 30,
+    'winner': 'CANONICAL_SLOT_SECURITY_ORDER', 'targets': 'PRESERVE_POSITIVE_INTENT'})
+
+
+def policy_sha256(binding):
+    """The URL-derived durable namespace selects the separate LIVE profile."""
+    return LIVE_POLICY_SHA256 if _binding(binding).broker == 'alpaca-live' else POLICY_SHA256
 
 
 class IssuerAdmissionRefused(ValueError):
@@ -347,7 +356,7 @@ def load_enrollment(conn, *, binding):
     if raw is None:
         raise IssuerAdmissionRefused('ISSUER_ADMISSION_NOT_ENROLLED')
     value = Enrollment.model_validate(raw)
-    if value.binding != owner or value.policy_sha256 != POLICY_SHA256:
+    if value.binding != owner or value.policy_sha256 != policy_sha256(owner):
         raise IssuerAdmissionRefused('ISSUER_ADMISSION_ENROLLMENT_BINDING_CHANGED')
     return value
 
@@ -370,6 +379,8 @@ def enroll(conn, *, binding, state, reconciliation, snapshot, instruments, now, 
             raise IssuerAdmissionRefused('ISSUER_ADMISSION_RESEED_FORBIDDEN')
         return existing
     observation, facts = _reconciliation(owner, reconciliation, now, clean=True)
+    if owner.broker == 'alpaca-live' and observation.positions:
+        raise IssuerAdmissionRefused('LIVE_ISSUER_ENROLLMENT_REQUIRES_EMPTY_BOOK')
     descriptors = _instruments(instruments)
     excluded = []
     for command in _commands(conn, owner, commands):
@@ -401,7 +412,7 @@ def enroll(conn, *, binding, state, reconciliation, snapshot, instruments, now, 
     baseline = tuple(ep for ep in _episodes(state) if ep.security_id in native
         and any(int(raw['slot_id']) == ep.slot_id and raw['signal_date'] == str(ep.signal_date)
                 for raw in state.wealth_core['episodes'].values()))
-    value = Enrollment(binding=owner, canonical_state_sha256=state.state_hash,
+    value = Enrollment(binding=owner, policy_sha256=policy_sha256(owner), canonical_state_sha256=state.state_hash,
         observation_id=reconciliation.observation_id, observation_sha256=digest(facts),
         source_snapshot_sha256=source.snapshot_digest, enrolled_at=now,
         episodes=baseline, native_positions=native,
@@ -441,7 +452,7 @@ def prepare_plan_evidence(conn, *, binding, state, plan, projection, reconciliat
     from sentinel.execution.issuer_refresh import current_snapshot
     snapshot = current_snapshot(conn, binding=owner, fallback=snapshot, now=now)
     source = _store_source(conn, snapshot, plan.decision_session)
-    value = PlanEvidence(binding=owner, enrollment_sha256=enrollment.sha256,
+    value = PlanEvidence(binding=owner, policy_sha256=policy_sha256(owner), enrollment_sha256=enrollment.sha256,
         canonical_state_sha256=state.state_hash, plan_id=plan.plan_id,
         plan_fingerprint=plan.fingerprint(), projection_fingerprint=projection.fingerprint(),
         source_snapshot_sha256=source.snapshot_digest, decision_session=plan.decision_session,
@@ -477,14 +488,14 @@ def _claims(conn, binding):
     for key, kind, raw in _records(conn, prefix):
         if kind == 'reservation':
             claim = Claim.model_validate(raw)
-            if claim.binding != binding or claim.policy_sha256 != POLICY_SHA256:
+            if claim.binding != binding or claim.policy_sha256 != policy_sha256(binding):
                 raise IssuerAdmissionRefused('ISSUER_ADMISSION_CLAIM_BINDING_CHANGED')
             if key != prefix + claim.episode.key + ':reserved':
                 raise IssuerAdmissionRefused('ISSUER_ADMISSION_CLAIM_KEY_CHANGED')
             reserved[claim.episode.key] = claim
         elif kind == 'release':
             release = Release.model_validate(raw)
-            if (release.binding != binding or release.policy_sha256 != POLICY_SHA256
+            if (release.binding != binding or release.policy_sha256 != policy_sha256(binding)
                     or key != prefix + release.episode_key + ':released'):
                 raise IssuerAdmissionRefused('ISSUER_ADMISSION_RELEASE_BINDING_CHANGED')
             released[release.episode_key] = release
@@ -503,7 +514,7 @@ def _validate_evidence(conn, evidence):
     if _read(conn, _plan_key(value), 'plan') != value.model_dump(mode='json'):
         raise IssuerAdmissionRefused('ISSUER_ADMISSION_PLAN_EVIDENCE_CHANGED')
     enrollment = load_enrollment(conn, binding=value.binding)
-    if value.enrollment_sha256 != enrollment.sha256 or value.policy_sha256 != POLICY_SHA256:
+    if value.enrollment_sha256 != enrollment.sha256 or value.policy_sha256 != policy_sha256(value.binding):
         raise IssuerAdmissionRefused('ISSUER_ADMISSION_POLICY_CHANGED')
     return value, enrollment
 
@@ -603,7 +614,7 @@ def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None
         held = observation.positions_by_security().get(security_id, Decimal(0))
         from sentinel.execution.commands import committed_quantity
         committed = committed_quantity(observation.working_orders_for(security_id))
-        shortfall = Shortfall(binding=value.binding, plan_evidence_sha256=value.sha256,
+        shortfall = Shortfall(binding=value.binding, policy_sha256=policy_sha256(value.binding), plan_evidence_sha256=value.sha256,
             plan_id=value.plan_id, security_id=security_id, decision=decision,
             observation_sha256=digest(facts), desired=str(target), held=str(held),
             committed=str(committed), unmet_quantity=str(max(Decimal(0), target-held-committed))).model_dump(mode='json')
@@ -614,7 +625,7 @@ def check_buy(conn, *, evidence, security_id, reconciliation, now, commands=None
             key = CLAIM_PREFIX + _scope(value.binding) + ':' + ep.key + ':reserved'
             if ep.key in claims:
                 continue
-            claim = Claim(binding=value.binding, enrollment_sha256=enrollment.sha256,
+            claim = Claim(binding=value.binding, policy_sha256=policy_sha256(value.binding), enrollment_sha256=enrollment.sha256,
                 episode=ep, issuer_id=issuer, plan_evidence_sha256=value.sha256,
                 source_snapshot_sha256=source.snapshot_digest, reserved_at=now)
             _append(conn, key, value.effective_session, 'reservation', claim.model_dump(mode='json'))
@@ -658,7 +669,7 @@ def release_ended_claims(conn, *, binding, state, reconciliation, now, commands=
                 or reconciliation.expected.get(sid, Decimal(0)) != 0 or possibly_effective
                 or any(o.instrument.security_id == sid and o.is_working for o in observation.orders)):
             continue
-        body = Release(binding=owner, episode_key=key,
+        body = Release(binding=owner, policy_sha256=policy_sha256(owner), episode_key=key,
             reservation_sha256=digest(claim.model_dump(mode='json')),
             canonical_state_sha256=state.state_hash, observation_sha256=digest(facts),
             observation_id=reconciliation.observation_id, released_at=now).model_dump(mode='json')

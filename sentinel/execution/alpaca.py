@@ -439,7 +439,7 @@ class AlpacaMarketClock:
 
 
 class AlpacaExecutionBroker(ExecutionBroker):
-    """`ExecutionBroker` implemented over Alpaca's paper REST API."""
+    """One Alpaca REST transport with separately admitted LIVE operation."""
 
     capabilities = BrokerCapabilities(
         stable_client_key=True,
@@ -467,12 +467,23 @@ class AlpacaExecutionBroker(ExecutionBroker):
     def __init__(self, *, api_key: str, secret_key: str, base_url: str,
                  resolve_security_id=None, to_broker_symbol=None,
                  from_broker_symbol=None, http_provider=None,
-                 clock_provider=None) -> None:
-        from sentinel.config import assert_paper_url
-        assert_paper_url(base_url)
+                 clock_provider=None, live_admission=None) -> None:
+        from sentinel.config import assert_paper_url, trading_endpoint
+        from sentinel.trading_environment import TradingEnvironment
+        endpoint = trading_endpoint(base_url)
+        if endpoint.environment is TradingEnvironment.PAPER:
+            assert_paper_url(base_url)
+            if live_admission is not None:
+                raise BrokerAuthorityRefused("LIVE admission cannot authorize PAPER transport")
+        elif live_admission is None:
+            # Preserve the explicit refusal type for direct unadmitted callers.
+            assert_paper_url(base_url)
         self.api_key = api_key
         self.secret_key = secret_key
-        self.base_url = base_url.rstrip("/")
+        self.base_url = endpoint.base_url
+        self._trading_endpoint = endpoint
+        self._live_admission = live_admission
+        self.certification_name = endpoint.broker_namespace
         self._http_provider = http_provider
         self._clock_provider = (
             clock_provider or (lambda: datetime.now(timezone.utc)))
@@ -480,6 +491,48 @@ class AlpacaExecutionBroker(ExecutionBroker):
         self._to_symbol = to_broker_symbol or (lambda s: s.replace("-", "."))
         self._from_symbol = (from_broker_symbol
                              or (lambda s: s.replace(".", "-")))
+        self._require_transport_authority()
+
+    @property
+    def environment(self):
+        return self._trading_endpoint.environment
+
+    @property
+    def broker_namespace(self) -> str:
+        return self._trading_endpoint.broker_namespace
+
+    @property
+    def live_admission(self):
+        return self._live_admission
+
+    def _require_transport_authority(
+            self, *, operation="READ", command_key=None, terms=None,
+            instrument=None, side=None, quantity=None, broker_order_id=None):
+        """Revalidate the selected origin and current LIVE admission per request."""
+        from sentinel.config import trading_endpoint
+        from sentinel.trading_environment import TradingEnvironment
+        endpoint = trading_endpoint(self.base_url)
+        if endpoint != self._trading_endpoint:
+            raise BrokerAuthorityRefused("Alpaca transport origin changed after construction")
+        if endpoint.environment is TradingEnvironment.PAPER:
+            if self._live_admission is not None:
+                raise BrokerAuthorityRefused("LIVE admission entered PAPER transport")
+            return None
+        from sentinel.authority.live import require_live_adapter_admission
+        try:
+            verified = require_live_adapter_admission(
+                self._live_admission, base_url=endpoint.base_url,
+                required_operation=operation)
+        except Exception as exc:
+            raise BrokerAuthorityRefused("fresh LIVE transport admission refused") from exc
+        if operation != "READ":
+            from sentinel.execution.live_transport import require_live_mutation_permit
+            require_live_mutation_permit(
+                self, operation=operation, command_key=command_key, terms=terms,
+                instrument=instrument, side=side, quantity=quantity,
+                broker_order_id=broker_order_id,
+                certificate_sha256=verified.sha256)
+        return verified
 
     @property
     def _httpx(self):
@@ -498,6 +551,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
     async def _get(self, path: str, params: Optional[dict] = None):
         async with self._httpx.AsyncClient(timeout=20.0) as client:
+            self._require_transport_authority()
             resp = await client.get(
                 f"{self.base_url}{path}", headers=self._headers(),
                 params=params or {})
@@ -508,7 +562,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
             return resp.json()
 
     async def identify_account(self) -> BrokerAccountIdentity:
-        return self._account_identity(await self._get("/v2/account"))
+        return self._account_identity(await self._get("/v2/account"),
+                                      broker=self.broker_namespace)
 
     async def opening_prices(self, *, session: date, instruments):
         import httpx
@@ -534,6 +589,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
             raise OpeningPriceUnavailable("ambiguous opening-price broker symbols")
         try:
             async with self._httpx.AsyncClient(timeout=20.0) as client:
+                self._require_transport_authority()
                 resp = await client.get(QUOTE_ENDPOINT, headers=self._headers(), params={
                     "symbols": ",".join(sorted(broker_symbols.values())),
                     "feed": FEED})
@@ -556,8 +612,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
     async def account_snapshot(self) -> BrokerAccountSnapshot:
         payload = await self._get("/v2/account")
-        identity = self._account_identity(payload)
-        return BrokerAccountSnapshot(
+        identity = self._account_identity(payload, broker=self.broker_namespace)
+        snapshot = BrokerAccountSnapshot(
             identity=identity,
             equity=_required_dec(payload.get("equity"), where="account equity"),
             cash=_required_dec(payload.get("cash"), where="account cash",
@@ -574,6 +630,13 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 payload, "account_blocked", where="account"),
             trade_suspended_by_user=_required_bool(
                 payload, "trade_suspended_by_user", where="account"))
+        from sentinel.trading_environment import TradingEnvironment
+        if self.environment is TradingEnvironment.LIVE:
+            from dataclasses import replace
+            from sentinel.execution.live_native_funding import parse_alpaca_funding_facts
+            snapshot = replace(snapshot, native_funding=parse_alpaca_funding_facts(
+                payload, account=snapshot, base_url=self.base_url, observed_at=self._now()))
+        return snapshot
 
     async def account_close_valuation(
             self, *, session: date) -> BrokerCloseValuation:
@@ -627,7 +690,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
         require_read_window(
             request_started_at, where="last-equity request start")
         before = await self._get("/v2/account")
-        identity_before = self._account_identity(before)
+        identity_before = self._account_identity(before, broker=self.broker_namespace)
         native_before = str(before.get("id") or "").strip()
         if not native_before:
             raise MalformedBrokerPayload(
@@ -640,7 +703,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 "account last_equity must be positive")
 
         after = await self._get("/v2/account")
-        identity_after = self._account_identity(after)
+        identity_after = self._account_identity(after, broker=self.broker_namespace)
         native_after = str(after.get("id") or "").strip()
         equity_after = _required_dec(
             after.get("last_equity"), where="account last_equity")
@@ -731,16 +794,24 @@ class AlpacaExecutionBroker(ExecutionBroker):
             request_completed_at=request_completed_at, query=query)
 
     @staticmethod
-    def _account_identity(payload: dict) -> BrokerAccountIdentity:
+    def _account_identity(payload: dict, *, broker="alpaca") -> BrokerAccountIdentity:
         if not isinstance(payload, dict):
             raise MalformedBrokerPayload("account payload must be an object")
-        account_id = str(
+        account_id = str(payload.get("id") or "") if broker == "alpaca-live" else str(
             payload.get("account_number") or payload.get("id") or "")
+        if broker == "alpaca-live":
+            from uuid import UUID
+            try:
+                parsed = UUID(account_id)
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise MalformedBrokerPayload("LIVE account requires its native UUID") from exc
+            if str(parsed) != account_id or parsed.int == 0:
+                raise MalformedBrokerPayload("LIVE account requires an exact nonzero native UUID")
         if not account_id:
             raise MalformedBrokerPayload(
                 "account payload has no account_number or id")
         return BrokerAccountIdentity(
-            broker="alpaca", account_id=account_id, raw=payload)
+            broker=broker, account_id=account_id, raw=payload)
 
     async def resolve_instrument(self, *, security_id: str,
                                  symbol: str) -> BrokerInstrument:
@@ -1243,9 +1314,14 @@ class AlpacaExecutionBroker(ExecutionBroker):
             order_terms=order_terms, capabilities=self.capabilities)
         try:
             async with self._httpx.AsyncClient(timeout=20.0) as client:
+                self._require_transport_authority(
+                    operation="SUBMIT", command_key=client_key, terms=order_terms,
+                    instrument=instrument, side=side, quantity=quantity)
                 resp = await client.post(
                     f"{self.base_url}/v2/orders",
                     headers=self._headers(), json=body)
+        except BrokerAuthorityRefused:
+            raise
         except Exception as exc:  # noqa: BLE001
             return CommandOutcome(
                 state=S.UNKNOWN, detail=f"{type(exc).__name__}: {exc}")
@@ -1273,11 +1349,19 @@ class AlpacaExecutionBroker(ExecutionBroker):
         return _submit_error_outcome(resp)
 
     async def cancel(self, broker_order_id: str) -> CommandOutcome:
+        from urllib.parse import quote
+        if (not isinstance(broker_order_id, str) or not broker_order_id
+                or any(ord(char) < 33 or ord(char) == 127 for char in broker_order_id)):
+            raise BrokerAuthorityRefused("cancel requires an exact broker order id")
         try:
             async with self._httpx.AsyncClient(timeout=20.0) as client:
+                self._require_transport_authority(
+                    operation="CANCEL", broker_order_id=broker_order_id)
                 resp = await client.delete(
-                    f"{self.base_url}/v2/orders/{broker_order_id}",
+                    f"{self.base_url}/v2/orders/{quote(broker_order_id, safe='')}",
                     headers=self._headers())
+        except BrokerAuthorityRefused:
+            raise
         except Exception as exc:  # noqa: BLE001
             return CommandOutcome(
                 state=S.UNKNOWN, detail=f"{type(exc).__name__}: {exc}")
@@ -1796,9 +1880,14 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             capabilities=self.capabilities)
         try:
             async with self._httpx.AsyncClient(timeout=20.0) as client:
+                self._require_transport_authority(
+                    operation="SUBMIT", command_key=client_key, terms=order_terms,
+                    instrument=instrument, side=side, quantity=quantity)
                 resp = await client.post(
                     f"{self.base_url}/v2/orders",
                     headers=self._headers(), json=body)
+        except BrokerAuthorityRefused:
+            raise
         except Exception as exc:                          # noqa: BLE001
             return contract.CommandOutcome(
                 state=CommandState.UNKNOWN,
@@ -1851,9 +1940,12 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         async def request(params: Mapping[str, str]) -> tuple[dict, ...]:
             try:
                 async with self._httpx.AsyncClient(timeout=60.0) as client:
+                    self._require_transport_authority()
                     resp = await client.get(
                         f"{self.base_url}/v2beta1/events/activities",
                         headers=headers, params=dict(params))
+            except BrokerAuthorityRefused:
+                raise
             except Exception as exc:                      # noqa: BLE001
                 raise RuntimeError(
                     "Activity SSE transport failed: "
@@ -2421,7 +2513,8 @@ def _base_restore_increase_fence_reason(conn, deployment, today: date) -> str:
 
 def upgrade_restore_reason(conn) -> str:
     from sentinel import local_paper
-    if local_paper.backups_suspended_for_account(conn):
+    from sentinel.backup_runtime_authority import _live_origin_selected
+    if not _live_origin_selected() and local_paper.backups_suspended_for_account(conn):
         return ""
     with conn.cursor() as cur:
         cur.execute(
@@ -2453,7 +2546,8 @@ def upgrade_restore_reason(conn) -> str:
 def postmaster_day_order_fence_reason(
         conn, today, *, recovery_generation=None) -> str:
     from sentinel import local_paper
-    if local_paper.backups_suspended_for_account(conn):
+    from sentinel.backup_runtime_authority import _live_origin_selected
+    if not _live_origin_selected() and local_paper.backups_suspended_for_account(conn):
         return ""
     try:
         opened, closed = calendar.session_window(today)
@@ -2716,10 +2810,10 @@ def strict_advance(conn, through: datetime) -> datetime:
 
 def execution_increase_fence_reason(*, conn, deployment, today) -> str:
     """Return the first Alpaca increase fence in certified execution order."""
-    if deployment.broker != "alpaca":
+    if deployment.broker not in {"alpaca", "alpaca-live"}:
         return ""
     from sentinel import local_paper
-    if local_paper.backups_suspended_for_account(conn):
+    if deployment.broker == "alpaca" and local_paper.backups_suspended_for_account(conn):
         return ""
     return (
         _base_restore_increase_fence_reason(conn, deployment, today)

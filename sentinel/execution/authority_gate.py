@@ -28,6 +28,7 @@ from sentinel.authority import (
     require_observation_safety_authority,
 )
 from sentinel.config import assert_paper_url
+from sentinel.trading_environment import TradingEndpoint, TradingEnvironment
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
     BrokerAccountSnapshot,
@@ -41,6 +42,7 @@ from sentinel.execution.guarded import (
     BrokerOperation,
     ExecutionBrokerGuard,
     ExecutionGrant,
+    LiveExecutionGrant,
     PaperPreparationGrant,
 )
 from sentinel.feed import publication
@@ -209,6 +211,20 @@ def require_current_authority(
     each authority boundary.  Historical execution certificates retain their
     ordinary bounded lifetime.
     """
+    endpoint = TradingEndpoint.parse(paper_base_url)
+    if endpoint.environment is TradingEnvironment.LIVE:
+        from sentinel.authority.live_runtime import require_current_live_authority
+
+        current = feed_inputs.require_current(conn)
+        feed_inputs.coherent(conn)
+        if (current_publication_version is not None
+                and current.version != current_publication_version):
+            raise AuthorityRefused("LIVE publication changed during authority validation")
+        return require_current_live_authority(
+            conn, base_url=endpoint.base_url,
+            runtime_identity=runtime_identity, strategy_identity=strategy_identity,
+            required_mode=required_mode, required_operation=required_operation,
+            automation_config_sha256=automation_config_sha256, now=now)
     assert_paper_url(paper_base_url)
     # This loader flag bypasses expiry only for PAPER_OBSERVATION_ONLY; ordinary
     # historical certificates remain time-bounded inside authority.validation.
@@ -249,6 +265,11 @@ def require_current_authority(
 
 def _authority_operation(
         grant: ExecutionGrant, operation: BrokerOperation) -> str:
+    if isinstance(grant, LiveExecutionGrant):
+        if grant.operation_scope != "EXECUTE" and operation not in _READ_OPERATIONS:
+            raise AuthorityRefused("LIVE preparation/recovery grants are read-only")
+        if operation in _READ_OPERATIONS:
+            return "PREPARE_READ" if grant.operation_scope == "PREPARE" else "EXECUTE_READ"
     recovering = (isinstance(grant, AutomationExecutionGrant)
                   and grant.operation_scope == "RECOVER")
     if recovering:
@@ -295,31 +316,42 @@ def _result_account(result: object) -> BrokerAccountIdentity | None:
     return accounts[0] if len(accounts) == 1 else None
 
 
-def build_fresh_execution_guard(
+def build_fresh_execution_check(
         *, connection_factory: ConnectionFactory, paper_base_url: str,
         runtime_identity: IdentityProvider,
         strategy_identity: IdentityProvider,
         validate_grant: GrantValidator,
         automation_config_sha256: str | None = None,
         authority_check=None, safety_authority_check=None
-        ) -> ExecutionBrokerGuard:
-    """Create callbacks that never cache broker authority between operations."""
+        ) -> GrantValidator:
+    """Build the synchronous fresh check used also at actual LIVE HTTP entry."""
     if not callable(connection_factory):
         raise TypeError("connection_factory must be callable")
+    endpoint = TradingEndpoint.parse(paper_base_url)
+    live = endpoint.environment is TradingEnvironment.LIVE
     authority_check = authority_check or require_current_authority
     safety_authority_check = (
         safety_authority_check or require_observation_safety_authority)
 
     def check(grant: ExecutionGrant, operation: BrokerOperation,
               result: object | None) -> None:
-        assert_paper_url(paper_base_url)
+        if TradingEndpoint.parse(paper_base_url) != endpoint:
+            raise AuthorityRefused("execution origin changed")
+        if live and not isinstance(grant, (LiveExecutionGrant, AutomationExecutionGrant)):
+            raise AuthorityRefused("PAPER grant cannot authorize LIVE transport")
+        if not live:
+            assert_paper_url(paper_base_url)
         with closing(connection_factory()) as conn:
             backup_proof = None
             evidence_written = False
             try:
                 if operation not in _READ_OPERATIONS:
                     backup_proof = backup_runtime_authority.require(
-                        conn, operation=f"broker {operation.value} mutation", allow_continuity=True)
+                        conn, operation=f"broker {operation.value} mutation", allow_continuity=not live)
+                    if live and (backup_proof.get("enabled") is not True
+                            or backup_proof.get("backup_state") == "DEGRADED"
+                            or backup_proof.get("independent_archive_current", True) is not True):
+                        raise AuthorityRefused("LIVE mutations require enabled qualified backups and current independent archive")
                 validate_grant(conn, grant, operation, result)
                 rollout = load_rollout_state(conn)
                 current = feed_inputs.require_current(conn)
@@ -331,7 +363,7 @@ def build_fresh_execution_guard(
                     paper_base_url=paper_base_url,
                     current_publication_version=current.version,
                     automation_config_sha256=automation_config_sha256)
-                if concrete in {"SAFETY_READ", "SAFETY_CANCEL"}:
+                if concrete in {"SAFETY_READ", "SAFETY_CANCEL"} and not live:
                     regular_operation = (
                         "CANCEL" if concrete == "SAFETY_CANCEL"
                         else "EXECUTE_READ")
@@ -355,6 +387,8 @@ def build_fresh_execution_guard(
                         raise AuthorityRefused(
                             "recovery grant and safety authority differ")
                 elif isinstance(grant, AutomationExecutionGrant):
+                    if live:
+                        concrete = "CANCEL" if concrete == "SAFETY_CANCEL" else "EXECUTE_READ" if concrete == "SAFETY_READ" else concrete
                     automated = authority_check(
                         conn, required_operation="AUTOMATION", **kwargs)
                     concrete_cert = authority_check(
@@ -370,6 +404,8 @@ def build_fresh_execution_guard(
                             if result is not None else ())
                 for account in accounts:
                     expected = getattr(grant, "broker_account_id", None)
+                    if isinstance(grant, LiveExecutionGrant):
+                        expected = grant.subject.account_id
                     if isinstance(grant, PaperPreparationGrant):
                         expected = grant.expected_account
                     if expected is None:
@@ -379,6 +415,8 @@ def build_fresh_execution_guard(
                         raise AuthorityRefused(
                             "broker result account does not match the guarded "
                             "grant")
+                    if live and account.broker != "alpaca-live":
+                        raise AuthorityRefused("LIVE result has a different broker namespace")
                 if isinstance(result, BrokerAccountSnapshot):
                     operational_evidence.record_account_snapshot(conn, result)
                     evidence_written = True
@@ -416,6 +454,25 @@ def build_fresh_execution_guard(
             elif evidence_written:
                 conn.commit()
 
+    return check
+
+
+def build_fresh_execution_guard(
+        *, connection_factory: ConnectionFactory, paper_base_url: str,
+        runtime_identity: IdentityProvider,
+        strategy_identity: IdentityProvider,
+        validate_grant: GrantValidator,
+        automation_config_sha256: str | None = None,
+        authority_check=None, safety_authority_check=None
+        ) -> ExecutionBrokerGuard:
+    """Create callbacks that never cache broker authority between operations."""
+    check = build_fresh_execution_check(
+        connection_factory=connection_factory, paper_base_url=paper_base_url,
+        runtime_identity=runtime_identity, strategy_identity=strategy_identity,
+        validate_grant=validate_grant,
+        automation_config_sha256=automation_config_sha256,
+        authority_check=authority_check, safety_authority_check=safety_authority_check)
+
     async def before_read(grant, operation):
         check(grant, operation, None)
 
@@ -431,7 +488,7 @@ def build_fresh_execution_guard(
 
 
 __all__ = [
-    "PUBLICATION_POLICY_SCHEMA", "build_fresh_execution_guard",
+    "PUBLICATION_POLICY_SCHEMA", "build_fresh_execution_guard", "build_fresh_execution_check",
     "publication_policy_implementation_identity",
     "publication_policy_implementation_sha256", "publication_row_identity",
     "publication_row_sha256", "require_current_authority",

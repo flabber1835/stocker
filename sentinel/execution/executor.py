@@ -351,7 +351,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                 conn, plan=plan, projection=target_projection,
                 through_session=today)
         adapter_fence_reason = ""
-        if deployment.broker == "alpaca":
+        if deployment.broker in {"alpaca", "alpaca-live"}:
             from sentinel.execution import alpaca as alpaca_adapter
             adapter_fence_reason = alpaca_adapter.upgrade_restore_reason(conn)
             if not adapter_fence_reason:
@@ -475,6 +475,11 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             return True
         try:
             if buy_admission is None:
+                if deployment.broker == 'alpaca-live':
+                    reason = 'separate LIVE issuer admission authority is absent'
+                    deferred.append(delta.security_id)
+                    deferral_reasons[delta.security_id] = reason
+                    return False
                 from sentinel import local_paper
                 if not local_paper.enabled():
                     return True

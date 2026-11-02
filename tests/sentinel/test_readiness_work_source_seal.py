@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from sentinel import structural_refactor_source_basis as basis
+from sentinel import transition_registry
 
 
 def _current():
@@ -16,11 +17,13 @@ def _current():
 
 def test_complete_optimized_runtime_preserves_only_the_authenticated_baseline():
     actual = _current()
+    predecessor = transition_registry.comparison_view(actual)
     profile = basis._profile()
     expected = dict(profile['candidate_files'])
     expected[Path(basis.__file__).name] = actual[Path(basis.__file__).name]
-    assert actual == expected
-    assert basis.historical_view(actual) == profile['baseline_files']
+    assert actual != expected and predecessor == expected
+    assert basis.historical_view(actual) is actual
+    assert basis.historical_view(predecessor) == profile['baseline_files']
     assert basis._closure(profile['baseline_files']) == (
         '56890ee50268961357faf2f6a8c2dc66ca76eb74c7440c832ba3a7bd06a09e15')
     assert profile['authority_effect'] == 'NONE'

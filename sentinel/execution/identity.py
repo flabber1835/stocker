@@ -54,6 +54,16 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from sentinel.trading_environment import TradingEnvironment
+
+
+ALPACA_PAPER_BROKER = "alpaca"
+ALPACA_LIVE_BROKER = "alpaca-live"
+_ALPACA_SUBJECTS = {
+    ALPACA_PAPER_BROKER: (TradingEnvironment.PAPER, "https://paper-api.alpaca.markets"),
+    ALPACA_LIVE_BROKER: (TradingEnvironment.LIVE, "https://api.alpaca.markets"),
+}
+
 #: Prefix on every key Sentinel mints. Two jobs: it makes a Sentinel order
 #: recognisable in a broker UI without a lookup, and it is what
 #: `is_sentinel_key` matches when reconciliation has to decide whether an order
@@ -119,6 +129,16 @@ class DeploymentIdentity:
                 "broker_account_id": self.broker_account_id,
                 "takeover_epoch": self.takeover_epoch}
 
+    @property
+    def trading_environment(self) -> TradingEnvironment | None:
+        subject = _ALPACA_SUBJECTS.get(self.broker)
+        return None if subject is None else subject[0]
+
+    @property
+    def trading_base_url(self) -> str | None:
+        subject = _ALPACA_SUBJECTS.get(self.broker)
+        return None if subject is None else subject[1]
+
     def matches_account(self, observed: Any) -> bool:
         """Is the broker we just asked the one we are bound to?
 
@@ -141,12 +161,21 @@ class DeploymentIdentity:
             other_broker = observed.get("broker")
             other_account = (observed.get("account_id")
                              or observed.get("broker_account_id"))
+            environment = observed.get("environment")
+            base_url = observed.get("base_url")
         else:
             other_broker = getattr(observed, "broker", None)
             other_account = (getattr(observed, "account_id", None)
                              or getattr(observed, "broker_account_id", None))
+            environment = getattr(observed, "environment", None)
+            base_url = getattr(observed, "base_url", None)
         if not other_broker or not other_account:
             return False
+        if self.trading_environment is not None:
+            if environment is not None and environment != self.trading_environment:
+                return False
+            if base_url is not None and base_url != self.trading_base_url:
+                return False
         return (str(other_broker) == self.broker
                 and str(other_account) == self.broker_account_id)
 
@@ -176,13 +205,18 @@ class CommandIdentity:
         JSON with explicit field names cannot be re-split wrongly, and
         `sort_keys` makes it stable across interpreter versions and field order.
         """
-        return {
-            "v": 1,                       # the derivation itself is versioned
+        payload = {
+            "v": 1,                       # historical PAPER keys remain unchanged
             **self.deployment.to_dict(),
             "plan_id": self.plan_id,
             "security_id": self.security_id,
             "revision": self.revision,
         }
+        if self.deployment.broker == ALPACA_LIVE_BROKER:
+            payload.update(
+                v=2, environment=self.deployment.trading_environment.value,
+                base_url=self.deployment.trading_base_url)
+        return payload
 
     @property
     def client_key(self) -> str:

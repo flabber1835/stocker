@@ -38,11 +38,11 @@ def test_fresh_broker_guard_uses_continuity_without_publishing_false_chain(monke
     assert conn.commits==0 and conn.closed
     # Execute the removed-observability-guard control against the same callback
     # fixture; it must now attempt the forbidden successful-chain publication.
-    source=textwrap.dedent(inspect.getsource(authority_gate.build_fresh_execution_guard))
+    source=textwrap.dedent(inspect.getsource(authority_gate.build_fresh_execution_check))
     needle='and backup_proof.get("backup_state") != "DEGRADED"'
     assert source.count(needle)==1
-    namespace=dict(authority_gate.build_fresh_execution_guard.__globals__)
+    namespace=dict(authority_gate.build_fresh_execution_check.__globals__)
     exec('from __future__ import annotations\n'+source.replace(needle,''),namespace)
-    mutant=namespace['build_fresh_execution_guard'](**arguments)
+    mutant=namespace['build_fresh_execution_check'](**arguments)
     with pytest.raises(AssertionError,match='degraded proof must not become'):
-        asyncio.run(mutant.before_mutation(SimpleNamespace(),BrokerOperation.SUBMIT))
+        mutant(SimpleNamespace(),BrokerOperation.SUBMIT,None)

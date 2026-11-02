@@ -23,6 +23,7 @@ from sentinel import backup_runtime_authority, binding, identity, local_paper
 from sentinel import rolling_checkpoint as origin, rolling_daily_checkpoint as daily
 from sentinel import rolling_runtime, runtime_admission as admission, schema, shadow_runtime
 from sentinel import structural_refactor_source_basis as structural
+from sentinel import transition_registry
 from sentinel.feed.rolling_contract import canonical_json, digest
 from tests.sentinel.test_retained_binding_reuse import proof_scope
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg  # noqa: F401
@@ -338,13 +339,15 @@ def test_removed_wealth_historical_package_guard_is_detected(performance_handove
 
 def _scope(case):
     result = backed.scope_for(revision=case.manifest['revision'],
-        source_sha256=admission.source_closure(case.manifest['files']), actual=case.actual)
+        source_sha256=admission.source_closure(case.manifest['files']),
+        actual=transition_registry.comparison_view(case.actual))
     assert result is not None
     return result
 
 
 def test_actual_origin_composes_with_unpatched_current_source_and_real_admission(handover):
-    assert structural.historical_view(handover.actual) is not handover.actual
+    assert structural.historical_view(handover.actual) is handover.actual
+    assert transition_registry.historical_view(handover.manifest['files'], handover.actual) is not handover.actual
     assert admission._source_files(handover.root) == handover.actual
     assert _scope(handover).matches_manifest(ORIGIN, handover.manifest['files'])
     assert admission.prove_compatibility(handover.manifest, handover.checkpoint,
@@ -432,7 +435,7 @@ def test_backed_source_edge_requires_its_actual_operating_policy(handover, monke
     else:
         monkeypatch.setenv(local_paper.MODE_ENV, 'UNREVIEWED')
     assert backed.scope_for(revision=ORIGIN, source_sha256=ORIGIN_SOURCE,
-        actual=handover.actual) is not None
+        actual=transition_registry.comparison_view(handover.actual)) is not None
     with pytest.raises(backed.Refused):
         scope.require_mode()
     with pytest.raises(admission.Refused):
@@ -540,7 +543,7 @@ def test_mode_guard_removal_is_detected(handover, monkeypatch):
 def test_exact_origin_and_successor_pairs_never_widen(handover):
     scope = _scope(handover)
     previous = handover.manifest['files']
-    comparison = structural.historical_view(handover.actual)
+    comparison = transition_registry.historical_view(previous, handover.actual)
     assert scope.matches_manifest(ORIGIN, previous)
     assert not scope.matches_manifest('f' * 40, previous)
     assert not scope.matches_manifest(ORIGIN, {**previous, 'core/kernel.py': 'f' * 64})

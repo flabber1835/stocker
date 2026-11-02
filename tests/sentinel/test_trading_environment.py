@@ -50,8 +50,11 @@ def test_prepared_live_mode_does_not_grant_order_authority():
     from sentinel.config import SentinelConfig, LiveEndpointRefused
     from sentinel.execution.alpaca import AlpacaExecutionBroker
     assert TradingEndpoint.parse('https://api.alpaca.markets').environment is TradingEnvironment.LIVE
+    config = SentinelConfig.from_env({'ALPACA_BASE_URL': 'https://api.alpaca.markets'})
+    assert config.environment is TradingEnvironment.LIVE
+    assert config.broker_namespace == 'alpaca-live'
     with pytest.raises(LiveEndpointRefused):
-        SentinelConfig.from_env({'ALPACA_BASE_URL': 'https://api.alpaca.markets'})
+        config.assert_paper()
     with pytest.raises(LiveEndpointRefused):
         AlpacaExecutionBroker(api_key='test', secret_key='test',
                               base_url='https://api.alpaca.markets')
