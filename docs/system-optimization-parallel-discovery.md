@@ -243,3 +243,32 @@ exclusive-file collision. This applies the known research fixes across
 candidates instead of rediscovering them independently. Reference-case
 reexecution, source conversion, financial checkpoint grafts, and interpreting
 these qualification snapshots as performance are forbidden.
+
+## Prepare the dedicated P11 host before its first native qualification
+
+The native P10 qualifier has now passed its full retained-REFERENCE comparison.
+Its later diagnostic refusal remains separate evidence and is not rerun here.
+Native P11 artifact `13110082519` proves a refusal before parent retrieval or
+worker launch: only `8,112,300,032` bytes were free at the unchanged 12 GiB
+initial boundary. It contains no qualifier, diagnostic origin or private stopped
+snapshot. Preserve that public refusal as observed.
+
+A P11-only successor selects the separately documented
+`ephemeral_runner_capacity.py` preparation on its dedicated disposable runner
+before staging. Only the fixed unused Android SDK may be removed. Its atomic
+public receipt must prove the exact helper source/run/branch identity, confirmed
+target absence and at least 12 GiB actually free. A refused or unknown preparation
+stops the workflow before staging, parent admission or workers. The metadata
+probe verifies this receipt before those phases. The helper's host/path guards
+and fixed removal scope are specified in `research-runner-capacity.md`.
+
+The successor retains every byte of all 427 native sources and the entire prior
+request. A source-bound compilation of the unchanged native job's `main` changes
+only the expected request; its outer CLI admits P11 alone. The native qualifier
+and traversal entrypoints, exact private factory/horizon 10, retained P11
+REFERENCE artifact `13107654814`, full publication/runtime/proof equality,
+missing-input refusal, shared anchor writer and offline/read-only/resource/stop
+fences remain the same. The 12 GiB initial and 10 GiB preworker gates still run
+after preparation. This is P11's first actual diagnostic attempt after a host
+capacity correction, not a checkpoint suffix or a financial admission. P10 and
+all old workflows, refusals, source inputs and financial state remain preserved.
