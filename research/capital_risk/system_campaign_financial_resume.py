@@ -1,0 +1,421 @@
+"""Shared own-checkpoint financial resume using the existing hosted engine."""
+import argparse
+import base64
+import gzip
+import io
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tarfile
+import traceback
+import zipfile
+
+from full_system_benchmark import need, save
+from full_system_core import arguments, hosted
+from full_system_trials_job import command, seal
+from alpaca_fit_job import stopped_run, StopUnknown
+from probe import check_context, memory_bytes, FORBIDDEN_CREDENTIALS
+from stage import SECRET
+from runtime_identity import EXECUTION_IMAGE
+from seal import sha256_file
+from system_campaign_facts import sha
+from system_campaign_discovery_context import require_strict_checkpoint
+from system_campaign_parallel_discovery import check_parent
+from system_campaign_parallel_discovery_parent import admit as transport_admit
+from system_campaign_parallel_discovery_run import retained_inputs
+from system_campaign_parallel_discovery_job import stage_valid
+from system_campaign_variants import build
+from system_campaign_factual_run import (
+    correlation_seed, SeededObservation, preserve_tails, verify_correlation,
+)
+from system_campaign_readonly import reader, review as readonly_review
+from system_campaign_acceleration import Execution
+import system_campaign_factual_admit as crypto
+
+HERE = Path(__file__).parent
+REQUEST = 'system-campaign-factual-request.json'
+PARENTS = 'system-campaign-parallel-discovery-parents.json'
+PRIOR = 'system-campaign-parallel-discovery-request-001.json'
+PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
+ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
+SCHEMA = 'research.system-campaign-accurate-resume-request/1'
+WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
+
+
+def expected_request():
+    need(sha256_file(HERE / PRIOR) == PRIOR_SHA, 'RESUME_FROZEN_PRIOR_REQUEST')
+    prior = json.loads((HERE / PRIOR).read_bytes())['sources']
+    need(len(prior) == 383 and all(sha256_file(HERE / n) == h for n, h in prior.items()),
+         'RESUME_ALL383_OLD_DRIVER_BYTES_UNCHANGED')
+    names = (*prior, 'system_campaign_financial_resume.py', 'ephemeral_runner_capacity.py')
+    return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(ARMS),
+                execution_mode='CANONICAL_ACCURATE_FINANCIAL_REPLAY', new_origin=False,
+                diagnostic_state_adopted=False, new_factual_overlay=False,
+                financial_source_changed=False, full_measurement_start='2018-01-02',
+                full_measurement_end='2026-07-31', full_measured_closes=2156,
+                predecessors_sha256=sha256_file(HERE / PARENTS),
+                protocol_sha256=sha256_file(HERE / 'system-campaign-search-protocol.json'),
+                workflow_sha256=sha256_file(HERE.parent.parent / WORKFLOW),
+                sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
+                financial_wait_seconds=10800, preflight_wait_seconds=1200,
+                review_wait_seconds=2700, artifact_retention_days=7,
+                maximum_parallel_financial_workers=1, production_contacted=False)
+
+
+def strict_parent(value, spec):
+    require_strict_checkpoint(value)
+    need(spec['arm'] in ARMS and 0 < spec['measured_closes'] < 2156,
+         'RESUME_ONLY_OWN_UNFINISHED_FINANCIAL_PARENT')
+    check_parent(value, spec)
+    return value
+
+
+def successful_stop(value):
+    return (value.get('stopped') is True and type(value.get('exit_code')) is int
+            and value['exit_code'] == 0 and value.get('oom_killed') is False)
+
+
+def complete_review(worker, reviewer, proof):
+    return (successful_stop(worker) and successful_stop(reviewer) and proof.get('complete') is True
+            and proof.get('counts') == {'formation': 126, 'daily': 2156}
+            and proof.get('all_prefixes_verified') is True
+            and proof.get('all_daily_factors_and_chains_verified') is True)
+
+
+def actual_parent(old, spec):
+    from research.pooled_vacancy_funding import backtest, journal, runtime
+    from research.pooled_input_support.bundle import axis
+    cp = strict_parent(journal.read_checkpoint(old / spec['selected_checkpoint']), spec)
+    full = axis()
+    wanted = full[full.index(backtest.START) - 425:full.index(backtest.END) + 1]
+    need(backtest.START == '2018-01-02' and backtest.END == '2026-07-31', 'RESUME_UNCHANGED_FULL_AXIS')
+    backtest.validate_checkpoint(cp, cp['base'], wanted)
+    need(cp['base']['sources'] == backtest.source_files(), 'RESUME_IDENTICAL_FINANCIAL_SOURCE')
+    run = runtime.restore(cp['run'], policy=cp['base']['policy'],
+                          input_sha256=backtest.input_hash(cp['base'], cp['repairs']))
+    need(runtime.checkpoint(run) == cp['run'], 'RESUME_CANONICAL_PARENT_ROUNDTRIP')
+    stream = reader(journal.Journal, old / 'book', journal.STREAMS)
+    try:
+        stream.verify(cp['journals'])
+    finally:
+        stream.close()
+    return cp, wanted[wanted.index(cp['source_cursor']) + 1]
+
+
+def preflight(old, out, spec):
+    hosted()
+    with retained_inputs(old, strict_parent(json.loads(gzip.decompress(
+            (old / spec['selected_checkpoint']).read_bytes())), spec), out):
+        cp, following = actual_parent(old, spec)
+        readonly_review(old / 'book', out / 'old-prefix-canonical-review.json')
+    proof = json.loads((out / 'old-prefix-canonical-review.json').read_bytes())
+    need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified']
+         and proof['checkpoint_sha256'] == cp['sha256'], 'RESUME_PARENT_ACCOUNTING_REVIEW_REQUIRED')
+    save(out / 'strict-parent-preflight.json', dict(passed=True, arm=spec['arm'],
+         outer_sha256=cp['sha256'], selected_file=spec['selected_file'], next_session=following,
+         canonical_roundtrip=True, original_journal_commitments_verified=True,
+         diagnostic_state_adopted=False, financial_sessions_advanced=0,
+         accounting_review_sha256=sha256_file(out / 'old-prefix-canonical-review.json')))
+
+
+def preserve_originals(old, out, spec):
+    """Keep every archived gzip by content, with a lossless original-name index."""
+    dest = out / 'lineage/original-checkpoints'
+    dest.mkdir(parents=True)
+    inventory = {}
+    for base in ('book', 'lineage'):
+        for path in sorted((old / base).rglob('*.json.gz')):
+            raw = path.read_bytes()
+            h = sha(raw)
+            target = dest / (h + '.json.gz')
+            if target.exists():
+                need(target.read_bytes() == raw, 'RESUME_IDENTICAL_ARCHIVED_GZIP')
+            else:
+                target.write_bytes(raw)
+            inventory[path.relative_to(old).as_posix()] = dict(bytes=len(raw), sha256=h,
+                stored=target.relative_to(out).as_posix())
+    for path in (old / 'book').glob('interrupted-*.jsonl'):
+        target = out / 'lineage/prior-interrupted-tails' / path.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+    save(out / 'lineage/original-checkpoint-inventory.json', inventory)
+    save(out / 'lineage/strict-financial-parent-reference.json', spec)
+
+
+def verify_originals(old, evidence):
+    inventory = json.loads((evidence / 'lineage/original-checkpoint-inventory.json').read_bytes())
+    original = {p.relative_to(old).as_posix(): p for base in ('book', 'lineage')
+                for p in (old / base).rglob('*.json.gz')}
+    need(original and set(inventory) == set(original), 'RESUME_NO_ORIGINAL_GZIP_OMISSIONS')
+    for name, value in inventory.items():
+        need(value['sha256'] == sha256_file(original[name])
+             and value['bytes'] == original[name].stat().st_size
+             and value['stored'] == 'lineage/original-checkpoints/' + value['sha256'] + '.json.gz',
+             'RESUME_EXACT_ORIGINAL_GZIP_REFERENCE')
+        path = evidence / value['stored']
+        need(path.stat().st_size == value['bytes'] and sha256_file(path) == value['sha256'],
+             'RESUME_ALL_ORIGINAL_ARCHIVED_GZIP_BYTES')
+
+
+def economic(old, out, spec):
+    hosted()
+    proof = json.loads((out / 'strict-parent-preflight.json').read_bytes())
+    need(proof['passed'] is True and proof['arm'] == spec['arm']
+         and proof['outer_sha256'] == spec['outer_sha256']
+         and proof['diagnostic_state_adopted'] is False and proof['financial_sessions_advanced'] == 0
+         and proof['accounting_review_sha256'] == sha256_file(out / 'old-prefix-canonical-review.json'),
+         'RESUME_POSITIVELY_PASSED_PARENT_PREFLIGHT')
+    cp = strict_parent(json.loads(gzip.decompress((old / spec['selected_checkpoint']).read_bytes())), spec)
+    book = out / 'book'
+    with retained_inputs(old, cp, out):
+        cp, following = actual_parent(old, spec)
+        need(following == proof['next_session'], 'RESUME_EXACT_NEXT_SESSION')
+        for name in ('checkpoint.json.gz', 'identity.json'):
+            shutil.copyfile(old / 'book' / name, book / name)
+        shutil.copyfile(old / spec['selected_checkpoint'],
+                        book / 'predecessor-checkpoints' / (cp['sha256'] + '.json.gz'))
+        tails = {}
+        for name, entry in cp['journals'].items():
+            raw = (old / 'book' / (name + '.jsonl')).read_bytes()
+            (book / (name + '.jsonl')).write_bytes(raw)
+            tail = raw[entry['bytes']:]
+            tails[name] = dict(bytes=len(tail), sha256=sha(tail))
+        save(out / 'resume-tail-preflight.json', dict(tails_to_preserve=tails))
+        for path in old.glob('hydrated-*.json'):
+            target = out / path.name
+            if target.exists():
+                need(target.read_bytes() == path.read_bytes(), 'RESUME_RETAINED_HYDRATION_UNCHANGED')
+            else:
+                shutil.copyfile(path, target)
+        preserve_originals(old, out, spec)
+        from research.pooled_vacancy_funding import backtest
+        params = json.loads((old / 'source-bindings.json').read_bytes())['parameters']
+        family = params['family']
+        keep = params['v_horizon'] if family == 'V' else 21 if family == 'C' else 1
+        args = arguments(book, True)
+        args[args.index('--policy') + 1] = cp['base']['policy']
+        observation = SeededObservation(out / 'correlation-inputs.jsonl.gz', correlation_seed(old, cp))
+        execution = Execution('FAST', signal_closes=keep)
+        try:
+            with observation, execution:
+                code = backtest.main(args)
+        finally:
+            if hasattr(execution, 'scope'):
+                save(out / 'acceleration-proof.json', execution.proof())
+            save(out / 'correlation-capture-proof.json', observation.proof())
+        save(out / 'recovered-tail-proof.json', preserve_tails(book, dict(tails_to_preserve=tails)))
+        current = json.loads(gzip.decompress((book / 'checkpoint.json.gz').read_bytes()))
+        complete = code == 0 and current['completed'] == 2156 and current['source_cursor'] == '2026-07-31'
+        save(out / 'accurate-outcome.json', dict(arm=spec['arm'], complete=complete,
+            completed=current['completed'], session=current['source_cursor'],
+            new_transitions=current['completed'] - cp['completed'], diagnostic_state_adopted=False,
+            financial_source_changed=False, new_factual_overlay=False, production_contacted=False))
+        need(complete, 'RESUME_INCOMPLETE_FINANCIAL_PREFIX_PRESERVED')
+
+
+def review(evidence, out, spec):
+    hosted()
+    readonly_review(evidence / 'book', out / 'core-review.json')
+    verify_correlation(evidence)
+    preserve_tails(evidence / 'book', json.loads((evidence / 'resume-tail-preflight.json').read_bytes()))
+    verify_originals(Path('/old'), evidence)
+    need(sha256_file(evidence / 'book/predecessor-checkpoints' / (spec['outer_sha256'] + '.json.gz'))
+         == spec['selected_file']['sha256'], 'RESUME_SELECTED_ORIGINAL_GZIP')
+
+
+def export_probe(root, request, arm, key):
+    root.mkdir(mode=0o700)
+    marker = b'{"synthetic_marker":"financial-resume-export-only","financial_sessions":0}\n'
+    (root / 'marker.json').write_bytes(marker)
+    path = root.parent / ('resume-export-probe-' + arm + '.crseal')
+    asset = seal(root, path, key, request, arm, stage='campaign-factual-suffix',
+                 protocol_sha256=json.loads(request.read_bytes())['protocol_sha256'])
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w') as z:
+        z.write(path, asset['name'])
+    archive.seek(0)
+    with zipfile.ZipFile(archive) as z:
+        header, tag = crypto.authenticate(z, asset, key)
+        with z.open(asset['name']) as source:
+            plain = crypto.AuthenticatedStream(source, asset, key, header, tag)
+            with tarfile.open(fileobj=plain, mode='r|gz') as tar:
+                items = iter(tar)
+                first = next(items)
+                need(first.name == 'manifest.json', 'RESUME_REAL_EXPORT_MANIFEST')
+                manifest = tar.extractfile(first).read()
+                need(sha(manifest) == asset['manifest_sha256'], 'RESUME_REAL_EXPORT_MANIFEST_HASH')
+                item = next(items)
+                need(item.name == 'marker.json' and tar.extractfile(item).read() == marker
+                     and next(items, None) is None, 'RESUME_REAL_EXPORT_MARKER_ROUNDTRIP')
+            while plain.read(1024**2):
+                pass
+    return dict(status='REAL_SYNTHETIC_ENCRYPTED_EXPORT_ROUNDTRIP_PASSED', arm=arm,
+                financial_sessions_advanced=0, credentials_saved=False)
+
+
+def inspect(name, identity=None):
+    match = re.fullmatch(r'capital-system-resume-(p[0-9]{2})-(preflight|worker|review)-([0-9]+)-1', name)
+    need(match is not None and match[1].upper() in ARMS
+         and match[3] == os.environ['GITHUB_RUN_ID'], 'RESUME_EXACT_WORKER_NAME')
+    value = json.loads(subprocess.run(['docker', 'inspect', name], capture_output=True,
+                                     check=True, timeout=20).stdout)[0]
+    h, c = value['HostConfig'], value['Config']
+    mode = 'economic' if match[2] == 'worker' else match[2]
+    mounts = {v['Destination']: v for v in value['Mounts'] if v['Type'] == 'bind'}
+    expected = {'/variant', '/frozen', '/driver', '/old', '/out'} | ({'/evidence'} if mode == 'review' else set())
+    need(value['Name'] == '/' + name and value['Image'] == EXECUTION_IMAGE
+         and (identity is None or value['Id'] == identity), 'RESUME_WORKER_IDENTITY')
+    need(h['NetworkMode'] == 'none' and h['Memory'] == h['MemorySwap'] == 8 * 1024**3
+         and h['NanoCpus'] == 2000000000 and h['PidsLimit'] == 64 and h['ReadonlyRootfs']
+         and h['CapDrop'] == ['ALL'] and any(v.startswith('no-new-privileges') for v in h['SecurityOpt']),
+         'RESUME_OFFLINE_NO_SWAP_FENCES')
+    need(set(mounts) == expected and mounts['/out']['RW']
+         and all(not v['RW'] for k, v in mounts.items() if k != '/out')
+         and c['WorkingDir'] == '/variant' and c['User'] == f'{os.getuid()}:{os.getgid()}'
+         and c['Labels']['research.study'] == 'full-system-search-20261029'
+         and c['Labels']['research.role'] == ('review' if mode == 'review' else 'worker')
+         and c['Entrypoint'] == ['python']
+         and c['Cmd'] == ['-B', '-u', '/driver/system_campaign_financial_resume.py', '--mode', mode,
+                          '--spec', '/out/spec.json'], 'RESUME_MOUNTS_AND_EXACT_ENTRYPOINT')
+    forbidden = set(FORBIDDEN_CREDENTIALS) | {SECRET, 'GITHUB_TOKEN', 'GH_TOKEN'}
+    need(not any(k in forbidden and v for k, _, v in (s.partition('=') for s in c['Env'])),
+         'RESUME_NO_WORKER_CREDENTIALS')
+    return value
+
+
+def launch(args):
+    check_context(os.environ)
+    need(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'RESUME_NO_BLIND_RERUN')
+    request = json.loads(args.request.read_bytes())
+    need(request == expected_request() and args.arm in ARMS, 'RESUME_EXACT_REQUEST_AND_SELECTED_ARM')
+    stage_valid(json.loads(args.staging.read_bytes()))
+    from ephemeral_runner_capacity import validate_prepared_receipt
+    validate_prepared_receipt(json.loads(args.capacity.read_bytes()), head=os.environ['GITHUB_SHA'],
+        run_id=os.environ['GITHUB_RUN_ID'], source_sha256=request['sources']['ephemeral_runner_capacity.py'])
+    spec = json.loads((HERE / PARENTS).read_bytes())['arms'][args.arm]
+    temp = Path(os.environ['RUNNER_TEMP'])
+    key = base64.b64decode(os.environ.pop(SECRET, ''), validate=True)
+    need(len(key) == 32, 'RESUME_SEPARATE_KEY')
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    receipt = dict(schema='research.system-campaign-accurate-resume-receipt/1', arm=args.arm,
+        run_id=os.environ['GITHUB_RUN_ID'], head=os.environ['GITHUB_SHA'],
+        request_sha256=sha256_file(args.request), protocol_sha256=request['protocol_sha256'],
+        predecessor_outer_sha256=spec['outer_sha256'], performance_admitted=False,
+        production_contacted=False, status='EXPORT_PROBE_PENDING')
+
+    def public():
+        target = args.output.with_suffix('.tmp')
+        save(target, receipt)
+        os.replace(target, args.output)
+
+    public()
+    out = temp / ('financial-resume-output-' + args.arm)
+    out.mkdir(mode=0o700)
+    finance_stopped = False
+    stopped_snapshot = False
+    try:
+        marker = export_probe(temp / ('financial-resume-probe-' + args.arm), args.request, args.arm, key)
+        save(args.output.parent / ('resume-export-qualification-' + args.arm + '.json'), marker)
+        receipt['status'] = 'EXPORT_PROBE_PASSED_PARENT_NOT_FETCHED'
+        public()
+        need(shutil.disk_usage(temp).free >= 12 * 1024**3, 'RESUME_INITIAL_DISK_RESERVE')
+        old = transport_admit(spec, temp / ('campaign-factual-transfer-financial-' + args.arm.lower()), key)
+        os.environ.pop('GH_TOKEN', None)
+        frozen = temp / 'capital-risk-stage-001/inputs'
+        source = temp / ('financial-resume-source-' + args.arm)
+        binding = json.loads((old / 'source-bindings.json').read_bytes())
+        need(build(frozen / 'source-fixed', source, binding['parameters']) == binding,
+             'RESUME_WHOLE_ORIGINAL_FINANCIAL_SOURCE_IDENTICAL')
+        for directory in (source, old):
+            for path in directory.rglob('*'):
+                os.chmod(path, 0o555 if path.is_dir() else 0o444)
+            os.chmod(directory, 0o555)
+        shutil.copyfile(old / 'source-bindings.json', out / 'source-bindings.json')
+        shutil.copyfile(args.request, out / 'request.json')
+        save(out / 'spec.json', spec)
+
+        def worker(mode, output, evidence=None):
+            need(memory_bytes()['MemAvailable'] >= 10 * 1024**3
+                 and shutil.disk_usage(temp).free >= 10 * 1024**3, 'RESUME_ONE_WORKER_CAPACITY')
+            role = 'worker' if mode == 'economic' else mode
+            name = f'capital-system-resume-{args.arm.lower()}-{role}-' + os.environ['GITHUB_RUN_ID'] + '-1'
+            values = command(name, source, frozen, output, 'review' if mode == 'review' else 'economic')
+            i = values.index('--entrypoint')
+            mounts = ['--mount', f'type=bind,source={old},target=/old,readonly']
+            if evidence is not None:
+                mounts += ['--mount', f'type=bind,source={evidence},target=/evidence,readonly']
+            values[i:i] = mounts
+            values[values.index('-B'):] = ['-B', '-u', '/driver/system_campaign_financial_resume.py',
+                                          '--mode', mode, '--spec', '/out/spec.json']
+            return stopped_run(values, name, output,
+                deadline=request['financial_wait_seconds' if mode == 'economic' else mode + '_wait_seconds'],
+                inspector=inspect)
+
+        parent_review = temp / ('financial-resume-preflight-' + args.arm)
+        parent_review.mkdir(mode=0o700)
+        save(parent_review / 'spec.json', spec)
+        receipt['status'] = 'STRICT_FINANCIAL_PARENT_PREFLIGHT_RUNNING'
+        public()
+        receipt['preflight'] = worker('preflight', parent_review)
+        shutil.copytree(parent_review, out / 'parent-preflight')
+        stopped_snapshot = True
+        need(successful_stop(receipt['preflight']),
+             'RESUME_PARENT_PREFLIGHT_REFUSED_NO_FINANCIAL_LAUNCH')
+        for name in ('strict-parent-preflight.json', 'old-prefix-canonical-review.json'):
+            shutil.copyfile(parent_review / name, out / name)
+        receipt['status'] = 'ACCURATE_FINANCIAL_RUNNING'
+        public()
+        stopped_snapshot = False
+        receipt['worker'] = worker('economic', out)
+        finance_stopped = stopped_snapshot = True
+        receipt['status'] = 'FINANCIAL_STOPPED_PENDING_REVIEW'
+        public()
+        audit = temp / ('financial-resume-review-' + args.arm)
+        audit.mkdir(mode=0o700)
+        save(audit / 'spec.json', spec)
+        receipt['reviewer'] = worker('review', audit, out)
+        shutil.copytree(audit, out / 'stopped-review')
+        proof_path = audit / 'core-review.json'
+        proof = json.loads(proof_path.read_bytes()) if proof_path.exists() else {}
+        passed = successful_stop(receipt['reviewer'])
+        complete = complete_review(receipt['worker'], receipt['reviewer'], proof)
+        receipt['status'] = ('COMPLETE_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT' if complete
+                             else 'PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT' if passed
+                             else 'FINANCIAL_REVIEW_REFUSED_PRESERVED')
+    except StopUnknown:
+        receipt['status'] = 'REVIEW_UNKNOWN_STOPPED_FINANCIAL_PRESERVED' if finance_stopped else 'WRITER_UNKNOWN_NO_MUTABLE_EXPORT'
+    except Exception:
+        receipt['status'] = 'REFUSED_STOPPED_EVIDENCE_PRESERVED' if stopped_snapshot else 'REFUSED_NO_NEW_FINANCIAL_ADMISSION'
+        if stopped_snapshot:
+            (out / 'driver-failure.txt').write_text(traceback.format_exc())
+    if stopped_snapshot:
+        receipt['encrypted_output'] = seal(out, args.output.parent / ('campaign-factual-' + args.arm + '.tar.crseal'),
+            key, args.request, args.arm, stage='campaign-factual-suffix', protocol_sha256=request['protocol_sha256'])
+    key = None
+    public()
+    print(json.dumps(receipt), flush=True)
+    return 0 if receipt['status'] == 'COMPLETE_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT' else 2
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', choices=('preflight', 'economic', 'review'))
+    parser.add_argument('--spec', type=Path)
+    for name in ('request', 'staging', 'capacity', 'output'):
+        parser.add_argument('--' + name, type=Path)
+    parser.add_argument('--arm', choices=ARMS)
+    args = parser.parse_args()
+    if args.mode:
+        hosted()
+        spec = json.loads(args.spec.read_bytes())
+        if args.mode == 'preflight':
+            preflight(Path('/old'), Path('/out'), spec)
+        elif args.mode == 'economic':
+            economic(Path('/old'), Path('/out'), spec)
+        else:
+            review(Path('/evidence'), Path('/out'), spec)
+    else:
+        raise SystemExit(launch(args))
