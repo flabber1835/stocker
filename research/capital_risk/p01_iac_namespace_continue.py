@@ -30,6 +30,9 @@ SPEC = 'p01_iac_namespace_continue_parent.json'
 INPUT = 'p01_iac_namespace_continue_input.json'
 SUPPLEMENT = 'p01_iac_namespace_continue_cash_input.json'
 EXIT_INPUT = 'p01_iac_namespace_continue_source_exit_input.json'
+STOCK_INPUT = 'p01_iac_namespace_continue_stock_input.json'
+AMWD = '332224216763941431'
+MBC = '774426370326168272'
 EXIT_SID = '467726443352731838'
 MDP = '1072510367992802359'
 SCHEMA = 'research.p01-estimated-fraction-input/1'
@@ -428,6 +431,111 @@ class SourceExitCodec:
         self.repair.load_repair=self.original_load;self.backtest.load_repair=self.saved_load;self.backtest.apply_repair=self.original_apply
 
 
+class UnheldStockInput(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True,frozen=True)
+    schema_id: Literal['research.p01-unheld-stock-conversion-input/1']=Field(alias='schema')
+    earliest_affected_session: Literal['2026-05-28']
+    predecessor_checkpoint_sha256: Literal['a5d9a55aae9be2a80887f97d21a4996b01ad52c1d765700450296b6da85eb67d']
+    parent_outer_sha256: Literal['ba33bbd0efb151ad0f9ee813ffb90f2942f2793c18134296ad164ff1ba4823f8']
+    parent_state_sha256: Literal['ccbbf1a01f7f8e30ba868f107509fd9e0c7ec04a1e7be7a92a280526581669cc']
+    root_admission_sha256: Literal['651743035947b01d12ae8dae3510a3cf5958331f4b85c7628b6abdbbf5319866']
+    source_security_id: Literal[AMWD]
+    source_ticker: Literal['AMWD']
+    delivered_security_id: Literal[MBC]
+    delivered_ticker: Literal['MBC']
+    delivered_issuer_id: Literal['SID:774426370326168272']
+    exchange_ratio: Literal['5.150']
+    native_term_sha256: Literal['51e18a8ab3c72cae703c490a0a432edc46bae19bbf5146f8228127d2ab9b21eb']
+    financial_sources_sha256: Literal['b925ecd2d5f9d6cbdb2017f971d42037622acfc3c6b7e3ba84427a70e3f0110a']
+    scope: Literal['NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM']
+    held_settlement_supported: Literal[False]
+    fractional_cash_price_known: Literal[False]
+    primary_source: Literal['https://www.sec.gov/Archives/edgar/data/794619/000119312526243155/d50625d8k.htm']
+    _sha256: str|None=PrivateAttr(default=None)
+    @property
+    def sha256(self):return self._sha256
+
+
+def stock_identity(value):
+    if isinstance(value,dict):return any(stock_identity(k) or stock_identity(v) for k,v in value.items())
+    if isinstance(value,(list,tuple)):return any(stock_identity(v) for v in value)
+    return isinstance(value,str) and value in (AMWD,'AMWD')
+
+
+def unheld_stock_scope(state,*,history=True):
+    value=state if isinstance(state,dict) else dict(wealth_core=state.wealth_core,pending=state.pending,ledger=state.ledger)
+    wealth=value['wealth_core'];ledger=value['ledger']
+    need(not stock_identity(wealth['episodes']) and not stock_identity(value['pending']), 'AMWD_HOLDING_OR_INTENT_UNSUPPORTED')
+    need(not stock_identity(wealth['slots']) and not stock_identity(ledger['receivables']), 'AMWD_RESERVATION_OR_RECEIVABLE_UNSUPPORTED')
+    if history:need(not stock_identity(ledger['events']), 'AMWD_HISTORICAL_OWNERSHIP_UNSUPPORTED')
+    for name in ('unresolved_terminals','terminal_pending_terms','terminal_pending_sessions','terminal_carry_audit'):
+        need(not stock_identity(wealth.get(name,{})), 'AMWD_PRIOR_TERMINAL_CLAIM_UNSUPPORTED')
+
+
+class UnheldStockCodec(SourceExitCodec):
+    """Reuse only the existing codec installation/removal lifecycle."""
+    def __init__(self,old,parent):
+        self.expected_raw=(HERE/STOCK_INPUT).read_bytes();self.document=UnheldStockInput.model_validate(json.loads(self.expected_raw))
+        doc=self.document;origin=parent if parent['sha256']==doc.parent_outer_sha256 else None
+        if origin is None:
+            for path in old.rglob(doc.parent_outer_sha256+'.json.gz'):
+                candidate=cp_read(path)
+                if candidate.get('sha256')==doc.parent_outer_sha256:origin=candidate;break
+        need(origin is not None and origin['source_cursor']=='2026-05-27'
+             and origin['run']['checkpoint_sha256']==doc.predecessor_checkpoint_sha256
+             and origin['run']['state_sha256']==doc.parent_state_sha256
+             and digest(origin['run']['state'])==doc.parent_state_sha256
+             and digest({k:v for k,v in origin.items() if k!='sha256'})==doc.parent_outer_sha256
+             and digest(origin['base']['sources'])==doc.financial_sources_sha256,
+             'AMWD_EXACT_ADMITTED_ORIGIN_STATE_AND_SOURCE_EPOCH')
+        target=origin['run']['state']['feed']['series'][MBC]
+        need((target['security_id'],target['ticker'],target['issuer_id'])==(MBC,'MBC',doc.delivered_issuer_id),'AMWD_EXACT_RETAINED_TARGET_IDENTITY')
+        unheld_stock_scope(origin['run']['state']);self.origin=origin
+        self.objects=[];self.applied=[];self.zero_value_checks=[]
+
+    def load(self,path,*,resume_session,predecessor_checkpoint_sha256):
+        raw=Path(path).read_bytes()
+        if json.loads(raw).get('schema')!='research.p01-unheld-stock-conversion-input/1':
+            return self.original_load(path,resume_session=resume_session,predecessor_checkpoint_sha256=predecessor_checkpoint_sha256)
+        need(raw==self.expected_raw and resume_session==self.origin['source_cursor']
+             and predecessor_checkpoint_sha256==self.document.predecessor_checkpoint_sha256,'AMWD_EXACT_FUTURE_INPUT_AND_ORIGINAL_DESCRIPTOR')
+        obj=UnheldStockInput.model_validate(json.loads(raw));obj._sha256=sha(raw);self.objects.append(obj);return obj
+
+    def apply(self,packet,loaded):
+        if not isinstance(loaded,UnheldStockInput):return self.original_apply(packet,loaded)
+        need(any(loaded is obj for obj in self.objects),'AMWD_REGISTERED_TYPED_INPUT')
+        if packet.day!=loaded.earliest_affected_session:return packet
+        from system_campaign_discovery_context import material
+        from dataclasses import fields
+        native,=[term for term in packet.terminal if term.security_id==AMWD]
+        need(digest(material(native))==loaded.native_term_sha256,'AMWD_EXACT_NATIVE_TERMINAL_PREIMAGE')
+        need(not any(stock_identity(material(t)) for t in packet.terminal if t is not native)
+             and not any(stock_identity(material(s)) for s in packet.spins),'AMWD_NO_OTHER_DELIVERY_OR_SPINOFF')
+        changed=replace(native,kind='CONVERSION',delivered_security_id=MBC,delivered_ticker='MBC',
+            delivered_issuer_id=loaded.delivered_issuer_id,exchange_ratio=loaded.exchange_ratio,reference=loaded.primary_source)
+        result=replace(packet,terminal=tuple(changed if t is native else t for t in packet.terminal))
+        allowed={'kind','delivered_security_id','delivered_ticker','delivered_issuer_id','exchange_ratio','reference'}
+        need(all(getattr(packet,f.name) is getattr(result,f.name) for f in fields(packet) if f.name!='terminal')
+             and all(getattr(native,f.name)==getattr(changed,f.name) for f in fields(native) if f.name not in allowed),
+             'AMWD_ONLY_DECLARED_TERMINAL_FIELDS_CHANGE')
+        proof=dict(session=packet.day,native=material(native),compiled=material(changed),input_sha256=loaded.sha256,
+                   held_settlement_supported=False,fractional_cash_price_known=False)
+        if proof not in self.applied:self.applied.append(proof)
+        return result
+
+    def before(self,state,day):
+        if day!=self.document.earliest_affected_session:return None
+        need(self.objects and len(self.applied)==1,'AMWD_ACTUAL_REGISTERED_INPUT_APPLIED_ONCE')
+        unheld_stock_scope(state);return len(state.ledger['events'])
+
+    def after(self,state,day,count):
+        if count is None:return
+        added=[event for event in state.ledger['events'][count:] if stock_identity(event)]
+        need(all(event['cash_delta']==0 and event['shares_delta']==0 for event in added),'AMWD_CANNOT_ADD_PORTFOLIO_CASH_OR_SHARES')
+        unheld_stock_scope(state,history=False)
+        self.zero_value_checks.append(dict(session=day,no_source_financial_value_added=True))
+
+
 class SourceGate:
     def __init__(self, parent, old, out):
         self.parent = parent; self.old = old; self.out = out; self.allowed = {parent['sha256']: parent}
@@ -484,12 +592,12 @@ def hydrate(old, out, spec, rows):
     with old_inputs(old, {**parent, 'repairs': parent['repairs'][:9]}, out / 'contexts'), \
          CelgCodec(native(OLD, CELG), tenth), BatchCodec(source_terms()), UnitCodec(rows, origin) as unit, \
          EstimateCodec(input_origin(old, parent)) as estimate, UnheldCashCodec(old,parent) as cash, \
-         SourceExitCodec(old,parent) as source_exit, SourceGate(parent, old, out) as gate:
+         SourceExitCodec(old,parent) as source_exit, UnheldStockCodec(old,parent) as stock, SourceGate(parent, old, out) as gate:
         for entry in parent['repairs']:
             obj = backtest.load_repair(old / 'book/repairs' / entry['filename'], resume_session=entry['resume_session'],
                                       predecessor_checkpoint_sha256=entry['predecessor_checkpoint_sha256'])
             need(obj.sha256 == entry['sha256'], 'CONTINUE_ALL_TWELVE_ORIGINAL_CODECS_IN_ORDER')
-        yield parent, unit, estimate, gate, mapping, cash, source_exit
+        yield parent, unit, estimate, gate, mapping, cash, source_exit, stock
 
 
 
@@ -623,7 +731,7 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
     wanted = [d for d in axis() if parent['source_cursor'] < d <= END]
     need(len(wanted) == 2156-parent['completed'] and wanted[0] == spec.get('next_session', EVENT) and wanted[-1] == END, 'CONTINUE_EXACT_REMAINING_SOURCE_AXIS')
     with hydrate(old, out, spec, rows) as values:
-        parent, unit, estimate, gate, mapping, cash, source_exit = values
+        parent, unit, estimate, gate, mapping, cash, source_exit, stock = values
         args = arguments(out / 'book', True); args[args.index('--policy') + 1] = parent['base']['policy']
         source_args = ['--source-successor', str(old / 'source-successor.json')]
         if len(parent['repairs']) == 12:
@@ -639,11 +747,11 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
             zero = journal.read_checkpoint(out / 'book/checkpoint.json.gz'); adoption = gate.allow(zero, loaded.sha256)
             need(code == 0, 'CONTINUE_CANONICAL_FUTURE_INPUT_ZERO')
         else:
-            need(len(parent['repairs']) in (13,14,15) and len(estimate.objects) > 0, 'CONTINUE_REGISTERED_EXISTING_ESTIMATE')
+            need(len(parent['repairs']) in (13,14,15,16) and len(estimate.objects) > 0, 'CONTINUE_REGISTERED_EXISTING_ESTIMATE')
             loaded = estimate.objects[-1]; adoption = None
             new_input=expected_request()['new_input_file']
             if new_input is not None:
-                need(new_input in (SUPPLEMENT,EXIT_INPUT),'CONTINUE_EXPLICIT_SINGLE_FUTURE_INPUT')
+                need(new_input in (SUPPLEMENT,EXIT_INPUT,STOCK_INPUT),'CONTINUE_EXPLICIT_SINGLE_FUTURE_INPUT')
                 input_path=out/new_input;input_path.write_bytes((HERE/new_input).read_bytes())
                 loaded=backtest.load_repair(input_path,resume_session=parent['source_cursor'],predecessor_checkpoint_sha256=parent['run']['checkpoint_sha256'])
                 earliest=loaded.earliest_affected_session
@@ -659,9 +767,11 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
         def advance(run, published):
             source_events=cash.before(run.state,published.session)
             exit_events=source_exit.before(run.state,published.session)
+            stock_events=stock.before(run.state,published.session)
             following = original_advance(run, published)
             cash.after(following.state,published.session,source_events)
             source_exit.after(following.state,published.session,exit_events)
+            stock.after(following.state,published.session,stock_events)
             if published.session in wanted[:2]:
                 cp = runtime.checkpoint(following)
                 restored = runtime.restore(cp, policy=following.policy, input_sha256=following.input_sha256)
@@ -683,6 +793,7 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
                       input_adoption=adoption, estimated_treatment=estimate.value,
                       unheld_cash_applications=cash.applied,unheld_cash_zero_value_checks=cash.zero_value_checks,
                       source_exit_applications=source_exit.applied,source_exit_zero_value_checks=source_exit.zero_value_checks,
+                      unheld_stock_applications=stock.applied,unheld_stock_zero_value_checks=stock.zero_value_checks,
                       estimated_applications=estimate.applied, original_twelve_inputs_unchanged=current['repairs'][:12] == parent['repairs'][:12],
                       all_admitted_inputs_unchanged=current['repairs'][:len(parent['repairs'])] == parent['repairs'],
                       financial_source_changed=False, qualification_state_adopted=False, production_contacted=False,
@@ -709,6 +820,12 @@ def qualification(old, out, spec, rows):
         result['source_exit_input_sha256']=sha((HERE/EXIT_INPUT).read_bytes())
         result['source_exit_applications']=r['source_exit_applications']
         result['source_exit_zero_value_checks']=r['source_exit_zero_value_checks']
+    if expected_request()['new_input_file']==STOCK_INPUT:
+        need(len(r['unheld_stock_applications'])==1 and r['unheld_stock_zero_value_checks']==[
+            dict(session='2026-05-28',no_source_financial_value_added=True)],'AMWD_QUALIFIED_ACTUAL_USE_ZERO_VALUE')
+        result['unheld_stock_input_sha256']=sha((HERE/STOCK_INPUT).read_bytes())
+        result['unheld_stock_applications']=r['unheld_stock_applications']
+        result['unheld_stock_zero_value_checks']=r['unheld_stock_zero_value_checks']
     (out / 'qualification.json.gz').write_bytes(gzip.compress(encoded(result), compresslevel=1))
 
 
@@ -766,6 +883,13 @@ def review(old, evidence, out, spec, rows):
                  and outcome['source_exit_zero_value_checks']==proof['source_exit_zero_value_checks'],
                  'SOURCE_EXIT_FRESH_FINANCIAL_ACTUAL_USE_EQUALS_QUALIFIED_ZERO_VALUE_EVENT')
             result['source_exit_event_qualification_and_actual_use_verified']=True
+        if expected_request()['new_input_file']==STOCK_INPUT:
+            proof=json.loads(gzip.decompress((evidence/'new-event-qualification/qualification.json.gz').read_bytes()))
+            validate_event_qualification(proof,spec,expected_request());outcome=read(evidence/'accurate-outcome.json')
+            need(outcome['unheld_stock_applications']==proof['unheld_stock_applications']
+                 and outcome['unheld_stock_zero_value_checks']==proof['unheld_stock_zero_value_checks'],
+                 'AMWD_FRESH_FINANCIAL_ACTUAL_USE_EQUALS_QUALIFIED_ZERO_VALUE_EVENT')
+            result['unheld_stock_event_qualification_and_actual_use_verified']=True
         if spec.get('stopped_review_only'):
             target=spec['review_target']
             need(current['sha256']==target['outer_sha256'] and current['completed']==target['completed']
@@ -781,17 +905,17 @@ def review(old, evidence, out, spec, rows):
 def expected_request():
     from seal import sha256_file
     old = read(HERE / 'p01_iac_stopped_review_request.json')
-    names = sorted(set(old['sources']) | {'p01_iac_stopped_review_request.json', Path(__file__).name, SPEC, INPUT, SUPPLEMENT, EXIT_INPUT})
+    names = sorted(set(old['sources']) | {'p01_iac_stopped_review_request.json', Path(__file__).name, SPEC, INPUT, SUPPLEMENT, EXIT_INPUT, STOCK_INPUT})
     parent = read(HERE / SPEC)
     admitted={entry['sha256'] for entry in parent['repairs']}
-    new_input=next((name for name in (SUPPLEMENT,EXIT_INPUT) if sha256_file(HERE/name) not in admitted),None)
+    new_input=next((name for name in (SUPPLEMENT,EXIT_INPUT,STOCK_INPUT) if sha256_file(HERE/name) not in admitted),None)
     unit_facts=read(HERE/'p01_iac_unit_facts.json')
     return dict(schema='research.p01-accurate-progress-request/1', arm='P01', stage=STAGE,
                 parent_sha256=parent['outer_sha256'], root_admission_sha256=parent['root_admission_sha256'], first_session=parent.get('next_session', EVENT), endpoint=END,
                 original_sessions=parent.get('completed', 697), remaining_sessions=2156-parent.get('completed', 697), estimated_fractional_cash=True,
                 original_inputs=len(parent['repairs']),successor_inputs=len(parent['repairs'])+int(new_input is not None),
                 new_input_file=new_input,new_input_sha256=sha256_file(HERE/new_input) if new_input else None,
-                new_event_qualification_required=len(parent['repairs'])==12 or new_input==EXIT_INPUT,
+                new_event_qualification_required=len(parent['repairs'])==12 or new_input in (EXIT_INPUT,STOCK_INPUT),
                 forward_unit_domain=dict(through=END,source_members=unit_facts['source_members'],
                     per_use_requirement='EXACT_NATIVE_PREIMAGE_CHRONOLOGICAL_FACTOR_FULL_WINDOW_AND_ANCHOR'),
                 monthly_review_only=parent.get('monthly_review_only',False),
@@ -994,6 +1118,10 @@ def validate_event_qualification(proof,spec,request):
         need(proof['source_exit_input_sha256']==request['new_input_sha256']
              and len(proof['source_exit_applications'])==1 and proof['source_exit_zero_value_checks']==[
                  dict(session='2025-11-14',no_source_financial_value_added=True)], 'SOURCE_EXIT_EXACT_NEW_EVENT_PROOF_BEFORE_FINANCE')
+    if request['new_input_file']==STOCK_INPUT:
+        need(proof['unheld_stock_input_sha256']==request['new_input_sha256']
+             and len(proof['unheld_stock_applications'])==1 and proof['unheld_stock_zero_value_checks']==[
+                 dict(session='2026-05-28',no_source_financial_value_added=True)],'AMWD_EXACT_NEW_EVENT_PROOF_BEFORE_FINANCE')
 
 
 def worker(mode):

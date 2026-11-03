@@ -113,8 +113,8 @@ def test_history_falsifier_fails_if_guard_removed():
 
 def test_explicit_future_request_and_qualification_gate():
     r=m.expected_request();spec=m.read(CAP/m.SPEC)
-    assert (r['original_sessions'],r['remaining_sessions'],r['original_inputs'],r['successor_inputs'])==(1979,177,14,15)
-    assert r['new_input_file']==m.EXIT_INPUT and r['new_event_qualification_required']
+    # Exercise the historical input15 gate independently of the current input16 request.
+    r={**r,'new_input_file':m.EXIT_INPUT,'new_input_sha256':m.sha((CAP/m.EXIT_INPUT).read_bytes())}
     assert r['qualification_wait_seconds']==2400
     proof=dict(passed=True,parent_sha256=spec['outer_sha256'],old_qualification_reexecuted=False,
         qualification_state_adopted=False,components=[{},{}],source_exit_input_sha256=r['new_input_sha256'],
@@ -133,7 +133,7 @@ def test_public_plan_contains_no_price_and_cannot_claim_held_or_execution_capabi
 def test_actual_successor_transport_requires_extraction_descriptor_before_download(tmp_path,monkeypatch):
     import subprocess
     spec=m.read(CAP/m.SPEC)
-    assert m.successor_manifest_descriptor(spec['transport'])['member_count']==221
+    assert m.successor_manifest_descriptor(spec['transport'])['member_count']==676
     old=deepcopy(spec);old['transport']['manifest']={'schema':'research.full-system-output/1','members':{}}
     def forbidden(*a,**k):raise AssertionError('NO_TRANSPORT_OR_CRYPTO_PERMITTED')
     monkeypatch.setattr(subprocess,'run',forbidden)

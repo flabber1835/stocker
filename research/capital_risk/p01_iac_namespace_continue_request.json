@@ -5,7 +5,7 @@
   "estimated_fractional_cash": true,
   "financial_resume_authorized": true,
   "financial_wait_seconds": 9000,
-  "first_session": "2025-11-14",
+  "first_session": "2026-05-28",
   "forward_unit_domain": {
     "per_use_requirement": "EXACT_NATIVE_PREIMAGE_CHRONOLOGICAL_FACTOR_FULL_WINDOW_AND_ANCHOR",
     "source_members": {
@@ -55,12 +55,12 @@
   "initial_min_disk_bytes": 12884901888,
   "monthly_review_only": false,
   "new_event_qualification_required": true,
-  "new_input_file": "p01_iac_namespace_continue_source_exit_input.json",
-  "new_input_sha256": "b322f20e3152bf1e9e75a2130247cc3bd8c1851417d061c03262527a241a8e26",
+  "new_input_file": "p01_iac_namespace_continue_stock_input.json",
+  "new_input_sha256": "c13685eda5e4270db2cbacf7449c62b2285fa072b2917fb00db2990275422689",
   "old_qualification_reexecuted": false,
-  "original_inputs": 14,
-  "original_sessions": 1979,
-  "parent_sha256": "06b66be0163a88446370d2e34700f08ab4f3080ce645cf68c78ea8b5ae0894fd",
+  "original_inputs": 15,
+  "original_sessions": 2111,
+  "parent_sha256": "ba33bbd0efb151ad0f9ee813ffb90f2942f2793c18134296ad164ff1ba4823f8",
   "preworker_min_disk_bytes": 10737418240,
   "preworker_min_memory_bytes": 10737418240,
   "production_contacted": false,
@@ -106,9 +106,9 @@
     "repository": "flabber1835/stocker",
     "schema": "research.p01-celg-input-capsule/1"
   },
-  "remaining_sessions": 177,
+  "remaining_sessions": 45,
   "review_wait_seconds": 1200,
-  "root_admission_sha256": "1765b4dde93062e1bca5e19ba4b1c9734efcab2e053de3399c84168144d3f36a",
+  "root_admission_sha256": "651743035947b01d12ae8dae3510a3cf5958331f4b85c7628b6abdbbf5319866",
   "schema": "research.p01-accurate-progress-request/1",
   "sources": {
     "alpaca_fit_collect.py": "02586974d885f7bb1adcc92639fdf62f755ca825e37fecb440b0227647fae893",
@@ -187,11 +187,12 @@
     "p01_factual_batch_request.json": "2ce21c812d8b9168d519361dda55481ff993a57fe0634e3a292ee4b3cd9fd305",
     "p01_factual_batch_review.py": "96adc4b204cc013d9b438cf29d048b63ce568beed1df11fe0c7c7a3c99b5c79d",
     "p01_factual_batch_run.py": "2ab3bdf45db765292e7a2857ae4c8049471c3527671e8d87149a6fa54ce16719",
-    "p01_iac_namespace_continue.py": "5b0f85b760e93ee575e4e73587cdfbc12c80a57ed70362613a3bb8f84a6bf3f5",
+    "p01_iac_namespace_continue.py": "ebefe3b13954acc00fcf8cd8ad1db5de28805d933d6464dfe887e2792ae3a3d8",
     "p01_iac_namespace_continue_cash_input.json": "4978eebd26d840a0d1678ba96fdae302e844f08f932d6eaa0b2ed675470b869c",
     "p01_iac_namespace_continue_input.json": "5a63c58c8d4d9bbad3bcd1c02bddae2ba2c4439fe39be7b365bf98d5c96a83d3",
-    "p01_iac_namespace_continue_parent.json": "ea153e6a4c8af264d7084f7841c6f550ad80969fa931e735bd41a6f751b9694c",
+    "p01_iac_namespace_continue_parent.json": "3a34acfc558258f75bb28bddcbca4e1513150031d3ffdb74ecef00fedb0c4eed",
     "p01_iac_namespace_continue_source_exit_input.json": "b322f20e3152bf1e9e75a2130247cc3bd8c1851417d061c03262527a241a8e26",
+    "p01_iac_namespace_continue_stock_input.json": "c13685eda5e4270db2cbacf7449c62b2285fa072b2917fb00db2990275422689",
     "p01_iac_namespace_export.py": "7a3865789782758379223727eb0b70860c0c6f3c1f72725f1d8af3cc70be6288",
     "p01_iac_namespace_job.py": "40ca8a3f405318dfb05b6f13d914fb5a749013c559da93a6f6ad61718197bb4e",
     "p01_iac_namespace_probe.py": "67a47b4cda1ba632452fb1f6e3ecb380b82f7ff759610c5d54ecd026ebd14197",
@@ -645,5 +646,5 @@
   "stage": "campaign-p01-accurate-progress",
   "stopped_review_only": false,
   "stopped_review_target": null,
-  "successor_inputs": 15
+  "successor_inputs": 16
 }
