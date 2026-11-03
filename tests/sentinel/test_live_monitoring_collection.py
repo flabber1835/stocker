@@ -2,8 +2,9 @@
 import asyncio
 from copy import deepcopy
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal as D
+import inspect
 from types import SimpleNamespace
 
 import httpx
@@ -11,7 +12,7 @@ import pytest
 
 from sentinel import binding
 from sentinel.automation import outbox
-from sentinel.execution import account_status, fill_notifications, journal
+from sentinel.execution import account_status, fill_integrity, fill_notifications, journal
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import BrokerInstrument, OrderTerms, Side
 from sentinel.execution.identity import CommandIdentity
@@ -19,7 +20,7 @@ from sentinel.execution.states import CommandState as S
 from sentinel.execution.trading_readonly import MonitoringReadRefused
 from sentinel.authority import repository
 from sentinel.authority.model import AuthorityRefused
-from sentinel.feed import store
+from sentinel.feed import calendar, store
 from tests.sentinel.test_live_monitoring import monitoring, reader
 from tests.sentinel.test_notification_recovery import db, historical_db
 from tests.sentinel.test_operator_monitoring import issue369_pg
@@ -82,12 +83,17 @@ def test_live_account_cannot_use_plain_reader_or_paper_binding(db, tmp_path, mon
     assert db.execute('SELECT count(*) FROM sentinel_broker_account_evidence').fetchone()[0] == 0
 
 
-def fill_fixture(db, tmp_path, monkeypatch):
+def fill_fixture(db, tmp_path, monkeypatch, *, observed_at=None):
     f = monitoring(tmp_path, monkeypatch)
+    if observed_at is not None:
+        f.now = observed_at
     bound(db, f)
-    submitted, filled = f.now - timedelta(minutes=20), f.now - timedelta(minutes=19)
-    monkeypatch.setenv(fill_notifications.SINCE_ENV, (f.now - timedelta(hours=1)).isoformat())
-    db.execute('UPDATE sentinel_notification_policy SET web_push_activated_at=%s', (f.now-timedelta(days=1),))
+    opened, closed = calendar.session_window(calendar.latest_closed_session(f.now))
+    opened, closed = opened.astimezone(timezone.utc), closed.astimezone(timezone.utc)
+    submitted, filled = opened + timedelta(minutes=20), opened + timedelta(minutes=21)
+    f.session_open, f.session_close = opened, closed
+    monkeypatch.setenv(fill_notifications.SINCE_ENV, opened.isoformat())
+    db.execute('UPDATE sentinel_notification_policy SET web_push_activated_at=%s', (opened-timedelta(days=1),))
     command = Command(CommandIdentity(f.owner.identity, 'plan', 'SEC-BIL'),
         BrokerInstrument('SEC-BIL', 'BIL', ASSET), Side.BUY, D('2'), order_terms=OrderTerms('limit', 'day', D('101')))
     journal.save_command(db, command)
@@ -148,3 +154,43 @@ def test_live_average_order_without_native_activities_never_invents_a_fill(db, t
     f.activities = []
     assert asyncio.run(fill_notifications.collect(db, config=f.config, reader=reader(f), now=f.now)) == 0
     assert db.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize('observed_at', [
+    '2026-11-03T00:51:28.410136+00:00',  # Exact night-time CI failure.
+    '2026-10-24T15:00:00+00:00',        # Weekend.
+    '2025-11-28T19:00:00+00:00',        # After the early Thanksgiving-Friday close.
+    '2026-11-02T13:00:00+00:00',        # Before the regular open after DST changes.
+])
+def test_native_fill_fixture_stays_inside_a_real_closed_session(
+        db, tmp_path, monkeypatch, observed_at):
+    observed = datetime.fromisoformat(observed_at)
+    f = fill_fixture(db, tmp_path, monkeypatch, observed_at=observed)
+    submitted = datetime.fromisoformat(f.order['submitted_at'])
+    filled = datetime.fromisoformat(f.activities[0]['transaction_time'])
+    assert f.session_open <= submitted < filled < f.session_close <= observed
+    assert asyncio.run(fill_notifications.collect(db, config=f.config, reader=reader(f), now=observed)) == 1
+
+
+def test_native_fill_after_day_close_still_refuses_without_publishing(db, tmp_path, monkeypatch):
+    f = fill_fixture(db, tmp_path, monkeypatch)
+    invalid = f.session_close + timedelta(seconds=1)
+    f.activities[0]['transaction_time'] = invalid.isoformat()
+    f.order['filled_at'] = invalid.isoformat()
+    observed = max(f.now, invalid + timedelta(seconds=1))
+    with pytest.raises(ValueError, match='after the DAY order session'):
+        asyncio.run(fill_notifications.collect(db, config=f.config, reader=reader(f), now=observed))
+    assert db.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone()[0] == 0
+    assert db.execute('SELECT count(*) FROM sentinel_fills').fetchone()[0] == 0
+
+
+def test_removed_day_close_guard_is_detected(db, tmp_path, monkeypatch):
+    source = inspect.getsource(fill_integrity.validate)
+    guard = 'if fill.filled_at > closed:'
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, 'if False:'), '<removed-day-close-guard>', 'exec'),
+         fill_integrity.__dict__, namespace)
+    monkeypatch.setattr(fill_integrity, 'validate', namespace['validate'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_native_fill_after_day_close_still_refuses_without_publishing(db, tmp_path, monkeypatch)

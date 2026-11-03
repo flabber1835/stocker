@@ -28,6 +28,7 @@ from sentinel.feed import store as feed_store
 from sentinel import supervisor_io
 
 HOLDER_FILE = Path("/tmp/sentinel-automation-holder-id")
+SNAPSHOT_SECONDS = 1.0
 
 
 @dataclass
@@ -126,7 +127,14 @@ def _instance_stalled(*, heartbeat_age_seconds: float | None,
 
 
 def _snapshot(database_url: str, holder_id: str):
-    return supervisor_io.run(_read_snapshot, database_url, holder_id)
+    started = time.monotonic()
+    snapshot = supervisor_io.run(
+        _read_snapshot, database_url, holder_id, timeout=SNAPSHOT_SECONDS)
+    # A suspended parent may resume after the child has already completed.
+    # Successful IPC alone does not make that old observation current.
+    if not 0 <= time.monotonic() - started <= SNAPSHOT_SECONDS:
+        raise TimeoutError('automation dependency observation is no longer current')
+    return snapshot
 
 
 def _read_snapshot(database_url: str, holder_id: str):
@@ -235,6 +243,16 @@ def main() -> int:
                 snapshot = _snapshot(
                     sentinel_config.database_url, holder_id)
                 now_mono = time.monotonic()
+                if _instance_stalled(
+                        heartbeat_age_seconds=snapshot.heartbeat_age_seconds,
+                        lease_seconds=automation_config.lease_seconds,
+                        startup_grace_elapsed=(
+                            now_mono - started >= startup_grace_seconds),
+                        state=snapshot.state):
+                    snapshot = _snapshot(sentinel_config.database_url, holder_id)
+                    now_mono = time.monotonic()
+                # A failed confirmation remains one unobservable interval;
+                # the successful first probe cannot reset its hard deadline.
                 database_unreadable_since = None
             except Exception as exc:  # noqa: BLE001
                 now_mono = time.monotonic()
@@ -286,12 +304,12 @@ def main() -> int:
                     state=state):
                 age_detail = ("missing" if heartbeat_age is None
                               else f"{heartbeat_age:.3f}s")
+                _terminate(child)
                 supervisor_io.report(
                     f"automation supervisor terminating stalled worker "
                     f"{holder_id}: heartbeat age {age_detail}; lease "
                     f"{automation_config.lease_seconds}s",
                     file=sys.stderr)
-                _terminate(child)
                 break
             time.sleep(poll_seconds)
 

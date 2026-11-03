@@ -108,6 +108,10 @@ See [protected orders](free-data-execution-proposal.md),
 
 ## Dashboard and notifications
 
+[Fresh worker supervision and bounded verifier recovery](worker-liveness-recovery.md)
+requires current heartbeat evidence before idle termination and retains verifier
+ownership and proof clocks across short database timeouts.
+
 [Bounded shared-snapshot verification](shadow-streaming-verification.md) removes
 the full-window blocking sort from shared input reads and gives failed financial
 observations the existing short retry interval without weakening verification.

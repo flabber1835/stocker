@@ -7,7 +7,10 @@ import os
 from pathlib import Path
 import signal
 from threading import BoundedSemaphore, Event
+import time
 import uuid
+
+from psycopg.errors import LockNotAvailable, QueryCanceled
 
 from sentinel.panel import authority_reader as financial, observer_codec, read_projection
 from sentinel.panel import operational_schema as schema
@@ -15,6 +18,9 @@ from sentinel.panel.verification_monitor import paper_unknown
 
 HEARTBEAT = Path('/tmp/sentinel-verification-heartbeat')
 OWNER_LOCK = (1_397_050_964, 1_448_748_626)
+OWNER_SECONDS = 610
+RETRY_SECONDS = 20
+RETRY_POLL_SECONDS = .5
 
 
 def _identity_key(_database_url, _include_paper, evidence):
@@ -135,6 +141,88 @@ def _release_owner(conn, readers):
     conn.close()
 
 
+def _owner_deadline(started, row):
+    expires, database_now = row
+    remaining = min(OWNER_SECONDS, (expires-database_now).total_seconds())
+    deadline = started+remaining
+    if not time.monotonic() < deadline:
+        raise ValueError('verifier ownership expired')
+    return deadline
+
+
+def _renew_owner(conn, owner_id, deadline):
+    started = time.monotonic()
+    if not started < deadline:
+        raise ValueError('verifier ownership expired')
+    row = conn.execute(
+        f'UPDATE {schema.OWNER} SET expires_at=clock_timestamp()+INTERVAL \'610 seconds\' '
+        'WHERE id=1 AND owner_id=%s AND expires_at>clock_timestamp() '
+        'RETURNING expires_at,clock_timestamp()', (owner_id,)).fetchone()
+    if row is None:
+        raise ValueError('verifier ownership lost')
+    if not time.monotonic() < deadline:
+        conn.rollback()
+        raise ValueError('verifier ownership expired during renewal')
+    renewed = _owner_deadline(started, row)
+    conn.commit()
+    if not time.monotonic() < deadline:
+        raise ValueError('verifier ownership expired during commit')
+    return renewed
+
+
+def _require_iteration_time(deadline):
+    if not time.monotonic() < deadline:
+        raise TimeoutError('verifier retry or ownership deadline expired')
+
+
+def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, deadline):
+    for scope, reader in readers.items():
+        if stopped.is_set():
+            break
+        _require_iteration_time(deadline)
+        result = reader.read(database_url, include_paper=scope == 'PAPER')
+        value = snapshot(reader, result, scope=scope, now=datetime.now(timezone.utc))
+        if value is not None and previous.get(scope) != value:
+            # Recheck exact subject in the publishing transaction.
+            if read_projection.subject(conn, database_url, scope) == value[0]['subject_sha256']:
+                _require_iteration_time(deadline)
+                read_projection.publish(conn, owner_id=owner_id, value=value[0], signature=value[1])
+                conn.commit()
+                _require_iteration_time(deadline)
+                previous[scope] = value
+            else:
+                conn.rollback()
+
+
+def _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline):
+    retry_until = None
+    while not stopped.is_set():
+        started = time.monotonic()
+        _require_iteration_time(min(deadline, retry_until) if retry_until is not None else deadline)
+        try:
+            deadline = _renew_owner(conn, owner_id, deadline)
+            iteration_deadline = min(deadline, retry_until) if retry_until is not None else deadline
+            _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, iteration_deadline)
+            _require_iteration_time(iteration_deadline)
+        except (QueryCanceled, LockNotAvailable):
+            conn.rollback()
+            # The session lock belongs to this connection. Reconnecting here
+            # would silently discard exclusive ownership of admitted work.
+            if conn.closed or conn.broken:
+                raise
+            if retry_until is None:
+                retry_until = min(deadline, started+RETRY_SECONDS)
+            remaining = retry_until-time.monotonic()
+            if remaining <= 0:
+                raise
+            stopped.wait(min(RETRY_POLL_SECONDS, remaining))
+            continue
+        retry_until = None
+        if not stopped.is_set():
+            HEARTBEAT.write_text(datetime.now(timezone.utc).isoformat(), encoding='ascii')
+            stopped.wait(15)
+
+
 def run(*, stopped=None):
     from sentinel.feed import store
     database_url = os.environ.get('SENTINEL_DATABASE_URL','')
@@ -150,9 +238,12 @@ def run(*, stopped=None):
         schema.require_schema(conn)
         if not conn.execute('SELECT pg_try_advisory_lock(%s,%s)',OWNER_LOCK).fetchone()[0]:
             raise ValueError('another verifier owns operational projections')
-        conn.execute(f'INSERT INTO {schema.OWNER} VALUES (1,%s,clock_timestamp()+INTERVAL \'610 seconds\') '
-            'ON CONFLICT (id) DO UPDATE SET owner_id=EXCLUDED.owner_id,expires_at=EXCLUDED.expires_at', (owner_id,))
+        started = time.monotonic()
+        claimed = conn.execute(f'INSERT INTO {schema.OWNER} VALUES (1,%s,clock_timestamp()+INTERVAL \'610 seconds\') '
+            'ON CONFLICT (id) DO UPDATE SET owner_id=EXCLUDED.owner_id,expires_at=EXCLUDED.expires_at '
+            'RETURNING expires_at,clock_timestamp()', (owner_id,)).fetchone()
         conn.commit()
+        deadline = _owner_deadline(started, claimed)
         slot = BoundedSemaphore(1)
         readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for, observer=observe,
             key_factory=_identity_key, expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
@@ -160,28 +251,7 @@ def run(*, stopped=None):
             scope_label='paper alignment verification' if scope == 'PAPER' else 'retained portfolio verification')
             for scope in ('SHADOW','PAPER')}
         previous = _restore_readers(conn,readers,database_url,now=datetime.now(timezone.utc))
-        while not stopped.is_set():
-            # Renew ownership separately; this never extends a receipt's clocks.
-            row = conn.execute(f'UPDATE {schema.OWNER} SET expires_at=clock_timestamp()+INTERVAL \'610 seconds\' '
-                'WHERE id=1 AND owner_id=%s AND expires_at>clock_timestamp() RETURNING id',(owner_id,)).fetchone()
-            if row is None:
-                raise ValueError('verifier ownership lost')
-            conn.commit()
-            for scope, reader in readers.items():
-                if stopped.is_set():
-                    break
-                result = reader.read(database_url,include_paper=scope == 'PAPER')
-                value = snapshot(reader,result,scope=scope,now=datetime.now(timezone.utc))
-                if value is not None and previous.get(scope) != value:
-                    # Recheck exact subject in the publishing transaction.
-                    if read_projection.subject(conn,database_url,scope) == value[0]['subject_sha256']:
-                        read_projection.publish(conn,owner_id=owner_id,value=value[0],signature=value[1])
-                        conn.commit()
-                        previous[scope] = value
-                    else:
-                        conn.rollback()
-            HEARTBEAT.write_text(datetime.now(timezone.utc).isoformat(),encoding='ascii')
-            stopped.wait(15)
+        _run_owned_loop(conn, readers, database_url, owner_id, previous, stopped, deadline)
     finally:
         _release_owner(conn,readers)
         HEARTBEAT.unlink(missing_ok=True)
