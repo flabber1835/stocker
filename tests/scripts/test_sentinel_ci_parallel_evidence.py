@@ -241,6 +241,33 @@ def test_research_checkout_exact_deadline_guard_falsifier(monkeypatch):
     scope[fn.name]('p01_iac_namespace_financial.yml', 'iac-namespace')
 
 
+def test_sealed_research_checkout_crlf_preserves_bytes_and_rejects_spaces(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    attributes = (root / '.gitattributes').read_bytes().replace(b'\r\n', b'\n')
+    relative = 'research/capital_risk/system_campaign_finish_job.py'
+    assert (relative + ' -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol').encode() in attributes
+    def git(*args):
+        return subprocess.run(['git', *args], cwd=tmp_path, capture_output=True)
+    assert git('init', '-q').returncode == 0
+    (tmp_path / '.gitattributes').write_bytes(attributes)
+    target = tmp_path / relative
+    target.parent.mkdir(parents=True)
+    raw = b'synthetic_marker = True\r\n'
+    target.write_bytes(raw)
+    assert git('-c', 'core.autocrlf=true', 'add', '--', '.gitattributes', relative).returncode == 0
+    assert git('show', ':' + relative).stdout == raw
+    check = ('-c', 'core.whitespace=blank-at-eol,blank-at-eof,space-before-tab', 'diff', '--cached', '--check')
+    assert git(*check).returncode == 0
+    target.write_bytes(b'synthetic_marker = True \r\n')
+    assert git('add', '--', relative).returncode == 0
+    failed = git(*check)
+    assert failed.returncode != 0 and b'trailing whitespace' in failed.stdout
+    # Removing the real-space guard admits the same invalid bytes.
+    (tmp_path / '.gitattributes').write_bytes(attributes.replace(b'whitespace=blank-at-eol,', b'whitespace=-blank-at-eol,'))
+    assert git('add', '--', '.gitattributes').returncode == 0
+    assert git(*check).returncode == 0
+
+
 def test_large_lanes_have_bounded_setup_margin_and_stream_all_test_evidence():
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
                               ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))

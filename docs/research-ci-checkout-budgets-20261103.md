@@ -20,3 +20,13 @@ This changes test compatibility only. All workflow contents, research requests,
 source/input commitments, runtime budgets, offline fences and stopped-output
 requirements remain unchanged. Keep the synthetic-merge ancestry refusal: a
 base-parent mismatch requires current-base evidence, never a relaxed check.
+
+The next Linux CI check identified retained CRLF endings in 26 sealed historical
+research workflow, request, predecessor and driver files. Their recorded byte
+hashes are part of prior qualification and cannot be normalized as a formatting
+fix. Preserve those exact paths with `-text` and a path-specific whitespace rule
+that recognizes CR at end of line while still rejecting trailing spaces, blank
+EOF lines and spaces before tabs. No directory-wide exemption is allowed. The
+new checkout-budget policy is not sealed financial evidence and uses LF.
+Verify both byte preservation and refusal of a space before CRLF using a detached
+synthetic Git fixture; remove the trailing-space guard as a falsifier.
