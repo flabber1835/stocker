@@ -1,0 +1,126 @@
+{
+  "schema": "research.capital-risk-recovery-qualification-request/1",
+  "request_id": "core-window-recovery-qualification-001",
+  "stage": "recovery-qualification",
+  "core_protocol_sha256": "a6221986918db165b989ea234e8185e0076b0c8934dea4fa0c753974754f4028",
+  "execution_sha256": "24b94ebbbe79cd95797669d149adbf9270d81af25fe272ea7d538e944a218b75",
+  "compiler_fixture_sha256": "60f57b4c56d8ab9b88f40faca118a2353e76afa55235fe4d1534343daf870510",
+  "old_run_id": "40564376348",
+  "old_source_commit": "14332ba4b490086a3294205f4fef9a0ba8ae9ce4",
+  "windows": {
+    "stress2021": {
+      "artifact_id": 12762497346,
+      "artifact_name": "capital-risk-short-window-stress2021-14332ba4b490086a3294205f4fef9a0ba8ae9ce4",
+      "receipt_sha256": "4cc518e5619d655000eea44d6abfc781a5df73fca77448a919b0c1f16af50586",
+      "encrypted_outputs": [
+        {
+          "arm": "QUAL",
+          "name": "window-stress2021-QUAL.tar.crseal",
+          "bytes": 112676,
+          "sha256": "fecf294b373ee7b43b9b1be35b656af5ecf5ec505176fe02c943b34c0b40201e"
+        },
+        {
+          "arm": "B",
+          "name": "window-stress2021-B.tar.crseal",
+          "bytes": 14704676,
+          "sha256": "df82ee88f919aca0003529c7298da3f5db29bbb2fd3538207ab0de36ea8329ab"
+        },
+        {
+          "arm": "B0",
+          "name": "window-stress2021-B0.tar.crseal",
+          "bytes": 30756,
+          "sha256": "cfb6686cf6b7602b14fac372d8cc955217f9640b9b3270976d3a6d0ef883457d"
+        },
+        {
+          "arm": "C",
+          "name": "window-stress2021-C.tar.crseal",
+          "bytes": 30756,
+          "sha256": "8e2b5c3497b3e1e2c14be74ac01e12a500e3b4fdd684cfc816b4ca155059da33"
+        },
+        {
+          "arm": "V",
+          "name": "window-stress2021-V.tar.crseal",
+          "bytes": 30756,
+          "sha256": "e002b9232578153f4457a0b16adc7cd9c5d80998f4a83d3587be50df0c5214b7"
+        }
+      ],
+      "baseline_predecessor": {
+        "file_sha256": "c3ccbd582e78978104320477b694489971f712b9d0f1f9c1fb5909c4e81b2aca",
+        "outer_sha256": "5cb5fefaaa99a8c530b7a307943390ca99918c9ea836100eb78376352bf2dd54",
+        "inner_sha256": "1479dab9fa911785b0cb75461a1529f78997e8fe77f446212a36f0295d23020f",
+        "state_sha256": "564cd3779884d4ac66da5d61607ec34e125d44a2f9aa366037f3df8f7dd5442b",
+        "input_sha256": "b1e53ef2a0b31c872af77c9f0717796e1c3a28d9c05e632d54a0f98cb8a21401",
+        "base_sha256": "61deefddf76a165fe01265fedfa8fc3e6a0e6c332d15ce4b685c7feb9571018c",
+        "sources_sha256": "0cecdd2ecd8f8aa3090769566eddfd3de8321ea544cc8769ad60a848bc5667bc",
+        "source_cursor": "2020-07-02"
+      },
+      "source_bindings_sha256": "198a8fe195056eee44080d796c2f4c6db79e43f7a4d4b926c08fd897e13b331d",
+      "recorded_inspections": {
+        "B/capital-risk-core-window-stress2021-b-40564376348-1-inspect.json": "bde8c428ae2cde1caa27900fa387e5432eb0b02d8583a1790546568c9ad7618f",
+        "B0/capital-risk-core-window-stress2021-b0-40564376348-1-inspect.json": "cd057445d4d25d2afc5f8a946e55486e5a78a8a68a82b888a417c03d51dc5f66",
+        "C/capital-risk-core-window-stress2021-c-40564376348-1-inspect.json": "3eb58ad42f4105635dc390bcc598d63cbcb0b21248f87a21f6b5e4b527e77da0",
+        "QUAL/capital-risk-core-gate-40564376348-1-basis-inspect.json": "b9b9524ad483eebf92eb383441ec5c5c236c152d98f2c24366795a89c386ae84",
+        "QUAL/capital-risk-core-gate-40564376348-1-risk-inspect.json": "f50b130a9cd5dc6bf3c962d498825adc836dd1df89b1559c70f0a3803a69bdfd",
+        "QUAL/capital-risk-core-window-stress2021-b-40564376348-1-input-inspect.json": "a5f865fd240080c1731ad82ba242fe3b5710a5c0107749b371accfe92a7c0ab3",
+        "V/capital-risk-core-window-stress2021-v-40564376348-1-inspect.json": "00ec81692f89e23b977bc1213d47c1c57dd991285b9ff3f60ad2f7fdf95172f2"
+      }
+    },
+    "recent2025": {
+      "artifact_id": 12763265354,
+      "artifact_name": "capital-risk-short-window-recent2025-14332ba4b490086a3294205f4fef9a0ba8ae9ce4",
+      "receipt_sha256": "9975250463185e053d5a277ead299af466b7ec59248ba1c2de3d9e32c5e9fcb2",
+      "encrypted_outputs": [
+        {
+          "arm": "QUAL",
+          "name": "window-recent2025-QUAL.tar.crseal",
+          "bytes": 112676,
+          "sha256": "0714ba47ee588b3f985d4ca3b819108a38ac30146fac402e72bd5de0d471d431"
+        },
+        {
+          "arm": "B",
+          "name": "window-recent2025-B.tar.crseal",
+          "bytes": 16855076,
+          "sha256": "d2a836b0cb10d5fd0036bcb91c8dfa436ce88b1c44ec12cfe6214b2b6452ac62"
+        },
+        {
+          "arm": "B0",
+          "name": "window-recent2025-B0.tar.crseal",
+          "bytes": 30756,
+          "sha256": "c59850532464f799521567e293126a9b97d9310cc95aea303d26441ad04d5fed"
+        },
+        {
+          "arm": "C",
+          "name": "window-recent2025-C.tar.crseal",
+          "bytes": 30756,
+          "sha256": "f0c4628abdd87bffbeb65b155e972a4c4360b018204681b796f184ffffb8308c"
+        },
+        {
+          "arm": "V",
+          "name": "window-recent2025-V.tar.crseal",
+          "bytes": 30756,
+          "sha256": "bc07e3bbd4508443b469da4a82b0469647538ed41c40ff386fd70d803a14df7b"
+        }
+      ],
+      "baseline_predecessor": {
+        "file_sha256": "5a3c700f8dbda5d794661e16a5c7301b2dda1901260ef78fd5a64ea7b8cb34a1",
+        "outer_sha256": "ed52e9bb3e047eb6f1a56d255679f36ef3e549597cdbb7f9fa9dcd14f9244d54",
+        "inner_sha256": "6d246ba86f8c49a9d3fd9e5ae7acea4b181ef4d700a594044e1fa486ef1d14fc",
+        "state_sha256": "46b80c2fde2df6c0ca9d3c1aacfbbfad13a0e083be6288d24105baf1449f06c3",
+        "input_sha256": "fec37edecb9cc5131acb54346da2b432334889f49564acea33fcd8427a7f408c",
+        "base_sha256": "5dc7273ac563f7dc76a1e2591977c422dd5f69da10b0b73db28fa18225943f7f",
+        "sources_sha256": "0cecdd2ecd8f8aa3090769566eddfd3de8321ea544cc8769ad60a848bc5667bc",
+        "source_cursor": "2024-07-02"
+      },
+      "source_bindings_sha256": "198a8fe195056eee44080d796c2f4c6db79e43f7a4d4b926c08fd897e13b331d",
+      "recorded_inspections": {
+        "B/capital-risk-core-window-recent2025-b-40564376348-1-inspect.json": "07621e9ce556d8c965660c56788fe00878eb69efe5ae8fb45dde50839362e204",
+        "B0/capital-risk-core-window-recent2025-b0-40564376348-1-inspect.json": "f3208a1aedff4b68471ba4aa3083fc4a80b09206d47a58beb260511f2f0c3ecc",
+        "C/capital-risk-core-window-recent2025-c-40564376348-1-inspect.json": "b4a28ba232f7aca8f73dad35166d8b471dcb3a9a73276b79bf30004ed22c9170",
+        "QUAL/capital-risk-core-gate-40564376348-1-basis-inspect.json": "6a0358532bb55f308ab8caae63534278ebf48d662978ed1e4f41eee72ae1ec34",
+        "QUAL/capital-risk-core-gate-40564376348-1-risk-inspect.json": "9a21c5843e4465f760cf5cf49a44fdae22e185fe0bef88d0b32703e986b0da79",
+        "QUAL/capital-risk-core-window-recent2025-b-40564376348-1-input-inspect.json": "5866427d881d3e27ff5b922469cf083969e5997afc9da94f4d3d3d68dc7f3805",
+        "V/capital-risk-core-window-recent2025-v-40564376348-1-inspect.json": "5e0abf3ff26e5287d9931cbce3c9c09e7ea027c5bd3adfc4f4815d04c63d9f53"
+      }
+    }
+  }
+}

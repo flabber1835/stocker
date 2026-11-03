@@ -1,0 +1,46 @@
+{
+  "schema": "research.system-campaign-diagnostic-request/1",
+  "financial_sessions": 0,
+  "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+  "sources": {
+    "system_campaign_diagnostic_job.py": "bd7f0c31049ed777f5c98d1c5fd6ed01b3efbbb00c09126ca36339233a35bbb6",
+    "system_campaign_factual_admit.py": "efeb6fffe18a1bea6614a0416ac306b508475dd2fea6858dddf4d6e71989172f",
+    "full_system_benchmark.py": "218b43bc86215984c45cdb6c7b8e52dd7a9c78d3906ee75d6695df1d142e89b5",
+    "probe.py": "1008ed254c63c60269bbb6063b61c7c85e44943fabfd12d320d4327c9448a9a9",
+    "seal.py": "9671e34e6895e594d20e6e1800c4899092c2da32ac33af7fecc93e26371bcc95",
+    "full_system_trials_job.py": "96c17b613c875174f5be9582ce48b2a18fdb9266a95d677ee7dd6fb7f61dbd0a",
+    "full_system_source.py": "2514fb09a283a7f10ae3f6a1d05484f82edf8616d8d946f7b7b9774b8ac77701",
+    "alpaca_fit_job.py": "ad4e976d39a00933c6c30a3a5c4c387092050b65c6190093248b05b1baa436fc",
+    "alpaca_fit_stage.py": "8339b44a2d3ed9bef5004d97f7ffd75ebad934697bcf7d085f2ffb9e4986023c",
+    "runtime_identity.py": "1939a33115e639675d9262ef92c362ec5b3b9f7bad1b9352b4bd61fd9df534e7",
+    "stage.py": "2ab2596762e059c6178361b45295739a14973992701ca95ee0e77d34b534f163"
+  },
+  "arms": {
+    "P04": {
+      "artifact_id": 12945707941,
+      "zip_bytes": 173905506,
+      "zip_sha256": "0a1f97c47fd04ee9bd29689062df86f2319f2ad25f8fe47d0cba5492492efd95",
+      "receipt_name": "campaign-factual-P04.json",
+      "receipt_sha256": "56011da4a842e9f8f0c339f30a77891b874c9e00750a18b018a487cf905468a9",
+      "encrypted_output": {
+        "name": "campaign-factual-P04.tar.crseal",
+        "bytes": 173902784,
+        "sha256": "92c61a95843c329d4044c844a8454f203cf953e0b9000c5ca3172db1ce79ddfa",
+        "manifest_sha256": "1193187d53e6d59d5e826abdb0822622d707a70d890b1f46dd45cb838eea08e6",
+        "compression": "TAR_GZIP_V1"
+      },
+      "run_id": 40980895437,
+      "head": "2a78dfdbadb80c04c53924284078c7d342646b03",
+      "selected_members": {
+        "source-bindings.json": {
+          "bytes": 61200,
+          "sha256": "6782a458d749d2ef60a7fc7fe99f75b5f0ad32dc67f0b26c8976ad1d5e5a5339"
+        },
+        "book/month-end/2018-11-30-98cc07a97d4856b1608fd877ef7f93a954d3b92ed6d2b29e13c9bff55c441ed3.json.gz": {
+          "bytes": 802263,
+          "sha256": "ffc61acb14ee689631cc17370ca6bd98c44180ff9829dd54c430c2a3d23cb598"
+        }
+      }
+    }
+  }
+}

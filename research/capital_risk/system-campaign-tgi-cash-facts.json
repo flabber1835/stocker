@@ -1,0 +1,29 @@
+{
+  "schema": "research.system-campaign-tgi-cash-facts/1",
+  "terms": [
+    {
+      "ticker": "TGI",
+      "security_id": "498918945550351909",
+      "native_session": "2025-07-24",
+      "native_term_sha256": "d64927eb0e80aa8e0a5e596cb60a510b45896548ea33f082442ae8a7a9a40580",
+      "added": {
+        "security_id": "498918945550351909",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1021162/000095017025098396/tgi-20250724.htm | Issuer8K confirms July24 legal completion, 26 USD cash per eligible share and suspension before July25 open. OCC56943 confirms July25 adjustment. Explicit next-session daily processing preserves July24 trading. https://infomemo.theocc.com/infomemos?number=56943",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2025-07-25",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 26.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1021162/000095017025098396/tgi-20250724.htm",
+      "description": "Issuer8K confirms July24 legal completion, 26 USD cash per eligible share and suspension before July25 open. OCC56943 confirms July25 adjustment. Explicit next-session daily processing preserves July24 trading. https://infomemo.theocc.com/infomemos?number=56943"
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "AAAP_mandatory_payment_unproven": true
+}

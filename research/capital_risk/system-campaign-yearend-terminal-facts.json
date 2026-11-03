@@ -1,0 +1,75 @@
+{
+  "schema": "research.system-campaign-yearend-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "MZOR",
+      "security_id": "889145412998418778",
+      "native_session": "2018-12-19",
+      "native_term_sha256": "a02bf2df42a59f13f1bb16f27a01fa72df149e10a3f886e348dacf9993a9991d",
+      "added": {
+        "security_id": "889145412998418778",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1566844/000117891318003147/zk1822382.htm | Issuercompleted6K confirms29.25USD perordinary/twoordinaryperADS; completedrelease confirms58.50USD perADS. https://www.sec.gov/Archives/edgar/data/1566844/000117891318003147/exhibit_99-1.htm . NasdaqECA2018-230 identifiesADS/suspensionDecember20: https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2018-230 . Retainednext-sessiondailyconventionDecember20 afterlegalDecember19, exactlegalminuteunobserved; preserveDecember19. StoredSEC_UNKNOWN identityretained. Grossmodeledcash beforeapplicablewithholding/fees.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-12-20",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 58.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1566844/000117891318003147/zk1822382.htm",
+      "description": "Issuercompleted6K confirms29.25USD perordinary/twoordinaryperADS; completedrelease confirms58.50USD perADS. https://www.sec.gov/Archives/edgar/data/1566844/000117891318003147/exhibit_99-1.htm . NasdaqECA2018-230 identifiesADS/suspensionDecember20: https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2018-230 . Retainednext-sessiondailyconventionDecember20 afterlegalDecember19, exactlegalminuteunobserved; preserveDecember19. StoredSEC_UNKNOWN identityretained. Grossmodeledcash beforeapplicablewithholding/fees.",
+      "proxy": null
+    },
+    {
+      "ticker": "TSRO",
+      "security_id": "491980983108163811",
+      "native_session": "2019-01-18",
+      "native_term_sha256": "891a804fa9c72cac2d04f39f96ae4d6b313d0b4ede290cb93606f5ae13b932c2",
+      "added": {
+        "security_id": "491980983108163811",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1491576/000110465919003151/a19-1062_58k.htm | Issuer8K andGSKcompletion confirmmandatory75USD eligible remaining-holder conversion January22,2019. OCC44449 explicitlybeforeJanuary22open: https://www.miaxglobal.com/sites/default/files/alert-files/TSRO_Merger_44449.pdf . TenderexpirationJanuary18 andNasdaqJanuary23administrativesuspension areNOTeffectiveconversion; preserveJanuary18.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-01-22",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 75.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1491576/000110465919003151/a19-1062_58k.htm",
+      "description": "Issuer8K andGSKcompletion confirmmandatory75USD eligible remaining-holder conversion January22,2019. OCC44449 explicitlybeforeJanuary22open: https://www.miaxglobal.com/sites/default/files/alert-files/TSRO_Merger_44449.pdf . TenderexpirationJanuary18 andNasdaqJanuary23administrativesuspension areNOTeffectiveconversion; preserveJanuary18.",
+      "proxy": null
+    },
+    {
+      "ticker": "ZAYO",
+      "security_id": "272838527679530510",
+      "native_session": "2020-03-06",
+      "native_term_sha256": "2bec73b650cdc006691065a9d810ce2257de16869145fe2e04160a6fd66b74f2",
+      "added": {
+        "security_id": "272838527679530510",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1608249/000155837020002204/ex-99d1.htm | Issuercompleted-acquisitionrelease confirms35USD commonsharecash. OCC46596 confirmsconsummationbeforeMarch9,2020open: https://www.miaxglobal.com/sites/default/files/alert-files/ZAYO_Merger_46596.pdf . PreserveMarch6.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2020-03-09",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 35.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1608249/000155837020002204/ex-99d1.htm",
+      "description": "Issuercompleted-acquisitionrelease confirms35USD commonsharecash. OCC46596 confirmsconsummationbeforeMarch9,2020open: https://www.miaxglobal.com/sites/default/files/alert-files/ZAYO_Merger_46596.pdf . PreserveMarch6.",
+      "proxy": null
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "FMSA_exact_cash_unproven": true,
+  "AAAP_mandatory_payment_unproven": true
+}

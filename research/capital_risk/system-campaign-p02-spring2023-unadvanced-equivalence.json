@@ -1,0 +1,56 @@
+{
+  "actual_reviewer_exit_code": 0,
+  "actual_stopped_fences_verified": true,
+  "actual_worker_exit_code": 1,
+  "all_driver_git_blobs_verified": 189,
+  "all_inventory_members_authenticated": 127,
+  "exact_unchanged_members": {
+    "book/checkpoint.json.gz": {
+      "bytes": 1070423,
+      "sha256": "8e2775d164f7c8bd8ac8070e9f227ff56d974acb3d2c57b9c61f851edb998b9d"
+    },
+    "book/daily.jsonl": {
+      "bytes": 46406557,
+      "sha256": "862a45198a0c5aa55968d2ff4efc48c7d3cca5e251224f8c5f4c0f44dfa1ca28"
+    },
+    "book/formation.jsonl": {
+      "bytes": 4074394,
+      "sha256": "565a37f7d692f7f2b06d288beb3044e56dbd0d8b09a8cc5a12fc8fd62c7782a8"
+    },
+    "book/identity.json": {
+      "bytes": 30117,
+      "sha256": "67ffc8f6e5522b757029152203ea2eff87f90c2ceebc9950101317094eba8e90"
+    },
+    "book/monthly.jsonl": {
+      "bytes": 230575,
+      "sha256": "9677af0c5854d4102f5bda44c92e47d0ff08f44fcf960e9427a302b001bd0d3c"
+    },
+    "book/watch.jsonl": {
+      "bytes": 469556,
+      "sha256": "346aac0c73bbed82636ad4985cefb4a175b086b538723da23c8b7033c20666e6"
+    },
+    "source-bindings.json": {
+      "bytes": 61203,
+      "sha256": "d426b8258e5c16b401cd22718a290abe2a89f73c42a8ee2a14950f90c6c4a289"
+    }
+  },
+  "failed_artifact_id": 13034330753,
+  "failed_head": "b1e51f2e78c272e510f38e9f605f78a91fb546fe",
+  "failed_run_id": 41178393607,
+  "failed_zip_bytes": 1377635065,
+  "failed_zip_sha256": "304b53054b57da7dc7819b825d4b938f936d9d071b19b7d7d4cd3a05949c8dc8",
+  "financial_entry_not_reached": true,
+  "financial_parent_outer_sha256": "6610e5e4ea3b39d8112d76c41303780b5172463172d46c2376079509bfcb48c5",
+  "financial_parent_run_id": 41174261514,
+  "financial_parent_session": "2023-03-31",
+  "independent_failure_review_sha256": "25f459ccd77084aed6f63440f7b500089c5a2fa4e81158ade934a490b2b59ab2",
+  "measured_closes": 1321,
+  "new_input_not_adopted": true,
+  "new_ordinary_overlay_not_created": true,
+  "no_checkpoint_rollback_or_new_origin": true,
+  "production_contacted": false,
+  "retained_input_descriptors": 29,
+  "schema": "research.p02-spring2023-unadvanced-equivalence/1",
+  "status": "EXACT_SAME_FINANCIAL_PARENT_NO_REPLAY_ENTRY",
+  "underlying_error": "ABIOMED_PRIOR_COMMITTED_PROOF_SEED_REQUIRED"
+}

@@ -1,0 +1,17 @@
+{
+  "schema": "research.selective-completion-request/1",
+  "id": "selective-h0-p2-completion-001",
+  "original_protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "financial_protocol_sha256": "27204f9bc1c66f9dcc5cfe7561542180be2cd3ca1b9ac799395069c402d4d3db",
+  "basis_sha256": "a95a80844f60188dda1e4dab8e0dd7cbbd39861f2bdbc2ab19b436a20522a486",
+  "execution_sources": {
+    "selective_completion.py": "97d945671c50e9c6d75319848b420bd5f3e635818dce37464dac219684a6551f",
+    "selective_completion_job.py": "8a0d2befe60534bf37bc20f2d1a7cf59a5d32a43de6471144b5402cb11d4f9e3"
+  },
+  "control_run": "40719685611",
+  "control_head": "a363edfbcc93da54d85267b7d4ba660ceb5340b2",
+  "control_manifest": "7cc8860fed28f8c7f35203d43273bd81af62bd4bf829640f864cc418501c2e06",
+  "independent_control_review_sha256": "fae1f1f7f03537455811ae0f84d11b5f35b12e32285312182daaaec7c52d0014",
+  "worker_deadline_seconds": 600,
+  "owner_scope": "FINISH_SAME_P2_AND_EXACT_SUFFIX_CHECKS_REUSE_COMPLETE_CONTROLS_NO_ROUTINE_APPROVAL_STOPS"
+}

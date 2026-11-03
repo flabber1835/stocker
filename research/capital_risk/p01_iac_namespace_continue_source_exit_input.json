@@ -1,0 +1,23 @@
+{
+  "earliest_affected_session": "2025-11-14",
+  "execution_price_claimed": false,
+  "financial_sources_sha256": "b925ecd2d5f9d6cbdb2017f971d42037622acfc3c6b7e3ba84427a70e3f0110a",
+  "held_settlement_supported": false,
+  "legal_identity_admitted": false,
+  "native_term_sha256": "6cc2c176c4e2289531450e4bbfc11a0434114506766daed1310363a9ad6aff8d",
+  "parent_outer_sha256": "06b66be0163a88446370d2e34700f08ab4f3080ce645cf68c78ea8b5ae0894fd",
+  "parent_state_sha256": "5aacbdd57c5d3d5ad6291c1bed57c3c7202fdb22c623a7141cc135b216bb2810",
+  "predecessor_checkpoint_sha256": "1dc6a1c7d477f4c40d226f89aff26b38f5e944d86eae90a2f43b0867a7a41970",
+  "primary_context_urls": [
+    "https://www.sec.gov/Archives/edgar/data/750004/000095015725000856/ex99-1.htm",
+    "https://www.sec.gov/Archives/edgar/data/750004/000095015725000949/form8-k.htm"
+  ],
+  "retained_raw_quote_sha256": "4dac7b2fbc872f09880871131fee7dbbdce97df5e1d4bb5a1fcc6e6c8285d3f0",
+  "retained_source_session": "2025-11-13",
+  "root_admission_sha256": "1765b4dde93062e1bca5e19ba4b1c9734efcab2e053de3399c84168144d3f36a",
+  "schema": "research.p01-unheld-source-exit-input/1",
+  "scope": "NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM",
+  "source_security_id": "467726443352731838",
+  "source_ticker": "LNWO",
+  "treatment": "UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH"
+}

@@ -1,0 +1,28 @@
+{
+  "schema": "research.leadership-uncertainty-contract/1",
+  "session": "2019-10-22",
+  "security_id": "941065113449292610",
+  "ticker": "ALDR",
+  "known_cash_leg_usd": "18",
+  "nontransferable_rights_per_share": "1",
+  "maximum_conditional_later_payment_usd": "2",
+  "notional_completion_consideration_interval_usd": [18, 20],
+  "interval_is_not_an_observed_market_valuation": true,
+  "do_not_use_actual_later_payment_to_narrow_interval": true,
+  "requires_no_canonical_holding_or_pending_order": true,
+  "cash_entitlements_and_receivables_are_not_supported": true,
+  "terminal_publication_remains_incomplete": true,
+  "representative_is_only_an_interval_proof_witness": true,
+  "every_executed_comparison_must_be_constant_over_the_entire_interval": true,
+  "actual_canonical_recovery_state_and_decision_must_match": true,
+  "binary64_normal_rounding_must_be_enclosed": true,
+  "future_scale_cancellation_does_not_discard_rounding_uncertainty": true,
+  "ambiguous_comparison_refuses_before_financial_commit": true,
+  "certificate_chain_committed_through_canonical_watch_prefix": true,
+  "all_retained_checkpoint_and_journal_recovery_gates_remain_required": true,
+  "original_primary_sources": [
+    "https://www.sec.gov/Archives/edgar/data/1423824/000119312519271319/d822414d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1423824/000119312519273714/d823064dsc13da.htm"
+  ],
+  "production_contacted": false
+}

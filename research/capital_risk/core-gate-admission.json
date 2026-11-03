@@ -1,0 +1,29 @@
+{
+  "schema": "research.capital-risk-core-gate-admission/1",
+  "run_id": 40557354045,
+  "source_commit": "6a9588e32920a98e418331bc4a1b0fa784ed8b7f",
+  "core_protocol_sha256": "a6221986918db165b989ea234e8185e0076b0c8934dea4fa0c753974754f4028",
+  "cases": 12,
+  "actual_encrypted_evidence_verified": true,
+  "receipt_sha256": "b8c70e97b2681df87b9460c8fa7ba6605159ae33d4857206257bc3a39f4d6dfc",
+  "ciphertext_sha256": "4d754232f9a1566159094f0f7b3c8eed4c3146cb8f29c490f4fc8006aaab560c",
+  "exact_stopped_workers": 2,
+  "removal_falsifiers": [
+    "representability",
+    "old_floor"
+  ],
+  "qualified_component_sha256": {
+    "sentinel/core/window_material.py": "e794287920d72583fa5a4116cc53d6dfcaf6ab2bbe54181741030a3dce9540a8",
+    "sentinel/core/spinoffs.py": "e82ec8a35e10218fdf02c58ac4051321dbc1553f5282e5fb99d70f860202558e",
+    "shared/stock_strategy_shared/wealth_core/window_signals.py": "a7355977e096ae022329e12f544031b22b7506a6c8694144b4df5ac97b99ee15",
+    "shared/stock_strategy_shared/wealth_core/state_restore_validation.py": "ee647384581b725367745e78ede386c178bd2e2cbd594ff70394d27632ab3dcf",
+    "shared/stock_strategy_shared/wealth_core/v5.py": "a16d2f3934967584be94119a9192f1f0f33b44bc59675e90509ed42804ed5d9a",
+    "shared/stock_strategy_shared/wealth_core/engine.py": "d01c6eada7f4fcab11b1458679d066d7a4a92121d72ba801739346c0ab570666",
+    "shared/stock_strategy_shared/wealth_core/state.py": "c2d5092ca207666ef3a5341c97c924ae570a33d89398e8ef4909607ad3524ae6",
+    "shared/stock_strategy_shared/wealth_core/terminal.py": "1e1c368369bb177c0c87ddde7bb6571b34ffe8bbb10e310db0597d0ddf17a4d2",
+    "research/pooled_vacancy_funding/backtest.py": "85cdbc18955d8abceaf05738bdf41fd22456f7ea66bc05be04f1f907c38d7c50",
+    "research/pooled_input_support/inputs.py": "04e01d215f1d2416b9670db222aa500c8c342a64a91467ccbc2254fe49eac66c",
+    "shared/stock_strategy_shared/wealth_core/capital_risk.py": "ffa275993ce7880bb42ed806bc3da3224f772418bb494f388a0e90288b2505d8"
+  },
+  "observer_only_changes_require_actual_job_qualification": true
+}

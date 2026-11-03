@@ -1,0 +1,170 @@
+{
+  "schema": "research.system-campaign-autumn2020-cash-facts/1",
+  "terms": [
+    {
+      "ticker": "MNTA",
+      "security_id": "510659411298086546",
+      "native_session": "2020-09-30",
+      "native_term_sha256": "33f886da0ae216c99de493cb3db5a849d18f11a6b3a7b600fde5644aab7afc5a",
+      "added": {
+        "session": "2020-10-01",
+        "security_id": "510659411298086546",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1235010/000119312520261321/d939572d8k.htm | Completed mandatory common-share merger pays gross52.50USD per eligible share before market open on2020-10-01. Preserve2020-09-30 trading and all frozen identity/classification/input conventions.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 52.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      },
+      "identity_witness": {
+        "session": "2020-09-29",
+        "security_id": "510659411298086546",
+        "ticker": "MNTA",
+        "issuer_id": "SEC_CIK:1235010",
+        "listing_first_session": "2004-06-22",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "c304ba1b01808b29d06d9660f60c3712d5f31b4bf255173105c2d47063cee832"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1235010/000119312520261321/d939572d8k.htm",
+      "timing_source": "https://infomemo.theocc.com/infomemos?number=47659",
+      "description": "Completed mandatory common-share merger pays gross52.50USD per eligible share before market open on2020-10-01. Preserve2020-09-30 trading and all frozen identity/classification/input conventions.",
+      "last_trading_session": "2020-09-30"
+    },
+    {
+      "ticker": "AIMT",
+      "security_id": "557908413825257346",
+      "native_session": "2020-10-12",
+      "native_term_sha256": "3fb89333ef204d5bded06009c3e2f1ef7c9b550818d8b1ff21abb85ffd9d19a7",
+      "added": {
+        "session": "2020-10-13",
+        "security_id": "557908413825257346",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1631650/000119312520272122/d54871d8k.htm | Completed mandatory common-share merger pays gross34.50USD per eligible share before market open on2020-10-13. Preserve2020-10-12 trading and all frozen identity/classification/input conventions.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 34.5,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      },
+      "identity_witness": {
+        "session": "2020-10-09",
+        "security_id": "557908413825257346",
+        "ticker": "AIMT",
+        "issuer_id": "SEC_CIK:1631650",
+        "listing_first_session": "2015-08-06",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "ef8a202744a83165dbde30223b60f492d823d3a4204fd1923773d5a6933c3e10"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1631650/000119312520272122/d54871d8k.htm",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2020-181",
+      "description": "Completed mandatory common-share merger pays gross34.50USD per eligible share before market open on2020-10-13. Preserve2020-10-12 trading and all frozen identity/classification/input conventions.",
+      "last_trading_session": "2020-10-12"
+    },
+    {
+      "ticker": "IMMU",
+      "security_id": "158295011127936997",
+      "native_session": "2020-10-22",
+      "native_term_sha256": "16dc36e02a1191dc3674bda1667d57e761df0582e29df74263daf3122260f4ac",
+      "added": {
+        "session": "2020-10-23",
+        "security_id": "158295011127936997",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/722830/000110465920117764/tm2034060-1_8k.htm | Completed mandatory common-share merger pays gross88.00USD per eligible share before market open on2020-10-23. Preserve2020-10-22 trading and all frozen identity/classification/input conventions.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 88.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      },
+      "identity_witness": {
+        "session": "2020-10-21",
+        "security_id": "158295011127936997",
+        "ticker": "IMMU",
+        "issuer_id": "SEC_CIK:722830",
+        "listing_first_session": "1997-12-31",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "7fbcec32597086b7bd85097fa96d4176c7227b9de4963b56a1cf412822c78f32"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/722830/000110465920117764/tm2034060-1_8k.htm",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2020-187",
+      "description": "Completed mandatory common-share merger pays gross88.00USD per eligible share before market open on2020-10-23. Preserve2020-10-22 trading and all frozen identity/classification/input conventions.",
+      "last_trading_session": "2020-10-22"
+    },
+    {
+      "ticker": "MYOK",
+      "security_id": "6711969151821433",
+      "native_session": "2020-11-16",
+      "native_term_sha256": "e63adffc3e0218fdf41fbca1981d3c6f51797aedf0352d7d57c99b527c93eb9c",
+      "added": {
+        "session": "2020-11-17",
+        "security_id": "6711969151821433",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1552451/000119312520296064/d87709d8k.htm | Completed mandatory common-share merger pays gross225.00USD per eligible share before market open on2020-11-17. Preserve2020-11-16 trading and all frozen identity/classification/input conventions.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 225.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      },
+      "identity_witness": {
+        "session": "2020-11-13",
+        "security_id": "6711969151821433",
+        "ticker": "MYOK",
+        "issuer_id": "SEC_CIK:1552451",
+        "listing_first_session": "2015-10-29",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "5902d07f5d9ab19958507c4b6567549ad44a949f9a2b993b21bfd9658789cdb2"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1552451/000119312520296064/d87709d8k.htm",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1552451/000119312520296064/d87709d8k.htm#Item3.01",
+      "description": "Completed mandatory common-share merger pays gross225.00USD per eligible share before market open on2020-11-17. Preserve2020-11-16 trading and all frozen identity/classification/input conventions.",
+      "last_trading_session": "2020-11-16"
+    },
+    {
+      "ticker": "VRTU",
+      "security_id": "148561310122246389",
+      "native_session": "2021-02-10",
+      "native_term_sha256": "0f9384af445d749b38084dd39e6e18486bf1d548cb595573818dbaee455bc8ec",
+      "added": {
+        "session": "2021-02-11",
+        "security_id": "148561310122246389",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1207074/000110465921020825/tm216112d10_8k.htm | Completed mandatory common-share merger pays gross51.35USD per eligible share before market open on2021-02-11. Preserve2021-02-10 trading and all frozen identity/classification/input conventions.",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 51.35,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null
+      },
+      "identity_witness": {
+        "session": "2021-02-09",
+        "security_id": "148561310122246389",
+        "ticker": "VRTU",
+        "issuer_id": "SEC_CIK:1207074",
+        "listing_first_session": "2007-08-03",
+        "security_type_eligible": "1",
+        "source_observation_sha256": "4fedab52031b7093f2550b3911fe28e55db7756db7ea44d9ac4f861b103f6e69"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1207074/000110465921020825/tm216112d10_8k.htm",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2020-222",
+      "description": "Completed mandatory common-share merger pays gross51.35USD per eligible share before market open on2021-02-11. Preserve2021-02-10 trading and all frozen identity/classification/input conventions.",
+      "last_trading_session": "2021-02-10"
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "provider_metadata_upgraded": false,
+  "new_tax_or_settlement_model": false,
+  "production_contacted": false,
+  "cash_model": "INHERITED_PRETAX_GROSS_COMMON_SHARE_CASH_NO_INDIVIDUAL_WITHHOLDING_OR_OPTION_SETTLEMENT_MODEL"
+}

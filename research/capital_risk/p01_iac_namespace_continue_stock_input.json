@@ -1,0 +1,20 @@
+{
+  "delivered_issuer_id": "SID:774426370326168272",
+  "delivered_security_id": "774426370326168272",
+  "delivered_ticker": "MBC",
+  "earliest_affected_session": "2026-05-28",
+  "exchange_ratio": "5.150",
+  "financial_sources_sha256": "b925ecd2d5f9d6cbdb2017f971d42037622acfc3c6b7e3ba84427a70e3f0110a",
+  "fractional_cash_price_known": false,
+  "held_settlement_supported": false,
+  "native_term_sha256": "51e18a8ab3c72cae703c490a0a432edc46bae19bbf5146f8228127d2ab9b21eb",
+  "parent_outer_sha256": "ba33bbd0efb151ad0f9ee813ffb90f2942f2793c18134296ad164ff1ba4823f8",
+  "parent_state_sha256": "ccbbf1a01f7f8e30ba868f107509fd9e0c7ec04a1e7be7a92a280526581669cc",
+  "predecessor_checkpoint_sha256": "a5d9a55aae9be2a80887f97d21a4996b01ad52c1d765700450296b6da85eb67d",
+  "primary_source": "https://www.sec.gov/Archives/edgar/data/794619/000119312526243155/d50625d8k.htm",
+  "root_admission_sha256": "651743035947b01d12ae8dae3510a3cf5958331f4b85c7628b6abdbbf5319866",
+  "schema": "research.p01-unheld-stock-conversion-input/1",
+  "scope": "NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM",
+  "source_security_id": "332224216763941431",
+  "source_ticker": "AMWD"
+}

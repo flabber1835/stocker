@@ -1,0 +1,14 @@
+{
+  "base_registry_sha256": "2c1bc3be34ec240a141eca69f5b020dde0f33db28e78e4d720276cc7b7b1d5b7",
+  "groups": [
+    {
+      "catalog_file": "system-campaign-q4-2023-cash-calendar-terminal-facts.json",
+      "loader_file": "system_campaign_cash_calendar.py",
+      "overlay_file": "q4-2023-cash-calendar-overlay.json",
+      "private_file": "hydrated-q4-2023-cash-calendar-terminal-catalog.json",
+      "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-q4-2023-q1-2024/1/"
+    }
+  ],
+  "required_wwe_extension_sha256": "c59ac5bc05412ad7ae367982637e2e485d2479ab64c262562c048c4a2b685384",
+  "schema": "research.ordinary-catalog-registry-extension/1"
+}

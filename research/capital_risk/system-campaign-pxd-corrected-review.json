@@ -1,0 +1,31 @@
+{
+  "arm": "P02",
+  "artifact_id": 13049271803,
+  "corrected_reviewer_entrypoint": "/driver/system_campaign_close_review_run.py",
+  "encrypted_output": {
+    "bytes": 118227,
+    "compression": "TAR_GZIP_V1",
+    "manifest_sha256": "fc83dd2c69ba39be4d4c834d9c7ab8b7bfa9d68cd60c45becbeef7e7b0f73689",
+    "name": "p02-close-review.tar.crseal",
+    "sha256": "8761297c7d78181ef6e087eae42a9fccd3b6b4f8559256522c8dc36237c7e86b"
+  },
+  "financial_admission": false,
+  "financial_resume_authorized": false,
+  "head": "2cdb37b29d546d3063f79b890b474e68f285cbca",
+  "inventory_members": 21,
+  "manifest_metadata_sha256": "4da76fd7dba524850039c71afd55f6c3952d5b1684ba54067f073d8333cd1174",
+  "original_financial_artifact_id": 13048057396,
+  "original_financial_run_id": 41214327942,
+  "protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
+  "receipt_name": "p02-close-review.json",
+  "receipt_schema": "research.system-p02-close-review-receipt/1",
+  "receipt_sha256": "6c09c50a7714ff917d06aa4568795d930853701cd9d052e320df4ffed7dbf040",
+  "request_sha256": "bde97ce7350176756a908630bccf10f869e1c7d9270336817bce1ac2aa7a7ffc",
+  "review_only": true,
+  "reviewed_checkpoint_sha256": "1f42c8345ac1df9cb1cbddff84cb2624a6fb9087ee5d3d663f528fd13ca341f0",
+  "run_id": 41218813778,
+  "schema": "research.p02-corrected-review-component-admission/1",
+  "stage": "campaign-factual-suffix",
+  "zip_bytes": 120767,
+  "zip_sha256": "cdac3c4fb812477b2cdd09ed5e39b450b4a0e03831d8220d56b60f25e43bc74f"
+}
