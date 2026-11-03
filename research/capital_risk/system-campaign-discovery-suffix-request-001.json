@@ -4,7 +4,6 @@
   "actual_journal_recover_required": true,
   "arms": [
     "P09",
-    "P10",
     "P11"
   ],
   "artifact_retention_days": 7,
@@ -23,12 +22,6 @@
       "checkpoint_sha256": "75d1e482b0a054c1e30a24a67d5274b61d4549795f8120ce602c1dfba2b32946",
       "source_cursor": "2020-10-01",
       "transitions": 1
-    },
-    "P10": {
-      "artifact_id": 13167604585,
-      "checkpoint_sha256": "24a20e05ab0dd588ab55aad2b522d9809d61ae99c2ac1383272a28e2959abf31",
-      "source_cursor": "2020-09-08",
-      "transitions": 404
     },
     "P11": {
       "artifact_id": 13113520824,
@@ -78,7 +71,7 @@
     "core_lineage_review.py": "90490330e2e637d4d2c383eec1f2f9f0c07abdc15cf8cedb1a66da9e52cd8235",
     "core_manifest.py": "ad5e1df4638a394e19855c1982b2b7b8491c459e2087134a81a181de6b328962",
     "core_window_review.py": "c53dd20a961268b223d2007027ca42daad8cc905b2ab351ad4bb02bdbc4cfa4c",
-    "discovery_approximations.py": "9606cc9f06043e38a283b519ae70e562d994e498d4f268a17fe3ccb4a7274794",
+    "discovery_approximations.py": "34cc5800fc37373a5407cc610b0f1c4e4f20bb557cd1350c392e993d684c70f6",
     "ephemeral_runner_capacity.py": "c7e90aa846dae28823d4be6b2ce9fa3092ab48e8346dcf21adb8d8fd7c6e3379",
     "forecast_collect.py": "8545f8a20fda50cefde115e807e04d8be632a44f438fa6831d8b464ab80a281f",
     "full_system_benchmark.py": "218b43bc86215984c45cdb6c7b8e52dd7a9c78d3906ee75d6695df1d142e89b5",
@@ -239,7 +232,7 @@
     "system_campaign_discovery_parent.py": "60551d18e9f016d82754c47a89a44a0fc094bd02f5b763cf55b0a5ecd9d5834d",
     "system_campaign_discovery_replay.py": "faec8da0b7966ebc48c76a66d8e221f23e20b3488b14b2f0b809ec67f444f440",
     "system_campaign_discovery_run.py": "549253b94bba54b08f6b17fc0769d6382f615a384f3f16964ba510c405c8f00e",
-    "system_campaign_discovery_suffix_job.py": "d19c93e6887170a527908427966bfc14b35f1fe91076afc40549c19b1017102d",
+    "system_campaign_discovery_suffix_job.py": "e99edf0f57d30c2ec2429fd111abaa82bbc7f844b47b55f49defec32305f7dc8",
     "system_campaign_discovery_suffix_parent.py": "b4f411d9ac5a7d96e7c3d62f77904dd4ceaeadf7b045e472aa1c24b93623ae9a",
     "system_campaign_discovery_suffix_probe.py": "a8886e7ecfb48999bba2bfd6b8b16ab30439c77eedca40676abfce5e22326e52",
     "system_campaign_discovery_suffix_replay.py": "df501aa487c981911dda659ae7a29b8a72e80d2318fbb0d3c22e3d5f7afe5a92",
@@ -532,5 +525,5 @@
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
   "target_end": "2026-07-31",
-  "workflow_sha256": "29cbfcae18b7f9b9e24a6337d2e618b796006823eb96d06bd0ceebd0508a903f"
+  "workflow_sha256": "aad1bf3f1d4f21f6832b1c6ab3fb9ec0a907bc66b4cd4fbccd5555939a5c4f28"
 }

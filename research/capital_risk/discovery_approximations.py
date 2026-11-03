@@ -18,7 +18,7 @@ class DiscoveryPolicy(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
     schema_id: Literal['research.owner-discovery-approximations/1'] = 'research.owner-discovery-approximations/1'
     authority: Literal['DISCOVERY_ONLY_NOT_FINANCIAL_AUTHORITY'] = TAINT
-    arm: Literal['P09', 'P11']
+    arm: Literal['P09', 'P10', 'P11']
     owner_approved: Literal[True] = True
     financial_authority: Literal[False] = False
     account_performance_computed: Literal[False] = False

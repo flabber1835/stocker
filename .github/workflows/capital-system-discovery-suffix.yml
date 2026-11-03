@@ -6,9 +6,6 @@ on:
 permissions:
   contents: read
   actions: read
-concurrency:
-  group: system-optimization-002-exact-diagnostic-suffixes
-  cancel-in-progress: false
 jobs:
   discovery:
     if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
@@ -16,7 +13,10 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        arm: [P09, P10, P11]
+        arm: [P09, P11]
+    concurrency:
+      group: system-optimization-002-discovery-${{ matrix.arm }}
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 355
     steps:

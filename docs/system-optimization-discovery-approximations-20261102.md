@@ -84,3 +84,28 @@ historical references; avoid recursively duplicating old lineage or qualificatio
 Keep the existing seven-day artifact policy. No automation, local canonical
 replay, provider query, external contact, PAPER operation, main merge or deployment
 is introduced.
+
+## P10's newly observed missing-price condition
+
+P10's first continuation saved 420 transitions through September 30, 2020, then
+refused October 1 because held MNTA had no current bar. The owner explicitly
+approved extending P11's same missing-price, unchanged-stop discovery convention
+to P10. Its native 21-close guard, four documents and original input epoch remain.
+First review the saved 16-transition suffix against admitted 404 with the existing
+full stopped reviewer and independent data checks. Resume from the newly accepted
+420 checkpoint only after those pass; do not replay the accepted 404 prefix or
+qualification. No financial result is admitted from these diagnostic states.
+
+An explicit review target is distinct from the continuation parent. The same
+suffix entrypoint accepts either a forward discovery role or a stopped review
+role, selected per arm in metadata. A review-only job authenticates the exact
+parent and target, executes no forward transition and exports a separately bound
+restore/prefix/ledger report. Per-arm workflow concurrency lets a completed P10
+review lead to its own continuation while other selected arms keep running.
+
+The new reviewer stop metadata must pass the same strict scalar stop schema as
+the worker, including its own actual role and container inspection. Extend only
+the selected suffix receipt's public allowlist and nested stop validation in its
+existing coordinator; keep frozen shared export and encryption helper bytes.
+An actual encrypted export test must cover a receipt containing both stops.
+Known stopped worker evidence remains exportable when the separate review fails.

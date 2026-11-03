@@ -19,7 +19,8 @@ from system_campaign_discovery_context import TAINT, digest
 from system_campaign_parallel_discovery import compile_body, body, literals, check_parent
 from system_campaign_parallel_discovery_job import stage_valid
 from system_campaign_parallel_discovery_parent import admit as admit_strict
-from system_campaign_parallel_discovery_export import qualify_export, write_public_receipt, finish_export
+from system_campaign_parallel_discovery_export import qualify_export, sealed as seal_discovery
+import system_campaign_p01_discovery_export as receipt_source
 from system_campaign_discovery_suffix_parent import (ARMS, ANCHOR_SPEC, SPINOFF_SPEC, specification,
                                                    admit as admit_diagnostic, HERE, REMAINING_SPEC)
 import system_campaign_p02_continue_job as inspector_source
@@ -27,7 +28,7 @@ import system_campaign_p02_continue_job as inspector_source
 PRIOR = 'system-campaign-volatility-admission-recovery-request-001.json'
 PRIOR_SHA = 'b8a5349cdcd8f9017af4d1338f5b8a5fbf88ef049ddc28cba32f9083ba4d12bf'
 REQUEST = 'system-campaign-discovery-suffix-request-001.json'
-SELECTED_ARMS = ('P09', 'P10', 'P11')
+SELECTED_ARMS = ('P09', 'P11')
 SOURCES = tuple(dict.fromkeys((*json.loads((HERE/'system-campaign-p10-ahl2-post-plan-request-001.json').read_bytes())['sources'], PRIOR,
     'system-campaign-p10-ahl2-post-plan-request-001.json',
     ANCHOR_SPEC, 'system_campaign_anchor_proofs.py',
@@ -63,6 +64,25 @@ def expected_request():
             if (HERE.parent.parent/'.github/workflows/capital-system-discovery-suffix.yml').exists() else None,
         checkpoint_cadence='FIRST_NEW_MONTH_END_NORMAL_SIGNAL_STOP', initial_min_disk_bytes=12*1024**3,
         sources={n:sha256_file(HERE/n) for n in SOURCES})
+
+
+def write_public_receipt(path, receipt):
+    """The same scalar stop contract for the distinct offline reviewer."""
+    need(receipt['arm'] in ('P09','P10','P11'),'SUFFIX_REVIEW_RECEIPT_ONLY_OWNER_SELECTED_DISCOVERY_ARMS')
+    fn=literals(body('system_campaign_p01_discovery_export.py','write_public_receipt'),{'P01':receipt['arm']})
+    nested,=[n for n in ast.walk(fn) if isinstance(n,ast.Set) and all(isinstance(v,ast.Constant) for v in n.elts)
+             and {ast.literal_eval(v) for v in n.elts}=={'qualification_worker','worker','encrypted_output','export_error'}]
+    nested.elts.append(ast.Constant('reviewer'))
+    stop_loop,=[n for n in ast.walk(fn) if isinstance(n,ast.For) and ast.unparse(n.iter)=="('qualification_worker', 'worker')"]
+    stop_loop.iter.elts.append(ast.Constant('reviewer'))
+    return compile_body(fn,dict(vars(receipt_source),PUBLIC_FIELDS=receipt_source.PUBLIC_FIELDS|{'reviewer'}))(path,receipt)
+
+
+def finish_export(receipt, root, path, key, request, *, known):
+    fn=literals(body('system_campaign_p01_discovery_export.py','finish_export'),
+        {'p01-discovery.tar.crseal':'discovery.tar.crseal'})
+    return compile_body(fn,dict(vars(receipt_source),sealed=lambda *args:seal_discovery(*args,receipt['arm']),
+        write_public_receipt=write_public_receipt))(receipt,root,path,key,request,known=known)
 
 
 def entrypoint(arm,mode='discovery'):

@@ -183,6 +183,6 @@ def test_marker_precedes_both_fetches_and_worker_and_qualification_is_reused():
     workflow=(Path(__file__).resolve().parents[3]/'.github/workflows/capital-system-discovery-suffix.yml').read_text()
     assert 'max-parallel: 3' in workflow and 'fail-fast: false' in workflow and 'retention-days: 7' in workflow
     request=job.expected_request()
-    assert request['arms']==['P09','P10','P11']
+    assert request['arms']==list(job.SELECTED_ARMS)
     assert parent.SPINOFF_SPEC not in request['sources']
     assert 'system_campaign_discovery_spinoff_deferral.py' not in request['sources']
