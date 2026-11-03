@@ -31,6 +31,9 @@ INPUT = 'p01_iac_namespace_continue_input.json'
 SUPPLEMENT = 'p01_iac_namespace_continue_cash_input.json'
 EXIT_INPUT = 'p01_iac_namespace_continue_source_exit_input.json'
 STOCK_INPUT = 'p01_iac_namespace_continue_stock_input.json'
+FINAL_INPUT = 'p01_iac_namespace_continue_final_input.json'
+ORLA = '622077003929363486'
+EQX = '18397188588917778'
 AMWD = '332224216763941431'
 MBC = '774426370326168272'
 EXIT_SID = '467726443352731838'
@@ -536,6 +539,101 @@ class UnheldStockCodec(SourceExitCodec):
         self.zero_value_checks.append(dict(session=day,no_source_financial_value_added=True))
 
 
+class FinalStockInput(UnheldStockInput):
+    schema_id: Literal['research.p01-unheld-stock-cash-input/1']=Field(alias='schema')
+    earliest_affected_session: Literal['2026-07-31']
+    predecessor_checkpoint_sha256: Literal['1ba14467bb7f0c5d5dcc9eb73332c7b83e0f609e63f1b0ec5c28cf822aba9000']
+    parent_outer_sha256: Literal['16577260b23ee3321d72ccd99a7e5742d073921feec3b03d8a9b55be9f409be0']
+    parent_state_sha256: Literal['2b9b52f531e2a4a21bb5399f0b8ecb204865581e376c9f19b79f157107584613']
+    root_admission_sha256: Literal['d5bfb93d098f9c45dd18697463f152a54c77df2b6fb23c987f1c418556a2c176']
+    source_security_id: Literal[ORLA]
+    source_ticker: Literal['ORLA']
+    delivered_security_id: Literal[EQX]
+    delivered_ticker: Literal['EQX']
+    delivered_issuer_id: Literal['SID:18397188588917778']
+    exchange_ratio: Literal['1.00']
+    cash_per_share: Literal[0.0001]
+    native_term_sha256: Literal['38af459b36abb7bbd88339f114ac17c3755db5be8836982edd3077f36e8b65da']
+    primary_source: Literal['https://www.sec.gov/Archives/edgar/data/1680056/000127956926000709/ex991.htm']
+    closing_source: Literal['https://www.sec.gov/Archives/edgar/data/1680056/000127956926000721/ex991.htm']
+
+
+def final_identity(value):
+    if isinstance(value,dict):return any(final_identity(k) or final_identity(v) for k,v in value.items())
+    if isinstance(value,(list,tuple)):return any(final_identity(v) for v in value)
+    return isinstance(value,str) and value in (ORLA,'ORLA')
+
+
+def unheld_final_scope(state,*,history=True):
+    value=state if isinstance(state,dict) else dict(wealth_core=state.wealth_core,pending=state.pending,ledger=state.ledger)
+    wealth=value['wealth_core'];ledger=value['ledger']
+    need(not final_identity(wealth['episodes']) and not final_identity(value['pending']),'ORLA_HOLDING_OR_INTENT_UNSUPPORTED')
+    need(not final_identity(wealth['slots']) and not final_identity(ledger['receivables']),'ORLA_RESERVATION_OR_RECEIVABLE_UNSUPPORTED')
+    if history:need(not final_identity(ledger['events']),'ORLA_HISTORICAL_OWNERSHIP_UNSUPPORTED')
+    for name in ('unresolved_terminals','terminal_pending_terms','terminal_pending_sessions','terminal_carry_audit'):
+        need(not final_identity(wealth.get(name,{})),'ORLA_PRIOR_TERMINAL_CLAIM_UNSUPPORTED')
+
+
+class FinalStockCodec(SourceExitCodec):
+    """Exact final unheld package; share the existing codec lifecycle."""
+    def __init__(self,old,parent):
+        self.expected_raw=(HERE/FINAL_INPUT).read_bytes();self.document=FinalStockInput.model_validate(json.loads(self.expected_raw))
+        doc=self.document
+        need(parent['sha256']==doc.parent_outer_sha256 and parent['completed']==2155 and parent['source_cursor']=='2026-07-30'
+             and parent['run']['checkpoint_sha256']==doc.predecessor_checkpoint_sha256
+             and parent['run']['state_sha256']==doc.parent_state_sha256
+             and digest(parent['run']['state'])==doc.parent_state_sha256
+             and digest({k:v for k,v in parent.items() if k!='sha256'})==doc.parent_outer_sha256
+             and digest(parent['base']['sources'])==doc.financial_sources_sha256,
+             'ORLA_EXACT_ADMITTED_FINAL_ORIGIN_STATE_AND_SOURCE_EPOCH')
+        target=parent['run']['state']['feed']['series'][EQX]
+        need((target['security_id'],target['ticker'],target['issuer_id'])==(EQX,'EQX',doc.delivered_issuer_id),'ORLA_EXACT_RETAINED_TARGET_IDENTITY')
+        unheld_final_scope(parent['run']['state']);self.origin=parent
+        self.objects=[];self.applied=[];self.zero_value_checks=[]
+
+    def load(self,path,*,resume_session,predecessor_checkpoint_sha256):
+        raw=Path(path).read_bytes()
+        if json.loads(raw).get('schema')!='research.p01-unheld-stock-cash-input/1':
+            return self.original_load(path,resume_session=resume_session,predecessor_checkpoint_sha256=predecessor_checkpoint_sha256)
+        need(raw==self.expected_raw and resume_session==self.origin['source_cursor']
+             and predecessor_checkpoint_sha256==self.document.predecessor_checkpoint_sha256,'ORLA_EXACT_FUTURE_INPUT_AND_ORIGINAL_DESCRIPTOR')
+        obj=FinalStockInput.model_validate(json.loads(raw));obj._sha256=sha(raw);self.objects.append(obj);return obj
+
+    def apply(self,packet,loaded):
+        if not isinstance(loaded,FinalStockInput):return self.original_apply(packet,loaded)
+        need(any(loaded is obj for obj in self.objects),'ORLA_REGISTERED_TYPED_INPUT')
+        if packet.day!=loaded.earliest_affected_session:return packet
+        from system_campaign_discovery_context import material
+        from dataclasses import fields
+        native,=[term for term in packet.terminal if term.security_id==ORLA]
+        need(digest(material(native))==loaded.native_term_sha256,'ORLA_EXACT_NATIVE_TERMINAL_PREIMAGE')
+        need(not any(final_identity(material(t)) for t in packet.terminal if t is not native)
+             and not any(final_identity(material(s)) for s in packet.spins),'ORLA_NO_OTHER_DELIVERY_OR_SPINOFF')
+        changed=replace(native,kind=type(native.kind).CONVERSION,cash_per_share=loaded.cash_per_share,
+            delivered_security_id=EQX,delivered_ticker='EQX',delivered_issuer_id=loaded.delivered_issuer_id,
+            exchange_ratio=loaded.exchange_ratio,reference=loaded.primary_source)
+        result=replace(packet,terminal=tuple(changed if t is native else t for t in packet.terminal))
+        allowed={'kind','cash_per_share','delivered_security_id','delivered_ticker','delivered_issuer_id','exchange_ratio','reference'}
+        need(all(getattr(packet,f.name) is getattr(result,f.name) for f in fields(packet) if f.name!='terminal')
+             and all(getattr(native,f.name)==getattr(changed,f.name) for f in fields(native) if f.name not in allowed),
+             'ORLA_ONLY_DECLARED_TERMINAL_FIELDS_CHANGE')
+        proof=dict(session=packet.day,native=material(native),compiled=material(changed),input_sha256=loaded.sha256,
+                   held_settlement_supported=False,fractional_cash_price_known=False)
+        if proof not in self.applied:self.applied.append(proof)
+        return result
+
+    def before(self,state,day):
+        if day!=self.document.earliest_affected_session:return None
+        need(self.objects and len(self.applied)==1,'ORLA_ACTUAL_REGISTERED_INPUT_APPLIED_ONCE')
+        unheld_final_scope(state);return len(state.ledger['events'])
+
+    def after(self,state,day,count):
+        if count is None:return
+        added=[event for event in state.ledger['events'][count:] if final_identity(event)]
+        need(all(event['cash_delta']==0 and event['shares_delta']==0 for event in added),'ORLA_CANNOT_ADD_PORTFOLIO_CASH_OR_SHARES')
+        unheld_final_scope(state,history=False);self.zero_value_checks.append(dict(session=day,no_source_financial_value_added=True))
+
+
 class SourceGate:
     def __init__(self, parent, old, out):
         self.parent = parent; self.old = old; self.out = out; self.allowed = {parent['sha256']: parent}
@@ -592,12 +690,13 @@ def hydrate(old, out, spec, rows):
     with old_inputs(old, {**parent, 'repairs': parent['repairs'][:9]}, out / 'contexts'), \
          CelgCodec(native(OLD, CELG), tenth), BatchCodec(source_terms()), UnitCodec(rows, origin) as unit, \
          EstimateCodec(input_origin(old, parent)) as estimate, UnheldCashCodec(old,parent) as cash, \
-         SourceExitCodec(old,parent) as source_exit, UnheldStockCodec(old,parent) as stock, SourceGate(parent, old, out) as gate:
+         SourceExitCodec(old,parent) as source_exit, UnheldStockCodec(old,parent) as stock, \
+         FinalStockCodec(old,parent) as final_stock, SourceGate(parent, old, out) as gate:
         for entry in parent['repairs']:
             obj = backtest.load_repair(old / 'book/repairs' / entry['filename'], resume_session=entry['resume_session'],
                                       predecessor_checkpoint_sha256=entry['predecessor_checkpoint_sha256'])
             need(obj.sha256 == entry['sha256'], 'CONTINUE_ALL_TWELVE_ORIGINAL_CODECS_IN_ORDER')
-        yield parent, unit, estimate, gate, mapping, cash, source_exit, stock
+        yield parent, unit, estimate, gate, mapping, cash, source_exit, stock, final_stock
 
 
 
@@ -731,7 +830,7 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
     wanted = [d for d in axis() if parent['source_cursor'] < d <= END]
     need(len(wanted) == 2156-parent['completed'] and wanted[0] == spec.get('next_session', EVENT) and wanted[-1] == END, 'CONTINUE_EXACT_REMAINING_SOURCE_AXIS')
     with hydrate(old, out, spec, rows) as values:
-        parent, unit, estimate, gate, mapping, cash, source_exit, stock = values
+        parent, unit, estimate, gate, mapping, cash, source_exit, stock, final_stock = values
         args = arguments(out / 'book', True); args[args.index('--policy') + 1] = parent['base']['policy']
         source_args = ['--source-successor', str(old / 'source-successor.json')]
         if len(parent['repairs']) == 12:
@@ -751,7 +850,7 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
             loaded = estimate.objects[-1]; adoption = None
             new_input=expected_request()['new_input_file']
             if new_input is not None:
-                need(new_input in (SUPPLEMENT,EXIT_INPUT,STOCK_INPUT),'CONTINUE_EXPLICIT_SINGLE_FUTURE_INPUT')
+                need(new_input in (SUPPLEMENT,EXIT_INPUT,STOCK_INPUT,FINAL_INPUT),'CONTINUE_EXPLICIT_SINGLE_FUTURE_INPUT')
                 input_path=out/new_input;input_path.write_bytes((HERE/new_input).read_bytes())
                 loaded=backtest.load_repair(input_path,resume_session=parent['source_cursor'],predecessor_checkpoint_sha256=parent['run']['checkpoint_sha256'])
                 earliest=loaded.earliest_affected_session
@@ -768,10 +867,12 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
             source_events=cash.before(run.state,published.session)
             exit_events=source_exit.before(run.state,published.session)
             stock_events=stock.before(run.state,published.session)
+            final_events=final_stock.before(run.state,published.session)
             following = original_advance(run, published)
             cash.after(following.state,published.session,source_events)
             source_exit.after(following.state,published.session,exit_events)
             stock.after(following.state,published.session,stock_events)
+            final_stock.after(following.state,published.session,final_events)
             if published.session in wanted[:2]:
                 cp = runtime.checkpoint(following)
                 restored = runtime.restore(cp, policy=following.policy, input_sha256=following.input_sha256)
@@ -794,6 +895,7 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
                       unheld_cash_applications=cash.applied,unheld_cash_zero_value_checks=cash.zero_value_checks,
                       source_exit_applications=source_exit.applied,source_exit_zero_value_checks=source_exit.zero_value_checks,
                       unheld_stock_applications=stock.applied,unheld_stock_zero_value_checks=stock.zero_value_checks,
+                      final_stock_applications=final_stock.applied,final_stock_zero_value_checks=final_stock.zero_value_checks,
                       estimated_applications=estimate.applied, original_twelve_inputs_unchanged=current['repairs'][:12] == parent['repairs'][:12],
                       all_admitted_inputs_unchanged=current['repairs'][:len(parent['repairs'])] == parent['repairs'],
                       financial_source_changed=False, qualification_state_adopted=False, production_contacted=False,
@@ -804,14 +906,26 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
         return components, result
 
 
+def event_qualification_count(spec,request=None):
+    request=expected_request() if request is None else request
+    if request['new_input_file']!=FINAL_INPUT:return 2
+    need(spec['completed']==2155 and spec['selected_session']=='2026-07-30' and spec['next_session']==END
+         and spec['outer_sha256']=='16577260b23ee3321d72ccd99a7e5742d073921feec3b03d8a9b55be9f409be0'
+         and spec['root_admission_sha256']=='d5bfb93d098f9c45dd18697463f152a54c77df2b6fb23c987f1c418556a2c176'
+         and request['remaining_sessions']==1 and request['endpoint']==END,
+         'ORLA_ONE_SESSION_QUALIFICATION_ONLY_EXACT_ADMITTED_ENDPOINT')
+    return 1
+
+
 def qualification(old, out, spec, rows):
     reference = out / 'event-reference'; fast = out / 'event-fast'; reference.mkdir(); fast.mkdir()
-    ref, r = branch(old, reference, spec, rows, mode='REFERENCE', maximum=2)
-    need(len(ref)==2 and r['new_transitions']==2 and r['canonical_return_code']==0,
+    count=event_qualification_count(spec)
+    ref, r = branch(old, reference, spec, rows, mode='REFERENCE', maximum=count)
+    need(len(ref)==count and r['new_transitions']==count and r['canonical_return_code']==0,
          'CONTINUE_REFERENCE_QUALIFICATION_REFUSED_BEFORE_FAST')
-    actual, f = branch(old, fast, spec, rows, maximum=2)
-    need(len(ref) == len(actual) == 2 and ref == actual and r == f
-         and r['new_transitions'] == 2, 'CONTINUE_TARGETED_FRACTION_REFERENCE_FAST_EXACT')
+    actual, f = branch(old, fast, spec, rows, maximum=count)
+    need(len(ref) == len(actual) == count and ref == actual and r == f
+         and r['new_transitions'] == count, 'CONTINUE_TARGETED_FRACTION_REFERENCE_FAST_EXACT')
     # Only the new event qualification is performed. No old Q is replayed.
     result = dict(schema='research.p01-estimated-event-qualification/1', passed=True, parent_sha256=spec['outer_sha256'],
                   components=actual, estimated_treatment=r['estimated_treatment'], financial_authority=False,
@@ -828,6 +942,12 @@ def qualification(old, out, spec, rows):
         result['unheld_stock_input_sha256']=sha((HERE/STOCK_INPUT).read_bytes())
         result['unheld_stock_applications']=r['unheld_stock_applications']
         result['unheld_stock_zero_value_checks']=r['unheld_stock_zero_value_checks']
+    if expected_request()['new_input_file']==FINAL_INPUT:
+        need(len(r['final_stock_applications'])==1 and r['final_stock_zero_value_checks']==[
+            dict(session=END,no_source_financial_value_added=True)],'ORLA_QUALIFIED_ACTUAL_USE_ZERO_VALUE')
+        result['final_stock_input_sha256']=sha((HERE/FINAL_INPUT).read_bytes())
+        result['final_stock_applications']=r['final_stock_applications']
+        result['final_stock_zero_value_checks']=r['final_stock_zero_value_checks']
     (out / 'qualification.json.gz').write_bytes(gzip.compress(encoded(result), compresslevel=1))
 
 
@@ -892,6 +1012,13 @@ def review(old, evidence, out, spec, rows):
                  and outcome['unheld_stock_zero_value_checks']==proof['unheld_stock_zero_value_checks'],
                  'AMWD_FRESH_FINANCIAL_ACTUAL_USE_EQUALS_QUALIFIED_ZERO_VALUE_EVENT')
             result['unheld_stock_event_qualification_and_actual_use_verified']=True
+        if expected_request()['new_input_file']==FINAL_INPUT:
+            proof=json.loads(gzip.decompress((evidence/'new-event-qualification/qualification.json.gz').read_bytes()))
+            validate_event_qualification(proof,spec,expected_request());outcome=read(evidence/'accurate-outcome.json')
+            need(outcome['final_stock_applications']==proof['final_stock_applications']
+                 and outcome['final_stock_zero_value_checks']==proof['final_stock_zero_value_checks'],
+                 'ORLA_FRESH_FINANCIAL_ACTUAL_USE_EQUALS_QUALIFIED_ZERO_VALUE_EVENT')
+            result['final_stock_event_qualification_and_actual_use_verified']=True
         if spec.get('stopped_review_only'):
             target=spec['review_target']
             need(current['sha256']==target['outer_sha256'] and current['completed']==target['completed']
@@ -907,17 +1034,17 @@ def review(old, evidence, out, spec, rows):
 def expected_request():
     from seal import sha256_file
     old = read(HERE / 'p01_iac_stopped_review_request.json')
-    names = sorted(set(old['sources']) | {'p01_iac_stopped_review_request.json', Path(__file__).name, SPEC, INPUT, SUPPLEMENT, EXIT_INPUT, STOCK_INPUT})
+    names = sorted(set(old['sources']) | {'p01_iac_stopped_review_request.json', Path(__file__).name, SPEC, INPUT, SUPPLEMENT, EXIT_INPUT, STOCK_INPUT, FINAL_INPUT})
     parent = read(HERE / SPEC)
     admitted={entry['sha256'] for entry in parent['repairs']}
-    new_input=next((name for name in (SUPPLEMENT,EXIT_INPUT,STOCK_INPUT) if sha256_file(HERE/name) not in admitted),None)
+    new_input=next((name for name in (SUPPLEMENT,EXIT_INPUT,STOCK_INPUT,FINAL_INPUT) if sha256_file(HERE/name) not in admitted),None)
     unit_facts=read(HERE/'p01_iac_unit_facts.json')
     return dict(schema='research.p01-accurate-progress-request/1', arm='P01', stage=STAGE,
                 parent_sha256=parent['outer_sha256'], root_admission_sha256=parent['root_admission_sha256'], first_session=parent.get('next_session', EVENT), endpoint=END,
                 original_sessions=parent.get('completed', 697), remaining_sessions=2156-parent.get('completed', 697), estimated_fractional_cash=True,
                 original_inputs=len(parent['repairs']),successor_inputs=len(parent['repairs'])+int(new_input is not None),
                 new_input_file=new_input,new_input_sha256=sha256_file(HERE/new_input) if new_input else None,
-                new_event_qualification_required=len(parent['repairs'])==12 or new_input in (EXIT_INPUT,STOCK_INPUT),
+                new_event_qualification_required=len(parent['repairs'])==12 or new_input in (EXIT_INPUT,STOCK_INPUT,FINAL_INPUT),
                 forward_unit_domain=dict(through=END,source_members=unit_facts['source_members'],
                     per_use_requirement='EXACT_NATIVE_PREIMAGE_CHRONOLOGICAL_FACTOR_FULL_WINDOW_AND_ANCHOR'),
                 monthly_review_only=parent.get('monthly_review_only',False),
@@ -1115,7 +1242,7 @@ def host(args):
 def validate_event_qualification(proof,spec,request):
     need(proof['passed'] is True and proof['parent_sha256']==spec['outer_sha256']
          and proof['old_qualification_reexecuted'] is False and proof['qualification_state_adopted'] is False
-         and len(proof['components'])==2,'CONTINUE_NEW_EVENT_QUALIFICATION')
+         and len(proof['components'])==event_qualification_count(spec,request),'CONTINUE_NEW_EVENT_QUALIFICATION')
     if request['new_input_file']==EXIT_INPUT:
         need(proof['source_exit_input_sha256']==request['new_input_sha256']
              and len(proof['source_exit_applications'])==1 and proof['source_exit_zero_value_checks']==[
@@ -1124,6 +1251,10 @@ def validate_event_qualification(proof,spec,request):
         need(proof['unheld_stock_input_sha256']==request['new_input_sha256']
              and len(proof['unheld_stock_applications'])==1 and proof['unheld_stock_zero_value_checks']==[
                  dict(session='2026-05-28',no_source_financial_value_added=True)],'AMWD_EXACT_NEW_EVENT_PROOF_BEFORE_FINANCE')
+    if request['new_input_file']==FINAL_INPUT:
+        need(proof['final_stock_input_sha256']==request['new_input_sha256']
+             and len(proof['final_stock_applications'])==1 and proof['final_stock_zero_value_checks']==[
+                 dict(session=END,no_source_financial_value_added=True)],'ORLA_EXACT_NEW_EVENT_PROOF_BEFORE_FINANCE')
 
 
 def worker(mode):

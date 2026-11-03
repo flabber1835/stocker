@@ -5,7 +5,7 @@
   "estimated_fractional_cash": true,
   "financial_resume_authorized": true,
   "financial_wait_seconds": 9000,
-  "first_session": "2026-05-28",
+  "first_session": "2026-07-31",
   "forward_unit_domain": {
     "per_use_requirement": "EXACT_NATIVE_PREIMAGE_CHRONOLOGICAL_FACTOR_FULL_WINDOW_AND_ANCHOR",
     "source_members": {
@@ -55,12 +55,12 @@
   "initial_min_disk_bytes": 12884901888,
   "monthly_review_only": false,
   "new_event_qualification_required": true,
-  "new_input_file": "p01_iac_namespace_continue_stock_input.json",
-  "new_input_sha256": "c13685eda5e4270db2cbacf7449c62b2285fa072b2917fb00db2990275422689",
+  "new_input_file": "p01_iac_namespace_continue_final_input.json",
+  "new_input_sha256": "43def6fcace4ead5eeb835dd5d2f763fe067c157f5fdf53228e867c22a435940",
   "old_qualification_reexecuted": false,
-  "original_inputs": 15,
-  "original_sessions": 2111,
-  "parent_sha256": "ba33bbd0efb151ad0f9ee813ffb90f2942f2793c18134296ad164ff1ba4823f8",
+  "original_inputs": 16,
+  "original_sessions": 2155,
+  "parent_sha256": "16577260b23ee3321d72ccd99a7e5742d073921feec3b03d8a9b55be9f409be0",
   "preworker_min_disk_bytes": 10737418240,
   "preworker_min_memory_bytes": 10737418240,
   "production_contacted": false,
@@ -106,9 +106,9 @@
     "repository": "flabber1835/stocker",
     "schema": "research.p01-celg-input-capsule/1"
   },
-  "remaining_sessions": 45,
+  "remaining_sessions": 1,
   "review_wait_seconds": 1200,
-  "root_admission_sha256": "651743035947b01d12ae8dae3510a3cf5958331f4b85c7628b6abdbbf5319866",
+  "root_admission_sha256": "d5bfb93d098f9c45dd18697463f152a54c77df2b6fb23c987f1c418556a2c176",
   "schema": "research.p01-accurate-progress-request/1",
   "sources": {
     "alpaca_fit_collect.py": "02586974d885f7bb1adcc92639fdf62f755ca825e37fecb440b0227647fae893",
@@ -187,10 +187,11 @@
     "p01_factual_batch_request.json": "2ce21c812d8b9168d519361dda55481ff993a57fe0634e3a292ee4b3cd9fd305",
     "p01_factual_batch_review.py": "96adc4b204cc013d9b438cf29d048b63ce568beed1df11fe0c7c7a3c99b5c79d",
     "p01_factual_batch_run.py": "2ab3bdf45db765292e7a2857ae4c8049471c3527671e8d87149a6fa54ce16719",
-    "p01_iac_namespace_continue.py": "12122a11f5ab73ea2e735ec171d41a5f7ee58dacba30fd8c16bd1235c72b03e6",
+    "p01_iac_namespace_continue.py": "1dd6857cb374532bd33faeaadd53bdd4ae600e68c16a5534408fa498d8cb8cf5",
     "p01_iac_namespace_continue_cash_input.json": "4978eebd26d840a0d1678ba96fdae302e844f08f932d6eaa0b2ed675470b869c",
+    "p01_iac_namespace_continue_final_input.json": "43def6fcace4ead5eeb835dd5d2f763fe067c157f5fdf53228e867c22a435940",
     "p01_iac_namespace_continue_input.json": "5a63c58c8d4d9bbad3bcd1c02bddae2ba2c4439fe39be7b365bf98d5c96a83d3",
-    "p01_iac_namespace_continue_parent.json": "3a34acfc558258f75bb28bddcbca4e1513150031d3ffdb74ecef00fedb0c4eed",
+    "p01_iac_namespace_continue_parent.json": "dd1f849724eea13c7189dac6219221759c1041d67d2cd899e4e82aa14cdd1b98",
     "p01_iac_namespace_continue_source_exit_input.json": "b322f20e3152bf1e9e75a2130247cc3bd8c1851417d061c03262527a241a8e26",
     "p01_iac_namespace_continue_stock_input.json": "c13685eda5e4270db2cbacf7449c62b2285fa072b2917fb00db2990275422689",
     "p01_iac_namespace_export.py": "7a3865789782758379223727eb0b70860c0c6f3c1f72725f1d8af3cc70be6288",
@@ -646,5 +647,5 @@
   "stage": "campaign-p01-accurate-progress",
   "stopped_review_only": false,
   "stopped_review_target": null,
-  "successor_inputs": 16
+  "successor_inputs": 17
 }

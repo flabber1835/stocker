@@ -85,10 +85,10 @@ def test_changed_economics_or_claimed_capabilities_refuse(field,value):
     raw=json.loads((CAP/m.STOCK_INPUT).read_bytes())
     with pytest.raises(ValueError):m.UnheldStockInput.model_validate({**raw,field:value})
 
-def test_explicit_current_request_and_new_event_gate():
-    r=m.expected_request();spec=m.read(CAP/m.SPEC)
-    assert (r['original_sessions'],r['remaining_sessions'],r['original_inputs'],r['successor_inputs'])==(2111,45,15,16)
-    assert r['new_input_file']==m.STOCK_INPUT and r['new_event_qualification_required']
+def test_historical_amwd_new_event_gate_still_requires_two_components():
+    doc=m.UnheldStockInput.model_validate(m.read(CAP/m.STOCK_INPUT))
+    spec=dict(outer_sha256=doc.parent_outer_sha256)
+    r=dict(new_input_file=m.STOCK_INPUT,new_input_sha256=m.sha((CAP/m.STOCK_INPUT).read_bytes()))
     proof=dict(passed=True,parent_sha256=spec['outer_sha256'],old_qualification_reexecuted=False,qualification_state_adopted=False,
         components=[{},{}],unheld_stock_input_sha256=r['new_input_sha256'],unheld_stock_applications=[{}],
         unheld_stock_zero_value_checks=[dict(session='2026-05-28',no_source_financial_value_added=True)])
@@ -117,11 +117,12 @@ def test_failed_reference_does_not_start_fast(tmp_path,monkeypatch):
         calls.append(kw['mode'] if 'mode' in kw else 'FAST')
         return [],dict(new_transitions=0,canonical_return_code=1)
     monkeypatch.setattr(m,'branch',branch)
-    with pytest.raises(ValueError,match='REFERENCE_QUALIFICATION_REFUSED_BEFORE_FAST'):m.qualification(tmp_path,tmp_path,{},[])
+    spec=m.read(CAP/m.SPEC)
+    with pytest.raises(ValueError,match='REFERENCE_QUALIFICATION_REFUSED_BEFORE_FAST'):m.qualification(tmp_path,tmp_path,spec,[])
     assert calls==['REFERENCE']
     fn,=[n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='qualification']
     fn.body=[n for n in fn.body if not (isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and len(n.value.args)==2 and isinstance(n.value.args[1],ast.Constant) and n.value.args[1].value=='CONTINUE_REFERENCE_QUALIFICATION_REFUSED_BEFORE_FAST')]
     scope=dict(vars(m));exec(compile(ast.Module(body=[fn],type_ignores=[]),'<reference-fail-fast-guard-removed>','exec'),scope)
     out=tmp_path/'removed';out.mkdir();calls.clear()
-    with pytest.raises(ValueError,match='TARGETED_FRACTION_REFERENCE_FAST_EXACT'):scope['qualification'](tmp_path,out,{},[])
+    with pytest.raises(ValueError,match='TARGETED_FRACTION_REFERENCE_FAST_EXACT'):scope['qualification'](tmp_path,out,spec,[])
     assert calls==['REFERENCE','FAST']

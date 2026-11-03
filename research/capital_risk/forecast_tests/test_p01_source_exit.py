@@ -133,7 +133,7 @@ def test_public_plan_contains_no_price_and_cannot_claim_held_or_execution_capabi
 def test_actual_successor_transport_requires_extraction_descriptor_before_download(tmp_path,monkeypatch):
     import subprocess
     spec=m.read(CAP/m.SPEC)
-    assert m.successor_manifest_descriptor(spec['transport'])['member_count']==676
+    assert m.successor_manifest_descriptor(spec['transport'])['member_count']==732
     old=deepcopy(spec);old['transport']['manifest']={'schema':'research.full-system-output/1','members':{}}
     def forbidden(*a,**k):raise AssertionError('NO_TRANSPORT_OR_CRYPTO_PERMITTED')
     monkeypatch.setattr(subprocess,'run',forbidden)
