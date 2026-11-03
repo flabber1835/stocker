@@ -79,6 +79,40 @@ def test_missing_seal_grants_no_compatibility(monkeypatch):
     assert basis.predecessor_view(actual) is actual
 
 
+def test_installed_pr561_predecessor_is_exact_and_never_rewritten():
+    profile = basis._profile()
+    previous = profile['retained_predecessors'][basis.REVIEWED_PREDECESSOR_REVISION]['files']
+    saved = deepcopy(previous)
+    assert len(previous) == 434
+    assert admission.source_closure(previous) == (
+        'a8b6cce6e00654f402fd74735b66e0711331c44b3ea171e0241a40230b4096a4')
+    assert basis.predecessor_view(_actual(), previous=previous) == previous == saved
+    assert basis.predecessor_view({**_actual(), 'unknown.py': 'f'*64}, previous=previous) != previous
+    changed = {**previous, 'automation_supervisor.py': 'f'*64}
+    assert basis.predecessor_view(_actual(), previous=changed) != changed
+
+
+@pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
+def test_repinning_profile_cannot_replace_installed_pr561_source(tmp_path, monkeypatch, defect):
+    value = json.loads(basis.PROFILE.read_bytes())
+    prior = value['retained_predecessors'][basis.REVIEWED_PREDECESSOR_REVISION]
+    if defect == 'changed':
+        prior['files']['automation_supervisor.py'] = 'f'*64
+    elif defect == 'missing':
+        prior['files'].pop('automation_supervisor.py')
+    elif defect == 'extra':
+        prior['files']['unknown.py'] = 'f'*64
+    else:
+        prior['files']['url_selected_source_basis.py'] = 'f'*64
+    prior['source_sha256'] = basis._closure(prior['files'])
+    raw = json.dumps(value, sort_keys=True).encode()
+    path = tmp_path/'foreign-profile.json';path.write_bytes(raw)
+    monkeypatch.setattr(basis, 'PROFILE', path)
+    monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError, match='RETAINED_PREDECESSOR_CHANGED'):
+        basis._profile()
+
+
 def test_changed_checker_or_original_structural_witness_refuses(tmp_path, monkeypatch):
     checker = tmp_path / 'url_selected_source_basis.py'
     checker.write_bytes(Path(basis.__file__).read_bytes() + b'\n# unknown checker bytes\n')

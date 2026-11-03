@@ -14,12 +14,14 @@ BASE_SOURCE_SHA256 = '6d83f60c1503637cf0f6f8b6757d41ca47d5e1afa768da99c01a82d98b
 RETAINED_REVISION = '403617ec3df4ba0950a989fa140038802f7e7b6e'
 RETAINED_SOURCE_SHA256 = 'd83a9932ae32e0d87adde8691fcc36a7a8c1d93658f2c0ce954a211363918691'
 PREVIOUS_BASE_REVISION = '71b7c2a113dca8882f4cbf7a03d79f771e383092'
+REVIEWED_PREDECESSOR_REVISION = 'bdb975c88c90a80c1ee7c98aed6dceeee12c8fc5'
 RETAINED_PREDECESSORS = {
     RETAINED_REVISION: (421, RETAINED_SOURCE_SHA256),
     PREVIOUS_BASE_REVISION: (422, '85f353c936459255c048aedc366272ca4c6f3053f654a006da61a42af2688352'),
+    REVIEWED_PREDECESSOR_REVISION: (434, 'a8b6cce6e00654f402fd74735b66e0711331c44b3ea171e0241a40230b4096a4'),
 }
 STRUCTURAL_PROFILE_SHA256 = '139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0'
-PROFILE_SHA256 = '4d9e83498e01f57cdeb12fa742562d6481ac11bb21e52a5e0037ac74b3343242'
+PROFILE_SHA256 = '150a2fd40ddd53f589f6f3d3fa36d5f2deea9078f0889c18e6772b38ba95534e'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
 _SCHEMA = 'sentinel.url-selected-trading-transition/3'
 _SELF = 'url_selected_source_basis.py'
@@ -103,8 +105,12 @@ def _profile() -> dict | None:
         if (not isinstance(record, dict) or set(record) != {'source_sha256', 'files'}
                 or record['source_sha256'] != expected_sha
                 or len(_source_map(record['files'])) != count
-                or _closure(record['files']) != expected_sha
-                or set(record['files']) - set(baseline)):
+                or _closure(record['files']) != expected_sha):
+            raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+        if revision == REVIEWED_PREDECESSOR_REVISION:
+            if set(record['files']) != set(candidate) | {_SELF}:
+                raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+        elif set(record['files']) - set(baseline):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
     if (len(baseline) != 422 or _closure(baseline) != BASE_SOURCE_SHA256
             or baseline != expected or set(baseline) - set(candidate)
