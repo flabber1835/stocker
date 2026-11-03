@@ -1,0 +1,26 @@
+{
+  "aggregate_cash_per_old_share": "59.17",
+  "clock_scope": "EXISTING_NATIVE_CALENDAR_DAY_UNHELD_ONLY_NO_PREOPEN_CLAIM",
+  "dotdash_cash_per_distributed_share": "42.18",
+  "earliest_affected_session": "2021-12-01",
+  "gray_cash_per_old_share": "16.99",
+  "held_multileg_supported": false,
+  "native_term_sha256": "c0415c1aa5fc0a0205ade497e308f194d403687c8db4c77cd413da22a21748b8",
+  "new_meredith_distribution_ratio": "1/1",
+  "ordered_legs": [
+    "DISTRIBUTE_NEW_MEREDITH_ONE_FOR_ONE",
+    "GRAY_CASH_16_99",
+    "DOTDASH_CASH_42_18"
+  ],
+  "parent_outer_sha256": "1e455e979bc84346b3bfbb3524eb90826accf59e273e390530c75deea1d7a7bb",
+  "predecessor_checkpoint_sha256": "ab994edd0f51695527f18adf2b2c72fe67fdc9e13f4fd5be18ddf39fb16703a8",
+  "primary_urls": [
+    "https://www.sec.gov/Archives/edgar/data/65011/000119312521345548/d234670d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1800227/000110465921145542/tm2134264d1_8k.htm"
+  ],
+  "root_admission_sha256": "f27162d9ddc4771a6a20f206fd995105238f18f7123865cc34ca3af3e29a901a",
+  "schema": "research.p01-unheld-composite-cash-input/1",
+  "scope": "NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM_UNHELD_TERMINAL_MARKER_ONLY",
+  "source_security_id": "1072510367992802359",
+  "source_ticker": "MDP"
+}

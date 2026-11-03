@@ -1,0 +1,77 @@
+name: System campaign joint numerical training on complete Core paths
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/system-campaign-joint-request.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: system-optimization-002-joint-numerical
+  cancel-in-progress: false
+jobs:
+  selected:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      arms: ${{ steps.arms.outputs.arms }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: research/capital_risk
+          fetch-depth: 1
+      - id: arms
+        name: Select only the exact newly requested complete profiles
+        run: |
+          python3 - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          request=json.loads(Path('research/capital_risk/system-campaign-joint-request.json').read_bytes())
+          arms=list(request['core_artifacts'])
+          assert 0<len(arms)<=20 and all(re.fullmatch(r'P[0-9]{2}',a) for a in arms)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('arms='+json.dumps(arms,separators=(',',':'))+'\n')
+          PY
+  numerical:
+    needs: selected
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        arm: ${{ fromJSON(needs.selected.outputs.arms) }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: research/capital_risk
+          fetch-depth: 1
+      - name: Install locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+      - name: Authenticate existing frozen inputs and offline runtime
+        timeout-minutes: 8
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
+      - name: Authenticate complete Core and separate proof then run joint calculations
+        timeout-minutes: 220
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_numeric_job.py --request research/capital_risk/system-campaign-joint-request.json --staging artifacts/capital-risk/full-core-staging.json --arm ${{ matrix.arm }} --output artifacts/capital-risk/campaign-joint-${{ matrix.arm }}.json'
+      - name: Preserve only encrypted stopped numerical evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: system-campaign-joint-${{ matrix.arm }}-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/full-core-staging.json
+            artifacts/capital-risk/campaign-joint-${{ matrix.arm }}.json
+            artifacts/capital-risk/campaign-joint-*.tar.crseal
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

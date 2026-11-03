@@ -1,0 +1,259 @@
+{
+  "schema": "research.system-campaign-common-factual-catalog/1",
+  "archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+  "terms": [
+    {
+      "ticker": "SPNC",
+      "native": {
+        "session": "2017-08-09",
+        "security_id": "525586743252270753",
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=1693.6",
+        "cash_per_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "native_term_sha256": "34bd1855367ddd9c5631ae6dd701ee1e73a2ca33a5300fb29d2df56d968bf7b0",
+      "added": {
+        "session": "2017-08-10",
+        "security_id": "525586743252270753",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.philips.com/a-w/about/news/archive/standard/news/press/2017/20170809-philips-completes-acquisition-of-the-spectranetics-corporation.cs",
+        "cash_per_share": 38.5,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "primary_source": "https://www.philips.com/a-w/about/news/archive/standard/news/press/2017/20170809-philips-completes-acquisition-of-the-spectranetics-corporation.cs",
+      "proxy": null
+    },
+    {
+      "ticker": "WBMD",
+      "native": {
+        "session": "2017-09-15",
+        "security_id": "896178340642017381",
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=2525",
+        "cash_per_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "native_term_sha256": "ebba3bec1b9f07c16c1c23114bcc0b4710c04652a43ce3adea34fc83ce81b928",
+      "added": {
+        "session": "2017-09-18",
+        "security_id": "896178340642017381",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1326583/000156761917001996/s001883x1_8k.htm",
+        "cash_per_share": 66.5,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1326583/000156761917001996/s001883x1_8k.htm",
+      "proxy": null
+    },
+    {
+      "ticker": "PRXL",
+      "native": {
+        "session": "2017-09-29",
+        "security_id": "315945110062887724",
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=4502.2",
+        "cash_per_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "native_term_sha256": "350dd91d113316e52dee073500f8174c38e6d3b852b76b3da47f9bb0fd7fe540",
+      "added": {
+        "session": "2017-10-02",
+        "security_id": "315945110062887724",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/799729/000119312517299711/d465063d8k.htm",
+        "cash_per_share": 88.1,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/799729/000119312517299711/d465063d8k.htm",
+      "proxy": null
+    },
+    {
+      "ticker": "KITE",
+      "native": {
+        "session": "2017-10-03",
+        "security_id": "781285916510397549",
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=10280.7",
+        "cash_per_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "native_term_sha256": "71e4e1667f3673090a810518885e407cfb4d042f2a85f33e3a50e53b6d05c55c",
+      "added": {
+        "session": "2017-10-03",
+        "security_id": "781285916510397549",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1510580/000119312517302298/d458818d8k.htm",
+        "cash_per_share": 180.0,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1510580/000119312517302298/d458818d8k.htm",
+      "proxy": null
+    },
+    {
+      "ticker": "AF",
+      "native": {
+        "session": "2017-09-29",
+        "security_id": "1073185014279103551",
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=2186.9",
+        "cash_per_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "native_term_sha256": "635b1645fb3fcdabc111512cda9d126603a743a7802c96faea841258d6e1e8f6",
+      "added": {
+        "session": "2017-10-02",
+        "security_id": "1073185014279103551",
+        "kind": "CONVERSION",
+        "reference": "https://www.sec.gov/Archives/edgar/data/910322/000114420417050819/v475831_8k.htm | Fractional cash uses retained first effective-session raw open proxy; actual exchange-agent net sale rate unobserved.",
+        "cash_per_share": null,
+        "delivered_security_id": "490615706594641476",
+        "delivered_ticker": "STL",
+        "delivered_issuer_id": "SEC_CIK:1070154",
+        "exchange_ratio": ".875",
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/910322/000114420417050819/v475831_8k.htm",
+      "proxy": {
+        "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+        "session": "2017-10-02",
+        "ticker": "STL",
+        "source_observation_sha256": "596265b52211d86a368a9589ba5c5dcd9f37a2d2cad94552cdb8fe70575cbd76",
+        "actual_settlement_rate_observed": false
+      }
+    },
+    {
+      "ticker": "ILG",
+      "native": {
+        "session": "2018-08-31",
+        "security_id": "278081346388915134",
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=4246.3",
+        "cash_per_share": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "native_term_sha256": "9aa688a1c3a76f03ed5f2ca463b75a19d20b10937333e51946ab3d74cdce1703",
+      "added": {
+        "session": "2018-09-04",
+        "security_id": "278081346388915134",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1434620/000119312518266809/d608858d8k.htm | Fractional cash uses retained first effective-session raw open proxy; actual exchange-agent net sale rate unobserved.",
+        "cash_per_share": 14.75,
+        "delivered_security_id": "851672149700415133",
+        "delivered_ticker": "VAC",
+        "delivered_issuer_id": "SEC_CIK:1524358",
+        "exchange_ratio": ".165",
+        "cash_in_lieu_price_per_delivered_share": null,
+        "entitlement_aggregation": "HOLDER"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1434620/000119312518266809/d608858d8k.htm",
+      "proxy": {
+        "convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+        "session": "2018-09-04",
+        "ticker": "VAC",
+        "source_observation_sha256": "e76a958ab2504c0372cbe44096c1d3e4d4b156723574705b93df34c3afebf595",
+        "actual_settlement_rate_observed": false
+      }
+    }
+  ],
+  "fnf": {
+    "native": [
+      {
+        "term_sha256": "c44fc06625e55e60fe28adad3b2c88d8dbe5faa4c948f5a895a720fd7be84e71",
+        "source_row_id": "18e4676d93802d95195c04477185b32c1fe833efc46a5a42190b47ccf2343a76"
+      },
+      {
+        "term_sha256": "0a639f32df4b1e21b2de484cfd53384bdc7d526d1a7bea8e1f2d23f6de507e62",
+        "source_row_id": "6af680b53d05472dc14f364fe4c5af8e1e74be2a601b9f1e0cdc7991af6db8a4"
+      }
+    ],
+    "added": {
+      "session": "2017-10-02",
+      "parent_ticker": "FNF",
+      "parent_security_id": "234488913323173693",
+      "child_ticker": "BKI",
+      "child_security_id": "285304847559167677",
+      "source_row_id": "18e4676d93802d95195c04477185b32c1fe833efc46a5a42190b47ccf2343a76",
+      "value_evidence": "https://www.sec.gov/Archives/edgar/data/1331875/000133187517000104/fnfbkdistribution8-k.htm | issuer reported ratio .3066322; retained raw open fractional-cash proxy, not actual agent net proceeds",
+      "child_shares_per_parent": "0.3066322",
+      "child_price": null,
+      "cash_in_lieu_price": null,
+      "policy": "LIQUIDATE_CHILD_AT_OPEN"
+    },
+    "parent_bar_sha256": "8994d5edfda39044bda6a4d27034dccea1dd3bdea15eadbce4bd172481649c79",
+    "child_bar_sha256": "64fa7a227ddcabadc085bcad024625e9a46b5bfe85f83a9857add2f72fcbb6fa",
+    "cash_proxy_semantics": "IN_KIND_CHILD_DISTRIBUTION_NOT_ADDITIONAL_CASH",
+    "cash_in_lieu_convention": "RETAINED_CHILD_RAW_OPEN_RESEARCH_PROXY",
+    "reported_ratio_precision": "ISSUER_REPORTED_APPROXIMATE_7_DECIMAL_RATIO",
+    "provider_child_issuer_timeline_limitation_retained": true
+  },
+  "primary_evidence_extraction": {
+    "SPNC": "Issuer confirms38.50cash, August9completion and cessation atAugust9close. ModelappliesatAugust10open.",
+    "WBMD": "SEC confirms66.50cash, Sept15completion, suspension atSept15close. ModelappliesSept18.",
+    "PRXL": "SEC confirms88.10cash, Sept29 10:32ET legal effective time and trading suspended afterSept29close. Next daily model boundaryOct2, intraday limitation explicit.",
+    "KITE": "SEC confirms180cash, Oct3completion and halt beforeOct3open. Retained Oct3bar does not establish tradeability.",
+    "AF": "SEC confirmsOct2completion and .875STL shares perAFshare; fractional cash from actual sales unavailable.",
+    "ILG": "SEC confirmsSep1 00:01 initial Holdco merger,14.75cash+.165VAC; Nasdaq confirmsSept4suspension.",
+    "FNF": "SEC completion report states .3066322 newBlackKnight shares perFNF common share; issuerOct2release confirms BKI starts tradingOct2."
+  },
+  "primary_sources": {
+    "FNF": "https://www.sec.gov/Archives/edgar/data/1331875/000133187517000104/fnfbkdistribution8-k.htm",
+    "FNF_issuer": "https://www.globenewswire.com/news-release/2017/10/02/1138686/0/en/Black-Knight-Inc-Announces-Shareholder-Approval-and-Closing-of-Spin-Off-Transaction.html",
+    "ILG_agreement": "https://www.sec.gov/Archives/edgar/data/1524358/000119312518144431/d577638dex21.htm",
+    "ILG_exchange": "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2018-144"
+  },
+  "production_contacted": false,
+  "canonical_financial_source_changed": false,
+  "private_quote_hydration_required": true
+}

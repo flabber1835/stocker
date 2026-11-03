@@ -1,0 +1,112 @@
+{
+  "active_unconsumed_events": 1,
+  "canonical_financial_source_changed": false,
+  "commitment_group": {
+    "catalog_file": "system-campaign-morf-preopen-cash-terminal-facts.json",
+    "loader_file": "system_campaign_cash_calendar.py",
+    "overlay_file": "morf-preopen-cash-overlay.json",
+    "private_file": "hydrated-morf-preopen-cash-catalog.json",
+    "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-morf-preopen/1/"
+  },
+  "excluded_consumed_events": [],
+  "excluded_pending_events": [],
+  "frozen_year_member_checks": [
+    {
+      "all_rows_read": 1647175,
+      "gzip_bytes": 78118364,
+      "gzip_sha256": "13016d332486bbdba3327835205e6c6da9d2e1363229836088ee6e2472d31e30",
+      "member": "observations-2024.csv.gz",
+      "zip_crc32": 3071881209
+    }
+  ],
+  "full_provider_rows_verification_required": true,
+  "loader_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "quote_context_sha256": "91263c801c6c3697d280ae3c01314411eccdc029cbfa5eec0b00588abcb751f2",
+  "quote_generation_cause_claimed": false,
+  "quote_source_metadata_unchanged": true,
+  "same_day_quote_claims": [
+    {
+      "issuer_id": "SEC_CIK:1679363",
+      "listing_first_session": "2019-06-27",
+      "security_id": "977112340201324412",
+      "security_type_eligible": "1",
+      "session": "2024-08-16",
+      "source_observation_sha256": "1c97f1ed840ac832bd1954f3283dd50ea3558c67aca291f43e7a656e5d27a35c",
+      "ticker": "MORF"
+    }
+  ],
+  "schema": "research.factual-cash-calendar-catalog/1",
+  "source_research_events": 1,
+  "terms": [
+    {
+      "actual_completion_date": "2024-08-16",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 57.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1679363/000119312524202123/d877674d8k.htm | Mandatory ordinary-common merger cash completed before the August16,2024 market open; frozen source quote retained.",
+        "security_id": "977112340201324412",
+        "session": "2024-08-16"
+      },
+      "description": "Mandatory ordinary-common merger cash completed before the August16,2024 market open; frozen source quote retained.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1679363",
+        "listing_first_session": "2019-06-27",
+        "security_id": "977112340201324412",
+        "security_type_eligible": "1",
+        "session": "2024-08-15",
+        "source_observation_sha256": "1ea089901c197d64303ecbbdccc5d3df6e4c7fb41ab2332691b163ba2a92f4ae",
+        "ticker": "MORF"
+      },
+      "last_trading_session": "2024-08-15",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2024-08-16",
+      "native_term_sha256": "86f0b41fbd1d1e2489011ed3649696b50ad7cebd4375cc1725a382724ed60235",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2024-08-16",
+        "administrative_suspension_date_not_used": "2024-08-19",
+        "cash_per_ordinary_share": "57.00",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2024-08-15",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "NasdaqECA2024-378 completion/halt/lasttrade/consideration",
+          "SEC8K IntroductoryNote andItem2.01"
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1679363/000119312524202123/d877674d8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "279326ef9bf3f5e537d901f49945f4ba87dc833ea941e31f38907fb73f5e00ee",
+        "selected_row_sha256": [
+          "2f376dd3720ac8d6e2f217d65410ea4dfe5302832af289c9f069b5d4ebe0f635",
+          "a667aa5caa808178bad99d14939c56102f19489258576767d8aa4b9bbbc5138a",
+          "1f6195b963aa3d400cc3e91c052978fe6ac61e2af7e6b7aae8fa24bee8dee425"
+        ],
+        "session": "2024-08-16",
+        "ticker": "MORF"
+      },
+      "recognition_quote_witness": {
+        "issuer_id": "SEC_CIK:1679363",
+        "listing_first_session": "2019-06-27",
+        "security_id": "977112340201324412",
+        "security_type_eligible": "1",
+        "session": "2024-08-16",
+        "source_observation_sha256": "1c97f1ed840ac832bd1954f3283dd50ea3558c67aca291f43e7a656e5d27a35c",
+        "ticker": "MORF"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "977112340201324412",
+      "ticker": "MORF",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2024-378"
+    }
+  ]
+}

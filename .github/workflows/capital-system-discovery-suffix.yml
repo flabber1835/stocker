@@ -1,0 +1,69 @@
+name: Remaining discovery continuations
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/system-campaign-discovery-suffix-request-001.json']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  discovery:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        arm: [P10]
+    concurrency:
+      group: system-optimization-002-discovery-${{ matrix.arm }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        timeout-minutes: 3
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            research/capital_risk
+            .github/workflows
+          fetch-depth: 1
+      - name: Prepare dedicated ephemeral research capacity
+        timeout-minutes: 5
+        run: 'python3 -B research/capital_risk/ephemeral_runner_capacity.py --output "$GITHUB_WORKSPACE/artifacts/capital-risk/ephemeral-runner-capacity.json"'
+      - name: Install locked transfer dependencies
+        timeout-minutes: 4
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
+      - name: Verify all retained driver bytes and exact suffix source closure
+        timeout-minutes: 3
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_discovery_suffix_probe.py --request research/capital_risk/system-campaign-discovery-suffix-request-001.json'
+      - name: Authenticate frozen inputs and offline runtime
+        timeout-minutes: 12
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
+      - name: Restore own committed diagnostic prefix and continue exact next session
+        timeout-minutes: 300
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_discovery_suffix_job.py --arm ${{ matrix.arm }} --request research/capital_risk/system-campaign-discovery-suffix-request-001.json --staging artifacts/capital-risk/full-core-staging.json --capacity artifacts/capital-risk/ephemeral-runner-capacity.json --output artifacts/capital-risk/discovery.json'
+      - name: Preserve each independently stopped encrypted result and public phases
+        if: always()
+        timeout-minutes: 10
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: system-discovery-suffix-${{ matrix.arm }}-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/ephemeral-runner-capacity.json
+            artifacts/capital-risk/full-core-staging.json
+            artifacts/capital-risk/export-qualification.json
+            artifacts/capital-risk/phase.json
+            artifacts/capital-risk/discovery.json
+            artifacts/capital-risk/discovery.tar.crseal
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

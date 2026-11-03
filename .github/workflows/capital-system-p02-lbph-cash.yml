@@ -1,0 +1,69 @@
+name: System campaign P02 LBPH ordinary cash suffix
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/system-campaign-p02-lbph-cash-request.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: system-optimization-002-p02-only
+  cancel-in-progress: false
+jobs:
+  suffix:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 285
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: research/capital_risk
+          fetch-depth: 1
+      - name: Install locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
+      - name: Qualify metadata imports and exact request before staging
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_lbph_cash_import_probe.py --request research/capital_risk/system-campaign-p02-lbph-cash-request.json'
+      - name: Authenticate frozen inputs and offline runtime
+        timeout-minutes: 8
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
+      - name: Resume own qualified input and independently review actual stopped evidence
+        timeout-minutes: 270
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_p02_lbph_cash_job.py --request research/capital_risk/system-campaign-p02-lbph-cash-request.json --staging artifacts/capital-risk/full-core-staging.json --output artifacts/capital-risk/p02-lbph-cash.json'
+      - name: Seal bounded diagnostics only after exact stop proof
+        if: always()
+        timeout-minutes: 2
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_lbph_cash_diagnostics.py --request research/capital_risk/system-campaign-p02-lbph-cash-request.json --receipt artifacts/capital-risk/p02-lbph-cash.json --output artifacts/capital-risk/p02-stopped-diagnostics.json'
+      - name: Preserve encrypted proven stopped evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: system-p02-lbph-cash-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/full-core-staging.json
+            artifacts/capital-risk/p02-lbph-cash.json
+            artifacts/capital-risk/p02-lbph-cash.tar.crseal
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+      - name: Preserve encrypted bounded diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: system-p02-lbph-cash-diagnostics-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/p02-stopped-diagnostics.json
+            artifacts/capital-risk/p02-stopped-diagnostics.tar.crseal
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

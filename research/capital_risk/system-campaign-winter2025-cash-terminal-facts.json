@@ -1,0 +1,727 @@
+{
+  "active_unconsumed_events": 11,
+  "canonical_financial_source_changed": false,
+  "commitment_group": {
+    "catalog_file": "system-campaign-winter2025-cash-terminal-facts.json",
+    "loader_file": "system_campaign_cash_calendar.py",
+    "overlay_file": "winter2025-cash-overlay.json",
+    "private_file": "hydrated-winter2025-cash-catalog.json",
+    "reference_stem": "research:system-optimization-002/ordinary-catalog/cash-calendar-winter2025/1/"
+  },
+  "conditional_default_scope": {
+    "actual_source_bound_passive_book_gate_required": true,
+    "all_holders_mandatory_cash": false,
+    "scope": "NO_AFFIRMATIVE_ELECTION",
+    "ticker": "INFN"
+  },
+  "consumed_agr_distribution_discrepancy_retained": true,
+  "excluded_consumed_events": [
+    {
+      "cross_candidate_equivalence_claimed": false,
+      "native_session": "2024-12-02",
+      "reason": "CONSUMED_AT_OWN40_JANUARY31_NO_RETROACTIVE_CHANGE",
+      "ticker": "VZIO"
+    },
+    {
+      "cross_candidate_equivalence_claimed": false,
+      "native_session": "2024-12-20",
+      "reason": "CONSUMED_AT_OWN40_JANUARY31_NO_RETROACTIVE_CHANGE",
+      "ticker": "AGR"
+    },
+    {
+      "cross_candidate_equivalence_claimed": false,
+      "native_session": "2024-12-23",
+      "reason": "CONSUMED_AT_OWN40_JANUARY31_NO_RETROACTIVE_CHANGE",
+      "ticker": "NAPA"
+    },
+    {
+      "cross_candidate_equivalence_claimed": false,
+      "native_session": "2025-01-21",
+      "reason": "CONSUMED_AT_OWN40_JANUARY31_NO_RETROACTIVE_CHANGE",
+      "ticker": "SMAR"
+    }
+  ],
+  "excluded_pending_events": [],
+  "frozen_year_member_checks": [
+    {
+      "all_rows_read": 1546125,
+      "gzip_bytes": 72786084,
+      "gzip_sha256": "470792932fa3914513fde48e4ca86b81ec7fa084496578794528270fdc0607f6",
+      "member": "observations-2025.csv.gz",
+      "zip_crc32": 873105560
+    }
+  ],
+  "full_provider_rows_verification_required": true,
+  "loader_sha256": "183c548f7ddf95e277446f9704c5ffa2537ea9807a3305abbecbaae3d4ea262f",
+  "production_contacted": false,
+  "provider_metadata_upgraded": false,
+  "same_day_quote_claims": [],
+  "schema": "research.factual-cash-calendar-catalog/1",
+  "source_research_events": 15,
+  "terms": [
+    {
+      "actual_completion_date": "2025-02-05",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 12.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/704562/000114036125003108/ef20042864_8k.htm | Mandatory ordinary-common 12.50USD cash conversion; actual completion 2025-02-05; last trading 2025-02-04 preserved.",
+        "security_id": "641708992638960500",
+        "session": "2025-02-05"
+      },
+      "cash_scope": "ORDINARY_COMMON_MANDATORY",
+      "description": "Mandatory ordinary-common 12.50USD cash conversion; actual completion 2025-02-05; last trading 2025-02-04 preserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:704562",
+        "listing_first_session": "1997-12-31",
+        "security_id": "641708992638960500",
+        "security_type_eligible": "1",
+        "session": "2025-02-04",
+        "source_observation_sha256": "244cbe2a1d586b0101fc66762c9dd647938ff7729ee08e0f44539fda6df1e47a",
+        "ticker": "CDMO"
+      },
+      "last_trading_session": "2025-02-04",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-02-04",
+      "native_term_sha256": "7b2b81fd18a7ea21785d94eb2d6b0a2a6094d071cdf39e29adc90f9c676955fd",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2025-02-05",
+        "cash_per_ordinary_share": "12.50",
+        "cash_scope": "ORDINARY_COMMON_MANDATORY",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2025-02-04",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "Completed ordinary-common conversion and cessation timing in cited primary sources."
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/704562/000114036125003108/ef20042864_8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "a659e1bddce250b172b9574bc074912e8de2c05ca9895f2d320da5234343176b",
+        "selected_row_sha256": [
+          "fe9b9b87b463592b24eb1cf96cfec27660a8629f5add8e49ca721f9d680c9990",
+          "4a3caea00319439739c224263b0c9e865dfa4801a05546fff5df7c6ebd180471",
+          "77708e2da2e042529b87daf8d7a2c031ba7f99496cdfa28a0b9ca020f51f1698",
+          "1662b433d5aecc4141cdc72a92f2114fde4653effa18818e2fe2857558a3b4b7",
+          "dd843df62c50d59fe1b1e5cdb0d29a5251e3f0178f6af85269222b05d547d1c6"
+        ],
+        "session": "2025-02-04",
+        "ticker": "CDMO"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "641708992638960500",
+      "ticker": "CDMO",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2025-48"
+    },
+    {
+      "actual_completion_date": "2025-02-06",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 3.65,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1479290/000119312525021403/d914912d8k.htm | Mandatory ordinary-common 3.65USD cash conversion; actual completion 2025-02-06; last trading 2025-02-05 preserved.",
+        "security_id": "561615213934063912",
+        "session": "2025-02-06"
+      },
+      "cash_scope": "ORDINARY_COMMON_MANDATORY",
+      "description": "Mandatory ordinary-common 3.65USD cash conversion; actual completion 2025-02-06; last trading 2025-02-05 preserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1479290",
+        "listing_first_session": "2014-02-06",
+        "security_id": "561615213934063912",
+        "security_type_eligible": "1",
+        "session": "2025-02-05",
+        "source_observation_sha256": "87028440459b03b288261b419ad90a51fd911c7af87bd5a5e79cf4d5b7f4341d",
+        "ticker": "RVNC"
+      },
+      "last_trading_session": "2025-02-05",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-02-05",
+      "native_term_sha256": "9cc4f56192bc679401bac4693ef257ac1b8cf604d3fc3b3e3ba2e078ff3115de",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2025-02-06",
+        "cash_per_ordinary_share": "3.65",
+        "cash_scope": "ORDINARY_COMMON_MANDATORY",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2025-02-05",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "Completed ordinary-common conversion and cessation timing in cited primary sources."
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1479290/000119312525021403/d914912d8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "9fab895080e87b0fa4e5ea3ca644d60da4d0456c46d3f51761c828df583a76dc",
+        "selected_row_sha256": [
+          "b0f4bc370ccc67bbb52fbae983804a9e5892ba537714ba2876e626bfa77ecc97",
+          "3a1245cd7e8ee459b0b6b35072d5490aeff6c3791d4f61584cabaf6d3799d583",
+          "0b3479b09225c145c70b6355f2de82821429a7ebecd1ae3bf2199e902b3639c7"
+        ],
+        "session": "2025-02-05",
+        "ticker": "RVNC"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "561615213934063912",
+      "ticker": "RVNC",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2025-49"
+    },
+    {
+      "actual_completion_date": "2025-02-10",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 52.5,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1621563/000095010325001807/dp224739_8k.htm | Mandatory ordinary-common 52.50USD cash conversion; actual completion 2025-02-10; last trading 2025-02-07 preserved.",
+        "security_id": "364431306575234844",
+        "session": "2025-02-10"
+      },
+      "cash_scope": "ORDINARY_COMMON_MANDATORY",
+      "description": "Mandatory ordinary-common 52.50USD cash conversion; actual completion 2025-02-10; last trading 2025-02-07 preserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1621563",
+        "listing_first_session": "2015-03-12",
+        "security_id": "364431306575234844",
+        "security_type_eligible": "1",
+        "session": "2025-02-07",
+        "source_observation_sha256": "84ad3a3d09b9d79e9c86989409ccd2d99bed1533eaf321174f5512a8f584c5c4",
+        "ticker": "SUM"
+      },
+      "last_trading_session": "2025-02-07",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-02-07",
+      "native_term_sha256": "5255ddbfa9b5ea696b66534c6b3164df88d207f1b11376bfb1b3fba9c8676e97",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2025-02-10",
+        "cash_per_ordinary_share": "52.50",
+        "cash_scope": "ORDINARY_COMMON_MANDATORY",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2025-02-07",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "Completed ordinary-common conversion and cessation timing in cited primary sources."
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1621563/000095010325001807/dp224739_8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "4dbebf7c51608721ab148b245616c77121fd8e98ec1934ff5b027bf948ef2e02",
+        "selected_row_sha256": [
+          "afa6a3113e3a9243ed49c9ab37a909c7c1197cc235eec97c5d67a664ae33864a",
+          "11f2a021d10593eb45d249ce39144ba1db6c1124aad08cced9758b6609b27b25",
+          "f8dd52fa34586bb33ce8cc6cfba53d6bcbdc2896b54222bfb6d4cd1a87753288"
+        ],
+        "session": "2025-02-07",
+        "ticker": "SUM"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "364431306575234844",
+      "ticker": "SUM",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1621563/000095010325001807/dp224739_8k.htm"
+    },
+    {
+      "actual_completion_date": "2025-02-14",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 10.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1423774/000114036125004515/ef20043658_8k.htm | Mandatory ordinary-common 10.00USD cash conversion; actual completion 2025-02-14; last trading 2025-02-13 preserved.",
+        "security_id": "699288853008671138",
+        "session": "2025-02-14"
+      },
+      "cash_scope": "ORDINARY_COMMON_MANDATORY",
+      "description": "Mandatory ordinary-common 10.00USD cash conversion; actual completion 2025-02-14; last trading 2025-02-13 preserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1423774",
+        "listing_first_session": "2018-04-12",
+        "security_id": "699288853008671138",
+        "security_type_eligible": "1",
+        "session": "2025-02-13",
+        "source_observation_sha256": "5455f1ee1a97ab687f476360e56975878ec799e49301180c0661008eef1c0196",
+        "ticker": "ZUO"
+      },
+      "last_trading_session": "2025-02-13",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-02-13",
+      "native_term_sha256": "21579cffcc2f2314a8b6c950019e8f9712892ab0cfd48e790acbf605fd0f2842",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2025-02-14",
+        "cash_per_ordinary_share": "10.00",
+        "cash_scope": "ORDINARY_COMMON_MANDATORY",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2025-02-13",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "Completed ordinary-common conversion and cessation timing in cited primary sources."
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1423774/000114036125004515/ef20043658_8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "33594b3ca591dd5637e06f539632d4375212b487a93f402d13bf9939fdc33819",
+        "selected_row_sha256": [
+          "aedc5207c4636fa5b4f9cb648737aac4304432f1a5bea62c75b677982ce680a3",
+          "c53842cb38be3f50b6f42540413ad5c106fd4c34b54a772a8b25931e3f6d7375",
+          "f7e4e964935ab8f50dd40b390230b71858eabfd49e6b3b1d610092a1d3accb98",
+          "ffc0628e748322e92a081e1010c892320848b9c0aae7f1261d54443c5a98638a",
+          "4958a158a6f5646746fa1ca67280e466bb9d1bbec9ca7759d69b704904146d85"
+        ],
+        "session": "2025-02-13",
+        "ticker": "ZUO"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "699288853008671138",
+      "ticker": "ZUO",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1423774/000114036125004515/ef20043658_8k.htm"
+    },
+    {
+      "actual_completion_date": "2025-02-19",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 80.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1531048/000119312525029190/d932380d8k.htm | Mandatory ordinary-common 80.00USD cash conversion; actual completion 2025-02-19; last trading 2025-02-18 preserved.",
+        "security_id": "543768354908702200",
+        "session": "2025-02-19"
+      },
+      "cash_scope": "ORDINARY_COMMON_MANDATORY",
+      "description": "Mandatory ordinary-common 80.00USD cash conversion; actual completion 2025-02-19; last trading 2025-02-18 preserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1531048",
+        "listing_first_session": "2020-05-22",
+        "security_id": "543768354908702200",
+        "security_type_eligible": "1",
+        "session": "2025-02-18",
+        "source_observation_sha256": "d1a61889393b741bfb173f2d6e91e587acdb19fbc0599a5189488af4398ba0ec",
+        "ticker": "NARI"
+      },
+      "last_trading_session": "2025-02-18",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-02-18",
+      "native_term_sha256": "762b3b541e1666ae72f6f3acf2715ada57262f3663b9262e94f04e01bbcdf584",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2025-02-19",
+        "cash_per_ordinary_share": "80.00",
+        "cash_scope": "ORDINARY_COMMON_MANDATORY",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2025-02-18",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "Completed ordinary-common conversion and cessation timing in cited primary sources."
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1531048/000119312525029190/d932380d8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "558a130167b31796b391dc06468e61a8d71558ec71dc3af446c314fb992c809f",
+        "selected_row_sha256": [
+          "753f31bf193898ca4ce2d4b241e1cd0afe9e13b80594454faf62e689118019b1",
+          "31bfbbd2bef94e2db2bc3d241fea0599389a19cbc8fafd7553c3e96d4311adc6",
+          "4de84967dcfb7b92b0ebd93338544e59eaa1138821376d86bba2190f2120e33a"
+        ],
+        "session": "2025-02-18",
+        "ticker": "NARI"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "543768354908702200",
+      "ticker": "NARI",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2025-63"
+    },
+    {
+      "actual_completion_date": "2025-02-21",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 20.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1850906/000119312525038756/d923657d8k.htm | Mandatory ordinary-common 20.00USD cash conversion; actual completion 2025-02-21; last trading 2025-02-20 preserved.",
+        "security_id": "252574123696847206",
+        "session": "2025-02-21"
+      },
+      "cash_scope": "ORDINARY_COMMON_MANDATORY",
+      "description": "Mandatory ordinary-common 20.00USD cash conversion; actual completion 2025-02-21; last trading 2025-02-20 preserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1850906",
+        "listing_first_session": "2021-05-27",
+        "security_id": "252574123696847206",
+        "security_type_eligible": "1",
+        "session": "2025-02-20",
+        "source_observation_sha256": "79aabd790d593adc04dc9b3653921ad9a4078607bb776f0b0441c4279666b271",
+        "ticker": "OMIC"
+      },
+      "last_trading_session": "2025-02-20",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-02-20",
+      "native_term_sha256": "d34f99ecf7288747480d57847fe6e0e037a62958a82bbe1b2705e09dd2c81932",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2025-02-21",
+        "cash_per_ordinary_share": "20.00",
+        "cash_scope": "ORDINARY_COMMON_MANDATORY",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2025-02-20",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "Completed ordinary-common conversion and cessation timing in cited primary sources."
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1850906/000119312525038756/d923657d8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "26bcf1024ce85588267a2317f3b43c7f36711ac968727a16067fdc8dbd1df3e1",
+        "selected_row_sha256": [
+          "a49710bdb4294838d1dc0f0bdfc559cd7b6db2e87861dd4bd2254e98f0b87027",
+          "352ae545ca78bea3edc27edfda23f8c7b32c5b0ea2cb2698e10d01c510dfe028",
+          "c48efc913793acc715b1d76218900db3c5cd1dc0cd96ef74a6913424d66f223f"
+        ],
+        "session": "2025-02-20",
+        "ticker": "OMIC"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "252574123696847206",
+      "ticker": "OMIC",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2025-78"
+    },
+    {
+      "actual_completion_date": "2025-02-27",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 35.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1720671/000119312525037910/d898526d8k.htm | Mandatory ordinary-common 35.00USD cash conversion; actual completion 2025-02-27; last trading 2025-02-26 preserved.",
+        "security_id": "610550191134128154",
+        "session": "2025-02-27"
+      },
+      "cash_scope": "ORDINARY_COMMON_MANDATORY",
+      "description": "Mandatory ordinary-common 35.00USD cash conversion; actual completion 2025-02-27; last trading 2025-02-26 preserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1720671",
+        "listing_first_session": "2021-12-09",
+        "security_id": "610550191134128154",
+        "security_type_eligible": "1",
+        "session": "2025-02-26",
+        "source_observation_sha256": "dff0bc38cd62496f6394e6571fda93c840119cf1a2205a7de9f68671bcacb54e",
+        "ticker": "HCP"
+      },
+      "last_trading_session": "2025-02-26",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-02-26",
+      "native_term_sha256": "1ff4c354fc5ce990d341e498439ddae9a0ee850bb942067d25cfb75b04b91d95",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2025-02-27",
+        "cash_per_ordinary_share": "35.00",
+        "cash_scope": "ORDINARY_COMMON_MANDATORY",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2025-02-26",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "Completed ordinary-common conversion and cessation timing in cited primary sources."
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1720671/000119312525037910/d898526d8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "5be5b8ab945f8effca386b8385a6cbfec3a5db9bdd80ee6fb43fc50732513946",
+        "selected_row_sha256": [
+          "15f8854ad2f3f6980b3d7c0d09e73f7119af99fb165f852374e4864908bdd953",
+          "6b16dca4d2aeeebf5c3144fc7b6e93bf9d1465b9014b00c68f9eea963d927502",
+          "e9555b48a2857a0315d7ea2db360506ebd044b75e88a6210ed4259c32cb3e7b3"
+        ],
+        "session": "2025-02-26",
+        "ticker": "HCP"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "610550191134128154",
+      "ticker": "HCP",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2025-94"
+    },
+    {
+      "actual_completion_date": "2025-02-28",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 6.65,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1138639/000119312524171411/d839163dex21.htm | Completed Infinera merger: contractual6.65USD cash default for non-electing ordinary common shares of the unchanged passive book; February27 trading preserved. Other holders may receive stock or mixed consideration.",
+        "security_id": "472454776648049441",
+        "session": "2025-02-28"
+      },
+      "cash_scope": "NO_AFFIRMATIVE_ELECTION",
+      "description": "Completed Infinera merger: contractual6.65USD cash default for non-electing ordinary common shares of the unchanged passive book; February27 trading preserved. Other holders may receive stock or mixed consideration.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1138639",
+        "listing_first_session": "2007-06-07",
+        "security_id": "472454776648049441",
+        "security_type_eligible": "1",
+        "session": "2025-02-27",
+        "source_observation_sha256": "4d92851f4b11c54d3b8bfaebebe590786f7e58fa4454b21bef73be2cad5a601e",
+        "ticker": "INFN"
+      },
+      "last_trading_session": "2025-02-27",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-02-27",
+      "native_term_sha256": "fa976bbcc5bd0458c6eb3e8018c80f42d0b7133b2d11a9e32ac3ea5ff12c15f1",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2025-02-28",
+        "all_holders_mandatory_cash": false,
+        "cash_per_ordinary_share": "6.65",
+        "cash_scope": "NO_AFFIRMATIVE_ELECTION",
+        "completion_before_market_open": true,
+        "completion_source": "https://www.sec.gov/Archives/edgar/data/1138639/000119312525041368/d847449d8k.htm",
+        "contract_sections": [
+          "2.7(a)(iii)",
+          "2.7(b)(ii)",
+          "2.7(b)(v)",
+          "2.7(c)"
+        ],
+        "contract_source": "https://www.sec.gov/Archives/edgar/data/1138639/000119312524171411/d839163dex21.htm",
+        "currency": "USD",
+        "last_trading_day": "2025-02-27",
+        "non_electing_common_shares_automatically_cash": true,
+        "passive_book_default_only": true,
+        "remaining_common_shares_automatically_cash": false,
+        "stock_or_mixed_election_proration_not_applied_to_passive_book": true
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1138639/000119312524171411/d839163dex21.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "e324cb05bd734cc0d6adee834c84e734fd03f9916592ad5047bd8f9c3b093aa0",
+        "selected_row_sha256": [
+          "9b5bbaf12ffe914f0eb0e1362a00fa094351228b9804da6a88ca0692d652fefc",
+          "35b41bc05d71ebf17abcb3acaf11c9c541ae0327b0d669c7b712c36372f4d26a",
+          "7d530d13c3a22cf3f8c23eed28722640934fd0dbb93e6b1024ff260cf6b420f6"
+        ],
+        "session": "2025-02-27",
+        "ticker": "INFN"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "472454776648049441",
+      "ticker": "INFN",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1138639/000119312525041368/d847449d8k.htm"
+    },
+    {
+      "actual_completion_date": "2025-02-28",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 3.1,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/808326/000110465925019002/tm257509d2_8k.htm | Mandatory ordinary-common 3.10USD cash conversion; actual completion 2025-02-28; last trading 2025-02-28 preserved. RecognitionMarch3 uses the existing explicit next-session convention, not a claimed March3 merger.",
+        "security_id": "106733641894872523",
+        "session": "2025-03-03"
+      },
+      "cash_scope": "ORDINARY_COMMON_MANDATORY",
+      "description": "Mandatory ordinary-common 3.10USD cash conversion; actual completion 2025-02-28; last trading 2025-02-28 preserved. RecognitionMarch3 uses the existing explicit next-session convention, not a claimed March3 merger.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:808326",
+        "listing_first_session": "1997-12-31",
+        "security_id": "106733641894872523",
+        "security_type_eligible": "1",
+        "session": "2025-02-28",
+        "source_observation_sha256": "b593174825e547aa4e488b9aaf4a3ab09ce2854df7bf8c92c1802eef3bdeab3d",
+        "ticker": "EMKR"
+      },
+      "last_trading_session": "2025-02-28",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-02-28",
+      "native_term_sha256": "4065446c280d39ce8be2e4d835e35462eebccddb90cd77e3cf98ddc4aaa501d0",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2025-02-28",
+        "administrative_suspension_date_not_used_as_actual_completion": "2025-03-03",
+        "cash_per_ordinary_share": "3.10",
+        "cash_scope": "ORDINARY_COMMON_MANDATORY",
+        "completion_before_market_open": false,
+        "currency": "USD",
+        "last_trading_day": "2025-02-28",
+        "remaining_common_shares_automatically_cash": true,
+        "retained_next_session_convention_explicit": true,
+        "source_sections": [
+          "Completed ordinary-common conversion and cessation timing in cited primary sources."
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/808326/000110465925019002/tm257509d2_8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "025dfcc4a5ed41967d83bc9923ad32bef4b9b8bcac8483bc3629cbfd296d6d0a",
+        "selected_row_sha256": [
+          "3416c4082d70385b3b235cba582e4582d33e0119e6eef152694ff37415ffa46f",
+          "40e514852afd18190d9bd0525370a63f7905b00c8d349fc5a308e621e74ab6cf",
+          "f1a4b2f6526754295aeb621f4e41170b85a6324607a50ed8475e3b61b009e522"
+        ],
+        "session": "2025-02-28",
+        "ticker": "EMKR"
+      },
+      "recognition_rule": "RETAINED_NEXT_SESSION_AFTER_CONFIRMED_LAST_TRADING_DAY",
+      "security_id": "106733641894872523",
+      "ticker": "EMKR",
+      "timing_source": "https://classic.nasdaqtrader.com/TraderNews.aspx?id=2025-101"
+    },
+    {
+      "actual_completion_date": "2025-03-06",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 5.85,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1977303/000095010325003078/dp225911_8k.htm | Mandatory ordinary-common 5.85USD cash conversion; actual completion 2025-03-06; last trading 2025-03-05 preserved.",
+        "security_id": "683269517186158393",
+        "session": "2025-03-06"
+      },
+      "cash_scope": "ORDINARY_COMMON_MANDATORY",
+      "description": "Mandatory ordinary-common 5.85USD cash conversion; actual completion 2025-03-06; last trading 2025-03-05 preserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1977303",
+        "listing_first_session": "2024-01-04",
+        "security_id": "683269517186158393",
+        "security_type_eligible": "1",
+        "session": "2025-03-05",
+        "source_observation_sha256": "a09190c38624af931b66ab8742dbe5f8fedb95773c04270027d0ec87c239432b",
+        "ticker": "ALTM"
+      },
+      "last_trading_session": "2025-03-05",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-03-05",
+      "native_term_sha256": "96ab26959f6e9d842ba4410a4903bca9907a1ca5465bc95bc156b32121acb0f3",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2025-03-06",
+        "cash_per_ordinary_share": "5.85",
+        "cash_scope": "ORDINARY_COMMON_MANDATORY",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2025-03-05",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "Completed ordinary-common conversion and cessation timing in cited primary sources."
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1977303/000095010325003078/dp225911_8k.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "403f4806943a2f806b3fabe691a9fb49a5a887704541378b4f2093e7b6f5a6d0",
+        "selected_row_sha256": [
+          "23c64cb46c9788bbeef6b1f831cd8c0715b93b5f7776e92db4cf17163689702f",
+          "111b05946efba43e75b7e277856067bfc8523fdf1f69ad382b2886537e991425",
+          "19120dcccc53ca82ee20eac5746996d55306535fd85f39f758731f986b937702"
+        ],
+        "session": "2025-03-05",
+        "ticker": "ALTM"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "683269517186158393",
+      "ticker": "ALTM",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1977303/000095010325003078/dp225911_8k.htm"
+    },
+    {
+      "actual_completion_date": "2025-03-12",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 265.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1897982/000114036125008250/ny20044173x8_exa5x.htm | Mandatory ordinary-common 265.00USD cash conversion; actual completion 2025-03-12; last trading 2025-03-11 preserved.",
+        "security_id": "556944515102158299",
+        "session": "2025-03-12"
+      },
+      "cash_scope": "ORDINARY_COMMON_MANDATORY",
+      "description": "Mandatory ordinary-common 265.00USD cash conversion; actual completion 2025-03-12; last trading 2025-03-11 preserved.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1897982",
+        "listing_first_session": "2022-05-17",
+        "security_id": "556944515102158299",
+        "security_type_eligible": "1",
+        "session": "2025-03-11",
+        "source_observation_sha256": "6a304ec71f30e7d36be790ecb4cda71edc2f98f3de787a53fa9d925d8b97d79e",
+        "ticker": "AZPN"
+      },
+      "last_trading_session": "2025-03-11",
+      "mandatory_common_share_completion_confirmed": true,
+      "native_session": "2025-03-11",
+      "native_term_sha256": "173f226d9a15bf7e782de041d3679c4480aca4b96952f910c4add848fa94bfa6",
+      "preopen_completion_confirmed": true,
+      "primary_extraction": {
+        "actual_completion_date": "2025-03-12",
+        "cash_per_ordinary_share": "265.00",
+        "cash_scope": "ORDINARY_COMMON_MANDATORY",
+        "completion_before_market_open": true,
+        "currency": "USD",
+        "last_trading_day": "2025-03-11",
+        "remaining_common_shares_automatically_cash": true,
+        "source_sections": [
+          "Completed ordinary-common conversion and cessation timing in cited primary sources."
+        ]
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1897982/000114036125008250/ny20044173x8_exa5x.htm",
+      "provider_rows_proof": {
+        "rows_sha256": "e5286785215d55541ecef0deea2ad61e00344be66bbf3d7d0b05fbc5b21b5de7",
+        "selected_row_sha256": [
+          "1be9334f88425ab2f83b34c40c9996a761cead7514fd68bee465f34378507eba",
+          "a02d80536258b26040654f6b5a683ddea620a8bafac2f4bfe9315e9656f0b801",
+          "0704c3865822ec8fba6bb73b3bf3fed43552317d13b5f5003aabcbbfcab02528"
+        ],
+        "session": "2025-03-11",
+        "ticker": "AZPN"
+      },
+      "recognition_rule": "CONFIRMED_PREOPEN_COMPLETION",
+      "security_id": "556944515102158299",
+      "ticker": "AZPN",
+      "timing_source": "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2025-115"
+    }
+  ]
+}

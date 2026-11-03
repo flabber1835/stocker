@@ -1,0 +1,114 @@
+{
+  "schema": "research.system-campaign-corrected-winter-cash-facts/1",
+  "terms": [
+    {
+      "ticker": "CUDA",
+      "security_id": "148871671152584159",
+      "native_session": "2018-02-09",
+      "native_term_sha256": "114eb8644d2df66109ad6b87a5b248dc9879da2e7675de24290d45705fad29b6",
+      "added": {
+        "security_id": "148871671152584159",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1348334/000119312518041082/d537244d8k.htm | Issuer completion 8-K confirms 27.55 USD automatic conversion. OCC notice 42601 independently confirms consummation before February 12 open; preserve February 9 trading. https://infomemo.theocc.com/infomemos?date=201802&number=42601",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-02-12",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 27.55,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1348334/000119312518041082/d537244d8k.htm",
+      "description": "Issuer completion 8-K confirms 27.55 USD automatic conversion. OCC notice 42601 independently confirms consummation before February 12 open; preserve February 9 trading. https://infomemo.theocc.com/infomemos?date=201802&number=42601"
+    },
+    {
+      "ticker": "JUNO",
+      "security_id": "144960909198723337",
+      "native_session": "2018-03-05",
+      "native_term_sha256": "25ac88cd564f401486b92acdec6b0be8cbcd9c7224c511cefd94d3e576924973",
+      "added": {
+        "security_id": "144960909198723337",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.miaxglobal.com/sites/default/files/alert-files/JUNO_Merger_42726.pdf | OCC notice 42726 published by MIAX confirms consummation before March 6 open and 87 USD cash. This corrects the superseded March7 interpretation of the issuer requested suspension date. Preserve March5 trading.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-03-06",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 87.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.miaxglobal.com/sites/default/files/alert-files/JUNO_Merger_42726.pdf",
+      "description": "OCC notice 42726 published by MIAX confirms consummation before March 6 open and 87 USD cash. This corrects the superseded March7 interpretation of the issuer requested suspension date. Preserve March5 trading."
+    },
+    {
+      "ticker": "BIVV",
+      "security_id": "211586488812101529",
+      "native_session": "2018-03-08",
+      "native_term_sha256": "5e92692e7cd7da84959e40c4e1c207a560a990d153d9c6aa6a353fd2ffc018f3",
+      "added": {
+        "security_id": "211586488812101529",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1681689/000110465918015757/a18-7726_18k.htm | Issuer completion 8-K: 105 USD automatic cash conversion and Nasdaq cessation before March 8 open.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-03-08",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 105.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1681689/000110465918015757/a18-7726_18k.htm",
+      "description": "Issuer completion 8-K: 105 USD automatic cash conversion and Nasdaq cessation before March 8 open."
+    },
+    {
+      "ticker": "SCMP",
+      "security_id": "950273523314609853",
+      "native_session": "2018-02-13",
+      "native_term_sha256": "97edc3efc469f9a2aa95005414b5c411d13bc356f46d5e3cf11dae6e11d43a54",
+      "added": {
+        "security_id": "950273523314609853",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1365216/000119312518041430/d523362dex99a1i.htm | Issuer completion disclosure confirms automatic conversion of untendered eligible shares at 18 USD. OCC notice42610 confirms consummation before February13 open. https://www.miaxglobal.com/sites/default/files/alert-files/SCMP_Merger_42610.pdf",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-02-13",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 18.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1365216/000119312518041430/d523362dex99a1i.htm",
+      "description": "Issuer completion disclosure confirms automatic conversion of untendered eligible shares at 18 USD. OCC notice42610 confirms consummation before February13 open. https://www.miaxglobal.com/sites/default/files/alert-files/SCMP_Merger_42610.pdf"
+    },
+    {
+      "ticker": "CSRA",
+      "security_id": "805861825736962983",
+      "native_session": "2018-04-03",
+      "native_term_sha256": "072c46870a3fa5e42fd053ef24654797cad8951429085421fce48bb5a3776c4d",
+      "added": {
+        "security_id": "805861825736962983",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1646383/000119312518106369/d562306d8k.htm | Issuer8K confirms April3 legal completion and 41.25 USD. OCC42856 adjusts deliverable April4. Explicit next-session daily convention preserves actual April3 trading; no claim of April3 preopen completion. https://infomemo.theocc.com/infomemos?number=42856",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2018-04-04",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 41.25,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1646383/000119312518106369/d562306d8k.htm",
+      "description": "Issuer8K confirms April3 legal completion and 41.25 USD. OCC42856 adjusts deliverable April4. Explicit next-session daily convention preserves actual April3 trading; no claim of April3 preopen completion. https://infomemo.theocc.com/infomemos?number=42856"
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "AAAP_mandatory_payment_unproven": true,
+  "superseded_march_catalog_sha256": "9231b665731b10f24cf52a8448fda8c6ac3628d65ca0890c181014de5ec53b98"
+}

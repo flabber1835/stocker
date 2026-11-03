@@ -1,0 +1,177 @@
+{
+  "schema": "research.concentration-predecessor/1",
+  "run_id": 40613063158,
+  "head": "594d2ed42f30171a3a4da05e5a0179aa82c9034f",
+  "artifact_id": 12784623212,
+  "artifact_name": "capital-concentration-quarter-594d2ed42f30171a3a4da05e5a0179aa82c9034f",
+  "receipt_sha256": "b2ac97afb3630e2cb80e266ff5696604d5b4d5e943ad700ce11a98e4423cdd01",
+  "encrypted_outputs": [
+    {
+      "arm": "QUAL",
+      "name": "concentration-quarter-QUAL.tar.crseal",
+      "bytes": 245796,
+      "sha256": "285c9211cd0760eaa066866cd6a49bc1a357b9ca2ac4ae5c890ee4fb17cacbb2"
+    },
+    {
+      "arm": "B",
+      "name": "concentration-quarter-B.tar.crseal",
+      "bytes": 6072356,
+      "sha256": "31bf266d38cfd8af2bf075c3f3328535a4299ac6576ac64daa008fb72d41cb16"
+    },
+    {
+      "arm": "B0",
+      "name": "concentration-quarter-B0.tar.crseal",
+      "bytes": 5601316,
+      "sha256": "36e14f2b212f0e0a2a8d6ef76cbf389486d846375c9248f7d16c4747ced13cdc"
+    },
+    {
+      "arm": "C",
+      "name": "concentration-quarter-C.tar.crseal",
+      "bytes": 7045156,
+      "sha256": "e0f62eca8cc395f4ba634802aafc900da5648afab7b0a6b512b571b0f2b52c21"
+    }
+  ],
+  "qualified_files": {
+    "source-bindings.json": "12e1f8453ce56df8b01632d83a69ff3e84e99663366a02c196677713a7d4efec",
+    "driver-identities.json": "fcec68e96f22f97d74f6d9a872c6e94491c9bb31f07beb1a4e753aba75cb9d97",
+    "canonical-gate.json": "bd83b9214d04ba2987ee888d3825ecd52f6d1c5d17937f29e67ef6146814039c",
+    "input-equivalence.json": "bd605ca0a349ef0726541e9f9635e10c870490d03defd0cae5439f83f6f8756d",
+    "arm-outcomes.json": "7d462343b29c3145aa3143c91e318b54d2a25e8c4e892213eeca841ad36a4b52"
+  },
+  "arms": {
+    "B": {
+      "policy": "wealth-core-v5-zero-share-fixed-2008-v1",
+      "checkpoint_file_sha256": "a8abf98b068c9e710a5321ac66c3af9bd0037c89373e757b671fc09e35e47c56",
+      "outer_sha256": "b0bbdf4d0a0c064ec1069ee4e79b5ba764114fc3213474666f9a449958d1e966",
+      "inner_sha256": "389dfb0c02b4b299a40baeb53e4bd08f1508c9f6a574e3ad2e2d521982a39454",
+      "state_sha256": "997daef6edb5d62ab15b314bd57623a1b44df79d6f62c23d095b3fe0841a79fb",
+      "input_sha256": "9300eb330ccab383bd6e138d3ddb46443c06e7824da5d43bf5ec32e9880e6833",
+      "cursor": "2024-09-19",
+      "formation_closes": 55,
+      "measured_closes": 0,
+      "journals": {
+        "daily": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 4927655,
+          "last_record_sha256": "9d5578d8f1303ab19c337758f0299127a44986f08b629a25b1d5309461943b68",
+          "prefix_sha256": "141638ddb6b17ca468a4b4613187406871ba3d7d837153eaeef85b1621ccd224"
+        },
+        "monthly": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "review_sha256": "a67e2e34145d94bf534eb85e59491bda7e0587b46cc8e89b8b25e431fda3d6ff",
+      "inspections": {
+        "capital-risk-core-window-cq12025-b-40613063158-1-inspect.json": "47eaedf78729b1a8aa3392b7182ab26eaa13e4d5cc3ed7a78617995dd96d8680",
+        "capital-risk-core-window-cq12025-b-40613063158-1-review-inspect.json": "a99937efd0eca939e5bd9d88f498e4d84c9f9371bbf72035d9d40496f2de0a3a"
+      }
+    },
+    "B0": {
+      "policy": "wealth-core-v5-zero-share-fixed-2008-v1",
+      "checkpoint_file_sha256": "6a1c9790925e3c96720666ab886560dcf159e9cc9735044b58a60edfcc4f0c23",
+      "outer_sha256": "5e1e724936e7afcf64d69151870154f895b8a736a40a31c3ec43f4349500c51a",
+      "inner_sha256": "0f1869b5dfda94e21fcbf2b6d0c7402d8878578c1993f657a550c83c3d73b2ee",
+      "state_sha256": "02ceb49d36dc948dbce9987b21cdc91bb033df01f7dbdbb99b93740ba03da2c3",
+      "input_sha256": "7130be44500579168022ed829a3ac68b0e55e860ba72b1f0f5f5468fd6d9b8a7",
+      "cursor": "2024-09-12",
+      "formation_closes": 50,
+      "measured_closes": 0,
+      "journals": {
+        "daily": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 4460043,
+          "last_record_sha256": "d8600d15bb7a2e7e7516afd821c27486a0d1fb9ddb90acec74ede9624d480ca8",
+          "prefix_sha256": "cf683f4c8f59316c7454ec29eeae1b2c3b5ff7a98a3e464ed410afb0a6245e51"
+        },
+        "monthly": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "review_sha256": "a1948115e1d056814916ac79d1acbd830484521f28edaba03315f402ee395fc5",
+      "inspections": {
+        "capital-risk-core-window-cq12025-b0-40613063158-1-inspect.json": "a738d303a2e55f46ff2056ae44035928ea635ec467b6d72ec5ab665837eb941d",
+        "capital-risk-core-window-cq12025-b0-40613063158-1-review-inspect.json": "bfec77dc02bb95665cb785d320acdc5bdd41ef47135073d9a0dc46cfbbd9eec2"
+      }
+    },
+    "C": {
+      "policy": "wealth-core-capital-risk-c-v1",
+      "checkpoint_file_sha256": "df4a0c8a1ce2d2aab0587f2caff9a45abc0d0fbdeb47768247227a5798e5b618",
+      "outer_sha256": "2f00ae620465dd418197318109e26004d9c7b9821582fc468839210d6b819813",
+      "inner_sha256": "1dabbabf0e7bec500cd627396bc9de2477a31cbf054e8dc79e66c50f58db0580",
+      "state_sha256": "ae6829e5d40d3af7e234ab5700bbb33cded710833c5babdcf7a0d1b861b49628",
+      "input_sha256": "f0950d73bc9ac2a922d5481947c892f545c9f2c335e82cf77fdcb3540cef6f9d",
+      "cursor": "2024-10-03",
+      "formation_closes": 65,
+      "measured_closes": 0,
+      "journals": {
+        "daily": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "formation": {
+          "bytes": 5880753,
+          "last_record_sha256": "2f3f1ff795f626c2067fb60e46b23052838f7ed41cba4f8c92415ee84959fe8f",
+          "prefix_sha256": "89ff4a45a889bca2d595472b1dbaf0d94683b852e8c593a8488d6378a17ac2ce"
+        },
+        "monthly": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "watch": {
+          "bytes": 0,
+          "last_record_sha256": null,
+          "prefix_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "review_sha256": "1686eeee5f6c35b90a88083dcddf43142e1e7ec209bd082be67ecbbbf73bd779",
+      "inspections": {
+        "capital-risk-core-window-cq12025-c-40613063158-1-inspect.json": "b4de6ce99f1ed2738fb9891e0fece777dc6e4d982f6e42f49bd8696b19bc7579",
+        "capital-risk-core-window-cq12025-c-40613063158-1-review-inspect.json": "b5a747255045674c03f88055e485b3613648098b194cbd99c53190ea9510346e"
+      }
+    }
+  },
+  "output_manifests": {
+    "QUAL": {
+      "sha256": "aa1f19ce322aecde419aa001d39635a5c38c93efaddfb5737575c773f228a67e",
+      "members": 14
+    },
+    "B": {
+      "sha256": "98d1ffabb4a2612d05d3d350d9de9ca73df7f1b2d81f89caee9c66ab6c6be612",
+      "members": 12
+    },
+    "B0": {
+      "sha256": "7971e221fe7337059ccccc9e825d97bd39f01d97691f57908a5bdaab46187abf",
+      "members": 12
+    },
+    "C": {
+      "sha256": "4f0efeda776491cc6238918fe80e2cdb05b32cabea3a89b11afc1341860fd248",
+      "members": 12
+    }
+  },
+  "local_authentication_sha256": "e06fec7b80c4e1c6d776030e0c619fae71f98e63ffa41eec739f1f062e67d1fc",
+  "independent_local_review_sha256": "6950cc066d526834fc0a2100effe950aae8115bf0aa0cdb0c0013bf332ef689f"
+}

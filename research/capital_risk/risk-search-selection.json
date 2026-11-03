@@ -1,0 +1,81 @@
+{
+  "schema": "research.bounded-risk-locked-selection/1",
+  "search_run_id": 40741475805,
+  "search_head": "99affc5e7486b48a08aa65d45bd4208d4f312dea",
+  "search_request_sha256": "48f9be6cf72396a1fe67fcf5c12948a3e1e4f30214bb7384f6e67925ca989fab",
+  "development_manifest_sha256": "5cbe4d34658b977d98a43df9c085d9f5b7123572269f669ad1f189f8d139f44f",
+  "development_receipt_sha256": "ba3a64ee43643fe382c4bf2e7eb2dd648995507e4cdebd81718fefd9b9229871",
+  "private_ranking_sha256": "ab20381e6974942942da2eae3c4d904a19cfb46ac3044d328aa4d2742ae96191",
+  "all_development_records_sha256": "3544625a4a4f3aebc615a6c779ea8294222f02d3c337148696c9f92cd9fb92b2",
+  "ranking": [
+    "C15_C1",
+    "C15_C3",
+    "C10_C3",
+    "C10_C1",
+    "L3_KEEP55",
+    "L1_KEEP55",
+    "B04_C3",
+    "B04_C1",
+    "L3_KEEP0",
+    "B02_C3",
+    "L1_KEEP0",
+    "B02_C1"
+  ],
+  "selected": [
+    "C15_C1",
+    "C15_C3"
+  ],
+  "ineligible_no_development_treatment": [],
+  "ranking_rule": "TREATMENT_ELIGIBLE_WORST_DEV_JOINT_LOSS_FEE_ID_THEN_UNRANKED_INELIGIBLE_IDS",
+  "all_development_scores_failed": true,
+  "validation_decrypted_before_selection": false,
+  "profiles": {
+    "C15_C1": {
+      "receipt": {
+        "schema": "research.bounded-risk-profile-receipt/1",
+        "profile_id": "C15_C1",
+        "status": "PROFILE_REVIEWED",
+        "run_id": "40741475805",
+        "source_commit": "99affc5e7486b48a08aa65d45bd4208d4f312dea",
+        "request_sha256": "48f9be6cf72396a1fe67fcf5c12948a3e1e4f30214bb7384f6e67925ca989fab",
+        "known_financial_stopped": true,
+        "production_contacted": false,
+        "encrypted_output": {
+          "name": "C15_C1.tar.crseal",
+          "bytes": 401285156,
+          "sha256": "3d582942332809006f42ec57785ea5dcdcccde8b5e0595e3f8ec85932a626991"
+        },
+        "financial_origin": {
+          "run_id": 40741475805,
+          "reused_complete_oracle": false
+        }
+      },
+      "full_review_sha256": "042488535cde5b97fc1f6cc7561d8caeddb82e60ca414ff2d07b4cdac11b17eb",
+      "source_sha256": "2f3e4097c94386ec695797b2cd285a29eafc3d2dc23f5924095d1b8528db8d03"
+    },
+    "C15_C3": {
+      "receipt": {
+        "schema": "research.bounded-risk-profile-receipt/1",
+        "profile_id": "C15_C3",
+        "status": "PROFILE_REVIEWED",
+        "run_id": "40741475805",
+        "source_commit": "99affc5e7486b48a08aa65d45bd4208d4f312dea",
+        "request_sha256": "48f9be6cf72396a1fe67fcf5c12948a3e1e4f30214bb7384f6e67925ca989fab",
+        "known_financial_stopped": true,
+        "production_contacted": false,
+        "encrypted_output": {
+          "name": "C15_C3.tar.crseal",
+          "bytes": 401111076,
+          "sha256": "8e50166d2b68e7fda4a808dd93bc53bcea0fa2fe05150ef5302ff84cb0101f5c"
+        },
+        "financial_origin": {
+          "run_id": 40741475805,
+          "reused_complete_oracle": false
+        }
+      },
+      "full_review_sha256": "6f46b0d4a19df1477209fde99dd452fb00ff6880855a3b6420420f063f63e7d7",
+      "source_sha256": "294b0e8004e647c7d737de6edb21c14ca717b7e814c8483de488fa904ab21a3e"
+    }
+  },
+  "production_contacted": false
+}

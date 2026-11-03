@@ -1,0 +1,107 @@
+{
+  "schema": "research.system-campaign-late-terminal-facts/1",
+  "terms": [
+    {
+      "ticker": "AET",
+      "security_id": "1088993338163580568",
+      "native_session": "2018-11-28",
+      "native_term_sha256": "b4b5d19e6f124cd55edac244c3d66e4cafb0b3891b3ccc8e7f0c161f88e7c736",
+      "added": {
+        "security_id": "1088993338163580568",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1122304/000112230418000178/form8-k.htm | Issuer8K confirms145USD plus.8378CVS, legalNovember28 and requested suspensionbeforeNovember29open. Retained next-session daily convention preservesNovember28; no exactlegalminute/preopenNovember28 claim. OCC44098 confirms terms: https://www.miaxglobal.com/sites/default/files/alert-files/AET_Merger_44098.pdf | Fractional holder cash uses frozen first-effective raw-open proxy, not actual exchange-agent net sale rate.",
+        "delivered_security_id": "792583375334943609",
+        "delivered_ticker": "CVS",
+        "delivered_issuer_id": "SEC_CIK:64803",
+        "session": "2018-11-29",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 145.0,
+        "exchange_ratio": 0.8378,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1122304/000112230418000178/form8-k.htm",
+      "description": "Issuer8K confirms145USD plus.8378CVS, legalNovember28 and requested suspensionbeforeNovember29open. Retained next-session daily convention preservesNovember28; no exactlegalminute/preopenNovember28 claim. OCC44098 confirms terms: https://www.miaxglobal.com/sites/default/files/alert-files/AET_Merger_44098.pdf",
+      "proxy": {
+        "session": "2018-11-29",
+        "security_id": "792583375334943609",
+        "source_observation_sha256": "bd6506516b440fe1e23b056fffdcbd5eb466d5fbd2d16f4ba9b3f9d3bf2e04bd",
+        "convention": "RETAINED_FIRST_EFFECTIVE_SESSION_RAW_OPEN_PROXY_NOT_ACTUAL_EXCHANGE_AGENT_NET_RATE"
+      }
+    },
+    {
+      "ticker": "OCLR",
+      "security_id": "283147400902576364",
+      "native_session": "2018-12-07",
+      "native_term_sha256": "282c7a58ee9bea43636e214c404337466158f75a02d69365bcd53862f0e7a797",
+      "added": {
+        "security_id": "283147400902576364",
+        "kind": "CASH_PLUS_STOCK",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1110647/000119312518346220/d672294d8k.htm | Issuercompletion8K confirmsfinal5.60USD plus.0636LITE. OCC44173 confirmscompletionbeforeDecember10open; preserveDecember7. https://www.miaxglobal.com/sites/default/files/alert-files/OCLR_Merger_44173.pdf | Fractional holder cash uses frozen first-effective raw-open proxy, not actual exchange-agent net sale rate.",
+        "delivered_security_id": "973974989867589172",
+        "delivered_ticker": "LITE",
+        "delivered_issuer_id": "SEC_CIK:1633978",
+        "session": "2018-12-10",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 5.6,
+        "exchange_ratio": 0.0636,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1110647/000119312518346220/d672294d8k.htm",
+      "description": "Issuercompletion8K confirmsfinal5.60USD plus.0636LITE. OCC44173 confirmscompletionbeforeDecember10open; preserveDecember7. https://www.miaxglobal.com/sites/default/files/alert-files/OCLR_Merger_44173.pdf",
+      "proxy": {
+        "session": "2018-12-10",
+        "security_id": "973974989867589172",
+        "source_observation_sha256": "6997c0730e03bc4697a444ed65e451d499ab6f2d6f459a0e26c577b442880e62",
+        "convention": "RETAINED_FIRST_EFFECTIVE_SESSION_RAW_OPEN_PROXY_NOT_ACTUAL_EXCHANGE_AGENT_NET_RATE"
+      }
+    },
+    {
+      "ticker": "APTI",
+      "security_id": "725714899090921776",
+      "native_session": "2019-01-09",
+      "native_term_sha256": "27e5202e4bf58285b6a5dc90243f03038651311b09e5905054bf3b141ee6d5bc",
+      "added": {
+        "security_id": "725714899090921776",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1419625/000119312519005899/d670038d8k.htm | Issuercompletion8K confirmsmandatory38USD eligibleClassAconversion. OCC44383 confirmsJanuary10preopen completion; preserveJanuary9. https://www.miaxglobal.com/sites/default/files/alert-files/APTI_Merger_44383.pdf",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-01-10",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 38.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1419625/000119312519005899/d670038d8k.htm",
+      "description": "Issuercompletion8K confirmsmandatory38USD eligibleClassAconversion. OCC44383 confirmsJanuary10preopen completion; preserveJanuary9. https://www.miaxglobal.com/sites/default/files/alert-files/APTI_Merger_44383.pdf",
+      "proxy": null
+    },
+    {
+      "ticker": "VSM",
+      "security_id": "900936071490596037",
+      "native_session": "2019-10-04",
+      "native_term_sha256": "26012ba1c41cae80d14a07562a8be2559a015417d259bdd996d5029dde6eb3f3",
+      "added": {
+        "security_id": "900936071490596037",
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1660690/000119312519263471/d814588d8k.htm | Issuercompletion8K Item2.01 confirmsmandatory53USD remaining-holder cash; Item3.01 confirmsNYSEhaltbeforeOctober7open. PreserveOctober4.",
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "delivered_issuer_id": null,
+        "session": "2019-10-07",
+        "entitlement_aggregation": "HOLDER",
+        "cash_per_share": 53.0,
+        "exchange_ratio": null,
+        "cash_in_lieu_price_per_delivered_share": null
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1660690/000119312519263471/d814588d8k.htm",
+      "description": "Issuercompletion8K Item2.01 confirmsmandatory53USD remaining-holder cash; Item3.01 confirmsNYSEhaltbeforeOctober7open. PreserveOctober4.",
+      "proxy": null
+    }
+  ],
+  "canonical_financial_source_changed": false,
+  "production_contacted": false,
+  "FMSA_exact_cash_unproven": true,
+  "AAAP_mandatory_payment_unproven": true
+}

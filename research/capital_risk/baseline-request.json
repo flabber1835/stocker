@@ -1,0 +1,8 @@
+{
+  "schema": "research.capital-risk-baseline-prefix-request/1",
+  "request_id": "baseline-prefix-001",
+  "stage": "baseline-prefix",
+  "arm": "B",
+  "protocol_sha256": "a4591ac1a8ca6d927d4a5452c8bfce766e910fc75d33dbbd48d3f0fd8adb1e52",
+  "transitions": 32
+}
