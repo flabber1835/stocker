@@ -67,6 +67,48 @@ def test_original_sizing_intent_survives_weekend_without_freshness_claim():
         now=NOW+timedelta(days=2)).trades==0
 
 
+def test_exited_position_uses_its_saved_instrument_symbol_without_mutating_intent():
+    selected,authority=original_authority()
+    selected['target_basket'].pop('two')
+    authority['tickers'].pop('two')
+    authority['broker_observation']['positions'][1]['instrument']['symbol']='EXITED'
+    original=deepcopy((selected,authority))
+    value=preview.project_original_intent(selected,authority)
+    leg=next(item for item in value.legs if item.security_id=='two')
+    assert (leg.ticker,leg.action,leg.current_quantity,leg.target_quantity,leg.change_quantity)==(
+        'EXITED','SELL',Decimal(3),Decimal(0),Decimal(-3))
+    assert value.observation_at==authority['broker_observation']['observed_at']
+    assert (selected,authority)==original
+
+
+def test_saved_canonical_label_takes_precedence_over_position_symbol():
+    selected,authority=original_authority()
+    authority['broker_observation']['positions'][1]['instrument']['symbol']='BROKER_ALIAS'
+    value=preview.project_original_intent(selected,authority)
+    assert next(item for item in value.legs if item.security_id=='two').ticker=='TWO'
+
+
+@pytest.mark.parametrize('symbol',[None,'','   ',42,False])
+def test_missing_original_position_label_refuses(symbol):
+    selected,authority=original_authority()
+    authority['tickers'].pop('two')
+    authority['broker_observation']['positions'][1]['instrument']['symbol']=symbol
+    with pytest.raises(ValueError,match='^original position ticker is unavailable$'):
+        preview.project_original_intent(selected,authority)
+
+
+def test_original_position_label_guard_has_a_falsifier(monkeypatch):
+    import inspect
+    source=inspect.getsource(preview.project_original_intent)
+    guard='if not isinstance(symbol,str) or not symbol.strip():'
+    assert source.count(guard)==1
+    namespace=dict(preview.__dict__)
+    exec(compile(source.replace(guard,'if False:'),'<removed original label guard>','exec'),namespace)
+    monkeypatch.setattr(preview,'project_original_intent',namespace['project_original_intent'])
+    with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
+        test_missing_original_position_label_refuses('   ')
+
+
 @pytest.mark.parametrize('fault',['fingerprint','account','incomplete','future_snapshot','duplicate','opening_held','empty_opening_frame'])
 def test_original_sizing_preview_refuses_contradictory_authority(fault):
     selected,authority=original_authority()

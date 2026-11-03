@@ -295,3 +295,19 @@ network. Its published port was unreachable from the test host, so a finite
 localhost stdio relay carried the actual responses. All
 test containers, networks and relays were removed. No production acknowledgement,
 runtime installation, Windows/root handover or monitoring service was performed.
+
+## Saved-plan labels for exited broker positions
+
+A saved next-open preview includes held positions that the plan exits, even when
+those positions have no target or decision-session bar. Its retained canonical
+ticker map therefore need not cover every displayed leg. For an original-intent
+preview, fill only missing ticker labels from the matching instrument's symbol
+in that same immutable sizing authority's broker observation. Existing canonical
+labels take precedence. Do not query the broker or infer an instrument from a
+different observation to fill a display label.
+
+If a missing label has no nonblank string symbol in the retained position,
+refuse that preview rather than present an internal security UUID as a ticker.
+The fallback changes display labels only: permanent security IDs, quantities,
+opening intents, plan fingerprints, dated observations and saved authority remain
+unchanged. Historical mirror and trial verdicts keep their original scope.

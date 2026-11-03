@@ -147,11 +147,17 @@ def project_original_intent(plan, authority):
     if observed.utcoffset() is None or not observed <= plan['created_at'] <= plan['execute_at']:
         raise ValueError('original plan snapshot clock is inconsistent')
     positions = {}
+    tickers = dict(authority['tickers'])
     for item in observation['positions']:
         sid = item['instrument']['security_id']
         if sid in positions:
             raise ValueError('duplicate original position')
         positions[sid] = quantity(item['quantity'])
+        if sid not in tickers:
+            symbol = item['instrument'].get('symbol')
+            if not isinstance(symbol,str) or not symbol.strip():
+                raise ValueError('original position ticker is unavailable')
+            tickers[sid] = symbol
     selected = dict(plan)
     openings = selected.get('opening_intents',[])
     if isinstance(openings,list):
@@ -165,7 +171,7 @@ def project_original_intent(plan, authority):
     if any(positions.get(item['security_id'],Decimal(0)) != 0
            for item in selected.get('opening_intents',{}).get('intents',[])):
         raise ValueError('original plan has contradictory opening intents')
-    return _project(plan=selected,positions=positions,observation_at=observed,tickers=authority['tickers'])
+    return _project(plan=selected,positions=positions,observation_at=observed,tickers=tickers)
 
 
 def still_current(conn, *, cycle_id, plan_id):
