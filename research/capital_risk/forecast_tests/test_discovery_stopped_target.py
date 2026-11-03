@@ -13,17 +13,21 @@ import system_campaign_discovery_suffix_parent as parent
 import system_campaign_discovery_suffix_run as run
 
 
-def test_request_binds_distinct_admitted404_and_unadmitted420_review_only():
+def test_request_preserves_transport_only_target_and_explicit_current_role():
     request=job.expected_request();spec=parent.specification('P10');target=parent.specification('P10',role='review_target')
-    assert spec['transitions']==404 and target['transitions']==420 and target['next_session']=='2020-10-01'
+    assert target['transitions']==420 and target['next_session']=='2020-10-01'
     assert target['transport_only'] and not target['admitted_diagnostic_prefix']
-    assert request['modes']['P10']=='review' and not request['discovery_forward_sessions_authorized']['P10']
-    assert request['review_targets']['P10']==target
+    if request['modes']['P10']=='review':
+        assert not request['discovery_forward_sessions_authorized']['P10'] and request['review_targets']['P10']==target
+    else:
+        assert request['discovery_forward_sessions_authorized']['P10'] and spec['admitted_diagnostic_prefix']
+        assert spec['transitions']==420 and spec['root_admission_sha256']
     assert target['input_descriptors']==spec['input_descriptors'] and target['diagnostic_input_epoch']==spec['diagnostic_input_epoch']
 
 
 def test_review_only_rejects_forward_mode_before_any_private_import(tmp_path,monkeypatch):
-    request=tmp_path/'request.json';request.write_text(json.dumps(job.expected_request()))
+    request=tmp_path/'request.json';value=job.expected_request();value['modes']['P10']='review';value['discovery_forward_sessions_authorized']['P10']=False
+    request.write_text(json.dumps(value))
     monkeypatch.setattr(run,'hosted',lambda:None)
     class NoPrivate(importlib.abc.MetaPathFinder):
         def find_spec(self,fullname,path=None,target=None):

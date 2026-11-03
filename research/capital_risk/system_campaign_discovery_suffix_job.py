@@ -30,7 +30,7 @@ PRIOR = 'system-campaign-volatility-admission-recovery-request-001.json'
 PRIOR_SHA = 'b8a5349cdcd8f9017af4d1338f5b8a5fbf88ef049ddc28cba32f9083ba4d12bf'
 REQUEST = 'system-campaign-discovery-suffix-request-001.json'
 SELECTED_ARMS = ('P10',)
-REVIEW_ONLY_ARMS = ('P10',)
+REVIEW_ONLY_ARMS = ()
 SOURCES = tuple(dict.fromkeys((*json.loads((HERE/'system-campaign-p10-ahl2-post-plan-request-001.json').read_bytes())['sources'], PRIOR,
     'system-campaign-p10-ahl2-post-plan-request-001.json',
     ANCHOR_SPEC, 'system_campaign_anchor_proofs.py',
