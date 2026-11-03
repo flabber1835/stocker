@@ -36,6 +36,10 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/transfer-python"
           "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
+      - name: Probe launcher imports and exact request before staging
+        timeout-minutes: 2
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/system_campaign_financial_resume.py --probe --request research/capital_risk/system-campaign-factual-request.json'
       - name: Authenticate existing frozen inputs and offline runtime
         timeout-minutes: 8
         env:

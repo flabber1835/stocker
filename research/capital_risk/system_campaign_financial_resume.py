@@ -50,7 +50,8 @@ def expected_request():
     prior = json.loads((HERE / PRIOR).read_bytes())['sources']
     need(len(prior) == 383 and all(sha256_file(HERE / n) == h for n, h in prior.items()),
          'RESUME_ALL383_OLD_DRIVER_BYTES_UNCHANGED')
-    names = (*prior, 'system_campaign_financial_resume.py', 'ephemeral_runner_capacity.py')
+    names = (*prior, 'system_campaign_financial_resume.py', 'ephemeral_runner_capacity.py',
+             'transfer-requirements.lock', 'wwe-transfer-requirements.lock')
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(ARMS),
                 execution_mode='CANONICAL_ACCURATE_FINANCIAL_REPLAY', new_origin=False,
                 diagnostic_state_adopted=False, new_factual_overlay=False,
@@ -402,13 +403,19 @@ def launch(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--probe', action='store_true')
     parser.add_argument('--mode', choices=('preflight', 'economic', 'review'))
     parser.add_argument('--spec', type=Path)
     for name in ('request', 'staging', 'capacity', 'output'):
         parser.add_argument('--' + name, type=Path)
     parser.add_argument('--arm', choices=ARMS)
     args = parser.parse_args()
-    if args.mode:
+    if args.probe:
+        need(args.request is not None and json.loads(args.request.read_bytes()) == expected_request(),
+             'RESUME_IMPORT_PROBE_EXACT_REQUEST')
+        print(json.dumps(dict(status='LAUNCHER_IMPORT_AND_EXACT_REQUEST_PROBE_PASSED',
+                              financial_runtime_executed=False, financial_sessions_advanced=0)))
+    elif args.mode:
         hosted()
         spec = json.loads(args.spec.read_bytes())
         if args.mode == 'preflight':

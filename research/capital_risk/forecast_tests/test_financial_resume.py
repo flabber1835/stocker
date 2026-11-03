@@ -4,7 +4,10 @@ import base64
 from copy import deepcopy
 import gzip
 import json
+import importlib.util
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -54,6 +57,46 @@ def test_existing_workflow_selects_exactly_the_serial_financial_batch():
     assert any('system_campaign_financial_resume.py' in s.get('run', '') for s in job['steps'])
     checkout = next(s for s in job['steps'] if s.get('uses', '').startswith('actions/checkout@'))
     assert '.github/workflows' in checkout['with']['sparse-checkout'].splitlines()
+    installation = next(s for s in job['steps'] if s.get('name') == 'Install locked transfer dependencies')
+    assert 'wwe-transfer-requirements.lock' in installation['run']
+    probe = next(i for i, s in enumerate(job['steps']) if '--probe --request' in s.get('run', ''))
+    staging = next(i for i, s in enumerate(job['steps']) if 'stage.py --request' in s.get('run', ''))
+    assert probe < staging
+
+
+def test_isolated_host_import_reproduces_missing_schema_dependency_and_then_passes(tmp_path):
+    site = tmp_path / 'isolated-site'
+    site.mkdir()
+    def copy_package(name):
+        spec = importlib.util.find_spec(name)
+        assert spec is not None, name
+        if spec.submodule_search_locations:
+            source = Path(next(iter(spec.submodule_search_locations)))
+            shutil.copytree(source, site / name)
+        else:
+            shutil.copyfile(spec.origin, site / Path(spec.origin).name)
+    for name in ['cryptography', 'cffi', 'pycparser', '_cffi_backend']:
+        copy_package(name)
+    code = '''import sys,runpy,importlib.abc
+assert not any('site-packages' in p for p in sys.path)
+class Fence(importlib.abc.MetaPathFinder):
+ def find_spec(self,fullname,path=None,target=None):
+  if fullname.startswith(('research.pooled_','stock_strategy_shared','sentinel')):
+   raise ImportError('ISOLATED_PROBE_FORBIDS_CANONICAL_RUNTIME:'+fullname)
+sys.meta_path.insert(0,Fence())
+sys.path[:0]=[sys.argv[1],sys.argv[2]]
+script=sys.argv[1]+'/system_campaign_financial_resume.py'
+sys.argv=[script,'--probe','--request',sys.argv[1]+'/system-campaign-factual-request.json']
+runpy.run_path(script,run_name='__main__')
+'''
+    command = [sys.executable, '-I', '-S', '-B', '-c', code, str(CAP), str(site)]
+    failed = subprocess.run(command, capture_output=True, timeout=60)
+    assert failed.returncode != 0 and b"No module named 'pydantic'" in failed.stderr
+    for name in ['pydantic', 'pydantic_core', 'annotated_types', 'typing_extensions', 'typing_inspection']:
+        copy_package(name)
+    passed = subprocess.run(command, capture_output=True, timeout=60)
+    assert passed.returncode == 0, passed.stderr.decode(errors='replace')
+    assert json.loads(passed.stdout)['financial_runtime_executed'] is False
 
 
 def test_actual_original_parent_and_no_diagnostic_substitution():

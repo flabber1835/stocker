@@ -62,3 +62,17 @@ Only complete independently reviewed and root-admitted financial paths may be
 scored. The common-assumption comparison and Core selection still precede
 Sentinel optimization. PAPER, production, local canonical execution, brokers,
 databases, services, main and deployment are outside this work.
+
+## Host dependency correction after the first selected batch
+
+Run41725796347 failed all eight arms during the shared launcher import, before
+its entrypoint or any financial worker. The host installed the original crypto
+transfer lock but lacked Pydantic required by the retained schema helpers. Keep
+that failure and zero-financial-advancement outcome explicit. Reuse the existing
+`wwe-transfer-requirements.lock` for those host schema dependencies, as already
+used by the successful P01 workflow; introduce no package version or lock change.
+Probe the exact launcher import and frozen request closure immediately after
+installation, before input/runtime staging. A fresh source-bound batch may then
+resume the same untouched financial parents. Local isolation tests must reproduce
+the missing-Pydantic failure with only transfer packages and pass after adding
+only the declared schema packages; no canonical runtime executes in that check.
