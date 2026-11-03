@@ -153,6 +153,7 @@ def test_preparation_keeps_historical_book_value_and_current_unverified_caveat()
 
 
 def test_preparation_headline_requires_it_to_explain_every_operational_warning():
+    from tests.support.dashboard_review import reviewed_panel
     row = model.Row('shadow_verification', 'Shadow', 'WAITING FOR INPUTS', model.WARN,
         as_of=NOW, required_current=True, valid_until=NOW+timedelta(minutes=1),
         recovery=RecoveryEvidence(phase='SOURCE_FRONTIER', automatic=True,
@@ -160,7 +161,7 @@ def test_preparation_headline_requires_it_to_explain_every_operational_warning()
     def headline(rows, **kwargs):
         rows = [model.Row('shadow_worker', 'Worker', 'RUNNING', model.OK,
             as_of=NOW, required_current=True, valid_until=NOW+timedelta(minutes=1)), *rows]
-        page = render(model.Panel(rows=rows, now=NOW, **kwargs))
+        page = render(reviewed_panel(rows=rows, now=NOW, **kwargs))
         return page.split('id="operational-state"', 1)[1].split('</span>', 1)[0]
     assert '>Healthy · Waiting for closing data' in headline([row])
     for other in (

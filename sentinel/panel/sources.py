@@ -527,8 +527,8 @@ def _trading_run_row(conn, row, *, completed_history=False):
             or stored.target_basket != {sid:Decimal(str(value))
                                         for sid,value in plan['target_basket'].items()}):
         raise ValueError('current trading run economic plan identity changed')
-    from sentinel import dual_plan_authority
-    authority = dual_plan_authority.load_authority(conn, plan_id=plan['plan_id'])
+    from sentinel.panel.intent_memo import read as dated_intent
+    authority = dated_intent(conn, plan_id=plan['plan_id'])
     if authority is None:
         raise ValueError('current trading run has no immutable sizing authority')
     with conn.cursor() as cur:
@@ -3212,7 +3212,9 @@ def _runtime_projection(database_url: str, *, include_book=True,
         if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual','paper'}:
             return [exposure, book, terminals, broker], errors
         from sentinel import paper_plan_preview
-        preview, preview_error = _read(conn, paper_plan_preview.read, STATEMENT_TIMEOUT_MS, default=None)
+        from sentinel.panel.intent_memo import read as dated_intent
+        preview, preview_error = _read(conn, lambda c: paper_plan_preview.read(
+            c, authority_loader=dated_intent), STATEMENT_TIMEOUT_MS, default=None)
         if preview_error:
             plan_row = model.Row('paper_plan','Next paper plan','UNAVAILABLE',model.UNKNOWN,detail=preview_error)
         elif preview is None:

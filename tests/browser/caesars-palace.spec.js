@@ -252,6 +252,9 @@ test.describe('App resume presentation', () => {
       if (positive) body = body.replace(
         /(<span id="operational-state" class=")state [^"]+("[^>]*>)[\s\S]*?(<\/span>)/,
         '$1state ok$2CLIENT PRESENTATION FIXTURE$3');
+      if (positive) body = body.replace('<div id="portfolio-overview">',
+        '<div id="portfolio-overview"><ol id="browser-slot-fixture" aria-label="Browser fixture only">'+
+        Array.from({length:20},(_,i)=>'<li class="slot-tile occupied" data-browser-slot="'+i+'"><span class="slot-state">Browser fixture only</span></li>').join('')+'</ol>');
       expect(body).toContain('data-max-age-seconds="9"');
       expect(body).toContain('var ordinaryDue = Date.now() + 5000;');
       expect(body).toContain('refreshDocument(); }, 5000);');
@@ -307,7 +310,7 @@ test.describe('App resume presentation', () => {
     };
   }
 
-  test('short original proof stays last-known amber during two healthy foreground refreshes', async ({page}) => {
+  test('short original proof stays last-known neutral during two healthy foreground refreshes', async ({page}) => {
     const fixture = await shortProofDisplay(page);
     try {
       for (let cycle = 0; cycle < 2; cycle++) {
@@ -321,17 +324,36 @@ test.describe('App resume presentation', () => {
         await page.clock.runFor(5000);
         await expect.poll(() => fixture.requests.length).toBe(cycle + 1);
         await page.clock.runFor(5001); // First one-second age check after the 9s proof expires.
-        await expect(page.locator('#operational-state')).toHaveClass('state warn');
+        await expect(page.locator('#operational-state')).toHaveClass('state neutral');
         await expect(page.locator('#operational-state')).toContainText('LAST KNOWN');
         expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
         await page.clock.runFor(1399); // Five seconds idle plus 6.4 seconds fetching.
-        await expect(page.locator('#operational-state')).toHaveClass('state warn');
+        await expect(page.locator('#operational-state')).toHaveClass('state neutral');
         expect(await page.evaluate(() => window.__pendingHeadlineStates)).not.toContain('state fail');
+        await expect(page.locator('html')).not.toHaveClass('not-current');
         await fixture.release(cycle);
         await expect(page.locator('#operational-state')).toHaveText('CLIENT PRESENTATION FIXTURE');
         expect(await page.locator('body').getAttribute('data-generated-at')).not.toBe(original);
       }
     } finally { await fixture.close(); }
+  });
+
+  test('browser-only loss makes all twenty fixture slots neutral without recording twenty failures', async ({context,page}) => {
+    const fixture = await shortProofDisplay(page);
+    try {
+      await context.setOffline(true);
+      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+      await expect(page.locator('html')).toHaveClass('not-current');
+      const colors = await page.evaluate(() => {
+        const probe=document.createElement('span');
+        probe.style.color='var(--muted)';document.body.appendChild(probe);
+        const neutral=getComputedStyle(probe).color;probe.remove();
+        return {neutral,slots:Array.from(document.querySelectorAll('[data-browser-slot]'))
+          .map(slot=>getComputedStyle(slot).borderTopColor)};
+      });
+      expect(colors.slots).toHaveLength(20);
+      expect(colors.slots.every(color=>color===colors.neutral)).toBe(true);
+    } finally { await context.setOffline(false);await fixture.close(); }
   });
 
   test('ordinary refresh expiry is anchored to the first request despite lifecycle wakeups', async ({page}) => {
@@ -342,16 +364,17 @@ test.describe('App resume presentation', () => {
       await expect.poll(() => fixture.requests.length).toBe(1);
       fixture.requests[0].allowAbort = true;
       await page.clock.runFor(5001);
-      await expect(page.locator('#operational-state')).toHaveClass('state warn');
+      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
       await page.evaluate(() => {
         window.dispatchEvent(new Event('focus'));
         window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:false}));
       });
       await page.clock.runFor(9998);
-      await expect(page.locator('#operational-state')).toHaveClass('state warn');
+      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
       await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true})));
       await page.clock.runFor(2);
-      await expect(page.locator('#operational-state')).toHaveClass('state fail');
+      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+      await expect(page.locator('html')).toHaveClass('not-current');
       await expect(page.locator('#operational-state')).toContainText('STATUS NOT CURRENT');
       expect(fixture.requests).toHaveLength(1);
       expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
@@ -364,7 +387,7 @@ test.describe('App resume presentation', () => {
       await page.clock.runFor(5000);
       await expect.poll(() => fixture.requests.length).toBe(1);
       await page.clock.runFor(6400);
-      await expect(page.locator('#operational-state')).toHaveClass('state warn');
+      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
       await fixture.release(0, 'negative');
       await expect(page.locator('#operational-state')).toHaveClass('state fail');
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
@@ -395,7 +418,7 @@ test.describe('App resume presentation', () => {
       });
       await expect.poll(() => fixture.requests.length).toBe(2);
       fixture.requests[1].allowAbort = true;
-      await expect(page.locator('#operational-state')).toHaveClass('state warn');
+      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
       expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
       await page.clock.runFor(14999);
       await page.evaluate(() => {
@@ -404,13 +427,14 @@ test.describe('App resume presentation', () => {
       });
       expect(fixture.requests).toHaveLength(2);
       await page.clock.runFor(2);
-      await expect(page.locator('#operational-state')).toHaveClass('state fail');
+      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+      await expect(page.locator('html')).toHaveClass('not-current');
       expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
     } finally { await fixture.close(); }
   });
 
   for (const expires of [false, true]) {
-    test(`a saved positive view is amber during reconnect${expires ? ' and red on timeout' : ''}`, async ({ page }) => {
+    test(`a saved positive view is neutral during reconnect${expires ? ' and withdrawn on timeout' : ''}`, async ({ page }) => {
       // CI's unconfigured server is deliberately red. Only this client-display
       // fixture supplies a positive headline; it is not financial evidence.
       let release;
@@ -446,13 +470,14 @@ test.describe('App resume presentation', () => {
           document.dispatchEvent(new Event('visibilitychange'));
           window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));
         });
-        await expect(page.locator('#operational-state')).toHaveClass('state warn');
+        await expect(page.locator('#operational-state')).toHaveClass('state neutral');
         await expect(page.locator('#operational-state')).toContainText('REFRESHING STATUS');
         await expect(page.locator('html')).toHaveClass('refreshing-status');
         expect(await page.locator('body').getAttribute('data-generated-at')).toBe(generated);
         if (expires) {
           await page.clock.runFor(15001);
-          await expect(page.locator('#operational-state')).toHaveClass('state fail');
+          await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+          await expect(page.locator('html')).toHaveClass('not-current');
           await expect(page.locator('#operational-state')).toContainText('STATUS NOT CURRENT');
         } else {
           await page.evaluate(() => { Date.now = window.__resumeRealNow; });
@@ -560,7 +585,7 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await context.setOffline(true);
 
-    await expect(page.locator("#dashboard-heartbeat")).toContainText("LOST");
+    await expect(page.locator("#dashboard-heartbeat")).toContainText("UNAVAILABLE");
     await expect(page.locator("#operational-state")).toContainText("STATUS NOT CURRENT");
     await context.setOffline(false);
   });
@@ -613,7 +638,7 @@ test.describe("Caesar's Palace PWA and push path", () => {
     }
   });
 
-  test("offline navigation is explicit red and never cached green", async ({
+  test("offline navigation is neutral and never cached green", async ({
     context,
     page
   }) => {
@@ -628,7 +653,7 @@ test.describe("Caesar's Palace PWA and push path", () => {
     ]);
     expect(response.status()).toBe(503);
     expect(response.headers()["cache-control"]).toBe("no-store");
-    await expect(page.locator("body")).toContainText("OPERATIONAL RED — OFFLINE");
+    await expect(page.locator("body")).toContainText("STATUS NOT CURRENT — OFFLINE");
     await context.setOffline(false);
   });
 

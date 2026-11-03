@@ -25,6 +25,9 @@ COMPONENTS = (
     'sentinel.feed.generation_admission',
     'sentinel.operational_ddl_epoch',
 )
+# Presentation metadata is not part of the immutable financial installation
+# marker. Its exact catalog is recognized when present, never silently hidden.
+PRESENTATION_COMPONENTS = ('sentinel.panel.review_schema',)
 _LOCK = (1397706832, 1330660145)
 _FUNCTION = 'sentinel_operational_installation_guard'
 _TRIGGER = 'sentinel_operational_installation_guard'
@@ -79,6 +82,10 @@ def _canonical(value):
 
 def components():
     return tuple(importlib.import_module(name) for name in COMPONENTS)
+
+
+def presentation_components():
+    return tuple(importlib.import_module(name) for name in PRESENTATION_COMPONENTS)
 
 
 def contracts():
@@ -156,6 +163,10 @@ def legacy_catalog(conn, catalog):
     """Validated historical view; unknown objects and edits are never hidden."""
     relations, columns, constraints, indexes, triggers = catalog
     modules = components()
+    optional = presentation_components()
+    # Also detect orphaned functions/triggers when both tables were lost.
+    optional_present = [module for module in optional
+                        if module.require_schema(conn, allow_absent=True)]
     names = lambda module: set(module.extension_tables) | set(getattr(module, 'extension_views', ()))
     present = any(names(module) & set(relations) for module in modules)
     marker_possible = 'sentinel_processed_sessions' in relations
@@ -169,11 +180,14 @@ def legacy_catalog(conn, catalog):
             raise InstallationCatalogRefused(
                 'OPERATIONAL_INSTALLATION_CATALOG_CHANGED: sentinel_processed_sessions')
     marker = installation(conn, required=False) if marker_possible else None
-    if not present and marker is None:
+    if not present and marker is None and not optional_present:
         return catalog
     excluded_tables = set()
     excluded_triggers = {('sentinel_processed_sessions', _TRIGGER),
                          ('sentinel_processed_sessions', _TRUNCATE_TRIGGER)} if marker else set()
+    for module in optional_present:
+        excluded_tables.update(names(module))
+        excluded_triggers.update(module.extension_triggers)
     for module in modules:
         active = bool(names(module) & set(relations))
         if marker or active:

@@ -140,6 +140,7 @@ def test_unrelated_plan_session_filter_has_a_removed_guard_falsifier(monkeypatch
 @pytest.mark.parametrize('mode', ['shadow', 'dual'])
 def test_dual_runtime_broker_reader_does_not_consult_legacy_book(monkeypatch, mode):
     from sentinel import paper_plan_preview
+    from sentinel.panel.intent_memo import read as dated_intent
 
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', mode)
     helper = RuntimeFixture()
@@ -147,8 +148,9 @@ def test_dual_runtime_broker_reader_does_not_consult_legacy_book(monkeypatch, mo
         'completeness': 'COMPLETE', 'positions': {}, 'orders': [], 'runtime_state': 'RUNNING'},
         commands={'counts': {}, 'updated_at': NOW})
     preview_reads = []
-    def read_preview(conn):
+    def read_preview(conn, *, authority_loader):
         assert conn is connection
+        assert authority_loader is dated_intent
         preview_reads.append(conn)
         return None
     monkeypatch.setattr(paper_plan_preview, 'read', read_preview)

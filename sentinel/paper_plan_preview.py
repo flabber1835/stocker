@@ -186,7 +186,7 @@ def still_current(conn, *, cycle_id, plan_id):
         return cur.fetchone()[0] is True
 
 
-def read(conn, *, unnotified=False):
+def read(conn, *, unnotified=False, authority_loader=None):
     """Bounded SELECT projection of one future current-generation paper plan."""
     with conn.cursor() as cur:
         cur.execute("""SELECT c.cycle_id,p.plan_id,p.decision_session,p.effective_session,
@@ -229,7 +229,8 @@ def read(conn, *, unnotified=False):
         if len(identities)>100:
             raise ValueError('paper plan exceeds display holdings bound')
         from sentinel import dual_plan_authority
-        sizing = dual_plan_authority.load_authority(conn, plan_id=plan['plan_id'])
+        loader = authority_loader or dual_plan_authority.load_authority
+        sizing = loader(conn, plan_id=plan['plan_id'])
         tickers = dict(sizing['tickers']) if sizing else {}
         cur.execute("SELECT security_id,ticker FROM sentinel_bars WHERE session=%s AND security_id=ANY(%s) "
             "UNION SELECT security_id,ticker FROM sentinel_defensive_bars WHERE session=%s AND security_id=ANY(%s)",

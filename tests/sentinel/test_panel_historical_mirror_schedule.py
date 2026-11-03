@@ -7,6 +7,7 @@ import inspect
 
 import pytest
 
+from tests.support.dashboard_review import reviewed_panel
 from sentinel.panel import model, observer_codec, presentation, sources
 from sentinel.paper_plan_preview import PlanPreview
 from tests.sentinel.test_local_paper_panel_schedule import (
@@ -148,7 +149,7 @@ def healthy_history_panel(*, now=LIVE_NOW, execute_at=LIVE_OPEN):
         for key,phase in (('automation_cycle','AUTOMATION_WAITING_OPEN'),
                           ('automation_step_open','AUTOMATION_OPEN'))]
     rows.append(model.Row('automation_step_transport','Transport','NOT REACHED',model.PENDING))
-    return model.Panel(rows=rows,now=now,local_paper_mode=True)
+    return reviewed_panel(rows=rows,now=now,local_paper_mode=True)
 
 
 def changed_history_panel(panel,key,**changes):

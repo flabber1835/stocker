@@ -11,6 +11,7 @@ from sentinel.automation import closing_data_notifications
 from sentinel.feed import calendar
 from sentinel.panel import model, postclose_feed_wait, retry_status, sources
 from sentinel.panel.render import _row_html, render
+from tests.support.dashboard_review import reviewed_panel
 from tests.sentinel.test_panel_availability_retry import CycleRows, NOW, OPEN, WAKE, projections
 from tests.sentinel.test_panel_postclose_feed_wait import facts
 
@@ -98,9 +99,10 @@ def test_typed_cycle_and_proof_backed_authority_support_only_current_source_head
     projected = next(row for row in automation if row.key == 'authority')
     assert projected.recovery.phase == 'AUTHORITY_RECHECK_AFTER_DATA'
     assert projected.recovery.deadline == summary.recovery.deadline
-    page = model.Panel(rows=[*financial, worker, *automation, *steps], now=NOW)
+    page = reviewed_panel(rows=[*financial, worker, *automation, *steps], now=NOW)
     assert page.operational == model.WARN
     assert '>Healthy · Waiting for closing data</span>' in render(page)
+    assert '>Healthy' not in render(replace(page, operator_review=None))
     assert 'Previous PASS is not current execution authority' in render(page)
     assert '>Healthy' not in render(replace(page, now=PUBLISHER_DEADLINE))
     # A cycle marker alone cannot explain the independent source/portfolio state.

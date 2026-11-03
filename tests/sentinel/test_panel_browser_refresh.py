@@ -33,7 +33,7 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
     elif mutation == 'age-withdrawal':
         script = script.replace('age > budget', 'false')
     elif mutation == 'known-negative':
-        script = script.replace('if (!knownFailure)', 'if (true)')
+        script = script.replace('var hardFailure = false;', 'var hardFailure = badge.className === "state fail";')
     elif mutation == 'resume-red':
         script = script.replace('showResume();\n    refreshDocument();', 'invalidate(true);')
     elif mutation == 'resume-deadline':
@@ -105,13 +105,13 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         assert script.count(guard) == 1
         script = script.replace(guard, 'transportDelay = false;\n      var html = await response.text();')
     elif mutation == 'resume-availability':
-        guard = 'if (hardFailure || knownFailure || !navigator.onLine ||'
+        guard = 'if (hardFailure || !navigator.onLine ||'
         assert script.count(guard) == 1
-        script = script.replace(guard, 'if (invalidated || hardFailure || knownFailure || !navigator.onLine ||')
+        script = script.replace(guard, 'if (invalidated || hardFailure || !navigator.onLine ||')
     elif mutation == 'hard-negative-resume':
-        guard = 'if (hardFailure || knownFailure || !navigator.onLine ||'
+        guard = 'if (hardFailure || !navigator.onLine ||'
         assert script.count(guard) == 1
-        script = script.replace(guard, 'if (knownFailure || !navigator.onLine ||')
+        script = script.replace(guard, 'if (!navigator.onLine ||')
     elif mutation == 'pagehide':
         guard = 'window.addEventListener("pagehide", function(){\n    wentToBackground = true;'
         assert script.count(guard) == 1
@@ -179,10 +179,10 @@ def test_missing_node_in_ci_lens_fails_instead_of_skipping(monkeypatch):
         run_refresh('busy')
 
 
-def test_busy_refresh_never_hides_a_known_negative_verdict():
-    assert run_refresh('busy',wake='known-failure').returncode == 0
-    broken=run_refresh('busy',wake='known-failure',mutation='known-negative')
-    assert broken.returncode != 0 and 'known negative verdict' in broken.stderr
+def test_server_failure_cannot_seed_a_browser_transport_incident():
+    assert run_refresh('busy',wake='resume-known-failure').returncode == 0
+    broken=run_refresh('busy',wake='resume-known-failure',mutation='known-negative')
+    assert broken.returncode != 0 and 'server failure does not invalidate browser freshness' in broken.stderr
 
 
 @pytest.mark.parametrize('wake', ['fresh-age', 'invalid-date', 'future-date',
@@ -332,7 +332,7 @@ def test_foreground_resume_cannot_soften_a_hard_negative(kind):
     ('ordinary-resume-interaction','transport-hidden',{'order':'before-timeout'},'owned refresh keeps expired proof'),
     ('body-transport','transport-body',{},'owned refresh keeps expired proof'),
     ('resume-availability','transport-hidden',{'order':'after-timeout'},'owned refresh keeps expired proof'),
-    ('hard-negative-resume','transport-negative',{'kind':'malformed'},'hard-negative last-known styling'),
+    ('hard-negative-resume','transport-negative',{'kind':'malformed'},'foreground resume cannot soften a hard negative'),
     ('pagehide','transport-hidden',{'order':'after-timeout','visibility':False,'event':'focus'},'owned refresh keeps expired proof'),
     ('focus','transport-hidden',{'order':'after-timeout','visibility':False,'event':'focus'},'owned refresh keeps expired proof'),
     ('page-away','transport-hidden',{'order':'after-timeout','visibility':False,'event':'focus'},'owned refresh keeps expired proof'),

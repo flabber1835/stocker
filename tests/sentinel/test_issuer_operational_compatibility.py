@@ -2,6 +2,7 @@
 import hashlib
 import importlib
 import inspect
+import json
 from pathlib import Path
 import textwrap
 
@@ -40,12 +41,64 @@ PREDECESSOR_CONTRACTS = {
 }
 
 
+# Remove only the reviewed presentation overlay, then retain every original
+# predecessor byte hash. This is not a new pin for the financial contract.
+_PRESENTATION_OVERLAY = (
+    ("# Presentation metadata is not part of the immutable financial installation\n"
+     "# marker. Its exact catalog is recognized when present, never silently hidden.\n"
+     "PRESENTATION_COMPONENTS = ('sentinel.panel.review_schema',)\n", ''),
+    ("def presentation_components():\n"
+     "    return tuple(importlib.import_module(name) for name in PRESENTATION_COMPONENTS)\n\n\n", ''),
+    ("    optional = presentation_components()\n"
+     "    # Also detect orphaned functions/triggers when both tables were lost.\n"
+     "    optional_present = [module for module in optional\n"
+     "                        if module.require_schema(conn, allow_absent=True)]\n", ''),
+    ('    if not present and marker is None and not optional_present:\n',
+     '    if not present and marker is None:\n'),
+    ('    for module in optional_present:\n'
+     '        excluded_tables.update(names(module))\n'
+     '        excluded_triggers.update(module.extension_triggers)\n', ''),
+)
+
+
+def _predecessor_bytes(name, raw):
+    if name == 'operational_schema.py':
+        text = raw.decode('utf-8')
+        for current, previous in _PRESENTATION_OVERLAY:
+            assert text.count(current) == 1, 'presentation overlay changed'
+            text = text.replace(current, previous)
+        return text.encode('utf-8')
+    if name == 'operational_catalog.py':
+        current = "CATALOG_SHA256 = '"+operational_catalog.CATALOG_SHA256+"'"
+        assert raw.count(current.encode()) == 1
+        return raw.replace(current.encode(), ("CATALOG_SHA256 = '"+
+            PREDECESSOR_SOURCE_SHA256['operational-catalog-v1.json']+"'").encode())
+    if name == 'operational-catalog-v1.json':
+        value = json.loads(raw)
+        assert value['components'].pop('sentinel.panel.review_schema')
+        return (json.dumps(value, sort_keys=True, separators=(',', ':'))+'\n').encode('ascii')
+    return raw
+
+
 def assert_predecessor_contracts():
     root = Path(operational_schema.__file__).resolve().parent
     for name, expected in PREDECESSOR_SOURCE_SHA256.items():
-        assert hashlib.sha256((root/name).read_bytes()).hexdigest() == expected, (PREDECESSOR, name)
+        assert hashlib.sha256(_predecessor_bytes(name, (root/name).read_bytes())).hexdigest() == expected, (PREDECESSOR, name)
     assert operational_schema.contracts() == PREDECESSOR_CONTRACTS
-    assert operational_catalog.CATALOG_SHA256 == PREDECESSOR_SOURCE_SHA256['operational-catalog-v1.json']
+    assert operational_catalog.CATALOG_SHA256 == hashlib.sha256(
+        (root/'operational-catalog-v1.json').read_bytes()).hexdigest()
+
+
+@pytest.mark.parametrize('name,old,new', [
+    ('operational_schema.py', b"'sentinel.mirror_schema',", b"'sentinel.changed_schema',"),
+    ('operational_catalog.py', b'expected = _catalog()', b'expected = {}'),
+    ('operational-catalog-v1.json', b'sentinel_operational_read_revisions', b'changed_operational_read_revisions'),
+])
+def test_presentation_overlay_cannot_hide_predecessor_contract_edits(name, old, new):
+    root = Path(operational_schema.__file__).resolve().parent
+    raw = (root/name).read_bytes()
+    assert old in raw
+    assert hashlib.sha256(_predecessor_bytes(name, raw.replace(old,new))).hexdigest() != PREDECESSOR_SOURCE_SHA256[name]
 
 
 def test_issuer_storage_keeps_exact_predecessor_sources_catalog_and_contracts():

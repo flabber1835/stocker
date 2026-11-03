@@ -5,6 +5,7 @@ import inspect
 import textwrap
 
 import pytest
+from tests.support.dashboard_review import reviewed_panel
 from pydantic import ValidationError
 
 from sentinel.panel.model import PreparationWork, Row, WARN, FAIL
@@ -95,7 +96,7 @@ def test_json_preserves_strict_readiness_and_exports_the_separate_health(monkeyp
     from sentinel.panel import app, model
     from sentinel.panel.presentation import dashboard_health
 
-    panel = model.Panel(now=NOW, rows=[Row('ingest', 'Acquisition', 'ACQUIRING', WARN,
+    panel = reviewed_panel(now=NOW, rows=[Row('ingest', 'Acquisition', 'ACQUIRING', WARN,
         as_of=NOW, freshness=timedelta(minutes=1), preparation=work())])
     monkeypatch.setattr(app, '_read_panel', lambda: panel)
     with TestClient(app.app) as client:

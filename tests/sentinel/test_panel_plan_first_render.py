@@ -9,6 +9,7 @@ import re
 import pytest
 
 from sentinel.operational_status import RecoveryEvidence
+from tests.support.dashboard_review import reviewed_panel
 from sentinel.panel import model, overview
 from sentinel.paper_plan_preview import PlanPreview, PlannedLeg
 
@@ -49,7 +50,7 @@ def example_panel():
         state='CANCELLED',observed_at=NOW-timedelta(hours=8))
     account = model.PaperAccountOverview(account_id='paper-account-1',equity=Decimal(50000),
         cash=Decimal('9635.82'),buying_power=Decimal('9635.82'),observed_at=OBSERVED)
-    return model.Panel(now=NOW, rows=[
+    return reviewed_panel(now=NOW, rows=[
         model.Row('paper_plan','Next paper plan','ready',model.OK,as_of=OBSERVED,
                   valid_until=EXECUTE,paper_plan=plan,order_outcomes=[outcome]),
         model.Row('alpaca_account','Recorded Alpaca paper account','active',model.OK,
@@ -128,7 +129,7 @@ def test_source_frontier_wait_shows_only_admitted_historical_slots_until_deadlin
 
 
 def test_missing_evidence_does_not_invent_twenty_empty_slots_or_zero_balances():
-    html = overview.overview_html(model.Panel(now=NOW))
+    html = overview.overview_html(reviewed_panel(now=NOW))
     assert 'Canonical slots unavailable.' in html and 'data-slot-id=' not in html
     assert 'Account totals unavailable.' in html and '$0.00' not in html
     panel = example_panel()
@@ -203,7 +204,7 @@ def preparing_panel(*, now=NOW, state='ACQUIRING', **changes):
         as_of=now, required_current=True, valid_until=work.deadline,
         recovery=RecoveryEvidence(phase='FEED_INGEST',automatic=True,deadline=work.deadline),
         preparation=work)
-    return model.Panel(now=now, rows=[ingest])
+    return reviewed_panel(now=now, rows=[ingest])
 
 
 def _headline(panel, **options):
@@ -375,7 +376,7 @@ def test_expected_future_capabilities_are_neutral_but_an_empty_setup_or_required
     assert dashboard_health(panel)['status'] == 'ok'
     assert dashboard_health(panel)['plan_readiness'] == 'pending'
     assert panel.operational == model.WARN
-    assert dashboard_health(model.Panel(now=NOW,rows=pending))['status'] == 'warn'
+    assert dashboard_health(reviewed_panel(now=NOW,rows=pending))['status'] == 'warn'
     required = model.Row('other','Required','PENDING',model.PENDING,required_current=True)
     assert dashboard_health(replace(panel,rows=[*panel.rows,required]))['status'] == 'fail'
 
@@ -425,7 +426,7 @@ def test_normal_discovery_wait_needs_current_policy_and_live_worker_proof(fault)
     if fault == 'missing_leader': rows.pop(1)
     elif fault == 'disabled': rows[0] = replace(rows[0],value='DISABLED')
     elif fault == 'bare_wait': rows[-1] = replace(rows[-1],required_current=False,recovery=None)
-    panel = model.Panel(now=deadline+timedelta(seconds=1) if fault == 'expired' else NOW,rows=rows)
+    panel = reviewed_panel(now=deadline+timedelta(seconds=1) if fault == 'expired' else NOW,rows=rows)
     if fault is None:
         assert dashboard_health(panel)['label'] == 'Healthy · Waiting for next decision'
         assert dashboard_health(panel)['valid_until'] == deadline.isoformat()
@@ -442,8 +443,8 @@ def test_only_the_exact_bounded_financial_check_is_a_normal_health_wait(change):
     row = model.Row('paper_reconciliation','Paper','CHECK IN PROGRESS',model.WARN,
         required_current=True,valid_until=deadline,recovery=RecoveryEvidence(
             phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline))
-    assert dashboard_health(model.Panel(now=NOW,rows=[row]))['label'] == 'Healthy · Checking paper account'
-    assert dashboard_health(model.Panel(now=NOW,rows=[replace(row,**change)]))['status'] != 'ok'
+    assert dashboard_health(reviewed_panel(now=NOW,rows=[row]))['label'] == 'Healthy · Checking paper account'
+    assert dashboard_health(reviewed_panel(now=NOW,rows=[replace(row,**change)]))['status'] != 'ok'
 
 
 def test_source_errors_and_original_progress_expiry_withdraw_healthy_copy():
@@ -526,7 +527,7 @@ def test_health_polling_uses_the_proof_actually_needed_to_call_the_wait_normal()
             required_current=True,valid_until=NOW+timedelta(seconds=8)),
         model.Row('automation_cycle','Cycle','WAITING FOR NEXT DECISION',model.WARN,
             required_current=True,recovery=recovery)]
-    idle = model.Panel(now=NOW,rows=rows)
+    idle = reviewed_panel(now=NOW,rows=rows)
     assert dashboard_health(idle)['label'] == 'Healthy · Waiting for next decision'
     assert dashboard_health(idle)['valid_until'] == (NOW+timedelta(seconds=8)).isoformat()
     assert 'data-max-age-seconds="8.0"' in render(idle)

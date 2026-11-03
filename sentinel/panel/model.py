@@ -28,6 +28,8 @@ So:
 """
 from __future__ import annotations
 
+from sentinel.panel.review_model import OperatorReview
+
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -470,6 +472,8 @@ class Panel:
     trial_details: dict = field(default_factory=dict)
     trial_history: list[dict] = field(default_factory=list)
     local_paper_mode: bool = False
+    #: Nonfinancial, durable operator review. It never changes row verdicts.
+    operator_review: Optional['OperatorReview'] = None
 
     @property
     def overall(self) -> str:
@@ -1557,13 +1561,12 @@ def automation_alerts_row(*, installed: Optional[bool],
                    UNKNOWN, "alert counts are incomplete", as_of)
     value = (f"{pending} pending · {dead_letter} DLQ · "
              f"{unacknowledged} unacked")
-    status = FAIL if dead_letter or unacknowledged else (
-        WARN if pending else OK)
+    status = FAIL if dead_letter else WARN if unacknowledged or pending else OK
     return Row("automation_alerts", "Automation alerts", value, status,
                " | ".join(incidents or [
                    f"Durable notification history: {pending} pending delivery, "
                    f"{dead_letter} failed delivery, {unacknowledged} critical alerts awaiting acknowledgement"]), as_of,
-               required_current=True,
+               required_current=bool(dead_letter),
                recovery=(RecoveryEvidence(
                    phase="ALERT_DELIVERY", automatic=True,
                    attempt=retry_attempt,
