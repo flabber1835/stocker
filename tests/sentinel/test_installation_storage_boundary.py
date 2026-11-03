@@ -131,6 +131,12 @@ def public_installer(monkeypatch, tmp_path):
                 return completed()
             if '-c' in argv:
                 code = argv[argv.index('-c') + 1]
+                if 'review_schema import install_quiescent' in code:
+                    assert not state['fence_lost']
+                    assert '--no-deps' in argv and kwargs['timeout']==150
+                    assert not any(state['roles'].values()), 'presentation install must precede operator startup'
+                    state['review_schema_installed']=True
+                    return completed('presentation schema PASS')
                 if 'automation_store.load_control' in code:
                     assert 'deployment_fence.require(c)' in code
                     assert '--no-deps' in argv

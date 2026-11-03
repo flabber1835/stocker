@@ -36,7 +36,7 @@ from sentinel.panel.model import (
 REFRESH_SECONDS = 30
 PRESENTATION_MAX_AGE_SECONDS = 45
 
-_DOT = {OK: "●", WARN: "▲", FAIL: "■", PENDING: "○", UNKNOWN: "?"}
+_DOT = {OK: "●", WARN: "▲", FAIL: "■", PENDING: "○", UNKNOWN: "?", 'neutral': '○'}
 
 
 def _ago(delta) -> str:
@@ -185,7 +185,7 @@ def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False) -> str:
     label, value, explanation = describe(r, st)
     # Retained HTML is presentation only. Mutating an OK required-current row
     # to WARN would make the authority classifier invent a failure.
-    display_status = WARN if refresh_pending and st == OK else st
+    display_status = 'neutral' if refresh_pending and st == OK else st
     detail = r.detail
     if refresh_pending:
         value = 'LAST KNOWN · ' + value.removeprefix('LAST KNOWN · ')
@@ -482,12 +482,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         page_name = "Caesar's Palace"
         footer_authority = (
             "Paper account results are shown as checked or unverified.")
-    stale_headline = "OPERATIONAL RED — STATUS NOT CURRENT"
+    stale_headline = "STATUS NOT CURRENT — LAST KNOWN VALUES"
     if refresh_pending:
-        headline_status = FAIL if health['status'] == FAIL else WARN
+        headline_status = 'neutral'
         operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
     rows = "".join(_row_html(r, now, refresh_pending=refresh_pending) for r in rendered_rows)
     overview = overview_html(panel, refresh_pending=refresh_pending)
+    from sentinel.panel.review_controls import render as review_controls
+    review_html = review_controls(panel.operator_review, current=not refresh_pending)
     reasons = []
     for row in rendered_rows:
         status = row.effective_status(now)
@@ -530,13 +532,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO'}</span>
 </header>
 {errs}
+{review_html}
 <div id="portfolio-overview">{overview}</div>
 <details id="system-details" data-detail-key="system-details"><summary>System details</summary><div class="detail-body system-detail-body">
 <details class="mode-guide" data-detail-key="mode-guide"><summary>What am I looking at?</summary><div class="detail-body">
   <p><strong>Your strategy, at a glance.</strong> Wealth Core records the unscaled stock-selection book. The controller’s simulated strategy value combines its Core allocation, Treasury-bill sleeve and transaction costs. The Alpaca paper account has its own recorded holdings and value.</p>
   <p>Alpaca supplies daily prices, corporate actions and listed-asset information. OpenFIGI classifies eligible equity instruments. Formation simulates earlier sessions to build the model book; daily updates carry it forward. A simulated portfolio check does not mean paper orders have been placed.</p>
   {_local_paper_guide(panel)}
-  <p>The main health colour is green for healthy normal work or scheduled waiting, amber while status is being refreshed or for degraded operation or review, and red for a failed or unreadable check. Plan readiness is shown separately. Detailed check colours retain their own evidence verdicts; green health does not certify portfolio values or grant trading permission.</p>
+  <p>Green means expected healthy operation and a clean interval since explicit acknowledgement. Normal scheduled waiting is healthy. An active failure stays red. Recovery, a deployment or a restart leaves amber until acknowledged; acknowledgement cannot clear an active failure. A sleeping or offline browser shows a neutral status-not-current notice. Plan readiness and recorded financial verdicts remain separate.</p>
   <p>A historical paper audit discrepancy remains recorded here when current autonomous scheduling is healthy. Green health does not resolve that old discrepancy or promise unrestricted holdings or filled orders; native execution keeps its fresh safeguards.</p>
 </div></details>
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
@@ -575,8 +578,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var refreshing = false;
   var refreshDeferred = false;
   var refreshDelayed = document.body.dataset.refreshPending === "true";
-  var knownFailure = badge.className === "state fail" || badge.className === "state unknown";
-  var hardFailure = knownFailure;
+  // Server health and browser freshness are separate. A server-side incident
+  // never turns a sleeping phone into twenty new model-slot failures.
+  var hardFailure = false;
   var retryTimer = null;
   var ordinaryStarted = null;
   var ordinaryEligible = false;
@@ -676,10 +680,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     withdrawPreparation();
     refreshDelayed = true;
     document.documentElement.classList.add("refreshing-status");
-    if (!knownFailure){{
-      badge.className = "state warn";
-      badge.textContent = "STATUS REFRESHING — ORIGINAL CHECK TIMES RETAINED";
-    }}
+    badge.className = "state neutral";
+    badge.textContent = "STATUS REFRESHING — ORIGINAL CHECK TIMES RETAINED";
     heartbeat.textContent = "Refreshing status · last known observation " +
       new Date(generated).toISOString();
   }}
@@ -691,24 +693,24 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function continuityCurrent(){{
     var elapsed = Date.now() - ordinaryStarted;
-    return !hardFailure && !knownFailure && navigator.onLine &&
+    return !hardFailure && navigator.onLine &&
       (refreshing || retryTimer !== null) &&
       (resumeStarted !== null ? resumeCurrent() :
         ordinaryEligible && ordinaryStarted !== null && elapsed >= 0 && elapsed < 15000);
   }}
   function showResume(){{
-    if (invalidated || knownFailure || hardFailure){{ return; }}
+    if (invalidated || hardFailure){{ return; }}
     withdrawPreparation();
     refreshDelayed = true;
     document.documentElement.classList.add("refreshing-status");
-    badge.className = "state warn";
+    badge.className = "state neutral";
     badge.textContent = "REFRESHING STATUS — LAST KNOWN VALUES";
     heartbeat.textContent = "Refreshing status · checking connection · last known observation " +
       new Date(generated).toISOString();
   }}
   function resumeDocument(){{
     var age = Date.now() - generated;
-    if (hardFailure || knownFailure || !navigator.onLine ||
+    if (hardFailure || !navigator.onLine ||
         !Number.isFinite(age) || !validBudget(budget) || age < -5000 || clockReversed()){{
       invalidate(true, true);
       return;
@@ -734,9 +736,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       invalidated = true;
       document.documentElement.classList.remove("refreshing-status");
       document.documentElement.classList.add("not-current");
-      badge.className = "state fail";
+      badge.className = "state neutral";
       badge.textContent = "{_esc(stale_headline)}";
-      heartbeat.textContent = "DASHBOARD HEARTBEAT LOST · STATUS STALE";
+      heartbeat.textContent = "DASHBOARD UPDATE UNAVAILABLE · LAST KNOWN VALUES";
     }}
     if (andReload){{ refreshDocument(); }}
   }}

@@ -115,6 +115,16 @@ class InstallationDeploy(bootstrap.BootstrapDeploy):
         state = self._automation_status()
         if state.get('enabled') is not False or state.get('kill_switch_engaged') is not True:
             raise core.DeployRefused('runtime selection requires disabled+killed execution')
+        self.phase('installation: exact nonfinancial dashboard review schema')
+        code = (
+            "import os; from sentinel.feed import store; "
+            "from sentinel.panel.review_schema import install_quiescent; "
+            "c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,"
+            "statement_timeout_ms=120000);\n"
+            "try:\n install_quiescent(c)\nfinally:\n c.close()")
+        self.runner.run(self.base_compose + [
+            '--profile', 'cli', 'run', '--rm', '-T', '--no-deps',
+            '--entrypoint', 'python', 'sentinel', '-c', code], timeout=150)
         from sentinel_runtime_selection import _write_pointer
         _write_pointer(self.runtime_repo_digest)
 

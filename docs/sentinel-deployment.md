@@ -1,5 +1,11 @@
 # Sentinel current operating contract
 
+[Dashboard health and history](dashboard-resilience-and-health.md) defines the
+owner's acknowledgement contract: expected healthy operation is green only in a
+reviewed clean interval, active failure is red, recovery/deployment/restart stays
+amber until acknowledged, and browser-only freshness loss is neutral. It changes
+presentation metadata, not financial authority or immutable trial verdicts.
+
 [URL-selected trading](url-selected-trading.md) records the owner's separate-PR
 request for environment selection and isolated LIVE execution authority. It is
 development intent, not activation of the installed PAPER deployment or proof

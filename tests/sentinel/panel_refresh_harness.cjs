@@ -48,6 +48,11 @@ class Parser {
         refreshPending: html === 'pending' ? 'true' : 'false' } } };
   }
 }
+function assertFreshness(phase, message) {
+  assert.equal(badge.className, 'state neutral', message);
+  assert.equal(classes.has('not-current'), phase === 'expired', message);
+  if (phase === 'refreshing') assert(classes.has('refreshing-status'), message);
+}
 function schedule(fn, delay) { const id = ++sequence; timers.set(id, {fn, delay, due: now + delay}); return id; }
 function interval(fn, delay) { const id = schedule(fn, delay); timers.get(id).interval = true; return id; }
 const context = {
@@ -97,7 +102,7 @@ function failRead(read) {
       read.resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
     }
     function remember() {
-      observations.push({at:now,state:badge.className,generated:Date.parse(document.body.dataset.generatedAt)});
+      observations.push({at:now,state:badge.className,generated:Date.parse(document.body.dataset.generatedAt), withdrawn:classes.has('not-current'), refreshing:classes.has('refreshing-status')});
       if (!writes.length || config.latencyMs === undefined) return;
       assert.deepEqual(writes,['open','fresh','close']);
       assert.equal(timers.size,0,'fresh replacement cancels the old proof and transport timers');
@@ -131,7 +136,7 @@ function failRead(read) {
       throw new Error('actual due-time scheduler is unbounded');
     }
     function lastKnown() {
-      assert.equal(badge.className,'state warn','owned refresh keeps expired proof explicitly last known');
+      assertFreshness('refreshing','owned refresh keeps expired proof explicitly last known');
       assert(classes.has('refreshing-status'),'expired proof values require last-known styling');
       assert(!classes.has('not-current'),'bounded refresh is not an operational failure');
       assert.equal(preparation.textContent,'Last known preparation stage · refresh required');
@@ -155,8 +160,8 @@ function failRead(read) {
         assert.equal(reads.length,cycles);
         assert(reads[0].started>=stamp+poll,'proof expiry cannot advance the first ordinary read');
         assert(reads.every((r,i)=>!i || r.started-reads[i-1].started>=5000),'ordinary polling keeps its five-second floor');
-        if (budget>=poll) assert(observations.every(o=>o.state!=='state fail'),'healthy in-flight refresh cannot flash red');
-        if (config.requireAmber) assert(observations.some(o=>o.state==='state warn'),'expired healthy transport must withdraw green');
+        if (budget>=poll) assert(observations.every(o=>!o.withdrawn),'healthy in-flight refresh cannot flash red');
+        if (config.requireAmber) assert(observations.some(o=>o.refreshing && !o.withdrawn),'expired healthy transport must withdraw green');
         for (const view of observations) {
           const firstExpiredTick=view.generated+(Math.floor(budget/1000)+1)*1000;
           if (view.at>=firstExpiredTick && !installed.includes(view.at)) {
@@ -166,15 +171,15 @@ function failRead(read) {
       } else {
         await advanceTo(stamp+poll+16001);
         assert.equal(installed.length,0,'a response after the transport timeout is not installed');
-        assert.equal(badge.className,'state fail','exhausted transport must withdraw last-known amber');
+        assertFreshness('expired','exhausted transport must withdraw last-known amber');
       }
     } else if (input.wake === 'transport-unowned-focus') {
       await advanceTo(stamp+2000);
-      assert.equal(badge.className,'state fail','unowned expired proof withdraws at its age tick');
+      assertFreshness('expired','unowned expired proof withdraws at its age tick');
       assert.equal(reads.length,0);
       listeners.focus();listeners.focus();
       assert.equal(reads.length,0,'unowned focus cannot buy a resume or bring the ordinary read forward');
-      assert.equal(badge.className,'state fail');
+      assertFreshness('expired');
       assert.equal(document.body.dataset.generatedAt,original);
       await advanceTo(stamp+poll);
       assert.equal(reads.length,1,'ordinary read keeps its original due time');
@@ -186,7 +191,7 @@ function failRead(read) {
       listeners.focus();listeners.pageshow({persisted:false});
       assert.equal(reads.length,1);
       await advanceTo(now+15001);
-      assert.equal(badge.className,'state fail');
+      assertFreshness('expired');
     } else {
       await advanceTo(stamp+poll);
       assert.equal(reads.length,1);
@@ -201,7 +206,7 @@ function failRead(read) {
         }
         await advanceTo(start+14999);lastKnown();
         await advanceTo(start+15001);
-        assert.equal(badge.className,'state fail','the original ordinary transport deadline is absolute');
+        assertFreshness('expired','the original ordinary transport deadline is absolute');
       } else if (input.wake === 'transport-retry' || input.wake === 'transport-body') {
         await advanceTo(start+(input.wake==='transport-body'?6000:2000));
         if (input.wake==='transport-body') {
@@ -211,7 +216,7 @@ function failRead(read) {
         await advanceTo(start+14999);lastKnown();
         assert.equal(reads.length,2,'one backoff read remains inside the original episode');
         await advanceTo(start+15001);
-        assert.equal(badge.className,'state fail','transport retries cannot renew their first deadline');
+        assertFreshness('expired','transport retries cannot renew their first deadline');
       } else if (input.wake === 'transport-hidden') {
         await advanceTo(start+1000);hide(config.visibility!==false);
         if (config.kind==='busy') {
@@ -225,13 +230,13 @@ function failRead(read) {
         const resumeViews=observations.length;
         const resumeEnd=returned+15000;
         await advanceTo(resumeEnd-1);lastKnown();
-        assert(observations.slice(resumeViews).every(view=>view.state!=='state fail'),
+        assert(observations.slice(resumeViews).every(view=>!view.withdrawn),
           'owned refresh keeps expired proof last known throughout its first resume');
         show(config.visibility!==false);
         await advanceTo(resumeEnd+1);
-        assert.equal(badge.className,'state fail','foreground events cannot renew the first resume deadline');
+        assertFreshness('expired','foreground events cannot renew the first resume deadline');
         show(config.visibility!==false);
-        assert.equal(badge.className,'state fail','exhausted resume cannot revive last-known amber');
+        assertFreshness('expired','exhausted resume cannot revive last-known amber');
         if (reads.at(-1).aborted && !config.ignoreAbort) await advanceTo(now+5000);
         fresh(reads.at(-1));await settled();
         assert.deepEqual(writes,['open','fresh','close'],'a later genuinely fresh server answer can restore the view');
@@ -244,10 +249,10 @@ function failRead(read) {
           reads[0].resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=>value});
           await settled();
         }
-        assert.equal(badge.className,'state fail');
+        assertFreshness('expired');
         assert(classes.has('not-current'));
         hide();document.visibilityState='visible';show();
-        assert.equal(badge.className,'state fail','foreground resume cannot soften a hard negative');
+        assertFreshness('expired','foreground resume cannot soften a hard negative');
         assert(classes.has('not-current'),'hard-negative last-known styling cannot be cleared by resume');
       } else throw new Error('unrecognized transport case');
     }
@@ -277,7 +282,7 @@ function failRead(read) {
       fireDelay(1000); await settled();
       assert.equal(reads.length, 0, 'hidden age checks cannot start traffic');
       if (input.wake !== 'hidden-initial-known-failure') {
-        assert.notEqual(badge.className, 'state fail', 'hidden expiry waits for bounded foreground resume');
+        assert.equal(classes.has('not-current'), false, 'hidden expiry waits for bounded foreground resume');
       }
     }
     const previousReads = reads.length;
@@ -288,9 +293,8 @@ function failRead(read) {
       process.stdout.write('PASS\n'); return;
     }
     assert.equal(reads.length, previousReads + 1, 'foreground starts exactly one current read');
-    assert.equal(badge.className, input.wake === 'hidden-initial-known-failure' ? 'state fail' :
-      input.wake === 'hidden-initial-due' ? 'state ok' : 'state warn',
-      'foreground resume cannot invent red or hide a known negative');
+    assert.equal(badge.className, input.wake === 'hidden-initial-due' ? 'state ok' : 'state neutral',
+      'foreground resume separates device freshness from server health');
     assert.equal(document.body.dataset.generatedAt, original, 'foreground resume cannot renew original clocks');
     listeners.pageshow({persisted:true});
     assert.equal(reads.length, previousReads + 1, 'foreground wakeups cannot overlap the pending read');
@@ -299,9 +303,9 @@ function failRead(read) {
       document.visibilityState = 'hidden'; listeners.visibilitychange();
       document.visibilityState = 'visible'; listeners.visibilitychange();
       listeners.pageshow({persisted:true}); fireDelay(1000);
-      assert.equal(badge.className, 'state warn');
+      assertFreshness('refreshing');
       now += 2; fireDelay(1000);
-      assert.equal(badge.className, 'state fail', 'first-visible resume keeps its original 15-second deadline');
+      assertFreshness('expired', 'first-visible resume keeps its original 15-second deadline');
       assert.equal(reads.length, previousReads + 1);
     }
     reads.at(-1).resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
@@ -316,7 +320,7 @@ function failRead(read) {
     const poll=Number(input.script.match(/refreshTimer = setTimeout[^\n]+, (\d+)\);/)[1]);
     now=stamp+(Math.floor(Number(input.budget))+1)*1000;
     fireDelay(1000);
-    assert.equal(badge.className,'state fail','original proof expiry withdraws green');
+    assertFreshness('expired','original proof expiry withdraws green');
     assert.equal(planReadiness.textContent,'Plan readiness not current · refreshing status');
     assert.equal(document.body.dataset.generatedAt,original,'proof expiry cannot renew the observation');
     if (now<stamp+poll) {
@@ -327,7 +331,7 @@ function failRead(read) {
     listeners.pageshow({persisted:true});
     assert.equal(reads.length,1,'expired proof cannot start competing reads');
     now=stamp+1000;fireDelay(1000);
-    assert.equal(badge.className,'state fail','clock rollback cannot restore the historical exception');
+    assertFreshness('expired','clock rollback cannot restore the historical exception');
     process.stdout.write('PASS\n');return;
   }
   if (input.wake.startsWith('resume-')) {
@@ -355,10 +359,10 @@ function failRead(read) {
     }
     assert.equal(reads.length, 1, 'one network read on app return');
     if (input.wake === 'resume-known-failure') {
-      assert.equal(badge.className, 'state fail', 'known failure stays red during resume');
+      assertFreshness('refreshing', 'server failure does not invalidate browser freshness');
       process.stdout.write('PASS\n'); return;
     }
-    assert.equal(badge.className, 'state warn', 'resume withdraws green without inventing red');
+    assertFreshness('refreshing', 'resume withdraws green without inventing red');
     assert.equal(preparation.textContent, 'Last known preparation stage · refresh required',
       'background return must withdraw live preparation copy');
     assert.equal(planReadiness.textContent, 'Plan readiness not current · refreshing status');
@@ -366,18 +370,18 @@ function failRead(read) {
     assert.equal(document.body.dataset.generatedAt, original, 'resume cannot renew evidence clocks');
     if (input.wake === 'resume-offline') {
       context.navigator.onLine = false; listeners.offline();
-      assert.equal(badge.className, 'state fail', 'offline immediately fails');
+      assertFreshness('expired', 'offline immediately fails');
       process.stdout.write('PASS\n'); return;
     }
     if (input.wake === 'resume-clock') {
       now -= 10000; fireDelay(1000);
-      assert.equal(badge.className, 'state fail', 'clock rollback cannot extend resume');
+      assertFreshness('expired', 'clock rollback cannot extend resume');
       process.stdout.write('PASS\n'); return;
     }
     if (input.wake === 'resume-malformed') {
       reads[0].resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'incomplete'});
       await settled();
-      assert.equal(badge.className, 'state fail', 'invalid server evidence fails immediately');
+      assertFreshness('expired', 'invalid server evidence fails immediately');
       process.stdout.write('PASS\n'); return;
     }
     if (input.wake === 'resume-expiry') {
@@ -388,15 +392,15 @@ function failRead(read) {
       document.visibilityState='hidden'; listeners.visibilitychange();
       document.visibilityState='visible'; listeners.visibilitychange();
       listeners.pageshow({persisted:true});
-      assert.equal(badge.className,'state warn');
+      assertFreshness('refreshing');
       await advance(4999);
-      assert.equal(badge.className,'state warn');
+      assertFreshness('refreshing');
       await advance(2);
-      assert.equal(badge.className,'state fail','the original 15-second foreground deadline must fail red');
+      assertFreshness('expired','the original 15-second foreground deadline must fail red');
       assert(classes.has('not-current') && !classes.has('refreshing-status'));
       assert.equal(document.body.dataset.generatedAt,original);
       now -= 1000; fireDelay(1000);
-      assert.equal(badge.className,'state fail','expired resume remains red until a server answer');
+      assertFreshness('expired','expired resume remains red until a server answer');
     }
     const pending=reads.at(-1);
     pending.resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
@@ -410,7 +414,7 @@ function failRead(read) {
   if (input.wake === 'known-failure') {
     now += 30000; fireDelay(30000); await settled();
     failRead(reads[0]); await settled();
-    assert.equal(badge.className,'state fail','transport delay must not hide a known negative verdict');
+    assertFreshness('refreshing','server negative verdict cannot seed a browser transport failure');
     process.stdout.write('PASS\n'); return;
   }
   if (input.wake.startsWith('ordinary-')) {
@@ -429,12 +433,12 @@ function failRead(read) {
       if (input.wake === 'ordinary-failure') {
         failRead(reads[first]);
         await settled();
-        const expected = ['busy','cached','timeout'].includes(input.failure) ? 'state warn' : 'state fail';
-        assert.equal(badge.className, expected, 'refresh preserves only bounded transport delays');
+        const expected = ['busy','cached','timeout'].includes(input.failure) ? 'refreshing' : 'expired';
+        assertFreshness(expected, 'refresh preserves only bounded transport delays');
         assert(heartbeat.textContent.includes('last known'));
         assert.equal(writes.length, 0);
         now = original + 31000; fireDelay(1000);
-        assert.equal(badge.className, expected, 'unexpired age cannot clear a known failure or delay');
+        assertFreshness(expected, 'unexpired age cannot clear a known failure or delay');
         listeners.pageshow({persisted: true});
         assert.equal(reads.length, first + 1, 'retry backoff prevents overlapping reads');
         fireDelay(5000);
@@ -446,13 +450,13 @@ function failRead(read) {
         assert.equal(reads.length, first + 1);
       } else if (input.wake === 'ordinary-expiry') {
         now = original + Number(input.budget) * 1000 + 1; fireDelay(1000);
-        assert.equal(badge.className, 'state fail', 'original expiry withdraws current');
+        assertFreshness('expired', 'original expiry withdraws current');
         assert.equal(preparation.textContent, 'Last known preparation stage · refresh required',
           'original expiry must withdraw live preparation copy');
         assert.equal(planReadiness.textContent, 'Plan readiness not current · refreshing status');
         assert.equal(reads.length, first + 1, 'expiry cannot overlap the pending read');
         now = original + 32000; fireDelay(1000);
-        assert.equal(badge.className, 'state fail', 'clock rollback cannot restore green');
+        assertFreshness('expired', 'clock rollback cannot restore green');
       }
       const pending = reads.at(-1);
       pending.resolve({ok: true, headers: {get: () => 'CURRENT'}, text: async () => 'fresh'});
@@ -477,14 +481,14 @@ function failRead(read) {
     now += 1000; fireDelay(1000);
     assert(heartbeat.textContent.includes('UPDATED 1s'));
     now += Number(input.budget) * 1000; fireDelay(1000);
-    assert.equal(badge.className, 'state fail');
+    assertFreshness('expired');
     assert.equal(preparation.textContent, 'Last known preparation stage · refresh required',
       'original evidence must withdraw live preparation copy');
     now = stamp + 1000; fireDelay(1000);
-    assert.equal(badge.className, 'state fail', 'a local clock cannot restore green');
+    assertFreshness('expired', 'a local clock cannot restore green');
   } else if (['invalid-date', 'future-date'].includes(input.wake)) {
     listeners.pageshow({persisted: false});
-    assert.equal(badge.className, 'state fail');
+    assertFreshness('expired');
     assert.equal(reads.length, 1);
   } else if (['visibility', 'initial-hidden'].includes(input.wake)) {
     if (input.wake === 'initial-hidden') {
@@ -497,13 +501,13 @@ function failRead(read) {
     document.visibilityState = 'hidden'; listeners.visibilitychange();
     document.visibilityState = 'visible'; listeners.visibilitychange();
     assert.equal(reads.length, 1);
-    assert.equal(badge.className, 'state warn');
+    assertFreshness('refreshing');
   } else if (['offline', 'initial-offline'].includes(input.wake)) {
     if (input.wake === 'offline') {
       context.navigator.onLine = false; listeners.offline();
     }
     assert.equal(reads.length, 0, 'offline cannot start a network read');
-    assert.equal(badge.className, 'state fail');
+    assertFreshness('expired');
     assert.equal(preparation.textContent, 'Last known preparation stage · refresh required',
       'offline must withdraw live preparation copy');
     listeners.pageshow({persisted: true});
@@ -514,7 +518,7 @@ function failRead(read) {
     listeners.online(); assert.equal(reads.length, 0, 'no outage, no recovery read');
   } else if (input.wake === 'initial-pending') {
     assert.equal(reads.length, 1);
-    assert.equal(badge.className, 'state warn');
+    assertFreshness('refreshing');
   }
   fireDelay(30000);
   now += 1000;
@@ -523,7 +527,7 @@ function failRead(read) {
   assert.equal(reads.length, 1, 'overlapping wakeups must not start another refresh');
   assert.equal(writes.length, 0);
   const alreadyFailed=['fresh-age','invalid-date','future-date','offline','initial-offline'].includes(input.wake);
-  assert.equal(badge.className, alreadyFailed ? 'state fail' : 'state warn');
+  assertFreshness(alreadyFailed ? 'expired' : 'refreshing');
   if (input.failure === 'timeout') {
     fireDelay(15000);
   } else {

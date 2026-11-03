@@ -13,7 +13,7 @@ from pathlib import Path
 
 SCHEMA = 'sentinel.operational-catalog/1'
 CATALOG_PATH = Path(__file__).with_name('operational-catalog-v1.json')
-CATALOG_SHA256 = 'ea3f77ef0d5f532d16dcc0368f383344cc4d2ec80a6ccca7160b37eaf0ce4611'
+CATALOG_SHA256 = '7c8a9c1ae968e244a462731ebdcd4c99c8631d0cf80414308959407c766f18c2'
 
 
 class OperationalCatalogRefused(RuntimeError):

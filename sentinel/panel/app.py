@@ -5,8 +5,8 @@
     GET /panel.json  the same model as JSON, for scripting
     GET /operational-health the panel's exact recoverability verdict
 
-The only write surface permitted here is the separately implemented Web Push
-subscription enrollment router. It cannot express financial intent. No route
+The only writes are Web Push enrollment and explicit operator review metadata.
+Neither can express financial intent. No route
 constructs a broker: a page refreshing every 30 seconds on a desk must never
 become an unattended API client hitting Alpaca all night.
 
@@ -18,16 +18,21 @@ no broker and has no mutation authority.
 from __future__ import annotations
 
 import os
+import json
 from contextlib import asynccontextmanager
+from dataclasses import replace
+from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from sentinel import shadow_segments
 from sentinel.operational_status import color
 from sentinel.panel import last_known, model, singleflight
+from sentinel.panel.review import recorder
+from sentinel.panel.review_store import ReviewRefused
 from sentinel.panel.pwa import MANIFEST, SERVICE_WORKER
 from sentinel.panel.presentation import dashboard_health
 from sentinel.panel.render import REFRESH_SECONDS, render
@@ -71,6 +76,11 @@ def _one_panel_build(function):
                     status_code=503, headers=headers)
             return JSONResponse({"status": "UNKNOWN", "detail": message},
                                 status_code=503, headers=headers)
+        except Exception:
+            # A backend rendering/serialization error is a real server failure.
+            # A normal queued refresh above remains a browser freshness notice.
+            recorder.read_failed()
+            raise
     return guarded
 
 
@@ -78,8 +88,13 @@ def _read_panel():
     configuration = _config()
     state_dir, dsn = configuration
     def build():
-        return _shadow_segment_disclosure(
-            build_panel(state_dir=state_dir, database_url=dsn), dsn)
+        try:
+            panel = _shadow_segment_disclosure(
+                build_panel(state_dir=state_dir, database_url=dsn), dsn)
+        except Exception:
+            recorder.read_failed()
+            raise
+        return replace(panel, operator_review=recorder.observe(panel, dsn))
     result = _PANEL_BUILDS.read(configuration, build, timeout=singleflight.WAIT_SECONDS)
     if _config() != configuration:
         raise singleflight.BuildUnavailable('dashboard configuration changed during refresh')
@@ -91,6 +106,8 @@ async def _never_cache_operator_evidence(request, call_next):
     """Cover success and framework-generated error responses uniformly."""
     response = await call_next(request)
     response.headers["Cache-Control"] = "no-store"
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Content-Security-Policy'] = "frame-ancestors 'none'"
     return response
 
 _REQUIRED_SCHEMA_PROBES = (
@@ -274,6 +291,7 @@ def panel_json() -> JSONResponse:
             "operational": p.operational,
             "color": color(p.operational),
             "dashboard_health": dashboard_health(p),
+            "operator_review": p.operator_review.model_dump(mode='json') if p.operator_review else None,
             "as_of": p.now.isoformat(),
             "source_errors": p.source_errors,
             "rows": [
@@ -311,6 +329,43 @@ def panel_json() -> JSONResponse:
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+def _acknowledge_review(token):
+    configuration = _config()
+    panel = replace(_read_panel(), now=datetime.now(timezone.utc))
+    if _config() != configuration:
+        raise ReviewRefused('dashboard configuration changed during review')
+    return recorder.acknowledge(panel, configuration[1], token, actor='dashboard operator')
+
+
+@app.post('/review/acknowledge')
+async def acknowledge_review(request: Request) -> JSONResponse:
+    """An explicit same-origin action; cannot change a financial verdict."""
+    from sentinel.panel.push_enrollment import _public_origin
+    from starlette.concurrency import run_in_threadpool
+    try:
+        origin = _public_origin()
+    except RuntimeError as exc:
+        raise HTTPException(503, 'operator review origin is not configured') from exc
+    if (request.headers.get('origin', '').rstrip('/') != origin
+            or request.headers.get('sec-fetch-site', 'same-origin') != 'same-origin'):
+        raise HTTPException(403, 'operator review requires the configured origin')
+    if request.headers.get('content-type', '').split(';')[0].strip() != 'application/json':
+        raise HTTPException(415, 'operator review requires JSON')
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > 10_000:
+            raise HTTPException(413, 'operator review body is too large')
+    try:
+        value = json.loads(raw)
+        if not isinstance(value, dict) or set(value) != {'token'}:
+            raise ValueError('operator review token required')
+        result = await run_in_threadpool(_acknowledge_review, value['token'])
+    except (ValueError, TypeError, singleflight.BuildUnavailable) as exc:
+        raise HTTPException(409, 'State changed or unavailable; refresh and review again.') from exc
+    return JSONResponse(result.model_dump(mode='json'), headers={'Cache-Control':'no-store'})
 
 
 @app.get("/manifest.webmanifest")

@@ -523,7 +523,11 @@ def test_signed_install_selects_exact_runtime_only_after_durable_fence(monkeypat
     calls = []
     monkeypatch.setattr(install.bootstrap.BootstrapDeploy, 'quiesce_backup_and_migrate',
                         lambda obj: calls.append('migrated'))
-    obj = install.InstallationDeploy(SimpleNamespace(), SimpleNamespace(env={}), tmp_path)
+    def metadata(command, **kwargs):
+        assert 'review_schema import install_quiescent' in command[-1]
+        assert kwargs == {'timeout':150} and fenced
+        calls.append('presentation-schema')
+    obj = install.InstallationDeploy(SimpleNamespace(), SimpleNamespace(env={},run=metadata), tmp_path)
     obj.runtime_repo_digest = IMAGE
     obj._automation_status = lambda: {'enabled': not fenced, 'kill_switch_engaged': fenced}
     if fenced:
@@ -532,7 +536,7 @@ def test_signed_install_selects_exact_runtime_only_after_durable_fence(monkeypat
     else:
         with pytest.raises(core.DeployRefused): obj.quiesce_backup_and_migrate()
         assert selection.POINTER.read_bytes() == original
-    assert calls == ['migrated']
+    assert calls == (['migrated','presentation-schema'] if fenced else ['migrated'])
 
 
 def test_invalid_request_without_directory_still_has_controlled_refusal(tmp_path, capsys):

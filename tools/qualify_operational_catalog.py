@@ -27,7 +27,8 @@ def capture():
             # Raw reviewed DDL is installed once in this new disposable cluster.
             # Calling runtime validators before a qualification pin exists would
             # either refuse correctly or require an impermissible bootstrap bypass.
-            for module in operational_schema.components():
+            modules = (*operational_schema.components(), *operational_schema.presentation_components())
+            for module in modules:
                 for statement in module.DDL:
                     conn.execute(statement)
             for statement in operational_schema.DDL:
@@ -35,7 +36,7 @@ def capture():
             conn.commit()
             return {'schema': operational_catalog.SCHEMA,
                     'components': {module.__name__: operational_catalog.capture_extension(conn, module)
-                                   for module in (*operational_schema.components(), operational_schema)}}
+                                   for module in (*modules, operational_schema)}}
     finally:
         cluster.stop()
 

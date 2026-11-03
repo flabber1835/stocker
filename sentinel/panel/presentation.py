@@ -152,7 +152,7 @@ def _normal_idle(panel, row: Row) -> bool:
 _HISTORY_CURRENT_FACTS = (
     'automation', 'automation_leader', 'authority', 'alpaca_account', 'broker',
     'feed', 'shadow_worker', 'shadow_verification', 'book', 'exposure', 'terminals',
-    'runtime_identity', 'backup_restore', 'alert_dispatcher', 'automation_alerts',
+    'runtime_identity', 'backup_restore', 'alert_dispatcher',
 )
 
 
@@ -210,6 +210,10 @@ def _scheduled_work_normal(panel) -> bool:
                     or _paper_check_normal(panel, paper))):
         return False
     plan = saved.paper_plan
+    notifications = panel.row('automation_alerts')
+    if (notifications is None or notifications.effective_status(panel.now) not in {'ok', 'warn'}
+            or notifications.is_stale(panel.now) or notifications.is_future(panel.now)):
+        return False
     if (any(leg.action == 'UNAVAILABLE' for leg in plan.legs)
             or not all(_current_health_fact(panel, key) for key in _HISTORY_CURRENT_FACTS)
             or panel.row('automation').value != 'ENABLED · KILL RELEASED'
@@ -325,6 +329,26 @@ def preparation_stage(panel) -> str | None:
     return None
 
 
+def health_facts(panel) -> dict:
+    """Current facts only; old notification severity is not current failure."""
+    active = ['backend_sources'] if panel.source_errors else []
+    warnings = []
+    for row in panel.rows:
+        status = row.effective_status(panel.now)
+        if status in {'fail', 'unknown'}:
+            active.append(row.key)
+        elif (status == 'warn' and row.key != 'automation_alerts'
+              and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
+              and not _normal_warning(panel, row)):
+            warnings.append(row.key)
+    if not active and not warnings and not any(
+            row.effective_status(panel.now) == 'ok'
+            or row.effective_status(panel.now) == 'warn' and _normal_warning(panel,row)
+            for row in panel.rows):
+        warnings.append('no_current_operation')
+    return {'active': sorted(set(active)), 'warnings': sorted(set(warnings))}
+
+
 def dashboard_health(panel) -> dict:
     """Human system health is separate from unchanged machine readiness."""
     plan = panel.row('paper_plan')
@@ -334,18 +358,28 @@ def dashboard_health(panel) -> dict:
     statuses = [(row, row.effective_status(panel.now)) for row in panel.rows]
     warnings = [row for row, status in statuses
                 if status == 'warn' and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS]
-    negative = bool(panel.source_errors) or any(
-        status in {'fail', 'unknown'} for _row, status in statuses)
-    normal = bool(panel.rows) and not negative and (
-        all(_normal_warning(panel, row) for row in warnings) if warnings
-        else any(status == 'ok' for _row, status in statuses))
-    status = 'fail' if negative else 'ok' if normal else 'warn'
+    facts = health_facts(panel)
+    negative = bool(facts['active'])
+    normal = (not negative and not facts['warnings'] and any(
+        status == 'ok' or status == 'warn' and _normal_warning(panel, row)
+        for row, status in statuses))
+    review = panel.operator_review
+    status = ('fail' if negative or review is not None and review.status in {'FAILED', 'UNAVAILABLE'}
+              else 'ok' if normal and review is not None and review.status == 'CLEAN'
+              else 'warn')
     stage = preparation_stage(panel)
     label = ('Needs attention' if negative else 'Healthy'+(' · '+stage if stage else '')
              if status == 'ok' else
              ('Preparation delayed' if stage in {'Waiting to retry data acquisition',
                  'Data preparation awaiting a worker'} else 'Needs review')
              +(' · '+stage if stage else ''))
+    if review is not None and review.status == 'UNAVAILABLE':
+        label = 'Review history unavailable'
+    if not negative and status == 'warn':
+        if review is None or review.status == 'UNAVAILABLE':
+            label = 'Review history unavailable'
+        elif review.status == 'REVIEW' and not facts['warnings']:
+            label = 'Acknowledgement required'
     broker = panel.row('broker')
     if (status == 'warn' and broker is not None and broker.effective_status(panel.now) == 'warn'
             and broker.recovery is not None and broker.recovery.phase == 'BROKER_FILL_SNAPSHOT'

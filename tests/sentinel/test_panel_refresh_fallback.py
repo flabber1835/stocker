@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from sentinel.panel import model, render
+from tests.support.dashboard_review import reviewed_panel
 from sentinel.operational_status import RecoveryEvidence
 
 
@@ -32,16 +33,16 @@ def healthy_panel():
             recovery=RecoveryEvidence(phase='AUTOMATION_WAITING_OPEN', automatic=True,
                 next_attempt_at=NOW+timedelta(hours=9), deadline=NOW+timedelta(hours=16))),
         model.Row('automation_step_transport', 'Transport', 'NOT REACHED', model.PENDING)]
-    return model.Panel(rows=rows, now=NOW, local_paper_mode=True)
+    return reviewed_panel(rows=rows, now=NOW, local_paper_mode=True)
 
 
 def assert_healthy_retained(html):
     assert 'data-refresh-pending="true"' in html
-    assert 'class="state warn"' in html
+    assert 'class="state neutral"' in html
     assert 'Checks needing attention' not in html, 'refresh-only attention list was invented'
     assert 'Scheduled readiness cannot be confirmed' not in html
     for key in KEYS:
-        assert f'class="row warn" id="status-{key}"' in html
+        assert f'class="row neutral" id="status-{key}"' in html
     assert 'class="row pending" id="status-automation_step_transport"' in html
     assert 'LAST KNOWN · not current' in html
     assert 'data-generated-at="2026-10-23T04:13:00+00:00"' in html
@@ -79,14 +80,14 @@ def test_recorded_negative_facts_remain_red_and_in_attention_list(condition):
     assert f'class="row {status}" id="status-authority"' in html
     assert 'href="#status-authority"' in html and 'actual recorded reason' in html
     assert 'href="#status-feed"' not in html
-    assert 'class="state fail"' in html
+    assert 'class="state neutral"' in html
 
 
 def test_source_errors_remain_visible_in_retained_screen():
     panel = healthy_panel()
     panel = replace(panel, source_errors=['actual source refusal'])
     html = render.render(panel, refresh_pending=True)
-    assert 'class="state fail"' in html and 'actual source refusal' in html
+    assert 'class="state neutral"' in html and 'actual source refusal' in html
 
 
 def test_reverting_status_separation_reproduces_the_phone_screenshot():
@@ -140,7 +141,7 @@ def test_actual_busy_http_response_retains_facts_without_inventing_failures(monk
                 if negative:
                     assert 'href="#status-authority"' in response.text
                     assert 'real authority refusal' in response.text
-                    assert 'class="state fail"' in response.text
+                    assert 'class="state neutral"' in response.text
                 else:
                     assert_healthy_retained(response.text)
                 assert len(calls) == 2
