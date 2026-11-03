@@ -569,11 +569,23 @@ def monthly_reproduction(evidence, parent=None):
                 entire_monthly_journal_sha256=sha((evidence / 'book/monthly.jsonl').read_bytes()))
 
 
+def successor_manifest_descriptor(transport):
+    value=transport['manifest']
+    need(set(value)=={'original_manifest_bytes','original_manifest_sha256','member_count','raw_member_bytes','inventory_sha256'}
+         and type(value['original_manifest_bytes']) is int and 0<value['original_manifest_bytes']<2*1024**2
+         and type(value['member_count']) is int and 0<value['member_count']<5000
+         and type(value['raw_member_bytes']) is int and 0<value['raw_member_bytes']<=2*1024**3
+         and value['original_manifest_sha256']==transport['asset']['manifest_sha256'],
+         'CONTINUE_EXACT_TRANSPORT_MANIFEST_DESCRIPTOR')
+    return value
+
+
 def authenticate_successor(root, key, spec):
     import system_campaign_factual_admit as crypto
     from p01_iac_stopped_review_transport import extract, fences
     from seal import sha256_file
-    t = spec['transport']; origin = t['origin']; root.mkdir(mode=0o700); archive = root / 'selected.zip'
+    t = spec['transport']; successor_manifest_descriptor(t)
+    origin = t['origin']; root.mkdir(mode=0o700); archive = root / 'selected.zip'
     with archive.open('xb') as stream:
         subprocess.run(['gh','api',f'repos/flabber1835/stocker/actions/artifacts/{t["artifact_id"]}/zip'],stdout=stream,check=True,timeout=180)
     need(dict(bytes=archive.stat().st_size,sha256=sha256_file(archive)) == t['zip'], 'CONTINUE_SELECTED_SUCCESSOR_ZIP')

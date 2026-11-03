@@ -126,3 +126,15 @@ def test_public_plan_contains_no_price_and_cannot_claim_held_or_execution_capabi
     value=json.loads((CAP/m.EXIT_INPUT).read_bytes());assert not any(k in value for k in ('raw_close','cash_per_share','price'))
     for k,v in [('legal_identity_admitted',True),('execution_price_claimed',True),('held_settlement_supported',True),('native_term_sha256','a'*64)]:
         with pytest.raises(ValueError):m.SourceExitInput.model_validate({**value,k:v})
+
+
+def test_actual_successor_transport_requires_extraction_descriptor_before_download(tmp_path,monkeypatch):
+    import subprocess
+    spec=m.read(CAP/m.SPEC)
+    assert m.successor_manifest_descriptor(spec['transport'])['member_count']==221
+    old=deepcopy(spec);old['transport']['manifest']={'schema':'research.full-system-output/1','members':{}}
+    def forbidden(*a,**k):raise AssertionError('NO_TRANSPORT_OR_CRYPTO_PERMITTED')
+    monkeypatch.setattr(subprocess,'run',forbidden)
+    with pytest.raises(ValueError,match='TRANSPORT_MANIFEST_DESCRIPTOR'):
+        m.authenticate_successor(tmp_path/'unused',b'X'*32,old)
+    assert not (tmp_path/'unused').exists()
