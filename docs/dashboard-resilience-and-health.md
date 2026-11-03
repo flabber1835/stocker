@@ -183,6 +183,74 @@ version. Production has not been patched for this measurement.
 
 ## Qualification
 
+### Presentation DDL coverage transition and failed-install recovery
+
+The first installed PR564 activation exposed a migration sequencing defect.
+Creating the two review tables and their function advanced the independent
+public-DDL epoch by three; the five statements include two trigger creations
+whose event records do not carry a public schema name. Both authenticated
+financial evidence inventories still bound the earlier epoch. The runtime
+correctly refused EVIDENCE_COVERAGE_BINDING_CHANGED. This is a software
+installation defect, not permission to weaken the global DDL witness.
+
+Before creating an absent presentation extension, the explicit fenced installer
+will hold the existing migration/financial-writer locks and SHARE locks on all
+relations in both evidence inventories. It captures each authenticated prefix,
+its tracking head, account binding and complete inventory material before DDL.
+Absent coverage remains absent. Existing coverage must authenticate and retain
+its original stage and sequence boundary; migration grants no new completeness.
+After the exact review DDL, require the exact presentation catalog, the same
+physical relation/account/tracking identities and precisely three DDL advances.
+Transfer only those previously captured prefix bodies and boundaries to the new
+inventory, atomically with schema creation. Unexpected drift rolls everything
+back. An already installed extension is an idempotent catalog check and never
+rebinds an invalidated prefix.
+
+The production failure occurred before such a capture existed. Recovery therefore
+uses a separate explicit, signed pre-DDL witness from a paused isolated physical
+restore. Reuse the existing streaming source-byte proof used by progress recovery,
+including its complete watched-source set, filtered processed-session identities,
+physical tuples and empty unlogged-scratch contract. The new witness has a
+distinct dashboard purpose/schema, requires an absent presentation extension and
+genuine current authenticated prefixes on that restore, and binds physical system,
+account, epoch, heads, prefix digests, backup marker and metadata hash. Do not
+substitute the progress migration's sixty-six-DDL witness.
+
+Applying this witness requires the exact installed review catalog, disabled/killed
+control, the canonical lifecycle/writer owners, locked watched sources, unchanged
+physical/account/heads/prefix identities and byte-for-byte equal source proofs,
+with only the exact three-DDL epoch difference. It updates only the two derived
+coverage inventory/signature records; their body, boundary, history and all
+financial rows remain unchanged. Any source difference or missing pre-DDL proof
+refuses. Snapshot/recovery is an explicit operator action through the signed
+release; ordinary readers and activation never invoke it. No production restore,
+schema rollback, history deletion, direct reseal or guard suppression is allowed.
+The recovery transaction also SHARE-locks the evidence tracking/coverage tables
+and independent DDL epoch table until commit. Thus an unrelated concurrent DDL
+event cannot advance the epoch between the final check and prefix publication.
+Qualification must execute that concurrent DDL attempt at the publication boundary
+and show that removing the epoch lock permits the forbidden race.
+
+Qualification must exercise the actual populated predecessor migration and
+post-failure recovery, transaction rollback/idempotence, absent/partial/stale
+coverage, unexpected DDL, changed source bytes with intact catalog, account/head/
+reset drift, physical-restore requirements and executed removed-guard controls.
+Preserve the installed f58 complete source map as a new predecessor witness when
+finalizing the repaired source seal; retain every older map and financial witness.
+
+The repair qualification passed40 unique cases in53 targeted executions on
+private Python3.12/PostgreSQL17 with no network or production credentials. A real
+pg_basebackup was restored and paused; its authenticated witness recovered the
+separately failed primary migration without changing prefix bodies. Concurrent
+DDL attempted at the publication boundary was blocked, and removing that lock
+killed the test. Removed migration/epoch/head/source-byte guards were exercised.
+Initial fixture setup errors were retained and corrected to the actual private
+account binding; no production guard was relaxed. Only new or directly affected
+cases were executed. Production recovery still requires its own genuine isolated
+restore witness after signed release delivery; private tests do not substitute
+for that evidence. The complete repaired map contains442 Python files and retains
+the independently compared440-file installed f58 map and all earlier witnesses.
+
 PR564's first full CI exposed predecessor test assumptions outside the initial
 targeted dashboard set: the old headline/offline colors, a preview double that
 did not accept the display-only loader, and schema doubles without the optional

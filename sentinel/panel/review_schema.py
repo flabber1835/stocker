@@ -71,4 +71,5 @@ def install_quiescent(conn):
                                'FROM sentinel_automation_control WHERE id=1').fetchone()
             if row != (False, True):
                 raise operational_schema.OperationalSchemaRefused('DASHBOARD_INSTALL_REQUIRES_FENCE')
-            install(conn)
+            from sentinel.panel import review_migration
+            review_migration.install(conn)
