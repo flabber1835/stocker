@@ -511,7 +511,7 @@ class UnheldStockCodec(SourceExitCodec):
         need(digest(material(native))==loaded.native_term_sha256,'AMWD_EXACT_NATIVE_TERMINAL_PREIMAGE')
         need(not any(stock_identity(material(t)) for t in packet.terminal if t is not native)
              and not any(stock_identity(material(s)) for s in packet.spins),'AMWD_NO_OTHER_DELIVERY_OR_SPINOFF')
-        changed=replace(native,kind='CONVERSION',delivered_security_id=MBC,delivered_ticker='MBC',
+        changed=replace(native,kind=type(native.kind).CONVERSION,delivered_security_id=MBC,delivered_ticker='MBC',
             delivered_issuer_id=loaded.delivered_issuer_id,exchange_ratio=loaded.exchange_ratio,reference=loaded.primary_source)
         result=replace(packet,terminal=tuple(changed if t is native else t for t in packet.terminal))
         allowed={'kind','delivered_security_id','delivered_ticker','delivered_issuer_id','exchange_ratio','reference'}
@@ -807,6 +807,8 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
 def qualification(old, out, spec, rows):
     reference = out / 'event-reference'; fast = out / 'event-fast'; reference.mkdir(); fast.mkdir()
     ref, r = branch(old, reference, spec, rows, mode='REFERENCE', maximum=2)
+    need(len(ref)==2 and r['new_transitions']==2 and r['canonical_return_code']==0,
+         'CONTINUE_REFERENCE_QUALIFICATION_REFUSED_BEFORE_FAST')
     actual, f = branch(old, fast, spec, rows, maximum=2)
     need(len(ref) == len(actual) == 2 and ref == actual and r == f
          and r['new_transitions'] == 2, 'CONTINUE_TARGETED_FRACTION_REFERENCE_FAST_EXACT')

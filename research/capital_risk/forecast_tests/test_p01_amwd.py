@@ -2,6 +2,7 @@
 import ast
 from copy import deepcopy
 from dataclasses import make_dataclass,replace
+from enum import Enum
 import json
 from pathlib import Path
 import sys
@@ -9,6 +10,10 @@ from types import SimpleNamespace
 import pytest
 CAP=Path(__file__).resolve().parents[1];sys.path.insert(0,str(CAP))
 import p01_iac_namespace_continue as m
+
+class Kind(str,Enum):
+    CASH_MERGER='CASH_MERGER'
+    CONVERSION='CONVERSION'
 
 def state():return dict(wealth_core=dict(episodes={},slots={}),pending=[],ledger=dict(events=[],receivables=[]))
 def packet_codec():
@@ -22,13 +27,14 @@ def packet_codec():
     assert m.digest(native)==doc.native_term_sha256
     T=make_dataclass('Terminal',[(k,object) for k in native],frozen=True)
     P=make_dataclass('Packet',[('day',str),('terminal',tuple),('spins',tuple),('bars',tuple)],frozen=True)
-    return c,d,P('2026-05-28',(T(**native),),(),(object(),))
+    return c,d,P('2026-05-28',(T(**dict(native,kind=Kind.CASH_MERGER)),),(),(object(),))
 
 def test_exact_stock_terms_and_unrelated_packet_fields():
     c,d,p=packet_codec();other=replace(p.terminal[0],security_id='other');p=replace(p,terminal=(*p.terminal,other))
     new=c.apply(p,d);term=new.terminal[0]
     assert (term.kind,term.delivered_security_id,term.delivered_ticker,term.delivered_issuer_id,term.exchange_ratio)==('CONVERSION',m.MBC,'MBC','SID:'+m.MBC,'5.150')
     assert term.cash_per_share is term.cash_in_lieu_price_per_delivered_share is None
+    assert term.kind.value=='CONVERSION' and type(term.kind) is type(p.terminal[0].kind)
     assert term.entitlement_aggregation=='HOLDER' and new.terminal[1] is other and new.bars is p.bars and new.spins is p.spins
     assert c.apply(p,d)==new and len(c.applied)==1
     with pytest.raises(ValueError,match='NATIVE_TERMINAL_PREIMAGE'):c.apply(new,d)
@@ -92,3 +98,30 @@ def test_explicit_current_request_and_new_event_gate():
 
 def test_missing_origin_refuses_before_restore(tmp_path):
     with pytest.raises(ValueError,match='ADMITTED_ORIGIN'):m.UnheldStockCodec(tmp_path,{'sha256':'wrong'})
+
+
+def test_old_string_kind_fails_the_actual_consumer_protocol():
+    c,d,p=packet_codec();fn,=[n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.ClassDef) and n.name=='UnheldStockCodec']
+    fn,=[n for n in fn.body if isinstance(n,ast.FunctionDef) and n.name=='apply']
+    calls=[n for n in ast.walk(fn) if isinstance(n,ast.Call) and ast.unparse(n.func)=='replace' and n.args and ast.unparse(n.args[0])=='native']
+    assert len(calls)==1
+    keyword,=[k for k in calls[0].keywords if k.arg=='kind'];keyword.value=ast.Constant('CONVERSION')
+    scope=dict(vars(m));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<old-string-kind-defect>','exec'),scope)
+    broken=scope['apply'](c,p,d)
+    with pytest.raises(AttributeError):_ = broken.terminal[0].kind.value
+
+
+def test_failed_reference_does_not_start_fast(tmp_path,monkeypatch):
+    calls=[]
+    def branch(*a,**kw):
+        calls.append(kw['mode'] if 'mode' in kw else 'FAST')
+        return [],dict(new_transitions=0,canonical_return_code=1)
+    monkeypatch.setattr(m,'branch',branch)
+    with pytest.raises(ValueError,match='REFERENCE_QUALIFICATION_REFUSED_BEFORE_FAST'):m.qualification(tmp_path,tmp_path,{},[])
+    assert calls==['REFERENCE']
+    fn,=[n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='qualification']
+    fn.body=[n for n in fn.body if not (isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and len(n.value.args)==2 and isinstance(n.value.args[1],ast.Constant) and n.value.args[1].value=='CONTINUE_REFERENCE_QUALIFICATION_REFUSED_BEFORE_FAST')]
+    scope=dict(vars(m));exec(compile(ast.Module(body=[fn],type_ignores=[]),'<reference-fail-fast-guard-removed>','exec'),scope)
+    out=tmp_path/'removed';out.mkdir();calls.clear()
+    with pytest.raises(ValueError,match='TARGETED_FRACTION_REFERENCE_FAST_EXACT'):scope['qualification'](tmp_path,out,{},[])
+    assert calls==['REFERENCE','FAST']

@@ -45,3 +45,11 @@ Use the frozen financial source epoch and existing workflow, codecs, runner,
 reporting and export paths. No canonical Core/controller changes, local financial
 replay, provider-price query, broker/PAPER/WSL/service change, new automation,
 main merge or deployment is authorized by this research continuation.
+
+The first hosted check exposed an adapter type defect: the native terminal kind
+is an enum even though its JSON representation is a string. Preserve that enum
+type when selecting `CONVERSION`. The original qualification refusal remains
+closed evidence; neither branch advanced a financial session. Require the
+REFERENCE branch to return two successful components before starting FAST, while
+retaining every existing whole-runtime equality check. A failed REFERENCE check
+must save its evidence and stop before another expensive startup.
