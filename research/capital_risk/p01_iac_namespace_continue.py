@@ -812,6 +812,38 @@ def validate_request(path):
     return value
 
 
+def retain_qualification(source,destination):
+    """Preserve every stopped Q byte, compressing only copied book journals."""
+    import hashlib
+    source=Path(source);destination=Path(destination)
+    need(not source.is_symlink() and not destination.exists(),'QUALIFICATION_NEW_EXACT_RETENTION_DESTINATION')
+    paths=sorted(source.rglob('*'))
+    need(not any(p.is_symlink() for p in paths),'QUALIFICATION_NO_SOURCE_SYMLINKS')
+    destination.mkdir(mode=0o700);members={};representations={}
+    for path in paths:
+        if not path.is_file():continue
+        relative=path.relative_to(source);name=relative.as_posix()
+        compress=len(relative.parts)==3 and relative.parts[0] in ('event-reference','event-fast') and relative.parts[1]=='book' and relative.suffix=='.jsonl'
+        stored=name+'.gz' if compress else name
+        need(not compress or not (source/stored).exists(),'QUALIFICATION_NO_REPRESENTATION_NAME_COLLISION')
+        target=destination/stored;target.parent.mkdir(parents=True,exist_ok=True)
+        count=0;h=hashlib.sha256()
+        with path.open('rb') as src,target.open('xb') as output:
+            if compress:
+                with gzip.GzipFile(filename='',mode='wb',fileobj=output,compresslevel=1,mtime=0) as gz:
+                    for block in iter(lambda:src.read(1024**2),b''):h.update(block);count+=len(block);gz.write(block)
+            else:
+                for block in iter(lambda:src.read(1024**2),b''):h.update(block);count+=len(block);output.write(block)
+        members[name]=dict(bytes=count,sha256=h.hexdigest())
+        representations[name]=dict(stored=stored,encoding='GZIP' if compress else 'IDENTITY')
+    need(members and 'qualification-retention.json' not in members,'QUALIFICATION_COMPLETE_ORIGINAL_INVENTORY')
+    proof=dict(schema='research.p01-lossless-qualification-retention/1',original_members=members,
+               original_inventory_sha256=digest(members),representations=representations,
+               original_source_unchanged=True,omitted_original_members=0,size_or_retention_bound_expanded=False)
+    (destination/'qualification-retention.json').write_bytes(encoded(proof))
+    return proof
+
+
 def authenticate_parent(root, key):
     """Use the existing retained cipher as this runner's admitted input."""
     import system_campaign_factual_admit as crypto
@@ -924,7 +956,7 @@ def host(args):
             resources(request, temp); receipt['status'] = 'NEW_FUTURE_EVENT_QUALIFYING'; write_receipt(args.output, receipt)
             stop = stopped_run(command(name, 'qualify', source, frozen, qual, old, capsule, old), name, qual, deadline=request['qualification_wait_seconds'], inspector=inspect)
             known = True
-            shutil.copytree(qual, out / 'new-event-qualification')
+            retain_qualification(qual, out / 'new-event-qualification')
             need(stop['exit_code'] == 0 and not stop['oom_killed'], 'CONTINUE_NEW_EVENT_QUALIFICATION_REFUSED')
             proof = json.loads(gzip.decompress((qual / 'qualification.json.gz').read_bytes()))
             validate_event_qualification(proof,read(HERE/SPEC),request)

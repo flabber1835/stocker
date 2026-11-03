@@ -1,5 +1,6 @@
 """Source-exit input, detached packet and metadata tests; no financial runtime."""
 import ast
+import gzip
 from copy import deepcopy
 from dataclasses import make_dataclass, replace
 import json
@@ -139,3 +140,30 @@ def test_actual_successor_transport_requires_extraction_descriptor_before_downlo
     with pytest.raises(ValueError,match='TRANSPORT_MANIFEST_DESCRIPTOR'):
         m.authenticate_successor(tmp_path/'unused',b'X'*32,old)
     assert not (tmp_path/'unused').exists()
+
+
+def test_lossless_qualification_copy_preserves_every_original_byte_and_source(tmp_path):
+    source=tmp_path/'stopped';source.mkdir()
+    raw={'worker-inspect.json':b'{"stopped":true}',
+         'event-reference/book/daily.jsonl':b'{"synthetic":1}\n'*2000,
+         'event-fast/book/watch.jsonl':b'{"boundary":1}\n',
+         'event-fast/book/checkpoint.json.gz':b'FULL_CHECKPOINT_UNCHANGED',
+         'event-reference/correlation.jsonl':b'OUTSIDE_BOOK_UNCHANGED'}
+    for n,v in raw.items():p=source/n;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(v)
+    proof=m.retain_qualification(source,tmp_path/'copy')
+    assert set(proof['original_members'])==set(raw) and proof['omitted_original_members']==0
+    assert not proof['size_or_retention_bound_expanded'] and proof['original_source_unchanged']
+    for n,v in raw.items():
+        mapping=proof['representations'][n];stored=(tmp_path/'copy'/mapping['stored']).read_bytes()
+        restored=gzip.decompress(stored) if mapping['encoding']=='GZIP' else stored
+        assert restored==v and (source/n).read_bytes()==v
+        assert proof['original_members'][n]==dict(bytes=len(v),sha256=m.sha(v))
+    m.retain_qualification(source,tmp_path/'copy2')
+    assert (tmp_path/'copy/event-reference/book/daily.jsonl.gz').read_bytes()==(tmp_path/'copy2/event-reference/book/daily.jsonl.gz').read_bytes()
+
+
+def test_lossless_copy_rejects_original_name_collision(tmp_path):
+    source=tmp_path/'stopped';book=source/'event-fast/book';book.mkdir(parents=True)
+    (book/'watch.jsonl').write_bytes(b'ORIGINAL');(book/'watch.jsonl.gz').write_bytes(b'DIFFERENT_ORIGINAL')
+    with pytest.raises(ValueError,match='REPRESENTATION_NAME_COLLISION'):m.retain_qualification(source,tmp_path/'copy')
+    assert (book/'watch.jsonl').read_bytes()==b'ORIGINAL' and (book/'watch.jsonl.gz').read_bytes()==b'DIFFERENT_ORIGINAL'

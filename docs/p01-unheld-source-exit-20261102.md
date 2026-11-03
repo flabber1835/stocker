@@ -56,3 +56,13 @@ direct whole-runtime comparisons: the first intermediate REFERENCE component
 was in the killed process's memory, while the saved final reference checkpoint
 alone cannot supply both components. Historical qualifications and admitted
 financial sessions remain reused. No equality predicate or value changes.
+
+Keep the two-GiB evidence bound. The partial comparison output already contained
+1,453,728,547 logical bytes; completing FAST and adding the original-size
+financial book would exceed that bound. Store stopped qualification journal
+copies (`event-reference/book/*.jsonl` and `event-fast/book/*.jsonl`) as lossless
+gzip, with a complete original inventory and explicit representation map. Check
+every original byte count and SHA after decompression. Copy all other members
+unchanged, including full current/pre-event checkpoints, and leave the original
+frozen qualification directory untouched. This changes storage representation
+only; it removes no evidence and expands no retention or size limit.
