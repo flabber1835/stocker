@@ -75,7 +75,12 @@ def test_finance_falsifier_reaches_sentinel_when_actual_review_only_guard_remove
     with pytest.raises(Sentinel):scope['worker']('economic')
 
 
-def test_request_distinguishes_admitted_parent_and_unadmitted_target():
+def test_request_distinguishes_admitted_parent_and_unadmitted_target(monkeypatch):
+    original=p.read;parent=original(p.HERE/p.SPEC)
+    selected={**parent,'completed':986,'stopped_review_only':True,'financial_predecessor_admitted':True,
+        'review_target':dict(completed=1961,financial_predecessor_admitted=False,
+                           transport=dict(original_reviewer=dict(exit_code=1)))}
+    monkeypatch.setattr(p,'read',lambda path:selected if Path(path).name==p.SPEC else original(path))
     value=p.expected_request()
     assert value['stopped_review_only'] and not value['financial_resume_authorized']
     assert value['original_sessions']==986 and value['stopped_review_target']['completed']==1961
