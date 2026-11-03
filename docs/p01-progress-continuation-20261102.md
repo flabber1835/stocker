@@ -62,3 +62,36 @@ default. No canonical Core/controller code changes.
 The 858-session checkpoint was root-admitted after the exact eight-report Linux
 reproduction and independent 224-metric monthly/retry verification. Continuation
 starts June 1, 2021, with the existing thirteen inputs and no new qualification.
+
+## Meredith unheld terminal marker — 2026-11-03 UTC
+
+The financial continuation is independently reviewed and root-admitted through
+2021-11-30 (986 sessions). The next native event is Meredith MDP SID
+1072510367992802359 on December 1, with missing cash terms. The admitted full
+ledger has no historical MDP source, child or delivered-security event; there
+is no MDP episode, pending intent, receivable or reservation. This proves that
+record-date/due-bill or intermediate-new-Meredith claims cannot belong to this
+book. The repair supports only that zero-ownership scope, never a held package.
+
+The executed closing 8-K, SEC accession0001193125-21-345548, reports the ordered
+one-for-one new-Meredith distribution, Gray16.99 and Dotdash42.18 cash legs on
+December1. Store every leg/order in one typed future input14 and compile their
+59.17 aggregate only as a complete unheld terminal marker at the existing native
+calendar date. Exact native-term SHA c0415c1aa5fc0a0205ade497e308f194d403687c8db4c77cd413da22a21748b8
+must match. No before-open completion or held/child-identity capability is claimed.
+Preserve all bars, other terms and the thirteen historical input bytes.
+
+Before the event, refuse any source episode, pending intent, reservation, claim
+or historical ownership event. After it, require zero new source financial value.
+Use the already qualified canonical cash path; no repeated old qualification or
+financial prefix. Canonical input-zero adoption must preserve full financial state,
+then continue actual sessions from December1.
+
+The forward IAC domain is explicitly bound to the existing immutable2020–2026
+year-member hashes/counts, chronological native-factor checks and full127-row
+per-use window/anchor guards. Its arithmetic, input12 and financial source epoch
+remain unchanged. Unknown future roles/actions still refuse.
+
+Primary: https://www.sec.gov/Archives/edgar/data/65011/000119312521345548/d234670d8k.htm
+Confirmation: https://www.sec.gov/Archives/edgar/data/1800227/000110465921145542/tm2134264d1_8k.htm
+Reuse: CASE/action-research/post-20210629-support-map-001; no provider/quote requery.

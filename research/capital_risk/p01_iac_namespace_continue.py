@@ -27,6 +27,8 @@ HERE = Path(__file__).parent
 REQUEST = 'p01_iac_namespace_continue_request.json'
 SPEC = 'p01_iac_namespace_continue_parent.json'
 INPUT = 'p01_iac_namespace_continue_input.json'
+SUPPLEMENT = 'p01_iac_namespace_continue_cash_input.json'
+MDP = '1072510367992802359'
 SCHEMA = 'research.p01-estimated-fraction-input/1'
 STAGE = 'campaign-p01-accurate-progress'
 SID = '107908173248206014'
@@ -200,6 +202,107 @@ class EstimateCodec:
         self.backtest.apply_repair = self.original_apply
 
 
+class UnheldCashInput(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True,frozen=True)
+    schema_id: Literal['research.p01-unheld-composite-cash-input/1']=Field(alias='schema')
+    earliest_affected_session: Literal['2021-12-01']
+    predecessor_checkpoint_sha256: str=Field(pattern=r'^[a-f0-9]{64}$')
+    parent_outer_sha256: str=Field(pattern=r'^[a-f0-9]{64}$')
+    root_admission_sha256: Literal['f27162d9ddc4771a6a20f206fd995105238f18f7123865cc34ca3af3e29a901a']
+    source_security_id: Literal[MDP]
+    source_ticker: Literal['MDP']
+    native_term_sha256: Literal['c0415c1aa5fc0a0205ade497e308f194d403687c8db4c77cd413da22a21748b8']
+    new_meredith_distribution_ratio: Literal['1/1']
+    gray_cash_per_old_share: Literal['16.99']
+    dotdash_cash_per_distributed_share: Literal['42.18']
+    aggregate_cash_per_old_share: Literal['59.17']
+    ordered_legs: list[str]
+    scope: Literal['NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM_UNHELD_TERMINAL_MARKER_ONLY']
+    clock_scope: Literal['EXISTING_NATIVE_CALENDAR_DAY_UNHELD_ONLY_NO_PREOPEN_CLAIM']
+    held_multileg_supported: Literal[False]
+    primary_urls: list[str]
+    _sha256: str|None=PrivateAttr(default=None)
+    @property
+    def sha256(self):return self._sha256
+
+
+def mdp_unheld_scope(state):
+    value=state if isinstance(state,dict) else dict(wealth_core=state.wealth_core,pending=state.pending,ledger=state.ledger)
+    wealth=value['wealth_core'];ledger=value['ledger']
+    need(not any(e['security_id']==MDP for e in wealth['episodes'].values())
+         and not any(p['security_id']==MDP for p in value['pending']), 'MDP_SOURCE_HOLDING_OR_PENDING_UNSUPPORTED')
+    need(not any(s.get('reserved_for')==MDP or s.get('reserved_ticker')=='MDP' for s in wealth['slots'].values()),
+         'MDP_SOURCE_RESERVATION_UNSUPPORTED')
+    need(not any(e.get('security_id')==MDP for e in ledger['receivables']), 'MDP_SOURCE_CLAIM_UNSUPPORTED')
+    keys=('delivered_security_id','child_security_id','parent_security_id')
+    need(not any(e.get('security_id')==MDP or any((e.get('detail')or{}).get(k)==MDP for k in keys)
+                 for e in ledger['events']), 'MDP_HISTORICAL_OWNERSHIP_OR_DUE_BILL_CAPABILITY_UNSUPPORTED')
+    for name in ('unresolved_terminals','terminal_pending_terms','terminal_pending_sessions','terminal_carry_audit'):
+        need(MDP not in wealth.get(name,{}),'MDP_PRIOR_TERMINAL_CLAIM_UNSUPPORTED')
+
+
+class UnheldCashCodec:
+    def __init__(self,old,parent):
+        self.expected_raw=(HERE/SUPPLEMENT).read_bytes();self.document=UnheldCashInput.model_validate(json.loads(self.expected_raw))
+        need(Decimal(self.document.gray_cash_per_old_share)+Decimal(self.document.dotdash_cash_per_distributed_share)
+             ==Decimal(self.document.aggregate_cash_per_old_share),'MDP_COMPLETE_COMPOSITE_CASH_SUM')
+        self.origin=parent if parent['sha256']==self.document.parent_outer_sha256 else None
+        if self.origin is None:
+            for path in old.rglob(self.document.parent_outer_sha256+'.json.gz'):
+                value=cp_read(path)
+                if value.get('sha256')==self.document.parent_outer_sha256:self.origin=value;break
+        need(self.origin is not None,'MDP_EXACT_ADMITTED_INPUT_ORIGIN')
+        self.objects=[];self.applied=[];self.zero_value_checks=[]
+
+    def load(self,path,*,resume_session,predecessor_checkpoint_sha256):
+        raw=Path(path).read_bytes()
+        if json.loads(raw).get('schema')!='research.p01-unheld-composite-cash-input/1':
+            return self.original_load(path,resume_session=resume_session,predecessor_checkpoint_sha256=predecessor_checkpoint_sha256)
+        need(raw==self.expected_raw and resume_session==self.origin['source_cursor']
+             and predecessor_checkpoint_sha256==self.origin['run']['checkpoint_sha256']==self.document.predecessor_checkpoint_sha256,
+             'MDP_EXACT_FUTURE_TYPED_INPUT_AND_ORIGINAL_DESCRIPTOR')
+        obj=UnheldCashInput.model_validate(json.loads(raw));obj._sha256=sha(raw);self.objects.append(obj);return obj
+
+    def apply(self,packet,loaded):
+        if not isinstance(loaded,UnheldCashInput):return self.original_apply(packet,loaded)
+        need(any(loaded is obj for obj in self.objects),'MDP_REGISTERED_TYPED_INPUT')
+        if packet.day!=loaded.earliest_affected_session:return packet
+        from system_campaign_discovery_context import material
+        from dataclasses import fields
+        native,=[term for term in packet.terminal if term.security_id==MDP]
+        need(digest(material(native))==loaded.native_term_sha256,'MDP_EXACT_NATIVE_TERMINAL_PREIMAGE')
+        changed=replace(native,cash_per_share=float(loaded.aggregate_cash_per_old_share),reference=loaded.primary_urls[0])
+        result=replace(packet,terminal=tuple(changed if term is native else term for term in packet.terminal))
+        need(all(getattr(packet,f.name)is getattr(result,f.name) for f in fields(packet) if f.name!='terminal'),
+             'MDP_ONLY_DECLARED_TERMINAL_FIELDS_CHANGE')
+        proof=dict(session=packet.day,native=material(native),compiled=material(changed),
+                   input_sha256=loaded.sha256,held_package_supported=False)
+        if proof not in self.applied:self.applied.append(proof)
+        return result
+
+    def before(self,state,day):
+        if day!=self.document.earliest_affected_session:return None
+        need(self.objects and len(self.applied)==1,'MDP_ACTUAL_REGISTERED_INPUT_APPLIED_ONCE')
+        mdp_unheld_scope(state);return len(state.ledger['events'])
+
+    def after(self,state,day,count):
+        if count is None:return
+        added=[e for e in state.ledger['events'][count:] if e.get('security_id')==MDP
+               or any((e.get('detail')or{}).get(k)==MDP for k in ('delivered_security_id','child_security_id','parent_security_id'))]
+        need(all(e['cash_delta']==0 and e['shares_delta']==0 for e in added),'MDP_UNHELD_MARKER_CANNOT_ADD_FINANCIAL_VALUE')
+        need(not any(e['security_id']==MDP for e in state.wealth_core['episodes'].values()),'MDP_UNHELD_MARKER_CANNOT_CREATE_SOURCE_HOLDING')
+        self.zero_value_checks.append(dict(session=day,no_source_financial_value_added=True))
+
+    def __enter__(self):
+        from research.pooled_vacancy_funding import backtest,repair
+        self.backtest,self.repair=backtest,repair
+        self.original_load,self.saved_load=repair.load_repair,backtest.load_repair;self.original_apply=backtest.apply_repair
+        repair.load_repair=backtest.load_repair=self.load;backtest.apply_repair=self.apply;return self
+
+    def __exit__(self,*args):
+        self.repair.load_repair=self.original_load;self.backtest.load_repair=self.saved_load;self.backtest.apply_repair=self.original_apply
+
+
 class SourceGate:
     def __init__(self, parent, old, out):
         self.parent = parent; self.old = old; self.out = out; self.allowed = {parent['sha256']: parent}
@@ -213,12 +316,12 @@ class SourceGate:
         need(cp['sha256'] in self.allowed and cp == self.allowed[cp['sha256']], 'CONTINUE_EXACT_REGISTERED_STARTUP')
         return deepcopy(self.parent['base']), None
 
-    def allow(self, cp, overlay):
+    def allow(self, cp, overlay, earliest=EVENT):
         from system_campaign_pxd_pause import adoption
-        event = adoption(cp, self.parent, overlay, EVENT)
-        need(cp['run']['state'] == self.parent['run']['state'] and cp['completed'] == 697
-             and cp['source_cursor'] == '2020-10-07' and cp['base'] == self.parent['base']
-             and cp['repairs'][:-1] == self.parent['repairs'] and len(cp['repairs']) == 13,
+        event = adoption(cp, self.parent, overlay, earliest)
+        need(cp['run']['state'] == self.parent['run']['state'] and cp['completed'] == self.parent['completed']
+             and cp['source_cursor'] == self.parent['source_cursor'] and cp['base'] == self.parent['base']
+             and cp['repairs'][:-1] == self.parent['repairs'] and len(cp['repairs']) == len(self.parent['repairs'])+1,
              'CONTINUE_INPUT_ADOPTION_HAS_NO_FINANCIAL_TRANSITION')
         self.allowed[cp['sha256']] = deepcopy(cp); return event
 
@@ -255,12 +358,12 @@ def hydrate(old, out, spec, rows):
     need(tenth['quote_capsule'] == descriptor and tenth['terms']['right_quote'] == quote, 'CONTINUE_RETAINED_AUTHENTICATED_QUOTE')
     with old_inputs(old, {**parent, 'repairs': parent['repairs'][:9]}, out / 'contexts'), \
          CelgCodec(native(OLD, CELG), tenth), BatchCodec(source_terms()), UnitCodec(rows, origin) as unit, \
-         EstimateCodec(input_origin(old, parent)) as estimate, SourceGate(parent, old, out) as gate:
+         EstimateCodec(input_origin(old, parent)) as estimate, UnheldCashCodec(old,parent) as cash, SourceGate(parent, old, out) as gate:
         for entry in parent['repairs']:
             obj = backtest.load_repair(old / 'book/repairs' / entry['filename'], resume_session=entry['resume_session'],
                                       predecessor_checkpoint_sha256=entry['predecessor_checkpoint_sha256'])
             need(obj.sha256 == entry['sha256'], 'CONTINUE_ALL_TWELVE_ORIGINAL_CODECS_IN_ORDER')
-        yield parent, unit, estimate, gate, mapping
+        yield parent, unit, estimate, gate, mapping, cash
 
 
 
@@ -360,7 +463,7 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
     wanted = [d for d in axis() if parent['source_cursor'] < d <= END]
     need(len(wanted) == 2156-parent['completed'] and wanted[0] == spec.get('next_session', EVENT) and wanted[-1] == END, 'CONTINUE_EXACT_REMAINING_SOURCE_AXIS')
     with hydrate(old, out, spec, rows) as values:
-        parent, unit, estimate, gate, mapping = values
+        parent, unit, estimate, gate, mapping, cash = values
         args = arguments(out / 'book', True); args[args.index('--policy') + 1] = parent['base']['policy']
         source_args = ['--source-successor', str(old / 'source-successor.json')]
         if len(parent['repairs']) == 12:
@@ -376,15 +479,25 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
             zero = journal.read_checkpoint(out / 'book/checkpoint.json.gz'); adoption = gate.allow(zero, loaded.sha256)
             need(code == 0, 'CONTINUE_CANONICAL_FUTURE_INPUT_ZERO')
         else:
-            need(len(parent['repairs']) == 13 and len(estimate.objects) > 0, 'CONTINUE_REGISTERED_EXISTING_ESTIMATE')
+            need(len(parent['repairs']) in (13,14) and len(estimate.objects) > 0, 'CONTINUE_REGISTERED_EXISTING_ESTIMATE')
             loaded = estimate.objects[-1]; adoption = None
+            if sha((HERE/SUPPLEMENT).read_bytes()) not in {entry['sha256'] for entry in parent['repairs']}:
+                input_path=out/'unheld-composite-cash-input.json';input_path.write_bytes((HERE/SUPPLEMENT).read_bytes())
+                loaded=backtest.load_repair(input_path,resume_session=parent['source_cursor'],predecessor_checkpoint_sha256=parent['run']['checkpoint_sha256'])
+                earliest=loaded.earliest_affected_session
+                with PauseAfterAdoption(parent,out/'book/checkpoint.json.gz',loaded.sha256,earliest):
+                    code=backtest.main(args+source_args+['--repair-overlay',str(input_path)])
+                zero=journal.read_checkpoint(out/'book/checkpoint.json.gz');adoption=gate.allow(zero,loaded.sha256,earliest)
+                need(code==0,'MDP_CANONICAL_INPUT_ZERO_WITH_NO_FINANCIAL_TRANSITION')
         reused = reused_qualification(old, mapping) if len(parent['repairs']) == 12 else admitted_capabilities(spec, mapping)
         contract = source_contract(type('Binding', (), {'source_map': mapping})())
         guard = UnitGuard(out / 'book', unit, contract, reused=reused, processing_endpoint=END)
         guard.scope_check = estimate.scope; guard.expected_term = estimate.expected_term
         original_advance = guard.advance; components = []
         def advance(run, published):
+            source_events=cash.before(run.state,published.session)
             following = original_advance(run, published)
+            cash.after(following.state,published.session,source_events)
             if published.session in wanted[:2]:
                 cp = runtime.checkpoint(following)
                 restored = runtime.restore(cp, policy=following.policy, input_sha256=following.input_sha256)
@@ -404,6 +517,7 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
                       requested_transitions=count, complete=current['completed'] == 2156 and current['source_cursor'] == END,
                       canonical_return_code=code, parent_sha256=parent['sha256'], input_sha256=loaded.sha256,
                       input_adoption=adoption, estimated_treatment=estimate.value,
+                      unheld_cash_applications=cash.applied,unheld_cash_zero_value_checks=cash.zero_value_checks,
                       estimated_applications=estimate.applied, original_twelve_inputs_unchanged=current['repairs'][:12] == parent['repairs'][:12],
                       all_admitted_inputs_unchanged=current['repairs'][:len(parent['repairs'])] == parent['repairs'],
                       financial_source_changed=False, qualification_state_adopted=False, production_contacted=False,
@@ -435,7 +549,7 @@ def review(old, evidence, out, spec, rows):
     with hydrate(old, out, spec, rows):
         restored = runtime.restore(current['run'], policy=current['base']['policy'], input_sha256=current['run']['input_sha256'])
         need(runtime.checkpoint(restored) == current['run'] and current['base'] == parent['base']
-             and current['repairs'][:len(parent['repairs'])] == parent['repairs'] and len(current['repairs']) == 13,
+             and current['repairs'][:len(parent['repairs'])] == parent['repairs'] and len(current['repairs']) == expected_request()['successor_inputs'],
              'CONTINUE_CURRENT_SOURCE_INPUT_AND_CANONICAL_ROUNDTRIP')
         stream = reader(journal.Journal, evidence / 'book', journal.STREAMS)
         try: stream.verify(current['journals'])
@@ -479,11 +593,18 @@ def review(old, evidence, out, spec, rows):
 def expected_request():
     from seal import sha256_file
     old = read(HERE / 'p01_iac_stopped_review_request.json')
-    names = sorted(set(old['sources']) | {'p01_iac_stopped_review_request.json', Path(__file__).name, SPEC, INPUT})
+    names = sorted(set(old['sources']) | {'p01_iac_stopped_review_request.json', Path(__file__).name, SPEC, INPUT, SUPPLEMENT})
     parent = read(HERE / SPEC)
+    supplement_sha=sha256_file(HERE/SUPPLEMENT)
+    new_input=SUPPLEMENT if supplement_sha not in {entry['sha256'] for entry in parent['repairs']} else None
+    unit_facts=read(HERE/'p01_iac_unit_facts.json')
     return dict(schema='research.p01-accurate-progress-request/1', arm='P01', stage=STAGE,
                 parent_sha256=parent['outer_sha256'], root_admission_sha256=parent['root_admission_sha256'], first_session=parent.get('next_session', EVENT), endpoint=END,
                 original_sessions=parent.get('completed', 697), remaining_sessions=2156-parent.get('completed', 697), estimated_fractional_cash=True,
+                original_inputs=len(parent['repairs']),successor_inputs=len(parent['repairs'])+int(new_input is not None),
+                new_input_file=new_input,new_input_sha256=supplement_sha if new_input else None,
+                forward_unit_domain=dict(through=END,source_members=unit_facts['source_members'],
+                    per_use_requirement='EXACT_NATIVE_PREIMAGE_CHRONOLOGICAL_FACTOR_FULL_WINDOW_AND_ANCHOR'),
                 monthly_review_only=parent.get('monthly_review_only',False),
                 financial_resume_authorized=parent.get('financial_predecessor_admitted',False) and not parent.get('monthly_review_only',False),
                 protocol_sha256=old['protocol_sha256'], capacity_source_sha256=old['capacity_source_sha256'],

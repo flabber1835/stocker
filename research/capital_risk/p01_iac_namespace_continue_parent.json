@@ -243,13 +243,13 @@
     },
     "start": "2018-01-02"
   },
-  "completed": 858,
+  "completed": 986,
   "financial_predecessor_admitted": true,
-  "inner_sha256": "c480622cd66afe1fc19203c4c57f79e9c2acc6b883ff8b429e6fc3205600f81b",
+  "inner_sha256": "ab994edd0f51695527f18adf2b2c72fe67fdc9e13f4fd5be18ddf39fb16703a8",
   "input_sha256": "16956ff7069c300aadabfb0d0552526aa8e5fe2489a905e3adb36a5a75e8bd3a",
   "monthly_review_only": false,
-  "next_session": "2021-06-01",
-  "outer_sha256": "2ad0fafc4a57f654a50280078e0b61485df762254efa76b92579362448d96193",
+  "next_session": "2021-12-01",
+  "outer_sha256": "1e455e979bc84346b3bfbb3524eb90826accf59e273e390530c75deea1d7a7bb",
   "repairs": [
     {
       "filename": "982c9c1e45ad42dc4f16b4b8888ba46592595604ea1511d6225318846629b801.json",
@@ -339,18 +339,18 @@
     "source_map_identity_sha256": "c3a47c8c7d7facc3d7bd798b74fd3f3fbb9dd0115b86369b7dc5b4f3e1aab915",
     "target_independence_qualified": true
   },
-  "root_admission_sha256": "241ebab82db401c430c78e559adb2472783af037c3e53f38ee36731cb7515f2d",
-  "run_id": 41535146204,
+  "root_admission_sha256": "f27162d9ddc4771a6a20f206fd995105238f18f7123865cc34ca3af3e29a901a",
+  "run_id": 41547471034,
   "selected_file": {
-    "bytes": 1500100,
-    "sha256": "6ddd9367360907fd02517885dfd40e6b1f10b5592270ac439039414df9521f93"
+    "bytes": 1530758,
+    "sha256": "d170dd0e5a3f043e4e8f7e1d6f787c67df94db000024e136f39786724dbe80ef"
   },
-  "selected_session": "2021-05-28",
-  "state_sha256": "4e7ccace04ad8d3724133605e430f66015c16fc0d8b0149c91398347c3fc7db0",
+  "selected_session": "2021-11-30",
+  "state_sha256": "48f5a6d13719c987495824a448893315c203f44d98e6e2d07d07855f0f276645",
   "tails": {
     "daily": {
-      "bytes": 5042657,
-      "sha256": "3d4d9f638f8c4457966343ccc9531b46cba145fa4f63c2525393cce77d9483f3"
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "formation": {
       "bytes": 0,
@@ -361,37 +361,37 @@
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     "watch": {
-      "bytes": 0,
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      "bytes": 474,
+      "sha256": "041ba53e6fc82cdca5c2484b5be7865f9e795c39662119ddec2f63c720ba1f17"
     }
   },
   "transport": {
-    "artifact_id": 13187651129,
+    "artifact_id": 13190124692,
     "asset": {
-      "bytes": 392165347,
+      "bytes": 181398361,
       "compression": "TAR_GZIP_V1",
-      "manifest_sha256": "7e65a621a25713013d86d3a0a852085bb3f2beefd428694c3a8875f700685fcc",
+      "manifest_sha256": "eed84f0d5ffefdebbd1da856e72d0da06ba9528f26e472976c3d02fea314ebda",
       "name": "p01-accurate.tar.crseal",
-      "sha256": "58c9c74ab2bb5ccaf4f4cc26f88ab4c3a9cbdc30da5f6f243865a7a7c9e4477a"
+      "sha256": "e6f9f861bd5be31e54739b6c6b36922543e940fc0aed7e46cf07245eb9348db4"
     },
     "manifest": {
-      "inventory_sha256": "e53df92e49bdf371645157c41ef1e68dd9686e99199b71f2b366df798039aa29",
-      "member_count": 322,
-      "original_manifest_bytes": 79386,
-      "original_manifest_sha256": "7e65a621a25713013d86d3a0a852085bb3f2beefd428694c3a8875f700685fcc",
-      "raw_member_bytes": 832760157
+      "inventory_sha256": "fe0215d1171569e384e012dca2a3f836f86682f0a4afd68e03614a84529f75d9",
+      "member_count": 138,
+      "original_manifest_bytes": 31842,
+      "original_manifest_sha256": "eed84f0d5ffefdebbd1da856e72d0da06ba9528f26e472976c3d02fea314ebda",
+      "raw_member_bytes": 372513345
     },
     "origin": {
       "financial_protocol_sha256": "a5bacaa1bc51bb5ac376b5163186208aeb4d3aedd130fa7ccdb5e54058cb26d3",
-      "head": "a6ac8a0da42f4afb8080426b0c07c4f8f8b8f32c",
-      "request_sha256": "f521a28cfa1680c20e2f78a22a6486eca13ab629d6fe7644da6cebe975e4332a",
-      "run_id": 41535146204
+      "head": "89b24918d77ca3d14f2ac5d7d8c4330ab544171c",
+      "request_sha256": "41960b956307c130765be475ff545c206f2acce06f5e6a2300225b943ff58dc0",
+      "run_id": 41547471034
     },
     "stage": "campaign-p01-accurate-prefix",
-    "worker_id": "6205c31313e288fb81adb88c4d69da8c29b56b4ab02c777f5c6f76febc927ecf",
+    "worker_id": "d846e7a2e8d51ec978692ad2895dfcd63594c1b444a6fa0beb9c2394ba21f87a",
     "zip": {
-      "bytes": 392169556,
-      "sha256": "427e8f759a6ddf8caff3e5d207e46812588c78215d3a9823878e07b146912644"
+      "bytes": 181402570,
+      "sha256": "462b183d7d960d0f50f193f7489968af656b65c8c36ebb732f67dfdd5636d2fe"
     }
   }
 }

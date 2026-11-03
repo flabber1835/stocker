@@ -5,12 +5,61 @@
   "estimated_fractional_cash": true,
   "financial_resume_authorized": true,
   "financial_wait_seconds": 9000,
-  "first_session": "2021-06-01",
+  "first_session": "2021-12-01",
+  "forward_unit_domain": {
+    "per_use_requirement": "EXACT_NATIVE_PREIMAGE_CHRONOLOGICAL_FACTOR_FULL_WINDOW_AND_ANCHOR",
+    "source_members": {
+      "actions.csv.gz": {
+        "bytes": 5322055,
+        "rows": 253076,
+        "sha256": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139"
+      },
+      "observations-2020.csv.gz": {
+        "bytes": 74043718,
+        "rows": 1541141,
+        "sha256": "b34e74c0983d1672e1e82cbd854727e2b752b235bfac217699e166238cac78cf"
+      },
+      "observations-2021.csv.gz": {
+        "bytes": 90642324,
+        "rows": 1898353,
+        "sha256": "487142c81ddb02c58f325de1e1295ff312b136966da9c2f53b9fe08b5268845a"
+      },
+      "observations-2022.csv.gz": {
+        "bytes": 97840847,
+        "rows": 2080223,
+        "sha256": "e2e2ecfa491b73f38ea304c539dbcd1c4331dc4a6371d12669968bdaac978acc"
+      },
+      "observations-2023.csv.gz": {
+        "bytes": 86611556,
+        "rows": 1834182,
+        "sha256": "fa3f6c090a4c2d77495778341626f1408ef9d03f8bcba15dd40339f2e31b60fa"
+      },
+      "observations-2024.csv.gz": {
+        "bytes": 78118364,
+        "rows": 1647175,
+        "sha256": "13016d332486bbdba3327835205e6c6da9d2e1363229836088ee6e2472d31e30"
+      },
+      "observations-2025.csv.gz": {
+        "bytes": 72786084,
+        "rows": 1546125,
+        "sha256": "470792932fa3914513fde48e4ca86b81ec7fa084496578794528270fdc0607f6"
+      },
+      "observations-2026.csv.gz": {
+        "bytes": 42000680,
+        "rows": 904798,
+        "sha256": "4781bd89bb00e33a3911375f4ad907a8158aa49e9160349e53ee7d03f8a3237e"
+      }
+    },
+    "through": "2026-07-31"
+  },
   "initial_min_disk_bytes": 12884901888,
   "monthly_review_only": false,
+  "new_input_file": "p01_iac_namespace_continue_cash_input.json",
+  "new_input_sha256": "4978eebd26d840a0d1678ba96fdae302e844f08f932d6eaa0b2ed675470b869c",
   "old_qualification_reexecuted": false,
-  "original_sessions": 858,
-  "parent_sha256": "2ad0fafc4a57f654a50280078e0b61485df762254efa76b92579362448d96193",
+  "original_inputs": 13,
+  "original_sessions": 986,
+  "parent_sha256": "1e455e979bc84346b3bfbb3524eb90826accf59e273e390530c75deea1d7a7bb",
   "preworker_min_disk_bytes": 10737418240,
   "preworker_min_memory_bytes": 10737418240,
   "production_contacted": false,
@@ -56,9 +105,9 @@
     "repository": "flabber1835/stocker",
     "schema": "research.p01-celg-input-capsule/1"
   },
-  "remaining_sessions": 1298,
+  "remaining_sessions": 1170,
   "review_wait_seconds": 1200,
-  "root_admission_sha256": "241ebab82db401c430c78e559adb2472783af037c3e53f38ee36731cb7515f2d",
+  "root_admission_sha256": "f27162d9ddc4771a6a20f206fd995105238f18f7123865cc34ca3af3e29a901a",
   "schema": "research.p01-accurate-progress-request/1",
   "sources": {
     "alpaca_fit_collect.py": "02586974d885f7bb1adcc92639fdf62f755ca825e37fecb440b0227647fae893",
@@ -137,9 +186,10 @@
     "p01_factual_batch_request.json": "2ce21c812d8b9168d519361dda55481ff993a57fe0634e3a292ee4b3cd9fd305",
     "p01_factual_batch_review.py": "96adc4b204cc013d9b438cf29d048b63ce568beed1df11fe0c7c7a3c99b5c79d",
     "p01_factual_batch_run.py": "2ab3bdf45db765292e7a2857ae4c8049471c3527671e8d87149a6fa54ce16719",
-    "p01_iac_namespace_continue.py": "fd73ccfe3fc95e7acf0ed5f846b33b92481e1837ba3e8b43ac89b4ef9f9353e3",
+    "p01_iac_namespace_continue.py": "2b44aa6e55df9b9f0a56880ac3be5761c4811b5bfe5953f061efae518f771e67",
+    "p01_iac_namespace_continue_cash_input.json": "4978eebd26d840a0d1678ba96fdae302e844f08f932d6eaa0b2ed675470b869c",
     "p01_iac_namespace_continue_input.json": "5a63c58c8d4d9bbad3bcd1c02bddae2ba2c4439fe39be7b365bf98d5c96a83d3",
-    "p01_iac_namespace_continue_parent.json": "c6b8c9778d56b74b155f0176d6051b376963749643db1e22748953a0d4dadd28",
+    "p01_iac_namespace_continue_parent.json": "01a7af3266e292a2474fa6dacef3b2b42dcc7068509cc86858e6d2679d6a682c",
     "p01_iac_namespace_export.py": "7a3865789782758379223727eb0b70860c0c6f3c1f72725f1d8af3cc70be6288",
     "p01_iac_namespace_job.py": "40ca8a3f405318dfb05b6f13d914fb5a749013c559da93a6f6ad61718197bb4e",
     "p01_iac_namespace_probe.py": "67a47b4cda1ba632452fb1f6e3ecb380b82f7ff759610c5d54ecd026ebd14197",
@@ -590,5 +640,6 @@
     "system_campaign_zogenix_sensor.py": "df3de6905a23b06254044a8a0f08833d6f3a68290706114a873d8440eedb560e",
     "wwe-transfer-requirements.lock": "c7b745e40e87b591459c24e7acdc20fa13c2af6d8ee04b9c891a10d561a41d35"
   },
-  "stage": "campaign-p01-accurate-progress"
+  "stage": "campaign-p01-accurate-progress",
+  "successor_inputs": 14
 }
