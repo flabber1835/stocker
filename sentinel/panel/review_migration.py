@@ -63,4 +63,3 @@ def install(conn):
         require({k: v for k, v in rebound.items() if k != 'inventory'} ==
                 {k: v for k, v in payload.items() if k != 'inventory'},
                 'presentation migration changed prefix content')
-

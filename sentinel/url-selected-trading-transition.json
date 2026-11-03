@@ -776,7 +776,7 @@
     "panel/review.py": "058b66bb602b91274271698b47190b5072acd4a5a41ee654e03faa7cc978a396",
     "panel/review_controls.py": "02261d97b711282d8dc06964d4e1d6d269c1258a447f8b9885e812a760b8df3d",
     "panel/review_coverage_recovery.py": "f1675936c74ff852044aabd8b0becad4cc6557753de88c42051ccb3a39b46c09",
-    "panel/review_migration.py": "4f50c49f96d52d3bb0dd915372185a1e0f31bbebd8033bacf9c6ebe84e09f747",
+    "panel/review_migration.py": "05674a53d953069562eaeb06a3633608f76b3603a5958a134532e5e80f023a55",
     "panel/review_model.py": "9d23d7608e85fd029d3cc4f7f5ed9bd9c969971aef0330748962bf0c160ca4c4",
     "panel/review_schema.py": "ba6763222b607fb77a385a156cae7f3b5538f6d11bc18b2312e6390486c80b6e",
     "panel/review_store.py": "740ab17b446bfa7a012083db511aed66724fcb188b8ab99b095d33413ce01e54",

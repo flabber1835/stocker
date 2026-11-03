@@ -377,4 +377,3 @@ def test_concurrent_publication_boundary_ddl_is_blocked_and_removed_lock_is_kill
             check()
     else:
         check()
-
