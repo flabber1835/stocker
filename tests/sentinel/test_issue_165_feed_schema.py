@@ -47,6 +47,10 @@ class RecordingCursor:
             self._row = (self.conn.shared_lock_available,)
         elif "pg_try_advisory_xact_lock(" in text:
             self._row = (self.conn.exclusive_lock_available,)
+        elif "SELECT count(*) FROM pg_class" in text:
+            self._row = (0,)
+        elif "SELECT EXISTS(SELECT 1 FROM pg_proc" in text:
+            self._row = (False,)
         else:
             self._row = None
 
@@ -72,6 +76,11 @@ class RecordingConnection:
 
     def cursor(self):
         return RecordingCursor(self)
+
+    def execute(self, sql, params=None):
+        cursor = self.cursor()
+        cursor.execute(sql, params)
+        return cursor
 
     def commit(self):
         self.commits += 1

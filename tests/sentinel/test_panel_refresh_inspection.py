@@ -13,11 +13,11 @@ from sentinel.panel import authority_reader, model, render, sources
 NOW = datetime(2026, 10, 11, 14, 28, tzinfo=timezone.utc)
 
 
-def test_busy_cached_html_is_amber_with_original_timestamp_and_known_failure_red():
+def test_busy_cached_html_is_neutral_with_original_timestamp_and_known_failure_red():
     panel=model.Panel(rows=[model.Row('ready','Ready','yes',model.OK),
                             model.Row('broken','Broken','bad',model.FAIL)],now=NOW)
     html=render.render(panel,refresh_pending=True)
-    assert 'class="row warn" id="status-ready"' in html
+    assert 'class="row neutral" id="status-ready"' in html
     assert 'class="row fail" id="status-broken"' in html
     assert 'class="not-current"' not in html
     assert 'data-generated-at="2026-10-11T14:28:00+00:00"' in html

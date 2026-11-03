@@ -36,6 +36,7 @@ from sentinel.web_push import (
     subscription_id,
 )
 from tests.support.postgres import _EphemeralPostgres
+from tests.support.dashboard_review import reviewed_panel
 
 
 from datetime import date
@@ -404,7 +405,7 @@ def test_automation_steps_escalate_retry_and_require_clean_completion() -> None:
     ],
 )
 def test_headline_uses_the_same_recoverability_verdict(row, headline) -> None:
-    panel = model.Panel(rows=[row], now=NOW)
+    panel = reviewed_panel(rows=[row], now=NOW)
     assert headline in render(panel)
 
 
@@ -447,7 +448,8 @@ def test_home_screen_heartbeat_and_service_worker_fail_closed() -> None:
         rows=[model.Row("healthy", "Healthy", "CURRENT", OK)], now=NOW))
 
     assert "DASHBOARD HEARTBEAT · UPDATED 0s AGO" in html
-    assert "DASHBOARD HEARTBEAT LOST · STATUS STALE" in html
+    assert "DASHBOARD UPDATE UNAVAILABLE · LAST KNOWN VALUES" in html
+    assert 'badge.className = "state neutral"' in html
     assert 'window.addEventListener("offline"' in html
     assert "if (wentOffline){ invalidate(false, true); }" in html
     assert "if (wentOffline){ invalidate(true); }" in html
@@ -458,7 +460,9 @@ def test_home_screen_heartbeat_and_service_worker_fail_closed() -> None:
     assert "caches.open" not in SERVICE_WORKER
     assert "showNotification" in SERVICE_WORKER
     assert "clients.openWindow" in SERVICE_WORKER
-    assert "OPERATIONAL RED — OFFLINE" in SERVICE_WORKER
+    assert "STATUS NOT CURRENT — OFFLINE" in SERVICE_WORKER
+    assert "does not record a system incident" in SERVICE_WORKER
+    assert "OPERATIONAL RED — OFFLINE" not in SERVICE_WORKER
 
 
 def test_notification_permission_is_requested_only_inside_button_gesture() -> None:

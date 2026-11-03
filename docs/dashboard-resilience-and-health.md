@@ -183,6 +183,18 @@ version. Production has not been patched for this measurement.
 
 ## Qualification
 
+PR564's first full CI exposed predecessor test assumptions outside the initial
+targeted dashboard set: the old headline/offline colors, a preview double that
+did not accept the display-only loader, and schema doubles without the optional
+presentation-catalog reads. The repair changes those tests only. Historical
+financial source hashes are retained by subtracting the exact documented
+presentation overlay before checking the original predecessor bytes; every old
+catalog witness and authenticated financial contract remains unchanged. New
+counterexamples show that changes to the original schema, catalog checker or
+catalog entries still fail that comparison. The remaining and directly affected
+private rounds passed47 cases, including the existing removed-guard controls,
+with no failures or skips. New-head required CI remains mandatory.
+
 The bounded private qualification passed1,277 unique targeted Python cases across
 initial, remaining-only and affected-path rounds. Earlier failures and harness
 refusals were retained; no failed or skipped Python case remains unresolved.

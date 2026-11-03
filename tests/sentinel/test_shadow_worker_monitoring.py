@@ -105,7 +105,8 @@ def test_broken_worker_proof_cannot_establish_operational_green(state, monkeypat
     worker = row(state, monkeypatch)
     page = model.Panel(rows=[worker], now=check_at)
     assert page.operational in {model.FAIL, model.UNKNOWN}
-    assert 'OPERATIONAL RED' in render(page)
+    assert 'SYSTEM HEALTH RED — FAILED OR UNREADABLE CHECK' in render(page)
+    assert 'id="operational-state" class="state fail"' in render(page)
 
 
 def test_missing_process_during_ack_handoff_cannot_renew_or_be_adopted(state, monkeypatch):

@@ -25,7 +25,7 @@ def test_reader_describes_old_planned_records_separately_from_saved_working_orde
                      'positions': {'one': '1'}, 'orders': [], 'runtime_state': 'RUNNING'},
         commands={'counts': {'PLANNED': 8}, 'updated_at': NOW-timedelta(days=2)})
     monkeypatch.setattr(sources, '_latest_automation_cycle', lambda *_: None)
-    monkeypatch.setattr(paper_plan_preview, 'read', lambda *_: None)
+    monkeypatch.setattr(paper_plan_preview, 'read', lambda *_, **__: None)
     rows, errors = sources._runtime_rows('postgresql://fixture@isolated.invalid/fixture')
     row = next(row for row in rows if row.key == 'broker')
     assert errors == [] and row.status == model.OK
@@ -110,7 +110,7 @@ def test_raw_saved_plan_counts_and_final_checks_are_policy_neutral(monkeypatch, 
     preview = PlanPreview(cycle_id='cycle', plan_id='plan', decision_session=date(2026, 10, 22),
         effective_session=date(2026, 10, 23), execute_at=EXECUTE, created_at=NOW,
         observation_at=NOW, legs=legs)
-    monkeypatch.setattr(paper_plan_preview, 'read', lambda *_: preview)
+    monkeypatch.setattr(paper_plan_preview, 'read', lambda *_, **__: preview)
     # This copy-only fixture has no submitted broker orders. Exact prior-order
     # provenance is covered by the dedicated overview-data source tests.
     monkeypatch.setattr(sources, '_previous_buy_outcomes', lambda *a, **kw: [])

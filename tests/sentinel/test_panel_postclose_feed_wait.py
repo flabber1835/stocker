@@ -169,6 +169,8 @@ def build(monkeypatch, *, ingest_status='success', extra=(), errors=()):
 
 def test_real_build_json_html_and_health_share_queued_ingest_wait(monkeypatch):
     page=build(monkeypatch)
+    from tests.support.dashboard_review import reviewed_panel
+    page=replace(page,operator_review=reviewed_panel(now=NOW).operator_review)
     assert page.row('feed').status==model.WARN, 'queued post-close preparation remained red: '+page.row('feed').detail
     monkeypatch.setattr(app,'_config',lambda:(Path('/synthetic'),''))
     monkeypatch.setattr(app,'build_panel',lambda **kw:page)

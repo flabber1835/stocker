@@ -21,6 +21,9 @@ def component(monkeypatch):
                             extension_triggers={('sentinel_commands', 'known_extension')},
                             require_schema=lambda conn, **kw: True)
     monkeypatch.setattr(op, 'components', lambda: (value,))
+    # This unit double models a predecessor with no presentation addon. The
+    # addon has its own exact-catalog and orphan/refusal integration tests.
+    monkeypatch.setattr(op, 'presentation_components', lambda: ())
     monkeypatch.setattr(op, 'installation', lambda conn, **kw: None)
     return value
 
@@ -74,3 +77,25 @@ def test_absence_guard_has_a_falsifier(component, monkeypatch):
     with pytest.raises(pytest.fail.Exception):
         test_invalid_component_is_never_hidden(component, 'false')
     monkeypatch.setattr(op, '_require', original)
+
+
+@pytest.mark.parametrize('valid', [True, False])
+def test_optional_presentation_objects_require_independent_validation(component, monkeypatch, valid):
+    def validate(conn, **kwargs):
+        assert kwargs == {'allow_absent': True}
+        if not valid:
+            raise op.OperationalSchemaRefused('changed presentation catalog')
+        return True
+    optional = SimpleNamespace(extension_tables={'presentation_table'}, extension_triggers=set(),
+                               require_schema=validate)
+    monkeypatch.setattr(op, 'presentation_components', lambda: (optional,))
+    value = catalog()
+    value[0]['presentation_table'] = ('r',)
+    if valid:
+        filtered = op.legacy_catalog(object(), value)
+        assert 'presentation_table' not in filtered[0]
+        assert 'presentation_table' in value[0]
+        assert filtered[4]['other_table'] == value[4]['other_table']
+    else:
+        with pytest.raises(op.OperationalSchemaRefused, match='changed presentation catalog'):
+            op.legacy_catalog(object(), value)
