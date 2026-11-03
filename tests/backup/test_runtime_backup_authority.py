@@ -395,7 +395,8 @@ def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
                     assert len(owners) == 1
                     assert owners[0].name == '_refresh_unchanged_health'
                     assert ast.unparse(node.func) == 'journal.writer_lock'
-                if relative == 'sentinel/chain_progress_recovery.py':
+                if relative in {'sentinel/chain_progress_recovery.py',
+                                'sentinel/panel/review_coverage_recovery.py'}:
                     # This explicit administrative transfer preserves the old
                     # authenticated prefixes; it cannot exempt another caller
                     # or a financial writer in the same module.
@@ -410,6 +411,10 @@ def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
                             'schema.require_runtime_schema', 'automation_store.load_control',
                             '_source_digests', 'coverage._authenticated', 'coverage.head',
                             'coverage._inventory_material', 'coverage.write'} <= calls
+                    if relative == 'sentinel/panel/review_coverage_recovery.py':
+                        assert {'review_schema.require_schema',
+                                'operational_schema.require_idle_connection',
+                                'operational_ddl_epoch.current'} <= calls
                 if relative == 'sentinel/trading.py':
                     owners = [f for f in ast.walk(tree)
                               if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -423,7 +428,39 @@ def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
     assert found == {
         "sentinel/automation/store.py", "sentinel/paper/recovery.py",
         "sentinel/execution/executor.py", "sentinel/rolling_runtime.py",
-        "sentinel/chain_progress_recovery.py", "sentinel/trading.py"}
+        "sentinel/chain_progress_recovery.py", "sentinel/trading.py",
+        "sentinel/panel/review_coverage_recovery.py"}
+
+
+@pytest.mark.parametrize('remove_owner_guard', [False, True])
+def test_dashboard_recovery_exemption_is_function_scoped(monkeypatch, remove_owner_guard):
+    import ast
+    import inspect
+    original_parse = ast.parse
+
+    def parse(source, *args, **kwargs):
+        tree = original_parse(source, *args, **kwargs)
+        if 'sentinel.dashboard-ddl-coverage-witness/1' in source:
+            apply = next(n for n in tree.body
+                         if isinstance(n, ast.FunctionDef) and n.name == 'apply')
+            apply.name = 'unreviewed_recovery_caller'
+        return tree
+
+    check = test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair
+    if remove_owner_guard:
+        source = inspect.getsource(check)
+        guard = "assert len(owners) == 1 and owners[0].name == 'apply'"
+        assert source.count(guard) == 1
+        namespace = dict(globals())
+        exec(compile(source.replace(guard, 'assert True'), '<removed-recovery-owner-guard>', 'exec'),
+             namespace)
+        check = namespace[check.__name__]
+    monkeypatch.setattr(ast, 'parse', parse)
+    if remove_owner_guard:
+        check()
+    else:
+        with pytest.raises(AssertionError):
+            check()
 
 
 @pytest.mark.parametrize("event", ["advance", "failure"])
