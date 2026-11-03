@@ -109,3 +109,19 @@ the selected suffix receipt's public allowlist and nested stop validation in its
 existing coordinator; keep frozen shared export and encryption helper bytes.
 An actual encrypted export test must cover a receipt containing both stops.
 Known stopped worker evidence remains exportable when the separate review fails.
+
+## Reviewed signal-stop prefixes — November 3
+
+The latest three workers preserved partial results after graceful stop signals.
+Full hosted restore/prefix reviews and independent DATA reviews passed. Continue
+P09 after May 5, 2026 (1,404 transitions, 60 remaining), P10 after February 28,
+2025 (1,528 transitions, 356 remaining), and P11 after January 18, 2023 (1,249
+transitions, 886 remaining). These are diagnostic transitions; they admit no
+account performance or accurate-pass parent.
+
+Bind each new request to its own reviewed raw checkpoint, whole inventory,
+stopped worker/reviewer records and independent-review hash. Preserve the distinct
+strict financial parent, native horizon, every old journal/tail, P10's four inputs
+and single epoch, and the same approved discovery policies. Reuse completed
+qualification and resume only the next frozen source-axis session. Retain another
+truthful partial if stopped. P01 runs independently from its selected commit.
