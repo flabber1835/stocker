@@ -46,3 +46,13 @@ zero-value postconditions and full stopped financial review, then independently
 check the new rows and raw checkpoint/prefixes before admission. Do not replay
 formation, discovery, old qualifications or admitted financial sessions. A held
 case remains unsupported and must refuse.
+
+The first new-event check exhausted its 20-minute limit after completing the two
+REFERENCE sessions. Its actual exit was 137 without OOM; each canonical startup
+took approximately 6.5 minutes, and both modes require a zero-adoption startup
+and a transition startup. Allocate 40 minutes for this new future-event check.
+Preserve its partial evidence and repeat the incomplete check with the same
+direct whole-runtime comparisons: the first intermediate REFERENCE component
+was in the killed process's memory, while the saved final reference checkpoint
+alone cannot supply both components. Historical qualifications and admitted
+financial sessions remain reused. No equality predicate or value changes.

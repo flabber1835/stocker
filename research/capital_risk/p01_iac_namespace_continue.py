@@ -801,7 +801,7 @@ def expected_request():
                     and not parent.get('monthly_review_only',False) and not parent.get('stopped_review_only',False),
                 protocol_sha256=old['protocol_sha256'], capacity_source_sha256=old['capacity_source_sha256'],
                 quote_descriptor=old['quote_descriptor'], old_qualification_reexecuted=False,
-                financial_wait_seconds=9000, qualification_wait_seconds=1200, review_wait_seconds=1200,
+                financial_wait_seconds=9000, qualification_wait_seconds=2400, review_wait_seconds=1200,
                 initial_min_disk_bytes=12*1024**3, preworker_min_disk_bytes=10*1024**3,
                 preworker_min_memory_bytes=10*1024**3, production_contacted=False,
                 sources={name: sha256_file(HERE / name) for name in names})

@@ -114,6 +114,7 @@ def test_explicit_future_request_and_qualification_gate():
     r=m.expected_request();spec=m.read(CAP/m.SPEC)
     assert (r['original_sessions'],r['remaining_sessions'],r['original_inputs'],r['successor_inputs'])==(1979,177,14,15)
     assert r['new_input_file']==m.EXIT_INPUT and r['new_event_qualification_required']
+    assert r['qualification_wait_seconds']==2400
     proof=dict(passed=True,parent_sha256=spec['outer_sha256'],old_qualification_reexecuted=False,
         qualification_state_adopted=False,components=[{},{}],source_exit_input_sha256=r['new_input_sha256'],
         source_exit_applications=[{}],source_exit_zero_value_checks=[dict(session='2025-11-14',no_source_financial_value_added=True)])
