@@ -101,6 +101,33 @@ def test_installed_pr563_source_and_economic_history_are_preserved():
     assert basis.predecessor_view({**_actual(),'unknown.py':'f'*64},previous=previous)!=previous
 
 
+def test_installed_pr564_source_is_exact_while_complete_repair_changes_are_sealed():
+    previous = basis._profile()['retained_predecessors'][basis.DASHBOARD_PREDECESSOR_REVISION]['files']
+    assert len(previous) == 440
+    assert admission.source_closure(previous) == 'a84f981e687970d230b197025a0b4260e9587aaf6381a7ecc64022761cfa02fa'
+    assert basis.predecessor_view(_actual(), previous=previous) == previous
+    for key in ('panel/review_migration.py', 'panel/review_coverage_recovery.py'):
+        changed = {**_actual(), key: 'f' * 64}
+        assert basis.predecessor_view(changed, previous=previous) is changed
+
+
+@pytest.mark.parametrize('defect', ['changed', 'missing', 'extra', 'checker'])
+def test_repinning_cannot_replace_installed_pr564(tmp_path, monkeypatch, defect):
+    value = json.loads(basis.PROFILE.read_bytes())
+    prior = value['retained_predecessors'][basis.DASHBOARD_PREDECESSOR_REVISION]
+    if defect == 'changed': prior['files']['panel/review_schema.py'] = 'f' * 64
+    elif defect == 'missing': prior['files'].pop('panel/review_schema.py')
+    elif defect == 'extra': prior['files']['unknown.py'] = 'f' * 64
+    else: prior['files']['url_selected_source_basis.py'] = 'f' * 64
+    prior['source_sha256'] = basis._closure(prior['files'])
+    raw = json.dumps(value, sort_keys=True).encode()
+    path = tmp_path / 'changed-dashboard-predecessor.json'; path.write_bytes(raw)
+    monkeypatch.setattr(basis, 'PROFILE', path)
+    monkeypatch.setattr(basis, 'PROFILE_SHA256', hashlib.sha256(raw).hexdigest())
+    with pytest.raises(ValueError, match='RETAINED_PREDECESSOR_CHANGED'):
+        basis.predecessor_view(_actual(), previous=prior['files'])
+
+
 @pytest.mark.parametrize('defect',['changed','missing','extra','checker'])
 def test_repinning_cannot_replace_the_installed_pr563_predecessor(tmp_path,monkeypatch,defect):
     value=json.loads(basis.PROFILE.read_bytes())
