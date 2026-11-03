@@ -306,6 +306,10 @@ in that same immutable sizing authority's broker observation. Existing canonical
 labels take precedence. Do not query the broker or infer an instrument from a
 different observation to fill a display label.
 
+The bounded dated-intent memo must retain that position instrument's symbol
+alongside its permanent security ID. Its canonical admission, row-version
+recheck, byte bound, expiry and defensive-copy behavior remain unchanged.
+
 If a missing label has no nonblank string symbol in the retained position,
 refuse that preview rather than present an internal security UUID as a ticker.
 The fallback changes display labels only: permanent security IDs, quantities,
@@ -313,7 +317,8 @@ opening intents, plan fingerprints, dated observations and saved authority remai
 unchanged. Historical mirror and trial verdicts keep their original scope.
 
 An explicitly owner-authorized local application of this display-only change
-may overlay this one module in the panel container and restart only that panel.
+may overlay the preview and its dated-intent memo modules in the panel container
+and restart only that panel.
 Retain the original bytes and exact base-image/container identity, require the
 tested source delta, and record the overlay commit and file hashes separately
 from the signed base image. Preserve the control generation, admitted plan,

@@ -88,6 +88,34 @@ def test_saved_canonical_label_takes_precedence_over_position_symbol():
     assert next(item for item in value.legs if item.security_id=='two').ticker=='TWO'
 
 
+def test_exited_position_symbol_survives_the_panel_intent_memo():
+    from sentinel.panel.intent_memo import projection
+    selected,authority=original_authority()
+    authority['decision_session']=selected['decision_session'].isoformat()
+    selected['target_basket'].pop('two')
+    authority['tickers'].pop('two')
+    authority['broker_observation']['positions'][1]['instrument']['symbol']='EXITED'
+    original=deepcopy(authority)
+    memo=projection(authority)
+    leg=next(item for item in preview.project_original_intent(selected,memo).legs
+             if item.security_id=='two')
+    assert (leg.ticker,leg.action,leg.change_quantity)==('EXITED','SELL',Decimal(-3))
+    assert authority==original
+
+
+def test_memo_symbol_omission_is_detected(monkeypatch):
+    from sentinel.panel import intent_memo
+    original=intent_memo.projection
+    def stripped(value):
+        result=original(value)
+        for item in result['broker_observation']['positions']:
+            item['instrument'].pop('symbol',None)
+        return result
+    monkeypatch.setattr(intent_memo,'projection',stripped)
+    with pytest.raises(ValueError,match='^original position ticker is unavailable$'):
+        test_exited_position_symbol_survives_the_panel_intent_memo()
+
+
 @pytest.mark.parametrize('symbol',[None,'','   ',42,False])
 def test_missing_original_position_label_refuses(symbol):
     selected,authority=original_authority()

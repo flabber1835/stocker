@@ -35,7 +35,8 @@ def projection(value):
         decision_session=value['decision_session'], tickers=dict(value['tickers']),
         broker_observation=dict(completeness=observation['completeness'],
             account_identity=observation['account_identity'], observed_at=observation['observed_at'],
-            positions=[dict(instrument=dict(security_id=item['instrument']['security_id']),
+            positions=[dict(instrument=dict(security_id=item['instrument']['security_id'],
+                                            symbol=item['instrument'].get('symbol')),
                             quantity=item['quantity']) for item in observation['positions']]))
 
 
