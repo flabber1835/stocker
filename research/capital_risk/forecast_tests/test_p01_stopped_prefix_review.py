@@ -50,7 +50,7 @@ def test_actual_previous_file_lookup_is_reproduced_and_removed(tmp_path):
 def test_actual_worker_refuses_financial_and_qualification_before_private_imports(monkeypatch,mode):
     import full_system_core
     monkeypatch.setattr(full_system_core,'hosted',lambda:None)
-    monkeypatch.setattr(p,'validate_request',lambda path:None)
+    monkeypatch.setattr(p,'validate_request',lambda path:dict(new_event_qualification_required=False))
     monkeypatch.setattr(p,'read',lambda path:dict(stopped_review_only=True))
     with pytest.raises(ValueError,match='SELECTION_FORBIDS_FINANCE_AND_QUALIFICATION'):p.worker(mode)
 
@@ -58,7 +58,7 @@ def test_actual_worker_refuses_financial_and_qualification_before_private_import
 def test_finance_falsifier_reaches_sentinel_when_actual_review_only_guard_removed(monkeypatch):
     import full_system_core
     monkeypatch.setattr(full_system_core,'hosted',lambda:None)
-    monkeypatch.setattr(p,'validate_request',lambda path:None)
+    monkeypatch.setattr(p,'validate_request',lambda path:dict(new_event_qualification_required=False))
     selected=dict(stopped_review_only=True,financial_predecessor_admitted=True,monthly_review_only=False,
                   repairs=[{}]*13,root_admission_sha256='SYNTHETIC')
     monkeypatch.setattr(p,'read',lambda path:selected)

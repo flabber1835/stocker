@@ -12,6 +12,7 @@ from decimal import Decimal, ROUND_DOWN
 from fractions import Fraction
 import gzip
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -28,6 +29,8 @@ REQUEST = 'p01_iac_namespace_continue_request.json'
 SPEC = 'p01_iac_namespace_continue_parent.json'
 INPUT = 'p01_iac_namespace_continue_input.json'
 SUPPLEMENT = 'p01_iac_namespace_continue_cash_input.json'
+EXIT_INPUT = 'p01_iac_namespace_continue_source_exit_input.json'
+EXIT_SID = '467726443352731838'
 MDP = '1072510367992802359'
 SCHEMA = 'research.p01-estimated-fraction-input/1'
 STAGE = 'campaign-p01-accurate-progress'
@@ -303,6 +306,128 @@ class UnheldCashCodec:
         self.repair.load_repair=self.original_load;self.backtest.load_repair=self.saved_load;self.backtest.apply_repair=self.original_apply
 
 
+class SourceExitInput(BaseModel):
+    model_config=ConfigDict(extra='forbid',strict=True,frozen=True)
+    schema_id: Literal['research.p01-unheld-source-exit-input/1']=Field(alias='schema')
+    earliest_affected_session: Literal['2025-11-14']
+    predecessor_checkpoint_sha256: Literal['1dc6a1c7d477f4c40d226f89aff26b38f5e944d86eae90a2f43b0867a7a41970']
+    parent_outer_sha256: Literal['06b66be0163a88446370d2e34700f08ab4f3080ce645cf68c78ea8b5ae0894fd']
+    parent_state_sha256: Literal['5aacbdd57c5d3d5ad6291c1bed57c3c7202fdb22c623a7141cc135b216bb2810']
+    root_admission_sha256: Literal['1765b4dde93062e1bca5e19ba4b1c9734efcab2e053de3399c84168144d3f36a']
+    source_security_id: Literal[EXIT_SID]
+    source_ticker: Literal['LNWO']
+    native_term_sha256: Literal['6cc2c176c4e2289531450e4bbfc11a0434114506766daed1310363a9ad6aff8d']
+    retained_source_session: Literal['2025-11-13']
+    retained_raw_quote_sha256: Literal['4dac7b2fbc872f09880871131fee7dbbdce97df5e1d4bb5a1fcc6e6c8285d3f0']
+    financial_sources_sha256: Literal['b925ecd2d5f9d6cbdb2017f971d42037622acfc3c6b7e3ba84427a70e3f0110a']
+    treatment: Literal['UNHELD_SOURCE_EXIT_AT_LAST_RETAINED_RAW_CLOSE_NOT_STATUTORY_CASH']
+    scope: Literal['NEVER_HELD_NO_INTENT_RESERVATION_OR_CLAIM']
+    legal_identity_admitted: Literal[False]
+    execution_price_claimed: Literal[False]
+    held_settlement_supported: Literal[False]
+    primary_context_urls: list[str]
+    _sha256: str|None=PrivateAttr(default=None)
+    @property
+    def sha256(self):return self._sha256
+
+
+def exit_identity(value):
+    if isinstance(value,dict):return any(exit_identity(k) or exit_identity(v) for k,v in value.items())
+    if isinstance(value,(list,tuple)):return any(exit_identity(v) for v in value)
+    return isinstance(value,str) and value in (EXIT_SID,'LNWO')
+
+
+def source_exit_scope(state,*,history=True):
+    value=state if isinstance(state,dict) else dict(wealth_core=state.wealth_core,pending=state.pending,ledger=state.ledger)
+    wealth=value['wealth_core'];ledger=value['ledger']
+    need(not exit_identity(wealth['episodes']) and not exit_identity(value['pending']), 'SOURCE_EXIT_HOLDING_OR_INTENT_UNSUPPORTED')
+    need(not exit_identity(wealth['slots']) and not exit_identity(ledger['receivables']), 'SOURCE_EXIT_RESERVATION_OR_RECEIVABLE_UNSUPPORTED')
+    if history:need(not exit_identity(ledger['events']), 'SOURCE_EXIT_HISTORICAL_OWNERSHIP_UNSUPPORTED')
+    for name in ('unresolved_terminals','terminal_pending_terms','terminal_pending_sessions','terminal_carry_audit'):
+        need(not exit_identity(wealth.get(name,{})), 'SOURCE_EXIT_PRIOR_TERMINAL_CLAIM_UNSUPPORTED')
+
+
+def retained_exit_quote(origin,document):
+    series=origin['run']['state']['feed']['series'][EXIT_SID]
+    need(series['security_id']==EXIT_SID and series['ticker']==document.source_ticker
+         and len(series['sessions'])==len(series['raw_closes']) and series['sessions']
+         and series['sessions'][-1]==document.retained_source_session, 'SOURCE_EXIT_EXACT_RETAINED_SOURCE_DATE_AND_ID')
+    quote=dict(security_id=series['security_id'],ticker=series['ticker'],session=series['sessions'][-1],raw_close=series['raw_closes'][-1])
+    price=quote['raw_close']
+    need(type(price) in (int,float) and math.isfinite(price) and price>0
+         and digest(quote)==document.retained_raw_quote_sha256, 'SOURCE_EXIT_EXACT_POSITIVE_RAW_QUOTE_PREIMAGE')
+    return price
+
+
+class SourceExitCodec:
+    def __init__(self,old,parent):
+        self.expected_raw=(HERE/EXIT_INPUT).read_bytes();self.document=SourceExitInput.model_validate(json.loads(self.expected_raw))
+        doc=self.document;origin=parent if parent['sha256']==doc.parent_outer_sha256 else None
+        if origin is None:
+            for path in old.rglob(doc.parent_outer_sha256+'.json.gz'):
+                candidate=cp_read(path)
+                if candidate.get('sha256')==doc.parent_outer_sha256:origin=candidate;break
+        need(origin is not None and origin['source_cursor']==doc.retained_source_session
+             and origin['run']['checkpoint_sha256']==doc.predecessor_checkpoint_sha256
+             and origin['run']['state_sha256']==doc.parent_state_sha256
+             and digest(origin['run']['state'])==doc.parent_state_sha256
+             and digest({k:v for k,v in origin.items() if k!='sha256'})==doc.parent_outer_sha256
+             and digest(origin['base']['sources'])==doc.financial_sources_sha256,
+             'SOURCE_EXIT_EXACT_ADMITTED_ORIGIN_STATE_AND_SOURCE_EPOCH')
+        source_exit_scope(origin['run']['state']);self.origin=origin
+        self.price=retained_exit_quote(origin,doc);self.objects=[];self.applied=[];self.zero_value_checks=[]
+
+    def load(self,path,*,resume_session,predecessor_checkpoint_sha256):
+        raw=Path(path).read_bytes()
+        if json.loads(raw).get('schema')!='research.p01-unheld-source-exit-input/1':
+            return self.original_load(path,resume_session=resume_session,predecessor_checkpoint_sha256=predecessor_checkpoint_sha256)
+        need(raw==self.expected_raw and resume_session==self.origin['source_cursor']
+             and predecessor_checkpoint_sha256==self.document.predecessor_checkpoint_sha256,
+             'SOURCE_EXIT_EXACT_FUTURE_INPUT_AND_ORIGINAL_DESCRIPTOR')
+        obj=SourceExitInput.model_validate(json.loads(raw));obj._sha256=sha(raw);self.objects.append(obj);return obj
+
+    def apply(self,packet,loaded):
+        if not isinstance(loaded,SourceExitInput):return self.original_apply(packet,loaded)
+        need(any(loaded is obj for obj in self.objects),'SOURCE_EXIT_REGISTERED_TYPED_INPUT')
+        if packet.day!=loaded.earliest_affected_session:return packet
+        from system_campaign_discovery_context import material
+        from dataclasses import fields
+        native,=[term for term in packet.terminal if term.security_id==EXIT_SID]
+        need(digest(material(native))==loaded.native_term_sha256,'SOURCE_EXIT_EXACT_NATIVE_TERMINAL_PREIMAGE')
+        need(not any(exit_identity(material(t)) for t in packet.terminal if t is not native)
+             and not any(exit_identity(material(s)) for s in packet.spins), 'SOURCE_EXIT_NO_OTHER_DELIVERY_OR_SPINOFF')
+        changed=replace(native,cash_per_share=self.price,reference='MODEL_UNHELD_SOURCE_EXIT_LAST_RETAINED_RAW_CLOSE:'+loaded.retained_raw_quote_sha256)
+        result=replace(packet,terminal=tuple(changed if t is native else t for t in packet.terminal))
+        need(all(getattr(packet,f.name) is getattr(result,f.name) for f in fields(packet) if f.name!='terminal')
+             and all(getattr(native,f.name)==getattr(changed,f.name) for f in fields(native) if f.name not in ('cash_per_share','reference')),
+             'SOURCE_EXIT_ONLY_DECLARED_TERMINAL_FIELDS_CHANGE')
+        proof=dict(session=packet.day,native=material(native),compiled=material(changed),input_sha256=loaded.sha256,
+                   retained_raw_quote_sha256=loaded.retained_raw_quote_sha256,treatment=loaded.treatment,held_settlement_supported=False)
+        if proof not in self.applied:self.applied.append(proof)
+        return result
+
+    def before(self,state,day):
+        if day!=self.document.earliest_affected_session:return None
+        need(self.objects and len(self.applied)==1,'SOURCE_EXIT_ACTUAL_REGISTERED_INPUT_APPLIED_ONCE')
+        source_exit_scope(state);return len(state.ledger['events'])
+
+    def after(self,state,day,count):
+        if count is None:return
+        added=[event for event in state.ledger['events'][count:] if exit_identity(event)]
+        need(all(event['cash_delta']==0 and event['shares_delta']==0 for event in added), 'SOURCE_EXIT_CANNOT_ADD_PORTFOLIO_CASH_OR_SHARES')
+        source_exit_scope(state,history=False)
+        self.zero_value_checks.append(dict(session=day,no_source_financial_value_added=True))
+
+    def __enter__(self):
+        from research.pooled_vacancy_funding import backtest,repair
+        self.backtest,self.repair=backtest,repair
+        self.original_load,self.saved_load=repair.load_repair,backtest.load_repair;self.original_apply=backtest.apply_repair
+        repair.load_repair=backtest.load_repair=self.load;backtest.apply_repair=self.apply;return self
+
+    def __exit__(self,*args):
+        self.repair.load_repair=self.original_load;self.backtest.load_repair=self.saved_load;self.backtest.apply_repair=self.original_apply
+
+
 class SourceGate:
     def __init__(self, parent, old, out):
         self.parent = parent; self.old = old; self.out = out; self.allowed = {parent['sha256']: parent}
@@ -358,12 +483,13 @@ def hydrate(old, out, spec, rows):
     need(tenth['quote_capsule'] == descriptor and tenth['terms']['right_quote'] == quote, 'CONTINUE_RETAINED_AUTHENTICATED_QUOTE')
     with old_inputs(old, {**parent, 'repairs': parent['repairs'][:9]}, out / 'contexts'), \
          CelgCodec(native(OLD, CELG), tenth), BatchCodec(source_terms()), UnitCodec(rows, origin) as unit, \
-         EstimateCodec(input_origin(old, parent)) as estimate, UnheldCashCodec(old,parent) as cash, SourceGate(parent, old, out) as gate:
+         EstimateCodec(input_origin(old, parent)) as estimate, UnheldCashCodec(old,parent) as cash, \
+         SourceExitCodec(old,parent) as source_exit, SourceGate(parent, old, out) as gate:
         for entry in parent['repairs']:
             obj = backtest.load_repair(old / 'book/repairs' / entry['filename'], resume_session=entry['resume_session'],
                                       predecessor_checkpoint_sha256=entry['predecessor_checkpoint_sha256'])
             need(obj.sha256 == entry['sha256'], 'CONTINUE_ALL_TWELVE_ORIGINAL_CODECS_IN_ORDER')
-        yield parent, unit, estimate, gate, mapping, cash
+        yield parent, unit, estimate, gate, mapping, cash, source_exit
 
 
 
@@ -485,7 +611,7 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
     wanted = [d for d in axis() if parent['source_cursor'] < d <= END]
     need(len(wanted) == 2156-parent['completed'] and wanted[0] == spec.get('next_session', EVENT) and wanted[-1] == END, 'CONTINUE_EXACT_REMAINING_SOURCE_AXIS')
     with hydrate(old, out, spec, rows) as values:
-        parent, unit, estimate, gate, mapping, cash = values
+        parent, unit, estimate, gate, mapping, cash, source_exit = values
         args = arguments(out / 'book', True); args[args.index('--policy') + 1] = parent['base']['policy']
         source_args = ['--source-successor', str(old / 'source-successor.json')]
         if len(parent['repairs']) == 12:
@@ -501,10 +627,12 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
             zero = journal.read_checkpoint(out / 'book/checkpoint.json.gz'); adoption = gate.allow(zero, loaded.sha256)
             need(code == 0, 'CONTINUE_CANONICAL_FUTURE_INPUT_ZERO')
         else:
-            need(len(parent['repairs']) in (13,14) and len(estimate.objects) > 0, 'CONTINUE_REGISTERED_EXISTING_ESTIMATE')
+            need(len(parent['repairs']) in (13,14,15) and len(estimate.objects) > 0, 'CONTINUE_REGISTERED_EXISTING_ESTIMATE')
             loaded = estimate.objects[-1]; adoption = None
-            if sha((HERE/SUPPLEMENT).read_bytes()) not in {entry['sha256'] for entry in parent['repairs']}:
-                input_path=out/'unheld-composite-cash-input.json';input_path.write_bytes((HERE/SUPPLEMENT).read_bytes())
+            new_input=expected_request()['new_input_file']
+            if new_input is not None:
+                need(new_input in (SUPPLEMENT,EXIT_INPUT),'CONTINUE_EXPLICIT_SINGLE_FUTURE_INPUT')
+                input_path=out/new_input;input_path.write_bytes((HERE/new_input).read_bytes())
                 loaded=backtest.load_repair(input_path,resume_session=parent['source_cursor'],predecessor_checkpoint_sha256=parent['run']['checkpoint_sha256'])
                 earliest=loaded.earliest_affected_session
                 with PauseAfterAdoption(parent,out/'book/checkpoint.json.gz',loaded.sha256,earliest):
@@ -518,8 +646,10 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
         original_advance = guard.advance; components = []
         def advance(run, published):
             source_events=cash.before(run.state,published.session)
+            exit_events=source_exit.before(run.state,published.session)
             following = original_advance(run, published)
             cash.after(following.state,published.session,source_events)
+            source_exit.after(following.state,published.session,exit_events)
             if published.session in wanted[:2]:
                 cp = runtime.checkpoint(following)
                 restored = runtime.restore(cp, policy=following.policy, input_sha256=following.input_sha256)
@@ -540,6 +670,7 @@ def branch(old, out, spec, rows, *, mode='FAST', maximum=None, qualified=None):
                       canonical_return_code=code, parent_sha256=parent['sha256'], input_sha256=loaded.sha256,
                       input_adoption=adoption, estimated_treatment=estimate.value,
                       unheld_cash_applications=cash.applied,unheld_cash_zero_value_checks=cash.zero_value_checks,
+                      source_exit_applications=source_exit.applied,source_exit_zero_value_checks=source_exit.zero_value_checks,
                       estimated_applications=estimate.applied, original_twelve_inputs_unchanged=current['repairs'][:12] == parent['repairs'][:12],
                       all_admitted_inputs_unchanged=current['repairs'][:len(parent['repairs'])] == parent['repairs'],
                       financial_source_changed=False, qualification_state_adopted=False, production_contacted=False,
@@ -557,9 +688,15 @@ def qualification(old, out, spec, rows):
     need(len(ref) == len(actual) == 2 and ref == actual and r == f
          and r['new_transitions'] == 2, 'CONTINUE_TARGETED_FRACTION_REFERENCE_FAST_EXACT')
     # Only the new event qualification is performed. No old Q is replayed.
-    result = dict(schema='research.p01-estimated-event-qualification/1', passed=True, parent_sha256=OUTER,
+    result = dict(schema='research.p01-estimated-event-qualification/1', passed=True, parent_sha256=spec['outer_sha256'],
                   components=actual, estimated_treatment=r['estimated_treatment'], financial_authority=False,
                   old_qualification_reexecuted=False, qualification_state_adopted=False)
+    if expected_request()['new_input_file']==EXIT_INPUT:
+        need(len(r['source_exit_applications'])==1 and r['source_exit_zero_value_checks']==[
+            dict(session='2025-11-14',no_source_financial_value_added=True)],'SOURCE_EXIT_QUALIFIED_ACTUAL_USE_ZERO_VALUE')
+        result['source_exit_input_sha256']=sha((HERE/EXIT_INPUT).read_bytes())
+        result['source_exit_applications']=r['source_exit_applications']
+        result['source_exit_zero_value_checks']=r['source_exit_zero_value_checks']
     (out / 'qualification.json.gz').write_bytes(gzip.compress(encoded(result), compresslevel=1))
 
 
@@ -609,6 +746,14 @@ def review(old, evidence, out, spec, rows):
                       checkpoint_sha256=current['sha256'], estimated_treatment=read(evidence / 'accurate-outcome.json')['estimated_treatment'],
                       complete=current['completed'] == 2156 and current['source_cursor'] == END, financial_authority=False)
         result['monthly_reproduction'] = monthly_reproduction(evidence, parent)
+        if expected_request()['new_input_file']==EXIT_INPUT:
+            proof=json.loads(gzip.decompress((evidence/'new-event-qualification/qualification.json.gz').read_bytes()))
+            validate_event_qualification(proof,spec,expected_request())
+            outcome=read(evidence/'accurate-outcome.json')
+            need(outcome['source_exit_applications']==proof['source_exit_applications']
+                 and outcome['source_exit_zero_value_checks']==proof['source_exit_zero_value_checks'],
+                 'SOURCE_EXIT_FRESH_FINANCIAL_ACTUAL_USE_EQUALS_QUALIFIED_ZERO_VALUE_EVENT')
+            result['source_exit_event_qualification_and_actual_use_verified']=True
         if spec.get('stopped_review_only'):
             target=spec['review_target']
             need(current['sha256']==target['outer_sha256'] and current['completed']==target['completed']
@@ -624,16 +769,17 @@ def review(old, evidence, out, spec, rows):
 def expected_request():
     from seal import sha256_file
     old = read(HERE / 'p01_iac_stopped_review_request.json')
-    names = sorted(set(old['sources']) | {'p01_iac_stopped_review_request.json', Path(__file__).name, SPEC, INPUT, SUPPLEMENT})
+    names = sorted(set(old['sources']) | {'p01_iac_stopped_review_request.json', Path(__file__).name, SPEC, INPUT, SUPPLEMENT, EXIT_INPUT})
     parent = read(HERE / SPEC)
-    supplement_sha=sha256_file(HERE/SUPPLEMENT)
-    new_input=SUPPLEMENT if supplement_sha not in {entry['sha256'] for entry in parent['repairs']} else None
+    admitted={entry['sha256'] for entry in parent['repairs']}
+    new_input=next((name for name in (SUPPLEMENT,EXIT_INPUT) if sha256_file(HERE/name) not in admitted),None)
     unit_facts=read(HERE/'p01_iac_unit_facts.json')
     return dict(schema='research.p01-accurate-progress-request/1', arm='P01', stage=STAGE,
                 parent_sha256=parent['outer_sha256'], root_admission_sha256=parent['root_admission_sha256'], first_session=parent.get('next_session', EVENT), endpoint=END,
                 original_sessions=parent.get('completed', 697), remaining_sessions=2156-parent.get('completed', 697), estimated_fractional_cash=True,
                 original_inputs=len(parent['repairs']),successor_inputs=len(parent['repairs'])+int(new_input is not None),
-                new_input_file=new_input,new_input_sha256=supplement_sha if new_input else None,
+                new_input_file=new_input,new_input_sha256=sha256_file(HERE/new_input) if new_input else None,
+                new_event_qualification_required=len(parent['repairs'])==12 or new_input==EXIT_INPUT,
                 forward_unit_domain=dict(through=END,source_members=unit_facts['source_members'],
                     per_use_requirement='EXACT_NATIVE_PREIMAGE_CHRONOLOGICAL_FACTOR_FULL_WINDOW_AND_ANCHOR'),
                 monthly_review_only=parent.get('monthly_review_only',False),
@@ -736,7 +882,7 @@ def host(args):
         if review_target is not None: freeze(review_target)
         os.environ.pop('GH_TOKEN', None)
         if request['stopped_review_only']:
-            for filename in (SPEC,INPUT,SUPPLEMENT,REQUEST):shutil.copyfile(HERE/filename,out/filename)
+            for filename in (SPEC,INPUT,SUPPLEMENT,EXIT_INPUT,REQUEST):shutil.copyfile(HERE/filename,out/filename)
             name='capital-system-p01-iac-namespace-review-'+os.environ['GITHUB_RUN_ID']+'-1'
             receipt['status']='FULL_STOPPED_FINANCIAL_REVIEW_ONLY_RUNNING';write_receipt(args.output,receipt)
             resources(request,temp)
@@ -760,16 +906,16 @@ def host(args):
             raise SystemExit(0 if receipt['status']=='MONTHLY_REVIEW_PASSED_PENDING_ROOT' else 2)
         need(request['financial_resume_authorized'] is True, 'ROOT_FINANCIAL_ADMISSION_REQUIRED_BEFORE_CONTINUATION')
         qual = temp / 'p01-progress-new-event-qualification'; qual.mkdir(mode=0o700)
-        for name in (SPEC, INPUT, REQUEST): shutil.copyfile(HERE / name, out / name)
-        if len(read(HERE / SPEC)['repairs']) == 12:
+        for name in (SPEC, INPUT, SUPPLEMENT, EXIT_INPUT, REQUEST): shutil.copyfile(HERE / name, out / name)
+        if request['new_event_qualification_required']:
             name = 'capital-system-p01-iac-namespace-qualify-' + os.environ['GITHUB_RUN_ID'] + '-1'
-            resources(request, temp); receipt['status'] = 'NEW_FRACTION_EVENT_QUALIFYING'; write_receipt(args.output, receipt)
+            resources(request, temp); receipt['status'] = 'NEW_FUTURE_EVENT_QUALIFYING'; write_receipt(args.output, receipt)
             stop = stopped_run(command(name, 'qualify', source, frozen, qual, old, capsule, old), name, qual, deadline=request['qualification_wait_seconds'], inspector=inspect)
             known = True
             shutil.copytree(qual, out / 'new-event-qualification')
             need(stop['exit_code'] == 0 and not stop['oom_killed'], 'CONTINUE_NEW_EVENT_QUALIFICATION_REFUSED')
             proof = json.loads(gzip.decompress((qual / 'qualification.json.gz').read_bytes()))
-            need(proof['passed'] is True and proof['parent_sha256'] == OUTER and proof['old_qualification_reexecuted'] is False, 'CONTINUE_NEW_EVENT_QUALIFICATION')
+            validate_event_qualification(proof,read(HERE/SPEC),request)
             freeze(qual); resources(request, temp)
         else:
             (qual / 'reused-qualification.json').write_bytes(encoded(dict(root_admission_sha256=read(HERE / SPEC)['root_admission_sha256'], old_qualification_reexecuted=False)))
@@ -796,9 +942,19 @@ def host(args):
     raise SystemExit(0 if receipt['status'] == 'FINANCIAL_COMPLETE_HOSTED_REVIEWED_PENDING_CLIENT' else 2)
 
 
+def validate_event_qualification(proof,spec,request):
+    need(proof['passed'] is True and proof['parent_sha256']==spec['outer_sha256']
+         and proof['old_qualification_reexecuted'] is False and proof['qualification_state_adopted'] is False
+         and len(proof['components'])==2,'CONTINUE_NEW_EVENT_QUALIFICATION')
+    if request['new_input_file']==EXIT_INPUT:
+        need(proof['source_exit_input_sha256']==request['new_input_sha256']
+             and len(proof['source_exit_applications'])==1 and proof['source_exit_zero_value_checks']==[
+                 dict(session='2025-11-14',no_source_financial_value_added=True)], 'SOURCE_EXIT_EXACT_NEW_EVENT_PROOF_BEFORE_FINANCE')
+
+
 def worker(mode):
     from full_system_core import hosted
-    hosted(); validate_request(HERE / REQUEST)
+    hosted(); request=validate_request(HERE / REQUEST)
     spec = read(HERE / SPEC); old = Path('/old'); out = Path('/out')
     need(not spec.get('stopped_review_only') or mode=='review', 'STOPPED_REVIEW_SELECTION_FORBIDS_FINANCE_AND_QUALIFICATION')
     need((mode == 'monthly') == spec.get('monthly_review_only', False), 'EXACT_REQUESTED_REPORTING_OR_FINANCIAL_ROLE')
@@ -815,9 +971,9 @@ def worker(mode):
     if mode == 'qualify': qualification(old, out, spec, rows)
     elif mode == 'economic':
         components = None
-        if len(spec['repairs']) == 12:
+        if request['new_event_qualification_required']:
             proof = json.loads(gzip.decompress(Path('/evidence/qualification.json.gz').read_bytes()))
-            need(proof['passed'] is True and proof['parent_sha256'] == OUTER, 'CONTINUE_PROOF_BEFORE_FINANCE')
+            validate_event_qualification(proof,spec,request)
             components = proof['components']
         else:
             need(read(Path('/evidence/reused-qualification.json'))['root_admission_sha256'] == spec['root_admission_sha256'], 'CONTINUE_ADMITTED_QUALIFICATION_REUSE')
