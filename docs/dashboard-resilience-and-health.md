@@ -311,3 +311,13 @@ refuse that preview rather than present an internal security UUID as a ticker.
 The fallback changes display labels only: permanent security IDs, quantities,
 opening intents, plan fingerprints, dated observations and saved authority remain
 unchanged. Historical mirror and trial verdicts keep their original scope.
+
+An explicitly owner-authorized local application of this display-only change
+may overlay this one module in the panel container and restart only that panel.
+Retain the original bytes and exact base-image/container identity, require the
+tested source delta, and record the overlay commit and file hashes separately
+from the signed base image. Preserve the control generation, admitted plan,
+canonical state and all other services. Local acceptance must verify the exact
+overlay as well as the existing base-runtime checks; it must not relabel the
+overlay as signed base-image content. A failed operation restores only its own
+known bytes and never overwrites an unknown concurrent change.
