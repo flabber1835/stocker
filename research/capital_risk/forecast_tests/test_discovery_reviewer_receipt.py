@@ -26,6 +26,15 @@ def test_reviewer_receipt_has_actual_encrypted_export_not_only_marker(tmp_path,m
     assert json.loads(target.read_bytes())['reviewer']==receipt()['reviewer']
 
 
+def test_review_only_receipt_exports_without_inventing_a_worker(tmp_path,monkeypatch):
+    monkeypatch.setenv('GITHUB_RUN_ID','123');monkeypatch.setenv('GITHUB_SHA','1'*40)
+    root=tmp_path/'review';root.mkdir();(root/'synthetic.txt').write_bytes(b'SYNTHETIC REPORT ONLY\n')
+    request=tmp_path/'request.json';request.write_text(json.dumps(dict(protocol_sha256='a'*64)))
+    value=receipt();value.pop('worker');value['arm']='P10';value['status']='SAVED_DIAGNOSTIC_REVIEW_PASSED_PENDING_CLIENT'
+    target=tmp_path/'review.json';job.finish_export(value,root,target,b'x'*32,request,known=True)
+    assert value['encrypted_output_exported'] and 'worker' not in json.loads(target.read_bytes())
+
+
 @pytest.mark.parametrize('bad',[dict(cash=123),dict(stopped=True,exit_code=True,oom_killed=False,wait_error=None)])
 def test_reviewer_nested_payload_or_bad_scalar_is_refused(tmp_path,bad):
     value=receipt();value['reviewer']=bad

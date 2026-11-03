@@ -2,6 +2,7 @@
 import argparse
 import ast
 import base64
+import gzip
 import json
 import os
 from pathlib import Path
@@ -28,7 +29,8 @@ import system_campaign_p02_continue_job as inspector_source
 PRIOR = 'system-campaign-volatility-admission-recovery-request-001.json'
 PRIOR_SHA = 'b8a5349cdcd8f9017af4d1338f5b8a5fbf88ef049ddc28cba32f9083ba4d12bf'
 REQUEST = 'system-campaign-discovery-suffix-request-001.json'
-SELECTED_ARMS = ('P09', 'P11')
+SELECTED_ARMS = ('P10',)
+REVIEW_ONLY_ARMS = ('P10',)
 SOURCES = tuple(dict.fromkeys((*json.loads((HERE/'system-campaign-p10-ahl2-post-plan-request-001.json').read_bytes())['sources'], PRIOR,
     'system-campaign-p10-ahl2-post-plan-request-001.json',
     ANCHOR_SPEC, 'system_campaign_anchor_proofs.py',
@@ -47,6 +49,9 @@ def expected_request():
     return dict(schema='research.exact-diagnostic-suffix-request/1', campaign='system-optimization-002',
         authority=TAINT, financial_authority=False, account_performance_computed=False, production_contacted=False,
         arms=list(SELECTED_ARMS), concurrent_candidate_limit=3, prior418_request_sha256=PRIOR_SHA,
+        modes={arm:'review' if arm in REVIEW_ONLY_ARMS else 'discovery' for arm in SELECTED_ARMS},
+        discovery_forward_sessions_authorized={arm:arm not in REVIEW_ONLY_ARMS for arm in SELECTED_ARMS},
+        review_targets={arm:specification(arm,role='review_target') for arm in REVIEW_ONLY_ARMS},
         protocol_sha256=sha256_file(HERE/'system-campaign-search-protocol.json'),
         predecessor_files={REMAINING_SPEC:sha256_file(HERE/REMAINING_SPEC)},
         diagnostic_predecessors={a:dict(artifact_id=s['artifact_id'], checkpoint_sha256=s['diagnostic_checkpoint_sha256'],
@@ -59,7 +64,7 @@ def expected_request():
         actual_export_roundtrip_before_parent_or_worker=True, atomic_public_stop_receipts=True,
         discovery_wait_seconds=12600, review_wait_seconds=1200, target_end='2026-07-31', artifact_retention_days=7,
         completed_qualification_forward_transitions=0, p10_new_input_adoptions=0,
-        owner_approved_discovery_only_approximations=['P09_CONSERVING_ALLOCATION','P11_MISSING_BAR_UNCHANGED_STOP'],
+        owner_approved_discovery_only_approximations=['P09_CONSERVING_ALLOCATION','P10_MISSING_BAR_UNCHANGED_STOP','P11_MISSING_BAR_UNCHANGED_STOP'],
         workflow_sha256=sha256_file(HERE.parent.parent/'.github/workflows/capital-system-discovery-suffix.yml')
             if (HERE.parent.parent/'.github/workflows/capital-system-discovery-suffix.yml').exists() else None,
         checkpoint_cadence='FIRST_NEW_MONTH_END_NORMAL_SIGNAL_STOP', initial_min_disk_bytes=12*1024**3,
@@ -177,6 +182,9 @@ def main(args):
         phase(phase_path,arm,'STRICT_PARENT_ADMITTED'); phase(phase_path,arm,'BEFORE_DIAGNOSTIC_FETCH')
         previous = admit_diagnostic(spec,temp/('campaign-factual-transfer-suffix-diagnostic-'+arm.lower()),key)
         phase(phase_path,arm,'DIAGNOSTIC_ADMITTED')
+        evidence=None
+        if request['modes'][arm]=='review':
+            evidence=admit_diagnostic(request['review_targets'][arm],temp/('campaign-factual-transfer-suffix-target-'+arm.lower()),key,role='review_target')
         frozen = temp/'capital-risk-stage-001/inputs'; source = temp/('diagnostic-suffix-source-'+arm)
         binding = json.loads((old/'source-bindings.json').read_bytes())
         need(build(frozen/'source-fixed',source,binding['parameters']) == binding
@@ -185,6 +193,9 @@ def main(args):
         for directory in (source,old,previous):
             for path in directory.rglob('*'): os.chmod(path,0o555 if path.is_dir() else 0o444)
             os.chmod(directory,0o555)
+        if evidence is not None:
+            for path in evidence.rglob('*'):os.chmod(path,0o555 if path.is_dir() else 0o444)
+            os.chmod(evidence,0o555)
         phase(phase_path,arm,'SOURCE_VERIFIED'); os.environ.pop('GH_TOKEN',None)
         phase(phase_path,arm,'BEFORE_WORKER_RESOURCE_GATE')
         need(memory_bytes()['MemAvailable'] >= 10*1024**3 and shutil.disk_usage(temp).free >= 10*1024**3,
@@ -199,6 +210,16 @@ def main(args):
             run_id=financial['run_id'],head=financial['head'],financial_authority=False),sort_keys=True)+'\n')
         q=spec['original_qualification'];target=out/q['file'];target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(previous/q['file'],target)
+        if evidence is not None:
+            need(request['discovery_forward_sessions_authorized'][arm] is False,'SUFFIX_REVIEW_ONLY_NO_FORWARD_SESSION_AUTHORITY')
+            name=f'capital-system-diagnostic-suffix-{arm.lower()}-review-'+os.environ['GITHUB_RUN_ID']+'-1'
+            receipt['status']='SAVED_DIAGNOSTIC_PREFIX_REVIEW_ONLY_RUNNING';write_public_receipt(args.output,receipt)
+            receipt['reviewer']=stopped_run(worker_command(name,arm,source,frozen,out,old,previous,evidence=evidence),
+                name,out,deadline=request['review_wait_seconds'],inspector=inspect)
+            known=True
+            receipt['status']='SAVED_DIAGNOSTIC_REVIEW_PASSED_PENDING_CLIENT' if receipt['reviewer']['exit_code']==0 and not receipt['reviewer']['oom_killed'] else 'SAVED_DIAGNOSTIC_REVIEW_REFUSED_PRESERVED'
+            finish_export(receipt,out,args.output,key,args.request,known=True);key=None
+            raise SystemExit(0 if receipt['status']=='SAVED_DIAGNOSTIC_REVIEW_PASSED_PENDING_CLIENT' else 2)
         name = f'capital-system-diagnostic-suffix-{arm.lower()}-worker-'+os.environ['GITHUB_RUN_ID']+'-1'
         receipt.update(status='DIAGNOSTIC_SUFFIX_LAUNCH_ATTEMPTED',discovery_launch_attempted=True,actual_discovery_started=None)
         write_public_receipt(args.output,receipt); phase(phase_path,arm,'WORKER_LAUNCH_ATTEMPTED')
@@ -206,7 +227,12 @@ def main(args):
             deadline=request['discovery_wait_seconds'],inspector=inspect)
         known = True; receipt['status'] = 'DIAGNOSTIC_SUFFIX_STOPPED_PENDING_INSPECTION'
         write_public_receipt(args.output,receipt); phase(phase_path,arm,'WORKER_STOPPED')
-        result = json.loads((out/'discovery-outcome.json').read_bytes())
+        if (out/'discovery-outcome.json').exists():
+            result=json.loads((out/'discovery-outcome.json').read_bytes())
+        else:
+            current=json.loads(gzip.decompress((out/'diagnostic-book/discovery-checkpoint.json.gz').read_bytes()))
+            result=dict(transitions=current['discovery_transitions'],through=current['source_cursor'],
+                all_remaining_sessions_covered=False,authority=TAINT,account_performance_computed=False)
         receipt['actual_discovery_started'] = result['transitions'] > spec['transitions']
         complete = (receipt['worker']['exit_code'] == 0 and not receipt['worker']['oom_killed']
             and result['all_remaining_sessions_covered'] and result['transitions'] == spec['cumulative_expected_sessions']

@@ -17,7 +17,7 @@ from system_campaign_discovery_suffix_replay import Anchors, replay
 
 def bind_checkpoint(value, context, spec):
     value = deepcopy(value)
-    if spec['arm'] in ('P09','P11'):
+    if hasattr(context,'policy_commitment'):
         policy = context.policy_commitment()
         if policy is not None: value['diagnostic_policy'] = policy
     if spec['arm'] == 'P10':
@@ -107,7 +107,7 @@ def preserve_epoch(previous, out, saved, spec):
          'SUFFIX_P10_FOUR_EXISTING_CODECS_SAME_RUNTIME_INPUT_NO_ADOPTION')
 
 
-def review(evidence, previous, out, parent, saved, spec):
+def review(evidence, previous, out, parent, saved, spec, *, target_spec=None, approved_policy_required=True):
     """Stopped data and full canonical checkpoint restore; no forward sessions."""
     import gzip
     from full_system_benchmark import save
@@ -168,10 +168,11 @@ def review(evidence, previous, out, parent, saved, spec):
                  and cp['sha256']==digest({k:v for k,v in cp.items() if k!='sha256'})
                  and (evidence/'diagnostic-input-epochs.jsonl').read_bytes()==(previous/'diagnostic-input-epochs.jsonl').read_bytes(),
                  'SUFFIX_REVIEW_P10_NO_INPUT_READOPTION_OR_SECOND_ZERO_BOUNDARY')
-        elif days:
+        if days and (approved_policy_required or spec['arm'] in ('P09','P11') or cp.get('diagnostic_policy')):
             from discovery_approximations import DiscoveryPolicy
             from seal import sha256_file
-            expected=DiscoveryPolicy(arm=spec['arm'],native_risk_source_sha256=spec['native_risk_source_sha256'],
+            risk_sha=spec.get('native_risk_source_sha256') or json.loads((previous/'source-bindings.json').read_bytes())['all_sources']['shared/stock_strategy_shared/wealth_core/capital_risk.py']
+            expected=DiscoveryPolicy(arm=spec['arm'],native_risk_source_sha256=risk_sha,
                 implementation_sha256=sha256_file(Path(__file__).with_name('discovery_approximations.py'))).commitment()
             policy=cp['diagnostic_policy']
             boundary_ok = (policy == saved['diagnostic_policy'] if saved.get('diagnostic_policy') else
@@ -181,16 +182,38 @@ def review(evidence, previous, out, parent, saved, spec):
                  'SUFFIX_REVIEW_EXPLICIT_APPROVED_DIAGNOSTIC_POLICY_PROVENANCE')
         checks.append(dict(file=path.relative_to(evidence).as_posix(),through=cp['source_cursor'],
                            transitions=cp['discovery_transitions'],full_canonical_roundtrip=True))
-    save(out/'diagnostic-review.json',dict(schema='research.remaining-discovery-stopped-review/1',
+    result=dict(schema='research.remaining-discovery-stopped-review/1',
         status='STOPPED_DIAGNOSTIC_PREFIX_REVIEWED_PENDING_CLIENT',arm=spec['arm'],checks=checks,
         full_original_prefixes_and_ledger=True,forward_sessions_executed=0,financial_authority=False,
-        account_performance_computed=False,production_contacted=False))
+        account_performance_computed=False,production_contacted=False)
+    if target_spec is not None:
+        from seal import sha256_file
+        path=evidence/target_spec['diagnostic_checkpoint'];current=json.loads(gzip.decompress(path.read_bytes()))
+        need(path.stat().st_size==target_spec['checkpoint_bytes'] and sha256_file(path)==target_spec['diagnostic_checkpoint_sha256']
+             and current['source_cursor']==target_spec['selected_session'] and current['discovery_transitions']==target_spec['transitions'],
+             'SUFFIX_SAVED_REVIEW_TARGET_EXACT_ORIGINAL_RAW_CHECKPOINT')
+        result['separate_stopped_review']=dict(target_run_id=target_spec['run_id'],target_head=target_spec['head'],
+            target_artifact_id=target_spec['artifact_id'],target_checkpoint_sha256=target_spec['diagnostic_checkpoint_sha256'],
+            target_source_cursor=current['source_cursor'],target_transitions=current['discovery_transitions'],
+            parent_checkpoint_sha256=spec['diagnostic_checkpoint_sha256'],parent_transitions=spec['transitions'],
+            original_worker_exit_code=target_spec['inspections']['worker-inspect.json']['metadata']['exit_code'],
+            qualification_transitions_executed=0,discovery_forward_transitions_executed=0)
+    save(out/'diagnostic-review.json',result)
+
+
+def require_mode(request, arm, mode):
+    need(mode in ('discovery','review') and request['modes'][arm] in ('discovery','review'), 'SUFFIX_EXACT_DECLARED_DISCOVERY_OR_REVIEW_ROLE')
+    need(request['modes'][arm]!='review' or mode=='review','SUFFIX_REVIEW_ONLY_SELECTION_FORBIDS_FORWARD_DISCOVERY')
+    need(mode=='review' or request['discovery_forward_sessions_authorized'][arm] is True,
+         'SUFFIX_EXPLICIT_FORWARD_DISCOVERY_AUTHORITY')
 
 
 def main(args):
     hosted()
-    from research.pooled_vacancy_funding import journal, runtime
     spec = specification(args.arm); financial = spec['financial_strict_predecessor']
+    request=json.loads(args.request.read_bytes())
+    require_mode(request,args.arm,args.mode)
+    from research.pooled_vacancy_funding import journal, runtime
     need(json.loads(args.spec.read_bytes()) == spec, 'SUFFIX_EXACT_MOUNTED_OWN_SPEC')
     root, out, previous = Path('/old'), Path('/out'), Path('/previous')
     parent = require_strict_checkpoint(journal.read_checkpoint(root / financial['selected_checkpoint']))
@@ -204,16 +227,19 @@ def main(args):
         factory = lambda base: context_class(base, expected_first=spec['first_expected_unresolved'])
     with retained_inputs(root, parent, out):
         if args.arm == 'P10': preserve_epoch(previous,out,saved,spec)
-        if args.mode=='review': return review(Path('/evidence'),previous,out,parent,saved,spec)
+        if args.mode=='review': return review(Path('/evidence'),previous,out,parent,saved,spec,
+            target_spec=specification(args.arm,role='review_target') if request['modes'][args.arm]=='review' else None,
+            approved_policy_required=request['modes'][args.arm]!='review')
         run = runtime.restore(saved['runtime_checkpoint'], policy=parent['base']['policy'], input_sha256=spec['input_sha256'])
         need(runtime.checkpoint(run) == saved['runtime_checkpoint'], 'SUFFIX_ACTUAL_CANONICAL_DIAGNOSTIC_RUNTIME_ROUNDTRIP')
         with Anchors(out, run.state, source_sha256=digest(parent['base']['sources']), input_sha256=run.input_sha256,
             expected_adapter_sha256=parent['base']['sources']['research/pooled_input_support/adapter.py'],
             previous=previous, saved=saved) as anchors:
-            if args.arm in ('P09','P11'):
+            if args.arm in ('P09','P10','P11'):
                 from discovery_approximations import DiscoveryPolicy, context_class
                 from seal import sha256_file
-                policy=DiscoveryPolicy(arm=args.arm,native_risk_source_sha256=spec['native_risk_source_sha256'],
+                risk_sha=spec.get('native_risk_source_sha256') or json.loads((previous/'source-bindings.json').read_bytes())['all_sources']['shared/stock_strategy_shared/wealth_core/capital_risk.py']
+                policy=DiscoveryPolicy(arm=args.arm,native_risk_source_sha256=risk_sha,
                     implementation_sha256=sha256_file(Path(__file__).with_name('discovery_approximations.py')))
                 factory=lambda base:context_class(base,policy)
             selected_replay = continued_replay if args.arm in ('P09','P10','P11') else replay

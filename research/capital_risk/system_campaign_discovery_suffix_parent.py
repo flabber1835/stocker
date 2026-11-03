@@ -22,10 +22,13 @@ REMAINING_SPEC = 'system-campaign-discovery-suffix-remaining-predecessors.json'
 ARMS = ('P03', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
 
 
-def specification(arm):
+def specification(arm, *, role='parent'):
     need(arm in ARMS, 'SUFFIX_ONLY_OWN_AUTHENTICATED_UNFINISHED_DISCOVERY')
+    need(role in ('parent','review_target'),'SUFFIX_EXPLICIT_PARENT_OR_STOPPED_TARGET_ROLE')
+    need(role=='parent' or arm in ('P09','P10','P11'),'SUFFIX_STOPPED_TARGET_ONLY_CURRENT_OWNER_SELECTED_ARMS')
     if arm in ('P09', 'P10', 'P11'):
-        value = json.loads((HERE / REMAINING_SPEC).read_bytes())['arms'][arm]
+        value = json.loads((HERE / REMAINING_SPEC).read_bytes())['arms' if role=='parent' else 'review_targets'][arm]
+        need(role=='parent' or value.get('transport_only') is True,'SUFFIX_REVIEW_TARGET_NOT_ADMITTED_AS_PARENT')
         need(value['arm'] == arm and value['authority'] == TAINT and value['financial_authority'] is False
              and value['cumulative_expected_sessions'] == value['financial_strict_predecessor']['expected_remaining_sessions']
              and value['expected_remaining_sessions'] == value['cumulative_expected_sessions'] - value['transitions']
@@ -202,8 +205,8 @@ def admission_tree():
     return ast.fix_missing_locations(fn)
 
 
-def admit(spec, root, key):
-    need(spec == specification(spec['arm']), 'SUFFIX_EXACT_SELECTED_PUBLIC_SPEC')
+def admit(spec, root, key, *, role='parent'):
+    need(spec == specification(spec['arm'],role=role), 'SUFFIX_EXACT_SELECTED_PUBLIC_SPEC')
     if spec['arm'] in ('P09', 'P10', 'P11'):
         tree = admission_tree()
         # Keep the authenticated original download/GCM/streaming extraction;
