@@ -21,15 +21,17 @@ from system_campaign_parallel_discovery_job import stage_valid
 from system_campaign_parallel_discovery_parent import admit as admit_strict
 from system_campaign_parallel_discovery_export import qualify_export, write_public_receipt, finish_export
 from system_campaign_discovery_suffix_parent import (ARMS, ANCHOR_SPEC, SPINOFF_SPEC, specification,
-                                                   admit as admit_diagnostic, HERE)
+                                                   admit as admit_diagnostic, HERE, REMAINING_SPEC)
 import system_campaign_p02_continue_job as inspector_source
 
 PRIOR = 'system-campaign-volatility-admission-recovery-request-001.json'
 PRIOR_SHA = 'b8a5349cdcd8f9017af4d1338f5b8a5fbf88ef049ddc28cba32f9083ba4d12bf'
 REQUEST = 'system-campaign-discovery-suffix-request-001.json'
-SELECTED_ARMS = ('P03', 'P05')
-SOURCES = tuple(dict.fromkeys((*json.loads((HERE/PRIOR).read_bytes())['sources'], PRIOR,
+SELECTED_ARMS = ('P09', 'P10', 'P11')
+SOURCES = tuple(dict.fromkeys((*json.loads((HERE/'system-campaign-p10-ahl2-post-plan-request-001.json').read_bytes())['sources'], PRIOR,
+    'system-campaign-p10-ahl2-post-plan-request-001.json',
     ANCHOR_SPEC, 'system_campaign_anchor_proofs.py',
+    REMAINING_SPEC, 'discovery_approximations.py', 'ephemeral_runner_capacity.py',
     'system_campaign_discovery_suffix_parent.py', 'system_campaign_discovery_suffix_replay.py',
     'system_campaign_discovery_suffix_run.py', 'system_campaign_discovery_suffix_job.py',
     'system_campaign_discovery_suffix_probe.py')))
@@ -43,9 +45,9 @@ def expected_request():
     specs = {arm: specification(arm) for arm in SELECTED_ARMS}
     return dict(schema='research.exact-diagnostic-suffix-request/1', campaign='system-optimization-002',
         authority=TAINT, financial_authority=False, account_performance_computed=False, production_contacted=False,
-        arms=list(SELECTED_ARMS), concurrent_candidate_limit=2, prior418_request_sha256=PRIOR_SHA,
+        arms=list(SELECTED_ARMS), concurrent_candidate_limit=3, prior418_request_sha256=PRIOR_SHA,
         protocol_sha256=sha256_file(HERE/'system-campaign-search-protocol.json'),
-        predecessor_files={ANCHOR_SPEC:sha256_file(HERE/ANCHOR_SPEC)},
+        predecessor_files={REMAINING_SPEC:sha256_file(HERE/REMAINING_SPEC)},
         diagnostic_predecessors={a:dict(artifact_id=s['artifact_id'], checkpoint_sha256=s['diagnostic_checkpoint_sha256'],
             transitions=s['transitions'], source_cursor=s['selected_session']) for a,s in specs.items()},
         execution_mode='EXACT_OWN_DIAGNOSTIC_SUFFIX_ONLY', canonical_financial_source_changed=False,
@@ -54,36 +56,44 @@ def expected_request():
         complete_old_cp_journals_and_unsent_tails_preserved=True, actual_journal_recover_required=True,
         immutable_versioned_anchor_proofs=True, source_bound_spinoff_deferral_selected=False,
         actual_export_roundtrip_before_parent_or_worker=True, atomic_public_stop_receipts=True,
-        discovery_wait_seconds=18000, target_end='2026-07-31', artifact_retention_days=7,
+        discovery_wait_seconds=12600, review_wait_seconds=1200, target_end='2026-07-31', artifact_retention_days=7,
+        completed_qualification_forward_transitions=0, p10_new_input_adoptions=0,
+        owner_approved_discovery_only_approximations=['P09_CONSERVING_ALLOCATION','P11_MISSING_BAR_UNCHANGED_STOP'],
+        workflow_sha256=sha256_file(HERE.parent.parent/'.github/workflows/capital-system-discovery-suffix.yml')
+            if (HERE.parent.parent/'.github/workflows/capital-system-discovery-suffix.yml').exists() else None,
         checkpoint_cadence='FIRST_NEW_MONTH_END_NORMAL_SIGNAL_STOP', initial_min_disk_bytes=12*1024**3,
         sources={n:sha256_file(HERE/n) for n in SOURCES})
 
 
-def entrypoint(arm):
+def entrypoint(arm,mode='discovery'):
     need(arm in SELECTED_ARMS, 'SUFFIX_EXACT_SELECTED_ENTRYPOINT_ARM')
-    return ['-B','-u','/driver/system_campaign_discovery_suffix_run.py','--arm',arm,
+    need(mode in ('discovery','review'),'SUFFIX_EXACT_DECLARED_MODE')
+    return ['-B','-u','/driver/system_campaign_discovery_suffix_run.py','--mode',mode,'--arm',arm,
             '--spec','/out/spec.json','--request','/driver/'+REQUEST]
 
 
 def inspect(name, identity=None):
     fn = literals(body('system_campaign_p02_continue_job.py','inspect'), {
         r'capital-system-factual-(?:b|b0|p[0-9]{2})-(?:worker|review)-[0-9]+-1':
-        r'capital-system-diagnostic-suffix-p(?:03|05|06|07)-worker-[0-9]+-1'})
+        r'capital-system-diagnostic-suffix-p(?:09|10|11)-(?:worker|review)-[0-9]+-1'})
     sets = [n for n in ast.walk(fn) if isinstance(n,ast.Set) and all(isinstance(v,ast.Constant) for v in n.elts)
             and {ast.literal_eval(v) for v in n.elts} == {'/variant','/frozen','/driver','/out','/old'}]
     need(len(sets) == 1, 'SUFFIX_ONE_EXTRA_READONLY_PREVIOUS_MOUNT_SET')
     sets[0].elts.append(ast.Constant('/previous'))
     value = compile_body(fn,vars(inspector_source))(name,identity)
     arm = name.split('-')[4].upper()
-    need(value['Config']['Cmd'] == entrypoint(arm), 'SUFFIX_EXACT_CANONICAL_DIAGNOSTIC_WORKER_ENTRYPOINT')
+    need(value['Config']['Cmd'] == entrypoint(arm,'review' if '-review-' in name else 'discovery'), 'SUFFIX_EXACT_CANONICAL_DIAGNOSTIC_WORKER_ENTRYPOINT')
     return value
 
 
-def worker_command(name, arm, source, frozen, out, old, previous):
-    value = command(name,source,frozen,out,'discovery'); i = value.index('--entrypoint')
+def worker_command(name, arm, source, frozen, out, old, previous, evidence=None):
+    mode='discovery' if evidence is None else 'review'
+    value = command(name,source,frozen,out,mode); i = value.index('--entrypoint')
     value[i:i] = ['--mount',f'type=bind,source={old},target=/old,readonly',
                   '--mount',f'type=bind,source={previous},target=/previous,readonly']
-    value[value.index('-B'):] = entrypoint(arm)
+    if evidence is not None:
+        i=value.index('--entrypoint');value[i:i]=['--mount',f'type=bind,source={evidence},target=/evidence,readonly']
+    value[value.index('-B'):] = entrypoint(arm,mode)
     return value
 
 
@@ -114,12 +124,15 @@ def phase(path, arm, stage, error=None):
 
 def main(args):
     check_context(os.environ)
-    need(args.arm in SELECTED_ARMS, 'SUFFIX_ONLY_SELECTED_P03_P05_RECOVERY')
+    need(args.arm in SELECTED_ARMS, 'SUFFIX_ONLY_SELECTED_REMAINING_DISCOVERIES')
     need(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'SUFFIX_NO_BLIND_WORKFLOW_RERUN')
     request = json.loads(args.request.read_bytes())
     need(request == expected_request(), 'SUFFIX_EXACT_REQUEST_AND_COMPLETE_SOURCE_CLOSURE')
     spec = specification(args.arm); financial = spec['financial_strict_predecessor']; arm = args.arm
     stage_valid(json.loads(args.staging.read_bytes()))
+    from ephemeral_runner_capacity import validate_prepared_receipt
+    validate_prepared_receipt(json.loads(args.capacity.read_bytes()),head=os.environ['GITHUB_SHA'],
+        run_id=os.environ['GITHUB_RUN_ID'],source_sha256=sha256_file(HERE/'ephemeral_runner_capacity.py'))
     temp = Path(os.environ['RUNNER_TEMP']); args.output.parent.mkdir(parents=True,exist_ok=True)
     probe = qualify_export(temp/('diagnostic-suffix-marker-'+arm),args.request,arm)
     probe_path = args.output.parent/'export-qualification.json'
@@ -161,7 +174,11 @@ def main(args):
                 stream.write((json.dumps(value,sort_keys=True,indent=2)+'\n').encode()); stream.flush(); os.fsync(stream.fileno())
         shutil.copyfile(old/'source-bindings.json',out/'source-bindings.json')
         shutil.copyfile(old/financial['selected_checkpoint'],out/'strict-parent.json.gz')
-        shutil.copyfile(previous/'strict-parent-reference.json',out/'strict-parent-reference.json')
+        (out/'strict-parent-reference.json').write_text(json.dumps(dict(
+            original_financial_parent_outer_sha256=financial['outer_sha256'],selected_checkpoint=financial['selected_checkpoint'],
+            run_id=financial['run_id'],head=financial['head'],financial_authority=False),sort_keys=True)+'\n')
+        q=spec['original_qualification'];target=out/q['file'];target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(previous/q['file'],target)
         name = f'capital-system-diagnostic-suffix-{arm.lower()}-worker-'+os.environ['GITHUB_RUN_ID']+'-1'
         receipt.update(status='DIAGNOSTIC_SUFFIX_LAUNCH_ATTEMPTED',discovery_launch_attempted=True,actual_discovery_started=None)
         write_public_receipt(args.output,receipt); phase(phase_path,arm,'WORKER_LAUNCH_ATTEMPTED')
@@ -175,9 +192,17 @@ def main(args):
             and result['all_remaining_sessions_covered'] and result['transitions'] == spec['cumulative_expected_sessions']
             and result['through'] == request['target_end'] and result['authority'] == TAINT
             and result['account_performance_computed'] is False)
-        receipt['status'] = 'COMPLETE_DISCOVERY_PENDING_INDEPENDENT_REVIEW' if complete else 'PARTIAL_DIAGNOSTIC_SUFFIX_PRESERVED'
+        review_out=temp/('diagnostic-suffix-review-'+arm);review_out.mkdir(mode=0o700)
+        shutil.copyfile(out/'spec.json',review_out/'spec.json')
+        review_name=f'capital-system-diagnostic-suffix-{arm.lower()}-review-'+os.environ['GITHUB_RUN_ID']+'-1'
+        receipt['reviewer']=stopped_run(worker_command(review_name,arm,source,frozen,review_out,old,previous,evidence=out),
+            review_name,review_out,deadline=request['review_wait_seconds'],inspector=inspect)
+        shutil.copytree(review_out,out/'stopped-review')
+        review_ok=receipt['reviewer']['exit_code']==0 and not receipt['reviewer']['oom_killed']
+        receipt['status'] = ('COMPLETE_DISCOVERY_PENDING_INDEPENDENT_REVIEW' if complete else 'PARTIAL_DIAGNOSTIC_SUFFIX_PRESERVED') if review_ok else 'STOPPED_DIAGNOSTIC_REVIEW_REFUSED'
     except StopUnknown:
-        known = False; receipt['status'] = 'DIAGNOSTIC_SUFFIX_WRITER_STOP_UNKNOWN_NO_SNAPSHOT'
+        receipt['status'] = ('REVIEW_STOP_UNKNOWN_STOPPED_WORKER_EVIDENCE_ONLY' if known
+                             else 'DIAGNOSTIC_SUFFIX_WRITER_STOP_UNKNOWN_NO_SNAPSHOT')
         phase(phase_path,arm,'UNKNOWN_NO_SNAPSHOT')
     except Exception as error:
         receipt['status'] = 'DIAGNOSTIC_SUFFIX_REFUSED_KNOWN_STOP' if known else 'DIAGNOSTIC_SUFFIX_REFUSED_BEFORE_STOP_PROOF'
@@ -190,5 +215,5 @@ def main(args):
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(); parser.add_argument('--arm',choices=SELECTED_ARMS,required=True)
-    for name in ('request','staging','output'): parser.add_argument('--'+name,type=Path,required=True)
+    for name in ('request','staging','capacity','output'): parser.add_argument('--'+name,type=Path,required=True)
     main(parser.parse_args())

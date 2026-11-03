@@ -179,10 +179,10 @@ def test_marker_precedes_both_fetches_and_worker_and_qualification_is_reused():
     raw=Path(job.__file__).read_text();fn,=[n for n in ast.parse(raw).body if isinstance(n,ast.FunctionDef) and n.name=='main']
     text=ast.unparse(fn)
     assert text.index('qualify_export(')<text.index('admit_strict(')<text.index('admit_diagnostic(')<text.index('stopped_run(')
-    assert text.count('stopped_run(')==1 and 'qualify_wait_seconds' not in text
+    assert text.count('stopped_run(')==2 and 'qualify_wait_seconds' not in text
     workflow=(Path(__file__).resolve().parents[3]/'.github/workflows/capital-system-discovery-suffix.yml').read_text()
-    assert 'max-parallel: 2' in workflow and 'fail-fast: false' in workflow and 'retention-days: 7' in workflow
+    assert 'max-parallel: 3' in workflow and 'fail-fast: false' in workflow and 'retention-days: 7' in workflow
     request=job.expected_request()
-    assert request['arms']==['P03','P05']
+    assert request['arms']==['P09','P10','P11']
     assert parent.SPINOFF_SPEC not in request['sources']
     assert 'system_campaign_discovery_spinoff_deferral.py' not in request['sources']
