@@ -1,0 +1,74 @@
+{
+  "delivered_cik": "14272",
+  "delivered_common_per_source": "1",
+  "delivered_security_id": "578964201416671255",
+  "first_delivered_market_session": "2019-11-21",
+  "fixed_contingent_nine_cash": false,
+  "inherited_native_scope_guards": [
+    {
+      "native_term": {
+        "cash_in_lieu_price_per_delivered_share": 4.72,
+        "cash_per_share": null,
+        "delivered_issuer_id": "P:SEC_CIK:928022",
+        "delivered_security_id": "558204036584089673",
+        "delivered_ticker": "CPE",
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": 1.75,
+        "kind": "CONVERSION",
+        "reference": "Unheld Carrizo leadership constituent converts to exactly 1.75 Callon shares under the amended merger agreement, not the superseded 2.05 ratio. Callon security 558204036584089673 has a December 19 raw close of USD4.72, matching the SEC ownership filing and serving as the fractional-share proxy. No portfolio entitlement is created.",
+        "security_id": "680764156431529299",
+        "session": "2019-12-20"
+      },
+      "native_term_sha256": "4348b951a36c61a1740bcf5aaf168beb0c8a820bd2741be01185b23495878d6e",
+      "prior_session": "2019-12-19",
+      "scope": "UNHELD_LEADERSHIP_ONLY_NOT_HELD_OR_ANY_PENDING",
+      "scope_record_sha256": "561338eea3783606d2110e9fd07c633100f6e5ca3c4e80795823110a69b1f987",
+      "scope_source": "bundle/supplements.json",
+      "security_id": "680764156431529299",
+      "session": "2019-12-20"
+    },
+    {
+      "native_term": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 5.6,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "Unheld Avon leadership constituent uses its executable January 3 terminal-session close of USD5.60 on 165,158,531 shares. Legal consideration was 0.300 Natura &Co ADS per Avon share, but the local archive has no successor observation on January 3 and first shows a retained successor identity January 6. This is a market-exit proxy, not contractual cash or portfolio settlement.",
+        "security_id": "869766819741234573",
+        "session": "2020-01-03"
+      },
+      "native_term_sha256": "d3aff9b71c800f068618900943e62bf7aa9f0b1c0287acbc08c504745475f7cb",
+      "prior_session": "2020-01-02",
+      "scope": "UNHELD_LEADERSHIP_ONLY_NOT_HELD_OR_ANY_PENDING",
+      "scope_record_sha256": "4ae180116afa4ccbe131cf8d3751f84d7b038391c9d9965c9f20fa370ae1de12",
+      "scope_source": "bundle/supplements.json",
+      "security_id": "869766819741234573",
+      "session": "2020-01-03"
+    }
+  ],
+  "last_source_market_session": "2019-11-20",
+  "legal_cash_per_source": "50.00",
+  "legal_completion_day": "2019-11-20",
+  "references": [
+    "https://www.sec.gov/Archives/edgar/data/816284/000110465919065939/tm1923405d1_8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/14272/000114036119021048/ex99_1.htm",
+    "https://www.nasdaqtrader.com/TraderNews.aspx?id=ECA2019-65",
+    "https://infomemo.theocc.com/infomemos?number=46027"
+  ],
+  "retained_evidence": {
+    "action-research/celg-20191120/clock-primary-evidence-002.json": "bdbfe9253031f07543c973863a92f741003632d92836cf59cfde3f23436c2c44",
+    "action-research/celg-20191120/clock-verdict-002.json": "6331c30b4b7301ede6cbaeba56d66d26b9ac481d6c30555e54f3a24ef30b6134",
+    "celg-bridge-001/frozen-three-day-preflight.json": "4de93cb4630c7d6c0adab12cdbdd2a66c4f0a4d5454f6a3cb9d1ff467be599a2"
+  },
+  "right_has_canonical_security_id": false,
+  "right_is_alpha_eligible": false,
+  "schema": "research.p01-celg-financial-bridge-primary-facts/1",
+  "source_cik": "816284",
+  "source_security_id": "11651249425833422",
+  "statutory_intraday_effective_time_known": false,
+  "tradeable_right_per_source": "1"
+}

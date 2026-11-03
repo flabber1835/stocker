@@ -1,0 +1,63 @@
+name: P01 grouped factual input from own526 source epoch
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths: ['research/capital_risk/p01_factual_batch_request.json']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: system-optimization-002-p01-grouped-factual-financial
+  cancel-in-progress: false
+jobs:
+  factual-batch:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        timeout-minutes: 3
+        with:
+          persist-credentials: false
+          sparse-checkout: research/capital_risk
+          fetch-depth: 1
+      - name: Prepare dedicated ephemeral research capacity
+        timeout-minutes: 3
+        run: 'python3 -B research/capital_risk/ephemeral_runner_capacity.py --output "$GITHUB_WORKSPACE/artifacts/capital-risk/ephemeral-runner-capacity.json"'
+      - name: Install locked transfer dependencies
+        timeout-minutes: 4
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/wwe-transfer-requirements.lock
+      - name: Verify exact own526 retained epoch input and capacity contracts
+        timeout-minutes: 2
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/p01_factual_batch_probe.py --request research/capital_risk/p01_factual_batch_request.json --capacity artifacts/capital-risk/ephemeral-runner-capacity.json'
+      - name: Authenticate frozen inputs and offline runtime
+        timeout-minutes: 8
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/full-core-staging.json'
+      - name: Qualify retained epoch input then freshly continue own526 and review
+        timeout-minutes: 210
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+          GH_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/p01_factual_batch_job.py --request research/capital_risk/p01_factual_batch_request.json --staging artifacts/capital-risk/full-core-staging.json --capacity artifacts/capital-risk/ephemeral-runner-capacity.json --output artifacts/capital-risk/p01-factual-batch.json'
+      - name: Preserve stopped qualification and stopped finance separately
+        timeout-minutes: 5
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: system-p01-factual-batch-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/ephemeral-runner-capacity.json
+            artifacts/capital-risk/full-core-staging.json
+            artifacts/capital-risk/p01-factual-batch-phase.json
+            artifacts/capital-risk/p01-factual-batch-export-qualification.json
+            artifacts/capital-risk/p01-factual-batch.json
+            artifacts/capital-risk/p01-factual-batch-qualification.tar.crseal
+            artifacts/capital-risk/p01-factual-batch-financial.tar.crseal
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error

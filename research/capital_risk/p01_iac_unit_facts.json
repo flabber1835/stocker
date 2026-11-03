@@ -1,0 +1,118 @@
+{
+  "authority": "PRIMARY_COMMON_RECLASSIFICATION_PLUS_FROZEN_TAPE_KNOWN_HISTORY_REQUIRES_HOSTED_QUALIFICATION",
+  "clock": {
+    "bound": "AFTER_2301_BEFORE_2306_NEW_YORK_PARTIAL_ORDER_NOT_EXACT_MERGER_MINUTE",
+    "extraction_sha256": "b8c1a17f34fc094a8d1c3adf1b3c0de29ac956dbb4dc44caaf72842c8d463813",
+    "legal_day": "2020-06-30",
+    "market_session": "2020-07-01",
+    "raw_html_sha256": null
+  },
+  "consumed_old_match_security_id": "369995575874917058",
+  "event_session": "2020-07-01",
+  "financial_input_admitted": false,
+  "financial_predecessor_authorized": false,
+  "held_package_or_fraction_settlement_supported": false,
+  "identity": {
+    "certificate_sha256": "c1e65c34e4472419187e8e37d3267fb4331e91cfbaf98002b4f68e086e478ab6",
+    "classification_rewritten": false,
+    "contract": "SYNTHETIC_TICKER_TAPE_KNOWN_HISTORY_CERTIFICATE_NOT_NAIVE_CIK_CONTINUITY",
+    "frozen_provider_issuer_history_preserved": true,
+    "pre2020_legal_identity_source": "PRIMARY_ENTITY_AND_RECLASSIFICATION_CHAIN",
+    "primary_literal_sid_claimed": false
+  },
+  "independent_child_security_id": "517224929580411308",
+  "independent_target_roles": "QUALIFY_AND_PRESERVE_NORMAL_HOLDINGS_CLOSE_BUY_EXIT_AND_CLAIMS",
+  "initial_scope": "ONLY_SOURCE_PRE_EVENT_UNHELD_NO_ANY_PENDING_EXIT_RESERVATION_OR_CLAIM",
+  "last_old_unit_session": "2020-06-30",
+  "legal_units": {
+    "before": "OLD_IAC_COMMON",
+    "continuing": "NEW_MATCH_COMMON",
+    "continuing_issuer_cik": "891103",
+    "distributed": "NEW_IAC_COMMON",
+    "distributed_cusip": "44891N109",
+    "distributed_issuer_cik": "1800227",
+    "distributed_per_old_common": "1",
+    "no_child_value_in_signal": true
+  },
+  "normalizer": {
+    "arithmetic_design_sha256": "f36655f77e0b32db0593b7f9857f32bf61a2c577dad797ba29fb75603039a927",
+    "basis_original_parent_outer_sha256": "da8f0ef0e04f70f1f388ee68ee1bb70d923dcb35b41f53e4d39b3e1e4b81f0ee",
+    "child_value_or_proxy_cash_addition": false,
+    "decimal": "2.1584",
+    "denominator": 625,
+    "derive_before": "BUFFER_APPEND_AND_FEATURE",
+    "event_factor_order": "NATIVE_THEN_LEGAL",
+    "event_native_split_constraint": "EXACT_ONE_REQUIRED",
+    "future_native_rule": "CHRONOLOGICAL_MULTIPLICATION_WITH_EXACT_OBSERVED_NATIVE_BASIS_CHECK_OR_DURABLE_REFUSAL",
+    "initial_combined_factor_hex": "0x1.0000000000000p+0",
+    "initial_native_factor_hex": "0x1.0000000000000p+0",
+    "legal_float_hex": "0x1.14467381d7dbfp+1",
+    "numerator": 1349,
+    "original_multiplier_constraint": "EXACT_RESTORED_ONE_REQUIRED",
+    "original_signal_multiplier_hex": "0x1.0000000000000p+0",
+    "original_source_series_sha256": "9e9649aa2074045dd7e63e0f4d8d2c0433dfabbc9380ad1e1759596665bf5097",
+    "original_vendor_multiplier_hex": "0x1.0000000000000p+0",
+    "raw_price_or_volume_mutation": false,
+    "rule": "CANONICAL_CHRONOLOGICAL_RAW_TIMES_CUMULATIVE_FACTOR"
+  },
+  "post_event_source_roles": "NORMAL_NEW_MATCH_UNIT_DECISIONS_AND_NEXT_OPEN_FILLS_PERMITTED",
+  "primary_evidence": {
+    "agreement_url": "https://www.sec.gov/Archives/edgar/data/891103/000104746920002649/a2241166zs-4a.htm",
+    "amendment_url": "https://www.sec.gov/Archives/edgar/data/1575189/000157518920000076/mtch8-k20200622ex21.htm",
+    "classification_preimage_proof_sha256": "01cef84d79979ba6a78a14d4d210d365dc8d22c58083ce36f3bd6022d1810ffa",
+    "completion_url": "https://www.sec.gov/Archives/edgar/data/891103/000110465920080606/tm206790d25_8k.htm",
+    "identity_plan_sha256": "497d3fbde74a1905d2fac9b712741cbb56f2782620afd863803fbe9305b04f5b"
+  },
+  "schema": "research.p01-iac-continuing-unit-facts/1",
+  "source_archive_sha256": "c0a62a6bbb8b67f77a1fca34f5e836a36f90bdf67dd83e196ef3d3369a7925f6",
+  "source_manifest": {
+    "bytes": 16765,
+    "sha256": "cfa94043084c1cbd83230b5a7225baa45b526797db4581c192561e0fb82ab5b0"
+  },
+  "source_members": {
+    "actions.csv.gz": {
+      "bytes": 5322055,
+      "rows": 253076,
+      "sha256": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139"
+    },
+    "observations-2020.csv.gz": {
+      "bytes": 74043718,
+      "rows": 1541141,
+      "sha256": "b34e74c0983d1672e1e82cbd854727e2b752b235bfac217699e166238cac78cf"
+    },
+    "observations-2021.csv.gz": {
+      "bytes": 90642324,
+      "rows": 1898353,
+      "sha256": "487142c81ddb02c58f325de1e1295ff312b136966da9c2f53b9fe08b5268845a"
+    },
+    "observations-2022.csv.gz": {
+      "bytes": 97840847,
+      "rows": 2080223,
+      "sha256": "e2e2ecfa491b73f38ea304c539dbcd1c4331dc4a6371d12669968bdaac978acc"
+    },
+    "observations-2023.csv.gz": {
+      "bytes": 86611556,
+      "rows": 1834182,
+      "sha256": "fa3f6c090a4c2d77495778341626f1408ef9d03f8bcba15dd40339f2e31b60fa"
+    },
+    "observations-2024.csv.gz": {
+      "bytes": 78118364,
+      "rows": 1647175,
+      "sha256": "13016d332486bbdba3327835205e6c6da9d2e1363229836088ee6e2472d31e30"
+    },
+    "observations-2025.csv.gz": {
+      "bytes": 72786084,
+      "rows": 1546125,
+      "sha256": "470792932fa3914513fde48e4ca86b81ec7fa084496578794528270fdc0607f6"
+    },
+    "observations-2026.csv.gz": {
+      "bytes": 42000680,
+      "rows": 904798,
+      "sha256": "4781bd89bb00e33a3911375f4ad907a8158aa49e9160349e53ee7d03f8a3237e"
+    }
+  },
+  "source_or_eligibility_or_strategy_parameters_changed": false,
+  "source_security_id": "984687283821901795",
+  "unit_ratio_decimal": "2.1584",
+  "unit_ratio_fraction": "1349/625"
+}

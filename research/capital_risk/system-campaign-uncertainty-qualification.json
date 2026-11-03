@@ -1,0 +1,34 @@
+{
+  "schema": "research.system-uncertainty-gate-independent-review/1",
+  "status": "PASSED_SYNTHETIC_CANONICAL_QUALIFICATION_ONLY",
+  "run_id": 41061791611,
+  "head": "e5226e142ba825d128009cfbf2a4241e59a39b1b",
+  "artifact_id": 12980735536,
+  "zip_sha256": "1c9da8d8bad29b91d3216129a5904f9879ac4cde5f12f3b54285aef600ed07d6",
+  "cipher_sha256": "c0d777a81d1acabdae06b0030cf5b75cc1f69d253305fdf227322369f4da536f",
+  "manifest_sha256": "6963e32230c5a6f2e2770652ccb50e61841edb3d1e2866e0e88131a91066c863",
+  "actual_stopped_exit0_no_oom_and_all_fences": true,
+  "all_inventory_members_verified": 5,
+  "actual_canonical_recovery_calls": 70,
+  "invariant_executed_comparisons": 140,
+  "actual_ambiguous_comparison_refused": true,
+  "source_files": 515,
+  "canonical_controller_source_files": 6,
+  "historical_financial_sessions_advanced": 0,
+  "financial_successor_integration_admitted": false,
+  "proof_scope": "Synthetic actual-source controller comparisons and scalar/mathematical continuation only; no actual P02 successor or historical invariance established.",
+  "production_contacted": false,
+  "independent_review_sha256": "d43d69857301742c655080bd69deed936805f72840de5699cd449387a49fb815",
+  "canonical_controller_sources": {
+    "sentinel/controller/median5.py": "177d5906b9ecd6b33512999ef8408704d5814ba5f69a4d8284fb22b62b7f5cf1",
+    "sentinel/controller/champion.py": "b96dc432492e5e3b098dff6336416bd711e95a01c79b74ab940dec009742049a",
+    "sentinel/controller/champion_config.py": "80d290297466c881885e453a28f1f20d3d6aa5e35cc0a4a88e0d9ded7d1f16ed",
+    "sentinel/controller/champion_frozen.py": "a67bb21df8df12f1e411bfc9a562eb62180df4e1fd6f9e94c1e845a9f0978fb5",
+    "sentinel/controller/terminal_returns.py": "172c55b738753bcc9bcf29cf6ab3618d9de42d6f63f7e555d606508f7f740867",
+    "sentinel/core/kernel.py": "d8a630466fc0c6668fbe98b1fe18f0514c8b70e5b2d1faaa8c9d6ba237fce739"
+  },
+  "qualified_source_files": {
+    "system_campaign_uncertainty_math.py": "a53a3a7b463659eb3788923d504c402a2edd183a3922f20abe51c55dcd303213",
+    "system_campaign_uncertainty_gate.py": "79df745916e7603f803cf37022ba4e4a27340995b4ac98fdb344e7e7e46e1bf3"
+  }
+}

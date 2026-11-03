@@ -1,0 +1,59 @@
+{
+  "actual_reviewer_exit_code": 1,
+  "actual_stopped_fences_verified": true,
+  "actual_worker_exit_code": 1,
+  "all_108_inventory_members_authenticated": true,
+  "economic_worker_log_sha256": "48552a94353b602b6507e3e682cfadff04de91b2a3e43dbd8836a7f7004210ef",
+  "exact_unchanged_members": {
+    "book/checkpoint.json.gz": {
+      "bytes": 1099549,
+      "sha256": "866eef5ca8a7d3edb3073f764ea5e99edeff8655f82569544ee42affa06ad865"
+    },
+    "book/daily.jsonl": {
+      "bytes": 41455069,
+      "sha256": "90962f7029ed156001f0bbd788f02515f429c8a398f954258b4274339608641c"
+    },
+    "book/formation.jsonl": {
+      "bytes": 4074394,
+      "sha256": "565a37f7d692f7f2b06d288beb3044e56dbd0d8b09a8cc5a12fc8fd62c7782a8"
+    },
+    "book/identity.json": {
+      "bytes": 30117,
+      "sha256": "67ffc8f6e5522b757029152203ea2eff87f90c2ceebc9950101317094eba8e90"
+    },
+    "book/monthly.jsonl": {
+      "bytes": 208454,
+      "sha256": "752a15864e622483cb98ee51a1b6721594c51a58d14f45f278a25f4682092baf"
+    },
+    "book/watch.jsonl": {
+      "bytes": 289039,
+      "sha256": "a0a0742ae5e9f838de26a049e35849ab85b943674aff8c818f40441b14fb2a56"
+    },
+    "source-bindings.json": {
+      "bytes": 61203,
+      "sha256": "d426b8258e5c16b401cd22718a290abe2a89f73c42a8ee2a14950f90c6c4a289"
+    }
+  },
+  "failed_artifact_id": 13028155092,
+  "failed_attempt_preserved": true,
+  "failed_cipher_sha256": "6664a9ae45cd7ef4600f6ff290c78d4df5280606ab49e20b3d974cca7acb192f",
+  "failed_head": "451223a43676be660497520fadf1bd6205bfa2eb",
+  "failed_manifest_sha256": "798d756efdb0dd05c1eb58a6fa7a72dbee27598eb6fe8ab213fbd427082aaa63",
+  "failed_receipt_sha256": "0971ec4c1fad72c417f31b7bf96798b08bebb809c8e81996043b23a3551f1f0e",
+  "failed_run_id": 41161666450,
+  "failed_zip_sha256": "58d7c5e642ccf7e0bc63e4c5f9f1d232239865937a5399c5122c0df08029e55b",
+  "failure": "ACTION_PREFLIGHT_DECLARED_ORDINARY_SCHEMA",
+  "financial_entry_not_reached": true,
+  "financial_parent_head": "c1719dca2deff20cbd5b321d5f74349e1000eee4",
+  "financial_parent_outer_sha256": "1ea1ef30f14b2e3e42a91290adffea64674de374cb3245c5c45ec436c9deb490",
+  "financial_parent_run_id": 41151496224,
+  "financial_parent_session": "2022-09-30",
+  "measured_closes": 1196,
+  "new_model_not_adopted": true,
+  "no_checkpoint_rollback_or_new_origin": true,
+  "production_contacted": false,
+  "retained_input_descriptors": 27,
+  "reviewer_log_sha256": "68c58ec117d774a09531b8eff990a8c5faf28d32706a1df2930bd18fe14098f6",
+  "schema": "research.unadvanced-financial-equivalence/1",
+  "status": "EXACT_SAME_FINANCIAL_PARENT_NO_REPLAY_ENTRY"
+}

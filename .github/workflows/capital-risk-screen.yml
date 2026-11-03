@@ -1,0 +1,53 @@
+name: Capital risk fast B G screen
+
+on:
+  push:
+    branches: [codex/capital-risk-research]
+    paths:
+      - 'research/capital_risk/screen-request.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: capital-risk-fast-bg-screen
+  cancel-in-progress: false
+
+jobs:
+  trace-screen:
+    if: github.repository == 'flabber1835/stocker' && github.actor == 'flabber1835' && github.ref == 'refs/heads/codex/capital-risk-research'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            research/capital_risk
+          fetch-depth: 1
+      - name: Install hash-locked transfer dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/transfer-python"
+          "$RUNNER_TEMP/transfer-python/bin/pip" install --require-hashes --only-binary=:all: -r research/capital_risk/transfer-requirements.lock
+      - name: Verify research guards
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B -m unittest discover -s research/capital_risk/tests -v'
+      - name: Authenticate the existing frozen inputs and runtime
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/stage.py --request research/capital_risk/stage-request.json --output artifacts/capital-risk/screen-staging.json'
+      - name: Run the restricted offline exposure screen
+        env:
+          CAPITAL_RISK_RESEARCH_KEY_20261027: ${{ secrets.CAPITAL_RISK_RESEARCH_KEY_20261027 }}
+        run: '"$RUNNER_TEMP/transfer-python/bin/python" -B research/capital_risk/screen_job.py --request research/capital_risk/screen-request.json --staging-receipt artifacts/capital-risk/screen-staging.json --output artifacts/capital-risk/quick-screen.json'
+      - name: Preserve only encrypted evidence and nonfinancial receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: capital-risk-fast-bg-screen-${{ github.sha }}
+          path: |
+            artifacts/capital-risk/screen-staging.json
+            artifacts/capital-risk/quick-screen.json
+            artifacts/capital-risk/quick-screen.tar.crseal
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
