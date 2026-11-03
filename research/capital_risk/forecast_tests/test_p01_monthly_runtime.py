@@ -34,13 +34,17 @@ def evidence(tmp_path,monkeypatch):
             self.count+=1
             return {'session':day,'cagr':.1} if month_end else None
         def to_dict(self):return {'count':self.count}
-    for name in ['research','research.pooled_vacancy_funding','research.pooled_vacancy_funding.monthly']:
+    for name in ['research','research.pooled_vacancy_funding','research.pooled_vacancy_funding.monthly','research.pooled_input_support']:
         module=ModuleType(name);module.__path__=[]
         if name.endswith('.monthly'):module.MonthlyStats=Stats
+        if name.endswith('.pooled_input_support'):module.bundle=type('SyntheticBundle',(),{'axis':staticmethod(lambda:[])})
         monkeypatch.setitem(sys.modules,name,module)
     realpath=Path
     monkeypatch.setattr(m,'Path',lambda value:source if str(value).startswith('/variant/') else realpath(value))
     monkeypatch.setattr(m,'input_origin',lambda *a:parent)
+    # These tests isolate report equality. Full frozen-axis/cursor validation
+    # has direct tests in test_p01_stopped_prefix_review.py.
+    monkeypatch.setattr(m,'monthly_next_session',lambda current,axis,tail:'2020-11-02')
     return tmp_path,current
 
 

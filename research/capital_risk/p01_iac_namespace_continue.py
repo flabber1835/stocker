@@ -386,6 +386,21 @@ def admitted_capabilities(spec, mapping):
     return deepcopy(value)
 
 
+def monthly_next_session(current, axis, tail=None):
+    """The next frozen source session also exists after a normal budget pause."""
+    need(axis == sorted(set(axis)) and '2018-01-02' in axis and END in axis,
+         'MONTHLY_FROZEN_SOURCE_AXIS_ORDER_AND_ENDPOINTS')
+    measured=axis[axis.index('2018-01-02'):axis.index(END)+1]
+    count=current['completed'];cursor=current['source_cursor']
+    need(len(measured)==2156 and type(count) is int and 0<count<=2156
+         and measured[count-1]==cursor, 'MONTHLY_EXACT_CURSOR_COUNT_ON_FROZEN_AXIS')
+    remaining=measured[count:]
+    need(len(remaining)==2156-count, 'MONTHLY_EXACT_FROZEN_REMAINDER')
+    following=remaining[0] if remaining else '2026-08-03'
+    need(tail is None or tail==following, 'MONTHLY_ACTUAL_TAIL_EQUALS_NEXT_FROZEN_SOURCE_SESSION')
+    return following
+
+
 def monthly_reproduction(evidence, parent=None):
     """Exact reporting replay only; no financial runtime is restored/advanced."""
     from decimal import getcontext
@@ -403,8 +418,8 @@ def monthly_reproduction(evidence, parent=None):
     with (evidence / 'book/daily.jsonl').open('rb') as stream:
         stream.seek(current['journals']['daily']['bytes']); line = stream.readline()
         if line: following = json.loads(line)['session']
-    if following is None:
-        following = '2026-08-03' if current['source_cursor'] == END else read(evidence / 'book/result.json').get('failed_session')
+    from research.pooled_input_support import bundle
+    following = monthly_next_session(current,bundle.axis(),following)
     need(type(following) is str and following > current['source_cursor'], 'MONTHLY_ACTUAL_LOOKAHEAD')
     dates = [r['session'] for r in daily] + [following]
     stats = MonthlyStats.from_dict(parent['stats']); actual = []; stored = []
@@ -445,6 +460,13 @@ def authenticate_successor(root, key, spec):
     need(value['Id'] == t['worker_id'] and value['State']['Running'] is False
          and value['State']['OOMKilled'] is False and value['State']['ExitCode'] == 0,
          'CONTINUE_PREVIOUS_ACTUAL_STOPPED_FINANCIAL_WORKER')
+    if 'original_reviewer' in t:
+        original=read(out/'stopped-review/worker-inspect.json'); expected=t['original_reviewer']
+        fences(original,'capital-system-p01-iac-namespace-review-'+str(origin['run_id'])+'-1',
+               ['-B','-u','/driver/p01_iac_namespace_continue.py','--mode','review'])
+        need(original['Id']==expected['id'] and not original['State']['Running'] and not original['State']['OOMKilled']
+             and original['State']['ExitCode']==expected['exit_code']==1,
+             'CONTINUE_ORIGINAL_REVIEWER_ONE_PRESERVED_NOT_REWRITTEN')
     parent_check(out,spec)
     return out
 
@@ -587,6 +609,15 @@ def review(old, evidence, out, spec, rows):
                       checkpoint_sha256=current['sha256'], estimated_treatment=read(evidence / 'accurate-outcome.json')['estimated_treatment'],
                       complete=current['completed'] == 2156 and current['source_cursor'] == END, financial_authority=False)
         result['monthly_reproduction'] = monthly_reproduction(evidence, parent)
+        if spec.get('stopped_review_only'):
+            target=spec['review_target']
+            need(current['sha256']==target['outer_sha256'] and current['completed']==target['completed']
+                 and parent['sha256']==spec['outer_sha256'], 'STOPPED_REVIEW_EXACT_DISTINCT_PARENT_AND_TARGET')
+            result['separate_stopped_review']=dict(target_run_id=target['transport']['origin']['run_id'],
+                target_head=target['transport']['origin']['head'],target_artifact_id=target['transport']['artifact_id'],
+                target_raw_checkpoint=target['selected_file'],target_checkpoint_sha256=current['sha256'],
+                parent_checkpoint_sha256=parent['sha256'],original_financial_exit_code=0,original_reviewer_exit_code=1,
+                financial_transitions_reexecuted=0,qualification_transitions_reexecuted=0,financial_authority=False)
         (out / 'accurate-review.json').write_bytes(encoded(result))
 
 
@@ -606,7 +637,10 @@ def expected_request():
                 forward_unit_domain=dict(through=END,source_members=unit_facts['source_members'],
                     per_use_requirement='EXACT_NATIVE_PREIMAGE_CHRONOLOGICAL_FACTOR_FULL_WINDOW_AND_ANCHOR'),
                 monthly_review_only=parent.get('monthly_review_only',False),
-                financial_resume_authorized=parent.get('financial_predecessor_admitted',False) and not parent.get('monthly_review_only',False),
+                stopped_review_only=parent.get('stopped_review_only',False),
+                stopped_review_target=parent.get('review_target'),
+                financial_resume_authorized=parent.get('financial_predecessor_admitted',False)
+                    and not parent.get('monthly_review_only',False) and not parent.get('stopped_review_only',False),
                 protocol_sha256=old['protocol_sha256'], capacity_source_sha256=old['capacity_source_sha256'],
                 quote_descriptor=old['quote_descriptor'], old_qualification_reexecuted=False,
                 financial_wait_seconds=9000, qualification_wait_seconds=1200, review_wait_seconds=1200,
@@ -692,10 +726,26 @@ def host(args):
     try:
         need(shutil.disk_usage(temp).free >= request['initial_min_disk_bytes'], 'CONTINUE_INITIAL_DISK')
         old = authenticate_parent(temp / 'campaign-factual-transfer-p01-progress', key)
+        review_target=None
+        if request['stopped_review_only']:
+            need(request['financial_resume_authorized'] is False, 'STOPPED_REVIEW_CANNOT_AUTHORIZE_FINANCE')
+            review_target=authenticate_successor(temp/'campaign-factual-transfer-p01-stopped-target',key,read(HERE/SPEC)['review_target'])
         capsule = temp / 'p01-progress-approved-quote'; authenticate_capsule(request['quote_descriptor'], capsule, key=key)
         frozen = temp / 'capital-risk-stage-001/inputs'; original, source = reconstruct(frozen, old, temp)
         for root in (old, capsule, original, source): freeze(root)
+        if review_target is not None: freeze(review_target)
         os.environ.pop('GH_TOKEN', None)
+        if request['stopped_review_only']:
+            for filename in (SPEC,INPUT,SUPPLEMENT,REQUEST):shutil.copyfile(HERE/filename,out/filename)
+            name='capital-system-p01-iac-namespace-review-'+os.environ['GITHUB_RUN_ID']+'-1'
+            receipt['status']='FULL_STOPPED_FINANCIAL_REVIEW_ONLY_RUNNING';write_receipt(args.output,receipt)
+            resources(request,temp)
+            receipt['reviewer']=stopped_run(command(name,'review',source,frozen,out,old,capsule,review_target),name,out,
+                deadline=request['review_wait_seconds'],inspector=inspect)
+            known=True;stop=receipt['reviewer']
+            receipt['status']='FULL_STOPPED_REVIEW_PASSED_PENDING_ROOT' if stop['exit_code']==0 and not stop['oom_killed'] else 'FULL_STOPPED_REVIEW_REFUSED_PRESERVED'
+            finish(receipt,out,args.output,key,args.request,known=True);key=None
+            raise SystemExit(0 if receipt['status']=='FULL_STOPPED_REVIEW_PASSED_PENDING_ROOT' else 2)
         if request['monthly_review_only']:
             need(request['financial_resume_authorized'] is False, 'MONTHLY_CANDIDATE_CANNOT_AUTHORIZE_FINANCE')
             for filename in (SPEC, INPUT, REQUEST): shutil.copyfile(HERE / filename, out / filename)
@@ -750,6 +800,7 @@ def worker(mode):
     from full_system_core import hosted
     hosted(); validate_request(HERE / REQUEST)
     spec = read(HERE / SPEC); old = Path('/old'); out = Path('/out')
+    need(not spec.get('stopped_review_only') or mode=='review', 'STOPPED_REVIEW_SELECTION_FORBIDS_FINANCE_AND_QUALIFICATION')
     need((mode == 'monthly') == spec.get('monthly_review_only', False), 'EXACT_REQUESTED_REPORTING_OR_FINANCIAL_ROLE')
     if mode == 'economic':
         need(spec.get('financial_predecessor_admitted') is True, 'ROOT_ADMISSION_REQUIRED_BEFORE_WORKER_FINANCE')
