@@ -132,6 +132,8 @@ def test_retained_model_scope_guard_removal_falsifier(tmp_path):
 
 
 def preflight_fixture(tmp_path,monkeypatch):
+    request=tmp_path/'request.json';request.write_text(json.dumps(dict(readonly_source_witnesses=False)))
+    monkeypatch.setattr(m,'REQUEST',request)
     old,out=tmp_path/'old',tmp_path/'out';(old/'book').mkdir(parents=True);(old/'stopped-review').mkdir();out.mkdir()
     cp=dict(sha256='a'*64,completed=1090)
     (old/'book/checkpoint.json.gz').write_bytes(gzip.compress(json.dumps(cp).encode()))

@@ -35,6 +35,107 @@ COMBINED_PHASES = {
         ('system_campaign_arqule_facts', 'ArQuleFacts', 'system-campaign-arqule-terminal-facts.json', ('ARQL',)),
     ),
 }
+SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
+SOURCE_WITNESS_FILE = 'source-witnesses.json'
+WITNESS_SCOPES = {
+    'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
+        parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
+            session='2022-07-20', native_session='2022-07-21',
+            native_term_sha256='d00cf559bcc50db02d1e30e69194f3f92949e1085b4bd23b53c4f134aba86d09',
+            parent_positions=[dict(slot_id=6, ticker='SAFM', quantity=29, entry_date='2022-06-30')])]),
+    'P10': dict(parent_outer_sha256='e1c1c823374d10e0cbf62752b0465e39c23165ec80a61e3f357bea13217462e4',
+        parent_cursor='2022-07-29', terms=[dict(ticker='ACC', security_id='209530306982231273',
+            session='2022-08-08', native_session='2022-08-09',
+            native_term_sha256='dedc2034f8b43302ab25e6be16e3c4896563412b8510b3cb4083281b6cbf21a7',
+            parent_positions=[])]),
+}
+
+
+def source_terms(scope, natives, rows, positions):
+    """Validate only declared source preimages and parent-role observations."""
+    from datetime import date
+    declared = scope['terms']
+    keys = {(t['session'], t['security_id']) for t in declared}
+    need(declared and len(keys) == len(declared) == len(rows) == len(positions) == len(natives),
+         'SOURCE_WITNESS_EXACT_UNIQUE_DECLARED_COUNTS')
+    need({(r['session'], r['security_id']) for r in rows} == keys,
+         'SOURCE_WITNESS_NO_MISSING_DUPLICATE_OR_EXTRA_ROWS')
+    result = []
+    for term, native, held in zip(declared, natives, positions):
+        sid = term['security_id']
+        row, = [r for r in rows if (r['session'], r['security_id']) == (term['session'], sid)]
+        need(scope['parent_cursor'] < term['native_session'] and term['session'] < term['native_session']
+             and date.fromisoformat(row['listing_first_session']) <= date.fromisoformat(row['session'])
+             and row['ticker'] == term['ticker'] and row['security_type_eligible'] == '1'
+             and type(row['issuer_id']) is str, 'SOURCE_WITNESS_EXACT_UNMODIFIED_IDENTITY')
+        need(native['session'] == term['native_session'] and native['security_id'] == sid
+             and native['kind'] == 'CASH_MERGER' and native['cash_per_share'] is None
+             and digest(native) == term['native_term_sha256'], 'SOURCE_WITNESS_EXACT_INCOMPLETE_NATIVE')
+        need(held == term['parent_positions'], 'SOURCE_WITNESS_EXACT_PARENT_POSITION_SCOPE')
+        witness = {k: row[k] for k in ('session', 'security_id', 'ticker', 'issuer_id',
+                                       'listing_first_session', 'security_type_eligible')}
+        witness['source_observation_sha256'] = digest(row)
+        result.append(dict(source_row=deepcopy(row), identity_witness=witness,
+                           native_term=deepcopy(native), parent_positions=deepcopy(held)))
+    return result
+
+
+def witness_payload(cp, arm, scope, natives, rows):
+    need(cp['sha256'] == scope['parent_outer_sha256'] and cp['source_cursor'] == scope['parent_cursor'],
+         'SOURCE_WITNESS_EXACT_OWN_PARENT')
+    episodes = cp['run']['state']['wealth_core']['episodes']
+    positions = [[dict(slot_id=e['slot_id'], ticker=e['ticker'], quantity=e['current_shares'],
+                       entry_date=e['entry_date'])
+                  for _, e in sorted(episodes.items(), key=lambda item: int(item[0]))
+                  if e['security_id'] == t['security_id']] for t in scope['terms']]
+    return dict(schema=SOURCE_WITNESS_SCHEMA, arm=arm, parent_outer_sha256=cp['sha256'],
+        parent_cursor=cp['source_cursor'], archive_sha256=cp['base']['archive_sha256'],
+        bundle_sha256=cp['base']['bundle_sha256'], scope=deepcopy(scope), scope_sha256=digest(scope),
+        producer_sha256=sha(Path(__file__).read_bytes()), terms=source_terms(scope, natives, rows, positions),
+        financial_sessions_advanced=0, financial_authority=False, input_adopted=False,
+        provider_metadata_upgraded=False, production_contacted=False)
+
+
+def validate_witness_capture(payload, spec, scope):
+    need(payload['schema'] == SOURCE_WITNESS_SCHEMA and payload['arm'] == spec['arm']
+         and payload['parent_outer_sha256'] == spec['outer_sha256'] == scope['parent_outer_sha256']
+         and payload['parent_cursor'] == spec['selected_session'] == scope['parent_cursor']
+         and payload['archive_sha256'] == spec['base']['archive_sha256']
+         and payload['bundle_sha256'] == spec['base']['bundle_sha256']
+         and payload['scope'] == scope and payload['scope_sha256'] == digest(scope)
+         and payload['producer_sha256'] == sha(Path(__file__).read_bytes())
+         and type(payload['financial_sessions_advanced']) is int and payload['financial_sessions_advanced'] == 0
+         and all(payload[k] is False for k in ('financial_authority', 'input_adopted',
+                                               'provider_metadata_upgraded', 'production_contacted')),
+         'SOURCE_WITNESS_EXACT_SOURCE_ONLY_CAPTURE')
+    terms = payload['terms']
+    need(terms == source_terms(scope, [v['native_term'] for v in terms],
+          [v['source_row'] for v in terms], [v['parent_positions'] for v in terms]),
+          'SOURCE_WITNESS_FULL_PAYLOAD_RECONSTRUCTION')
+    return payload
+
+
+def capture_source_witnesses(cp, out, arm, scope):
+    hosted()
+    from research.pooled_input_support import inputs
+    before = digest(cp)
+    actions = inputs.load_actions(Path('/frozen/bundle'))
+    natives = []
+    for term in scope['terms']:
+        native, = [asdict(t) for t in actions.terminal.get(term['native_session'], ())
+                   if t.security_id == term['security_id']]
+        natives.append(native)
+    keys = {(t['session'], t['security_id']) for t in scope['terms']}
+    rows = []
+    with zipfile.ZipFile('/frozen/archive/corpus.zip') as archive:
+        for year in sorted({day[:4] for day, _ in keys}):
+            for row in inputs._archive_rows(archive, 'observations-' + year + '.csv.gz'):
+                if (row['session'], row['security_id']) in keys:
+                    rows.append(row)
+    payload = witness_payload(cp, arm, scope, natives, rows)
+    need(digest(cp) == before, 'SOURCE_WITNESS_PARENT_STATE_UNCHANGED')
+    save(out / SOURCE_WITNESS_FILE, payload)
+    return payload
 
 
 def catalog_terms(codec, tickers):

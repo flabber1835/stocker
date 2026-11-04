@@ -679,3 +679,38 @@ No full-period score, performance or production authority is granted.
 Select P07 alone in the next shared financial request; it starts from its own
 originally admitted503 root with the combined future MDCO/ARQL document.
 Fresh P00's launch request and running commit remain unchanged.
+
+
+## Capture missing frozen identity witnesses through the shared launcher
+
+P04's admitted1132 root holds29 SAFM; P10's admitted1152 root has not yet
+entered ACC (its78-share August4 holding belongs to an unadmitted later path).
+Their next blockers have source-proven mandatory cash terms but lack complete
+frozen source-row witnesses suitable for the shared future-input qualification.
+Capture only those missing rows and native terms, without a financial advance.
+
+Add one explicit read-only source-witness mode to the existing continuation
+launcher, with exactly one of financial continuation, new-prefix reporting
+review, or source capture authorized. Source capture selects the exact admitted
+own root, reuses its closed accounting review and performs the existing hosted
+restore/journal/source identity checks. It scans the declared frozen annual
+archive for exact session/security/ticker rows, binds complete row digests and
+unmodified metadata, and checks the declared native incomplete-term preimages.
+The source scopes bind the parent outer hash/cursor and actual parent position
+expectation: SAFM29/slot6 held; ACC absent at July29. No unadmitted tail is adopted.
+
+Use the same offline8GB/2CPU worker, per-arm leases, immutable source/archive
+mounts, positively stopped export, AES-GCM and one-GiB bound. Do not start an
+economic or financial reviewer worker in this mode. Export a private source
+payload and a distinct public capture status; neither grants financial
+continuation, performance or input-adoption authority. Independent DATA review
+must verify the authenticated payload's full source/native/parent bindings
+before using its witness in any later factual catalog. The actual future cash
+posting remains a separate qualified ordinary-input continuation.
+
+This adds a shared data-capture capability to the current launcher/selector,
+not a new per-symbol wrapper. P00 and P07 keep their immutable live run commits;
+the next request selects only P04/P10 source capture. Closed historical/source
+audits and qualifications remain closed. Targeted synthetic tests must refuse
+wrong/duplicate/missing rows, native preimage changes, parent-role substitution,
+mixed authority, mutable/UNKNOWN export and source-mode financial launch.

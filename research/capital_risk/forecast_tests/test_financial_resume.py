@@ -40,12 +40,13 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P07']
-    assert r['maximum_parallel_financial_workers'] == 1
-    assert r['maximum_parallel_readonly_workers'] == 0
-    assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is True
+    assert r['arms'] == ['P04','P10']
+    assert r['maximum_parallel_financial_workers'] == 0
+    assert r['maximum_parallel_readonly_workers'] == 2
+    assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is False
+    assert r['readonly_source_witnesses'] is True and m.request_authority(r)
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {'P07':dict(new_factual_overlay=True,restored_correlation=False)}
+    assert r['arm_inputs'] == {a:dict(new_factual_overlay=False,restored_correlation=False) for a in ['P04','P10']}
     assert r['admitted_checkpoints'] == {a:m.root_spec(a)['outer_sha256'] for a in m.SELECTED_ARMS}
     assert r['full_measured_closes'] == 2156
     assert sum(r[k] for k in ['financial_wait_seconds', 'review_wait_seconds', 'preflight_wait_seconds']) <= 245 * 60
@@ -193,10 +194,21 @@ def test_real_synthetic_aes_gcm_export_roundtrip(tmp_path, monkeypatch):
 
 def launch_fixture(tmp_path, monkeypatch, event):
     import ephemeral_runner_capacity as capacity
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P07',))
     request = dict(m.expected_request())
-    request.update(readonly_partial_review=event.startswith('readonly'),
-                   financial_resume_authorized=not event.startswith('readonly'))
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P07',))
+    request.update(arms=['P07'],readonly_partial_review=event.startswith('readonly'),
+                   financial_resume_authorized=not event.startswith(('readonly','witness')),
+                   readonly_source_witnesses=event.startswith('witness'),
+                   execution_mode=('READONLY_FROZEN_SOURCE_WITNESSES' if event.startswith('witness')
+                       else 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION' if event.startswith('readonly')
+                       else 'OWN_ADMITTED_FINANCIAL_CONTINUATION'))
+    if event.startswith('witness'):
+        from research.capital_risk.forecast_tests.test_financial_source_witnesses import source_fixture
+        cp,scope,natives,rows=source_fixture()
+        actual=m.root_spec('P07')
+        cp.update(sha256=actual['outer_sha256'],source_cursor=actual['selected_session'],base=actual['base'])
+        scope.update(parent_outer_sha256=cp['sha256'],parent_cursor=cp['source_cursor'])
+        request['source_witness_scopes']={'P07':scope}
     request_path = tmp_path / 'request.json'
     request_path.write_text(json.dumps(request))
     stage_path, cap_path = tmp_path / 'stage.json', tmp_path / 'capacity.json'
@@ -235,6 +247,12 @@ def launch_fixture(tmp_path, monkeypatch, event):
                          all_new_monthly_reports_exact=True,all_monthly_checkpoint_state_exact=True,financial_transitions_reexecuted=0)
             if event=='readonly-bad-monthly':monthly['all_monthly_checkpoint_state_exact']=False
             (output/'monthly-reproduction.json').write_text(json.dumps(monthly))
+            if event.startswith('witness'):
+                import system_campaign_financial_future as future
+                payload=future.witness_payload(cp,'P07',scope,natives,rows)
+                if event=='witness-bad-payload':payload['terms'][0]['source_row']['raw_close']='WRONG'
+                (output/future.SOURCE_WITNESS_FILE).write_text(json.dumps(payload))
+                if event=='witness-unknown-preflight':raise m.StopUnknown('synthetic source stop unknown')
             if event == 'failed-preflight': return dict(stop(), exit_code=1)
         if mode == 'review': (output / 'core-review.json').write_text(json.dumps(proof()))
         return stop()

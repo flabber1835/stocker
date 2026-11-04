@@ -48,16 +48,17 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P07',)
+SELECTED_ARMS = ('P04', 'P10')
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/12'
+SCHEMA = 'research.system-campaign-accurate-resume-request/13'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
 def expected_request():
+    from system_campaign_financial_future import WITNESS_SCOPES
     need(sha256_file(HERE / PRIOR) == PRIOR_SHA, 'RESUME_FROZEN_PRIOR_REQUEST')
     prior = json.loads((HERE / PRIOR).read_bytes())['sources']
     need(len(prior) == 383 and all(sha256_file(HERE / n) == h for n, h in prior.items()),
@@ -70,10 +71,12 @@ def expected_request():
              'system_campaign_financial_uncertainty.py', 'system_campaign_financial_branches.py',
              'system-campaign-financial-branch-contract.json')
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
-                execution_mode='OWN_ADMITTED_FINANCIAL_CONTINUATION', new_origin=False,
-                financial_resume_authorized=True, readonly_partial_review=False,
+                execution_mode='READONLY_FROZEN_SOURCE_WITNESSES', new_origin=False,
+                financial_resume_authorized=False, readonly_partial_review=False,
+                readonly_source_witnesses=True,
+                source_witness_scopes={a: deepcopy(WITNESS_SCOPES[a]) for a in SELECTED_ARMS},
                 diagnostic_state_adopted=False,
-                arm_inputs={a: dict(new_factual_overlay=True, restored_correlation=False) for a in SELECTED_ARMS},
+                arm_inputs={a: dict(new_factual_overlay=False, restored_correlation=False) for a in SELECTED_ARMS},
                 financial_source_changed=False, full_measurement_start='2018-01-02',
                 full_measurement_end='2026-07-31', full_measured_closes=2156,
                 predecessors_sha256=sha256_file(HERE / PARENTS),
@@ -88,8 +91,19 @@ def expected_request():
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
                 financial_wait_seconds=10800, preflight_wait_seconds=1200,
                 review_wait_seconds=2700, artifact_retention_days=7,
-                maximum_parallel_financial_workers=len(SELECTED_ARMS), maximum_parallel_readonly_workers=0,
+                maximum_parallel_financial_workers=0, maximum_parallel_readonly_workers=len(SELECTED_ARMS),
                 production_contacted=False)
+
+
+def request_authority(request):
+    flags = tuple(request.get(k, False) for k in
+                  ('financial_resume_authorized', 'readonly_partial_review', 'readonly_source_witnesses'))
+    modes = {
+        (True, False, False): 'OWN_ADMITTED_FINANCIAL_CONTINUATION',
+        (False, True, False): 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION',
+        (False, False, True): 'READONLY_FROZEN_SOURCE_WITNESSES',
+    }
+    return all(type(v) is bool for v in flags) and flags in modes and request['execution_mode'] == modes[flags]
 
 
 class SeedPaths:
@@ -426,6 +440,12 @@ def preflight(old, out, spec):
          diagnostic_state_adopted=False, financial_sessions_advanced=0,
          root_admission_sha256=spec.get('root_admission_sha256'),
          accounting_review_sha256=sha256_file(out / 'old-prefix-canonical-review.json')))
+    request = json.loads((HERE / REQUEST).read_bytes())
+    if request.get('readonly_source_witnesses') is True:
+        need(request_authority(request) and request == expected_request(),
+             'RESUME_SOURCE_WITNESS_EXACT_READONLY_REQUEST')
+        from system_campaign_financial_future import capture_source_witnesses
+        capture_source_witnesses(cp, out, spec['arm'], request['source_witness_scopes'][spec['arm']])
 
 
 def preserve_originals(old, out, spec):
@@ -630,8 +650,7 @@ def launch(args):
     need(os.environ.get('GITHUB_RUN_ATTEMPT') == '1', 'RESUME_NO_BLIND_RERUN')
     request = json.loads(args.request.read_bytes())
     need(request == expected_request() and args.arm in SELECTED_ARMS, 'RESUME_EXACT_REQUEST_AND_SELECTED_ARM')
-    need((request['readonly_partial_review'] is True and request['financial_resume_authorized'] is False)
-         or (request['readonly_partial_review'] is False and request['financial_resume_authorized'] is True),
+    need(request_authority(request),
          'RESUME_EXACT_FINANCIAL_OR_READONLY_AUTHORITY')
     stage_valid(json.loads(args.staging.read_bytes()))
     from ephemeral_runner_capacity import validate_prepared_receipt
@@ -649,6 +668,7 @@ def launch(args):
         predecessor_outer_sha256=spec['outer_sha256'], performance_admitted=False,
         financial_resume_authorized=request['financial_resume_authorized'],
         readonly_partial_review=request['readonly_partial_review'],
+        readonly_source_witnesses=request.get('readonly_source_witnesses', False),
         production_contacted=False, status='EXPORT_PROBE_PENDING')
 
     def public():
@@ -719,7 +739,15 @@ def launch(args):
              'RESUME_PARENT_PREFLIGHT_REFUSED_NO_FINANCIAL_LAUNCH')
         for name in ('strict-parent-preflight.json', 'old-prefix-canonical-review.json'):
             shutil.copyfile(parent_review / name, out / name)
-        if request['readonly_partial_review']:
+        if request.get('readonly_source_witnesses') is True:
+            need(request['financial_resume_authorized'] is request['readonly_partial_review'] is False,
+                 'RESUME_SOURCE_WITNESSES_CANNOT_LAUNCH_FINANCE_OR_REPORTING')
+            from system_campaign_financial_future import SOURCE_WITNESS_FILE, validate_witness_capture
+            payload = json.loads((parent_review / SOURCE_WITNESS_FILE).read_bytes())
+            validate_witness_capture(payload, spec, request['source_witness_scopes'][args.arm])
+            shutil.copyfile(parent_review / SOURCE_WITNESS_FILE, out / SOURCE_WITNESS_FILE)
+            receipt['status'] = 'SOURCE_WITNESSES_HOSTED_CAPTURED_PENDING_DATA'
+        elif request['readonly_partial_review']:
             need(request['financial_resume_authorized'] is False, 'RESUME_READONLY_CANNOT_ADVANCE_FINANCIAL_STATE')
             monthly = json.loads((parent_review / 'monthly-reproduction.json').read_bytes())
             need(monthly['passed'] is True and monthly['checkpoint_sha256'] == spec['outer_sha256']
@@ -764,7 +792,8 @@ def launch(args):
     public()
     print(json.dumps(receipt), flush=True)
     return 0 if receipt['status'] in ('COMPLETE_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT',
-                                      'READONLY_PARTIAL_REVIEW_PASSED_PENDING_ROOT') else 2
+                                      'READONLY_PARTIAL_REVIEW_PASSED_PENDING_ROOT',
+                                      'SOURCE_WITNESSES_HOSTED_CAPTURED_PENDING_DATA') else 2
 
 
 if __name__ == '__main__':
