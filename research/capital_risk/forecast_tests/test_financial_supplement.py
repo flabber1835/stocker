@@ -13,7 +13,7 @@ from research.capital_risk.forecast_tests.test_financial_source_close import rem
 
 
 @pytest.mark.parametrize('arm,cursor,tickers', [
-    ('P05', '2018-11-30', ['APTI', 'VSM', 'OCLR', 'MZOR', 'TSRO', 'ZAYO']),
+    ('P05', '2018-11-30', ['APTI', 'VSM', 'OCLR', 'MZOR', 'TSRO', 'ZAYO', 'XOXO', 'MB2', 'ESRX']),
     ('P07', '2021-03-31', ['MIK', 'VAR', 'NAV', 'WORK', 'HOME', 'TRIL1',
                          'FPRX', 'GNMK', 'GLUU', 'WIFI', 'PFPT', 'STMP', 'NUAN', 'CERN']),
 ])
@@ -31,12 +31,15 @@ def test_actual_hydration_source_composition_covers_interleaved_events(tmp_path,
     exec(compile(ast.fix_missing_locations(ast.Module(body=fn.body[start:end+1], type_ignores=[])),
                  '<actual-data-only-source-composition>', 'exec'), scope)
     assert [t['ticker'] for t in scope['terms']] == tickers
-    assert len(scope['ordinary_components']) == (2 if arm == 'P05' else 1)
+    assert len(scope['ordinary_components']) == (3 if arm == 'P05' else 1)
     assert scope['inherited_ordinary'] == []
     if arm == 'P05':
         by = {t['ticker']: t for t in scope['terms']}
         assert by['MZOR']['added']['session'] < by['APTI']['native_session']
         assert by['MZOR']['added']['cash_per_share'] == 58.5
+        assert by['ESRX']['added']['exchange_ratio'] == .2434
+        assert by['ESRX']['added']['delivered_ticker'] == 'CI'
+        assert by['XOXO']['added']['session'] == by['ESRX']['added']['session'] == '2018-12-21'
     else:
         original = json.loads((f.HERE / 'system-campaign-future-input-amendment-catalog.json').read_bytes())
         for term, saved in zip(scope['terms'][6:], original['terms']):
@@ -45,7 +48,7 @@ def test_actual_hydration_source_composition_covers_interleaved_events(tmp_path,
 
 
 def test_literal_witness_survives_actual_frozen_date_normalization():
-    terms, _ = f.supplemental_cash_selection('P07', '2021-03-31')
+    terms, _ = f.supplemental_selection('P07', '2021-03-31')
     before = deepcopy(terms)
     fn = next(n for n in ast.parse(Path(f.__file__).read_bytes()).body
               if isinstance(n, ast.FunctionDef) and n.name == 'hydrate')
@@ -58,46 +61,48 @@ def test_literal_witness_survives_actual_frozen_date_normalization():
 
 
 def test_exact_catalog_and_validator_bytes_falsifier(tmp_path, monkeypatch):
-    plan, = f.SUPPLEMENTAL_CASH_PHASES['P05', '2018-11-30']
+    plan = f.SUPPLEMENTAL_PHASES['P05', '2018-11-30'][0]
+    for source in f.SUPPLEMENTAL_PHASES['P05', '2018-11-30']:
+        (tmp_path / source[3]).write_bytes((f.HERE / source[3]).read_bytes())
     (tmp_path / plan[3]).write_bytes((f.HERE / plan[3]).read_bytes() + b'\n')
     monkeypatch.setattr(f, 'HERE', tmp_path)
     with pytest.raises(ValueError, match='SUPPLEMENT_EXACT_ORIGINAL_SOURCE_BYTES'):
-        f.supplemental_cash_selection('P05', '2018-11-30')
-    assert len(removed_guard('supplemental_cash_selection',
-        'FUTURE_SUPPLEMENT_EXACT_ORIGINAL_SOURCE_BYTES')('P05', '2018-11-30')[0]) == 3
+        f.supplemental_selection('P05', '2018-11-30')
+    assert len(removed_guard('supplemental_selection',
+        'FUTURE_SUPPLEMENT_EXACT_ORIGINAL_SOURCE_BYTES')('P05', '2018-11-30')[0]) == 6
 
 
 def test_constructor_guard_falsifier(monkeypatch):
-    plan, = f.SUPPLEMENTAL_CASH_PHASES['P07', '2021-03-31']
+    plan, = f.SUPPLEMENTAL_PHASES['P07', '2021-03-31']
     changed = (*plan[:2], 'UNDECLARED', *plan[3:])
-    monkeypatch.setitem(f.SUPPLEMENTAL_CASH_PHASES, ('P07', '2021-03-31'), (changed,))
+    monkeypatch.setitem(f.SUPPLEMENTAL_PHASES, ('P07', '2021-03-31'), (changed,))
     with pytest.raises(ValueError, match='SUPPLEMENT_DECLARED_CONSTRUCTOR'):
-        f.supplemental_cash_selection('P07', '2021-03-31')
-    assert len(removed_guard('supplemental_cash_selection',
+        f.supplemental_selection('P07', '2021-03-31')
+    assert len(removed_guard('supplemental_selection',
         'FUTURE_SUPPLEMENT_DECLARED_CONSTRUCTOR')('P07', '2021-03-31')[0]) == 8
 
 
 def test_consumed_native_guard_falsifier(monkeypatch):
-    plans = f.SUPPLEMENTAL_CASH_PHASES['P07', '2021-03-31']
-    monkeypatch.setitem(f.SUPPLEMENTAL_CASH_PHASES, ('P07', '2021-04-15'), plans)
-    with pytest.raises(ValueError, match='SUPPLEMENT_ONLY_UNCONSUMED_CASH'):
-        f.supplemental_cash_selection('P07', '2021-04-15')
-    assert len(removed_guard('supplemental_cash_selection',
-        'FUTURE_SUPPLEMENT_ONLY_UNCONSUMED_CASH')('P07', '2021-04-15')[0]) == 8
+    plans = f.SUPPLEMENTAL_PHASES['P07', '2021-03-31']
+    monkeypatch.setitem(f.SUPPLEMENTAL_PHASES, ('P07', '2021-04-15'), plans)
+    with pytest.raises(ValueError, match='SUPPLEMENT_ONLY_UNCONSUMED_TERMS'):
+        f.supplemental_selection('P07', '2021-04-15')
+    assert len(removed_guard('supplemental_selection',
+        'FUTURE_SUPPLEMENT_ONLY_UNCONSUMED_TERMS')('P07', '2021-04-15')[0]) == 8
 
 
 def test_duplicate_source_guard_falsifier(monkeypatch):
-    plan, = f.SUPPLEMENTAL_CASH_PHASES['P07', '2021-03-31']
+    plan, = f.SUPPLEMENTAL_PHASES['P07', '2021-03-31']
     plans = ((*plan[:-1], ('FPRX',)), (*plan[:-1], ('GNMK',)))
-    monkeypatch.setitem(f.SUPPLEMENTAL_CASH_PHASES, ('P07', '2021-03-31'), plans)
+    monkeypatch.setitem(f.SUPPLEMENTAL_PHASES, ('P07', '2021-03-31'), plans)
     with pytest.raises(ValueError, match='SUPPLEMENT_UNIQUE_SOURCE_COMPONENTS'):
-        f.supplemental_cash_selection('P07', '2021-03-31')
-    assert len(removed_guard('supplemental_cash_selection',
+        f.supplemental_selection('P07', '2021-03-31')
+    assert len(removed_guard('supplemental_selection',
         'FUTURE_SUPPLEMENT_UNIQUE_SOURCE_COMPONENTS')('P07', '2021-03-31')[0]) == 2
 
 
 def test_unregistered_phase_has_no_supplement():
-    assert f.supplemental_cash_selection('P00', '2026-07-31') == ([], [])
+    assert f.supplemental_selection('P00', '2026-07-31') == ([], [])
 
 
 def test_actual_supplement_composition_requires_explicit_repair_root():
@@ -105,7 +110,7 @@ def test_actual_supplement_composition_requires_explicit_repair_root():
               if isinstance(n, ast.FunctionDef) and n.name == 'hydrate')
     start = next(i for i, n in enumerate(fn.body) if isinstance(n, ast.Assign)
                  and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name)
-                 and n.value.func.id == 'supplemental_cash_selection')
+                 and n.value.func.id == 'supplemental_selection')
     nodes = deepcopy(fn.body[start:start+2])
     def run():
         scope = dict(vars(f), arm='P07', cp=dict(source_cursor='2021-03-31', repairs=[]),
@@ -146,7 +151,7 @@ def test_actual_p07_retained_typed_input_is_independently_validated_without_term
         pytest.skip('private DATA fixture is local-only')
     root = Path('\\\\?\\'+str(root.resolve()))
     cp = json.loads(gzip.decompress((root/'book/checkpoint.json.gz').read_bytes()))
-    terms, _ = f.supplemental_cash_selection('P07', '2021-03-31')
+    terms, _ = f.supplemental_selection('P07', '2021-03-31')
     before = deepcopy((cp, terms))
     remaining, inherited = f.remaining_ordinary_terms(cp, terms, root)
     assert remaining == terms and inherited == [] and (cp, terms) == before

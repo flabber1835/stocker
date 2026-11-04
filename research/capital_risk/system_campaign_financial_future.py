@@ -131,13 +131,18 @@ ORIGINAL_ORDINARY_SOURCES['P03'] = (
      'f2467de7dd56d1b69bac24be9caeeedd6be946e1e898dce9a9afefe054437018'),
 )
 ORIGINAL_DELIVERY_SOURCES['P03'] = ORIGINAL_ORDINARY_SOURCES['P03']
-SUPPLEMENTAL_CASH_PHASES = {
+SUPPLEMENTAL_PHASES = {
     ('P05', '2018-11-30'): (
         ('system_campaign_yearend_facts', 'YearendFacts', 'PATH',
          'system-campaign-yearend-terminal-facts.json',
          '967d6fd19080f08142f5d93620ab832e10481b4c828d2a062cc9b1ca7166c7cb',
          'b4318a6ea900586e72e663aac9da28a607f415bb4a881a1c9061dc97bde2aa6e',
          ('MZOR', 'TSRO', 'ZAYO')),
+        ('system_campaign_followon_facts', 'FollowonFacts', 'PATH',
+         'system-campaign-followon-terminal-facts.json',
+         '7ed27c0e6d9a7b79192b026a2d02036a0e6360c8a7e49f1069435cf537477822',
+         '05fe3cf59db15350abf037e12cb0dd55ab721a9c04444a5686854fede3498c15',
+         ('XOXO', 'MB2', 'ESRX')),
     ),
     ('P07', '2021-03-31'): (
         ('system_campaign_cash_batch', 'CashBatch', 'JSON',
@@ -1126,11 +1131,11 @@ def original_ordinary_selection(arm, cursor):
     return None
 
 
-def supplemental_cash_selection(arm, cursor):
-    """Select pinned original cash catalogs even when their dates interleave."""
+def supplemental_selection(arm, cursor):
+    """Select pinned original terminal catalogs even when their dates interleave."""
     import importlib
     terms, sources = [], []
-    for module_name, class_name, constructor, catalog, catalog_sha, validator_sha, tickers in SUPPLEMENTAL_CASH_PHASES.get((arm, cursor), ()):
+    for module_name, class_name, constructor, catalog, catalog_sha, validator_sha, tickers in SUPPLEMENTAL_PHASES.get((arm, cursor), ()):
         raw = (HERE / catalog).read_bytes()
         module = importlib.import_module(module_name)
         need(sha(raw) == catalog_sha and sha(Path(module.__file__).read_bytes()) == validator_sha,
@@ -1138,9 +1143,9 @@ def supplemental_cash_selection(arm, cursor):
         need(constructor in ('PATH', 'JSON'), 'FUTURE_SUPPLEMENT_DECLARED_CONSTRUCTOR')
         codec = getattr(module, class_name)(HERE / catalog if constructor == 'PATH' else json.loads(raw))
         selected_terms = catalog_terms(codec, tickers)
-        need(selected_terms and all(t['added']['kind'] == 'CASH_MERGER'
+        need(selected_terms and all(t['added']['kind'] in ('CASH_MERGER', 'CASH_PLUS_STOCK')
              and cursor < t['native_session'] < t['added']['session'] for t in selected_terms),
-             'FUTURE_SUPPLEMENT_ONLY_UNCONSUMED_CASH')
+             'FUTURE_SUPPLEMENT_ONLY_UNCONSUMED_TERMS')
         source = dict(catalog_file=catalog, catalog_sha256=catalog_sha,
                       validator_file=Path(module.__file__).name, validator_sha256=validator_sha,
                       selected_tickers=list(tickers))
@@ -1433,7 +1438,7 @@ def hydrate(cp, arm, *, source_root=None):
                  if catalog != delivery_catalog or ordinary is not None else delivery_terms)
         if delivery_codec.ordinary_source not in ordinary_components:
             ordinary_components.append(deepcopy(delivery_codec.ordinary_source))
-    supplement, components = supplemental_cash_selection(arm, cp['source_cursor'])
+    supplement, components = supplemental_selection(arm, cp['source_cursor'])
     if supplement:
         need(source_root is not None, 'FUTURE_SUPPLEMENT_EXPLICIT_REPAIR_ROOT')
         supplement, inherited = remaining_ordinary_terms(cp, supplement, source_root)

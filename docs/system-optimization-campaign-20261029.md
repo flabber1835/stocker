@@ -745,3 +745,11 @@ selectors. This supplies FMI's July 31 cash and COL's November delivery through
 the same native, full-row identity, neutral adoption and actual-context checks
 already used by the other books. Its original April checkpoint and zero seed
 remain historical admission evidence, rather than the current reporting target.
+
+P05 next reaches the original follow-on catalog's XOXO/MB2 cash and ESRX mixed
+delivery. Extend the same supplement selector to both supported terminal kinds,
+using their unchanged literal validator and explicit subset. ESRX follows the
+existing original-delivery identity, frozen raw-open fractional proxy and actual
+conversion/no-op checks. Keep all interleaved year-end and late terms selected
+together; do not introduce another company-specific compiler or change settlement
+assumptions.
