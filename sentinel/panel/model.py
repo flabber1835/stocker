@@ -41,6 +41,7 @@ from sentinel.panel.retry_status import (
     availability_label,
     protected_day_wait as _protected_day_wait,
     project_cycle_recovery,
+    submitted_commands_progress,
 )
 
 if TYPE_CHECKING:
@@ -1225,13 +1226,20 @@ def automation_cycle_row(*, installed: Optional[bool],
                    recovery=(discovery_recovery
                              if not failure_code and not failure_detail else None))
     normalized = str(state or "").upper()
+    submitted_progress = submitted_commands_progress(dict(
+        state=state, plan_id=plan_id, failure_code=failure_code,
+        diagnostic=diagnostic, clean_reconciliation_id=clean_reconciliation_id,
+        terminal_reason=terminal_reason, callback_failure=callback_failure,
+        exception_type=exception_type, execution_open_at=execution_open_at,
+        execute_at=execute_at, updated_at=updated_at, next_wake_at=next_wake_at,
+        execution_close_at=execution_close_at))
     detail = (
         f"cycle {cycle_id} · decision {decision_session or 'unknown'} · "
         f"effective {effective_session or 'unknown'} · next wake "
         f"{next_wake_at.isoformat() if next_wake_at else 'none'} · last "
         f"clean reconciliation {clean_reconciliation_id or 'none'}")
     if failure_code or failure_detail:
-        detail += (f" · failure {failure_code or 'UNCLASSIFIED'}: "
+        detail += (f" · {'progress' if submitted_progress else 'failure'} {failure_code or 'UNCLASSIFIED'}: "
                    f"{failure_detail or 'no detail'}")
     availability_cycle = dict(
         state=state, retry_phase=retry_phase,
@@ -1264,6 +1272,10 @@ def automation_cycle_row(*, installed: Optional[bool],
           and failure_code == "DISCOVERED_AFTER_SESSION_OPEN"):
         status = PENDING
         detail += " · activation waits for the next eligible session; no new order was sent"
+    elif submitted_progress:
+        status = WARN if enabled else PENDING
+        recovery = RecoveryEvidence(phase='AUTOMATION_RECONCILING', automatic=True,
+                                    next_attempt_at=next_wake_at, deadline=execution_close_at)
     elif failure_code or failure_detail:
         status = FAIL
     elif not normalized:
@@ -1402,6 +1414,14 @@ def automation_step_rows(
             interrupted_transport = (
                 dict(detail) if isinstance(detail, Mapping)
                 and (detail.get("failure_code") or detail.get("failure_detail")) else None)
+            if interrupted_transport and submitted_commands_progress(dict(
+                    cycle, state='RECONCILING',
+                    failure_code=interrupted_transport.get('failure_code'),
+                    diagnostic=interrupted_transport.get('diagnostic'),
+                    clean_reconciliation_id=interrupted_transport.get('last_clean_reconciliation_id'),
+                    next_wake_at=interrupted_transport.get('next_wake_at'),
+                    updated_at=event.get('at'))):
+                interrupted_transport = None
         for field in ("from_state", "to_state"):
             event_state = str(event.get(field) or "").upper()
             if event_state in _AUTOMATION_STATE_STEP:

@@ -430,3 +430,33 @@ Accept request at the root. Bootstrap/ordinary current-document fetches keep
 their normal `*/*` Accept and receive the full current response. The explicit
 `?document=1` path always bypasses launch selection. This covers existing
 installed workers before their update as well as older WebKit metadata support.
+
+
+### Known submitted orders awaiting reconciliation (November 4)
+
+The November4 opening cycle produced a clean, authorized execution result with
+COMMANDS_IN_FLIGHT and moved EXECUTING to RECONCILING. Its DELL SELL2 later
+filled and the same cycle reached SUCCEEDED with clean reconciliation335.
+The panel nevertheless interpreted any nonempty failure_code as an active
+cycle failure and any such transition detail as interrupted transport. The
+failure_code field also contains nonterminal progress; its presence alone is
+not sufficient to classify a failed transport.
+
+Use one pure display predicate for the summary and transport-event projection.
+Recognize only COMMANDS_IN_FLIGHT on a matching saved plan, with the producer's
+explicit submission-authorized/attention-not-required booleans, RUNNING execution,
+nonempty unique submitted keys, no refusal/deferred/restricted work, and matching
+positive clean preflight/final reconciliation identities without unresolved or
+foreign items. Require aware original cycle/open/execute/update/close clocks and
+a next wake strictly after the update and no later than that original close.
+This yields bounded RECONCILING progress, not an interrupted transport or a
+completed cycle. Missing, contradictory or malformed evidence retains failure.
+
+No failure-code-only or text-matching exception is admitted. UNKNOWN and cancel
+uncertainty in the current command/trading-run and broker rows remain independent
+required-current failures. No execution, schedule, financial authority, command,
+plan, observation or immutable event is changed. The display predicate grants
+neither green nor execution authority and cannot extend the original deadline.
+Historical mirror verification and the durable review interval retain their
+existing amber requirements. Existing false incidents stay in immutable history;
+they are not silently erased or automatically acknowledged by this repair.

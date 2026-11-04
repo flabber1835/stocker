@@ -139,6 +139,47 @@ def clean_execution_deadline(cycle):
         return None
 
 
+def submitted_commands_progress(cycle: Mapping) -> bool:
+    """Positive producer evidence of submission, never completion or authority."""
+    if (cycle.get('state') != 'RECONCILING'
+            or cycle.get('failure_code') != 'COMMANDS_IN_FLIGHT'
+            or any(cycle.get(k) for k in ('terminal_reason', 'callback_failure', 'exception_type'))):
+        return False
+    diagnostic = cycle.get('diagnostic')
+    if (not isinstance(diagnostic, Mapping)
+            or diagnostic.get('paper_submission_authorized') is not True
+            or diagnostic.get('operator_attention_required') is not False):
+        return False
+    plan, execution = diagnostic.get('plan'), diagnostic.get('execution')
+    if (not isinstance(plan, Mapping) or not cycle.get('plan_id')
+            or plan.get('plan_id') != cycle['plan_id']
+            or not isinstance(execution, Mapping) or execution.get('runtime_state') != 'RUNNING'
+            or execution.get('refused') != {} or execution.get('deferred') != []
+            or execution.get('restricted_securities') != {}):
+        return False
+    submitted = execution.get('submitted')
+    if (not isinstance(submitted, list) or not 0 < len(submitted) <= 100
+            or any(not isinstance(key, str) or not 0 < len(key) <= 200 for key in submitted)
+            or len(set(submitted)) != len(submitted)):
+        return False
+    for proof in (diagnostic.get('preflight'), execution.get('reconciliation')):
+        if (not isinstance(proof, Mapping) or proof.get('clean') is not True
+                or proof.get('runtime_state') != 'RUNNING'
+                or proof.get('unresolved') != [] or proof.get('foreign_orders') != []
+                or proof.get('foreign_positions') != [] or proof.get('restricted_securities') != {}
+                or type(proof.get('observation_id')) not in (int, str)
+                or re.fullmatch(r'[1-9][0-9]{0,19}', str(proof['observation_id'])) is None):
+            return False
+    if str(execution['reconciliation']['observation_id']) != cycle.get('clean_reconciliation_id'):
+        return False
+    clocks = [cycle.get(k) for k in ('execution_open_at', 'execute_at', 'updated_at',
+                                    'next_wake_at', 'execution_close_at')]
+    if not all(_aware(value) for value in clocks):
+        return False
+    opened, execute, updated, wake, closed = clocks
+    return opened <= execute <= updated < wake <= closed
+
+
 @dataclass(frozen=True)
 class CycleRecovery:
     """One display interpretation of durable retry facts, never authority."""
