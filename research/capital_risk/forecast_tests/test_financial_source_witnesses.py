@@ -134,11 +134,13 @@ def test_source_binding_guard_removal_falsifiers(kind):
     assert ns[name](*args)
 
 
-def test_current_scope_never_inherits_unadmitted_acc_position():
+def test_closed_source_scopes_keep_exact_historical_own_parents():
     from system_campaign_financial_partial import root_spec
     assert set(f.WITNESS_SCOPES)=={'P04','P10'}
     for arm,scope in f.WITNESS_SCOPES.items():
-        root=root_spec(arm)
+        terms=json.loads((f.HERE/f.OWN_CASH_CATALOG).read_bytes())['terms']
+        term,=[t for t in terms if t['arm']==arm]
+        root=root_spec(arm,term['parent_root_admission_sha256'])
         assert root['outer_sha256']==scope['parent_outer_sha256'] and root['selected_session']==scope['parent_cursor']
     assert f.WITNESS_SCOPES['P04']['terms'][0]['parent_positions'][0]['quantity']==29
     assert f.WITNESS_SCOPES['P10']['terms'][0]['parent_positions']==[]
@@ -250,7 +252,10 @@ def test_root_preflight_runs_source_capture_without_repeating_reporting_or_finan
 def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
     monkeypatch.setattr(m,'SELECTED_ARMS',('P04','P10'))
-    request=m.expected_request();selected=m.root_spec('P04')
+    request=m.expected_request()
+    term,=[t for t in json.loads((f.HERE/f.OWN_CASH_CATALOG).read_bytes())['terms'] if t['arm']=='P04']
+    selected=m.root_spec('P04',term['parent_root_admission_sha256'])
+    request['admitted_checkpoints']['P04']=selected['outer_sha256']
     monkeypatch.setattr(m,'expected_request',lambda:(_ for _ in ()).throw(AssertionError('host-only workflow lookup')))
     m.source_request_bindings(request,selected)
 
@@ -259,7 +264,10 @@ def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(mon
 def test_changed_worker_request_binding_refuses(change,monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
     monkeypatch.setattr(m,'SELECTED_ARMS',('P04','P10'))
-    request=m.expected_request();selected=m.root_spec('P04')
+    request=m.expected_request()
+    term,=[t for t in json.loads((f.HERE/f.OWN_CASH_CATALOG).read_bytes())['terms'] if t['arm']=='P04']
+    selected=m.root_spec('P04',term['parent_root_admission_sha256'])
+    request['admitted_checkpoints']['P04']=selected['outer_sha256']
     if change=='schema':request['schema']='UNKNOWN'
     elif change=='mode':request['financial_resume_authorized']=True
     elif change=='scope':request['source_witness_scopes']['P04']['terms'][0]['ticker']='OTHER'
@@ -273,7 +281,10 @@ def test_changed_worker_request_binding_refuses(change,monkeypatch):
 def test_worker_source_binding_guard_removal_falsifier(monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
     monkeypatch.setattr(m,'SELECTED_ARMS',('P04','P10'))
-    request=m.expected_request();selected=m.root_spec('P04')
+    request=m.expected_request()
+    term,=[t for t in json.loads((f.HERE/f.OWN_CASH_CATALOG).read_bytes())['terms'] if t['arm']=='P04']
+    selected=m.root_spec('P04',term['parent_root_admission_sha256'])
+    request['admitted_checkpoints']['P04']=selected['outer_sha256']
     request['sources']['system_campaign_financial_resume.py']='0'*64
     with pytest.raises(ValueError):m.source_request_bindings(request,selected)
     fn=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='source_request_bindings')
@@ -305,3 +316,12 @@ def test_actual_worker_request_byte_guard_removal_falsifier(tmp_path,monkeypatch
     ns=dict(vars(m));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),
         '<removed-actual-worker-request-byte-guard>','exec'),ns)
     assert ns['launch'](args)==0 and calls==['preflight']
+
+
+def test_closed_source_scope_cannot_silently_follow_a_newer_admitted_root(monkeypatch):
+    monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P04',))
+    request=m.expected_request();current=m.root_spec('P04')
+    assert current['outer_sha256']!=f.WITNESS_SCOPES['P04']['parent_outer_sha256']
+    with pytest.raises(ValueError,match='EXACT_WORKER_REQUEST_BINDINGS'):
+        m.source_request_bindings(request,current)

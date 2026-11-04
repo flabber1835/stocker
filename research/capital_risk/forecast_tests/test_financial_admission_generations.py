@@ -21,7 +21,7 @@ def local_registered_catalog_path(monkeypatch):
 
 
 def test_both_generations_resolve_by_exact_own_admission_hash():
-    for arm,old,new in [('P04',817,1132),('P07',439,543),('P10',692,1152)]:
+    for arm,old,new in [('P04',817,1175),('P07',439,543),('P10',692,1152)]:
         latest=p.root_spec(arm);prior=p.root_spec(arm,p.PRIOR_ADMISSIONS[arm])
         assert (prior['measured_closes'],latest['measured_closes'])==(old,new)
         parent=p.root_spec(arm,latest['root_admission']['parent_root_admission_sha256'])
@@ -204,7 +204,7 @@ def test_every_pinned_generation_resolves_its_original_readonly_clock():
             assert spec['root_admission_sha256']==digest
             assert (spec['root_admission']['readonly_run_id'],spec['root_admission']['readonly_head'])==(run,head)
             p.validate_root_spec(spec)
-    assert {p.root_spec('P04',h)['measured_closes'] for h in p.ADMISSION_CLOCKS['P04']}=={817,1090,1132}
+    assert {p.root_spec('P04',h)['measured_closes'] for h in p.ADMISSION_CLOCKS['P04']}=={817,1090,1132,1175}
 
 
 def test_unreviewed_registry_data_cannot_create_authority_without_exact_digest_guard():
@@ -215,4 +215,4 @@ def test_unreviewed_registry_data_cannot_create_authority_without_exact_digest_g
     fn=next(n for n in ast.parse(Path(p.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='authorized_spec')
     guard=next(n for n in fn.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and n.value.func.id=='need')
     fn.body.remove(guard);ns=dict(vars(p));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-reviewed-admission-digest>','exec'),ns)
-    assert ns['authorized_spec'](value,'P04')['measured_closes']==1133
+    assert ns['authorized_spec'](value,'P04')['measured_closes']==p.root_spec('P04')['measured_closes']+1

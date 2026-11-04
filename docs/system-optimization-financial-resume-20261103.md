@@ -822,3 +822,19 @@ then preserved main1175/August31 plus an unadmitted later tail. Select only the
 43 new daily rows/86 accountings/2 reports from its current1132/June30 seed for
 read-only reporting and independent DATA admission. P10 keeps running at its
 immutable27786d79d commit. No duplicate P04/P10 financial job is dispatched.
+
+## Admit P04 August2022 and review P10 through April2024
+
+P04 read-only run41789942448 and independent DATA review passed its43 new
+closes,86 accountings and2 reports from1132 to1175. Publish only its exact
+August31 checkpoint as continuation authority. Preserve1132 and all earlier
+admissions unchanged, including the closed SAFM source-witness scope and cash
+catalog. Historical fact tests must resolve the fact's declared admission,
+rather than silently substituting the latest root.
+
+P10 financial run41785784632 authenticated a positively stopped, hosted-reviewed
+1592-close April30,2024 main checkpoint. Select only its440 new closes and21
+new reports from the admitted1152/July2022 seed for the existing read-only
+reporting path, followed by independent DATA admission. Its May30 tail and
+May31 volatility causal-axis refusal remain unadmitted. This request starts no
+economic worker and repeats no closed source or prior financial review.
