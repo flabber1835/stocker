@@ -12,7 +12,13 @@ import system_campaign_financial_partial as p
 import system_campaign_financial_resume as m
 
 
-def target(arm):return json.loads((p.HERE/m.PARTIALS).read_bytes())['arms'][arm]
+def initial_entry(arm):
+    bundle=json.loads((p.HERE/p.ROOTS).read_bytes())
+    return next(e for e in [*bundle['arms'].values(),*bundle['historical_roots'].values()]
+        if e['transport']['arm']==arm and p.digest(e['transport'])==p.INITIAL_PREFIX_TARGETS[arm])
+
+
+def target(arm):return deepcopy(initial_entry(arm)['transport'])
 
 
 @pytest.mark.parametrize('arm',['P05','P06','P11'])
@@ -23,7 +29,7 @@ def test_exact_own_existing_prefix_uses_its_real_zero_measurement_seed_only(arm)
     assert (seed['measured_closes'],seed['selected_session'])==(0,'2017-06-30')
     assert seed['base']==value['base'] and seed['selected_checkpoint'].startswith('lineage/original-checkpoints/')
     assert value['financial_authority'] is value['financial_predecessor_admitted'] is False
-    root=p.root_spec(arm)
+    root=p.authorized_spec(initial_entry(arm),arm)
     assert root['outer_sha256']==value['outer_sha256'] and root['measured_closes']==21
     assert root['root_admission']['financial_continuation_authorized'] is True
     assert root['root_admission']['performance_scoring_authorized'] is False
@@ -67,19 +73,15 @@ def test_zero_seed_guard_removal_accepts_a_nonzero_seed(monkeypatch):
     assert without_guard('PARTIAL_ONLY_ORIGINAL_ZERO_MEASUREMENT_REPORTING_SEED')(value)['measured_closes']==1
 
 
-def test_initial_report_request_can_never_start_financial_workers(monkeypatch):
-    # Preserve the historical reporting-only authority before root admission.
-    prior={a:h for a,h in p.ADMISSIONS.items() if a not in ('P05','P06','P11')}
-    monkeypatch.setattr(p,'ADMISSIONS',prior)
-    monkeypatch.setattr(m,'ADMISSIONS',prior)
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P05','P06','P11'))
+def test_new_reporting_uses_admitted_initial_seed_without_financial_workers(monkeypatch):
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P06','P11'))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     value=m.expected_request()
-    assert value['arms']==['P05','P06','P11'] and value['maximum_parallel_financial_workers']==0
+    assert value['arms']==['P06','P11'] and value['maximum_parallel_financial_workers']==0
     assert value['financial_resume_authorized'] is False and value['readonly_partial_review'] is True
-    assert value['admitted_checkpoints']=={} and set(value['initial_reporting_origins'])=={'P05','P06','P11'}
-    monkeypatch.setattr(m,'EXECUTION_MODE','OWN_ADMITTED_FINANCIAL_CONTINUATION')
-    with pytest.raises(ValueError,match='EXACT_ADMITTED_ARM'):m.expected_request()
+    assert set(value['admitted_checkpoints'])=={'P06','P11'} and value['initial_reporting_origins']=={}
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P05',))
+    with pytest.raises(ValueError,match='ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED'):m.expected_request()
 
 
 def test_initial_reporting_does_not_repin_original_fresh_p00_origin():

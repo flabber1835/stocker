@@ -174,3 +174,22 @@ and ledger-history guard-removal falsifiers. All old catalog generations remain
 exact. P04 uses twelve-term generationa312304df09aa19f; prior eleven-termc2b3d070
 remains retained. The existing absence guard and old mandatory/model validators
 were verified AST-identical. Financial waits and isolation limits are unchanged.
+
+
+The first tender-model financial runs saved P06 at291/February28,2019 and P11
+at169/August31,2018, adding270 and148 committed days respectively. Select those
+exact own checkpoints for hosted reporting from their admitted21 seeds:13 and7
+new monthly reports. Remove initial-reporting transport markers only from the new
+reporting targets, and retain the exact original21 transports in root history.
+Do not adopt their March/September tails. P06's next refusal is the TFCF reviewed
+child-ownership requirement onMarch21,2019. P11's next refusal is the original
+volatility causal-axis guard onSeptember20,2018. Its actual rendered risk source
+hash was reproduced from the unchanged policy source and frozen V10 builder;
+it requires ten closes/ten sessions, matching the current acceleration limit.
+Increasing the limit speculatively is not justified. Identify the actual failing
+episode/source window after preserving the completed169 prefix.
+
+Saved-prefix reporting request qualification:104 relevant resume/partial/initial-
+prefix cases passed in16.70s. Both actual ZIP public transports passed metadata
+validation. The historical initial21 transports remain independently addressable;
+no financial worker is authorized by this reporting request.
