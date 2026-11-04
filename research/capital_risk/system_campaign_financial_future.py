@@ -1369,6 +1369,27 @@ def ordinary_delivery_identity(term, row):
                 source_observation_sha256=digest(row))
 
 
+def inherited_delivery_row(term):
+    """Resolve a declared inherited proxy from original frozen input bytes."""
+    hosted()
+    from research.pooled_input_support import inputs
+    proxy = term['proxy']
+    with zipfile.ZipFile('/frozen/archive/corpus.zip') as archive:
+        rows = [r for r in inputs._archive_rows(archive, 'observations-' + proxy['session'][:4] + '.csv.gz')
+                if (r['session'], r['security_id']) == (proxy['session'], proxy['security_id'])]
+    need(len(rows) == 1, 'FUTURE_INHERITED_DELIVERY_ONE_FROZEN_ROW')
+    return rows[0]
+
+
+def inherited_delivery_addition(term, row):
+    ordinary_delivery_identity(term, row)
+    value = float(row['raw_open'])
+    need(term['added']['kind'] == 'CASH_PLUS_STOCK'
+         and term['added']['cash_in_lieu_price_per_delivered_share'] is None
+         and math.isfinite(value) and value > 0, 'FUTURE_INHERITED_DELIVERY_EXACT_POSITIVE_RAW_OPEN')
+    return dict(deepcopy(term['added']), cash_in_lieu_price_per_delivered_share=value)
+
+
 def remaining_ordinary_terms(cp, terms, root):
     """Preserve source-bound forward repairs instead of suppressing them twice."""
     documents = []
@@ -1396,17 +1417,26 @@ def remaining_ordinary_terms(cp, terms, root):
             remaining.append(deepcopy(term))
             continue
         expected = dict(session=term['native_session'], security_id=sid, term_sha256=term['native_term_sha256'])
+        comparison = term['added']
+        delivery_row = None
+        if (len(suppress) == len(added) == 1 and comparison['kind'] == 'CASH_PLUS_STOCK'
+                and comparison['cash_in_lieu_price_per_delivered_share'] is None):
+            delivery_row = inherited_delivery_row(term)
+            comparison = inherited_delivery_addition(term, delivery_row)
         economic = lambda v: {k: x for k, x in v.items() if k not in ('session', 'reference')}
         need(len(suppress) == len(added) == 1 and suppress[0][1] == expected
              and suppress[0][0] == added[0][0]
-             and economic(added[0][1]) == economic(term['added'])
+             and economic(added[0][1]) == economic(comparison)
              and added[0][1]['session'] > cp['source_cursor']
              and added[0][1]['session'] >= term['native_session'],
              'FUTURE_INHERITED_ORDINARY_ONE_EQUIVALENT_FORWARD_EVENT')
-        inherited.append(dict(security_id=sid, ticker=term['ticker'], repair=deepcopy(added[0][0]),
+        record = dict(security_id=sid, ticker=term['ticker'], repair=deepcopy(added[0][0]),
             suppressed_native=deepcopy(suppress[0][1]), inherited_addition=deepcopy(added[0][1]),
             selected_catalog_addition=deepcopy(term['added']), original_ordinary_source=deepcopy(term['original_ordinary_source']),
-            inherited_date_and_reference_preserved=True))
+            inherited_date_and_reference_preserved=True)
+        if delivery_row is not None:
+            record.update(inherited_delivery_source_row=deepcopy(delivery_row), hydrated_catalog_addition=comparison)
+        inherited.append(record)
     return remaining, inherited
 
 

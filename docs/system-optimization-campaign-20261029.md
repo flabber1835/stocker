@@ -826,3 +826,20 @@ source355892456681242666. Select only the saved January prefix for hosted
 reporting and independent DATA; exclude the two February tail closes. Validate
 the original MDCO85 and ARQL20 inputs and actual per-book cash events before
 admission. Keep503 authoritative until those checks pass.
+
+P05 reporting41921472717 and independent DATA passed21 new closes,42 accounting
+snapshots,one report and28 Decimal metrics. The actual MDCO33-share conversion
+posted2805USD; ARQL was unheld and posted zero. Nine composed-source DATA tests,
+including seven guard-removal falsifiers, passed. Admit only its own524-close
+checkpoint, retain503 as history and continue to exclude February tails.
+
+P03 run41921032712 stopped during preparation without advancing its169 root.
+Its inherited COL document already carries the qualified123.67 fractional-share
+raw-open proxy, but the unhydrated original catalog has null at that field.
+For inherited mixed terms only, resolve the original declared delivered full
+row from the frozen archive before economic equivalence comparison. Require the
+unchanged original proxy date,security ID,full-row hash,ticker and issuer; require
+a positive finite raw open and exact equality with the inherited proxy. Preserve
+all other economic comparisons,document/predecessor hashes,one-event uniqueness,
+dates and original repair bytes. Missing or different quotes must refuse. Do
+not ignore the proxy field or adopt the inherited value as its own evidence.

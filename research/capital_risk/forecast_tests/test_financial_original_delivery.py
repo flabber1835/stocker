@@ -81,3 +81,54 @@ def test_delivery_identity_guard_removal_falsifier():
     with pytest.raises(ValueError,match='EXACT_FROZEN_IDENTITY_AND_PROXY'):
         f.ordinary_delivery_identity(term,row)
     assert removed_guard('ordinary_delivery_identity','FUTURE_ORIGINAL_DELIVERY_EXACT_FROZEN_IDENTITY_AND_PROXY')(term,row)['issuer_id']=='WRONG'
+
+
+def inherited_fixture(tmp_path,monkeypatch):
+    term,row=fixture()
+    added=dict(term['added'],cash_in_lieu_price_per_delivered_share=100.)
+    suppression=dict(session=term['native_session'],security_id=term['security_id'],term_sha256=term['native_term_sha256'])
+    doc=dict(schema='terminal-repair/1',predecessor_checkpoint_sha256='a'*64,suppress=[suppression],add=[added])
+    raw=(json.dumps(doc,sort_keys=True,indent=2)+'\n').encode();h=f.sha(raw)
+    root=tmp_path/'book/repairs';root.mkdir(parents=True);(root/(h+'.json')).write_bytes(raw)
+    cp=dict(source_cursor='2018-08-31',repairs=[dict(filename=h+'.json',sha256=h,predecessor_checkpoint_sha256='a'*64)])
+    monkeypatch.setattr(f,'inherited_delivery_row',lambda t:deepcopy(row))
+    return cp,term,row,raw
+
+
+def test_inherited_mixed_proxy_is_hydrated_from_the_exact_full_row_before_comparison(tmp_path,monkeypatch):
+    cp,term,row,raw=inherited_fixture(tmp_path,monkeypatch);before=deepcopy((cp,term,row))
+    remaining,proofs=f.remaining_ordinary_terms(cp,[term],tmp_path);proof,=proofs
+    assert remaining==[] and proof['inherited_addition']['cash_in_lieu_price_per_delivered_share']==100.
+    assert proof['selected_catalog_addition']['cash_in_lieu_price_per_delivered_share']is None
+    assert proof['inherited_delivery_source_row']==row and proof['hydrated_catalog_addition']==proof['inherited_addition']
+    assert (cp,term,row)==before and (tmp_path/'book/repairs'/cp['repairs'][0]['filename']).read_bytes()==raw
+
+
+def test_inherited_proxy_must_equal_the_frozen_quote_even_when_metadata_is_valid(tmp_path,monkeypatch):
+    cp,term,row,_=inherited_fixture(tmp_path,monkeypatch)
+    row['raw_open']='101.0';term['proxy']['source_observation_sha256']=f.digest(row)
+    with pytest.raises(ValueError,match='ONE_EQUIVALENT_FORWARD_EVENT'):f.remaining_ordinary_terms(cp,[term],tmp_path)
+    assert removed_guard('remaining_ordinary_terms','FUTURE_INHERITED_ORDINARY_ONE_EQUIVALENT_FORWARD_EVENT')(cp,[term],tmp_path)[0]==[]
+
+
+def test_inherited_quote_cannot_change_its_pinned_full_raw_row(tmp_path,monkeypatch):
+    cp,term,row,_=inherited_fixture(tmp_path,monkeypatch);row['raw_open']='101.0'
+    with pytest.raises(ValueError,match='EXACT_FROZEN_IDENTITY_AND_PROXY'):f.remaining_ordinary_terms(cp,[term],tmp_path)
+
+
+def test_inherited_proxy_positive_quote_guard_removal_falsifier():
+    term,row=fixture();row['raw_open']='-1.0';term['proxy']['source_observation_sha256']=f.digest(row)
+    with pytest.raises(ValueError,match='EXACT_POSITIVE_RAW_OPEN'):f.inherited_delivery_addition(term,row)
+    assert removed_guard('inherited_delivery_addition','FUTURE_INHERITED_DELIVERY_EXACT_POSITIVE_RAW_OPEN')(term,row)['cash_in_lieu_price_per_delivered_share']==-1.
+
+
+def test_inherited_delivery_duplicate_row_guard_removal_falsifier(monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    term,row=fixture()
+    monkeypatch.setattr(f,'hosted',lambda:None)
+    monkeypatch.setattr(f.zipfile,'ZipFile',lambda name:nullcontext(object()))
+    monkeypatch.setitem(sys.modules,'research.pooled_input_support',
+        SimpleNamespace(inputs=SimpleNamespace(_archive_rows=lambda archive,name:[row,deepcopy(row)])))
+    with pytest.raises(ValueError,match='ONE_FROZEN_ROW'):f.inherited_delivery_row(term)
+    assert removed_guard('inherited_delivery_row','FUTURE_INHERITED_DELIVERY_ONE_FROZEN_ROW')(term)==row
