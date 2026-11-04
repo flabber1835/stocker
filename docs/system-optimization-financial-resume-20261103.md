@@ -1368,3 +1368,44 @@ source-only CTXS scope and no-op/delegation proof. The failed October tail is
 excluded. P07's LM source capture and fresh P00 keep their immutable commits.
 The1196 read-only target passed142 resume/partial/retention/retained-proof tests
 in19.94s; financial worker limit remains0.
+
+## Admit P04's1196 checkpoint and discover one exact future native preimage
+
+Read-only41827835979/08382e117 and independent DATA passed21 daily rows,
+42 accounting snapshots,one report,28 Decimal metrics and the source-only CTXS
+contract. Eleven actual-proof DATA falsifiers passed, including guard removal.
+Publish the private1196 admissiondfcd3aee60ebd3ea only as continuation authority,
+preserving1175/58036453 unchanged in history. Close the five-term catalog's exact
+5a917388 generation before adding further facts. Full validation/scoring stay
+false. The new GBT stop precedes terminal application; its native preimage is
+therefore absent from the stopped terminal journal. Its ticker and permanent ID
+are in the admitted September30 feed, but no native hash may be guessed.
+
+Add a version3 read-only witness query to the existing shared selector. Its
+strict typed query marker permits exactly one unconsumed CASH_MERGER native,
+with unknown hash, no consideration/delivery fields, and no financial authority.
+The own admitted parent, security ID, ticker, native date, earlier source-row date
+and parent positions remain explicit. Capture GBT827416728546053456's October3
+row and October4 native against1196/September30, with an empty own parent role.
+Do not import the uncommitted October tail.
+
+Resolve the query only from the actual frozen native: require its exact canonical
+field set, matching declared ID/date, incomplete cash-only shape and nonempty
+reference, then compute its canonical JSON hash. Preserve the existing version1
+and version2 source_terms guards unchanged by passing a resolved scope containing
+that hash. Version3 commits both the original query scope/hash and the resolved
+ordinary scope/hash; independently reconstruct both before export and in DATA
+review. Never resolve a consumed native, a pending-at-parent completion, extra
+rows or multiple terms through this mode. No input is adopted and no financial
+session advances. A later cash input must bind the independently reviewed resolved
+scope and the immutable query/native evidence; source discovery grants no cash
+amount, timing, holdings or scoring authority.
+
+Qualification:251 source-query/source-witness/resume/future/retention/admission
+tests passed in23.18s; all33 dedicated query tests then passed in1.13s, including
+guard-removal falsifiers for native shape, consumed queries, query commitment and
+undeclared rows. The original source_terms AST is identical to08382e117. The root
+byte verifier caught the private admission's Windows text-newline encoding before
+publication; its identical semantic object now has canonical LF hashdfcd3aee60ebd3ea.
+The noncanonical private file is preserved and is not registered as authority.
+No financial data, source epoch, transition or journal was changed by this fix.

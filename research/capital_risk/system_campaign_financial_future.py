@@ -46,6 +46,7 @@ FOLLOWING_PHASES = {('P07', '2020-03-31'):
 COMBINED_PHASES['P07', '2020-03-31'] = (FOLLOWING_PHASES['P07', '2020-03-31'], PLANS['P10'])
 SOURCE_WITNESS_SCHEMA = 'research.own-parent-frozen-source-witnesses/1'
 SOURCE_WITNESS_PENDING_SCHEMA = 'research.own-parent-frozen-source-witnesses/2'
+SOURCE_WITNESS_DISCOVERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/3'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
 OWN_CASH_SHA = '5a917388cfa61ed86d60792e263260fca876eaf3d8f3606ad95744d7a5ed7ed7'
@@ -54,7 +55,8 @@ OWN_CASH_PHASES = {('P04', '2022-06-30'): 'SAFM', ('P10', '2022-07-29'): 'ACC',
                    ('P04', '2022-08-31'): 'CTXS'}
 CLOSED_CASH_GENERATIONS = {'7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9': 2,
     'd2b2ee65c2a029d6bc885a35dcf8138233a23b8654aaf1958a6a2677416605e3': 3,
-    '629b3e64ab7cf6aae2cf54c733d65acc8c9cc3b2465d68b19a58b0918a09efe2': 4}
+    '629b3e64ab7cf6aae2cf54c733d65acc8c9cc3b2465d68b19a58b0918a09efe2': 4,
+    '5a917388cfa61ed86d60792e263260fca876eaf3d8f3606ad95744d7a5ed7ed7': 5}
 CASH_GENERATION_LENGTHS = {('P04', '2022-06-30'): 2, ('P10', '2022-07-29'): 2,
                            ('P10', '2024-04-30'): 3, ('P00', '2018-08-31'): 4, ('P04', '2022-08-31'): 5}
 NEXT_COMPLETION = 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE'
@@ -76,6 +78,14 @@ class SourceOnlyScope(BaseModel):
     source_valuation_phase: Literal['CLOSE']
     portfolio_completion_authorized: Literal[False]
     require_unowned_and_unordered: Literal[True]
+
+
+class NativePreimageQuery(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True, frozen=True)
+    schema_id: Literal['research.unconsumed-cash-native-preimage-query/1'] = Field(alias='schema')
+    native_kind: Literal['CASH_MERGER']
+    maximum_terms: Literal[1]
+    financial_use_authorized: Literal[False]
 
 
 OWN_CASH_SOURCE_CLOCKS = {
@@ -130,9 +140,22 @@ NEXT_WITNESS_SCOPES['P07'] = {'parent_outer_sha256': 'b4dfd007ce0e9ea454b8a174f7
                                   'ticker': 'LM',
                                   'quantity': 49,
                                   'entry_date': '2020-06-24'}]}]}
+DISCOVERY_WITNESS_SCOPES = {'P04': {'parent_outer_sha256': '65216f19c6aac8b0c31db34fa40fa4cc63c5875406b0ed2f1aae457181554433',
+         'parent_cursor': '2022-09-30',
+         'native_preimage_query': {'schema': 'research.unconsumed-cash-native-preimage-query/1',
+                                   'native_kind': 'CASH_MERGER',
+                                   'maximum_terms': 1,
+                                   'financial_use_authorized': False},
+         'terms': [{'ticker': 'GBT',
+                    'security_id': '827416728546053456',
+                    'session': '2022-10-03',
+                    'native_session': '2022-10-04',
+                    'native_term_sha256': None,
+                    'parent_positions': []}]}}
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
-    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES) for scope in scopes.values()}
-ACTIVE_WITNESS_SCOPES = {arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')}
+    for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES, DISCOVERY_WITNESS_SCOPES) for scope in scopes.values()}
+ACTIVE_WITNESS_SCOPES = {**{arm: digest(NEXT_WITNESS_SCOPES[arm]) for arm in ('P00', 'P07')},
+                         'P04': digest(DISCOVERY_WITNESS_SCOPES['P04'])}
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 
@@ -140,6 +163,37 @@ def registered_scope(key):
     scope = WITNESS_SCOPE_REGISTRY.get(key)
     need(scope is not None and digest(scope) == key, 'SOURCE_WITNESS_EXACT_REGISTERED_SCOPE_DIGEST')
     return deepcopy(scope)
+
+
+def resolved_query_scope(scope, natives):
+    if 'native_preimage_query' not in scope:
+        return deepcopy(scope)
+    NativePreimageQuery.model_validate(scope['native_preimage_query'])
+    terms = scope['terms']
+    need(len(terms) == len(natives) == 1 and not scope.get('additional_rows')
+         and type(scope['native_preimage_query']['maximum_terms']) is int
+         and scope['native_preimage_query']['financial_use_authorized'] is False
+         and 'pending_at_parent' not in terms[0]
+         and terms[0]['native_term_sha256'] is None
+         and scope['parent_cursor'] < terms[0]['native_session']
+         and terms[0]['session'] < terms[0]['native_session'],
+         'SOURCE_DISCOVERY_ONLY_ONE_EXPLICIT_UNCONSUMED_NATIVE_QUERY')
+    term, native = terms[0], natives[0]
+    fields = {'session', 'security_id', 'kind', 'reference', 'cash_per_share',
+              'delivered_security_id', 'delivered_ticker', 'delivered_issuer_id',
+              'exchange_ratio', 'cash_in_lieu_price_per_delivered_share', 'entitlement_aggregation'}
+    need(set(native) == fields and native['session'] == term['native_session']
+         and native['security_id'] == term['security_id'] and native['kind'] == 'CASH_MERGER'
+         and type(native['reference']) is str and bool(native['reference'])
+         and native['entitlement_aggregation'] == 'HOLDER'
+         and all(native[k] is None for k in ('cash_per_share', 'delivered_security_id',
+              'delivered_ticker', 'delivered_issuer_id', 'exchange_ratio',
+              'cash_in_lieu_price_per_delivered_share')),
+         'SOURCE_DISCOVERY_EXACT_FROZEN_INCOMPLETE_CASH_NATIVE_SHAPE')
+    result = deepcopy(scope)
+    del result['native_preimage_query']
+    result['terms'][0]['native_term_sha256'] = digest(native)
+    return result
 
 
 def source_terms(scope, natives, rows, positions, pending_contexts=None):
@@ -185,6 +239,8 @@ def source_terms(scope, natives, rows, positions, pending_contexts=None):
 
 
 def source_schema(scope):
+    if 'native_preimage_query' in scope:
+        return SOURCE_WITNESS_DISCOVERY_SCHEMA
     return (SOURCE_WITNESS_PENDING_SCHEMA if scope.get('additional_rows')
             or any('pending_at_parent' in t for t in scope['terms']) else SOURCE_WITNESS_SCHEMA)
 
@@ -215,6 +271,7 @@ def additional_source_rows(scope, rows, positions):
 def witness_payload(cp, arm, scope, natives, rows, additional_rows=()):
     need(cp['sha256'] == scope['parent_outer_sha256'] and cp['source_cursor'] == scope['parent_cursor'],
          'SOURCE_WITNESS_EXACT_OWN_PARENT')
+    resolved = resolved_query_scope(scope, natives)
     episodes = cp['run']['state']['wealth_core']['episodes']
     def positions(terms):
         return [[dict(slot_id=e['slot_id'], ticker=e['ticker'], quantity=e['current_shares'],
@@ -231,29 +288,36 @@ def witness_payload(cp, arm, scope, natives, rows, additional_rows=()):
             unresolved=sid in w.get('unresolved_terminals', {})) if 'pending_at_parent' in term else None)
     payload = dict(schema=source_schema(scope), arm=arm, parent_outer_sha256=cp['sha256'],
         parent_cursor=cp['source_cursor'], archive_sha256=cp['base']['archive_sha256'],
-        bundle_sha256=cp['base']['bundle_sha256'], scope=deepcopy(scope), scope_sha256=digest(scope),
-        producer_sha256=sha(Path(__file__).read_bytes()), terms=source_terms(scope, natives, rows, positions(scope['terms']), pending),
+        bundle_sha256=cp['base']['bundle_sha256'], scope=resolved, scope_sha256=digest(resolved),
+        producer_sha256=sha(Path(__file__).read_bytes()), terms=source_terms(resolved, natives, rows, positions(scope['terms']), pending),
         financial_sessions_advanced=0, financial_authority=False, input_adopted=False,
         provider_metadata_upgraded=False, production_contacted=False)
+    if source_schema(scope) == SOURCE_WITNESS_DISCOVERY_SCHEMA:
+        need(not additional_rows, 'SOURCE_DISCOVERY_NO_UNDECLARED_ADDITIONAL_ROWS')
+        payload.update(query_scope=deepcopy(scope), query_scope_sha256=digest(scope))
     if source_schema(scope) == SOURCE_WITNESS_PENDING_SCHEMA:
         payload['additional_rows'] = additional_source_rows(scope, additional_rows, positions(scope.get('additional_rows', [])))
     return payload
 
 
 def validate_witness_capture(payload, spec, scope):
+    resolved = resolved_query_scope(scope, [v['native_term'] for v in payload['terms']])
     need(payload['schema'] == source_schema(scope) and payload['arm'] == spec['arm']
          and payload['parent_outer_sha256'] == spec['outer_sha256'] == scope['parent_outer_sha256']
          and payload['parent_cursor'] == spec['selected_session'] == scope['parent_cursor']
          and payload['archive_sha256'] == spec['base']['archive_sha256']
          and payload['bundle_sha256'] == spec['base']['bundle_sha256']
-         and payload['scope'] == scope and payload['scope_sha256'] == digest(scope)
+         and payload['scope'] == resolved and payload['scope_sha256'] == digest(resolved)
          and payload['producer_sha256'] == sha(Path(__file__).read_bytes())
          and type(payload['financial_sessions_advanced']) is int and payload['financial_sessions_advanced'] == 0
          and all(payload[k] is False for k in ('financial_authority', 'input_adopted',
                                                'provider_metadata_upgraded', 'production_contacted')),
          'SOURCE_WITNESS_EXACT_SOURCE_ONLY_CAPTURE')
+    if source_schema(scope) == SOURCE_WITNESS_DISCOVERY_SCHEMA:
+        need(digest(payload['query_scope']) == digest(scope) and payload['query_scope_sha256'] == digest(scope),
+             'SOURCE_DISCOVERY_ORIGINAL_QUERY_AND_RESOLVED_SCOPE_BOUND')
     terms = payload['terms']
-    need(terms == source_terms(scope, [v['native_term'] for v in terms],
+    need(terms == source_terms(resolved, [v['native_term'] for v in terms],
           [v['source_row'] for v in terms], [v['parent_positions'] for v in terms],
           [v.get('pending_context') for v in terms]),
           'SOURCE_WITNESS_FULL_PAYLOAD_RECONSTRUCTION')

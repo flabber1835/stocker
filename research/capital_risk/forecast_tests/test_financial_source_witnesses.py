@@ -323,8 +323,8 @@ def test_closed_source_scope_cannot_silently_follow_a_newer_admitted_root(monkey
 
 
 def test_active_queries_preserve_fresh_p00_and_add_own_p07_lm_source():
-    assert set(f.WITNESS_SCOPES)==set(f.ACTIVE_WITNESS_SCOPES)=={'P00','P07'}
-    assert len(f.WITNESS_SCOPE_REGISTRY)==6
+    assert set(f.WITNESS_SCOPES)==set(f.ACTIVE_WITNESS_SCOPES)=={'P00','P07','P04'}
+    assert len(f.WITNESS_SCOPE_REGISTRY)==7
     scope=f.WITNESS_SCOPES['P00'];root=m.root_spec('P00');term,=scope['terms']
     assert scope==f.registered_scope(f.ACTIVE_WITNESS_SCOPES['P00'])
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
