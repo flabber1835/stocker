@@ -74,6 +74,8 @@ def test_zero_seed_guard_removal_accepts_a_nonzero_seed(monkeypatch):
 
 
 def test_new_reporting_uses_current_admitted_seed_without_financial_workers(monkeypatch):
+    original=p.root_spec
+    monkeypatch.setattr(m,'root_spec',lambda arm:original(arm,initial_entry(arm)['admission_sha256']) if arm=='P03' else original(arm))
     monkeypatch.setattr(m,'SELECTED_ARMS',('P03',))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     value=m.expected_request()

@@ -126,6 +126,11 @@ ORIGINAL_DELIVERY_SOURCES = {
            '0db4e7eb49ab973bbb6f7bb9579e2a33776b2f7ead3fe25f9cb40812cb3efca7'))
     for arm in ('P05', 'P06', 'P11')
 }
+ORIGINAL_ORDINARY_SOURCES['P03'] = (
+    ('system_campaign_midyear_facts', 'MidyearFacts', 'system-campaign-midyear-terminal-facts.json',
+     'f2467de7dd56d1b69bac24be9caeeedd6be946e1e898dce9a9afefe054437018'),
+)
+ORIGINAL_DELIVERY_SOURCES['P03'] = ORIGINAL_ORDINARY_SOURCES['P03']
 SUPPLEMENTAL_CASH_PHASES = {
     ('P05', '2018-11-30'): (
         ('system_campaign_yearend_facts', 'YearendFacts', 'PATH',

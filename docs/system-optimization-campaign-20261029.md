@@ -738,3 +738,10 @@ repair. Keep its exact file hash and predecessor checks, delegate its validation
 to the unchanged branch input validator, and exclude it only from the terminal
 cash collision scan. Unknown input schemas still refuse. The original retained
 input context remains responsible for activating the admitted branch model.
+
+After P03's own 125-close checkpoint passes independent DATA review, register
+the unchanged midyear catalog in its existing ordinary cash and mixed-delivery
+selectors. This supplies FMI's July 31 cash and COL's November delivery through
+the same native, full-row identity, neutral adoption and actual-context checks
+already used by the other books. Its original April checkpoint and zero seed
+remain historical admission evidence, rather than the current reporting target.
