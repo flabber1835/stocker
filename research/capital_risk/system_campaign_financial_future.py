@@ -63,7 +63,7 @@ SOURCE_WITNESS_ROW_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/4
 SOURCE_WITNESS_DATE_QUERY_SCHEMA = 'research.own-parent-frozen-source-witnesses/5'
 SOURCE_WITNESS_FILE = 'source-witnesses.json'
 OWN_CASH_CATALOG = 'system-campaign-selected-own-cash-terminal-facts.json'
-OWN_CASH_SHA = 'c93bb3e00a7990b25fe146ced63407ce582e1da9511c1b94c8039e8e04b90f89'
+OWN_CASH_SHA = '332a92d9dbfaea1b9154fbb2c2e0f397dbd5fa96686d148401d3607cce3a6a03'
 RETAINED_OWN_CASH_PHASES = {('P11', '2022-07-29'): dict(
     source_arm='P10', source_cursor='2022-07-29', ticker='ACC',
     source_generation_sha256='7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9',
@@ -87,7 +87,8 @@ OWN_CASH_PHASES = {('P03', '2018-08-31'): 'NLST',
  ('P04', '2025-10-31'): 'LNWO',
  ('P11', '2018-08-31'): 'EDR1'}
 OWN_CASH_PHASES['P05', '2020-01-31'] = 'WLH'
-CLOSED_CASH_GENERATIONS = {'465c8a78287c5cb7864aa400e13290f07f278c31e2a34897018cf5403551070c': 16, '5c987533c0fdf7ac1a781044bd50f0a4232db2d9cc43d5a403c39a9bfad3b749': 14,
+OWN_CASH_PHASES['P03', '2018-11-30'] = 'ARII'
+CLOSED_CASH_GENERATIONS = {'c93bb3e00a7990b25fe146ced63407ce582e1da9511c1b94c8039e8e04b90f89': 17, '465c8a78287c5cb7864aa400e13290f07f278c31e2a34897018cf5403551070c': 16, '5c987533c0fdf7ac1a781044bd50f0a4232db2d9cc43d5a403c39a9bfad3b749': 14,
  '1998e26f6dc43f54ec63cff5171989b6b7952948af1b46a6d3c103e325ae004c': 15,
  'ddfb2f16b73dae3b1d4586e11ba3d8ec84365de260fcbc7e9cb9cf21b9481852': 13,
  '7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9': 2,
@@ -116,6 +117,7 @@ CASH_GENERATION_LENGTHS = {('P03', '2018-08-31'): 15,
  ('P04', '2025-10-31'): 12,
  ('P11', '2018-08-31'): 13}
 CASH_GENERATION_LENGTHS['P05', '2020-01-31'] = 17
+CASH_GENERATION_LENGTHS['P03', '2018-11-30'] = 18
 NEXT_COMPLETION = 'FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE'
 SOURCE_CLOSE = 'CONFIRMED_COMPLETION_CLOSE_UNOWNED_SOURCE_ONLY'
 RESEARCH_CASH = 'RESEARCH_COMPLETION_DATE_OPEN_AVAILABILITY'
@@ -298,6 +300,7 @@ OWN_CASH_SOURCE_CLOCKS = {('P03', '2018-08-31'): (41919370510, '3aa0c311346305f0
  ('P04', '2025-10-31'): (41858834037, '790729ae679f165e6c3fb458a5c1537e3f07f05e', 13339516521),
  ('P11', '2018-08-31'): (41874947218, '23ff8feb61239406896bafe24a80bfc9cb95be89', 13345399053)}
 OWN_CASH_SOURCE_CLOCKS['P05', '2020-01-31'] = (41923205664, '3e1c36e288bcf3ebf553f9e560583e8771b485ab', 13367833467)
+OWN_CASH_SOURCE_CLOCKS['P03', '2018-11-30'] = (41934413763, 'e808ed5be1b537fc51a726ecf156620e43a630d9', 13373513049)
 HISTORICAL_WITNESS_SCOPES = {
     'P04': dict(parent_outer_sha256='0e6028db71e0a12efd603580870f57495e5c66d1d46a0aaf264567e6aacf68fe',
         parent_cursor='2022-06-30', terms=[dict(ticker='SAFM', security_id='962454383671746307',
@@ -1259,9 +1262,9 @@ def completion_session(term, dates):
     if term.get('recognition_rule') != NEXT_COMPLETION:
         return
     completed = term['actual_completion_date']
-    need(dates == sorted(set(dates)) and completed in dates
-         and dates.index(completed) + 1 < len(dates)
-         and dates[dates.index(completed) + 1] == term['added']['session'],
+    later = [day for day in dates if day > completed]
+    need(dates == sorted(set(dates)) and later
+         and later[0] == term['added']['session'],
          'OWN_INPUT_ACTUAL_FROZEN_FIRST_SESSION_AFTER_COMPLETION')
 
 

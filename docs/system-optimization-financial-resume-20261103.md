@@ -1952,3 +1952,35 @@ targeted DATA tests passed,including73 refusal cases and11 guard-removal cases.
 Admit only838 and preserve817 in history. Register its384-row retained-proof
 seed with21 new and363 retained rows; original branch and financial sources
 remain unchanged. The May tail and PPLI distribution remain outside admission.
+
+ARII's issuer filings confirm70USD common-share cash and actual completion on
+December5,2018,with trading suspended before December6 open. December5 is absent
+from the frozen trading axis. Reuse the existing confirmed cash-right model and
+its first-frozen-session-strictly-after-completion convention:December6. Correct
+the pure calendar validator to compare the first axis date greater than the
+confirmed calendar date; do not require the completion date itself to trade.
+Keep sorted,unique-axis and exact-first-following-session guards. Preserve
+existing trading-day completions and all other recognition models. Only closed
+source230 DATA may supply this own232 term's source capture and next catalog
+generation; this calendar correction changes no financial engine source.
+
+Financial228 saved P05 own628/June30,2020,104 closes beyond524,and P11 own1383/
+June30,2023,85 beyond1298. Both stopped artifacts passed hosted prefix review.
+Select only these committed prefixes for reporting:five P05 reports and four
+P11 reports. July tails are excluded. P05 next refuses unresolved Wealth Core
+equity on July31; inspect its actual pending terminal before selecting any fact.
+P11 next captures75 AJRD shares absent from7258 risk bars on July28. Preserve
+V10 and qualify a missing AJRD input through the original factual catalogs.
+
+The off-calendar completion validator passed23 focused DATA tests in7.23s,
+including sorted/unique/first-following-session guard-removal falsifiers. Existing
+trading-day completion terms remain valid under the same recognition contract.
+
+ARII source230 is independently DATA-qualified:the complete December3 row,
+December4 native,own232 empty role,archive,bundle,scope and original409-source
+producer all match. Twenty-eight source tests and eleven selector/catalog tests
+passed,with32 negative cases including six guard-removal falsifiers. Append ARII
+as record18,retaining every older catalog generation and all17 previous records.
+Its exact70USD completion right uses the unchanged cash-right validator and the
+qualified off-calendar date predicate. Hosted financial qualification and later
+DATA/root admission remain separate.

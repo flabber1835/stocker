@@ -34,7 +34,7 @@ def test_actual_wlh_uses_new_own_catalog_and_exact_mixed_assumption():
     t=term();before=deepcopy(t);selected=f.research_mixed_term(t)
     codec,name,terms=f.own_cash_selection('P05','2020-01-31')
     assert name==f.OWN_CASH_CATALOG and len(codec.catalog['terms'])==17
-    assert codec.catalog_sha==f.OWN_CASH_SHA and terms==[selected]
+    assert codec.catalog_sha=='c93bb3e00a7990b25fe146ced63407ce582e1da9511c1b94c8039e8e04b90f89' and terms==[selected]
     assert selected['added']['cash_per_share']==2.5 and selected['added']['exchange_ratio']==.8
     assert t==before and t['research_assumption']['published_cash_is_approximate'] is False
     assert t['preserved_factual_record']['held_representation_scope']=='CANONICAL_EXACT_INTEGRAL_ONLY'
@@ -133,7 +133,7 @@ def test_known_native_path_retains_delivery_identity_and_count_guards():
 
 def test_all_sixteen_prior_records_and_original_legal_policy_are_unchanged():
     before=json.loads(original(f.OWN_CASH_CATALOG));after=catalog()
-    assert after['terms'][:16]==before['terms'] and len(after['terms'])==17
+    assert after['terms'][:16]==before['terms'] and len(after['terms'])==18
     after['terms']=after['terms'][:16]
     assert f.sha((json.dumps(after,sort_keys=True,indent=2,allow_nan=False)+'\n').encode())=='465c8a78287c5cb7864aa400e13290f07f278c31e2a34897018cf5403551070c'
     provenance=term()['preserved_factual_record'];raw=(C/provenance['filename']).read_bytes()
@@ -145,5 +145,10 @@ def test_original_model_and_unrelated_validator_asts_unchanged():
     def nodes(raw):return {n.name:ast.dump(n,include_attributes=False) for n in ast.parse(raw).body if isinstance(n,(ast.FunctionDef,ast.ClassDef))}
     old=nodes(original('system_campaign_financial_future.py'));new=nodes(Path(f.__file__).read_bytes())
     for name in ('ResearchMixedAssumption','source_terms','resolved_query_scope','selected_query_scope',
-        'completion_session','selected_stock_term','research_cash_term','research_tender_term','research_source_exit_term','source_cash_term','completion_cash_term'):
+        'selected_stock_term','research_cash_term','research_tender_term','research_source_exit_term','source_cash_term','completion_cash_term'):
         assert old[name]==new[name],name
+    before=next(n for n in ast.parse(original('system_campaign_financial_future.py')).body if isinstance(n,ast.FunctionDef)and n.name=='completion_session')
+    after=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef)and n.name=='completion_session')
+    # Only the final NEXT_COMPLETION predicate now permits a nontrading
+    # completion date; all earlier recognition branches remain exact.
+    assert ast.dump(ast.Module(body=before.body[:-1],type_ignores=[]),include_attributes=False)==ast.dump(ast.Module(body=after.body[:-2],type_ignores=[]),include_attributes=False)

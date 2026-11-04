@@ -1312,6 +1312,75 @@
       },
       "ticker": "WLH",
       "timing_source": "https://www.sec.gov/Archives/edgar/data/1095996/000119312520026783/d881600d8k.htm"
+    },
+    {
+      "actual_completion_date": "2018-12-05",
+      "added": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": 70.0,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "https://www.sec.gov/Archives/edgar/data/1344596/000114036118044598/form8k.htm | Issuer completion8K confirms December5,2018 consummation and suspension beforeDecember6open. Issuer October22agreement8K and controlling-shareholder December5completion release confirm70USD mandatory common-share cash consideration. Preserve all December4trading and recognize onDecember6, the first frozen session strictly after the confirmed nontrading completion date. Actual exchange-agent payment time is not claimed.",
+        "security_id": "435766160247494711",
+        "session": "2018-12-06"
+      },
+      "arm": "P03",
+      "description": "Issuer completion8K confirms December5,2018 consummation and suspension beforeDecember6open. Issuer October22agreement8K and controlling-shareholder December5completion release confirm70USD mandatory common-share cash consideration. Preserve all December4trading and recognize onDecember6, the first frozen session strictly after the confirmed nontrading completion date. Actual exchange-agent payment time is not claimed.",
+      "identity_witness": {
+        "issuer_id": "SEC_CIK:1344596",
+        "listing_first_session": "2006-01-23",
+        "security_id": "435766160247494711",
+        "security_type_eligible": "1",
+        "session": "2018-12-03",
+        "source_observation_sha256": "03837ea171d738f7ae77df798321e4286e60ace263bbfe27aa7609775869fcf5",
+        "ticker": "ARII"
+      },
+      "last_trading_session": "2018-12-04",
+      "mandatory_common_share_completion_confirmed": true,
+      "native": {
+        "cash_in_lieu_price_per_delivered_share": null,
+        "cash_per_share": null,
+        "delivered_issuer_id": null,
+        "delivered_security_id": null,
+        "delivered_ticker": null,
+        "entitlement_aggregation": "HOLDER",
+        "exchange_ratio": null,
+        "kind": "CASH_MERGER",
+        "reference": "actions/acquisitionby deal_value_musd=1335.3",
+        "security_id": "435766160247494711",
+        "session": "2018-12-04"
+      },
+      "native_session": "2018-12-04",
+      "native_term_sha256": "4447441e01411420775c471f8c54d01fe6f00d54adaff997517b0d360cad8222",
+      "parent_cursor": "2018-11-30",
+      "parent_outer_sha256": "9330b6d44b8dac35d528d18aed2687c5a4609c0cedd2c0872f2b4229f88844d1",
+      "parent_positions": [],
+      "parent_root_admission_sha256": "84381db5458891e421209047b2933c8182c981ccc106743ab5f9ca946fa135a7",
+      "preopen_completion_confirmed": false,
+      "primary_extraction": {
+        "actual_completion_date": "2018-12-05",
+        "cash_per_ordinary_common_share": "70.00",
+        "mandatory_conversion": true,
+        "preopen_time_established": false,
+        "recognition_convention": "FIRST_FROZEN_SESSION_STRICTLY_AFTER_CONFIRMED_COMPLETION"
+      },
+      "primary_source": "https://www.sec.gov/Archives/edgar/data/1344596/000114036118044598/form8k.htm",
+      "recognition_rule": "FIRST_FROZEN_SESSION_AFTER_CONFIRMED_COMPLETION_DATE",
+      "security_id": "435766160247494711",
+      "source_capture": {
+        "artifact_id": 13373513049,
+        "head": "e808ed5be1b537fc51a726ecf156620e43a630d9",
+        "independent_data_review_sha256": "99f47476f23d72b2f89e9dfe4b78e5cb66669d8ea6534b02133df772ae6efc9e",
+        "payload_sha256": "d7c8989e311964723c5264befb8c8c797bcede9e3a00bec7dba60c0a23179841",
+        "run_id": 41934413763,
+        "scope_sha256": "cafac06fa7fce92009e528bfdcfb2cb4dc9a7e5719b69edfb9e5f8737f6813e2"
+      },
+      "ticker": "ARII",
+      "timing_source": "https://www.sec.gov/Archives/edgar/data/1344596/000114036118044598/form8k.htm"
     }
   ]
 }
