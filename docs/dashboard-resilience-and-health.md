@@ -560,3 +560,56 @@ and HTML preservation, every missing/current capability, expiry, genuine retry
 and integrity failures, and an executed removed-source-proof falsifier. Deploy
 only the qualified presentation module to the existing panel; retain the signed
 base and all other role identities and source bytes.
+
+### Close-session root triage and callback connection ownership (November 4)
+
+The closing cycle produced three delivered alerts: a source-pin refusal before
+its writer could be positively identified, a lost leader after a heartbeat's new
+database connection timed out, and pending canonical PAPER evidence coverage.
+Normal source acquisition continued, the supervisor recovered leadership without
+a container restart, coverage advanced, and the exact next-session plan reached
+WAITING_OPEN. Recovery is recorded separately from a code repair. Keep genuine
+source/lease failures, original retry budgets and all historical events visible.
+Do not weaken publication ownership proof or suppress an unidentified lock owner.
+
+The callback heartbeat currently creates and closes a database connection for
+every renewal. Retain one connection owned exclusively by the heartbeat thread
+for that finite callback, opened after the callback child is forked. This removes
+repeated connection startup/authentication from otherwise healthy lease renewal.
+Keep the existing bounded connection/statement settings, database clock, fencing,
+control-generation checks, heartbeat cadence, callback deadline and cancellation.
+Never reconnect or retry a failed renewal silently. Any connection/query failure
+still cancels and fences the callback; supervisor recovery remains canonical.
+Close the owned connection once on every exit and surface cleanup failure before
+successful callback return. No connection or descriptor crosses the child fork.
+
+The verified controller decision legitimately precedes adoption into a saved
+plan. Its raw required-current WARN/NOT ADOPTED fact otherwise becomes a generic
+red financial row during normal PREPARING work. Human process health may recognize
+only the model-owned unadopted fraction grammar and exact latest decision, a
+current verified canonical book/feed/verdict, pending plan and bounded PREPARING
+cycle, plus every current safety capability required above. Retain the original
+financial row, effective machine failure, evidence timestamps and expiry. This
+does not grant next-open readiness or claim adoption. Missing/mismatched facts,
+actual FAIL/UNKNOWN, generic retry, expired evidence and absent leader remain
+negative. Add a native-model regression and a removed-decision-binding falsifier.
+
+A short feed-read failure was recorded at 22:15:54 and recovered at 22:15:55;
+the original row reason was not retained. Current snapshots cannot prove its
+historical physical cause. Current host I/O pressure is a diagnostic observation,
+not proof of that cause. Do not label this unexplained interval fixed or clear it
+by changing a timeout, hiding the event or widening evidence clocks. Preserve it
+as an open root-triage item until its cause can be established. All acknowledgements
+remain on hold during the owner's complete close-session root audit.
+
+Review transitions currently retain condition keys without their originating
+row evidence. Record bounded diagnostic metadata at that existing signed-event
+boundary: raw/effective status, original observation/expiry, recovery phase,
+controlled reason code and SHA256 of display value/detail. Do not record the
+display strings, SQL, account values, signed tokens or environment. For feed
+conditions distinguish original clock expiry, a publication pin refusal, read
+timeout, absent bound verdict and a failed source contract using only owned
+model grammar/typed fields. Unknown reasons retain an explicit unclassified code.
+Record recovered evidence for the previous condition keys as well. This repairs
+the post-mortem evidence gap without changing colors, expiry, review subject,
+acknowledgement, financial authority or the meaning of a historic event.

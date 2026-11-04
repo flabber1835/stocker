@@ -111,7 +111,7 @@ def test_installed_pr564_source_is_exact_while_complete_repair_changes_are_seale
         assert basis.predecessor_view(changed, previous=previous) is changed
 
 
-def test_installed_pr565_source_is_exact_and_only_reviewed_panel_modules_change():
+def test_installed_pr565_source_is_exact_and_only_reviewed_modules_change():
     profile = basis._profile()
     previous = profile['retained_predecessors'][basis.PAPER_RELEASE_PREDECESSOR_REVISION]['files']
     assert len(previous) == 442
@@ -121,8 +121,8 @@ def test_installed_pr565_source_is_exact_and_only_reviewed_panel_modules_change(
     assert set(previous) == set(actual)
     assert basis.predecessor_view(actual, previous=previous) == previous
     assert {name for name in actual if actual[name] != previous[name]} == {
-        'panel/app.py', 'panel/intent_memo.py', 'panel/model.py',
-        'panel/presentation.py', 'panel/pwa.py', 'panel/render.py',
+        'automation/service.py', 'panel/app.py', 'panel/intent_memo.py', 'panel/model.py',
+        'panel/presentation.py', 'panel/pwa.py', 'panel/render.py', 'panel/review.py',
         'panel/retry_status.py', 'paper_plan_preview.py', 'url_selected_source_basis.py',
     }
 

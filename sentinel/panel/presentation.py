@@ -279,11 +279,29 @@ def _completed_work_normal(panel) -> bool:
             and not notifications.is_stale(panel.now) and not notifications.is_future(panel.now))
 
 
+def _unadopted_preparation_fact(panel) -> bool:
+    """The controller decision precedes its saved plan; no adoption is claimed."""
+    from sentinel.feed import calendar
+    session = calendar.latest_closed_session(panel.now)
+    row, cycle, plan = (panel.row(key) for key in ('exposure', 'automation_cycle', 'paper_plan'))
+    return (row is not None and row.status == 'warn' and row.required_current
+            and row.recovery is None and _aware(row.as_of)
+            and not row.is_future(panel.now) and not row.is_stale(panel.now)
+            and (row.valid_until is None or _aware(row.valid_until))
+            and _row_boundary(row) is not None and panel.now < _row_boundary(row)
+            and re.fullmatch(r'(?:0(?:\.\d{1,12})?|1(?:\.0{1,12})?) NOT ADOPTED', row.value) is not None
+            and row.detail == 'canonical controller decision has no current plan · decision '+session
+            and cycle is not None and cycle.recovery is not None
+            and cycle.recovery.phase == 'AUTOMATION_PREPARING'
+            and plan is not None and plan.status == 'pending' and plan.paper_plan is None)
+
+
 def _preparation_inputs_current(panel) -> bool:
     from sentinel.feed import calendar
     session = calendar.latest_closed_session(panel.now)
     return (all(_current_health_fact(panel, key) for key in (
-                'feed', 'shadow_verification', 'book', 'exposure', 'terminals'))
+                'feed', 'shadow_verification', 'book', 'terminals'))
+            and (_current_health_fact(panel, 'exposure') or _unadopted_preparation_fact(panel))
             and panel.row('feed').value == session+' · 0 sessions behind'
             and panel.row('shadow_verification').value == 'SHADOW VERIFIED THROUGH '+session
             and panel.row('book').can_show_shadow_book(panel.now)
@@ -345,6 +363,8 @@ def _preparing_work_normal(panel) -> bool:
         row = panel.row(key)
         if _current_health_fact(panel, key):
             continue
+        if key == 'exposure' and _unadopted_preparation_fact(panel):
+            continue
         if (row is None or not is_closing_data_preparation(row, row.effective_status(panel.now))
                 or not row.recovery.active(panel.now) or row.is_future(panel.now)
                 or row.is_stale(panel.now)):
@@ -358,11 +378,13 @@ def _preparing_work_normal(panel) -> bool:
 
 
 def _normal_warning(panel, row: Row) -> bool:
-    if (row.key in {'paper_reconciliation', 'automation_cycle', 'automation_step_data',
+    if (row.key in {'paper_reconciliation', 'exposure', 'automation_cycle', 'automation_step_data',
                     'automation_step_prepare', 'automation_step_open'}
             and _preparing_work_normal(panel)):
         if row.key == 'paper_reconciliation':
             return True
+        if row.key == 'exposure':
+            return _unadopted_preparation_fact(panel)
         cycle = panel.row('automation_cycle')
         phases = {cycle.recovery.phase}
         if cycle.recovery.phase == 'AUTOMATION_PLAN_READY':
@@ -473,6 +495,9 @@ def health_facts(panel) -> dict:
     warnings = []
     for row in panel.rows:
         status = row.effective_status(panel.now)
+        if (status == 'fail' and row.key == 'exposure' and row.status == 'warn'
+                and _normal_warning(panel, row)):
+            continue
         if status in {'fail', 'unknown'}:
             active.append(row.key)
         elif (status == 'warn' and row.key != 'automation_alerts'

@@ -152,3 +152,48 @@ def test_removed_independent_source_proof_has_executed_falsifier(monkeypatch):
     namespace=dict(vars(presentation));exec(compile(source.replace(guard,'False'),'<removed preparation source proof>','exec'),namespace)
     monkeypatch.setattr(presentation,'_preparing_work_normal',namespace['_preparing_work_normal'])
     with pytest.raises(AssertionError):test_missing_source_proof_cannot_admit_the_pending_paper_row()
+
+
+def verified_calculation_panel():
+    page=preparing_panel();rows=[replace(r,status=model.OK,recovery=None,as_of=NOW)
+        if r.recovery and r.key!='automation_cycle' else r for r in page.rows]
+    page=replace(page,rows=rows)
+    page=changed_history_panel(page,'feed',value='2026-10-22 · 0 sessions behind')
+    page=changed_history_panel(page,'shadow_verification',value='SHADOW VERIFIED THROUGH 2026-10-22')
+    page=changed_history_panel(page,'book',shadow_book=page.row('book').shadow_book.model_copy(update={'session':'2026-10-22'}))
+    recovery=model.RecoveryEvidence(phase='AUTOMATION_PREPARING',automatic=True,deadline=OPEN)
+    for key in ['automation_cycle','automation_step_prepare']:
+        page=changed_history_panel(page,key,value='PREPARING',status=model.WARN,recovery=recovery,required_current=True,as_of=NOW,valid_until=None)
+    exposure=model.exposure_row(exposure=.55,controller_active=True,adopted=False,session='2026-10-22',as_of=NOW)
+    return replace(page,rows=[exposure if r.key=='exposure' else r for r in page.rows])
+
+
+def test_native_unadopted_decision_is_expected_only_during_verified_calculation():
+    page=verified_calculation_panel();before=deepcopy(page)
+    assert page.row('exposure').effective_status(NOW)==model.FAIL
+    assert presentation.health_facts(page)=={'active':[],'warnings':[]}
+    assert presentation.dashboard_health(page)['color']=='green'
+    assert page==before and page.row('exposure').value=='0.55 NOT ADOPTED'
+
+
+@pytest.mark.parametrize('defect',['decision','actual_failure','unknown','unbounded','expired','future','not_required','fraction','generic_retry','wrong_phase'])
+def test_unadopted_exposure_cannot_borrow_unproved_preparation(defect):
+    page=verified_calculation_panel()
+    changes={'decision':{'detail':'canonical controller decision has no current plan · decision 2026-10-21'},
+        'actual_failure':{'status':model.FAIL},'unknown':{'status':model.UNKNOWN},
+        'unbounded':{'freshness':None},'expired':{'valid_until':NOW},'future':{'as_of':NOW+timedelta(seconds=6)},
+        'not_required':{'required_current':False},'fraction':{'value':'1.10 NOT ADOPTED'}}
+    if defect in changes:page=changed_history_panel(page,'exposure',**changes[defect])
+    else:
+        phase='AUTOMATION_PREPARE_AVAILABILITY' if defect=='generic_retry' else 'AUTOMATION_REFRESHING_DATA'
+        page=changed_history_panel(page,'automation_cycle',recovery=model.RecoveryEvidence(phase=phase,automatic=True,deadline=OPEN))
+    assert presentation.dashboard_health(page)['color']!='green'
+
+
+def test_removed_unadopted_decision_binding_has_executed_falsifier(monkeypatch):
+    text=inspect.getsource(presentation._unadopted_preparation_fact)
+    guard="row.detail == 'canonical controller decision has no current plan · decision '+session"
+    assert text.count(guard)==1
+    namespace=dict(vars(presentation));exec(compile(text.replace(guard,'True'),'<removed adoption decision>','exec'),namespace)
+    monkeypatch.setattr(presentation,'_unadopted_preparation_fact',namespace['_unadopted_preparation_fact'])
+    with pytest.raises(AssertionError):test_unadopted_exposure_cannot_borrow_unproved_preparation('decision')
