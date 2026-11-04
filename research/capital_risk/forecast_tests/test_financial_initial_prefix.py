@@ -74,6 +74,8 @@ def test_zero_seed_guard_removal_accepts_a_nonzero_seed(monkeypatch):
 
 
 def test_new_reporting_uses_admitted_initial_seed_without_financial_workers(monkeypatch):
+    original=p.root_spec
+    monkeypatch.setattr(m,'root_spec',lambda arm:original(arm,initial_entry(arm)['admission_sha256']) if arm=='P05' else original(arm))
     monkeypatch.setattr(m,'SELECTED_ARMS',('P05',))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     value=m.expected_request()
@@ -84,7 +86,7 @@ def test_new_reporting_uses_admitted_initial_seed_without_financial_workers(monk
     with pytest.raises(ValueError,match='ONLY_NEW_SUFFIX_FROM_CURRENT_ADMITTED_REPORTING_SEED'):m.expected_request()
 
 
-@pytest.mark.parametrize('arm,days',[('P06',291),('P11',169)])
+@pytest.mark.parametrize('arm,days',[('P05',211),('P06',291),('P11',169)])
 def test_new_admitted_prefix_preserves_initial_seed_as_exact_history(arm,days):
     old=initial_entry(arm);current=p.root_spec(arm)
     assert current['measured_closes']==days

@@ -21,7 +21,7 @@ def entry(arm='P10'):
 
 
 def test_actual_root_admissions_preserve_historical_transport_flags():
-    for arm, count in [('P04',1970),('P05',21),('P06',291),('P07',756),('P10',1592),('P11',169)]:
+    for arm, count in [('P04',1970),('P05',211),('P06',291),('P07',756),('P10',1592),('P11',169)]:
         value = entry(arm); before = deepcopy(value)
         spec = p.authorized_spec(value, arm)
         p.validate_root_spec(spec)

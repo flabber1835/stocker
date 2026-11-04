@@ -343,3 +343,19 @@ initial-prefix and original-catalog cases passed in17.51s. The new catalog-order
 and P03-axis guard-removal falsifiers passed. P03's actual five-member public ZIP
 passed the existing transport validator. The request closes402 sources while all
 383 original drivers and the prior catalog generations remain unchanged.
+
+P05's211 prefix passed independent DATA:190 new days,380 accountings,9 exact
+reports and252 Decimal metrics. Actual AAAP25ADS produced2050USD; SCMP and CSRA
+were original canonical zero-value unheld contexts. The three inherited forward
+repairs were checked against the original parent bytes, including JUNO March7.
+Eight new composition/cash cases passed across the targeted batches; the positive
+case compares Decimal zero numerically rather than requiring a particular zero
+string exponent. Admit only211/October31 and preserve the initial21 root in
+history. Resume P05 with the existing KS35USD fact through the shared original
+catalog selector. The November1 tail is excluded and reprocessed from the own
+admitted checkpoint. Full validation and scoring remain false.
+
+P05 continuation qualification:145 relevant resume, initial/history, original-
+ordinary and future cases passed in16.03s. The own211 selector returns only the
+original KS35USD record. All older own cash/model phases and the three initial21
+transports remain independently addressable. Request/import probes passed.
