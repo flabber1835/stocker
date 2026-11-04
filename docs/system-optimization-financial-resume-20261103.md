@@ -1826,3 +1826,10 @@ and every frozen driver unchanged; do not run the consumed MDCO fallback.
 The own775 retained-proof/future-literal/point-growth/future/launcher qualification
 passed167 tests in23.86s. The actual retained seed contains321 committed rows,
 and the old756 no-new-input phase remains separately qualified.
+
+P05 run41888651598 passed the unheld COL observer and saved232 closes through
+November30,2018. Select its21 new November closes and one report for reporting
+from admitted211; exclude the December tail. The next December7 source refusal
+is OCLR283147400902576364, whose original LateFacts catalog already supplies
+5.60USD plus0.0636 successor shares. Finish this prefix's independent admission,
+then reuse that original mixed-consideration record through the shared selector.
