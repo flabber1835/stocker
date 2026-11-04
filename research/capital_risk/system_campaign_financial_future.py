@@ -230,9 +230,10 @@ def qualify(cp, material, delivered, actions, loaded, path, out):
 
 def prepare(cp, out, arm):
     material, delivered, actions = hydrate(cp, arm)
-    save(out / HYDRATED, material)
+    hydrated = out / hydration_name(cp)
+    save(hydrated, material)
     path = out / OVERLAY
-    save(path, document(cp, material, sha((out / HYDRATED).read_bytes())))
+    save(path, document(cp, material, sha(hydrated.read_bytes())))
     from research.pooled_vacancy_funding.repair import load_repair
     loaded = load_repair(path, resume_session=cp['source_cursor'], predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
     qualify(cp, material, delivered, actions, loaded, path, out)
@@ -241,10 +242,18 @@ def prepare(cp, out, arm):
 
 def review_input(cp, evidence, arm):
     material, _, _ = hydrate(cp, arm)
-    need(json.loads((evidence / HYDRATED).read_bytes()) == material
-         and json.loads((evidence / OVERLAY).read_bytes()) == document(cp, material, sha((evidence / HYDRATED).read_bytes())),
+    hydrated = evidence / hydration_name(cp)
+    need(json.loads(hydrated.read_bytes()) == material
+         and json.loads((evidence / OVERLAY).read_bytes()) == document(cp, material, sha(hydrated.read_bytes())),
          'FUTURE_INDEPENDENT_RECONSTRUCTION_OF_COMPLETE_SELECTED_INPUT')
     return min(r['session'] for field in ('suppress', 'add') for r in json.loads((evidence / OVERLAY).read_bytes())[field])
+
+
+def hydration_name(cp):
+    value = cp['sha256']
+    need(type(value) is str and len(value) == 64 and all(c in '0123456789abcdef' for c in value),
+         'FUTURE_HYDRATION_EXACT_PARENT_HASH')
+    return HYDRATED.removesuffix('.json') + '-' + value + '.json'
 
 
 def cash_postcondition(before, after, ledger_before, ledger_after, terms, result):

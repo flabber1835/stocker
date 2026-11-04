@@ -151,3 +151,46 @@ def test_original_risk_exception_identity_propagates_with_failed_sid_observation
     with pytest.raises(ValueError) as caught:f.ActualEvents.risk(observer,ep,bars=(),session='2022-02-23',cfg=None)
     assert caught.value is error
     assert observer.current['failed_risk_call']==dict(slot_id=13,security_id=ep.security_id,session='2022-02-23',error=str(error))
+
+
+def test_successive_hydration_documents_never_overwrite_retained_prior_generation(tmp_path,monkeypatch):
+    _,catalog,terms=f.selected('P04',cursor='2022-04-29')
+    cp=dict(sha256='a'*64,source_cursor='2022-04-29',run=dict(checkpoint_sha256='c'*64))
+    material=dict(catalog=catalog,catalog_sha256='d'*64,original_validator_sha256='e'*64,
+                  selector_sha256='f'*64,terms=terms)
+    old=b'{"retained_prior_generation":true}\n';(tmp_path/f.HYDRATED).write_bytes(old)
+    # Reproduce the exact old fixed-name failure under the unchanged exclusive saver.
+    with pytest.raises(FileExistsError):f.save(tmp_path/f.HYDRATED,material)
+    monkeypatch.setattr(f,'hydrate',lambda parent,arm:(deepcopy(material),{},object()))
+    calls=[]
+    module=ModuleType('research.pooled_vacancy_funding.repair')
+    def load(path,**kwargs):calls.append((path,kwargs));return SimpleNamespace(qualified=True)
+    module.load_repair=load;monkeypatch.setitem(sys.modules,module.__name__,module)
+    monkeypatch.setattr(f,'qualify',lambda *args:calls.append('qualification'))
+    overlay,loaded=f.prepare(cp,tmp_path,'P04')
+    assert loaded.qualified and (tmp_path/f.HYDRATED).read_bytes()==old
+    hydrated=tmp_path/f.hydration_name(cp)
+    assert json.loads(hydrated.read_bytes())==material
+    assert f.hydration_name(cp)!=f.hydration_name(dict(sha256='b'*64))
+    assert json.loads(overlay.read_bytes())==f.document(cp,material,f.sha(hydrated.read_bytes()))
+    assert calls[-1]=='qualification'
+    # The independent reader derives the identical parent-bound name and evidence.
+    assert f.review_input(cp,tmp_path,'P04')=='2022-05-13'
+    changed=json.loads(hydrated.read_bytes());changed['terms'][0]['added']['cash_per_share']=56.
+    hydrated.write_text(json.dumps(changed))
+    with pytest.raises(ValueError):f.review_input(cp,tmp_path,'P04')
+    assert (tmp_path/f.HYDRATED).read_bytes()==old
+
+
+@pytest.mark.parametrize('value',['a'*63,'A'*64,'../'+'a'*61,'g'*64,True,None])
+def test_hydration_filename_requires_exact_canonical_parent_digest(value):
+    with pytest.raises(ValueError):f.hydration_name(dict(sha256=value))
+
+
+def test_parent_bound_filename_guard_removal_falsifier():
+    import ast
+    cp=dict(sha256='A'*64)
+    with pytest.raises(ValueError):f.hydration_name(cp)
+    fn=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='hydration_name')
+    fn.body.pop(1);ns=dict(vars(f));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-parent-filename-guard>','exec'),ns)
+    assert ns['hydration_name'](cp).endswith('A'*64+'.json')

@@ -484,3 +484,22 @@ existing MNTA postcondition remains for its original phase. Log a failed risk
 call's SID without intercepting or weakening the canonical exception. Include
 this now-qualified P10 continuation alongside P04 in the next explicit batch;
 P07 remains withheld while its retained proof continuation is prepared.
+
+
+## Preserve successive future-input hydration generations
+
+Batch41772825491 authenticated/restored both own parents successfully, then
+refused before either neutral adoption or financial advance: the prior future
+hydration document had already been retained under the writer's fixed filename.
+The canonical exclusive-create save correctly raised FileExistsError. Both main
+gzip checkpoints remain byte-identical at1090/1028; failed reviewers report only
+the absent, never-created adoption boundary. Keep these stopped captures closed.
+
+The shared future-input writer must name each new private hydration document with
+its exact parent outer SHA. The previous fixed-name document remains unchanged
+and retained. The new input's evidence hashes the exact newly named document;
+its independent reviewer derives the same name from the same selected parent.
+Never overwrite/remove the old hydration or weaken exclusive-create saves. No
+source/cursor/financial-state change is needed to resolve this storage collision.
+Qualify the collision regression locally using synthetic DATA only, then retry
+both variants once from their identical independently admitted parent gzips.
