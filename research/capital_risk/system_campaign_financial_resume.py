@@ -47,12 +47,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P04', 'P10')
+SELECTED_ARMS = ('P04', 'P07', 'P10')
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/4'
+SCHEMA = 'research.system-campaign-accurate-resume-request/5'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -65,7 +65,8 @@ def expected_request():
              'transfer-requirements.lock', 'wwe-transfer-requirements.lock', PREFIX,
              'system_campaign_p10_ahl2_input.py', 'system_campaign_p10_ahl2_contract.py',
              'system-campaign-p10-ahl2-predecessor-001.json', P10_QUALIFICATION,
-             'system_campaign_financial_partial.py', PARTIALS, ROOTS, 'system_campaign_financial_future.py')
+             'system_campaign_financial_partial.py', PARTIALS, ROOTS, 'system_campaign_financial_future.py',
+             'system_campaign_financial_uncertainty.py')
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
                 execution_mode='ROOT_ADMITTED_OWN_FINANCIAL_CONTINUATION', new_origin=False,
                 financial_resume_authorized=True, readonly_partial_review=False,
@@ -82,7 +83,7 @@ def expected_request():
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
                 financial_wait_seconds=10800, preflight_wait_seconds=1200,
                 review_wait_seconds=2700, artifact_retention_days=7,
-                maximum_parallel_financial_workers=2, maximum_parallel_readonly_workers=0,
+                maximum_parallel_financial_workers=len(SELECTED_ARMS), maximum_parallel_readonly_workers=0,
                 production_contacted=False)
 
 
@@ -501,17 +502,21 @@ def economic(old, out, spec):
         rows = seed_rows(old, cp, spec)
         if spec['arm'] == 'P04' and spec.get('archive_format') != 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1':
             shutil.copytree('/correlation-prefix', out / 'restored-correlation-prefix')
-        extra, gate = qualified_overlay(cp, out, spec)
         observation = SeededObservation(out / 'correlation-inputs.jsonl.gz', rows)
         execution = Execution('FAST', signal_closes=keep)
-        if 'root_admission' in spec:
-            from system_campaign_financial_future import ActualEvents
-            events = ActualEvents(out, spec['arm'])
-        else:
-            events = nullcontext()
         try:
-            with gate, observation, execution, events:
-                code = backtest.main(args + extra)
+            if 'root_admission' in spec and spec['arm'] == 'P07':
+                from system_campaign_financial_uncertainty import run
+                code = run(cp, out, args, rows, observation, execution)
+            else:
+                extra, gate = qualified_overlay(cp, out, spec)
+                if 'root_admission' in spec:
+                    from system_campaign_financial_future import ActualEvents
+                    events = ActualEvents(out, spec['arm'])
+                else:
+                    events = nullcontext()
+                with gate, observation, execution, events:
+                    code = backtest.main(args + extra)
         finally:
             if hasattr(execution, 'scope'):
                 save(out / 'acceleration-proof.json', execution.proof())
@@ -533,7 +538,10 @@ def review(evidence, out, spec):
     if spec['arm'] == 'P04' and spec.get('archive_format') != 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1':
         need(seed_rows(old, cp, spec) == seed_rows(old, cp, spec, evidence / 'restored-correlation-prefix'),
              'RESUME_EXACT_RETAINED_OBSERVATION_CAPSULE')
-    if 'root_admission' in spec or spec['arm'] in ('P07', 'P10'):
+    if 'root_admission' in spec and spec['arm'] == 'P07':
+        from system_campaign_financial_uncertainty import review as review_uncertainty
+        review_uncertainty(cp, evidence, out)
+    elif 'root_admission' in spec or spec['arm'] in ('P07', 'P10'):
         review_adoption(evidence, cp, spec)
     readonly_review(evidence / 'book', out / 'core-review.json')
     verify_correlation(evidence)

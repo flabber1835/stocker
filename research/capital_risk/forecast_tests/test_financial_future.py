@@ -1,13 +1,18 @@
 """Root/future-only/actual-cash falsifiers using DATA and synthetic calls only."""
 import ast
 from copy import deepcopy
+import gzip
+import inspect
 import json
 from pathlib import Path
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
 import system_campaign_financial_partial as p
 import system_campaign_financial_future as f
+import system_campaign_financial_uncertainty as u
 
 
 def entry(arm='P10'):
@@ -140,3 +145,92 @@ def test_cash_post_guard_removal_falsifier():
         except ValueError:refused=True
         else:refused=False
         assert refused
+
+
+def test_core_observer_uses_only_modules_present_in_actual_non_v_source(tmp_path,monkeypatch):
+    runtime=SimpleNamespace(advance=lambda *a:None)
+    terminal=SimpleNamespace(apply_terminal=lambda *a:None)
+    research=ModuleType('research.pooled_vacancy_funding');research.runtime=runtime
+    core=ModuleType('stock_strategy_shared.wealth_core');core.terminal=terminal
+    core.adapter=SimpleNamespace(step_session=lambda *a:None)
+    # No capital_risk is supplied: the actual P04 source lacks that V-only module.
+    monkeypatch.setitem(sys.modules,'research.pooled_vacancy_funding',research)
+    monkeypatch.setitem(sys.modules,'stock_strategy_shared.wealth_core',core)
+    monkeypatch.setattr(f,'hosted',lambda:None)
+    (tmp_path/f.OVERLAY).write_text(json.dumps(dict(add=[])))
+    original_advance,original_terminal=runtime.advance,terminal.apply_terminal
+    with f.ActualEvents(tmp_path,'P04'):
+        assert runtime.advance!=original_advance and terminal.apply_terminal!=original_terminal
+    assert runtime.advance is original_advance and terminal.apply_terminal is original_terminal
+
+
+def test_actual_callsite_requires_code_state_ledger_and_session_identity():
+    def step_session(state,ledger,session):return inspect.currentframe()
+    state,ledger=object(),object();frame=step_session(state,ledger,'2020-10-01')
+    assert f.actual_terminal_call(frame,step_session.__code__,state,ledger,'2020-10-01')
+    def same_name(state,ledger,session):return inspect.currentframe()
+    same_name.__name__='step_session'
+    for code,s,l,d in [(same_name.__code__,state,ledger,'2020-10-01'),
+                        (step_session.__code__,object(),ledger,'2020-10-01'),
+                        (step_session.__code__,state,object(),'2020-10-01'),
+                        (step_session.__code__,state,ledger,'2020-10-02')]:
+        assert not f.actual_terminal_call(frame,code,s,l,d)
+
+
+def test_actual_code_identity_guard_removal_falsifier():
+    def step_session(state,ledger,session):return inspect.currentframe()
+    state,ledger=object(),object();frame=step_session(state,ledger,'d');wrong=(lambda:None).__code__
+    assert not f.actual_terminal_call(frame,wrong,state,ledger,'d')
+    fn=next(n for n in ast.parse(Path(f.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='actual_terminal_call')
+    fn.body[0].value.values.pop(0);ns=dict(vars(f))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-code-identity-guard>','exec'),ns)
+    with pytest.raises(AssertionError):assert not ns['actual_terminal_call'](frame,wrong,state,ledger,'d')
+
+
+def test_uncertainty_proof_uses_only_exact_qualified_sources_and_own_root():
+    s=p.root_spec('P07')
+    cp=dict(base=deepcopy(s['base']),sha256=s['outer_sha256'],source_cursor=s['selected_session'],completed=s['measured_closes'])
+    saved=deepcopy(cp);assert len(u.source_contract(cp))==6 and cp==saved
+    for change in ['source','count','parent']:
+        bad=deepcopy(cp)
+        if change=='source':bad['base']['sources']['sentinel/controller/median5.py']='0'*64
+        elif change=='count':bad['completed']+=1
+        else:bad['sha256']=p.root_spec('P04')['outer_sha256']
+        with pytest.raises(ValueError):u.source_contract(bad)
+
+
+def test_uncertainty_controller_guard_removal_falsifier():
+    s=p.root_spec('P07');cp=dict(base=deepcopy(s['base']),sha256=s['outer_sha256'],source_cursor=s['selected_session'],completed=s['measured_closes'])
+    cp['base']['sources']['sentinel/controller/median5.py']='0'*64
+    with pytest.raises(ValueError):u.source_contract(cp)
+    fn=next(n for n in ast.parse(Path(u.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='source_contract')
+    guard=next(n for n in fn.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and n.value.func.id=='need')
+    fn.body.remove(guard);ns=dict(vars(u));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-source-guard>','exec'),ns)
+    with pytest.raises(AssertionError):
+        try:ns['source_contract'](cp)
+        except ValueError:refused=True
+        else:refused=False
+        assert refused
+
+
+def test_uncertainty_boundary_requires_exact_actual_written_gzip_and_proof(tmp_path):
+    from research.capital_risk.forecast_tests.test_pxd_pause import pair,OVERLAY
+    import system_campaign_financial_resume as launcher
+    before,after,_=pair();overlay=tmp_path/'input.json';overlay.write_bytes(b'inert input bytes')
+    # Rebind only synthetic metadata, preserving the complete neutral contract.
+    from research.capital_risk.forecast_tests.test_pxd_pause import outer
+    descriptor=after['repairs'][0];descriptor['filename']=f.sha(overlay.read_bytes())+'.json';descriptor['sha256']=f.sha(overlay.read_bytes())
+    after['run']['input_sha256']=f.digest(dict(base=after['base'],repairs=after['repairs']))
+    # Recreate the source-bound neutral event/outer hashes after the inert digest change.
+    previous=before['chain']
+    e=dict(schema='research.pooled-action-successor/1',predecessor_checkpoint_sha256=before['run']['checkpoint_sha256'],
+        unchanged_through=before['source_cursor'],earliest_affected_session='2024-05-02',state_sha256=before['run']['state_sha256'],
+        overlay=descriptor,predecessor_input_sha256=before['run']['input_sha256'],successor_input_sha256=after['run']['input_sha256'])
+    after['chain']=f.digest(dict(previous=previous,event=e));outer(after)
+    root=tmp_path/'book';root.mkdir()
+    gate=launcher.AdoptionGate(before,root,tmp_path/u.MODEL_ADOPTION,f.sha(overlay.read_bytes()),'2024-05-02')
+    gate.original_write=lambda path,value:Path(path).write_bytes(gzip.compress(json.dumps(value).encode()))
+    gate.write(root/'checkpoint.json.gz',after)
+    assert u.boundary(tmp_path,u.MODEL_ADOPTION,before,overlay.name,'2024-05-02')==after
+    proof=tmp_path/u.MODEL_ADOPTION/'proof.json';v=json.loads(proof.read_bytes());v['financial_sessions_advanced']=1;proof.write_text(json.dumps(v))
+    with pytest.raises(ValueError):u.boundary(tmp_path,u.MODEL_ADOPTION,before,overlay.name,'2024-05-02')

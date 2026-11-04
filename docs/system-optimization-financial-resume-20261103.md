@@ -291,3 +291,53 @@ New postcondition or source guards may not be weakened to obtain a completion.
 P07's separate ALDR interval-invariance qualification remains in preparation.
 No qualifier state, diagnostic convention, new financial source, broker state,
 PAPER change or full-period score is authorized by this continuation admission.
+
+## Bind the existing ALDR uncertainty proof to P07's own financial book
+
+P07's admitted 439-close book has ALDR selected by the controller, with no ALDR
+episode or pending order. Its six actual controller/kernel source hashes exactly
+match the already qualified uncertainty gateway. Reuse that frozen typed input,
+rounding-aware interval arithmetic, complete comparison proof and journal-bound
+certificate mechanism. Do not reuse another variant's state or certificate, and
+do not repeat its closed synthetic/source qualification. P07's actual event-day
+ownership and order guards remain mandatory; the September30 observation does
+not authorize assuming that October22 is unowned or unordered.
+
+Use the same shared financial launcher and frozen P07 source. Qualify the retained
+ALDR date-only codec and idempotent dispatch against P07's actual native packets.
+Adopt its ordinary October21 suppression/October22 unresolved-term rescheduling
+through a canonical zero-session pause, with an exact neutral-adoption proof.
+Then bind the distinct typed uncertainty input to that actual input successor,
+requiring a second exact neutral adoption before any financial advance. Keep both
+actual gzip checkpoints and proofs. Neither boundary changes financial state,
+reporting/retry memory, committed financial journals or the original source epoch.
+
+On the actual suffix, require no held or ordered ALDR when the gateway is used.
+Keep the native consideration incomplete and preserve every cash/account input.
+The 18-to-20 contractual interval is a controller proof range, with no chosen CVR
+price or probability. Every executed uncertain comparison must be constant over
+the entire interval; ambiguity or an owned/ordered position refuses before commit.
+Record P07's own complete certificate/watch/financial identity chain from the
+actual event onward. Reuse the canonical archive-name resolver and independent
+certificate reviewer. Verify both neutral boundaries and reconstruct their exact
+input documents independently in the hosted read-only reviewer.
+
+Launch P07 while the prior P10 batch continues at its pinned commit. P04's first
+attempt qualified every selected input but refused before adoption or advance:
+the shared observer imported the V-only capital-risk module in a Core source
+closure that has no such module. Scope that import to P10 and include a P04 retry
+from the identical admitted 817-close gzip. Preserve its authenticated stopped
+attempt; no state or new financial prefix was produced. Per-arm concurrency
+remains in force. No running arm is relaunched, and no full financial completion
+or CAGR follows from qualification.
+
+P10's first actual October1 advance settled 101 MNTA shares for $5,302.50 and
+traversed the unchanged V guard for all 16 surviving eligible episodes. Its new
+observer nevertheless refused before commit: it classified the actual caller by
+the wrong function name. The canonical cash-action caller is the verified own
+adapter's `step_session`, not `apply_terminal`. Fix the observer to require that
+exact function code object, identical state and ledger objects, and identical
+session. Keep all cash-posting, source-removal, pending-intent and V-loop checks.
+Its stopped artifact has only the neutral input successor and no new financial
+close; retry from the original admitted 692-close book without adopting failed
+transition state. Include this now-terminal P10 arm in the same three-arm batch.

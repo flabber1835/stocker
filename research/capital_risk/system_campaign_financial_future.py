@@ -261,6 +261,11 @@ def cash_postcondition(before, after, ledger_before, ledger_after, terms, result
                 nominal_cash=sum(e['current_shares'] * price for _, e in held))
 
 
+def actual_terminal_call(frame, step_code, state, ledger, session):
+    return (frame.f_code is step_code and frame.f_locals.get('state') is state
+            and frame.f_locals.get('ledger') is ledger and frame.f_locals.get('session') == session)
+
+
 class ActualEvents:
     """Delegate unchanged canonical calls; check postconditions before journal commit."""
     def __init__(self, out, arm):
@@ -277,10 +282,13 @@ class ActualEvents:
     def __enter__(self):
         hosted()
         from research.pooled_vacancy_funding import runtime
-        from stock_strategy_shared.wealth_core import terminal, adapter, capital_risk
+        from stock_strategy_shared.wealth_core import terminal, adapter
+        # actual_parent already verified the entire own canonical source map.
+        self.step_code = adapter.step_session.__code__
         self.advance_original = self.patch(runtime, 'advance', self.advance)
         self.terminal_original = self.patch(terminal, 'apply_terminal', self.terminal)
         if self.arm == 'P10':
+            from stock_strategy_shared.wealth_core import capital_risk
             self.decide_original = self.patch(adapter, 'decide', self.decide)
             self.risk_original = self.patch(capital_risk, 'volatility_stop', self.risk)
         return self
@@ -295,7 +303,7 @@ class ActualEvents:
             return self.terminal_original(state, terms, **kwargs)
         before, ledger = deepcopy(state.to_dict()), deepcopy(kwargs['ledger'].to_dict())
         caller = inspect.currentframe().f_back
-        actual = caller.f_code.co_name == 'apply_terminal' and caller.f_locals.get('state') is state
+        actual = actual_terminal_call(caller, self.step_code, state, kwargs['ledger'], terms.session)
         need(asdict(terms) == self.terms[key], 'FUTURE_ACTUAL_TERMS_EXACT_SELECTED_CONTRACT')
         result = self.terminal_original(state, terms, **kwargs)
         proof = cash_postcondition(before, state.to_dict(), ledger, kwargs['ledger'].to_dict(), asdict(terms), result)
