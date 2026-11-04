@@ -40,7 +40,7 @@ import system_campaign_factual_admit as crypto
 from system_campaign_financial_partial import (
     admit as admit_partial, monthly_reproduction, ROOTS, root_spec, validate_root_spec,
     financial_inputs,
-    ADMISSIONS, FRESH_FORMAT, FRESH_REQUEST, initial_reporting_seed, review_name,
+    ADMISSIONS, FRESH_FORMAT, FRESH_REQUEST, initial_reporting_seed, review_name, full_target,
 )
 
 HERE = Path(__file__).parent
@@ -49,13 +49,13 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P00', 'P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P00',)
+SELECTED_ARMS = ('P10',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/24'
-EXECUTION_MODE = 'READONLY_FROZEN_SOURCE_WITNESSES'
+SCHEMA = 'research.system-campaign-accurate-resume-request/25'
+EXECUTION_MODE = 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -72,6 +72,7 @@ def expected_request():
         targets = json.loads((HERE / PARTIALS).read_bytes())['arms']
         for arm in SELECTED_ARMS:
             target = targets[arm]
+            full_target(target)
             if arm == 'P00' and arm not in ADMISSIONS:
                 origins[arm] = initial_reporting_seed(target)
             else:
@@ -411,10 +412,23 @@ def review_adoption(evidence, cp, spec):
 
 def strict_parent(value, spec):
     require_strict_checkpoint(value)
-    need(spec['arm'] in ARMS and 0 < spec['measured_closes'] < 2156,
+    complete = full_target(spec)
+    need(spec['arm'] in ARMS and (0 < spec['measured_closes'] < 2156 or
+         (complete and EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')),
          'RESUME_ONLY_OWN_UNFINISHED_FINANCIAL_PARENT')
     check_parent(value, spec)
     return value
+
+
+def following_session(cp, spec, wanted):
+    index = wanted.index(cp['source_cursor'])
+    if index + 1 < len(wanted):
+        need(not full_target(spec), 'RESUME_COMPLETE_TARGET_ONLY_AT_AXIS_END')
+        return wanted[index + 1]
+    need(full_target(spec) and cp['completed'] == 2156 and cp['source_cursor'] == '2026-07-31'
+         and EXECUTION_MODE == 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION',
+         'RESUME_ONLY_READONLY_COMPLETE_REPORTING_BOUNDARY')
+    return '2026-08-03'
 
 
 def successful_stop(value):
@@ -446,7 +460,7 @@ def actual_parent(old, spec):
         stream.verify(cp['journals'])
     finally:
         stream.close()
-    return cp, wanted[wanted.index(cp['source_cursor']) + 1]
+    return cp, following_session(cp, spec, wanted)
 
 
 def preflight(old, out, spec):
@@ -527,6 +541,8 @@ def verify_originals(old, evidence):
 
 def economic(old, out, spec):
     hosted()
+    need(EXECUTION_MODE == 'OWN_ADMITTED_FINANCIAL_CONTINUATION' and not full_target(spec),
+         'RESUME_ECONOMIC_ENTRY_REQUIRES_UNFINISHED_FINANCIAL_MODE')
     if 'root_admission' in spec:
         validate_root_spec(spec)
     proof = json.loads((out / 'strict-parent-preflight.json').read_bytes())

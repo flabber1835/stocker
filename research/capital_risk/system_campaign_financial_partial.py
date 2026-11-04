@@ -235,7 +235,9 @@ def public_names(spec, archive):
         raw = archive.read(name)
         need(dict(bytes=len(raw), sha256=sha(raw)) == expected, 'PARTIAL_EXACT_PUBLIC_BYTES')
     receipt = json.loads(archive.read(spec['receipt_name']))
-    need(receipt['status'] == spec['receipt_status'] == 'PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT'
+    status = ('COMPLETE_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT' if full_target(spec)
+              else 'PARTIAL_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT')
+    need(receipt['status'] == spec['receipt_status'] == status
          and receipt['performance_admitted'] is False
          and {k: receipt[k] for k in spec['prior_stops']} == spec['prior_stops'],
          'PARTIAL_ACTUAL_PRIOR_STATUS_AND_STOPS')
@@ -252,6 +254,23 @@ def public_names(spec, archive):
          and staging['runtime_index_config_layer_chain_verified'] is True and staging['replay_started'] is False,
          'PARTIAL_ACTUAL_FROZEN_STAGING')
     return set(public) | {spec['encrypted_output']['name']}
+
+
+def full_target(spec):
+    """An explicit complete transport is reporting evidence, never a resume seed."""
+    if 'readonly_full_financial_target' not in spec:
+        return False
+    need(spec['readonly_full_financial_target'] is True and spec['archive_format'] == FORMAT
+         and spec['measured_closes'] == 2156 and spec['selected_session'] == '2026-07-31'
+         and spec['receipt_status'] == 'COMPLETE_FINANCIAL_HOSTED_REVIEWED_PENDING_ROOT'
+         and spec['financial_authority'] is spec['financial_predecessor_admitted'] is False
+         and all(spec['prior_stops'][role]['stopped'] is True
+                 and type(spec['prior_stops'][role]['exit_code']) is int
+                 and spec['prior_stops'][role]['exit_code'] == 0
+                 and spec['prior_stops'][role]['oom_killed'] is False
+                 for role in ('preflight', 'worker', 'reviewer')),
+         'PARTIAL_ONLY_EXPLICIT_SUCCESSFUL_COMPLETE_READONLY_TARGET')
+    return True
 
 
 def fresh_public_names(spec, archive):
@@ -360,6 +379,11 @@ def admit(spec, root, key, inspector):
          and review['checkpoint_sha256'] == spec['outer_sha256']
          and review['counts'] == dict(formation=126, daily=spec['measured_closes']),
          'PARTIAL_ORIGINAL_FULL_PREFIX_REVIEW')
+    if full_target(spec):
+        need(review['complete'] is True and review['monthly_metrics'] == 103
+             and all(v == dict(bytes=0, sha256=sha(b'')) for v in review['preserved_tails'].values())
+             and set(review['preserved_tails']) == {'formation', 'daily', 'monthly', 'watch'},
+             'PARTIAL_COMPLETE_ENDPOINT_AND_EMPTY_TAILS')
     raw = (destination / 'request.json').read_bytes()
     need(dict(bytes=len(raw), sha256=sha(raw)) == spec['original_request_member']
          and sha(raw) == spec['request_sha256'], 'PARTIAL_ORIGINAL_REQUEST_MEMBER')

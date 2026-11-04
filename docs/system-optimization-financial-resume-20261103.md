@@ -1003,3 +1003,29 @@ fresh transport pin. Keep every original archive/stop/command guard and refuse
 tampered root authority before normalization. Retry only this failed source job
 at a new immutable commit; the P00 DATA/root admission and P10 financial run stay
 unchanged. No closed source authentication or financial validation is repeated.
+
+## Review P10's complete financial output without authorizing another financial run
+
+Authenticated financial41801765857 completed2156 measured closes through
+July31,2026, with economic/review exits0 and no OOM. Its225-member431175585-byte
+plaintext export is still unadmitted performance evidence. Reuse the closed
+1592/April2024 root and review only564 new closes,1128 accountings and27 reports.
+Verify the full endpoint, all103 reports, empty uncommitted tails and unchanged
+own source/input lineage before any full-period admission or CAGR publication.
+
+The existing reader accepts a separately tagged complete target only when its
+archive status,2156 count,July31 endpoint and positive successful financial/review
+stops agree. Keep all partial-target checks unchanged. Complete targets may enter
+only read-only reporting mode; the financial entrypoint explicitly requires its
+financial execution mode and still refuses a complete target. At the source-axis
+end, return August3 solely as the already defined reporting boundary used to
+recognize the last month end. It never authorizes a transition beyond July31.
+Run hosted canonical restore/journal/source checks and exact reproduction from
+the own1592 stats seed, then independent new-suffix DATA admission. Complete
+performance authority is a later separate decision after all these checks pass.
+
+Targeted complete-reporting qualification:151 tests passed in16.69s across
+complete_reporting,resume,partial,retention,own_cash. The complete-target guard
+removal admits a failed economic stop, and economic-entry guard removal crosses
+the forbidden state-read boundary, confirming those falsifiers exercise actual
+production statements. No local canonical financial runtime was executed.
