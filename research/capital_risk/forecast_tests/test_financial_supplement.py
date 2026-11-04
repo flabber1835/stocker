@@ -119,3 +119,34 @@ def test_actual_supplement_composition_requires_explicit_repair_root():
     removed = nodes[1].body.pop(0)
     assert 'FUTURE_SUPPLEMENT_EXPLICIT_REPAIR_ROOT' in ast.unparse(removed)
     assert len(run()['terms']) == 8
+
+
+@pytest.mark.parametrize('schema,validator_result', [
+    ('research.undeclared-input/1', None),
+    ('research.leadership-branch-uncertainty-input/1', '0'*64),
+])
+def test_unselected_or_unvalidated_typed_input_guard_falsifier(tmp_path, monkeypatch, schema, validator_result):
+    import system_campaign_financial_branches as branch
+    doc = dict(schema=schema, predecessor_checkpoint_sha256='c'*64)
+    raw = (json.dumps(doc, sort_keys=True)+'\n').encode(); h = f.sha(raw)
+    path = tmp_path/'book/repairs'; path.mkdir(parents=True)
+    (path/(h+'.json')).write_bytes(raw)
+    cp = dict(repairs=[dict(filename=h+'.json', sha256=h, predecessor_checkpoint_sha256='c'*64)])
+    monkeypatch.setattr(branch, 'validate_input', lambda root, parent: validator_result)
+    with pytest.raises(ValueError, match='EXACT_RETAINED_TYPED_INPUT'):
+        f.remaining_ordinary_terms(cp, [], tmp_path)
+    assert removed_guard('remaining_ordinary_terms',
+        'FUTURE_INHERITED_ORDINARY_EXACT_RETAINED_TYPED_INPUT')(cp, [], tmp_path) == ([], [])
+
+
+def test_actual_p07_retained_typed_input_is_independently_validated_without_terminal_reinterpretation():
+    import gzip
+    root = Path('C:/Users/mbron/.codex/visualizations/2026/11/03/01a1a1b6-c8b7-7800-b947-f49191928329/financial-runs-20261104-195/capture-P07-13360217662-001/verified-output')
+    if not root.exists():
+        pytest.skip('private DATA fixture is local-only')
+    root = Path('\\\\?\\'+str(root.resolve()))
+    cp = json.loads(gzip.decompress((root/'book/checkpoint.json.gz').read_bytes()))
+    terms, _ = f.supplemental_cash_selection('P07', '2021-03-31')
+    before = deepcopy((cp, terms))
+    remaining, inherited = f.remaining_ordinary_terms(cp, terms, root)
+    assert remaining == terms and inherited == [] and (cp, terms) == before

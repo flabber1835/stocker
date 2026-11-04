@@ -1212,9 +1212,13 @@ def remaining_ordinary_terms(cp, terms, root):
         raw = (Path(root) / 'book/repairs' / name).read_bytes()
         need(sha(raw) == entry['sha256'], 'FUTURE_INHERITED_ORDINARY_EXACT_REPAIR_BYTES')
         doc = json.loads(raw)
-        need(doc['schema'] == 'terminal-repair/1'
-             and doc['predecessor_checkpoint_sha256'] == entry['predecessor_checkpoint_sha256'],
+        need(doc['predecessor_checkpoint_sha256'] == entry['predecessor_checkpoint_sha256'],
              'FUTURE_INHERITED_ORDINARY_EXACT_REPAIR_PREDECESSOR')
+        if doc['schema'] != 'terminal-repair/1':
+            from system_campaign_financial_branches import INPUT, validate_input
+            need(doc['schema'] == INPUT and validate_input(Path(root), cp) == entry['sha256'],
+                 'FUTURE_INHERITED_ORDINARY_EXACT_RETAINED_TYPED_INPUT')
+            continue
         documents.append((entry, doc))
     remaining, inherited = [], []
     for term in terms:

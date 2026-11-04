@@ -731,3 +731,10 @@ forward repairs retain their own dates and bytes through the existing exact
 equivalence check. No old catalog, validator, financial source or completed
 financial result changes. This selects already captured research inputs; it
 does not authorize settlement studies or a new strategy rule.
+
+The P07 repair journal also retains its separately admitted branch-uncertainty
+input. Ordinary cash selection must not interpret that typed input as a terminal
+repair. Keep its exact file hash and predecessor checks, delegate its validation
+to the unchanged branch input validator, and exclude it only from the terminal
+cash collision scan. Unknown input schemas still refuse. The original retained
+input context remains responsible for activating the admitted branch model.
