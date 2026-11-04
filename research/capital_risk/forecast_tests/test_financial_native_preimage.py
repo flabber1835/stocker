@@ -101,7 +101,7 @@ def test_existing_source_terms_predicates_are_byte_for_byte_ast_identical():
 
 
 def test_actual_gbt_query_uses_the_new1196_root_and_closes_old_five_term_catalog():
-    scope=f.DISCOVERY_WITNESS_SCOPES['P04'];root=p.root_spec('P04');term,=scope['terms']
+    scope=f.DISCOVERY_WITNESS_SCOPES['P04'];root=p.root_spec('P04','dfcd3aee60ebd3ea7fdc073454af662170a14960f9b034cae6177431ea6c8e2c');term,=scope['terms']
     assert root['measured_closes']==1196 and root['selected_session']==scope['parent_cursor']=='2022-09-30'
     assert root['outer_sha256']==scope['parent_outer_sha256'] and term['native_term_sha256'] is None
     assert term['ticker']=='GBT' and term['native_session']=='2022-10-04' and term['parent_positions']==[]

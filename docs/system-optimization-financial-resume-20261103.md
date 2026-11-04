@@ -1749,3 +1749,27 @@ settlement uncertainty as a requirement for further settlement research.
 The original-delivery/original-cash/future/initial-prefix/launcher qualification
 passed157 targeted tests in14.64s. P03 root65b4309305ed9a62 admits only its82
 existing closes; P05's request selects its unchanged211 root and404 source files.
+
+## Bounded source identity discovery for the P03 mixed-consideration input
+
+P03's admitted own82 root holds no FMSA shares at April30. Its frozen feed retains
+FMSA under permanent ID278580348046109004; the May31 native caused its earlier
+leadership-source refusal. Capture only the May30 parent observation, the May31
+incomplete native, and one June1 observation with tickerCVIA. This is source
+discovery, with zero financial transitions and no input-adoption authority.
+
+Extend the existing shared witness capture with a typed single-row ticker/date
+query. Require exactly one future observation and an unheld child at the actual
+parent. Resolve its permanent ID and complete raw-row digest into the existing
+additional-row schema, preserving ticker,issuer,listing,eligibility and quotes.
+Reject missing or duplicate matches rather than choosing a row. Bind the original
+query and resolved scope separately in a new capture schema; reuse the unchanged
+native and additional-row validators. The existing native-preimage query resolves
+FMSA's unknown term digest. Existing capture schemas and their guards remain.
+Independent DATA must check the actual admitted book, both source identities and
+the resolved hashes before the separately disclosed0.73USD +0.20CVIA model may
+be selected. There is no new settlement or denominator investigation.
+The bounded-row/native/pending/source-capture/launcher checks passed224 tests
+in27.02s, including synthetic capture, duplicate rejection and guard-removal
+falsifiers. The historical GBT test now explicitly selects its admitted1196
+checkpoint instead of following the newer P04 root. No financial source changed.

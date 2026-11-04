@@ -251,8 +251,8 @@ def test_root_preflight_runs_source_capture_without_repeating_reporting_or_finan
 
 def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P05',))
-    request=m.expected_request();selected=m.root_spec('P05')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P03',))
+    request=m.expected_request();selected=m.root_spec('P03')
     monkeypatch.setattr(m,'expected_request',lambda:(_ for _ in ()).throw(AssertionError('host-only workflow lookup')))
     m.source_request_bindings(request,selected)
 
@@ -260,12 +260,12 @@ def test_worker_checks_exact_source_bindings_without_accessing_host_workflow(mon
 @pytest.mark.parametrize('change',['schema','mode','scope','root','bundle','launcher','selector'])
 def test_changed_worker_request_binding_refuses(change,monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P05',))
-    request=m.expected_request();selected=m.root_spec('P05')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P03',))
+    request=m.expected_request();selected=m.root_spec('P03')
     if change=='schema':request['schema']='UNKNOWN'
     elif change=='mode':request['financial_resume_authorized']=True
-    elif change=='scope':request['source_witness_scopes']['P05']['terms'][0]['ticker']='OTHER'
-    elif change=='root':request['admitted_checkpoints']['P05']='0'*64
+    elif change=='scope':request['source_witness_scopes']['P03']['terms'][0]['ticker']='OTHER'
+    elif change=='root':request['admitted_checkpoints']['P03']='0'*64
     elif change=='bundle':request['admitted_financial_parents_sha256']='0'*64
     elif change=='launcher':request['sources']['system_campaign_financial_resume.py']='0'*64
     else:request['sources']['system_campaign_financial_future.py']='0'*64
@@ -274,8 +274,8 @@ def test_changed_worker_request_binding_refuses(change,monkeypatch):
 
 def test_worker_source_binding_guard_removal_falsifier(monkeypatch):
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_FROZEN_SOURCE_WITNESSES')
-    monkeypatch.setattr(m,'SELECTED_ARMS',('P05',))
-    request=m.expected_request();selected=m.root_spec('P05')
+    monkeypatch.setattr(m,'SELECTED_ARMS',('P03',))
+    request=m.expected_request();selected=m.root_spec('P03')
     request['sources']['system_campaign_financial_resume.py']='0'*64
     with pytest.raises(ValueError):m.source_request_bindings(request,selected)
     fn=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='source_request_bindings')
@@ -323,7 +323,7 @@ def test_closed_source_scope_cannot_silently_follow_a_newer_admitted_root(monkey
 
 
 def test_registry_preserves_original_fresh_p00_and_current_own_queries():
-    assert set(f.WITNESS_SCOPES)==set(f.ACTIVE_WITNESS_SCOPES)=={'P00','P07','P04','P05','P06','P11'}
+    assert set(f.WITNESS_SCOPES)==set(f.ACTIVE_WITNESS_SCOPES)=={'P00','P03','P07','P04','P05','P06','P11'}
     for arm,quantity in [('P05',25),('P06',17),('P11',35)]:
         scope=f.RESOLVED_TENDER_WITNESS_SCOPES[arm]
         assert scope==f.registered_scope(f.digest(scope))
@@ -333,7 +333,7 @@ def test_registry_preserves_original_fresh_p00_and_current_own_queries():
         assert (term['ticker'],term['security_id'])==('AAAP1','554122275008038119')
         assert term['parent_positions'][0]['quantity']==quantity
         assert term['session']=='2018-01-31' and term['native_session']=='2018-02-09'
-    assert len(f.WITNESS_SCOPE_REGISTRY)==17
+    assert len(f.WITNESS_SCOPE_REGISTRY)==18
     scope=f.NEXT_WITNESS_SCOPES['P00'];root=m.root_spec('P00','c08cec7a7dc2b9fe84f9318c81b2874f25ae45fd9126f80e00deee70ee3f4694');term,=scope['terms']
     assert scope==f.registered_scope(f.digest(scope))
     assert (scope['parent_outer_sha256'],scope['parent_cursor'])==(root['outer_sha256'],'2018-08-31')
