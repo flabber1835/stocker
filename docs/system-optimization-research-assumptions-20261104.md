@@ -60,3 +60,18 @@ actual guard-removal falsifier;104 directly relevant repository tests passed
 in15.35s. Existing continuation, historical and completed root entries were
 verified unchanged. New initial roots: P05b5135e817ef9359c, P06f7421f89b0f7af3a,
 P116d6cb4beb530ba6f. No full financial score is granted by these admissions.
+
+
+Use the existing shared frozen-source witness registry for three independently
+admitted AAAP parents. Query the January31,2018 AAAP1 row and February9 native by
+permanent security ID554122275008038119, binding actual held25/17/35 ADS and their
+entry dates/slots. The existing one-native discovery schema fills the missing
+native digest without authorizing financial use, changing input data or advancing
+financial sessions. Keep all historical source scopes registered and select these
+three read-only jobs concurrently. This qualification supports the already chosen
+February1 gross82 tender-participation model; it does not reopen settlement study.
+
+Source-query qualification covered179 targeted cases:178 passed in28.26s; the
+registry inventory assertion was updated from nine to twelve exact scopes and
+that corrected case passed in1.36s. Historical source scopes and closed catalog
+generations remain intact. The request probe launches zero financial workers.
