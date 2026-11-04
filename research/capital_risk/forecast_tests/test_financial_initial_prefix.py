@@ -93,6 +93,14 @@ def test_new_admitted_prefix_preserves_initial_seed_as_exact_history(arm,days):
     assert current['root_admission']['performance_scoring_authorized'] is False
 
 
+def test_p04_complete_target_is_explicit_readonly_evidence_from_own1970_seed():
+    value=json.loads((p.HERE/'system-campaign-financial-partials.json').read_bytes())['arms']['P04']
+    assert p.full_target(value) is True
+    assert value['readonly_full_financial_target'] is True
+    assert (value['measured_closes'],value['selected_session'])==(2156,'2026-07-31')
+    assert p.reporting_seed(value)['measured_closes']==1970
+
+
 def test_initial_reporting_does_not_repin_original_fresh_p00_origin():
     assert p.FRESH_TARGET_SHA=='0aaa2967a245b4eefc9097fd84b6227a0f99717c65dc88b21b2736aeecdf2d1d'
     assert p.FRESH_REQUEST_SHA=='13d68690a7e940bc52d1060098a04d577932f292b30418a29cbfc2346f242b0d'
