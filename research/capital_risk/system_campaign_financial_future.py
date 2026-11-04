@@ -58,10 +58,15 @@ NEXT_WITNESS_SCOPES = {
             session='2022-09-28', native_session='2022-09-29',
             native_term_sha256='6c306190c326bc01b52d3fb9fda5f2cd2cdf09fdc447cb5a41064136c6c4329a',
             parent_positions=[])]),
+    'P10': dict(parent_outer_sha256='6ffb77026ee113108e175f22c6aa24c2d68963b24b48100340b9ce9888d58377',
+        parent_cursor='2024-04-30', terms=[dict(ticker='SWAV', security_id='158012003593585084',
+            session='2024-05-29', native_session='2024-05-30',
+            native_term_sha256='011cbd286ef8f6e57519452164b18187177190814dfe5742ce4ac52d70f02a0c',
+            parent_positions=[])]),
 }
 WITNESS_SCOPE_REGISTRY = {digest(scope): deepcopy(scope)
     for scopes in (HISTORICAL_WITNESS_SCOPES, NEXT_WITNESS_SCOPES) for scope in scopes.values()}
-ACTIVE_WITNESS_SCOPES = {arm: digest(scope) for arm, scope in NEXT_WITNESS_SCOPES.items()}
+ACTIVE_WITNESS_SCOPES = {'P10': digest(NEXT_WITNESS_SCOPES['P10'])}
 WITNESS_SCOPES = {arm: deepcopy(WITNESS_SCOPE_REGISTRY[key]) for arm, key in ACTIVE_WITNESS_SCOPES.items()}
 
 

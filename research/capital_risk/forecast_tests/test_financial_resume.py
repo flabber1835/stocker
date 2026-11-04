@@ -40,14 +40,14 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P04']
+    assert r['arms'] == ['P10']
     assert r['maximum_parallel_financial_workers'] == 0
     assert r['maximum_parallel_readonly_workers'] == 1
     assert r['readonly_partial_review'] is False and r['financial_resume_authorized'] is False
-    assert r['readonly_source_witnesses'] is True and set(r['source_witness_scopes'])=={'P04'} and m.request_authority(r)
+    assert r['readonly_source_witnesses'] is True and set(r['source_witness_scopes'])=={'P10'} and m.request_authority(r)
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == {a:dict(new_factual_overlay=False,restored_correlation=False) for a in ['P04']}
-    assert r['admitted_checkpoints'] == {'P04':m.root_spec('P04')['outer_sha256']}
+    assert r['arm_inputs'] == {a:dict(new_factual_overlay=False,restored_correlation=False) for a in ['P10']}
+    assert r['admitted_checkpoints'] == {'P10':m.root_spec('P10')['outer_sha256']}
     assert r['initial_reporting_origins'] == {}
     assert r['full_measured_closes'] == 2156
     assert sum(r[k] for k in ['financial_wait_seconds', 'review_wait_seconds', 'preflight_wait_seconds']) <= 245 * 60

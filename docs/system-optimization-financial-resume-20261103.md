@@ -890,3 +890,19 @@ held-role, clock, adoption or financial authority. Retire closed ACC from the
 active query view when P10's root advances. No per-symbol wrapper is introduced.
 The next immutable request selects only this useful P04 source capture while
 P00's initial independent DATA work continues locally without canonical execution.
+
+## Query P10's next SWAV source without changing its volatility guard
+
+P04 CTXS source run41798315426 succeeded and its authenticated independent DATA
+review passed the full row/native and own1175 unheld parent role. Close that
+source review; timing/cash qualification is separate. Preserve its scope body.
+
+P10's May31 refusal identifies SWAV, entered May20 with25 shares on an unadmitted
+tail. Its admitted1592/April30 root has no SWAV holding. Append a source scope for
+that exact root, the frozen May29 SWAV row and incomplete May30 native preimage,
+with an absent parent position. Select only this new P10 source query; retain
+SAFM, ACC and CTXS scopes in the same digest-addressed registry. The observed
+tail quantity identifies the blocker but supplies no holding/adoption authority.
+Cash terms, legal timing and actual application must be separately qualified;
+the original volatility causal-axis guard remains unchanged. No completed P04
+source capture or P00/P10 reporting job is repeated.
