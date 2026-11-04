@@ -889,3 +889,12 @@ The original P10 two-term catalog generation is
 7b58c64413b5f513ce76b9c7382f34cf8df612969e0865604ba283eb8a464be9.
 P11's July29 parent has no ACC position; its later65-share August4 episode is
 not backdated. No new settlement convention or volatility exception follows.
+
+P03 run41922738029 passed the inherited COL quote comparison and saved232 closes
+through November30,2018,63 beyond admitted169,with hosted prefix review passed.
+Select only this September-November prefix for report reproduction and separate
+DATA,retaining169 as authority until admission. Review the source217 NLST
+never-held source exit and the exact preserved COL input and delivered quote.
+Exclude December tails; the next December4 refusal is an unresolved cash source
+435766160247494711. Resolve it against the retained original catalogs before
+selecting further inputs; do not infer its consideration from the refusal.
