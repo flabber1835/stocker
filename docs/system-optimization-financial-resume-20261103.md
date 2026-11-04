@@ -240,3 +240,54 @@ were independently authenticated. Include P10 in this same read-only batch,
 using its own original 272-close monthly seed, exact V source and current four
 input descriptors. Select three concurrent read-only workers and zero financial
 workers; this extends the same review mechanism without changing financial rules.
+
+## Resume the admitted P04/P10 books with selected future ordinary terms
+
+Independent DATA review and exact Linux reporting have now root-admitted the
+actual P04/817, P07/439 and P10/692 checkpoints. Publish their metadata-only
+admission bundle separately from the immutable transport provenance. A financial
+request must validate the exact admission digest, own checkpoint/source/input/
+journal identities, closed financial and read-only artifacts, and continuation
+authority. Transport flags still describe the old unadmitted artifact; they are
+not rewritten as a substitute for root authorization. Reuse the closed positive
+accounting/reporting review on each identical parent; freshly verify source,
+canonical restore and journal commitments, without rerunning that closed audit.
+
+Select P04 and P10 for the next financial batch. Use one shared future-ordinary
+input registry and the existing literal catalog validators, frozen native rows,
+identity/delivery witnesses, canonical repair parser and financial engine. Select
+P04's APHA, CATM, REGI and PLAN terms from the following-completions catalog.
+ACIA is fully consumed and stays untouched. AZPN1 requires its separate original
+provider-alias archive qualification and is not included in this selected subset.
+Preserve APHA's existing declared frozen raw-open fractional-cash research proxy.
+Do not upgrade any identity/classification or invent settlement facts.
+
+P10's admitted September30,2020 state actually holds 101 MNTA shares with that
+day's exact incomplete native cash term pending at age zero. The retained
+autumn-2020 catalog confirms mandatory $52.50 cash on October1. Preserve the
+already consumed incomplete native and its full history. Add only the complete
+future October1 term for this exact pending native; do not suppress or reinterpret
+September30 and do not bypass the original all-dates-unconsumed compiler guard.
+Select that catalog's other four still-future completions normally. This is
+future completion of pending ordinary terms, not an assumed tender or a past
+source rewrite. Any missing/mismatched pending preimage or ownership scope refuses.
+
+Compile one ordinary future-only repair per own parent. Require exact selected
+catalog subsets, native hashes, unaltered witnesses and all nonterminal packet
+fields; qualify complete added terms and canonical controller notional values,
+plus wrong-predecessor, consumed-date, native-preimage and delivery-quote negatives.
+Observe complete canonical state-neutral input adoption before advance.
+
+Reuse the already qualified standard cash/stock operations and FAST/REFERENCE
+source behavior; do not repeat their closed reference replays. The new selector
+does not alter an economic equation or action codec. During the actual financial
+run, read-only delegates verify each contractual cash action's quantities, exact
+canonical operation order, ledger cash/shares/zero fees, source-slot release and
+pending-term removal. P10's unchanged V guard must still run on every surviving
+eligible episode; the settled MNTA episode must be removed before that loop.
+These checks occur before financial journal commit and preserve original failures.
+New postcondition or source guards may not be weakened to obtain a completion.
+
+P07's separate ALDR interval-invariance qualification remains in preparation.
+No qualifier state, diagnostic convention, new financial source, broker state,
+PAPER change or full-period score is authorized by this continuation admission.

@@ -22,6 +22,57 @@ HERE = Path(__file__).parent
 ORIGINALS = 'system-campaign-parallel-discovery-parents.json'
 CRYPTO_SHA = '63660cd6b2567099db9cb3d1cd9a8b05a16d54ceb1aa50a3f3acfa6d91bd6bd4'
 FORMAT = 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1'
+ROOTS = 'system-campaign-financial-admitted-parents.json'
+ADMISSIONS = {
+    'P04': '11c64d8c83d26c8e381ddc4e306829e896f3996c423c394d50c5b2d2d0307492',
+    'P07': '760e41a64a8e2fdf497c96919a5aef9eaa34a9faddee26bc9b5cee843b2ab8fa',
+    'P10': 'c3e9784fdaee742284dc4f7d90aaecbcb541cb50f699dabbb17e8c250f68815c',
+}
+
+
+def authorized_spec(entry, arm):
+    """Separate root continuation authority from immutable transport provenance."""
+    a, t = entry['admission'], entry['transport']
+    raw = (json.dumps(a, indent=2, sort_keys=True, allow_nan=False) + '\n').encode()
+    need(arm in ADMISSIONS and sha(raw) == entry['admission_sha256'] == ADMISSIONS[arm],
+         'FINANCIAL_EXACT_ROOT_ADMISSION_BYTES')
+    need(a['schema'] == 'research.root-financial-continuation-admission/1'
+         and a['status'] == 'ADMITTED_EXACT_FINANCIAL_CONTINUATION_CHECKPOINT'
+         and a['arm'] == t['arm'] == arm and a['financial_continuation_authorized'] is True
+         and a['full_financial_validation_completed'] is a['performance_scoring_authorized'] is False
+         and a['all_new_cash_shares_receivables_and_raw_marks_verified'] is True
+         and a['all_new_funded_factors_and_financial_chains_verified'] is True
+         and a['all_new_monthly_and_retry_state_verified'] is True
+         and a['financial_source_epoch_unchanged'] is a['input_adoptions_fully_state_neutral'] is True
+         and a['production_contacted'] is a['local_canonical_runtime_executed'] is False
+         and a['readonly_run_id'] == 41754595229
+         and a['readonly_head'] == 'cec7f49da4edf5ca4dd760e3b593451624c1d063'
+         and t['archive_format'] == FORMAT
+         and t['financial_authority'] is t['financial_predecessor_admitted'] is False,
+         'FINANCIAL_ONLY_SEPARATE_ROOT_CONTINUATION_AUTHORITY')
+    for key in ('base', 'journals', 'repairs', 'selected_checkpoint', 'selected_file',
+                'outer_sha256', 'inner_sha256', 'state_sha256', 'input_sha256', 'source_binding_sha256'):
+        need(a[key] == t[key], 'FINANCIAL_EXACT_ADMITTED_OWN_' + key.upper())
+    need(a['completed'] == t['measured_closes'] and a['source_cursor'] == t['selected_session']
+         and a['financial_artifact_id'] == t['artifact_id'] and a['financial_run_id'] == t['run_id']
+         and a['financial_head'] == t['head'] and a['financial_zip_sha256'] == t['zip_sha256']
+         and a['financial_cipher_sha256'] == t['encrypted_output']['sha256'],
+         'FINANCIAL_EXACT_CLOSED_TRANSPORT_AND_AXIS')
+    return dict(deepcopy(t), root_admission=deepcopy(a), root_admission_sha256=entry['admission_sha256'])
+
+
+def root_spec(arm):
+    bundle = json.loads((HERE / ROOTS).read_bytes())
+    need(bundle['schema'] == 'research.root-admitted-financial-parents/1'
+         and bundle['full_financial_validation_completed'] is False, 'FINANCIAL_ROOT_BUNDLE_SCOPE')
+    return authorized_spec(bundle['arms'][arm], arm)
+
+
+def validate_root_spec(spec):
+    transport = {k: v for k, v in spec.items() if k not in ('root_admission', 'root_admission_sha256')}
+    need(authorized_spec(dict(transport=transport, admission=spec['root_admission'],
+         admission_sha256=spec['root_admission_sha256']), spec['arm']) == spec,
+         'FINANCIAL_EXACT_ROOT_SPEC')
 
 
 def public_names(spec, archive):

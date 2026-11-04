@@ -37,7 +37,9 @@ from system_campaign_factual_run import (
 from system_campaign_readonly import reader, review as readonly_review
 from system_campaign_acceleration import Execution
 import system_campaign_factual_admit as crypto
-from system_campaign_financial_partial import admit as admit_partial, monthly_reproduction
+from system_campaign_financial_partial import (
+    admit as admit_partial, monthly_reproduction, ROOTS, root_spec, validate_root_spec,
+)
 
 HERE = Path(__file__).parent
 REQUEST = 'system-campaign-factual-request.json'
@@ -45,12 +47,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P04', 'P07', 'P10')
+SELECTED_ARMS = ('P04', 'P10')
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/3'
+SCHEMA = 'research.system-campaign-accurate-resume-request/4'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -63,22 +65,24 @@ def expected_request():
              'transfer-requirements.lock', 'wwe-transfer-requirements.lock', PREFIX,
              'system_campaign_p10_ahl2_input.py', 'system_campaign_p10_ahl2_contract.py',
              'system-campaign-p10-ahl2-predecessor-001.json', P10_QUALIFICATION,
-             'system_campaign_financial_partial.py', PARTIALS)
+             'system_campaign_financial_partial.py', PARTIALS, ROOTS, 'system_campaign_financial_future.py')
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
-                execution_mode='READONLY_PARTIAL_FINANCIAL_AND_MONTHLY_REVIEW', new_origin=False,
-                financial_resume_authorized=False, readonly_partial_review=True,
+                execution_mode='ROOT_ADMITTED_OWN_FINANCIAL_CONTINUATION', new_origin=False,
+                financial_resume_authorized=True, readonly_partial_review=False,
                 diagnostic_state_adopted=False,
-                arm_inputs={a: dict(new_factual_overlay=False, restored_correlation=False) for a in SELECTED_ARMS},
+                arm_inputs={a: dict(new_factual_overlay=True, restored_correlation=False) for a in SELECTED_ARMS},
                 financial_source_changed=False, full_measurement_start='2018-01-02',
                 full_measurement_end='2026-07-31', full_measured_closes=2156,
                 predecessors_sha256=sha256_file(HERE / PARENTS),
                 selected_partials_sha256=sha256_file(HERE / PARTIALS),
+                admitted_financial_parents_sha256=sha256_file(HERE / ROOTS),
+                admitted_checkpoints={a: root_spec(a)['outer_sha256'] for a in SELECTED_ARMS},
                 protocol_sha256=sha256_file(HERE / 'system-campaign-search-protocol.json'),
                 workflow_sha256=sha256_file(HERE.parent.parent / WORKFLOW),
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
                 financial_wait_seconds=10800, preflight_wait_seconds=1200,
                 review_wait_seconds=2700, artifact_retention_days=7,
-                maximum_parallel_financial_workers=0, maximum_parallel_readonly_workers=3,
+                maximum_parallel_financial_workers=2, maximum_parallel_readonly_workers=0,
                 production_contacted=False)
 
 
@@ -295,6 +299,11 @@ def p07_overlay(cp, out):
 
 
 def qualified_overlay(cp, out, spec):
+    if 'root_admission' in spec:
+        from system_campaign_financial_future import prepare
+        overlay, loaded = prepare(cp, out, spec['arm'])
+        return ['--repair-overlay', str(overlay)], AdoptionGate(cp, out / 'book',
+            out / 'input-adoption', loaded.sha256, loaded.earliest_affected_session)
     if spec['arm'] not in ('P07', 'P10'):
         return [], nullcontext()
     from research.pooled_vacancy_funding.repair import load_repair
@@ -323,13 +332,17 @@ def review_adoption(evidence, cp, spec):
     root = evidence / 'input-adoption'
     raw = (root / 'checkpoint.json.gz').read_bytes()
     saved = json.loads(gzip.decompress(raw))
-    name, earliest = overlay_contract(spec['arm'])
+    if 'root_admission' in spec:
+        from system_campaign_financial_future import OVERLAY, review_input
+        name, earliest = OVERLAY, review_input(cp, evidence, spec['arm'])
+    else:
+        name, earliest = overlay_contract(spec['arm'])
     event = adoption(saved, cp, sha256_file(evidence / name), earliest)
-    if spec['arm'] == 'P07':
+    if spec['arm'] == 'P07' and 'root_admission' not in spec:
         documents = [json.loads((evidence / (n + '-terminal-overlay.json')).read_bytes()) for n in ('array', 'tableau')]
         need(json.loads((evidence / name).read_bytes()) == combine_documents(documents, cp),
              'RESUME_REVIEW_EXACT_P07_COMBINED_ORDINARY_INPUT')
-    if spec['arm'] == 'P10':
+    if spec['arm'] == 'P10' and 'root_admission' not in spec:
         need(json.loads((evidence / name).read_bytes()) == p10_document(cp)[0],
              'RESUME_REVIEW_EXACT_P10_ORDINARY_INPUT_REBINDING')
     need(json.loads((root / 'proof.json').read_bytes()) == dict(event=event,
@@ -380,20 +393,29 @@ def actual_parent(old, spec):
 
 def preflight(old, out, spec):
     hosted()
+    if 'root_admission' in spec:
+        validate_root_spec(spec)
     with retained_inputs(old, strict_parent(json.loads(gzip.decompress(
             (old / spec['selected_checkpoint']).read_bytes())), spec), out):
         cp, following = actual_parent(old, spec)
         seed_rows(old, cp, spec)
-        readonly_review(old / 'book', out / 'old-prefix-canonical-review.json')
+        if 'root_admission' in spec:
+            # This identical artifact's accounting/monthly audit is closed and root-admitted.
+            need(sha256_file(old / 'stopped-review/core-review.json') == spec['review_sha256'],
+                 'RESUME_CLOSED_ROOT_ACCOUNTING_REVIEW_BYTES')
+            shutil.copyfile(old / 'stopped-review/core-review.json', out / 'old-prefix-canonical-review.json')
+        else:
+            readonly_review(old / 'book', out / 'old-prefix-canonical-review.json')
     proof = json.loads((out / 'old-prefix-canonical-review.json').read_bytes())
     need(proof['all_prefixes_verified'] and proof['all_daily_factors_and_chains_verified']
          and proof['checkpoint_sha256'] == cp['sha256'], 'RESUME_PARENT_ACCOUNTING_REVIEW_REQUIRED')
-    if spec.get('archive_format') == 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1':
+    if spec.get('archive_format') == 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1' and 'root_admission' not in spec:
         monthly_reproduction(old, out, spec, cp)
     save(out / 'strict-parent-preflight.json', dict(passed=True, arm=spec['arm'],
          outer_sha256=cp['sha256'], selected_file=spec['selected_file'], next_session=following,
          canonical_roundtrip=True, original_journal_commitments_verified=True,
          diagnostic_state_adopted=False, financial_sessions_advanced=0,
+         root_admission_sha256=spec.get('root_admission_sha256'),
          accounting_review_sha256=sha256_file(out / 'old-prefix-canonical-review.json')))
 
 
@@ -438,11 +460,14 @@ def verify_originals(old, evidence):
 
 def economic(old, out, spec):
     hosted()
+    if 'root_admission' in spec:
+        validate_root_spec(spec)
     proof = json.loads((out / 'strict-parent-preflight.json').read_bytes())
     need(proof['passed'] is True and proof['arm'] == spec['arm']
          and proof['outer_sha256'] == spec['outer_sha256']
          and proof['diagnostic_state_adopted'] is False and proof['financial_sessions_advanced'] == 0
-         and proof['accounting_review_sha256'] == sha256_file(out / 'old-prefix-canonical-review.json'),
+         and proof['accounting_review_sha256'] == sha256_file(out / 'old-prefix-canonical-review.json')
+         and proof.get('root_admission_sha256') == spec.get('root_admission_sha256'),
          'RESUME_POSITIVELY_PASSED_PARENT_PREFLIGHT')
     cp = strict_parent(json.loads(gzip.decompress((old / spec['selected_checkpoint']).read_bytes())), spec)
     book = out / 'book'
@@ -474,13 +499,18 @@ def economic(old, out, spec):
         args = arguments(book, True)
         args[args.index('--policy') + 1] = cp['base']['policy']
         rows = seed_rows(old, cp, spec)
-        if spec['arm'] == 'P04':
+        if spec['arm'] == 'P04' and spec.get('archive_format') != 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1':
             shutil.copytree('/correlation-prefix', out / 'restored-correlation-prefix')
         extra, gate = qualified_overlay(cp, out, spec)
         observation = SeededObservation(out / 'correlation-inputs.jsonl.gz', rows)
         execution = Execution('FAST', signal_closes=keep)
+        if 'root_admission' in spec:
+            from system_campaign_financial_future import ActualEvents
+            events = ActualEvents(out, spec['arm'])
+        else:
+            events = nullcontext()
         try:
-            with gate, observation, execution:
+            with gate, observation, execution, events:
                 code = backtest.main(args + extra)
         finally:
             if hasattr(execution, 'scope'):
@@ -492,7 +522,7 @@ def economic(old, out, spec):
         save(out / 'accurate-outcome.json', dict(arm=spec['arm'], complete=complete,
             completed=current['completed'], session=current['source_cursor'],
             new_transitions=current['completed'] - cp['completed'], diagnostic_state_adopted=False,
-            financial_source_changed=False, new_factual_overlay=spec['arm'] in ('P07', 'P10'), production_contacted=False))
+            financial_source_changed=False, new_factual_overlay='root_admission' in spec or spec['arm'] in ('P07', 'P10'), production_contacted=False))
         need(complete, 'RESUME_INCOMPLETE_FINANCIAL_PREFIX_PRESERVED')
 
 
@@ -500,10 +530,10 @@ def review(evidence, out, spec):
     hosted()
     old = Path('/old')
     cp = strict_parent(json.loads(gzip.decompress((old / spec['selected_checkpoint']).read_bytes())), spec)
-    if spec['arm'] == 'P04':
+    if spec['arm'] == 'P04' and spec.get('archive_format') != 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1':
         need(seed_rows(old, cp, spec) == seed_rows(old, cp, spec, evidence / 'restored-correlation-prefix'),
              'RESUME_EXACT_RETAINED_OBSERVATION_CAPSULE')
-    if spec['arm'] in ('P07', 'P10'):
+    if 'root_admission' in spec or spec['arm'] in ('P07', 'P10'):
         review_adoption(evidence, cp, spec)
     readonly_review(evidence / 'book', out / 'core-review.json')
     verify_correlation(evidence)
@@ -591,7 +621,8 @@ def launch(args):
     from ephemeral_runner_capacity import validate_prepared_receipt
     validate_prepared_receipt(json.loads(args.capacity.read_bytes()), head=os.environ['GITHUB_SHA'],
         run_id=os.environ['GITHUB_RUN_ID'], source_sha256=request['sources']['ephemeral_runner_capacity.py'])
-    spec = json.loads((HERE / (PARTIALS if request['readonly_partial_review'] else PARENTS)).read_bytes())['arms'][args.arm]
+    spec = (json.loads((HERE / PARTIALS).read_bytes())['arms'][args.arm] if request['readonly_partial_review']
+            else root_spec(args.arm))
     temp = Path(os.environ['RUNNER_TEMP'])
     key = base64.b64decode(os.environ.pop(SECRET, ''), validate=True)
     need(len(key) == 32, 'RESUME_SEPARATE_KEY')
@@ -621,10 +652,9 @@ def launch(args):
         public()
         need(shutil.disk_usage(temp).free >= 12 * 1024**3, 'RESUME_INITIAL_DISK_RESERVE')
         transfer = temp / ('campaign-factual-transfer-financial-' + args.arm.lower())
-        old = (admit_partial(spec, transfer, key, inspect) if request['readonly_partial_review']
-               else transport_admit(spec, transfer, key))
+        old = admit_partial(spec, transfer, key, inspect)
         capsule = None
-        if args.arm == 'P04' and not request['readonly_partial_review']:
+        if args.arm == 'P04' and spec.get('archive_format') != 'FINANCIAL_RESUME_FIVE_MEMBER_ZIP/1':
             auxiliary = crypto.admit(prefix_descriptor()['transport'],
                 temp / 'campaign-factual-transfer-correlation-p04', key, max_zip_bytes=512 * 1024**2)
             capsule = prepare_prefix(old, auxiliary, temp / 'financial-correlation-prefix-P04')
