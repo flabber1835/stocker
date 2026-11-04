@@ -44,8 +44,10 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P07', 'P04')
+SELECTED_ARMS = ('P10',)
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
+P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
+P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
 SCHEMA = 'research.system-campaign-accurate-resume-request/2'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
@@ -56,12 +58,13 @@ def expected_request():
     need(len(prior) == 383 and all(sha256_file(HERE / n) == h for n, h in prior.items()),
          'RESUME_ALL383_OLD_DRIVER_BYTES_UNCHANGED')
     names = (*prior, 'system_campaign_financial_resume.py', 'ephemeral_runner_capacity.py',
-             'transfer-requirements.lock', 'wwe-transfer-requirements.lock', PREFIX)
+             'transfer-requirements.lock', 'wwe-transfer-requirements.lock', PREFIX,
+             'system_campaign_p10_ahl2_input.py', 'system_campaign_p10_ahl2_contract.py',
+             'system-campaign-p10-ahl2-predecessor-001.json', P10_QUALIFICATION)
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
                 execution_mode='CANONICAL_ACCURATE_FINANCIAL_REPLAY', new_origin=False,
                 diagnostic_state_adopted=False,
-                arm_inputs=dict(P07=dict(new_factual_overlay='ARRAY_MANDATORY_48USD', restored_correlation=False),
-                                P04=dict(new_factual_overlay=False, restored_correlation=True)),
+                arm_inputs=dict(P10=dict(new_factual_overlay='AHL2_MANDATORY_42_75USD', restored_correlation=False)),
                 financial_source_changed=False, full_measurement_start='2018-01-02',
                 full_measurement_end='2026-07-31', full_measured_closes=2156,
                 predecessors_sha256=sha256_file(HERE / PARENTS),
@@ -70,7 +73,7 @@ def expected_request():
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
                 financial_wait_seconds=10800, preflight_wait_seconds=1200,
                 review_wait_seconds=2700, artifact_retention_days=7,
-                maximum_parallel_financial_workers=2, production_contacted=False)
+                maximum_parallel_financial_workers=1, production_contacted=False)
 
 
 class SeedPaths:
@@ -185,33 +188,106 @@ class AdoptionGate:
         self.backtest.write_checkpoint, self.runtime.advance = self.original_write, self.original_advance
 
 
+def p10_document(cp):
+    from system_campaign_p10_ahl2_contract import specification
+    from system_campaign_p10_ahl2_input import expected_document
+    retained = specification()
+    need(cp['base'] == retained['base'] and cp['source_cursor'] < '2019-02-14'
+         and sha256_file(HERE / P10_QUALIFICATION) == P10_QUALIFICATION_SHA,
+         'RESUME_P10_EXACT_OWN_BASE_AND_RETAINED_INPUT_QUALIFICATION')
+    document = expected_document(retained)
+    document['predecessor_checkpoint_sha256'] = cp['run']['checkpoint_sha256']
+    return document, retained
+
+
+def p10_overlay(cp, out):
+    from research.pooled_input_support import inputs
+    from research.pooled_input_support.adapter import Packet
+    from research.pooled_vacancy_funding import backtest
+    from system_campaign_discovery_context import material
+    from system_campaign_p10_ahl2_input import source_witness, packet_change
+    document, retained = p10_document(cp)
+    witness = source_witness(retained)
+    save(out / 'ahl2-source-subset.json', witness)
+    path = out / 'ahl2-terminal-overlay.json'
+    save(path, document)
+    loaded = backtest.load_repair(path, resume_session=cp['source_cursor'],
+        predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
+    actions = inputs.load_actions(Path('/frozen/bundle'))
+    probes = []
+    for day in ('2019-02-14', '2019-02-15'):
+        packet = Packet(day, (), {}, {}, 1., {}, tuple(actions.terminal.get(day, ())), ())
+        original = deepcopy(packet)
+        changed = backtest.apply_repair(packet, loaded)
+        probes.append(packet_change(packet, changed, spec=retained, material=material))
+        need(packet == original, 'RESUME_P10_ORIGINAL_NATIVE_PACKET_UNCHANGED')
+        if day == '2019-02-14':
+            bad = deepcopy(document)
+            bad['suppress'][0]['term_sha256'] = '0' * 64
+            falsifier = out / 'ahl2-wrong-native-falsifier.json'
+            save(falsifier, bad)
+            wrong = backtest.load_repair(falsifier, resume_session=cp['source_cursor'],
+                predecessor_checkpoint_sha256=cp['run']['checkpoint_sha256'])
+            try:
+                backtest.apply_repair(packet, wrong)
+            except ValueError as error:
+                need(str(error).startswith('suppressed original terminal differs:') and packet == original,
+                     'RESUME_P10_ACTUAL_NATIVE_FALSIFIER_AND_IMMUTABILITY')
+            else:
+                raise ValueError('REFUSED_RESUME_P10_NATIVE_FALSIFIER_ACCEPTED')
+        else:
+            term, = [v for v in changed.terminal if v.security_id == retained['native_term']['security_id']]
+            need(term.completeness(1)[0], 'RESUME_P10_COMPLETE_ORDINARY_CASH_REPLACEMENT')
+    save(out / 'ahl2-input-qualification.json', dict(terminal_only_packet_probes=probes,
+        source_subset_sha256=sha256_file(out / 'ahl2-source-subset.json'),
+        retained_qualification_descriptor_sha256=P10_QUALIFICATION_SHA,
+        wrong_native_preimage_refused=True, no_diagnostic_state_adopted=True,
+        financial_sessions_advanced=0, financial_source_changed=False))
+    return path, loaded
+
+
+def overlay_contract(arm):
+    return {'P07': ('array-terminal-overlay.json', '2019-07-30'),
+            'P10': ('ahl2-terminal-overlay.json', '2019-02-14')}[arm]
+
+
 def qualified_overlay(cp, out, spec):
-    if spec['arm'] != 'P07':
+    if spec['arm'] not in ('P07', 'P10'):
         return [], nullcontext()
-    from system_campaign_array_facts import ArrayFacts
     from research.pooled_vacancy_funding.repair import load_repair
-    facts = ArrayFacts('/driver/system-campaign-array-terminal-facts.json')
-    facts.hydrate(out / 'hydrated-array-terminal-catalog.json')
-    overlay = out / 'array-terminal-overlay.json'
-    loaded = facts.overlay(cp, overlay)
+    name, earliest = overlay_contract(spec['arm'])
+    overlay = out / name
+    if spec['arm'] == 'P07':
+        from system_campaign_array_facts import ArrayFacts
+        facts = ArrayFacts('/driver/system-campaign-array-terminal-facts.json')
+        facts.hydrate(out / 'hydrated-array-terminal-catalog.json')
+        loaded = facts.overlay(cp, overlay)
+        facts.qualify(loaded, out / 'array-input-qualification.json')
+    else:
+        actual, loaded = p10_overlay(cp, out)
+        need(actual == overlay, 'RESUME_P10_EXACT_OVERLAY_PATH')
+    need(loaded.earliest_affected_session == earliest, 'RESUME_FIRST_AFFECTED_PUBLICATION')
     for cursor, predecessor in ((cp['source_cursor'], '0' * 64),
-                                ('2019-07-30', cp['run']['checkpoint_sha256'])):
+                                (earliest, cp['run']['checkpoint_sha256'])):
         try:
             load_repair(overlay, resume_session=cursor, predecessor_checkpoint_sha256=predecessor)
         except ValueError:
             pass
         else:
-            raise ValueError('REFUSED_RESUME_ARRAY_PARSER_FALSIFIER')
-    facts.qualify(loaded, out / 'array-input-qualification.json')
+            raise ValueError('REFUSED_RESUME_ORDINARY_INPUT_PARSER_FALSIFIER')
     return ['--repair-overlay', str(overlay)], AdoptionGate(cp, out / 'book',
-        out / 'input-adoption', loaded.sha256, '2019-07-30')
+        out / 'input-adoption', loaded.sha256, earliest)
 
 
-def review_adoption(evidence, cp):
+def review_adoption(evidence, cp, spec):
     root = evidence / 'input-adoption'
     raw = (root / 'checkpoint.json.gz').read_bytes()
     saved = json.loads(gzip.decompress(raw))
-    event = adoption(saved, cp, sha256_file(evidence / 'array-terminal-overlay.json'), '2019-07-30')
+    name, earliest = overlay_contract(spec['arm'])
+    event = adoption(saved, cp, sha256_file(evidence / name), earliest)
+    if spec['arm'] == 'P10':
+        need(json.loads((evidence / name).read_bytes()) == p10_document(cp)[0],
+             'RESUME_REVIEW_EXACT_P10_ORDINARY_INPUT_REBINDING')
     need(json.loads((root / 'proof.json').read_bytes()) == dict(event=event,
          actual_checkpoint_gzip_sha256=sha(raw), original_outer_sha256=cp['sha256'],
          financial_state_unchanged=True, financial_sessions_advanced=0),
@@ -370,7 +446,7 @@ def economic(old, out, spec):
         save(out / 'accurate-outcome.json', dict(arm=spec['arm'], complete=complete,
             completed=current['completed'], session=current['source_cursor'],
             new_transitions=current['completed'] - cp['completed'], diagnostic_state_adopted=False,
-            financial_source_changed=False, new_factual_overlay=spec['arm'] == 'P07', production_contacted=False))
+            financial_source_changed=False, new_factual_overlay=spec['arm'] in ('P07', 'P10'), production_contacted=False))
         need(complete, 'RESUME_INCOMPLETE_FINANCIAL_PREFIX_PRESERVED')
 
 
@@ -381,8 +457,8 @@ def review(evidence, out, spec):
     if spec['arm'] == 'P04':
         need(seed_rows(old, cp, spec) == seed_rows(old, cp, spec, evidence / 'restored-correlation-prefix'),
              'RESUME_EXACT_RETAINED_OBSERVATION_CAPSULE')
-    if spec['arm'] == 'P07':
-        review_adoption(evidence, cp)
+    if spec['arm'] in ('P07', 'P10'):
+        review_adoption(evidence, cp, spec)
     readonly_review(evidence / 'book', out / 'core-review.json')
     verify_correlation(evidence)
     preserve_tails(evidence / 'book', json.loads((evidence / 'resume-tail-preflight.json').read_bytes()))

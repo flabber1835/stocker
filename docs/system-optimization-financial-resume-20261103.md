@@ -122,3 +122,35 @@ the selected original P04 journal commitments. Copy the capsule and provenance
 into encrypted output. P04's source, inputs, model, selected financial state and
 controller remain unchanged. A missing, altered, future-bearing or mismatched
 capsule refuses before financial launch.
+
+## Rebind the retained AHL2 primary input to P10's financial parent
+
+P10's selected Jan31,2019 financial parent has exactly the same complete base
+and224-source map as the retained AHL2 qualification source. Its Feb15 refusal
+follows the missing AHL2 terminal event; the native V21 causal-axis guard remains
+correct and must remain active. The retained primary facts establish42.75USD
+mandatory ordinary-share cash before the Feb15 open. Reuse only that literal
+ordinary terminal-repair document, identity/native-source witnesses and packet
+validator from system_campaign_p10_ahl2_input.py. Rebind its predecessor to the
+selected financial parent's inner checkpoint. Preserve all three old input
+descriptors and all uncommitted financial tails. No diagnostic runtime,
+checkpoint, input epoch, financial outcome or certificate supplies financial
+state or authority.
+
+Require full base equality, not a source-count fallback. Reuse the exact frozen
+root-admitted qualification descriptor as provenance for the unchanged cash
+operation; do not repeat its closed FAST/REFERENCE/source audits. On the new
+hosted path, revalidate the literal source subset, last Feb14 identity witness
+and absent Feb15 quote, qualify native suppression on Feb14 and complete cash
+addition on Feb15 using the unchanged canonical packet parser, and run wrong
+predecessor, consumed-date and wrong-native-preimage falsifiers. These are
+zero-session input probes, not a new financial book. Require actual neutral
+canonical input adoption before any financial advance and its independent
+stopped review, as for P07. First affected publication is Feb14; cash is Feb15.
+No stale quote, shorter horizon, exclusion or risk-rule change is permitted.
+
+Select P10 alone in the next source-bound request while the earlier immutable
+P07/P04 request runs. Matrix parallel limits apply per explicit batch; per-arm
+concurrency prevents overlapping writers across requests. Every runner still
+has only one bounded offline financial worker at a time. Later refusals preserve
+actual stopped output and do not imply financial completion or root admission.

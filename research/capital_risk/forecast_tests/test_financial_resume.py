@@ -40,21 +40,20 @@ def proof():
 
 def test_actual_request_preserves_every_frozen_driver_and_selects_only_unfinished():
     r = m.expected_request()
-    assert r['arms'] == ['P07', 'P04']
-    assert r['maximum_parallel_financial_workers'] == 2
+    assert r['arms'] == ['P10']
+    assert r['maximum_parallel_financial_workers'] == 1
     assert r['new_origin'] is r['diagnostic_state_adopted'] is False
-    assert r['arm_inputs'] == dict(P07=dict(new_factual_overlay='ARRAY_MANDATORY_48USD', restored_correlation=False),
-                                  P04=dict(new_factual_overlay=False, restored_correlation=True))
+    assert r['arm_inputs'] == dict(P10=dict(new_factual_overlay='AHL2_MANDATORY_42_75USD', restored_correlation=False))
     assert r['full_measured_closes'] == 2156
     assert sum(r[k] for k in ['financial_wait_seconds', 'review_wait_seconds', 'preflight_wait_seconds']) <= 245 * 60
 
 
-def test_existing_workflow_selects_two_qualified_jobs_without_overlapping_own_arm():
+def test_existing_workflow_selects_qualified_job_without_overlapping_own_arm():
     import yaml
     workflow = yaml.load((CAP.parent.parent / m.WORKFLOW).read_bytes(), Loader=yaml.BaseLoader)
     job = workflow['jobs']['suffix']
     assert job['strategy']['matrix']['arm'] == list(m.SELECTED_ARMS)
-    assert job['strategy']['max-parallel'] == '2'
+    assert job['strategy']['max-parallel'] == '1'
     assert 'concurrency' not in workflow
     assert job['concurrency'] == dict(group='system-optimization-002-financial-${{ matrix.arm }}', **{'cancel-in-progress':'false'})
     assert job['timeout-minutes'] == '285'
@@ -232,7 +231,7 @@ def launch_fixture(tmp_path, monkeypatch, event):
         exports.append(root); return {'synthetic_cipher': True}
     monkeypatch.setattr(m, 'seal', seal)
     args = SimpleNamespace(request=request_path, staging=stage_path, capacity=cap_path,
-                           arm='P07', output=tmp_path / 'artifacts/receipt.json')
+                           arm='P10', output=tmp_path / 'artifacts/receipt.json')
     return args, calls, exports
 
 
@@ -434,3 +433,42 @@ def test_adoption_guard_removal_falsifier(tmp_path):
     namespace=dict(vars(m));exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-adoption-guard>','exec'),namespace)
     MethodType(namespace['advance'],gate)('inert')
     assert advances==[('inert',)]
+
+
+def p10_financial_parent():
+    value=json.loads((CAP/m.PARENTS).read_bytes())['arms']['P10']
+    return dict(base=deepcopy(value['base']),source_cursor=value['selected_session'],
+                run=dict(checkpoint_sha256=value['inner_sha256']))
+
+
+def test_p10_reuses_only_literal_primary_input_with_own_financial_predecessor():
+    cp=p10_financial_parent();before=deepcopy(cp)
+    document,retained=m.p10_document(cp)
+    assert cp==before and document['predecessor_checkpoint_sha256']==cp['run']['checkpoint_sha256']
+    assert document['predecessor_checkpoint_sha256']!=retained['runtime_checkpoint_sha256']
+    assert document['schema']=='terminal-repair/1' and len(document['add'])==len(document['suppress'])==1
+    assert document['suppress'][0]['session']=='2019-02-14'
+    term,=document['add'];assert term['session']=='2019-02-15' and term['cash_per_share']==42.75
+    assert term['security_id']=='1144531901989620662' and term['kind']=='CASH_MERGER'
+    assert set(document)=={'schema','predecessor_checkpoint_sha256','source_evidence','suppress','add'}
+    assert cp['base']['sources']==retained['base']['sources'] and len(cp['base']['sources'])==224
+
+
+@pytest.mark.parametrize('change',['source','policy','consumed'])
+def test_p10_wrong_source_policy_or_consumed_publication_refuses(change):
+    cp=p10_financial_parent()
+    if change=='source':cp['base']['sources'][next(iter(cp['base']['sources']))]='0'*64
+    elif change=='policy':cp['base']['policy']='wealth-core-v5'
+    else:cp['source_cursor']='2019-02-14'
+    with pytest.raises(ValueError,match='P10_EXACT_OWN_BASE'):m.p10_document(cp)
+
+
+def test_p10_actual_base_equality_guard_removal_falsifier():
+    cp=p10_financial_parent();cp['base']['sources'][next(iter(cp['base']['sources']))]='0'*64
+    with pytest.raises(ValueError,match='P10_EXACT_OWN_BASE'):m.p10_document(cp)
+    fn=next(n for n in ast.parse(Path(m.__file__).read_bytes()).body if isinstance(n,ast.FunctionDef) and n.name=='p10_document')
+    sites=[n for n in fn.body if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call) and
+           any(isinstance(a,ast.Constant) and a.value=='RESUME_P10_EXACT_OWN_BASE_AND_RETAINED_INPUT_QUALIFICATION' for a in n.value.args)]
+    assert len(sites)==1;fn.body.remove(sites[0]);namespace=dict(vars(m))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[fn],type_ignores=[])),'<removed-p10-base-guard>','exec'),namespace)
+    assert namespace['p10_document'](cp)[0]['add'][0]['cash_per_share']==42.75
