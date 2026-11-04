@@ -73,9 +73,10 @@ def test_zero_seed_guard_removal_accepts_a_nonzero_seed(monkeypatch):
     assert without_guard('PARTIAL_ONLY_ORIGINAL_ZERO_MEASUREMENT_REPORTING_SEED')(value)['measured_closes']==1
 
 
-def test_new_reporting_uses_current_admitted_seed_without_financial_workers(monkeypatch):
+def test_reporting_contract_uses_targets_exact_admitted_seed_without_financial_workers(monkeypatch):
     original=p.root_spec
-    monkeypatch.setattr(m,'root_spec',lambda arm:original(arm,initial_entry(arm)['admission_sha256']) if arm=='P03' else original(arm))
+    targets=json.loads((p.HERE/'system-campaign-financial-partials.json').read_bytes())['arms']
+    monkeypatch.setattr(m,'root_spec',lambda arm:p.reporting_seed(targets[arm]) if arm=='P03' else original(arm))
     monkeypatch.setattr(m,'SELECTED_ARMS',('P03',))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     value=m.expected_request()
