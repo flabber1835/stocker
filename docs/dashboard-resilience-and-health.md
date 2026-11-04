@@ -326,3 +326,44 @@ canonical state and all other services. Local acceptance must verify the exact
 overlay as well as the existing base-runtime checks; it must not relabel the
 overlay as signed base-image content. A failed operation restores only its own
 known bytes and never overwrites an unknown concurrent change.
+
+## Backup readiness after an archive advance
+
+The delivery observer must distinguish a maintenance tick's checkpoint-refresh
+result from current backup readiness. `continuity_ready=false` means that tick
+did not publish a checkpoint. The canonical runtime may already have published
+a newer authenticated checkpoint after its independent external verification.
+This is an observer correction; the production backup writers, financial
+admission, archive equality guards and autonomous schedules do not change.
+
+Keep the narrow comparison in `tools/paper_backup_readiness.py`, shared by the
+qualified delivery observer and its regression tests. It is a pure diagnostic
+comparison, not financial mutation authority or a public JSON admission API.
+Its caller must first authenticate the checkpoint and physical-capacity proof
+with the canonical continuity reader, verify the native evidence row, and supply
+current primary/account/runtime observations. The outer observer separately
+enforces the exact native invocation, stable owner, tick age and host checks.
+
+When a successful native scan could not refresh its checkpoint, accept the
+alternative only if the independently authenticated checkpoint strictly advances
+that verified prefix and exactly reaches the observed primary archive boundary
+with its original archive-success timestamp. Require a fresh supplementary
+observation, current account/epoch/postmaster/source/engine/capacity context and
+the same complete base/timeline/range geometry. Stale, degraded, unauthenticated,
+incomplete or merely asserted newer evidence refuses. A checkpoint still behind
+the primary is a genuine pending condition, not grounds to alter its timestamp.
+
+Preserve both documented integrity producer formats. The native maintenance
+scan reports one complete sidecar pass. The runtime reports two passes for any
+newly hashed objects and may report zero new hashes for unchanged objects within
+its existing process-local 300-second reuse limit. A runtime full scrub hashes
+every object twice; incremental/cache checks never renew that limit. Trust this
+format only in the authenticated canonical proof from the admitted runtime;
+do not create another proof cache or run a manual verifier to obtain green.
+See [the existing proof reuse contract](backup-writer-admission-cost.md).
+
+Keep the original false refresh flag and both verified WAL boundaries in the
+acceptance record. A historical snapshot may qualify the comparison but cannot
+pass the outer current-tick age check. The exact-view acknowledgement still
+requires independent fresh readiness, an unchanged review subject/head and exact
+notification set, a newly issued token, and the existing server transaction.
