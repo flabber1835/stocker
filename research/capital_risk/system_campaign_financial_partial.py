@@ -40,7 +40,11 @@ ADMISSIONS = {
     'P07': '2293655ea9e4c520c66e016a33c9d33b78f12ceb09c50a371bc84b76c0eef543',
     'P10': '3e73749345802edc681eb20d1adbaf741bebab3df9ea7bcc7ff4ac453a50b0e9',
 }
-COMPLETED_ADMISSIONS = {'P10': '6e20b57099843380d9436d7a60c25c313abe53785f9db40049f59b411c9e8105'}
+COMPLETED_ADMISSIONS = {'P00': '65637d23029e0817822c169e7d424e00cd75a01703cb22a6aeb1b3f69b390f83', 'P10': '6e20b57099843380d9436d7a60c25c313abe53785f9db40049f59b411c9e8105'}
+COMPLETION_METADATA = {
+    'P00': ((41850177338, '7f8a9902b8e334ec155e6155f3df444c456c73eb', 13336350083), (273, 546, 13, 103)),
+    'P10': ((41813568077, '9689c5fecc5462a5d65370fc5564fe447a8a92f8', 13313801504), (564, 1128, 27, 103)),
+}
 PRIOR_ADMISSIONS = {
     'P04': '11c64d8c83d26c8e381ddc4e306829e896f3996c423c394d50c5b2d2d0307492',
     'P07': '760e41a64a8e2fdf497c96919a5aef9eaa34a9faddee26bc9b5cee843b2ab8fa',
@@ -144,13 +148,13 @@ def authorized_completion(entry, arm):
          and a['source_cursor'] == t['selected_session'] == '2026-07-31'
          and a['parent_root_admission_sha256'] == t['monthly_seed_root_admission_sha256'] == ADMISSIONS[arm]
          and (a['readonly_run_id'], a['readonly_head'], a['readonly_artifact_id']) ==
-             (41813568077, '9689c5fecc5462a5d65370fc5564fe447a8a92f8', 13313801504)
+             COMPLETION_METADATA[arm][0]
          and all(a[k] is True for k in ('all_new_cash_shares_receivables_and_raw_marks_verified',
              'all_new_funded_factors_and_financial_chains_verified', 'all_new_monthly_and_retry_state_verified',
              'financial_source_epoch_unchanged', 'input_adoptions_fully_state_neutral', 'empty_uncommitted_tails_verified'))
          and a['production_contacted'] is a['local_canonical_runtime_executed'] is False
          and (a['new_daily_records'], a['independent_accounting_snapshots'], a['new_monthly_reports'], a['total_monthly_reports'])
-             == (564, 1128, 27, 103), 'FINANCIAL_COMPLETE_RESEARCH_SCORING_ONLY_SCOPE')
+             == COMPLETION_METADATA[arm][1], 'FINANCIAL_COMPLETE_RESEARCH_SCORING_ONLY_SCOPE')
     for key in ('base', 'journals', 'repairs', 'selected_checkpoint', 'selected_file', 'outer_sha256',
                 'inner_sha256', 'state_sha256', 'input_sha256', 'source_binding_sha256'):
         need(a[key] == t[key], 'FINANCIAL_COMPLETED_EXACT_OWN_' + key.upper())

@@ -21,6 +21,7 @@ def fresh_root():
 
 
 def test_fresh_transport_stays_distinct_from_its_new_root_authority(monkeypatch,tmp_path):
+    monkeypatch.setattr(m,'COMPLETED_ADMISSIONS',{})  # Historical precompletion behavior.
     monkeypatch.setattr(m,'SELECTED_ARMS',('P00',))
     monkeypatch.setattr(m,'EXECUTION_MODE','READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION')
     spec = target(); seed = p.initial_reporting_seed(spec)
@@ -93,6 +94,7 @@ def test_initial_target_digest_guard_removal_falsifier():
 
 @pytest.mark.parametrize('mode', ['OWN_ADMITTED_FINANCIAL_CONTINUATION', 'READONLY_FROZEN_SOURCE_WITNESSES'])
 def test_new_p00_root_allows_separate_modes_without_reusing_initial_reporting(monkeypatch, mode):
+    monkeypatch.setattr(m,'COMPLETED_ADMISSIONS',{})  # Historical precompletion behavior.
     monkeypatch.setattr(m, 'EXECUTION_MODE', mode)
     monkeypatch.setattr(m, 'SELECTED_ARMS', ('P00',))
     request=m.expected_request()

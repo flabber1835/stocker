@@ -27,3 +27,13 @@ to completed results so the comparison can be assessed on its recorded basis.
 Keep earlier validated paths and closed evidence immutable; do not redo them only
 to improve settlement precision. The canonical Wealth Core and Sentinel financial
 engine, long-only/unlevered guards and research-only boundary remain intact.
+
+Fresh P00 has now completed all2,156 measured closes through July31,2026. Its
+final273 days,546 accounting snapshots and13 monthly reports passed independent
+DATA review and hosted exact report reproduction. Admit this completed own result
+through the existing completed-result authority, with per-arm pinned reporting
+clocks and suffix counts shared by P00 and P10. Retain the fresh empty-origin
+proof and all prior input disclosures. Keep the earlier1883 continuation root as
+history and refuse further execution of completed P00. Calculate CAGR directly
+from the authenticated committed daily series with the same first-to-last-close
+convention as the other completed variants. Archived P00 returns remain excluded.

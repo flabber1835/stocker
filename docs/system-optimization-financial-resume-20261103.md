@@ -1088,12 +1088,13 @@ measured closes; calendar annualization365.2425 days):
 
 | Variant | Core CAGR | Core+Sentinel CAGR |
 | --- | ---: | ---: |
+| P00 (fresh) |21.48%|19.96%|
 | P01 |15.49%|15.21%|
 | P02 |16.27%|14.90%|
 | P08 |18.89%|17.60%|
 | P10 |20.65%|16.33%|
 
-Fresh P00 remains excluded. P10 completed admission6e20b57099843380 references
+Fresh P00 is now included after its independent full-window admission. P10 completed admission6e20b57099843380 references
 independent full DATA and exact Linux reporting; its completed daily summary
 references that admission. Each result retains its recorded input assumptions.
 
@@ -1653,3 +1654,31 @@ the existing explicit readonly_full_financial_target flag, so its complete recei
 was checked as a partial receipt. Set that metadata flag without changing any
 financial bytes. The actual complete public metadata now passes at use;18 targeted
 complete-reporting tests passed in1.57s, including both actual P00/P10 targets.
+
+
+## Fresh P00 completed; preserve P07 progress
+
+Fresh P00 completed2156 measured closes in financial run41840638797. Final
+reporting run41850177338 reproduced all273 new daily rows and13 new monthly
+reports exactly. Independent DATA review verified546 new accounting snapshots,
+364 Decimal reporting metrics, all103 reports and empty uncommitted tails;23
+endpoint/cash falsifiers passed in7.78s. Completed admission65637d23029e0817
+retains its fresh empty-origin proof and own169/1883 chain. Archived P00 state
+and returns were never reused. Its authenticated first-to-last daily series gives
+21.4817632569% Core CAGR and19.9550888907% Core+Sentinel CAGR. Retained ILG stock
+consideration/raw-open fractional cash proxy and TGI26USD settlement remain
+attached disclosures. P00 is now closed to further execution.
+
+Shared completed-result validation pins each arm's own reporting clock and suffix
+counts; P10 completed admission bytes are unchanged. Historical1883 P00 and1592
+P10 continuation roots remain preserved. Targeted qualification:176 tests passed
+in32.49s across resume,completed_admission,complete_reporting,partial and
+initial_reporting. No canonical financial runtime was executed locally.
+
+P07 run41848669621 used the explicitly modeled LM50USD July31 opening boundary
+and preserved another128 committed days through December31,2020 (756 total).
+The next stop is January5,2021 ACTUAL_NAV_WITHIN_BOUNDS in the research sensor
+uncertainty proof, not a settlement-input refusal. Canonical stopped-prefix review
+succeeded. Select only that own756 checkpoint for hosted reporting from its
+separately admitted628 seed; do not adopt its January tail or suppress the numeric
+guard. P04 run41842266568 remains active from its own1279-close checkpoint.

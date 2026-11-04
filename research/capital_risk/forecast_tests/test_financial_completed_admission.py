@@ -16,13 +16,29 @@ def entry():
     return deepcopy(json.loads((p.HERE/p.ROOTS).read_bytes())['completed_financial_roots']['P10'])
 
 
-def test_complete_p10_is_scoring_only_and_old_continuation_root_is_preserved():
-    value = p.completed_result('P10')
+@pytest.mark.parametrize('arm,prior_count', [('P00',1883),('P10',1592)])
+def test_completed_result_is_scoring_only_and_old_continuation_root_is_preserved(arm,prior_count):
+    value = p.completed_result(arm)
     assert value['full_financial_validation_completed'] is value['performance_scoring_authorized'] is True
     assert value['financial_continuation_authorized'] is False
     assert value['completed'] == 2156 and value['total_monthly_reports'] == 103
-    assert p.root_spec('P10')['measured_closes'] == 1592
-    assert value['parent_root_admission_sha256'] == p.ADMISSIONS['P10']
+    assert p.root_spec(arm)['measured_closes'] == prior_count
+    assert value['parent_root_admission_sha256'] == p.ADMISSIONS[arm]
+    if arm == 'P00':
+        assert value['initial_empty_origin_verified'] is True
+        assert value['historical_p00_state_or_returns_reused'] is False
+        assert value['initial_formation_records'] == 126
+
+
+@pytest.mark.parametrize('arm', ['P00','P10'])
+@pytest.mark.parametrize('field', ['readonly_run_id','new_daily_records'])
+def test_each_completed_result_requires_its_own_clock_and_suffix_counts(monkeypatch,arm,field):
+    value=deepcopy(json.loads((p.HERE/p.ROOTS).read_bytes())['completed_financial_roots'][arm])
+    value['admission'][field] += 1
+    value['admission_sha256']=p.sha((json.dumps(value['admission'],indent=2,sort_keys=True)+'\n').encode())
+    monkeypatch.setitem(p.COMPLETED_ADMISSIONS,arm,value['admission_sha256'])
+    with pytest.raises(ValueError,match='COMPLETE_RESEARCH_SCORING_ONLY_SCOPE'):
+        p.authorized_completion(value,arm)
 
 
 @pytest.mark.parametrize('change', ['score', 'continue', 'count', 'root', 'gzip', 'source', 'cipher', 'tail', 'clock', 'transport_authority'])
@@ -55,8 +71,9 @@ def test_actual_scoring_scope_guard_removal_accepts_forbidden_continuation(monke
 
 
 @pytest.mark.parametrize('mode', ['OWN_ADMITTED_FINANCIAL_CONTINUATION', 'READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION', 'READONLY_FROZEN_SOURCE_WITNESSES'])
-def test_completed_arm_cannot_launch_again_in_any_mode(monkeypatch, mode):
-    monkeypatch.setattr(m, 'SELECTED_ARMS', ('P10',)); monkeypatch.setattr(m, 'EXECUTION_MODE', mode)
+@pytest.mark.parametrize('arm',['P00','P10'])
+def test_completed_arm_cannot_launch_again_in_any_mode(monkeypatch, mode,arm):
+    monkeypatch.setattr(m, 'SELECTED_ARMS', (arm,)); monkeypatch.setattr(m, 'EXECUTION_MODE', mode)
     with pytest.raises(ValueError, match='CLOSED_COMPLETE_ARM_CANNOT_BE_REEXECUTED'): m.expected_request()
 
 
