@@ -1833,3 +1833,18 @@ from admitted211; exclude the December tail. The next December7 source refusal
 is OCLR283147400902576364, whose original LateFacts catalog already supplies
 5.60USD plus0.0636 successor shares. Finish this prefix's independent admission,
 then reuse that original mixed-consideration record through the shared selector.
+
+P11 run41876266132 preserved1028 closes through January31,2022,859 beyond its
+admitted169 root; original V10 code and keep10 acceleration remained. Its next
+February23 refusal is REFUSED_VOLATILITY_CAUSAL_AXIS. Do not infer the failing
+security or alter the guard. First qualify the saved prefix with41 new monthly
+reports and independent raw accounting; any subsequent diagnostic must delegate
+the original risk function and retain its actual failing security/window.
+
+P07 run41890817453 preserved817 closes through March31,2021,42 beyond its775
+root, with the original FollowingFacts input adopted neutrally. Its April14 next
+refusal is incomplete leadership cash terminal350829412574453923. Qualify only
+the saved42-day/two-report prefix and363 committed certificates; exclude April
+tails. Use the shared reporting matrix for P07 and P11 without financial replay.
+The reporting-target/launcher checks passed88 tests in14.64s. No new economic
+model, financial source or independent prior-prefix review is introduced.
