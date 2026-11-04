@@ -549,3 +549,22 @@ Select P07 alone in the next explicit request while the P04/P10 hydration retry
 continues at its already pinned head. Preserve per-arm concurrency and do not
 cancel or relaunch those arms. All three use the same shared financial launcher,
 retainer, future-input selector, proof adapter and admission registry.
+
+
+## P04 reporting admission after EPAY completion
+
+The hydration retry has a positively stopped/reviewed1132-close main checkpoint
+throughJune30,2022, adding42 daily rows and2 reports to the admitted1090 seed.
+Its full archive is authenticated. Select P04 alone for a read-only batch with
+zero financial workers: fresh exact source/canonical restore/journal/correlation
+identity, reuse of the exact positive stopped accounting review, and reproduction
+of only the42 new stored NAV rows/2 reports from the pinned1090 admission.
+Independent DATA review must verify84 new accounting snapshots, every new factor
+and chain, the full actual neutral EPAY boundary and monthly/retry memory before
+root admission. Do not repeat the old817-to1090 review or any closed source audit.
+
+The next actual refusal is July22 unresolved held SAFM equity after its July21
+incomplete native;29shares are held. P01's retained SAFM input explicitly has
+SOURCE_UNHELD scope. Any future P04 fix must separately qualify held settlement
+terms and timing; the previous unheld scope alone supplies no such authority.
+P07 and P10 financial workers remain at their already pinned commits.

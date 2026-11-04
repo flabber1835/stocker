@@ -48,12 +48,12 @@ PARENTS = 'system-campaign-parallel-discovery-parents.json'
 PRIOR = 'system-campaign-parallel-discovery-request-001.json'
 PRIOR_SHA = '863f6c7983fc2cdc1a86bd58a9c4987744d180e8bb56568608eda77d29f85fcd'
 ARMS = ('P03', 'P04', 'P05', 'P06', 'P07', 'P09', 'P10', 'P11')
-SELECTED_ARMS = ('P07',)
+SELECTED_ARMS = ('P04',)
 PARTIALS = 'system-campaign-financial-partials.json'
 PREFIX = 'system-campaign-financial-correlation-prefix.json'
 P10_QUALIFICATION = 'system-campaign-p10-ahl2-retained-qualification-001.json'
 P10_QUALIFICATION_SHA = '006ad9813c20b2dba14ee4acf2ad8219b59d1a63a2d0a4f220f43a1c68e3d180'
-SCHEMA = 'research.system-campaign-accurate-resume-request/9'
+SCHEMA = 'research.system-campaign-accurate-resume-request/10'
 WORKFLOW = '.github/workflows/capital-system-campaign-factual-suffix.yml'
 
 
@@ -70,10 +70,10 @@ def expected_request():
              'system_campaign_financial_uncertainty.py', 'system_campaign_financial_branches.py',
              'system-campaign-financial-branch-contract.json')
     return dict(schema=SCHEMA, campaign='system-optimization-002', arms=list(SELECTED_ARMS),
-                execution_mode='OWN_ADMITTED_FINANCIAL_SUFFIX', new_origin=False,
-                financial_resume_authorized=True, readonly_partial_review=False,
+                execution_mode='READONLY_NEW_FINANCIAL_PREFIX_AND_REPORTING_ADMISSION', new_origin=False,
+                financial_resume_authorized=False, readonly_partial_review=True,
                 diagnostic_state_adopted=False,
-                arm_inputs={a: dict(new_factual_overlay=True, restored_correlation=False) for a in SELECTED_ARMS},
+                arm_inputs={a: dict(new_factual_overlay=False, restored_correlation=False) for a in SELECTED_ARMS},
                 financial_source_changed=False, full_measurement_start='2018-01-02',
                 full_measurement_end='2026-07-31', full_measured_closes=2156,
                 predecessors_sha256=sha256_file(HERE / PARENTS),
@@ -88,7 +88,7 @@ def expected_request():
                 sources={n: sha256_file(HERE / n) for n in sorted(set(names))},
                 financial_wait_seconds=10800, preflight_wait_seconds=1200,
                 review_wait_seconds=2700, artifact_retention_days=7,
-                maximum_parallel_financial_workers=len(SELECTED_ARMS), maximum_parallel_readonly_workers=0,
+                maximum_parallel_financial_workers=0, maximum_parallel_readonly_workers=len(SELECTED_ARMS),
                 production_contacted=False)
 
 
